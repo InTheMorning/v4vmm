@@ -51,6 +51,7 @@ pub struct ContextMenuItemDisplay {
 #[derive(Clone)]
 #[must_use]
 pub struct ContextMenuItem {
+    description: Option<SharedString>,
     display: ContextMenuItemDisplay,
     on_select: Option<SelectHandler>,
 }
@@ -62,6 +63,8 @@ pub struct ContextMenu {
     id: SharedString,
     scope: ContextMenuScope,
     trigger_label: SharedString,
+    trigger_icon: IconName,
+    disabled: bool,
     trigger_a11y_label: SharedString,
     items: Vec<ContextMenuItem>,
 }
@@ -154,8 +157,14 @@ impl ContextMenuItem {
     pub fn new(display: ContextMenuItemDisplay) -> Self {
         Self {
             display,
+            description: None,
             on_select: None,
         }
+    }
+
+    pub fn description(mut self, description: impl Into<SharedString>) -> Self {
+        self.description = Some(description.into());
+        self
     }
 
     pub fn on_select(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
@@ -174,9 +183,21 @@ impl ContextMenu {
             id: id.into(),
             scope,
             trigger_label: SharedString::from("Actions"),
+            trigger_icon: IconName::More,
+            disabled: false,
             trigger_a11y_label: trigger_a11y_label.into(),
             items: Vec::new(),
         }
+    }
+
+    pub fn trigger_icon(mut self, icon: IconName) -> Self {
+        self.trigger_icon = icon;
+        self
+    }
+
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
     }
 
     pub fn trigger_label(mut self, label: impl Into<SharedString>) -> Self {
@@ -208,7 +229,7 @@ impl RenderOnce for ContextMenu {
                 open: false,
             });
 
-        let open = state.read(cx).open;
+        let open = state.read(cx).open && !self.disabled;
         let items = self.items;
         let trigger_id = SharedString::from(format!("{}-trigger", self.id));
 
@@ -228,7 +249,8 @@ impl RenderOnce for ContextMenu {
             })
             .trigger(
                 Button::styled(trigger_id, ControlStyle::RowAction)
-                    .leading_icon(IconName::More)
+                    .leading_icon(self.trigger_icon)
+                    .disabled(self.disabled)
                     .label(self.trigger_label)
                     .a11y_label(self.trigger_a11y_label),
             )
@@ -252,6 +274,9 @@ fn build_menu_content(
 ) -> impl IntoElement {
     let is_empty = items.is_empty();
     let mut content = div()
+        .id("context-menu-items")
+        .max_h(Size::MenuRegular.scaled(cx))
+        .overflow_y_scroll()
         .w(Size::MenuRegular.scaled(cx))
         .flex()
         .flex_col()
@@ -272,8 +297,11 @@ fn build_menu_content(
         .a11y_label(display.a11y_label)
         .disabled(display.disabled);
 
+        if let Some(description) = item.description {
+            button = button.description(description);
+        }
         if !display.disabled {
-            button = button.on_click(move |_, window, cx| {
+            button = button.on_activate(move |window, cx| {
                 on_dismiss(window, cx);
                 if let Some(handler) = &on_select {
                     handler(window, cx);

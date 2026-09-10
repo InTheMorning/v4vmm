@@ -21,6 +21,56 @@ No installed publisher, encoder, audio hardware, or real service changes are
 needed. Its `systemctl` and publisher executables affect only the app process
 launched with the environment below. Do not substitute your normal app config.
 
+## Current Acceptance Walkthrough
+
+Task 016's operator acceptance remains complete. For the new compact layout,
+use [task 017's walkthrough](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check).
+It covers the picker, item badges, and Event Logs as well as recovery.
+Event Logs now names the action, event, response, and saved result in timestamped
+sentences. It omits idle operations. Action times remain unchanged when Logs
+reopens; these session results do not survive an app restart.
+
+The shorter recovery sequence below remains available for regression checks.
+It uses the current compact controls: event paths and results are in **Logs**;
+**Check again**, **Detach**, and **Copy feed tag** are under **More**.
+
+## Fixture Modes
+
+Run these in terminal B with the same `task016_dir`. They change fixture
+responses or configuration. They do not refresh the app by themselves.
+
+| Command after `python3 docs/runbooks/broadcast-event-recovery-fixture.py` | Purpose | Then do this in the app |
+|---|---|---|
+| `mode "$task016_dir" live` | The relay returns metadata for the checked event after its first check. | Press Retry check, or More → Check again. |
+| `mode "$task016_dir" dead` | The next check reports the event gone. | Press Retry check, or More → Check again. |
+| `mode "$task016_dir" fail` | The relay returns HTTP 503 for the checked event. | Press Retry check, or More → Check again. |
+| `create-mode "$task016_dir" fail` | Registration fails without allocating an ID. | Press Create or Replace when available. |
+| `create-mode "$task016_dir" live` | Registration works again. | Press Create or Replace when available. |
+| `producer-state "$task016_dir" inactive` | Stop the simulated Producer. | Wait for its badge, then Start. |
+| `publisher-state "$task016_dir" failed` | Fail the simulated Publisher. | Wait for its badge, then Reset and Start. |
+| `journal-mode "$task016_dir" slow-fail` | Service-log reads fail after five seconds. | Open Publisher Logs, then Event Logs while the read is pending; the late failure must leave Event Logs visible. |
+| `journal-mode "$task016_dir" slow` | Service-log reads succeed after five seconds. | Exercise repeated Logs presses and switching services as described in task 017 step 9. |
+| `journal-mode "$task016_dir" normal` | New service-log reads return immediately again. | Open a service's Logs to read its fixture journal. |
+| `target-scope "$task016_dir"` | Prepare task 017 step 6: default uses event 1; unused uses your selected replacement event. The command checks isolation and reads saved event/token paths. | Select the replacement before running it; then More → Check again must show Not attached. |
+
+Both service-state commands accept `active`, `inactive`, or `failed`.
+Every event's first check deliberately fails, even in `live` mode. Later checks
+use the selected mode. Checks take two seconds so their progress is visible.
+`journalctl` is simulated too; service Logs identify the requested unit.
+Journal mode defaults to normal in existing and fresh fixture directories.
+No setup, app restart, or relay restart is needed to change it. Each request
+keeps the journal mode it read when it started; changing the mode affects new
+requests. Task 017's [delayed service-log checks](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#delayed-service-log-checks)
+cover switching, closing, and repeated reads. Restore journal mode normal
+after those checks. These modes do not change the event relay or service states.
+Target add/remove affect only the named target and preserve unrelated entries.
+
+Non-GUI regression checks:
+
+```bash
+python3 docs/runbooks/test_broadcast_event_recovery_fixture.py
+```
+
 ## Operator Visual Check
 
 1. In terminal A, prepare the fixture and keep its relay running:
@@ -64,12 +114,12 @@ launched with the environment below. Do not substitute your normal app config.
    Live Metadata, Stream. Their heights match. The Live Metadata card says
    `Event: No event` and `Live Metadata: not ready` even though both fixture
    services are running. In the detail, Event precedes Producer and Publisher.
-   Create is available; Replace and Check are unavailable. A separate Event
+   Create is the primary action; there is no selected event to check or replace. A separate Event
    card, a ready card, or services preceding Event is wrong.
 
-3. Press **Create** once. The new `fixture-event-1` identifier and token path
-   appear in the mounted detail. The first check takes two seconds, then fails
-   deliberately. Registration remains successful, the event stays Unknown,
+3. Press **Create** once. The new `fixture-event-1` appears in the picker. Open Event Logs to see
+   its full ID and token path. The first check takes two seconds, then fails
+   deliberately. Registration remains successful, the stored liveness stays Unknown and its badge says Check failed,
    and **Retry check** becomes available. Create, Replace, and Attach remain
    unavailable. Press Retry check while the fixture still fails: progress must
    be visible, duplicate commands unavailable, then retry available again.
@@ -77,9 +127,8 @@ launched with the environment below. Do not substitute your normal app config.
    or requiring navigation to see results is wrong.
 
 4. Close only the app and relaunch it with the same terminal B command from
-   step 1. Show must retain `fixture-event-1` and its token path. The stored
-   Unknown event offers **Check** even though this app session created nothing.
-   Press Check once; expect the failure and Retry check again.
+   step 1. Show must retain `fixture-event-1` and its token path. The app checks the restored selection. Expect the deliberate failure and
+   Retry check again. The check creates no event.
 
 5. In terminal B, change the relay answer, then press **Retry check** in Show:
 
@@ -89,7 +138,7 @@ launched with the environment below. Do not substitute your normal app config.
 
    Expect Dead in the same row and Replace available, with Create unavailable.
    The card remains not ready. Press **Replace** once. Expect a new
-   `fixture-event-2` and new token path immediately, followed by the deliberate
+   `fixture-event-2` and new token path in Logs immediately, followed by the deliberate
    initial check failure. Registration still succeeds; Retry check returns.
    Replacement must not attach the new event.
 
@@ -103,7 +152,7 @@ launched with the environment below. Do not substitute your normal app config.
    The target read confirms it is not attached. Attach becomes available; the
    card still says not ready. Press **Attach** explicitly. After target refresh,
    expect the event attached to `default`, then the card ready with both services
-   Active. Copy feed tag and paste into a text editor: expect exactly
+   Active. Choose More → Copy feed tag and paste into a text editor: expect exactly
    `<podcast:liveValue uri="fixture-event-2" protocol="socket.io"/>`.
 
 7. Exercise service readiness with the live, attached event:
@@ -120,8 +169,7 @@ launched with the environment below. Do not substitute your normal app config.
    python3 docs/runbooks/broadcast-event-recovery-fixture.py producer-state "$task016_dir" failed
    ```
 
-   Expect the card's failed state and `Producer: Failed`. Reset the simulated
-   producer from Show to return to ready. The card must keep its height through
+   Expect the card's failed state and `Producer: Failed`. Press Reset, then Start, on the simulated Producer to return to ready. The card must keep its height through
    all transitions. Resize the window across one, two, and three columns; open
    and close the side panel. All cards remain visible, detail scrolls, and
    transport stays accessible. Unreadable column text or a growing card is wrong.

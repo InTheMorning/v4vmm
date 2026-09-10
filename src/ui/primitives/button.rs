@@ -91,6 +91,7 @@ pub struct Button {
     variant: ButtonVariant,
     size: ButtonSize,
     label: Option<gpui::SharedString>,
+    description: Option<gpui::SharedString>,
     a11y_label: Option<gpui::SharedString>,
     leading_icon: Option<IconName>,
     on_click: Option<ClickHandler>,
@@ -116,6 +117,7 @@ impl Button {
             variant,
             size: ButtonSize::Md,
             label: None,
+            description: None,
             a11y_label: None,
             leading_icon: None,
             on_click: None,
@@ -133,6 +135,12 @@ impl Button {
             selected: false,
             label_treatment: ButtonLabelTreatment::Plain,
         }
+    }
+
+    /// Secondary text for a menu choice; the shared control grows to fit both lines.
+    pub fn description(mut self, description: impl Into<gpui::SharedString>) -> Self {
+        self.description = Some(description.into());
+        self
     }
 
     pub fn filled(id: impl Into<ElementId>) -> Self {
@@ -448,8 +456,32 @@ impl RenderOnce for Button {
         let label = div()
             .when(label_treatment.line_through(), Styled::line_through)
             .child(label);
-        hit_target.child(visual.child(label))
+        if let Some(description) = self.description {
+            visual = visual.h_auto().py(Spacing::SM.scaled(cx)).min_w_0();
+            hit_target.child(visual.child(button_description(label, description, cx)))
+        } else {
+            hit_target.child(visual.child(label))
+        }
     }
+}
+
+fn button_description(
+    label: impl IntoElement,
+    description: gpui::SharedString,
+    cx: &App,
+) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .min_w_0()
+        .gap(Spacing::XXS.scaled(cx))
+        .child(label)
+        .child(
+            div()
+                .text_size(FontSize::Micro.scaled(cx))
+                .font_weight(FontWeight::NORMAL)
+                .child(description),
+        )
 }
 
 fn keyboard_activation_key(event: &KeyDownEvent) -> bool {

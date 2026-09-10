@@ -11,14 +11,15 @@ Governance model: ADR 0061.
 
 ## Where The Work Stands
 
-Music and Show are built. ADR 0059 tasks 001-016 are complete. ADR 0059 is
-Accepted with partial implementation; task 017 implementation and operator
-visual acceptance remain open.
+Music and Show are built. ADR 0059 tasks 001-017 are complete. ADRs 0059 and
+0063 are Implemented, including operator acceptance and fixture cleanup.
 
 [Show action feedback task 001](docs/tasks/show-action-feedback-task-001-command-state-and-result.md)
 is complete, including operator visual acceptance.
 
-Next: [ADR 0059 task 017, compact event controls and badges](docs/tasks/adr-0059-task-017-compact-event-controls-and-badges.md).
+No operator acceptance check is open. Layout and log follow-ups are recorded
+in the [product polish backlog](docs/plans/hig-product-polish-backlog.md) and
+the [narrow Show layout proposal](docs/plans/show-narrow-layout-proposal.md).
 
 `docs/plans/broadcast-chain-delivery-order.md` is the only cross-repository
 order. Read it before starting a session on broadcast work.
@@ -112,6 +113,16 @@ session. Do not chain phases.
 
 **Silence success.** Report an error. When a check passes, say "Green" and
 continue.
+
+**Write reports for the operator.** When writing reports, log messages, or
+status text, name the subject, action, and object. Explain what happened and
+what the app did with the result. Name the event, endpoint, service, or file
+being checked instead of an internal phase such as "liveness". Timestamp
+reported actions and observations using their actual recorded times. Do not
+invent times during rendering or turn an unanswered question into a fact.
+Omit idle actions and repeated filler. Put technical details after the useful
+explanation. Short badges may stay concise, but their surrounding report must
+make the subject and consequence clear. ADRs 0059/0063 own Event report data.
 
 **Every fix gets a guard.** A user-confirmed fix is incomplete without a test,
 an architecture guard, or a documented manual check that blocks the same class

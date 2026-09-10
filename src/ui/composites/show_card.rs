@@ -14,7 +14,7 @@ use gpui::{
     SharedString, StatefulInteractiveElement, Styled, Window,
 };
 
-use crate::ui::primitives::Tooltip;
+use crate::ui::primitives::{status_badge::render_state_badge, Tooltip};
 use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Size, Spacing};
 use crate::view_models::show::{ShowCardDisplay, ShowCardKind, ShowCardStateKind};
 
@@ -142,23 +142,6 @@ fn render_header(
         .child(render_state_badge(state_label, state, cx))
 }
 
-fn render_state_badge(state_label: String, state: ShowCardStateKind, cx: &App) -> impl IntoElement {
-    let (fill, label_color) = state_badge_tokens(state);
-    div()
-        .flex_shrink_0()
-        .max_w(Size::MenuRegular.scaled(cx))
-        .overflow_hidden()
-        .rounded(Radius::SM.scaled(cx))
-        .bg(color(cx, fill))
-        .px(Spacing::SM.scaled(cx))
-        .py(Spacing::XXS.scaled(cx))
-        .text_size(FontSize::Micro.scaled(cx))
-        .font_weight(FontWeight::BOLD)
-        .text_color(color(cx, label_color))
-        .truncate()
-        .child(SharedString::from(state_label))
-}
-
 fn render_summary_lines(primary: String, secondary: String, cx: &App) -> impl IntoElement {
     div()
         .flex()
@@ -181,15 +164,6 @@ fn render_summary_line(value: String, text_color: SemanticColor, cx: &App) -> im
         .text_size(FontSize::Body.scaled(cx))
         .text_color(color(cx, text_color))
         .child(SharedString::from(value))
-}
-
-const fn state_badge_tokens(state: ShowCardStateKind) -> (SemanticColor, SemanticColor) {
-    match state {
-        ShowCardStateKind::Ok => (SemanticColor::Success, SemanticColor::OnSuccess),
-        ShowCardStateKind::Attention => (SemanticColor::Warning, SemanticColor::OnWarning),
-        ShowCardStateKind::Failed => (SemanticColor::Danger, SemanticColor::OnDanger),
-        ShowCardStateKind::Unknown => (SemanticColor::Info, SemanticColor::OnInfo),
-    }
 }
 
 const fn show_card_id(kind: ShowCardKind) -> &'static str {

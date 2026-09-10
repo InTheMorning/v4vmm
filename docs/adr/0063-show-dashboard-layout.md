@@ -2,15 +2,18 @@
 
 ## Status
 
-Accepted - 2026-09-09.
+Implemented - 2026-09-10.
 
-Implementation partial: dashboard tasks 001-004 complete; compact per-item
-badges and Event diagnostics under ADR 0059 task 017 await implementation and
-operator verification. Show action feedback task 001 is complete, including
-operator acceptance of control placement and row height.
+Dashboard tasks 001-004 and ADR 0059 task 017 are complete, including compact
+per-item badges, Event diagnostics, operator acceptance, and fixture cleanup.
+Show action feedback task 001 is complete, including operator acceptance of
+control placement and row height.
 
 Reconciled 2026-09-10: the operator confirmed action feedback task 001 tested and
-passed. Its visual gate is closed; task 017's gate remains open.
+passed. Its visual gate is closed. Task 017's operator acceptance also passed,
+with the narrow-window limitation recorded as deferred work in the packet.
+The operator confirmed fixture cleanup, closing task 017's final gate and
+returning this ADR to Implemented. No operator acceptance check remains open.
 
 Amended 2026-09-10: [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md)
 keeps Stream controls mounted through commands. ADR 0059 owns the command-state
@@ -20,7 +23,7 @@ Amended 2026-09-09: the operator approved a compact Event item, labeled badges
 for Event/Producer/Publisher, and Event diagnostics in the shared bottom pane.
 The accepted task 016 layout exposed too much configuration and pushed service
 controls down the side panel. [Task 017](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md)
-owns the new open visual gate. ADR 0059 owns selection, action, and readiness
+owns the acceptance walkthrough. ADR 0059 owns selection, action, and readiness
 semantics; this amendment owns their arrangement and disclosure.
 
 Earlier amendments on 2026-09-09 moved the log to a bottom pane, reduced the
@@ -30,6 +33,10 @@ recorded the column-text rule.
 Amends ADR 0060, which made `Show` a screen mount but did not say how the
 sections inside it are arranged. ADR 0059 keeps the section set and the section
 order. This record covers arrangement only.
+
+Amended 2026-09-10: the operator found Event diagnostics written around internal
+state names. Event Logs now requires timestamped, concrete action results and
+omits actions nobody requested. Task 017 owns implementation and visual retest.
 
 ## Context
 
@@ -91,12 +98,12 @@ Selecting a card while the panel is closed opens the panel in `Detail`.
 
 Amended 2026-09-09.
 
-Normal event content has three rows: heading with its state badge, picker, and
-actions. A condition that needs explanation may add one short line. The badge
-replaces the repeated State heading and state paragraph. Full errors never
-expand this item into a diagnostic transcript. Producer and Publisher likewise
-place their state badge beside their heading, retaining their unit detail and
-controls below it.
+`adr_0063_compact_items_share_badges_and_event_log_disclosure` enforces the
+compact item composition, bounded picker, short explanation, and shared badge
+owner (situational, ADR 0063). Full paths and diagnostic transcripts belong in
+Logs so the service controls stay easy to reach. `event_hint` retains the
+remote-host/local-missing-token explanation without claiming that the remote
+file is missing.
 
 ```text
 Live Metadata
@@ -121,23 +128,17 @@ Does Not Truncate decision below.
 
 ### Item Badges Share The Card Badge Presentation
 
-Amended 2026-09-09. Put one labeled badge beside each heading: Event, Producer,
-and Publisher. It replaces the separate State heading and repeated explanation.
-The three items and the card use one shared badge owner for geometry and token
-mapping; extract the existing card badge presentation instead of copying it.
+Implemented by `adr_0063_compact_items_share_badges_and_event_log_disclosure`
+(situational, ADR 0063). `src/ui/primitives/status_badge.rs` is the single
+geometry/token owner for cards and all three items. Its guard holds the four
+semantic fill/foreground mappings. State labels accompany every color.
+`adr_0063_item_activity_keeps_its_width_and_single_line` guards pending activity
+against vertical wrapping in the shared item header (situational, ADR 0063).
 
-The view model supplies a state kind, visible label, and accessibility text.
-Map Ok to Success/OnSuccess, Attention to Warning/OnWarning, Failed to
-Danger/OnDanger, and Unknown to Info/OnInfo. The state kinds, complete label
-mappings, configured-target definition, and card aggregation belong to
-[ADR 0059](0059-broadcast-control-surface.md#item-readiness-determines-section-readiness).
-The card alone reads Ready; the successful Event item reads Attached and each
-running service reads Active. Color always accompanies a readable state label.
-
-Keep the card's shared height and two summary lines. Passive Checking activity
-has its own compact text beside the item and its accessibility state. It must
-not replace a confirmed Attached badge with an unknown badge or add a card
-summary line. ADR 0059 decides when facts expire or a command changes readiness.
+[ADR 0059](0059-broadcast-control-surface.md#item-readiness-determines-section-readiness)
+owns kind/label projection and aggregate readiness. The existing card-grid
+and two-summary-line guards remain binding. Separate Checking activity preserves
+the meaning of a confirmed Attached badge.
 
 ### Log Output Is A Bottom Pane
 
@@ -175,33 +176,24 @@ The operator confirmed these checks and the added right-click Copy menu on
 
 ### Event Diagnostics Reuses The Bottom Pane
 
-Amended 2026-09-09. Implementation is assigned to task 017 and has not started.
+Implemented 2026-09-10. `compact_event_logs_picker_and_diagnostics_are_identity_scoped`
+in `src/view_models/show.rs` covers snapshot fields, exact feed text, identity
+switching, and rejection of stale journal responses. The shared presentation
+guard above retains pane independence and source/title ownership. These are
+situational ADR 0063 guards; the existing selection/Copy and splitter guards
+continue to apply.
 
-Logs opens the shared bottom pane with an event-specific title and content.
-It uses the existing close, resize, selection, and Copy behavior. Opening it
-does not expand the event item or cover the service controls in the side panel.
-Only one source occupies the bottom pane at a time.
-
-The event content includes:
-
-- A configuration snapshot: full event ID, label, creation time, relay endpoint,
-  token file path, exact feed tag, last successful check time, and observed
-  publisher association with host/instance context.
-- Separate results for registration, liveness checks, publisher configuration
-  reads, and publisher changes, including progress and complete safe failure
-  details. Token contents never enter the display or clipboard.
-
-This is event diagnostics assembled from registry facts and application command
-results, not a service journal. Task 017 retains the latest result
-per operation and event for the current app session. Reopening the app restores
-the registry snapshot; it does not pretend to restore a historical command log.
-A persistent audit log is outside task 017.
-
-While Event diagnostics is open, changing the event updates its title and
-snapshot together and clears text selection. Late results stay associated with
-their original event, host, instance, and request; they cannot overwrite the
-new source. Choosing Producer or Publisher Logs switches to that service's
-existing log view. Changing the event does not steal an open service log pane.
+Event Logs is a configuration snapshot plus each operation's latest session
+result. Action rows name the subject, verb, and object and explain the outcome.
+`event_report_times_subjects_and_idle_rows_are_honest` and
+`adr_0063_event_reports_use_recorded_times_and_plain_text` enforce recorded UTC
+times, preserved subjects, no idle rows, and no renderer clock (situational,
+ADR 0063). `event_report_check_failures_use_typed_response_facts` keeps
+technical details after the explanation (situational, ADR 0059).
+It is not a persistent audit log or a service journal. A restart restores
+registry facts without inventing a history of commands. Keeping diagnostics in
+the existing pane reduces clutter and gives long text a readable width. Changing
+events updates an open Event pane, while an open service journal keeps its source.
 
 ### Transport Stays Outside The Panel
 
@@ -333,34 +325,35 @@ section with no event says so on the first line, whatever the services report.
 
 ## Compact Item Amendment Verification
 
-Task 017 is unimplemented. Its [mechanical criteria](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#acceptance-criteria)
-cover shared badge ownership, source switching, request identity, and retained
-selection/Copy contracts. Those presentation guards are situational, ADR 0063;
-readiness semantics have separate situational ADR 0059 tests. Update the named
-existing assertions in the same implementation commit and replace prose that
-new guards enforce with their coverage references under ADR 0061.
+Task 017 is built. The [verification inventory](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#verification)
+records the shared-presentation and source-ownership guards. Those guards are
+situational, ADR 0063; readiness semantics have separate ADR 0059 tests.
 
 The [task 017 operator visual check](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check)
-is the open situational ADR 0063 manual check for compactness, badge readability,
+is the passed situational ADR 0063 manual check for compactness, badge readability,
 control reach, source titles, resizing, and mouse/keyboard copying. Those
 properties require inspection in a desktop session; matching state kinds in a
-test is not visual proof. The gate is listed in pending human checks and the
-delivery order. Earlier dashboard and task 004 log acceptance remain completed
-for their shipped scope and do not close this new gate.
+test is not visual proof. The packet records the narrow-window limitation as
+deferred work. The operator confirmed fixture cleanup on 2026-09-10; the gate
+is removed from pending human checks and recorded as complete in the delivery
+order. Earlier dashboard and task 004 log acceptance remain completed for
+their shipped scope.
 
 ## Follow-Up Work
 
-- Implement [task 017](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md)
-  for compact items, shared badges, and Event diagnostics; obtain operator
-  acceptance before marking this amendment implemented.
+- The [narrow-layout proposal](../plans/show-narrow-layout-proposal.md) records
+  compact cards, wider logs, and playback-bar scope. The
+  [polish backlog](../plans/hig-product-polish-backlog.md) records long-line
+  readability and per-log following/reading positions. These remain future
+  work and do not reopen task 017's accepted scope.
 
 - Find the root cause of the column truncation defect, and restore the
   ellipsis. `docs/troubleshooting/column-text-truncation.md` holds what is
   known, the three attempts, and the open questions. The mitigation clips text
   and gives no ellipsis.
 
-Dashboard tasks 001-004 are complete. The task 017 amendment above is the new
-implementation work; the column truncation investigation remains separate.
+Dashboard tasks 001-004 and task 017's amendment are complete. The column
+truncation investigation remains separate.
 
 ## References
 

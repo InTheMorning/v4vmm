@@ -2116,6 +2116,54 @@ pub fn broadcast_events(conn: &Connection) -> Result<Vec<BroadcastEventRow>> {
     Ok(rows)
 }
 
+/// Database-scoped operator choice. A missing event remains selected (ADR 0059).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct BroadcastEventSelection {
+    pub(crate) event_id: Option<String>,
+    pub(crate) revision: i64,
+}
+
+/// Initializes a legacy database once, without replacing a saved missing reference.
+pub(crate) fn broadcast_event_selection(conn: &Connection) -> Result<BroadcastEventSelection> {
+    conn.execute(
+        "INSERT OR IGNORE INTO broadcast_event_selection (singleton, event_id, revision)
+         SELECT 1, event_id, 1 FROM broadcast_events ORDER BY created_at DESC, id DESC LIMIT 1",
+        [],
+    )
+    .context("initialize broadcast event selection")?;
+    Ok(conn
+        .query_row(
+            "SELECT event_id, revision FROM broadcast_event_selection WHERE singleton = 1",
+            [],
+            |row| {
+                Ok(BroadcastEventSelection {
+                    event_id: Some(row.get(0)?),
+                    revision: row.get(1)?,
+                })
+            },
+        )
+        .optional()
+        .context("read broadcast event selection")?
+        .unwrap_or_default())
+}
+
+/// Saves an existing full identity, advancing the revision even when choosing it again.
+pub(crate) fn select_broadcast_event(
+    conn: &Connection,
+    event_id: &str,
+) -> Result<BroadcastEventSelection> {
+    anyhow::ensure!(
+        broadcast_event_by_event_id(conn, event_id)?.is_some(),
+        "Event is no longer in the registry"
+    );
+    conn.execute(
+        "INSERT INTO broadcast_event_selection (singleton, event_id, revision) VALUES (1, ?1, 1)
+         ON CONFLICT(singleton) DO UPDATE SET event_id = excluded.event_id, revision = revision + 1",
+        [event_id],
+    ).context("save broadcast event selection")?;
+    broadcast_event_selection(conn)
+}
+
 pub fn broadcast_event_by_id(
     conn: &Connection,
     event_record_id: i64,
@@ -2876,6 +2924,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "local_path_repairs",
         apply: migration_local_path_repairs,
     },
+    Migration {
+        version: 11,
+        name: "broadcast_event_selection",
+        apply: create_broadcast_event_selection_table,
+    },
 ];
 
 pub(crate) fn migrate_schema(conn: &Connection) -> Result<()> {
@@ -3179,6 +3232,7 @@ pub(crate) fn init_schema(conn: &Connection) -> Result<()> {
     create_track_artist_source_binding_tables(conn)?;
     create_metadata_source_fact_tables(conn)?;
     create_broadcast_event_tables(conn)?;
+    create_broadcast_event_selection_table(conn)?;
     create_local_path_repair_tables(conn)?;
 
     Ok(())
@@ -3485,6 +3539,19 @@ fn create_broadcast_event_tables(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn create_broadcast_event_selection_table(conn: &Connection) -> Result<()> {
+    // Intentionally no foreign key: Forget must not silently choose another event.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS broadcast_event_selection (
+            singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+            event_id TEXT NOT NULL CHECK (event_id != ''),
+            revision INTEGER NOT NULL CHECK (revision > 0)
+        );",
+    )
+    .context("create broadcast event selection table")?;
+    Ok(())
+}
+
 fn create_local_path_repair_tables(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         r#"
@@ -3544,6 +3611,60 @@ mod tests {
             row.get(0)
         })
         .with_context(|| format!("count rows in {table}"))
+    }
+
+    /// Situational ADR 0059: selection survives reopen, missing rows, and new registrations.
+    #[test]
+    fn broadcast_selection_is_persistent_and_revisioned() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("selection.sqlite");
+        let conn = Connection::open(&path)?;
+        init_schema(&conn)?;
+        migrate_schema(&conn)?;
+        assert_eq!(
+            broadcast_event_selection(&conn)?,
+            BroadcastEventSelection::default()
+        );
+        for (id, created) in [("first", 1), ("second", 2)] {
+            insert_broadcast_event(
+                &conn,
+                &BroadcastEventInput {
+                    event_id: id.to_owned(),
+                    label: None,
+                    endpoint: "http://localhost".to_owned(),
+                    token_path: "/fixture/token".to_owned(),
+                    created_at: created,
+                    last_checked_at: None,
+                    last_status: Some(BroadcastEventStatus::Unknown),
+                },
+            )?;
+        }
+        assert_eq!(
+            broadcast_event_selection(&conn)?.event_id.as_deref(),
+            Some("second")
+        );
+        let selected = select_broadcast_event(&conn, "first")?;
+        assert!(selected.revision > 1);
+        drop(conn);
+        let conn = Connection::open(&path)?;
+        migrate_schema(&conn)?;
+        assert_eq!(broadcast_event_selection(&conn)?, selected);
+        let row = broadcast_event_by_event_id(&conn, "first")?.unwrap();
+        delete_broadcast_event(&conn, row.id)?;
+        assert_eq!(broadcast_event_selection(&conn)?, selected);
+        assert!(select_broadcast_event(&conn, "missing").is_err());
+        let next = select_broadcast_event(&conn, "second")?;
+        assert!(next.revision > selected.revision);
+        // Simulate the legacy schema then apply migration 11 independently.
+        conn.execute_batch(
+            "DROP TABLE broadcast_event_selection; DELETE FROM schema_migrations WHERE version=11;",
+        )?;
+        migrate_schema(&conn)?;
+        assert_eq!(
+            broadcast_event_selection(&conn)?.event_id.as_deref(),
+            Some("second")
+        );
+        Ok(())
     }
 
     fn applied_migration_versions(conn: &Connection) -> Result<Vec<i64>> {
@@ -4196,7 +4317,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
             "fresh schema should record all registry migrations"
         );
 
@@ -4244,7 +4365,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
             "migration registry should be idempotent"
         );
 
@@ -4530,7 +4651,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
             "cleanup migration should be recorded exactly once"
         );
 

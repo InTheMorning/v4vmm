@@ -2,14 +2,18 @@
 
 ## Status
 
-Accepted - 2026-09-09.
+Implemented - 2026-09-10.
 
-Implementation partial: tasks 001-016 complete; task 017 compact event controls,
-badges, and diagnostics implementation and operator verification outstanding.
+Tasks 001-017 are complete, including compact event controls, badges,
+diagnostics, operator acceptance, and fixture cleanup.
 Show action feedback task 001 is complete, including operator visual acceptance.
 
 Reconciled 2026-09-10: the operator confirmed action feedback task 001 tested and
-passed. A7-A9 are closed; task 017 is ready to implement.
+passed. A7-A9 are closed. Task 017's operator acceptance also passed, including
+preservation and confirmation that all three registrations were intentional.
+The operator confirmed fixture cleanup, closing task 017's final gate and
+returning this ADR to Implemented. The packet retains the narrow-window
+limitation as deferred work; no operator acceptance check remains open.
 
 Amended 2026-09-10: [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md)
 corrects stale service-state flashes and disappearing stream controls. Its
@@ -23,7 +27,7 @@ too tall. This amendment also corrects attachment matching against an unused
 target, extends Check to known event states, and keeps passive checks from
 invalidating confirmed readiness merely by starting.
 [Task 017](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md) owns
-implementation and the new open visual gate; ADR 0063 owns the arrangement.
+implementation and the acceptance walkthrough; ADR 0063 owns the arrangement.
 
 Clarified 2026-09-09 after packet review: configured-target attachment and
 passive-check readiness are explicit invariants. Task 017 owns the database
@@ -38,7 +42,7 @@ mechanical checks and operator acceptance of all event recovery checks in
 Reconciled 2026-09-09: the operator confirmed all broadcast event recovery tests
 pass, closing the final gate opened by the amendment that moves Event into
 Live Metadata. That verification returned the status to `Implemented`; the later
-task 017 amendment above reopens it under ADR 0057.
+task 017 amendment above reopened it under ADR 0057 until its 2026-09-10 closure.
 
 Amended 2026-09-09: event setup includes explicit Create, Replace, and retryable
 Check actions. A dead entry stays selected, and a failed check after successful
@@ -66,6 +70,11 @@ liveness test already treats a `404` as a dead event for both modes.
 Supersedes ADR 0018 and ADR 0019. This ADR carries the live decision for the
 relay client surface. The work follows
 `docs/plans/adr-0059-broadcast-control-surface-phase-plan.md`.
+
+Amended 2026-09-10: the operator requires Event reports to name the event and
+relay, explain the response and its consequence, and timestamp recorded
+actions. Reports distinguish an HTTP error response from no response and from
+a failure to save an otherwise valid answer. Task 017 owns this correction.
 
 ## Context
 
@@ -178,6 +187,24 @@ operator decision because it changes publisher configuration.
 [Task 016](../tasks/adr-0059-task-016-event-row-in-live-metadata.md) records the
 implementation and completed operator verification.
 
+### Event Reports Name The Action And Outcome
+
+Amended 2026-09-10. Event reports identify the event, relay, publisher target,
+or stored choice involved in each reported action. A result explains what the
+app requested, what answered, and what the app saved or could not establish.
+An HTTP error proves that a response arrived. It does not prove that the event
+exists or that the publisher is sending metadata. A missing response proves
+neither. A failed local write must not be reported as an unreachable relay.
+
+`event_report_check_failures_use_typed_response_facts` and
+`event_report_success_names_the_answer_and_saved_state` in
+`src/view_models/show/event_report.rs` enforce the response distinctions and
+their consequences. Registry and application tests verify those facts against
+HTTP responses, disconnects, and failed database writes. These are situational
+ADR 0059 guards. ADR 0063 owns recorded-time and plain-text presentation.
+This tightens task 017's existing independent-result contract and changes no
+event or publisher command semantics.
+
 ### Stored Event Selection Is Explicit And Persistent
 
 Amended 2026-09-09. The existing Resume decision already authorizes choosing
@@ -185,247 +212,82 @@ and checking a stored event. This section adds persistence, command-boundary
 validation, and manual Check for Live and Dead as well as Unknown. It does not
 change who registers events or who publishes metadata.
 
-Clicking the selected event opens a bounded, scrollable list of locally stored
-events, newest first. Each entry has its existing label, a creation date, a
-distinguishing identifier, and its last known liveness state. Unnamed events
-use the date and identifier as their display name. Short identifiers must be
-disambiguated if they collide; selection always uses the full identity.
+Selection is now enforced by `broadcast_selection_is_persistent_and_revisioned`
+in `src/db.rs` and `compact_event_saved_choice_drives_commands_and_refresh`,
+`compact_event_missing_choice_and_registry_errors_are_explicit`, and
+`compact_event_registration_survives_selection_save_failure` in `src/app/show.rs`
+(situational, ADR 0059). They cover persistence, missing references, command
+revalidation, known-state checks, and separate registration/storage results.
 
-The list marks the selected entry. A successful publisher configuration read
-may separately mark the entry configured on the selected host, instance, and
-`drop_file_target`. That mark means configured, not proof that metadata is
-currently flowing. Unknown or failed reads cannot supply an affirmative
-configuration mark.
-
-Selecting an entry updates the mounted view and requests a liveness check for
-that entry, together with a fresh publisher configuration read. This includes
-previously Live or Dead entries: the current Unknown-only manual-check
-restriction needs an explicit extension. Opening the list alone makes no
-network request for every entry.
-
-The selected event survives refresh, navigation, and restart through a
-database-scoped selection preference, owned by `src/db.rs` and added through a
-migration. The preference records the full event ID and a selection revision.
-An uninitialized preference may choose the newest row once and persist that
-choice. If its saved entry has been
-removed, retain that missing reference, show Event unavailable, and let the
-operator choose another. No cascading deletion may silently select a different
-identity. Loading or failing to read the registry is distinct from an empty
-registry and cannot enable Create.
-
-`EventRegistryCommand::execute` and `RefreshShowPage::execute` must resolve the
-same persisted selection. Command eligibility uses that selected row's current
-stored state and rejects a changed selection revision or missing selected row.
-Check may operate on any existing selected Live, Dead, or Unknown row; Replace
-still requires Dead. Create requires a successfully read empty registry, not
-merely a missing or failed selection lookup. An unrelated newer row cannot
-reject a valid command against the older saved selection.
-
-Selection-dependent results belong to the persisted event identity, selection
-revision, host, instance, target name, and request as applicable. A result may
-update its own registry facts but cannot overwrite a different mounted selection.
-If saving selection fails after registration succeeded, the created row and
-token remain available in the refreshed list. Report the separate save failure;
-it does not authorize another registration.
-
-Successful Create or Replace adds and selects its new entry immediately, then
-checks it as task 016 does today. Replace retains the old entry and token file.
-Create/Replace keep their existing eligibility; creating additional
-events while a live one is selected and adding a rename editor are outside
-task 017.
+The bounded picker and distinguishing identities are covered by
+`compact_event_logs_picker_and_diagnostics_are_identity_scoped` in
+`src/view_models/show.rs` (situational, ADR 0063). Resume changes the app's
+choice. Publisher configuration remains a separate operator decision.
 
 ### Attachment Names The Configured Target
 
-Amended 2026-09-09 as an implementation correction under ADR 0057.
-`EventTargetAttachmentDisplay::from_input` currently matches any target carrying
-the event ID, while Attach writes `broadcast.drop_file_target`. A stale unused
-target therefore reports Attached even when the configured target carries
-another event. The readiness read, Attach, Detach, and picker association mark
-must all use the same selected host, publisher instance, and normalized
-configured target name. Match both target name and event ID. An empty target
-name cannot pass.
+Corrected 2026-09-10 under the 2026-09-09 amendment (ADR 0057).
+The old event-ID-only lookup could report Attached from a stale unused target
+while the configured target carried another event. That false confirmation
+would defeat the purpose of the badge.
 
-Choosing an event changes the app's selection and performs reads. It does not
-change publisher configuration, restart services, or start a show. The explicit
-publisher action remains a separate press with its own progress and result.
+`compact_event_configured_target_and_remote_hint` and
+`compact_event_context_revision_and_configured_detach_are_scoped` enforce the
+configured-name-plus-ID correction, including empty names and duplicate
+associations (situational, ADR 0059). The visible replacement notice names the
+currently configured event. Configuration is not proof of delivery.
 
-If the configured publisher target names a different event, show that difference
-briefly beside the selected event's status. Use wording such as
-`Publisher configured for …b82d`, not `Publishing to …b82d`: configuration does
-not establish successful delivery. The card describes readiness for the
-selected event and cannot claim it is ready because another event is configured.
-
-Attach already invokes `target add --replace`, as specified by
-[task 014](../tasks/adr-0059-task-014-attach-event-to-publisher-target.md) and
-enforced by `adr_0059_packet_014_attach_event_replaces_target_and_restarts_publisher`
-in the publisher-target service tests (situational, ADR 0059). An existing
-association at that name is replaced; the operator does not need to detach it
-first. The action makes that replacement clear before the press, including
-which event is currently configured. The prior event and token file
-remain in the local registry even after the publisher uses another event.
-
-This configuration replacement and the following service restart are separate
-operations. A successful write followed by a failed restart is a partial result
-that must remain visible. Detach stays available in the overflow menu for an
-event associated with the configured target, including a dead one, but it is
-not a prerequisite for using another event. Arbitrary publisher-target
-management is outside task 017.
+`adr_0059_packet_014_attach_event_replaces_target_and_restarts_publisher` retains
+the target service's explicit replacement/restart contract. The fixture's
+`test_named_target_replacement_and_removal_preserve_other_associations` guards
+unrelated targets. `adr_0059_event_target_commands_share_publisher_ownership`
+guards partial restart failure and readback through the existing service-command
+owner. These guards are situational, ADR 0059. Selecting or checking an event
+has no publisher mutation capability; registry rows and token files are retained.
 
 ### Event Actions Keep Independent Results
 
-The action area keeps a stable place for the next useful action, Logs, and the
-overflow menu. The view model supplies presence, availability, progress, and
-accessibility labels. A command in progress keeps its control mounted and
-unavailable; a watch refresh cannot erase the command's feedback.
+The six `show_event_*recovery*` cases named in
+[task 017's assertion inventory](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#existing-assertions-to-update-in-the-implementation-change)
+retain the original registration/check separation and preservation proof.
+`show_event_unknown_check_retry_and_working_actions_are_typed`,
+`compact_event_passive_checks_and_mutations_have_distinct_readiness`, and
+`compact_event_registration_survives_selection_save_failure` cover the extended
+action states (situational, ADR 0059).
 
-The picker and competing event commands are unavailable while registration,
-checking, or a publisher change is in progress. Logs and copying stay usable.
-Results still carry their original identity and request ownership so that a
-host change or delayed refresh cannot apply them to a different selection.
-
-| Condition, in priority order | Primary action or visible result |
-|---|---|
-| An event registry or publisher-change command is running | Keep the initiating action in its progress state |
-| Registry is loading or its read failed | Loading or Events unavailable; retry the failed read, no Create |
-| Registry loaded and genuinely empty | Create |
-| Saved selection is missing and registry contains other events | Event unavailable; choose an entry in the picker |
-| Liveness is unknown, or its latest check failed | Check / Retry check |
-| Selected event is confirmed Dead | Replace, with Check again in the menu |
-| Publisher configuration could not be read | Retry that configuration read; no Attach |
-| Event is confirmed Live, intended target belongs to another event, existing command prerequisites pass | Attach; make the replacement effect clear |
-| Event is confirmed Live, target is free, existing command prerequisites pass | Attach |
-| Event is Live and attached to the configured target | No setup prompt; retain the concise status |
-
-The overflow menu holds Copy feed tag, Check again, and Detach when applicable.
-Check again reads liveness for the selected ID and never registers another
-event. Copy feed tag also remains available beside the full tag in diagnostics.
-Logs remains available during failures and commands, including failed creation
-when there is no event yet. Registry deletion controls are outside this change.
-
-Keep registration and checking outcomes independent. For example, a successful
-creation followed by a failed check gives a short `Created · Check failed`
-message, retains the new selection, and offers Retry check. Full causes belong
-in Logs. Publisher changes also report failure locally; if configuration was
-changed but the service restart failed, show that partial result and read the
-configuration back instead of claiming that nothing changed.
-
-The existing readiness table still governs the chain: no event, a dead or
-unverified event, an unconfirmed configuration, or an inactive/failed service
-cannot produce a ready section. A failed recheck preserves stored liveness but
-marks it as unverified in the current display; it must not present an old Live
-result as a fresh confirmation. Producer and Publisher retain their own states
-and recovery actions below the compact event item.
+A failed read does not undo a successful registration. A failed restart does
+not undo a successful configuration write. These are separate outcomes in Event
+Logs, with one short explanation in the compact item. Logs and Copy remain
+usable during work and failure. Creating another event while a live selection
+exists, renaming events, and UI Forget remain outside this amendment.
 
 ### Item Readiness Determines Section Readiness
 
-Amended 2026-09-09. The view model owns these state kinds and labels; ADR 0063
-owns their badge presentation. Ready refers to these prerequisites, not proof
-of audio connectivity, feed publication, or listener delivery.
+Implemented by `compact_event_badge_tables_and_card_equivalence`,
+`show_event_readiness_table_covers_liveness_and_every_attachment_result`, and
+`show_event_readiness_table_covers_every_service_state` in `src/view_models/show.rs`
+(situational, ADR 0059). They hold the complete kind/label mappings, role-identity
+rules, and aggregate readiness contract. `event_badge`, `service_badge`, and
+`live_metadata_card_state` are the projection owners; ADR 0063 owns presentation.
 
-The three items are exactly Event, Producer, and Publisher, identified by role,
-not by vector length. Once Live Metadata is mounted, missing Event input projects
-an Unknown/Loading placeholder; a missing service observation projects that
-role's Unknown/Status unavailable placeholder. Duplicate observations for a role
-are invalid input for that role and also project Status unavailable. A missing
-Publisher cannot be satisfied by two Producer observations.
-
-Each item exposes a renderer-independent state kind and label. Using the existing
-`ShowCardStateKind` vocabulary, the card state is `Ok` if and only if Event,
-Producer, and Publisher each project `Ok`. ADR 0063 maps those kinds to shared badge tokens.
-Only the card uses the label Ready. Event's successful label is Attached;
-both successful service labels are Active.
-
-Event's badge requires both confirmed Live liveness and a confirmed association
-on the configured target. The target is the nonempty, normalized
-`broadcast.drop_file_target` on the selected host and publisher instance.
-`EventTargetAttachmentDisplay::from_input` must match both that target name and
-the selected event ID. An unused target carrying this ID cannot satisfy it.
-Detach and the picker association mark use this same target identity; they must
-not remove or mark whichever target an event-ID-only search happens to find.
-
-Event badge mapping, evaluated top to bottom. The command rows describe display
-overlays, not invented variants of `EventState` or `EventTargetAttachmentState`.
-Passive progress preserves existing facts only until a newer result for those
-facts arrives; it cannot mask a failure or change reported by a concurrent read.
-
-| Input or overlay | State kind | Badge label |
-|---|---|---|
-| Create / Replace in progress | Unknown | Creating / Replacing, respectively |
-| Attach / Detach in progress, including readback pending | Unknown | Attaching / Detaching, respectively |
-| Registry / Event input still loading | Unknown | Loading |
-| Registry read failed | Unknown | Events unavailable |
-| Saved selection references a missing registry entry | Attention | Event unavailable |
-| Loaded registry with no event (`EventState::None`) | Attention | No event |
-| Passive recheck pending after a completed result for the same read and context | Preserve current fact-derived kind | Preserve current fact-derived label; separate activity text Checking |
-| Initial check pending with no completed result for that read | Unknown | Checking |
-| Latest liveness check failed, including failed status storage | Unknown | Check failed |
-| `EventState::Dead` | Failed | Dead |
-| `EventState::Unknown` | Unknown | Unknown |
-| Live, configured target name is empty | Attention | Target not set |
-| Live, target read Unknown | Unknown | Target unknown |
-| Live, target read CommandsUnavailable | Unknown | Commands unavailable |
-| Live, target read NotReachable | Unknown | Not reachable |
-| Live, target read Failed | Unknown | Target read failed |
-| Live, successful read finds no configured target or that target names another event | Attention | Not attached |
-| Live, successful read finds the configured target naming the selected event | Ok | Attached |
-
-Every service state below applies independently to both Producer and Publisher:
-
-| `PublisherServiceStateDisplay` or missing input | State kind | Badge label |
-|---|---|---|
-| Active | Ok | Active |
-| Inactive | Attention | Inactive |
-| Starting | Attention | Starting |
-| Stopping | Attention | Stopping |
-| Failed, with any reason | Failed | Failed |
-| NotInstalled | Attention | Not installed |
-| NotReachable | Attention | Not reachable |
-| Unknown | Unknown | Unknown |
-| Working | Unknown | Working |
-| Missing or duplicate observation for the role | Unknown | Status unavailable |
-
-Failure details remain in diagnostics with a short explanation if needed. A
-failed Create leaves No event plus creation-failure feedback; a failed Replace
-that created nothing leaves the former event's state plus replacement-failure
-feedback. Neither outcome invents a new relay state.
-
-For a non-Ok card, preserve the existing ordering: Event's non-Ok kind wins;
-otherwise any Failed service makes the card Failed; otherwise a non-Ok service
-makes it Attention. The label is Not ready. The first summary line names the
-earliest non-Ok role in Event, Producer, Publisher order, even when a later
-service determines the card's failure kind. The second summary line states
-section readiness. Individual badges expose failures further down the chain.
+Ready describes Event/Producer/Publisher prerequisites, not proof of audio
+connectivity, RSS publication, or listener delivery. Event says Attached and
+services say Active; Ready is reserved for the card. Each item's badge exposes
+its own failure, even when an earlier item determines the card's state.
 
 ### Passive Checks Preserve Confirmation Until They Answer
 
-A passive liveness or target-list recheck cannot change the event or publisher
-configuration. While it is pending, retain the last settled badge and its
-confirmation for the same event, host, instance, and configured target. Show
-Checking as separate item activity, including in accessibility text. A healthy
-Attached/Active/Active chain remains Ok/Ready during the request. Do not replace
-its Event badge with a non-Ok Checking badge just to report activity.
+A question has not changed the confirmed facts. Starting a passive check must
+not imply that a healthy chain stopped. A failed answer does change what is
+known, even if the database retains historical liveness.
 
-If no confirmation exists yet, the check cannot create an Ok state. On success,
-replace the old facts with the result. On 404, project Dead once stored. On
-transport, target-read, or status-storage failure, project the appropriate
-Unknown badge and Not ready card; retained database liveness is only historical
-evidence. Thus failure changes readiness when it answers, not when the operator
-asks. Selecting another event or changing host/instance/target invalidates prior
-confirmation instead of carrying an unrelated Attached badge across the change.
-When liveness and target-list reads overlap, apply each completed result at
-once. The other pending read cannot hold the item at its former Ok kind after
-one of them has failed. Conversely, one success cannot clear the other's
-failure. Diagnostics retains both results separately.
-
-Fact-changing operations invalidate the affected confirmation immediately:
-Create/Replace and Attach/Detach affect Event; service Start/Stop/Reset/Restart
-affect that service. Attach/Detach also restart Publisher, so Publisher projects
-Working until a fresh observation resolves that transition. An unrelated service
-retains its own state. Failed mutations trigger readback and expose partial
-results; an old observation cannot release the transition. This uses the
-command ownership and fresh-observation policy guarded by
-[Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md#verification),
-rather than implementing a second transition policy.
+`compact_event_passive_checks_and_mutations_have_distinct_readiness` enforces
+retained confirmation while pending and immediate application of independent
+read failures. `compact_event_context_revision_and_configured_detach_are_scoped`
+protects context changes. `adr_0059_event_target_commands_share_publisher_ownership`
+reuses the bounded fresh-observation policy from
+[Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md#verification).
+All are situational ADR 0059 guards, cited by the invariants below.
 
 ### Tokens Are Files
 
@@ -619,26 +481,26 @@ Negative and risks:
 
 ## Amendment Verification
 
-Task 017 is unimplemented. Existing task 016 tests and guards verify the prior
-shipped scope, not the new attachment definition, saved selection, or badge
-contract. The [task 017 mechanical criteria and assertion inventory](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#acceptance-criteria)
-name the cases and the exact existing tests to update in the implementation
-commit. Each new behavior test is situational, ADR 0059. When a guard replaces
-these implementation instructions, replace that prose with the named coverage
-in the same change, retaining the incident and decision rationale.
+Task 017 is built. Its [verification inventory](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#verification)
+records the mechanical checks and the named regression owners. Guard references
+above replace the implementation instructions they enforce, retaining the
+incident and decision rationale under ADR 0061.
 
 The [task 017 operator visual check](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check)
-is the open situational ADR 0059 manual check for readiness feedback and usable
+is the passed situational ADR 0059 manual check for readiness feedback and usable
 recovery. It also serves the separately identified ADR 0063 presentation checks.
 Tests can prove state kinds and command effects but cannot establish that a
 person can read the badges, find the controls, and follow the interaction.
-The gate is listed in [pending human checks](../pending-human-checks.md) and
-the delivery order; task 016's passed check does not close it.
+The operator confirmed fixture cleanup on 2026-09-10. The completed gate is
+removed from [pending human checks](../pending-human-checks.md) and recorded
+in the delivery order. Task 017 retains its operator evidence and the deferred
+layout/log observations.
 
 ## Follow-Up Work
 
-- Implement [task 017](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md)
-  after its action-feedback prerequisite and obtain operator acceptance.
+- Layout, log readability, following, and timestamp consistency remain
+  separate follow-ups recorded in [task 017](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check)
+  and its linked plans; they are not open acceptance gates on this amendment.
 
 - `splitkit`: add long-lived live items. Weekly shows and permanent stations
   need an event that survives a relay restart.

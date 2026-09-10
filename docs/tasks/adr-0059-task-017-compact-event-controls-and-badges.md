@@ -1,10 +1,18 @@
 # ADR 0059 Task 017: Compact Event Controls And Badges
 
-Status: Accepted - 2026-09-09.
-Implementation not started. Mechanical acceptance outstanding; operator visual
-acceptance open for ADR 0059 behavior and ADR 0063 presentation.
-Scheduling: ready for the next session. Show action feedback task 001 passed
-operator acceptance on 2026-09-10; its prerequisite is complete.
+Status: Implemented - 2026-09-10.
+Mechanical checks Green. Operator acceptance and fixture cleanup are complete
+for ADR 0059 behavior and ADR 0063 presentation. The inspection record below
+includes report wording and timestamps, saved selection, configured-target
+readiness, per-item badges, copying, delayed log results, and preservation.
+The operator confirmed all three registrations followed intentional Create/Replace
+clicks, then confirmed the fixture app was closed, its relay stopped, and its
+verified directory removed.
+
+The narrow-window log-body limitation remains deferred in the linked layout
+proposal. Card-title clipping, long log lines, per-log following/reading positions,
+UTC consistency, and playback-bar observations remain documented follow-up work.
+No acceptance check remains open for this packet.
 
 ## Goal
 
@@ -50,9 +58,15 @@ named symbols if line numbers move.
 - `src/view_models/show.rs`: renderer-free item kinds, action state, selection,
   confirmation, progress, and bottom-pane source state. Retain `event_hint`
   (`:2078`) as the compact Event item's visible short explanation.
+- `src/view_models/show/event_report.rs`: concrete report sentences, frozen
+  action/result times, captured identities, and omission of idle actions.
+- `src/api.rs` and `src/broadcast/registry.rs`: preserve typed HTTP response
+  and local-save failure facts for the report without changing request behavior.
 - `src/ui/composites/show_detail_panel.rs`, `show_card.rs`, `show_log_pane.rs`,
   and `src/ui/shells/show.rs`: layout and callback slots.
-- Shared badge/menu/popover and selectable-text owners under `src/ui/`:
+- `src/ui/primitives/status_badge.rs`, `context_menu.rs`, `button.rs`, and
+  `src/ui/icons.rs`: shared badge and bounded two-line menu controls.
+- Shared popover and selectable-text owners under `src/ui/`:
   reuse them; extract card badge presentation if there is no shared owner yet.
 - `src/broadcast/registry.rs` and `src/broadcast/publisher_targets.rs`: inspect
   the existing registry and target APIs. Change only if integration requires a
@@ -60,6 +74,7 @@ named symbols if line numbers move.
 - `tests/architecture_tests.rs`: named assertions below.
 - `docs/runbooks/broadcast-event-recovery-fixture.py`: extend the isolated fixture
   as specified below; it never launches the app.
+- `docs/runbooks/test_broadcast_event_recovery_fixture.py`: non-GUI fixture regressions.
 - `docs/runbooks/broadcast-event-recovery-check.md`: update the walkthrough for
   the extended fixture while preserving the completed task 016 recovery checks.
 - ADRs 0059/0063, this packet, delivery order, pending human checks, and affected
@@ -78,6 +93,12 @@ No event rename editor, UI Forget action, Create-another action for a live
 selection, separate diagnostics pane, or persistent command audit log is added.
 
 ## Implementation Steps
+
+The 2026-09-10 report correction records each operation's latest result and UTC
+time at the accepted application callback. The view model renders those frozen
+facts. Store only results for actual operations in the existing session state.
+Do not parse HTTP status from error strings, infer a remote failure from a local
+write failure, invent timestamps while rendering, or add persistent history.
 
 1. Add a database-scoped selection preference through the migration registry,
    including fresh-database initialization. Store one full event ID and a
@@ -171,13 +192,17 @@ for all task 017 checks yet. Extend the existing script in this packet:
 - Add a `journalctl` stub producing deterministic multiline text identifying
   the requested service, and include it in fixture verification. Service Logs
   in this check must read that stub rather than the desktop's real journal.
+  `journal-mode DIRECTORY normal|slow|slow-fail` makes service reads immediate,
+  successful after five seconds, or failed after five seconds. Each request
+  captures its mode before waiting. Record request and result without token
+  contents. Existing fixtures default to normal and need no new setup.
 - Keep setup/locate/verify isolation, the existing task-016 marker/prefix,
   and current mode commands compatible. Preserve two-second GET latency for
   visible passive-check progress. Test invalid paths and inputs without
   launching the GUI; the previous directory-isolation regression stays valid.
 
-The two new mode commands below are this implementation's fixture contract;
-they are not claimed to exist before task 017 is implemented.
+The new mode commands below are implemented. The relay mode and creation mode
+are independent; changing either only changes the next fixture answer.
 
 ## Acceptance Criteria
 
@@ -207,6 +232,11 @@ they are not claimed to exist before task 017 is implemented.
   summary fields exclude full paths, feed XML, and raw command-error bodies,
   while diagnostics retains those fields and independent outcomes (situational,
   ADR 0059).
+- Report tests cover UTC timestamps with seconds, unchanged text on repeated
+  projection, captured event identity, independent creation/selection/check
+  results, no idle rows, and unchanged feed-tag text. Typed facts distinguish
+  no HTTP response, HTTP 503, unreadable metadata, HTTP 404, and failure to save
+  a valid relay answer (situational, ADRs 0059/0063).
 - Application tests cover selection across refresh/restart, missing saved
   entries, failed registry reads, Create/Replace list updates, liveness checks
   of previously known events, busy controls, and rejection of obsolete results.
@@ -281,6 +311,84 @@ Run the fixture's documented non-GUI regression checks too. A unit or
 architecture test cannot meet the visual criteria below. Never launch the app
 from an agent session.
 
+## Verification
+
+Mechanical checks on 2026-09-10: Green. `cargo check`, `cargo fmt -- --check`,
+`cargo test` (1,252 unit tests and 218 architecture guards), strict Clippy, and
+`cargo build`. No app or headless display was launched.
+
+Checking-layout correction on 2026-09-10: Green for `cargo check`, formatting,
+all 219 architecture guards, strict Clippy, and `cargo build`. Its new guard
+failed against the previous layout before the correction. Operator retest
+passed later on 2026-09-10: the operator confirmed Checking is okay after
+rebuilding. This visual evidence, rather than the guard, accepts the correction.
+
+Event-report correction on 2026-09-10: Green. The full suite passed with
+1,257 unit tests and 220 architecture guards; 10 doctests remain ignored.
+Formatting, `cargo check`, `cargo clippy -- -D warnings`, and `cargo build`
+passed. All eight registry tests passed again after preserving the HTTP error
+cause chain. The operator supplied the revised report and confirmed the retest
+passed on 2026-09-10: reopening Logs preserved the recorded timestamps.
+
+The isolated fixture has eight non-GUI regression tests:
+
+```bash
+python3 docs/runbooks/test_broadcast_event_recovery_fixture.py
+```
+
+Step 6 setup correction on 2026-09-10: Green for all six fixture tests. The
+target-scope command replaces the indentation-sensitive pasted Python block.
+Its two new tests cover command dispatch, use of the saved choice rather than
+the newest row, preserved registry/config/token files, a distinct fixture-setup
+trace entry, and rejection of incomplete or non-isolated setup before target
+changes. This mechanical result does not close step 6's operator check.
+
+Delayed service-log fixture on 2026-09-10: Green for all eight fixture tests.
+The two additional situational ADR 0063 tests verify that pending reads keep
+their captured outcome when the mode changes, that existing executable
+wrappers report the delayed failure, and that normal mode restores immediate
+reads. The operator checks remain open until walked in the app.
+
+Coverage added (all situational):
+
+- ADR 0059: `broadcast_selection_is_persistent_and_revisioned` covers fresh and
+  migrated schema, reopen, missing references, and monotonic revisions.
+- ADR 0059: `compact_event_saved_choice_drives_commands_and_refresh`,
+  `compact_event_registration_survives_selection_save_failure`,
+  `compact_event_missing_choice_and_registry_errors_are_explicit`, and
+  `compact_event_context_revision_and_configured_detach_are_scoped` cover the
+  application boundary and preserved registry/token ownership.
+- ADR 0059: `compact_event_configured_target_and_remote_hint`,
+  `compact_event_passive_checks_and_mutations_have_distinct_readiness`, and
+  `compact_event_badge_tables_and_card_equivalence` cover item states and
+  role-based card readiness. Existing recovery/readiness tests were updated.
+- ADR 0059: `adr_0059_event_target_commands_share_publisher_ownership` retains
+  the prerequisite's bounded fresh-observation policy for target restarts.
+- ADR 0063: `compact_event_logs_picker_and_diagnostics_are_identity_scoped`
+  and `adr_0063_compact_items_share_badges_and_event_log_disclosure` cover
+  disclosure, shared badge presentation, picker identities, and log sources.
+  Existing card, splitter, selection, and Copy guards remain binding.
+- ADR 0063: `adr_0063_item_activity_keeps_its_width_and_single_line` guards
+  the activity layout correction found during step 3. It fails against the
+  original header, which allowed Checking to shrink and wrap letter by letter.
+- ADRs 0059/0063: the four `event_report_*` tests in
+  `src/view_models/show/event_report.rs` cover report wording, times, subjects,
+  response facts, target names, and result consequences.
+  `adr_0063_event_reports_use_recorded_times_and_plain_text` guards projection.
+  `check_event_retains_http_status_without_changing_saved_facts` and the
+  extended disconnect, recovery, and status-write-failure tests verify the
+  response facts through real requests and database operations.
+
+Implementation uses migration 11, the existing command runner, and the shared
+context menu/button owners. Named target mutations preserve unrelated entries.
+There are no changes to audio, relay lifecycle, or publisher CLI semantics.
+The fixture's task-016 prefix remains for compatibility. Initial checks after
+a selection/context change require a fresh liveness answer; pending rechecks
+within an already confirmed context keep that confirmation.
+
+The new visual gate is still open. Task 016 and action feedback task 001 retain
+their completed acceptance records.
+
 ## Expected Final Report
 
 Report changed files, behavior, mechanical checks, deviations, and remaining
@@ -300,22 +408,131 @@ an ADR Implemented while this packet retains an open gate.
 
 ## Operator Visual Check
 
-Gate: **Open; awaiting implementation and fixture extensions.** The commands
+Gate: **Passed - 2026-09-10; operator acceptance and fixture cleanup complete.** The commands
 below are for a person in a Linux desktop session after task 017 is built.
 Python 3.11+, two terminals, and free port 17863 are needed. No real publisher,
 encoder, audio hardware, or system-service changes are needed. Use a fresh
 fixture and keep its relay alive throughout; its existing task016 directory
 name and marker are intentionally retained for locate/verify compatibility.
 
-### Setup And Event Recovery
+Inspection progress - 2026-09-10:
 
-1. In terminal A, prepare a fresh isolated fixture and start its relay:
+| Check | Evidence and current state |
+|---|---|
+| Setup and layout | Passed. The operator confirmed the isolated Source and compact items at narrow and normal widths. |
+| Creation failure | Passed. No event was selected, the inline failure stayed short, and Logs retained the error without moving services. |
+| Checking activity | Passed after correction. The operator confirmed Checking stays horizontal. |
+| Dead event | Passed. Dead and Replace appeared, while the card stayed Not ready despite two Active services. |
+| Registration and check results | The operator supplied successful registration/selection and an HTTP 503 check failure for fixture-event-3. The corrected report wording and timestamp stability passed retest. The supplied report identified the publisher target, relay response, event, and retained Unknown status; reopening Logs preserved 15:30:30 and 15:30:32 UTC. |
+| Live event without attachment | Passed. After mode live and Retry check for fixture-event-3, Event showed Not attached, both services showed Active, and the card stayed Not ready. |
+| Attach and card readiness | Passed. The supplied report confirmed target default uses fixture-event-3 and the restart request was accepted at 15:36:07 UTC. The operator then confirmed green Attached/Active/Active item badges and a green Ready card. |
+| Feed-tag Copy | Passed. The operator pasted and confirmed identical exact tags from the Event menu and Event Logs: `<podcast:liveValue uri="fixture-event-3" protocol="socket.io"/>`. |
+| Picker retention and older-event selection | Passed. The supplied report saved fixture-event-1 as selected at 15:40:24 UTC, read target default still using fixture-event-3 at 15:40:25 UTC, and confirmed event 1 Live at 15:40:27 UTC. |
+| Repeat check and saved selection | Passed. The operator confirmed Check again succeeds for fixture-event-1 and that event 1 remains selected through the resulting refresh, Music/Show navigation, and an app restart with the fixture relay kept running. |
+| Step 5 configuration preservation | Accepted with operator clarification. Initial selection/check readback kept target default on event 3. The later target file named event 1 after an intentional Attach. The operator confirmed another intentional Attach restored event 3. These actions explain the differing file/readback states. |
+| Target-change investigation | Resolved. The next restart screenshot retained event 1 selected, read target default using event 3 at 15:57:12 UTC, and reported HTTP 503 for event 1 at 15:57:14 UTC while keeping its saved Live status. Fixture calls.jsonl lines 35, 42, and 50 record target add for events 3, 1, and 3 respectively; the operator confirmed pressing Attach for event 1 and then event 3. No unintended target mutation was established. |
+| Unused-target readiness | Passed. After target-scope setup and Check again with event 3 selected, default used event 1 and unused used event 3. The operator confirmed Not attached, Not ready, and Detach unavailable. |
+| Attach preserves unrelated targets | Passed. The supplied targets.json retained unused and default, both using fixture-event-3 with its token path. |
+| Detach preserves unrelated targets | Passed. The supplied targets.json contains only unused, still using fixture-event-3 with its token path. The operator then confirmed Event Not attached and the card Not ready. |
+| Attachment restoration and successful passive check | Passed. The operator restored Attached/Active/Active and Ready, then confirmed Attached and Ready stayed green throughout More → Check again, with separate Checking activity, and remained green on success. |
+| Failed passive check | Passed. The operator confirmed Attached and Ready stayed green while the request was pending, then changed to Check failed and Not ready when the relay returned HTTP 503. Event Logs explained the response. |
+| Relay-response recovery | Passed. After restoring mode live, the operator confirmed Retry check alone returned fixture-event-3 to Attached, both services Active, and the card Ready. |
+| Failed configuration read | Passed. The operator's screenshot shows fixture-event-3 with Target read failed, the card Not ready despite two Active services, Retry config, no Attach, and disabled Detach. Event Logs says the app could not read target default and cannot confirm which event it uses, followed by the JSON parse error. |
+| Configuration-read recovery | Passed. The operator restored targets.saved.json to targets.json and confirmed Retry config alone returned the existing attachment to Attached/Active/Active and Ready. |
+| Stopped Producer | Passed. The operator confirmed producer-state inactive changes Producer to Inactive and the card to Not ready while Event remains Attached and Publisher Active. |
+| Producer recovery and isolated Publisher failure | Passed. After the initial screenshot showed both Producer Inactive and Publisher Failed, the operator started Producer and confirmed Producer Active, Event Attached, Publisher Failed, and the card Not ready with Publisher Failed as its first summary line. |
+| Publisher recovery | Passed. The operator confirmed Reset reaches Inactive with Start available, then Start shows progress and returns Publisher to Active and the card Ready while Event stays Attached and Producer Active. |
+| Log-source switching | Passed. The operator confirmed Event Logs identifies fixture-event-3 and its details, Producer Logs identifies mixxx-now-playing.service, and Publisher Logs identifies musicindex-live-publisher@task016-fixture.service, all in the shared bottom pane with matching titles and contents. |
+| Selected-text copying | Passed. The operator selected a complete Publisher-log line and confirmed Ctrl+C and right-click Copy both pasted exactly that line into an editor. |
+| Pane resizing and navigation | The operator passed resizing, close/reopen, and Source/Stream/Live Metadata navigation. Cards and compact detail controls remain usable. The supplied narrow screenshot shows only a log header with no visible log text; this limitation is recorded separately in A13 and is not accepted as narrow log readability. |
+| Event-log identity and text selection | Passed. With Event Logs open, the operator selected text and chose fixture-event-1. The title and saved-event details changed together, and the old text selection cleared. |
+| Service-log ownership after an event change | Passed. After selecting fixture-event-3 with the relay in mode fail, the operator's screenshot shows Check failed while the bottom pane retains musicindex-live-publisher@task016-fixture.service and its three fixture journal lines. |
+| Closing Event Logs during a check | Passed. The operator closed the pane while Retry check showed Checking, then confirmed the failed reply left it closed. |
+| Late service failure after switching to Event Logs | Passed. With journal-mode slow-fail, the operator opened Publisher Logs, switched to Event Logs while Reading logs appeared, and confirmed the Event title and details remained after the delayed failure. |
+| Closing during a service read | Passed. With journal-mode slow-fail, the operator closed Publisher Logs with × while Reading logs appeared and confirmed the pane remained closed after the delayed failure. |
+| Repeated service reads | Passed. With journal-mode slow, the operator opened, closed, and reopened Publisher Logs, then selected Producer Logs before the second read completed. The Producer title and journal remained after the delayed replies. Step 9 is complete with the recorded narrow-window limitation deferred. |
+| Registry and token preservation | Passed. The operator's report lists fixture-event-3, fixture-event-2, and fixture-event-1, each with token present. The trace contains one register entry for each ID (lines 2, 17, and 24). No stored event or token file is missing. |
+| Target command review | Passed. Trace lines 35/42/50 show the previously confirmed intentional default changes 3 → 1 → 3. Line 63 records the target-scope setup separately. Lines 66/70/73 match the guided default Attach, Detach, and reattach checks. |
+| Registration action review | Passed. The operator confirmed all three registrations followed intentional Create/Replace clicks. This resolves the extra registration relative to the fresh two-event walkthrough. |
+| Fixture cleanup | Complete. The operator confirmed the fixture app was closed, its relay stopped, and its verified marked directory removed. Step 10 and this packet are complete. |
+
+The operator deferred card-title clipping to
+[polish item A10](../plans/hig-product-polish-backlog.md#a10---narrow-show-card-titles-clip-abruptly)
+and long-line log readability to
+[polish item A11](../plans/hig-product-polish-backlog.md#a11---long-log-lines-are-hard-to-inspect).
+
+The operator also found the selected event and publisher destination difficult
+to distinguish in the compact panel. The supplied Attached badge agrees with
+the target file, but the closed panel does not name the destination under
+Publisher. A proposed short destination line needs a presentation decision;
+no new layout has been implemented or visually accepted.
+
+The operator's additional log requirements are recorded in
+[A12: per-log following and reading positions](../plans/hig-product-polish-backlog.md#a12---follow-latest-logs-and-remember-each-reading-position)
+and the [UTC timestamp follow-up](../plans/broadcast-chain-delivery-order.md#consistent-utc-log-timestamps).
+These notes preserve the requested future behavior without counting it as
+implemented or changing the current packet's acceptance scope.
+
+The [narrow-layout proposal](../plans/show-narrow-layout-proposal.md) records
+the later screenshot's missing log viewport, compact-card and side-panel-width
+options, and the request to remove dead playback controls. Their future
+implementation requires its own decision and visual checks.
+
+### Report Wording Retest
+
+Passed - 2026-09-10. The operator supplied the revised report and confirmed
+that closing and reopening Logs left the recorded timestamps unchanged.
+
+Purpose: identify the event and relay, explain the response and saved state,
+and show when each action's result was recorded. Keep the existing fixture.
+
+1. Close only the test app. Leave terminal A's relay running.
+2. In terminal B, make the next event check fail, rebuild, and relaunch:
 
    ```bash
    cd /home/citizen/build/v4vmm
-   cargo build
-   task016_dir=$(mktemp -d /tmp/v4vmm-task016.XXXXXX)
-   python3 docs/runbooks/broadcast-event-recovery-fixture.py setup "$task016_dir"
+   if python3 docs/runbooks/broadcast-event-recovery-fixture.py verify "$task016_dir" &&
+      python3 docs/runbooks/broadcast-event-recovery-fixture.py mode "$task016_dir" fail &&
+      cargo build; then
+     env XDG_CONFIG_HOME="$task016_dir/config" PATH="$task016_dir/bin:$PATH" \
+       ./target/debug/v4vmm &
+     task016_app_pid=$!
+   fi
+   ```
+
+3. Open Show → Live Metadata. Press Retry check after the initial check ends.
+   Open Event Logs. Each action result has a date, time with seconds, and UTC.
+   The report names the selected event and relay, says the relay answered HTTP
+   503, and says which saved event state the app kept. Technical details follow
+   that explanation. A claim that the relay never answered is wrong.
+4. Close and reopen Logs without another check. Existing result times stay
+   unchanged. Actions that did not run produce no rows. A restart does not
+   invent a registration action. Keep the fixture running for the remaining
+   checks; step 10 supplies cleanup.
+
+### Setup And Event Recovery
+
+Each fixture mode command below runs in terminal B. It changes the next answer;
+it does not refresh the app. The app action beside it requests that answer.
+
+The event IDs below describe a fresh run. If your replacement has a different
+ID, use its actual picker ID in the later checks. The target-scope script reads
+the saved selection directly. The accepted guided session reached
+fixture-event-3. The operator confirmed all three registrations followed
+intentional Create/Replace clicks; step 10 records their preservation.
+
+
+1. **Use a safe test environment.** In your desktop terminal A, prepare a fresh
+   fixture and start its relay. Create it in that terminal; do not reuse a
+   temporary path supplied by an agent session. Agent-side verification does
+   not establish that your desktop terminal can access that directory.
+
+   ```bash
+   cd /home/citizen/build/v4vmm &&
+   cargo build &&
+   task016_dir=$(mktemp -d /tmp/v4vmm-task016.XXXXXX) &&
+   python3 docs/runbooks/broadcast-event-recovery-fixture.py setup "$task016_dir" &&
+   python3 docs/runbooks/broadcast-event-recovery-fixture.py verify "$task016_dir" &&
    python3 docs/runbooks/broadcast-event-recovery-fixture.py serve "$task016_dir"
    ```
 
@@ -337,7 +554,7 @@ name and marker are intentionally retained for locate/verify compatibility.
    the library is empty, and the endpoint is http://127.0.0.1:17863. If not,
    close that window and correct the verified launch before pressing actions.
 
-2. Open Show, then Live Metadata. Confirm Event/Producer/Publisher each has a
+2. **Check the cleaner layout.** Open Show, then Live Metadata. Confirm Event/Producer/Publisher each has a
    labeled badge. Event reads No event and stays non-green even with two Active
    service badges.
    Event has no inline token path or XML. At normal size and the smallest
@@ -345,7 +562,7 @@ name and marker are intentionally retained for locate/verify compatibility.
    reachable without scrolling through event diagnostics. A growing card or
    diagnostics pushing the services down is wrong.
 
-3. Before creation, set a registration failure in terminal B:
+3. **Check that failures stay compact.** Set a registration failure in terminal B:
 
    ```bash
    python3 docs/runbooks/broadcast-event-recovery-fixture.py create-mode "$task016_dir" fail
@@ -363,8 +580,19 @@ name and marker are intentionally retained for locate/verify compatibility.
    initial check failure. Registration success and check failure stay separate.
    Retry check is available; the event and card remain non-green. Inspect the
    full ID/token path in Logs. Duplicate commands during checking are disabled.
+   Inspect the pending activity at narrow and normal widths: Checking stays
+   on one horizontal line beside the badge, and the header height stays stable.
+   If retesting the layout correction with an existing event, keep the relay
+   and fixture directory, rebuild and relaunch only the app using step 1's
+   verified terminal B launch, then press Retry check in fail mode. Do not
+   Create or Replace solely to repeat this layout check. Inspect registration
+   success and check failure in Logs before closing the old app; those session
+   results are cleared on restart. Its stored event ID and token path persist.
+   The revised report uses timestamped sentences: the app created the named
+   event and saved your choice; the relay then answered HTTP 503 for that event.
+   Each sentence states its own outcome. Idle operations have no rows.
 
-4. Set the relay to Dead, then press Retry check:
+4. **Check recovery in the new controls.** Set the relay to Dead, then press Retry check:
 
    ```bash
    python3 docs/runbooks/broadcast-event-recovery-fixture.py mode "$task016_dir" dead
@@ -387,7 +615,7 @@ name and marker are intentionally retained for locate/verify compatibility.
 
 ### Saved Selection, Target Scope, And Passive Checks
 
-5. Choose the older fixture-event-1. Expect its own check and the notice that
+5. **Check that your choice sticks.** Choose the older fixture-event-1. Expect its own check and the notice that
    the configured publisher target still names fixture-event-2. Check again
    must work despite the newer registry row. Refresh, navigate away/back, close
    only the app, and relaunch with the terminal B launch command from step 1.
@@ -402,42 +630,35 @@ name and marker are intentionally retained for locate/verify compatibility.
    changed; refresh Show" solely because it is older is wrong. Select
    fixture-event-2 again before the next step.
 
-6. In terminal B, seed the exact target-scope regression. This block verifies
-   isolation and reads token paths, never token contents:
+6. **Check that unused targets cannot turn Event green.** Set mode live in
+   terminal B, select the replacement event in the app, and wait for its check
+   to finish. In the current guided session the replacement is fixture-event-3.
 
    ```bash
-   python3 - "$task016_dir" <<'PY_TARGETS'
-   import json
-   from pathlib import Path
-   import runpy
-   import sqlite3
-   import sys
-
-   fixture = runpy.run_path('docs/runbooks/broadcast-event-recovery-fixture.py')
-   root = fixture['fixture_root'](sys.argv[1])
-   fixture['verify_fixture'](root)
-   with sqlite3.connect(root / 'app.sqlite', timeout=5) as conn:
-       events = dict(conn.execute('SELECT event_id, token_path FROM broadcast_events'))
-   assert {'fixture-event-1', 'fixture-event-2'} <= events.keys()
-   def target(name, event_id):
-       return {'name': name, 'event_id': event_id,
-               'token_file': events[event_id], 'stream_delay_secs': 0.0}
-   payload = {'targets': [target('default', 'fixture-event-1'),
-                          target('unused', 'fixture-event-2')]}
-   temp = root / 'targets.pending.json'
-   temp.write_text(json.dumps(payload))
-   temp.replace(root / 'targets.json')
-   PY_TARGETS
+   python3 docs/runbooks/broadcast-event-recovery-fixture.py mode "$task016_dir" live
    ```
 
-   Press Check again to refresh liveness and configuration. Although unused
+   Then prepare the two fixture targets in terminal B. This command verifies
+   isolation and reads the saved choice and token paths without changing the
+   registry or token files. It assigns default to fixture-event-1 and unused
+   to the selected replacement event:
+
+   ```bash
+   python3 docs/runbooks/broadcast-event-recovery-fixture.py target-scope "$task016_dir"
+   ```
+
+   It prints both target assignments and records a seed target scope entry in
+   calls.jsonl, distinct from an app Attach command. If an earlier pasted block
+   failed on indentation, run this command with the existing fixture.
+
+   Choose **More → Check again** to refresh liveness and configuration. Although unused
    carries the selected ID, expect Not attached; Detach must be unavailable.
-   Press Attach: default changes to fixture-event-2 and unused remains. Inspect
-   targets.json. Now press Detach: only default is removed; unused remains and
+   Press Attach: default changes to the selected event and unused remains. Inspect
+   targets.json. Now choose **More → Detach**: only default is removed; unused remains and
    Event becomes Not attached. A green Event based on unused, deleting unused,
    or wiping both targets is wrong. Attach again to restore the configured chain.
 
-7. With Attached/Active/Active confirmed, press Check again. During its two-second
+7. **Check that passive checks do not flicker.** With Attached/Active/Active confirmed, choose **More → Check again**. During its two-second
    request, Attached and the card's Ready stay green with separate Checking
    activity. Success keeps them green. Change mode to fail, then Check again:
 
@@ -457,7 +678,8 @@ name and marker are intentionally retained for locate/verify compatibility.
    A card flicker solely because a passive check started, or a green card after
    its failed response, is wrong.
 
-   Save the target fixture, induce a failed target-list parse, and recheck:
+   Test a failed configuration read. Run this block in terminal B, then choose
+   **More → Check again** in the app:
 
    ```bash
    cp "$task016_dir/targets.json" "$task016_dir/targets.saved.json"
@@ -466,7 +688,8 @@ name and marker are intentionally retained for locate/verify compatibility.
 
    Expect Target read failed, Not ready, and no Attach; successful liveness
    cannot hide the failed configuration read. Restore targets and use the
-   configuration-read retry offered by the item:
+   configuration-read retry offered by the item. Run the command, then press
+   **Retry config**:
 
    ```bash
    cp "$task016_dir/targets.saved.json" "$task016_dir/targets.json"
@@ -474,7 +697,7 @@ name and marker are intentionally retained for locate/verify compatibility.
 
 ### Services, Diagnostics, And Cleanup
 
-8. Exercise each service's non-green state independently in terminal B:
+8. **Check each badge separately.** In terminal B, stop the simulated Producer:
 
    ```bash
    python3 docs/runbooks/broadcast-event-recovery-fixture.py producer-state "$task016_dir" inactive
@@ -487,12 +710,13 @@ name and marker are intentionally retained for locate/verify compatibility.
    python3 docs/runbooks/broadcast-event-recovery-fixture.py publisher-state "$task016_dir" failed
    ```
 
-   Expect Publisher Failed and card Not ready. Reset/Start from its controls as
-   offered and confirm recovery. During mutations, the affected badge reports
+   Expect Publisher Failed and card Not ready. Press **Reset**, then **Start**,
+   and confirm recovery. During mutations, the affected badge reports
    progress; unrelated items keep their states. Readable labels must carry the
    meaning even without identifying colors.
 
-9. Open Event Logs, then Producer Logs, then Publisher Logs. Titles and contents
+9. **Check on-demand diagnostics.** Open Event Logs, then Producer Logs, then
+   Publisher Logs. Titles and contents
    must match; service text must identify the fixture journal. Resize the bottom
    pane, select text, use Ctrl+C and right-click Copy, and paste into an editor.
    Close/reopen the pane and switch cards. Event diagnostics must not expand its
@@ -501,8 +725,10 @@ name and marker are intentionally retained for locate/verify compatibility.
    Changing it while service Logs is open must not steal that service pane.
    Repeated reads, late failures, or a close during a read must not overwrite a
    different source. No token content may appear in any text or clipboard result.
+   Use [Delayed Service Log Checks](#delayed-service-log-checks) below to keep
+   service reads pending long enough to inspect these cases.
 
-10. Inspect preservation and command separation:
+10. **Check preservation, then clean up.** Inspect the stored events and commands:
 
     ```bash
     env XDG_CONFIG_HOME="$task016_dir/config" PATH="$task016_dir/bin:$PATH" \
@@ -510,24 +736,84 @@ name and marker are intentionally retained for locate/verify compatibility.
     cat "$task016_dir/calls.jsonl"
     ```
 
-    Expect both event records and token files retained. Successful registrations
-    number exactly two; repeated checks use the selected ID. Target mutations
+    Expect all created event records and token files retained. A fresh run has
+    exactly two successful registrations. Each must correspond to one explicit
+    Create/Replace action; investigate any extra registration before passing.
+    Repeated checks use the selected ID. Target mutations
     occur only after explicit Attach/Detach. The log includes no token content.
     This is fixture acceptance, not proof of production connectivity.
 
-    Close the fixture app, stop the relay in terminal A with Ctrl+C, then in
-    terminal B remove only the verified marked fixture directory:
+    For a concise token-presence report, run the following in terminal B.
+    It reads each stored token path and checks whether its file exists; it
+    does not read or print token contents. Compare the event IDs with the
+    successful registrations in the second command's output. Each successful
+    registration must correspond to an intentional Create or Replace press.
 
-    ```bash
-    printf '%s\n' "$task016_dir"
-    test -f "$task016_dir/task-016-fixture" && rm -r -- "$task016_dir"
-    unset task016_dir task016_app_pid
-    ```
+```bash
+env XDG_CONFIG_HOME="$task016_dir/config" PATH="$task016_dir/bin:$PATH" ./target/debug/v4vmm broadcast events list --json |
+python3 -c 'import json, pathlib, sys; events = json.load(sys.stdin); [print(e["event_id"] + ": token " + ("present" if pathlib.Path(e["token_path"]).is_file() else "MISSING")) for e in events]'
+```
 
-    Preserve any earlier directory named with the literal
-    `REPLACE_WITH_PRINTED_SUFFIX`; a real registry may still reference a token
-    there. No real service/configuration restore is needed for this isolated run.
+```bash
+rg '"operation": "(register|target add|target remove|seed target scope)"' "$task016_dir/calls.jsonl"
+```
 
-On acceptance, record this gate Passed in this packet and the delivery row,
-remove its pending-human-checks entry, and reconcile both ADR statuses against
-all their gates. Do not change task 016's historical acceptance record.
+Close the fixture app, stop the relay in terminal A with Ctrl+C, then in
+terminal B remove only the verified marked fixture directory:
+
+```bash
+printf '%s\n' "$task016_dir"
+test -f "$task016_dir/task-016-fixture" && rm -r -- "$task016_dir"
+unset task016_dir task016_app_pid
+```
+
+Preserve any earlier directory named with the literal
+`REPLACE_WITH_PRINTED_SUFFIX`; a real registry may still reference a token
+there. No real service/configuration restore is needed for this isolated run.
+
+Closure recorded - 2026-09-10. This packet and the delivery row are Implemented,
+the pending-human-checks entry is removed, and ADRs 0059/0063 are reconciled to
+Implemented. Task 016's historical acceptance record is unchanged.
+
+### Delayed Service Log Checks
+
+These complete the remaining service-read cases in step 9. Keep the existing
+fixture app and relay running. No rebuild or restart is needed: the existing
+fake journal command loads the updated script for each request. These modes
+affect only fixture service logs; event replies and service states keep their
+own settings. If Reading logs was not visible before switching or closing,
+repeat that case; an already completed request cannot prove late-result handling.
+
+1. **A late service failure must not replace Event Logs.** Set the new journal
+   mode in terminal B:
+
+```bash
+python3 docs/runbooks/broadcast-event-recovery-fixture.py journal-mode "$task016_dir" slow-fail
+```
+
+Open Publisher Logs. While it says Reading logs, open Event Logs. Wait six
+seconds. The pane must retain the Event title and event details. A Publisher
+error replacing them is wrong.
+
+2. **A late service failure must not reopen a closed pane.** Keep slow-fail.
+   Open Publisher Logs, then close the pane with × while Reading logs appears.
+   Wait six seconds. The pane must stay closed.
+
+3. **Repeated reads must leave the most recently chosen log visible.** Set
+   delayed successful reads in terminal B:
+
+```bash
+python3 docs/runbooks/broadcast-event-recovery-fixture.py journal-mode "$task016_dir" slow
+```
+
+Open Publisher Logs. While Reading logs appears, press Publisher Logs again
+to close it, then once more to start another read. Open Producer Logs before
+that read finishes. Wait for the Producer journal, then another six seconds.
+Its title and text must name mixxx-now-playing.service throughout the completed
+display; neither Publisher reply may replace them.
+
+Restore immediate service reads before preservation and cleanup in step 10:
+
+```bash
+python3 docs/runbooks/broadcast-event-recovery-fixture.py journal-mode "$task016_dir" normal
+```

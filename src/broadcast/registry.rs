@@ -44,6 +44,25 @@ pub struct CheckedBroadcastEvent {
     pub status: db::BroadcastEventStatus,
 }
 
+/// A relay answer arrived, but storing or reading back that answer failed (ADR 0059).
+#[derive(Debug)]
+pub(crate) struct EventCheckSaveError {
+    pub(crate) observed_status: db::BroadcastEventStatus,
+    source: anyhow::Error,
+}
+
+impl std::fmt::Display for EventCheckSaveError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "save relay answer: {:#}", self.source)
+    }
+}
+
+impl std::error::Error for EventCheckSaveError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.source.as_ref())
+    }
+}
+
 impl<'a> BroadcastRegistry<'a> {
     /// Build a registry using the default token directory.
     ///
@@ -167,6 +186,20 @@ impl<'a> BroadcastRegistry<'a> {
             Some(_) => db::BroadcastEventStatus::Live,
             None => db::BroadcastEventStatus::Dead,
         };
+        self.store_checked_event(&event, status).map_err(|source| {
+            EventCheckSaveError {
+                observed_status: status,
+                source,
+            }
+            .into()
+        })
+    }
+
+    fn store_checked_event(
+        &self,
+        event: &db::BroadcastEventRow,
+        status: db::BroadcastEventStatus,
+    ) -> Result<CheckedBroadcastEvent> {
         let checked_at = (self.clock)()?;
         anyhow::ensure!(
             db::update_broadcast_event_status(self.conn, event.id, status, Some(checked_at))?,
@@ -545,6 +578,11 @@ mod tests {
             .check_event("event-one")
             .expect_err("transport failure should return an error");
 
+        let response = error
+            .downcast_ref::<crate::api::LiveMetadataReadError>()
+            .expect("ADR 0059: retain response facts through registry context");
+        assert_eq!(response.response_status, None);
+
         assert!(
             error
                 .to_string()
@@ -554,6 +592,36 @@ mod tests {
         let row = db::broadcast_event_by_id(&conn, id)?.context("event should still exist")?;
         assert_eq!(row.last_status, Some(db::BroadcastEventStatus::Live));
         assert_eq!(row.last_checked_at, Some(123));
+        Ok(())
+    }
+
+    /// Situational ADR 0059: rejected and unreadable HTTP responses remain distinct from no response.
+    #[test]
+    fn check_event_retains_http_status_without_changing_saved_facts() -> Result<()> {
+        for (status, expected) in [("503 Service Unavailable", 503), ("200 OK", 200)] {
+            let temp = tempfile::tempdir()?;
+            let conn = test_db(&temp)?;
+            let endpoint = serve_once(status, "not metadata JSON");
+            let id = insert_event(
+                &conn,
+                "event-one",
+                &endpoint,
+                &temp,
+                db::BroadcastEventStatus::Live,
+                Some(123),
+            )?;
+            let registry = registry(&conn, &endpoint, &temp)?;
+            let error = registry
+                .check_event("event-one")
+                .expect_err("metadata request cannot answer");
+            let response = error
+                .downcast_ref::<crate::api::LiveMetadataReadError>()
+                .expect("retain HTTP status through registry context");
+            assert_eq!(response.response_status, Some(expected));
+            let row = db::broadcast_event_by_id(&conn, id)?.context("stored event")?;
+            assert_eq!(row.last_status, Some(db::BroadcastEventStatus::Live));
+            assert_eq!(row.last_checked_at, Some(123));
+        }
         Ok(())
     }
 

@@ -9,6 +9,21 @@ use serde::{Deserialize, Serialize};
 pub const DEFAULT_BASE_URL: &str = "https://api.musicindex.org";
 pub const PAGE_LIMIT: i32 = 20;
 
+/// Facts retained when an event metadata request cannot supply an answer (ADR 0059).
+#[derive(Debug)]
+pub(crate) struct LiveMetadataReadError {
+    pub(crate) response_status: Option<u16>,
+    detail: String,
+}
+
+impl fmt::Display for LiveMetadataReadError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.detail)
+    }
+}
+
+impl std::error::Error for LiveMetadataReadError {}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct SearchResponse {
@@ -570,11 +585,25 @@ impl Client {
     ) -> Result<Option<LiveMetadataSnapshot>> {
         validate_live_metadata_event_id("path event_id", event_id)?;
         let url = self.build_url(&["v1", "liveitems", event_id, "metadata"], &[])?;
-        let response = self.client.get(url).send()?;
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .map_err(|error| LiveMetadataReadError {
+                response_status: None,
+                detail: format!("{:#}", anyhow::Error::new(error)),
+            })?;
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(None);
         }
-        response_json(response, "GET").map(Some)
+        let status = response.status().as_u16();
+        response_json(response, "GET").map(Some).map_err(|error| {
+            LiveMetadataReadError {
+                response_status: Some(status),
+                detail: format!("{error:#}"),
+            }
+            .into()
+        })
     }
 
     fn fetch_wrapped<T>(&self, path_segments: &[&str]) -> Result<T>

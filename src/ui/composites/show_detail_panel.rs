@@ -16,17 +16,22 @@ use gpui::{
 
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::IconName;
-use crate::ui::primitives::Button;
+use crate::ui::primitives::{
+    status_badge::render_state_badge, Button, ContextMenu, ContextMenuItem, ContextMenuItemDisplay,
+    ContextMenuScope,
+};
 use crate::ui::shells::queue_now_playing::render_queue_cuelist;
-use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Size, Spacing};
+use crate::ui::tokens::{color, FontSize, SemanticColor, Size, Spacing};
 use crate::view_models::queue_now_playing::QueueNowPlayingPageVm;
 use crate::view_models::show::{
-    EventActionDisplay, EventSectionDisplay, PublisherActionDisplay, PublisherSectionDisplay,
-    PublisherServiceDisplay, PublisherServiceRole, ShowCardKind, ShowPanelActionDisplay,
-    ShowPanelChromeDisplay, ShowPanelMode, SourceReadinessActionDisplay, SourceSectionDisplay,
-    StreamActionDisplay, StreamSectionDisplay,
+    EventActionDisplay, EventControlDisplay, EventControlIntent, EventSectionDisplay,
+    PublisherActionDisplay, PublisherSectionDisplay, PublisherServiceDisplay, PublisherServiceRole,
+    ShowCardKind, ShowItemBadge, ShowPanelActionDisplay, ShowPanelChromeDisplay, ShowPanelMode,
+    SourceReadinessActionDisplay, SourceSectionDisplay, StreamActionDisplay, StreamSectionDisplay,
 };
 
+type EventSelectHandler = Rc<dyn Fn(String, &mut Window, &mut App)>;
+type EventControlHandler = Rc<dyn Fn(EventControlIntent, &ClickEvent, &mut Window, &mut App)>;
 type PanelClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 type PublisherClickHandler =
     Rc<dyn Fn(PublisherServiceRole, &ClickEvent, &mut Window, &mut App) + 'static>;
@@ -63,16 +68,36 @@ pub(crate) struct ShowDetailPanelSlots {
     publisher_stop: Option<PublisherClickHandler>,
     publisher_reset: Option<PublisherClickHandler>,
     publisher_open_logs: Option<PublisherClickHandler>,
-    event_create: Option<PanelClickHandler>,
-    event_replace: Option<PanelClickHandler>,
-    event_check: Option<PanelClickHandler>,
-    event_attach: Option<PanelClickHandler>,
-    event_detach: Option<PanelClickHandler>,
+    event_select: Option<EventSelectHandler>,
+    event_logs: Option<PanelClickHandler>,
+    event_control: Option<EventControlHandler>,
     stream_connect: Option<PanelClickHandler>,
     stream_disconnect: Option<PanelClickHandler>,
 }
 
 impl ShowDetailPanelSlots {
+    pub(crate) fn on_select_event(
+        mut self,
+        handler: impl Fn(String, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.event_select = Some(Rc::new(handler));
+        self
+    }
+    pub(crate) fn on_open_event_logs(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.event_logs = Some(Rc::new(handler));
+        self
+    }
+    pub(crate) fn on_event_control(
+        mut self,
+        handler: impl Fn(EventControlIntent, &ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.event_control = Some(Rc::new(handler));
+        self
+    }
+
     /// Creates empty side-panel slots.
     pub(crate) fn new() -> Self {
         Self::default()
@@ -147,51 +172,6 @@ impl ShowDetailPanelSlots {
         handler: impl Fn(PublisherServiceRole, &ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.publisher_open_logs = Some(Rc::new(handler));
-        self
-    }
-
-    /// Supplies the event registration callback.
-    pub(crate) fn on_create_event(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.event_create = Some(Rc::new(handler));
-        self
-    }
-
-    /// Supplies the event replacement callback.
-    pub(crate) fn on_replace_event(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.event_replace = Some(Rc::new(handler));
-        self
-    }
-
-    /// Supplies the event liveness check callback.
-    pub(crate) fn on_check_event(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.event_check = Some(Rc::new(handler));
-        self
-    }
-
-    /// Supplies the Event target attach callback.
-    pub(crate) fn on_attach_event_target(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.event_attach = Some(Rc::new(handler));
-        self
-    }
-
-    /// Supplies the Event target detach callback.
-    pub(crate) fn on_detach_event_target(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.event_detach = Some(Rc::new(handler));
         self
     }
 
@@ -473,7 +453,8 @@ fn render_publisher_service(
         id,
         label,
         unit_name,
-        state,
+        badge,
+        state: _,
         actions,
         logs,
     } = service;
@@ -486,13 +467,8 @@ fn render_publisher_service(
         .py(Spacing::SM.scaled(cx))
         .border_t_1()
         .border_color(color(cx, SemanticColor::Separator))
-        .child(render_detail_row("Service", label, Some(unit_name), cx))
-        .child(render_detail_row(
-            "State",
-            state.label(),
-            Some(state.detail()),
-            cx,
-        ))
+        .child(render_item_header(label, badge, None, cx))
+        .child(compact_detail(unit_name, cx))
         .child(render_controls(
             vec![
                 publisher_action_button(actions.start, role, slots.publisher_start.clone())
@@ -508,87 +484,148 @@ fn render_publisher_service(
         ))
 }
 
+fn render_item_header(
+    label: &'static str,
+    badge: ShowItemBadge,
+    activity: Option<&'static str>,
+    cx: &App,
+) -> impl IntoElement {
+    div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap(Spacing::SM.scaled(cx))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_size(FontSize::Body.scaled(cx))
+                .font_weight(FontWeight::MEDIUM)
+                .child(label),
+        )
+        .children(activity.map(|text| {
+            compact_detail(text.to_owned(), cx)
+                .flex_shrink_0()
+                .whitespace_nowrap()
+        }))
+        .child(render_state_badge(badge.label.to_owned(), badge.kind, cx))
+}
+
+fn compact_detail(text: String, cx: &App) -> gpui::Div {
+    div()
+        .min_w_0()
+        .text_size(FontSize::Micro.scaled(cx))
+        .text_color(color(cx, SemanticColor::SecondaryLabel))
+        .child(SharedString::from(text))
+}
+
+fn event_handler(
+    intent: EventControlIntent,
+    slots: &ShowDetailPanelSlots,
+) -> Option<PanelClickHandler> {
+    slots.event_control.clone().map(|handler| {
+        Rc::new(
+            move |event: &ClickEvent, window: &mut Window, cx: &mut App| {
+                handler(intent, event, window, cx);
+            },
+        ) as PanelClickHandler
+    })
+}
+
+fn event_menu_item(
+    control: EventControlDisplay,
+    slots: &ShowDetailPanelSlots,
+    feed_tag: Option<String>,
+) -> ContextMenuItem {
+    let disabled = control.action.disabled();
+    let display = ContextMenuItemDisplay {
+        id: control.action.id.into(),
+        label: control.action.label.into(),
+        a11y_label: control.action.a11y_label.into(),
+        destructive: false,
+        disabled,
+    };
+    let handler = event_handler(control.intent, slots);
+    ContextMenuItem::new(display).on_select(move |window, cx| {
+        if control.intent == EventControlIntent::CopyFeedTag {
+            if let Some(tag) = &feed_tag {
+                cx.write_to_clipboard(ClipboardItem::new_string(tag.clone()));
+            }
+        } else if let Some(handler) = &handler {
+            handler(&ClickEvent::default(), window, cx);
+        }
+    })
+}
+
 fn render_event_detail(
     section: EventSectionDisplay,
     slots: &ShowDetailPanelSlots,
     cx: &App,
 ) -> impl IntoElement {
-    let mut detail = div()
+    let picker_disabled = section.picker.availability.disabled();
+    let mut picker = ContextMenu::new(
+        "show-event-picker",
+        ContextMenuScope::WorkspaceFrame,
+        section.picker.a11y_label,
+    )
+    .trigger_label(section.picker.label)
+    .trigger_icon(IconName::ChevronDown)
+    .disabled(picker_disabled);
+    for entry in section.picker.entries {
+        let handler = slots.event_select.clone();
+        picker = picker.item(
+            ContextMenuItem::new(ContextMenuItemDisplay {
+                id: SharedString::from(entry.event_id.clone()),
+                label: entry.label.into(),
+                a11y_label: entry.a11y_label.into(),
+                destructive: false,
+                disabled: picker_disabled,
+            })
+            .description(entry.detail)
+            .on_select(move |window, cx| {
+                if let Some(handler) = &handler {
+                    handler(entry.event_id.clone(), window, cx);
+                }
+            }),
+        );
+    }
+    let overflow = ContextMenu::new(
+        "show-event-actions",
+        ContextMenuScope::WorkspaceFrame,
+        "More event actions",
+    )
+    .trigger_label("More")
+    .items(
+        section
+            .overflow
+            .into_iter()
+            .map(|control| event_menu_item(control, slots, section.feed_tag.clone())),
+    );
+    let mut controls = Vec::new();
+    if let Some(primary) = section.primary {
+        controls.push(
+            event_action_button(primary.action, event_handler(primary.intent, slots))
+                .into_any_element(),
+        );
+    }
+    controls.push(event_action_button(section.logs, slots.event_logs.clone()).into_any_element());
+    controls.push(overflow.into_any_element());
+    div()
         .flex()
         .flex_col()
         .min_w_0()
-        .gap(Spacing::SM.scaled(cx))
-        .child(render_detail_row(
+        .gap(Spacing::XS.scaled(cx))
+        .child(render_item_header(
             "Event",
-            section.event.label,
-            Some(section.summary),
+            section.badge,
+            section.activity,
             cx,
         ))
-        .child(render_detail_row(
-            "State",
-            section.event.state.label,
-            Some(section.event.state.detail.to_owned()),
-            cx,
-        ))
-        .child(render_detail_row(
-            "Target",
-            section.target.label,
-            Some(section.target.detail),
-            cx,
-        ));
-
-    detail = detail.child(render_controls(
-        vec![
-            event_action_button(section.actions.create, slots.event_create.clone())
-                .into_any_element(),
-            event_action_button(section.actions.replace, slots.event_replace.clone())
-                .into_any_element(),
-            event_action_button(section.actions.check, slots.event_check.clone())
-                .into_any_element(),
-            event_action_button(section.actions.attach, slots.event_attach.clone())
-                .into_any_element(),
-            event_action_button(section.actions.detach, slots.event_detach.clone())
-                .into_any_element(),
-        ],
-        cx,
-    ));
-
-    if let Some(message) = section.registration_message {
-        detail = detail.child(render_detail_row("Registration", message, None, cx));
-    }
-    if let Some(message) = section.check_message {
-        detail = detail.child(render_detail_row("Liveness check", message, None, cx));
-    }
-
-    if let Some(event_id) = section.event.event_id {
-        detail = detail.child(render_detail_row("Event ID", event_id, None, cx));
-    }
-    if let Some(endpoint) = section.event.endpoint {
-        detail = detail.child(render_detail_row("Endpoint", endpoint, None, cx));
-    }
-    if let Some(token_path) = section.event.token_path {
-        detail = detail.child(render_detail_row("Token", token_path, None, cx));
-    }
-    if let Some(feed_tag) = section.feed_tag {
-        detail = detail
-            .child(render_code_block(
-                "show-event-feed-tag",
-                "Feed tag",
-                feed_tag.clone(),
-                cx,
-            ))
-            .child(event_action_button(
-                section.actions.copy_feed_tag,
-                Some(Rc::new(move |_, _, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(feed_tag.clone()));
-                })),
-            ));
-    }
-    if let Some(hint) = section.hint {
-        detail = detail.child(render_detail_row("Hint", hint, None, cx));
-    }
-
-    detail
+        .child(picker)
+        .child(render_controls(controls, cx))
+        .children(section.hint.map(|hint| compact_detail(hint, cx)))
 }
 
 fn render_stream_detail(
@@ -704,38 +741,6 @@ fn render_detail_row(
                     .child(SharedString::from(detail)),
             )
         })
-}
-
-fn render_code_block(
-    id: &'static str,
-    label: &'static str,
-    value: String,
-    cx: &App,
-) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
-        .min_w_0()
-        .gap(Spacing::XXS.scaled(cx))
-        .child(
-            div()
-                .text_size(FontSize::Micro.scaled(cx))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(color(cx, SemanticColor::TertiaryLabel))
-                .child(SharedString::from(label)),
-        )
-        .child(
-            div()
-                .id(id)
-                .min_w_0()
-                .overflow_x_scroll()
-                .rounded(Radius::SM.scaled(cx))
-                .bg(color(cx, SemanticColor::TertiarySystemBackground))
-                .p(Spacing::SM.scaled(cx))
-                .text_size(FontSize::Micro.scaled(cx))
-                .text_color(color(cx, SemanticColor::SecondaryLabel))
-                .child(SharedString::from(value)),
-        )
 }
 
 fn render_controls(controls: Vec<AnyElement>, cx: &App) -> impl IntoElement {

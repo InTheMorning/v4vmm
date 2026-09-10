@@ -62,6 +62,9 @@ Current governance:
 
 Current plans:
 
+- [Show narrow-layout proposal](plans/show-narrow-layout-proposal.md):
+  compact cards, full-width logs and an overlap alternative, readable log-body
+  allocation, and playback-bar removal with scope awaiting clarification
 - [ADR 0023 migration plan](plans/adr-0023-design-system-migration.md):
   remaining design-system and view-model work
 - [Discovery and Library UI fixes plan](plans/discovery-library-ui-fixes.md):
@@ -80,10 +83,10 @@ Current plans:
   decisions
 - [HIG product polish backlog](plans/hig-product-polish-backlog.md):
   HIG completeness work such as search suggestions, sidebar show/hide, Liquid
-  Glass materials, and keyboard coverage
+  Glass materials, keyboard coverage, and per-log following/reading positions
 - [Broadcast chain delivery order](plans/broadcast-chain-delivery-order.md):
   the only cross-repository order. Read it before starting a session on the
-  broadcast work
+  broadcast work; also records the UTC log timestamp follow-up
 - [ADR 0059 broadcast control surface phase plan](plans/adr-0059-broadcast-control-surface-phase-plan.md):
   phased delivery for the `Broadcast` frame, the event registry, service
   control, and the `mpv` drop-file producer
@@ -94,8 +97,8 @@ Current implementation packets:
   complete with operator acceptance on 2026-09-10; the
   [isolated feedback fixture](runbooks/show-action-feedback-fixture.py) remains for regression checks
 - [ADR 0059 task 017: Compact event controls and badges](tasks/adr-0059-task-017-compact-event-controls-and-badges.md):
-  accepted amendments to ADRs 0059/0063; prerequisite complete, ready to implement;
-  its operator visual acceptance remains open
+  complete with mechanical checks Green, operator acceptance, and fixture
+  cleanup on 2026-09-10; layout and log follow-ups remain separately documented
 
 Current reviews:
 

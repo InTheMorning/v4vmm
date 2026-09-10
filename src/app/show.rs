@@ -5,6 +5,7 @@
 //! Show shell without introducing a workspace frame.
 //! ADR 0059 places event registration and retryable liveness checks inside Live Metadata.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -34,8 +35,9 @@ use crate::ui::shells::show::{render_show, ShowShell, ShowSlots};
 use crate::view_models::live_status::LiveStatusDisplay;
 use crate::view_models::queue_now_playing::QueueNowPlayingPageVm;
 use crate::view_models::show::{
-    EventCommandFeedback, EventCommandState, EventRegistryAction, EventSectionInput,
-    EventSelectionInput, EventState, EventTargetInput, EventTargetListInput,
+    EventCheckResponse, EventCommandFeedback, EventCommandState, EventControlIntent,
+    EventRegistryAction, EventRegistryInput, EventRegistryStatus, EventReportOperation,
+    EventSectionInput, EventSelectionInput, EventState, EventTargetInput, EventTargetListInput,
     PublisherServiceOperation, PublisherServiceRole, ShowCardKind, ShowCommandId, ShowLogRequestId,
     ShowPageVm, StreamEncoderOperation, PUBLISHER_LOG_LINE_COUNT,
 };
@@ -63,8 +65,6 @@ pub(super) fn build_show_screen(
     let connect_stream_entity = entity.clone();
     let disconnect_stream_entity = entity.clone();
     let readiness_entity = entity.clone();
-    let attach_event_entity = entity.clone();
-    let detach_event_entity = entity.clone();
     let slots = with_log_slots(ShowSlots::new(), &entity);
     let slots = with_event_registry_slots(slots, &entity);
     render_show(
@@ -119,16 +119,6 @@ pub(super) fn build_show_screen(
                     this.run_publisher_service_command(role, PublisherServiceOperation::Reset, cx);
                 });
             })
-            .on_attach_event_target(move |_, _, cx| {
-                attach_event_entity.update(cx, |this, cx| {
-                    this.run_event_target_command(EventTargetOperation::Attach, cx);
-                });
-            })
-            .on_detach_event_target(move |_, _, cx| {
-                detach_event_entity.update(cx, |this, cx| {
-                    this.run_event_target_command(EventTargetOperation::Detach, cx);
-                });
-            })
             .on_connect_stream(move |_, _, cx| {
                 connect_stream_entity.update(cx, |this, cx| {
                     this.run_stream_encoder_command(StreamEncoderOperation::Connect, cx);
@@ -144,24 +134,26 @@ pub(super) fn build_show_screen(
 
 /// Binds the event row's explicit registry actions (ADR 0059).
 fn with_event_registry_slots(slots: ShowSlots, entity: &Entity<TopApp>) -> ShowSlots {
-    let create_event_entity = entity.clone();
-    let replace_event_entity = entity.clone();
-    let check_event_entity = entity.clone();
+    let select_event_entity = entity.clone();
+    let event_logs_entity = entity.clone();
+    let event_control_entity = entity.clone();
     slots
-        .on_create_event(move |_, _, cx| {
-            create_event_entity.update(cx, |this, cx| {
-                this.run_event_registry_command(EventRegistryAction::Create, cx);
+        .on_select_event(move |event_id, _, cx| {
+            select_event_entity.update(cx, |this, cx| this.select_show_event(event_id, cx));
+        })
+        .on_open_event_logs(move |_, _, cx| {
+            event_logs_entity.update(cx, |this, cx| {
+                if this.show_page.log_pane.shows_event() {
+                    this.close_publisher_logs(cx);
+                } else if let Some(input) = &this.event_section_input {
+                    this.show_page.log_pane.show_event(input);
+                    this.reproject_show_page_from_current_queue();
+                    cx.notify();
+                }
             });
         })
-        .on_replace_event(move |_, _, cx| {
-            replace_event_entity.update(cx, |this, cx| {
-                this.run_event_registry_command(EventRegistryAction::Replace, cx);
-            });
-        })
-        .on_check_event(move |_, _, cx| {
-            check_event_entity.update(cx, |this, cx| {
-                this.run_event_registry_command(EventRegistryAction::Check, cx);
-            });
+        .on_event_control(move |intent, _, _, cx| {
+            event_control_entity.update(cx, |this, cx| this.run_event_control(intent, cx));
         })
 }
 
@@ -323,13 +315,24 @@ impl TopApp {
             command,
             CommandContext::next(),
             cx,
-            move |this, projection, _cx| {
-                apply_event_refresh(
+            move |this, projection, cx| {
+                let applied = apply_event_refresh(
                     &mut this.event_section_input,
                     requested_event_input.as_ref(),
                     projection.event_section_input,
                 );
                 this.reproject_show_page(projection.queue);
+                let selection_changed = requested_event_input.as_ref().map(event_input_identity)
+                    != this.event_section_input.as_ref().map(event_input_identity);
+                if applied
+                    && selection_changed
+                    && this
+                        .event_section_input
+                        .as_ref()
+                        .is_some_and(|input| input.selected_event.is_some())
+                {
+                    this.run_event_registry_command(EventRegistryAction::Check, cx);
+                }
             },
             |this, error, _cx| {
                 this.settings_status = format!("Show status error: {error:#}");
@@ -368,6 +371,12 @@ impl TopApp {
     }
 
     fn reproject_show_page(&mut self, queue: QueueNowPlayingPageVm) {
+        if let Some(input) = &self.event_section_input {
+            self.event_session.remember(input);
+            if self.show_page.log_pane.shows_event() {
+                self.show_page.log_pane.show_event(input);
+            }
+        }
         let panel_mode = self.show_page.panel_mode;
         let panel_open = self.show_page.panel_open;
         self.show_page = ShowPageVm::from_queue_publisher_readiness_and_event(
@@ -544,13 +553,22 @@ impl TopApp {
         let Some(input) = self.event_section_input.as_mut() else {
             return;
         };
+        self.event_session.next_request += 1;
+        input.request = self.event_session.next_request;
+        let request = input.request;
+        let request_context = input.context.clone();
+        let error_context = request_context.clone();
         let command = EventRegistryCommand {
+            selection_revision: input.registry.revision,
             conn: Arc::clone(&self.conn),
             cfg_path: self.cfg_path.clone(),
             action,
             selected_event: input.selected_event.clone(),
         };
         begin_event_registry_action(input, action);
+        if action == EventRegistryAction::Check {
+            self.read_event_targets(request, cx);
+        }
         self.reproject_show_page_from_current_queue();
         cx.notify();
         present_command(
@@ -559,6 +577,9 @@ impl TopApp {
             CommandContext::next(),
             cx,
             move |this, event, cx| {
+                if !this.event_request_is_current(request, &request_context) {
+                    return;
+                }
                 let Some(input) = this.event_section_input.as_mut() else {
                     return;
                 };
@@ -567,11 +588,12 @@ impl TopApp {
                 cx.notify();
                 if let Some(next) = next {
                     this.run_event_registry_command(next, cx);
-                } else {
-                    this.refresh_show_page(cx);
                 }
             },
             move |this, error, cx| {
+                if !this.event_request_is_current(request, &error_context) {
+                    return;
+                }
                 if let Some(input) = this.event_section_input.as_mut() {
                     apply_event_registry_result(input, action, Err(error));
                 }
@@ -586,6 +608,18 @@ impl TopApp {
         operation: EventTargetOperation,
         cx: &mut Context<Self>,
     ) {
+        let available = self
+            .show_page
+            .publisher
+            .as_ref()
+            .and_then(|section| section.event.as_ref())
+            .is_some_and(|event| match operation {
+                EventTargetOperation::Attach => !event.actions.attach.disabled(),
+                EventTargetOperation::Detach => !event.actions.detach.disabled(),
+            });
+        if !available {
+            return;
+        }
         let Some(input) = self.event_section_input.clone() else {
             "Event target command error: event state is not loaded"
                 .clone_into(&mut self.settings_status);
@@ -614,7 +648,19 @@ impl TopApp {
                 return;
             }
         };
+        let Some(command_id) = self.show_commands.begin_service(
+            PublisherServiceRole::Publisher,
+            PublisherServiceOperation::Start,
+        ) else {
+            return;
+        };
+        self.event_session.next_request += 1;
+        let request = self.event_session.next_request;
+        let context = input.context.clone();
+        let error_context = context.clone();
         let command = EventTargetCommand {
+            conn: Arc::clone(&self.conn),
+            selection_revision: input.registry.revision,
             operation,
             transport: selected_host.transport,
             instance_name: selected_host.instance_name,
@@ -622,19 +668,34 @@ impl TopApp {
             event_id: event.event_id,
             token_path: event.token_path,
         };
-
+        if let Some(input) = &mut self.event_section_input {
+            input.request = request;
+            input.feedback.target_mutation = EventCommandState::Working;
+            input.feedback.active_action = Some(match operation {
+                EventTargetOperation::Attach => EventControlIntent::Attach,
+                EventTargetOperation::Detach => EventControlIntent::Detach,
+            });
+            input.record_event_report(EventReportOperation::TargetMutation, chrono::Utc::now());
+            input.targets = EventTargetListInput::Unknown;
+        }
+        self.reproject_show_page_from_current_queue();
+        cx.notify();
         present_command(
             &self.command_runner,
             command,
             CommandContext::next(),
             cx,
-            |this, (), cx| {
-                this.settings_status.clear();
-                this.invalidate_publisher_service_snapshot();
-                this.refresh_show_page(cx);
+            move |this, completion, cx| {
+                this.finish_event_target(request, &context, command_id, completion, cx);
             },
-            |this, error, _cx| {
-                this.settings_status = format!("Event target command error: {error:#}");
+            move |this, error, cx| {
+                this.finish_event_target(
+                    request,
+                    &error_context,
+                    command_id,
+                    ShowCommandCompletion::new(Err(error)),
+                    cx,
+                );
             },
         );
     }
@@ -726,10 +787,11 @@ struct EventRegistryCommand {
     cfg_path: PathBuf,
     action: EventRegistryAction,
     selected_event: Option<EventSelectionInput>,
+    selection_revision: i64,
 }
 
 impl ApplicationCommand for EventRegistryCommand {
-    type Output = EventSelectionInput;
+    type Output = EventRegistryResult;
 
     fn execute(self, context: &CommandContext) -> crate::application::CommandResult<Self::Output> {
         if context.cancellation().is_cancelled() {
@@ -740,20 +802,30 @@ impl ApplicationCommand for EventRegistryCommand {
             .lock()
             .map_err(|_| CommandError::Query("database lock poisoned".to_owned()))?;
         // Revalidate stored identity and liveness before any relay mutation.
+        let selection = db::broadcast_event_selection(&conn).map_err(event_registry_error)?;
         let selected = selected_event_input(&conn).map_err(event_registry_error)?;
-        if selected != self.selected_event {
+        if selection.revision != self.selection_revision
+            || selection.event_id.as_deref()
+                != self
+                    .selected_event
+                    .as_ref()
+                    .map(|event| event.event_id.as_str())
+        {
             return Err(CommandError::Other(
                 "Selected event changed; refresh Show before trying again.".to_owned(),
             ));
         }
         let allowed = match self.action {
-            EventRegistryAction::Create => selected.is_none(),
+            EventRegistryAction::Create => {
+                selection.event_id.is_none()
+                    && db::broadcast_events(&conn)
+                        .map_err(event_registry_error)?
+                        .is_empty()
+            }
             EventRegistryAction::Replace => selected
                 .as_ref()
                 .is_some_and(|event| event.state == EventState::Dead),
-            EventRegistryAction::Check => selected
-                .as_ref()
-                .is_some_and(|event| event.state == EventState::Unknown),
+            EventRegistryAction::Check => selected.is_some(),
         };
         if !allowed {
             return Err(CommandError::Other(
@@ -783,13 +855,59 @@ impl ApplicationCommand for EventRegistryCommand {
                 let event = selected
                     .as_ref()
                     .ok_or_else(|| CommandError::Other("No event selected".to_owned()))?;
-                registry
-                    .check_event(&event.event_id)
-                    .map_err(event_registry_error)?
-                    .event
+                match registry.check_event(&event.event_id) {
+                    Ok(checked) => checked.event,
+                    Err(error) => {
+                        return Ok(CommandOutcome::without_events(
+                            EventRegistryResult::CheckFailed {
+                                response: event_check_response(&error),
+                                detail: format!("{error:#}"),
+                            },
+                        ));
+                    }
+                }
             }
         };
-        Ok(CommandOutcome::without_events(event_selection_input(event)))
+        let (selection, selection_error) = if self.action == EventRegistryAction::Check {
+            (Some(selection), None)
+        } else {
+            match db::select_broadcast_event(&conn, &event.event_id) {
+                Ok(selection) => (Some(selection), None),
+                Err(error) => (
+                    None,
+                    Some(format!(
+                        "Event registered, but saving the choice failed: {error:#}"
+                    )),
+                ),
+            }
+        };
+        let events = db::broadcast_events(&conn)
+            .map_err(event_registry_error)?
+            .into_iter()
+            .map(event_selection_input)
+            .collect();
+        Ok(CommandOutcome::without_events(
+            EventRegistryResult::Complete(EventRegistrySuccess {
+                event: event_selection_input(event),
+                selection,
+                selection_error,
+                events,
+            }),
+        ))
+    }
+}
+
+fn event_check_response(error: &anyhow::Error) -> EventCheckResponse {
+    if let Some(error) = error.downcast_ref::<crate::api::LiveMetadataReadError>() {
+        error
+            .response_status
+            .map_or(EventCheckResponse::NoResponse, EventCheckResponse::Http)
+    } else if let Some(error) =
+        error.downcast_ref::<crate::broadcast::registry::EventCheckSaveError>()
+    {
+        EventCheckResponse::SaveFailed(event_state(Some(error.observed_status)))
+    } else {
+        EventCheckResponse::Unclassified
     }
 }
 
@@ -798,44 +916,111 @@ fn event_registry_error(error: impl std::fmt::Display) -> CommandError {
 }
 
 fn begin_event_registry_action(input: &mut EventSectionInput, action: EventRegistryAction) {
+    input.feedback.active_action = Some(match action {
+        EventRegistryAction::Create => EventControlIntent::Create,
+        EventRegistryAction::Replace => EventControlIntent::Replace,
+        EventRegistryAction::Check => EventControlIntent::Check,
+    });
     match action {
         EventRegistryAction::Create | EventRegistryAction::Replace => {
-            input.feedback = EventCommandFeedback {
-                registration: EventCommandState::Working,
-                check: EventCommandState::Idle,
-            };
+            input.feedback.registration = EventCommandState::Working;
+            input.feedback.check = EventCommandState::Idle;
+            input.record_event_report(EventReportOperation::Check, chrono::Utc::now());
+            input.record_event_report(EventReportOperation::Registration, chrono::Utc::now());
         }
-        EventRegistryAction::Check => input.feedback.check = EventCommandState::Working,
+        EventRegistryAction::Check => {
+            input.feedback.check = EventCommandState::Working;
+            input.record_event_report(EventReportOperation::Check, chrono::Utc::now());
+        }
     }
 }
 
-/// Applies the same mounted-row transition used by the presenter and command regression tests.
+enum EventRegistryResult {
+    Complete(EventRegistrySuccess),
+    CheckFailed {
+        response: EventCheckResponse,
+        detail: String,
+    },
+}
+
+struct EventRegistrySuccess {
+    event: EventSelectionInput,
+    selection: Option<db::BroadcastEventSelection>,
+    selection_error: Option<String>,
+    events: Vec<EventSelectionInput>,
+}
+
+/// Registration and selection storage have independent results (ADR 0059).
 fn apply_event_registry_result(
     input: &mut EventSectionInput,
     action: EventRegistryAction,
-    result: Result<EventSelectionInput, CommandError>,
+    result: Result<EventRegistryResult, CommandError>,
 ) -> Option<EventRegistryAction> {
-    match (action, result) {
-        (EventRegistryAction::Create | EventRegistryAction::Replace, Ok(event)) => {
-            input.selected_event = Some(event);
-            // Targets are queried separately after the check; old identity's attachment is not reused.
-            input.targets = EventTargetListInput::Unknown;
-            input.feedback.registration = EventCommandState::Succeeded;
-            Some(EventRegistryAction::Check)
-        }
-        (EventRegistryAction::Check, Ok(event)) => {
-            input.selected_event = Some(event);
-            input.feedback.check = EventCommandState::Succeeded;
+    match result {
+        Ok(EventRegistryResult::CheckFailed { response, detail }) => {
+            input.feedback.check_response = response;
+            input.feedback.verification_failure = Some(detail.clone());
+            input.feedback.check = EventCommandState::Failed { detail };
+            input.record_event_report(EventReportOperation::Check, chrono::Utc::now());
             None
         }
-        (action, Err(error)) => {
+        Ok(EventRegistryResult::Complete(result)) => {
+            input.registry.events = result.events;
+            if action == EventRegistryAction::Check {
+                input.feedback.check = EventCommandState::Succeeded;
+            } else {
+                input.feedback.registration = EventCommandState::Succeeded;
+                input.record_event_report_for(
+                    EventReportOperation::Registration,
+                    chrono::Utc::now(),
+                    Some(result.event.clone()),
+                );
+                if let Some(detail) = result.selection_error {
+                    input.feedback.selection = EventCommandState::Failed { detail };
+                    input.record_event_report_for(
+                        EventReportOperation::Selection,
+                        chrono::Utc::now(),
+                        Some(result.event),
+                    );
+                    return None;
+                }
+                input.feedback.selection = EventCommandState::Succeeded;
+                input.record_event_report_for(
+                    EventReportOperation::Selection,
+                    chrono::Utc::now(),
+                    Some(result.event.clone()),
+                );
+                input.targets = EventTargetListInput::Unknown;
+            }
+            if let Some(selection) = result.selection {
+                input.registry.selected_id = selection.event_id;
+                input.registry.revision = selection.revision;
+            }
+            input.selected_event = Some(result.event);
+            input.liveness_confirmed = action == EventRegistryAction::Check;
+            input.feedback.verification_failure = None;
+            if action == EventRegistryAction::Check {
+                input.record_event_report(EventReportOperation::Check, chrono::Utc::now());
+            }
+            (action != EventRegistryAction::Check).then_some(EventRegistryAction::Check)
+        }
+        Err(error) => {
             let failure = EventCommandState::Failed {
                 detail: error.to_string(),
             };
             match action {
-                EventRegistryAction::Check => input.feedback.check = failure,
+                EventRegistryAction::Check => {
+                    input.feedback.verification_failure = Some(error.to_string());
+                    input.feedback.check = failure;
+                    input.feedback.check_response = EventCheckResponse::Unclassified;
+                    input.record_event_report(EventReportOperation::Check, chrono::Utc::now());
+                }
                 EventRegistryAction::Create | EventRegistryAction::Replace => {
                     input.feedback.registration = failure;
+                    input.record_event_report(
+                        EventReportOperation::Registration,
+                        chrono::Utc::now(),
+                    );
                 }
             }
             None
@@ -848,22 +1033,31 @@ fn apply_event_refresh(
     current: &mut Option<EventSectionInput>,
     requested: Option<&EventSectionInput>,
     mut refreshed: Option<EventSectionInput>,
-) {
+) -> bool {
     if current.as_ref() != requested
-        || current
-            .as_ref()
-            .is_some_and(|input| input.feedback.working())
+        || current.as_ref().is_some_and(|input| {
+            input.feedback.working()
+                && refreshed
+                    .as_ref()
+                    .is_none_or(|new| new.context == input.context)
+        })
     {
-        return;
+        return false;
     }
     if let (Some(old), Some(new)) = (current.as_ref(), refreshed.as_mut()) {
         if old.selected_event.as_ref().map(|event| &event.event_id)
             == new.selected_event.as_ref().map(|event| &event.event_id)
+            && new.context == old.context
+            && new.registry.revision == old.registry.revision
         {
+            new.liveness_confirmed = old.liveness_confirmed;
             new.feedback = old.feedback.clone();
+            new.targets = old.targets.clone();
+            new.request = old.request;
         }
     }
     *current = refreshed;
+    true
 }
 
 struct RefreshShowPage {
@@ -897,19 +1091,16 @@ impl ApplicationCommand for RefreshShowPage {
             return Err(CommandError::Cancelled);
         }
 
-        let (queue, selected_event) = {
+        let (queue, event_section_input) = {
             let conn = self
                 .conn
                 .lock()
                 .map_err(|_| CommandError::Query("database lock poisoned".to_string()))?;
             let queue =
                 queue_now_playing_vm(&self.application_services, &conn, self.queue_text_filter);
-            let selected_event = selected_event_input(&conn)
-                .map_err(|error| CommandError::Query(format!("{error:#}")))?;
-            (queue, selected_event)
+            let input = load_event_section(&conn, &self.broadcast);
+            (queue, Some(input))
         };
-        let event_section_input = event_section_input(selected_event, &self.broadcast)
-            .map_err(|error| CommandError::Query(format!("{error:#}")))?;
         Ok(CommandOutcome::without_events(ShowPageProjection {
             queue,
             event_section_input,
@@ -1039,6 +1230,8 @@ enum EventTargetOperation {
 }
 
 struct EventTargetCommand {
+    conn: Arc<Mutex<Connection>>,
+    selection_revision: i64,
     operation: EventTargetOperation,
     transport: Transport,
     instance_name: String,
@@ -1048,13 +1241,47 @@ struct EventTargetCommand {
 }
 
 impl ApplicationCommand for EventTargetCommand {
-    type Output = ();
+    type Output = ShowCommandCompletion;
 
     fn execute(self, context: &CommandContext) -> crate::application::CommandResult<Self::Output> {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
-        match self.operation {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| event_registry_error("database lock poisoned"))?;
+        let selection = db::broadcast_event_selection(&conn).map_err(event_registry_error)?;
+        if selection.revision != self.selection_revision
+            || selection.event_id.as_deref() != Some(&self.event_id)
+        {
+            return Err(event_registry_error(
+                "Selected event changed before target mutation",
+            ));
+        }
+        let selected =
+            db::broadcast_event_by_event_id(&conn, &self.event_id).map_err(event_registry_error)?;
+        if self.operation == EventTargetOperation::Attach
+            && selected
+                .as_ref()
+                .is_none_or(|event| event.last_status != Some(db::BroadcastEventStatus::Live))
+        {
+            return Err(event_registry_error("Event is no longer confirmed Live"));
+        }
+        if self.operation == EventTargetOperation::Detach {
+            let targets = publisher_targets::list_targets(&self.transport, &self.instance_name)
+                .map_err(event_registry_error)?;
+            if !targets
+                .targets
+                .iter()
+                .any(|target| target.name == self.target_name && target.event_id == self.event_id)
+            {
+                return Err(event_registry_error(
+                    "Configured target changed before Detach; check it again",
+                ));
+            }
+        }
+        let result = match self.operation {
             EventTargetOperation::Attach => publisher_targets::attach_event(
                 &self.transport,
                 &self.instance_name,
@@ -1069,13 +1296,19 @@ impl ApplicationCommand for EventTargetCommand {
             ),
         }
         .map_err(|error| {
+            if let PublisherTargetCommandError::RestartFailed { detail } = error {
+                return event_target_command_error(format!(
+                    "Target configuration saved; Publisher restart failed: {detail}"
+                ));
+            }
             event_target_command_error(format!(
                 "{} event target: {error}",
                 event_target_operation_label(self.operation)
             ))
-        })?;
-
-        Ok(CommandOutcome::without_events(()))
+        });
+        Ok(CommandOutcome::without_events(ShowCommandCompletion::new(
+            result,
+        )))
     }
 }
 
@@ -1106,7 +1339,9 @@ fn attached_target_name(input: &EventSectionInput) -> Option<String> {
     };
     targets
         .iter()
-        .find(|target| target.event_id == event_id)
+        .find(|target| {
+            target.name == input.attach_target_name.trim() && target.event_id == event_id
+        })
         .map(|target| target.name.trim().to_owned())
         .filter(|target_name| !target_name.is_empty())
 }
@@ -1187,14 +1422,19 @@ fn selected_broadcast_host(
 }
 
 fn selected_event_input(conn: &Connection) -> anyhow::Result<Option<EventSelectionInput>> {
-    let Some(event) = db::broadcast_events(conn)?.into_iter().next() else {
-        return Ok(None);
-    };
-    Ok(Some(event_selection_input(event)))
+    let selection = db::broadcast_event_selection(conn)?;
+    selection
+        .event_id
+        .as_deref()
+        .map(|id| db::broadcast_event_by_event_id(conn, id))
+        .transpose()
+        .map(|event| event.flatten().map(event_selection_input))
 }
 
 fn event_selection_input(event: db::BroadcastEventRow) -> EventSelectionInput {
     EventSelectionInput {
+        created_at: event.created_at,
+        last_checked_at: event.last_checked_at,
         label: event.label,
         event_id: event.event_id,
         endpoint: event.endpoint,
@@ -1204,23 +1444,70 @@ fn event_selection_input(event: db::BroadcastEventRow) -> EventSelectionInput {
     }
 }
 
-fn event_section_input(
-    selected_event: Option<EventSelectionInput>,
-    broadcast: &crate::config::BroadcastConfig,
-) -> anyhow::Result<Option<EventSectionInput>> {
-    let attach_target_name = broadcast.drop_file_target.trim().to_owned();
-    let Some(selected_event) = selected_event else {
-        return Ok(Some(EventSectionInput {
-            feedback: EventCommandFeedback::default(),
-            selected_event: None,
-            targets: EventTargetListInput::Unknown,
-            attach_target_name,
-            remote_host: false,
-        }));
+fn load_event_section(conn: &Connection, broadcast: &config::BroadcastConfig) -> EventSectionInput {
+    let mut input = empty_event_section(broadcast);
+    let result = (|| -> anyhow::Result<()> {
+        let selection = db::broadcast_event_selection(conn)?;
+        input.registry.events = db::broadcast_events(conn)?
+            .into_iter()
+            .map(event_selection_input)
+            .collect();
+        input.selected_event = selected_event_input(conn)?;
+        input.registry.selected_id = selection.event_id;
+        input.registry.revision = selection.revision;
+        Ok(())
+    })();
+    input.registry.status = match result {
+        Ok(()) => EventRegistryStatus::Loaded,
+        Err(error) => EventRegistryStatus::Failed(format!("{error:#}")),
     };
+    input
+}
 
-    let host = selected_broadcast_host(broadcast)?;
-    let targets = match publisher_targets::list_targets(&host.transport, &host.instance_name) {
+fn empty_event_section(broadcast: &config::BroadcastConfig) -> EventSectionInput {
+    EventSectionInput {
+        liveness_confirmed: false,
+        registry: EventRegistryInput {
+            status: EventRegistryStatus::Loading,
+            ..EventRegistryInput::default()
+        },
+        feedback: EventCommandFeedback::default(),
+        selected_event: None,
+        targets: EventTargetListInput::Unknown,
+        attach_target_name: broadcast.drop_file_target.trim().to_owned(),
+        remote_host: broadcast
+            .selected_host()
+            .is_ok_and(|host| matches!(host.transport, Transport::Ssh { .. })),
+        context: event_context(broadcast),
+        request: 0,
+    }
+}
+
+fn event_context(broadcast: &config::BroadcastConfig) -> String {
+    broadcast.selected_host().map_or_else(
+        |error| error.to_string(),
+        |host| {
+            format!(
+                "{} / {} / {:?} / {}",
+                host.name,
+                host.instance_name,
+                host.transport,
+                broadcast.drop_file_target.trim()
+            )
+        },
+    )
+}
+
+fn read_targets(broadcast: &config::BroadcastConfig) -> EventTargetListInput {
+    let host = match selected_broadcast_host(broadcast) {
+        Ok(host) => host,
+        Err(error) => {
+            return EventTargetListInput::Failed {
+                detail: format!("{error:#}"),
+            }
+        }
+    };
+    match publisher_targets::list_targets(&host.transport, &host.instance_name) {
         Ok(targets) => event_targets_loaded(targets),
         Err(PublisherTargetCommandError::CommandsUnavailable) => {
             EventTargetListInput::CommandsUnavailable
@@ -1229,14 +1516,7 @@ fn event_section_input(
         Err(error) => EventTargetListInput::Failed {
             detail: error.to_string(),
         },
-    };
-    Ok(Some(EventSectionInput {
-        feedback: EventCommandFeedback::default(),
-        selected_event: Some(selected_event),
-        targets,
-        attach_target_name,
-        remote_host: matches!(host.transport, Transport::Ssh { .. }),
-    }))
+    }
 }
 
 fn event_targets_loaded(targets: PublisherTargetList) -> EventTargetListInput {
@@ -1483,6 +1763,105 @@ mod tests {
         apply_event_registry_result(input, action, result)
     }
 
+    /// Situational ADR 0059: Replace preserves the dead registry entry and its token.
+    fn seed_dead_recovery_event(
+        conn: &Connection,
+        directory: &Path,
+        endpoint: &str,
+    ) -> db::BroadcastEventRow {
+        let token_path = directory.join("old.token");
+        crate::broadcast::tokens::write_token_file(&token_path, "old-secret").unwrap();
+        db::insert_broadcast_event(
+            conn,
+            &db::BroadcastEventInput {
+                event_id: "event-old".to_owned(),
+                label: None,
+                endpoint: endpoint.to_owned(),
+                token_path: token_path.to_string_lossy().into_owned(),
+                created_at: 1,
+                last_checked_at: Some(2),
+                last_status: Some(db::BroadcastEventStatus::Dead),
+            },
+        )
+        .unwrap();
+        db::broadcast_event_by_event_id(conn, "event-old")
+            .unwrap()
+            .unwrap()
+    }
+
+    /// Situational ADR 0059: registration saves a private token and reports the new identity.
+    fn assert_event_registration(input: &EventSectionInput) -> EventSelectionInput {
+        let registered = input.selected_event.clone().unwrap();
+        assert_eq!(registered.event_id, "event-new");
+        assert_eq!(registered.state, EventState::Unknown);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            assert_eq!(
+                fs::metadata(&registered.token_path)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+        let row = show_event_project(input);
+        assert_eq!(row.event.event_id.as_deref(), Some("event-new"));
+        assert_eq!(row.event.token_path.as_ref(), Some(&registered.token_path));
+        assert!(row.registration_message.unwrap().contains("registered"));
+        registered
+    }
+
+    /// Situational ADR 0059: queue refresh preserves recovery state and never exposes token contents.
+    fn assert_recovered_event_refresh(
+        input: &mut EventSectionInput,
+        expected: EventState,
+        registered: &EventSelectionInput,
+    ) {
+        // The independent target read supplies current configuration; queue refresh preserves it.
+        input.targets = EventTargetListInput::Loaded { targets: vec![] };
+        let mut refreshed = input.clone();
+        refreshed.feedback = EventCommandFeedback::default();
+        refreshed.targets = EventTargetListInput::Loaded { targets: vec![] };
+        let requested = Some(input.clone());
+        let mut current = requested.clone();
+        apply_event_refresh(&mut current, requested.as_ref(), Some(refreshed));
+        let row = show_event_project(current.as_ref().unwrap());
+        assert_eq!(row.event.state.state, expected);
+        assert_eq!(!row.actions.attach.disabled(), expected == EventState::Live);
+        assert_eq!(
+            !row.actions.replace.disabled(),
+            expected == EventState::Dead
+        );
+        assert!(!row.actions.check.disabled());
+        assert_eq!(row.event.event_id.as_deref(), Some("event-new"));
+        assert_eq!(row.event.token_path.as_ref(), Some(&registered.token_path));
+        assert!(!format!("{row:?}").contains("fixture-secret"));
+    }
+
+    /// Situational ADR 0059: a failed check preserves registration success and offers a retry.
+    fn assert_event_check_retry(input: &EventSectionInput) {
+        let failed = show_event_project(input);
+        assert_eq!(input.feedback.check_response, EventCheckResponse::Http(503));
+        assert!(failed
+            .diagnostics
+            .contains("answered HTTP 503 for event event-new"));
+        assert!(failed.diagnostics.contains("App created event event-new"));
+        assert!(failed
+            .diagnostics
+            .contains("App kept the saved status of event event-new as Unknown"));
+        assert!(failed.registration_message.unwrap().contains("registered"));
+        assert!(failed.check_message.unwrap().contains("failed"));
+        assert_eq!(failed.actions.check.label, "Retry check");
+        assert!(!failed.actions.check.disabled());
+        assert!(
+            failed.actions.create.disabled()
+                && failed.actions.replace.disabled()
+                && failed.actions.attach.disabled()
+        );
+    }
+
     /// Situational ADR 0059: run real registry commands and the mounted-row presenter transitions.
     fn show_event_recovery_sequence(action: EventRegistryAction, retry_status: u16) {
         let temp = tempfile::tempdir().unwrap();
@@ -1497,34 +1876,30 @@ mod tests {
         let publisher_path = temp.path().join("publisher-config.toml");
         fs::write(&publisher_path, "targets = []\n").unwrap();
         let old = if action == EventRegistryAction::Replace {
-            let token_path = temp.path().join("old.token");
-            crate::broadcast::tokens::write_token_file(&token_path, "old-secret").unwrap();
-            let locked = conn.lock().unwrap();
-            db::insert_broadcast_event(
-                &locked,
-                &db::BroadcastEventInput {
-                    event_id: "event-old".to_owned(),
-                    label: None,
-                    endpoint: endpoint.clone(),
-                    token_path: token_path.to_string_lossy().into_owned(),
-                    created_at: 1,
-                    last_checked_at: Some(2),
-                    last_status: Some(db::BroadcastEventStatus::Dead),
-                },
-            )
-            .unwrap();
-            db::broadcast_event_by_event_id(&locked, "event-old").unwrap()
+            Some(seed_dead_recovery_event(
+                &conn.lock().unwrap(),
+                temp.path(),
+                &endpoint,
+            ))
         } else {
             None
         };
         let mut input = EventSectionInput {
+            liveness_confirmed: true,
+            registry: EventRegistryInput::default(),
+            context: String::new(),
+            request: 0,
             feedback: EventCommandFeedback::default(),
             selected_event: selected_event_input(&conn.lock().unwrap()).unwrap(),
             targets: EventTargetListInput::Loaded { targets: vec![] },
             attach_target_name: "default".to_owned(),
             remote_host: false,
         };
+        let selection = db::broadcast_event_selection(&conn.lock().unwrap()).unwrap();
+        input.registry.selected_id = selection.event_id;
+        input.registry.revision = selection.revision;
         let command = |action, input: &EventSectionInput| EventRegistryCommand {
+            selection_revision: input.registry.revision,
             conn: Arc::clone(&conn),
             cfg_path: cfg_path.clone(),
             action,
@@ -1533,26 +1908,8 @@ mod tests {
         let before_registration = Some(input.clone());
         let next = show_event_execute(command(action, &input), &mut input);
         assert_eq!(next, Some(EventRegistryAction::Check));
-        let registered = input.selected_event.clone().unwrap();
-        assert_eq!(registered.event_id, "event-new");
-        assert_eq!(registered.state, EventState::Unknown);
+        let registered = assert_event_registration(&input);
         let token_before = fs::read(&registered.token_path).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            assert_eq!(
-                fs::metadata(&registered.token_path)
-                    .unwrap()
-                    .permissions()
-                    .mode()
-                    & 0o777,
-                0o600
-            );
-        }
-        let row = show_event_project(&input);
-        assert_eq!(row.event.event_id.as_deref(), Some("event-new"));
-        assert_eq!(row.event.token_path.as_ref(), Some(&registered.token_path));
-        assert!(row.registration_message.unwrap().contains("registered"));
         // A refresh begun before registration must not erase the new identity or feedback.
         let mut current = Some(input.clone());
         apply_event_refresh(
@@ -1563,16 +1920,7 @@ mod tests {
         assert_eq!(current, Some(input.clone()));
         show_event_execute(command(next.unwrap(), &input), &mut input);
         assert_eq!(input.selected_event.as_ref(), Some(&registered));
-        let failed = show_event_project(&input);
-        assert!(failed.registration_message.unwrap().contains("registered"));
-        assert!(failed.check_message.unwrap().contains("failed"));
-        assert_eq!(failed.actions.check.label, "Retry check");
-        assert!(!failed.actions.check.disabled());
-        assert!(
-            failed.actions.create.disabled()
-                && failed.actions.replace.disabled()
-                && failed.actions.attach.disabled()
-        );
+        assert_event_check_retry(&input);
         show_event_execute(command(EventRegistryAction::Check, &input), &mut input);
         let stored = selected_event_input(&conn.lock().unwrap())
             .unwrap()
@@ -1587,26 +1935,7 @@ mod tests {
         };
         assert_eq!(stored.state, expected);
         assert_eq!(input.selected_event.as_ref(), Some(&stored));
-        // Production uses this same refresh merger after an independent target-list read.
-        let mut refreshed = input.clone();
-        refreshed.feedback = EventCommandFeedback::default();
-        refreshed.targets = EventTargetListInput::Loaded { targets: vec![] };
-        let requested = Some(input.clone());
-        let mut current = requested.clone();
-        apply_event_refresh(&mut current, requested.as_ref(), Some(refreshed));
-        let row = show_event_project(current.as_ref().unwrap());
-        assert_eq!(row.event.state.state, expected);
-        assert_eq!(!row.actions.attach.disabled(), expected == EventState::Live);
-        assert_eq!(
-            !row.actions.replace.disabled(),
-            expected == EventState::Dead
-        );
-        assert_eq!(
-            !row.actions.check.disabled(),
-            expected == EventState::Unknown
-        );
-        assert_eq!(row.event.event_id.as_deref(), Some("event-new"));
-        assert_eq!(row.event.token_path.as_ref(), Some(&registered.token_path));
+        assert_recovered_event_refresh(&mut input, expected, &registered);
         assert_eq!(fs::read_to_string(&cfg_path).unwrap(), config_before);
         assert_eq!(
             fs::read_to_string(&publisher_path).unwrap(),
@@ -1624,7 +1953,6 @@ mod tests {
         if let Some(old) = old {
             assert_eq!(fs::read_to_string(old.token_path).unwrap(), "old-secret");
         }
-        assert!(!format!("{row:?}").contains("fixture-secret"));
         assert_eq!(
             relay.join().unwrap(),
             [
@@ -1668,13 +1996,21 @@ mod tests {
         let cfg_path = temp.path().join("config.toml");
         fs::write(&cfg_path, format!("musicindex_endpoint = {endpoint:?}\n")).unwrap();
         let mut input = EventSectionInput {
+            liveness_confirmed: true,
+            registry: EventRegistryInput::default(),
+            context: String::new(),
+            request: 0,
             feedback: EventCommandFeedback::default(),
             selected_event: None,
             targets: EventTargetListInput::Unknown,
             attach_target_name: "default".to_owned(),
             remote_host: false,
         };
+        let selection = db::broadcast_event_selection(&conn.lock().unwrap()).unwrap();
+        input.registry.selected_id = selection.event_id;
+        input.registry.revision = selection.revision;
         let command = |action, input: &EventSectionInput| EventRegistryCommand {
+            selection_revision: input.registry.revision,
             conn: Arc::clone(&conn),
             cfg_path: cfg_path.clone(),
             action,
@@ -1694,6 +2030,17 @@ mod tests {
         );
         let row = show_event_project(&input);
         assert!(row.check_message.unwrap().contains("status write failed"));
+        assert_eq!(
+            input.feedback.check_response,
+            EventCheckResponse::SaveFailed(EventState::Live)
+        );
+        assert!(row
+            .diagnostics
+            .contains("returned metadata for event event-new"));
+        assert!(row
+            .diagnostics
+            .contains("could not finish saving that answer"));
+        assert!(!row.diagnostics.contains("received no HTTP response"));
         assert_eq!(row.actions.check.label, "Retry check");
         assert!(!row.actions.check.disabled());
         assert!(row.actions.replace.disabled() && row.actions.attach.disabled());
@@ -1713,6 +2060,10 @@ mod tests {
     #[test]
     fn show_event_refresh_cannot_clear_progress_or_failure_feedback() {
         let mut input = EventSectionInput {
+            liveness_confirmed: true,
+            registry: EventRegistryInput::default(),
+            context: String::new(),
+            request: 0,
             feedback: EventCommandFeedback::default(),
             selected_event: None,
             targets: EventTargetListInput::Unknown,
@@ -1740,4 +2091,520 @@ mod tests {
         assert!(row.actions.replace.disabled() && row.actions.check.disabled());
         assert_eq!(row.event.state.state, EventState::None);
     }
+    fn stored_test_event(
+        conn: &Connection,
+        directory: &Path,
+        id: &str,
+        endpoint: &str,
+        created: i64,
+    ) {
+        let token = directory.join(format!("{id}.token"));
+        crate::broadcast::tokens::write_token_file(&token, "preserve-secret").unwrap();
+        db::insert_broadcast_event(
+            conn,
+            &db::BroadcastEventInput {
+                event_id: id.to_owned(),
+                label: None,
+                endpoint: endpoint.to_owned(),
+                token_path: token.to_string_lossy().into_owned(),
+                created_at: created,
+                last_checked_at: Some(created),
+                last_status: Some(db::BroadcastEventStatus::Dead),
+            },
+        )
+        .unwrap();
+    }
+
+    /// Situational ADR 0059: chosen older rows remain operable; changing revision rejects stale commands.
+    #[test]
+    fn compact_event_saved_choice_drives_commands_and_refresh() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = Arc::new(Mutex::new(show_event_db(&temp)));
+        let (endpoint, relay) = show_event_relay(vec![404, 200]);
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(&cfg_path, format!("musicindex_endpoint = {endpoint:?}\n")).unwrap();
+        {
+            let conn = conn.lock().unwrap();
+            stored_test_event(&conn, temp.path(), "older", &endpoint, 1);
+            db::select_broadcast_event(&conn, "older").unwrap();
+            stored_test_event(&conn, temp.path(), "newer", &endpoint, 2);
+        }
+        let mut input =
+            load_event_section(&conn.lock().unwrap(), &config::BroadcastConfig::default());
+        assert_eq!(input.registry.events[0].event_id, "newer");
+        assert_eq!(input.selected_event.as_ref().unwrap().event_id, "older");
+        for action in [EventRegistryAction::Check, EventRegistryAction::Replace] {
+            let command = EventRegistryCommand {
+                conn: Arc::clone(&conn),
+                cfg_path: cfg_path.clone(),
+                action,
+                selected_event: input.selected_event.clone(),
+                selection_revision: input.registry.revision,
+            };
+            let result = command
+                .execute(&CommandContext::next())
+                .unwrap()
+                .into_parts()
+                .0;
+            apply_event_registry_result(&mut input, action, Ok(result));
+        }
+        assert_eq!(input.selected_event.as_ref().unwrap().event_id, "event-new");
+        assert_eq!(
+            fs::read_to_string(temp.path().join("older.token")).unwrap(),
+            "preserve-secret"
+        );
+        assert_eq!(
+            fs::read_to_string(temp.path().join("newer.token")).unwrap(),
+            "preserve-secret"
+        );
+        let stale = EventRegistryCommand {
+            conn: Arc::clone(&conn),
+            cfg_path,
+            action: EventRegistryAction::Check,
+            selected_event: input.selected_event.clone(),
+            selection_revision: input.registry.revision,
+        };
+        db::select_broadcast_event(&conn.lock().unwrap(), "older").unwrap();
+        assert!(stale.execute(&CommandContext::next()).is_err());
+        assert_eq!(
+            relay.join().unwrap(),
+            [
+                "GET /v1/liveitems/older/metadata HTTP/1.1",
+                "POST /v1/liveitems HTTP/1.1"
+            ]
+        );
+        assert_eq!(
+            selected_event_input(&conn.lock().unwrap())
+                .unwrap()
+                .unwrap()
+                .event_id,
+            "older"
+        );
+    }
+
+    /// Situational ADR 0059: failed preference storage cannot erase successful registration or repeat POST.
+    #[test]
+    fn compact_event_registration_survives_selection_save_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = Arc::new(Mutex::new(show_event_db(&temp)));
+        let (endpoint, relay) = show_event_relay(vec![200]);
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(&cfg_path, format!("musicindex_endpoint = {endpoint:?}\n")).unwrap();
+        conn.lock().unwrap().execute_batch("CREATE TRIGGER reject_choice BEFORE INSERT ON broadcast_event_selection BEGIN SELECT RAISE(FAIL, 'choice disk failure'); END;").unwrap();
+        let mut input =
+            load_event_section(&conn.lock().unwrap(), &config::BroadcastConfig::default());
+        let command = EventRegistryCommand {
+            conn: Arc::clone(&conn),
+            cfg_path,
+            action: EventRegistryAction::Create,
+            selected_event: None,
+            selection_revision: 0,
+        };
+        let result = command
+            .execute(&CommandContext::next())
+            .unwrap()
+            .into_parts()
+            .0;
+        let EventRegistryResult::Complete(ref success) = result else {
+            panic!("registration must return its stored event");
+        };
+        let token_path = success.event.token_path.clone();
+        assert_eq!(
+            apply_event_registry_result(&mut input, EventRegistryAction::Create, Ok(result)),
+            None
+        );
+        assert_eq!(input.feedback.registration, EventCommandState::Succeeded);
+        assert!(matches!(
+            input.feedback.selection,
+            EventCommandState::Failed { .. }
+        ));
+        assert_eq!(input.registry.events.len(), 1);
+        assert!(show_event_project(&input).actions.create.disabled());
+        assert_eq!(fs::read_to_string(token_path).unwrap(), "fixture-secret");
+        assert_eq!(relay.join().unwrap().len(), 1);
+    }
+
+    /// Situational ADR 0059: a missing saved entry and a failed registry read never offer Create.
+    #[test]
+    fn compact_event_missing_choice_and_registry_errors_are_explicit() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = show_event_db(&temp);
+        stored_test_event(&conn, temp.path(), "old", "http://127.0.0.1:1", 1);
+        db::select_broadcast_event(&conn, "old").unwrap();
+        stored_test_event(&conn, temp.path(), "new", "http://127.0.0.1:1", 2);
+        let old = db::broadcast_event_by_event_id(&conn, "old")
+            .unwrap()
+            .unwrap();
+        db::delete_broadcast_event(&conn, old.id).unwrap();
+        let input = load_event_section(&conn, &config::BroadcastConfig::default());
+        assert!(input.selected_event.is_none());
+        assert_eq!(input.registry.selected_id.as_deref(), Some("old"));
+        assert_eq!(show_event_project(&input).badge.label, "Event unavailable");
+        assert!(show_event_project(&input).actions.create.disabled());
+        conn.execute_batch("DROP TABLE broadcast_events").unwrap();
+        let input = load_event_section(&conn, &config::BroadcastConfig::default());
+        assert!(matches!(
+            input.registry.status,
+            EventRegistryStatus::Failed(_)
+        ));
+        let event = show_event_project(&input);
+        assert_eq!(event.badge.label, "Events unavailable");
+        assert!(event.actions.create.disabled());
+        assert_eq!(event.primary.unwrap().intent, EventControlIntent::Refresh);
+    }
+
+    /// Situational ADR 0059: refreshes cannot resurrect old confirmation or another context's results.
+    #[test]
+    fn compact_event_context_revision_and_configured_detach_are_scoped() {
+        let mut input = empty_event_section(&config::BroadcastConfig::default());
+        input.context = "host / instance / default".to_owned();
+        input.request = 7;
+        input.registry.status = EventRegistryStatus::Loaded;
+        input.registry.selected_id = Some("a".to_owned());
+        input.registry.revision = 3;
+        input.selected_event = Some(EventSelectionInput {
+            created_at: 1,
+            last_checked_at: Some(2),
+            label: None,
+            event_id: "a".to_owned(),
+            endpoint: "http://localhost".to_owned(),
+            token_path: "/fixture/token".to_owned(),
+            state: EventState::Dead,
+            token_file_missing: false,
+        });
+        input.attach_target_name = "default".to_owned();
+        input.targets = EventTargetListInput::Loaded {
+            targets: vec![EventTargetInput {
+                name: "unused".to_owned(),
+                event_id: "a".to_owned(),
+            }],
+        };
+        assert!(attached_target_name(&input).is_none());
+        let EventTargetListInput::Loaded { targets } = &mut input.targets else {
+            unreachable!()
+        };
+        targets.push(EventTargetInput {
+            name: "default".to_owned(),
+            event_id: "a".to_owned(),
+        });
+        assert_eq!(
+            event_target_name_for_operation(EventTargetOperation::Detach, &input).unwrap(),
+            "default"
+        );
+        let requested = Some(input.clone());
+        input.request += 1;
+        let mut current = Some(input.clone());
+        assert!(!apply_event_refresh(
+            &mut current,
+            requested.as_ref(),
+            requested.clone()
+        ));
+        assert_eq!(current.as_ref().unwrap().request, 8);
+        let mut new_context = input.clone();
+        new_context.context = "another host".to_owned();
+        new_context.feedback = EventCommandFeedback::default();
+        new_context.targets = EventTargetListInput::Unknown;
+        input.feedback.check = EventCommandState::Working;
+        current = Some(input.clone());
+        apply_event_refresh(&mut current, Some(&input), Some(new_context.clone()));
+        assert_eq!(current, Some(new_context));
+    }
+}
+
+/// Session-only latest results; no token contents or persistent audit trail (ADR 0059).
+#[derive(Default)]
+pub(super) struct EventSession {
+    next_request: u64,
+    feedback: HashMap<(String, String), EventCommandFeedback>,
+}
+
+impl EventSession {
+    fn remember(&mut self, input: &EventSectionInput) {
+        if let Some(event) = &input.selected_event {
+            self.feedback.insert(
+                (input.context.clone(), event.event_id.clone()),
+                input.feedback.clone(),
+            );
+        }
+    }
+}
+
+impl TopApp {
+    fn event_request_is_current(&self, request: u64, context: &str) -> bool {
+        context == event_context(&self.broadcast)
+            && self
+                .event_section_input
+                .as_ref()
+                .is_some_and(|input| input.request == request && input.context == context)
+    }
+
+    fn run_event_control(&mut self, intent: EventControlIntent, cx: &mut Context<Self>) {
+        match intent {
+            EventControlIntent::Create => {
+                self.run_event_registry_command(EventRegistryAction::Create, cx);
+            }
+            EventControlIntent::Replace => {
+                self.run_event_registry_command(EventRegistryAction::Replace, cx);
+            }
+            EventControlIntent::Check => {
+                self.run_event_registry_command(EventRegistryAction::Check, cx);
+            }
+            EventControlIntent::Attach => {
+                self.run_event_target_command(EventTargetOperation::Attach, cx);
+            }
+            EventControlIntent::Detach => {
+                self.run_event_target_command(EventTargetOperation::Detach, cx);
+            }
+            EventControlIntent::Refresh => self.refresh_show_page(cx),
+            EventControlIntent::ReadTargets => {
+                if self
+                    .event_section_input
+                    .as_ref()
+                    .is_none_or(|input| input.feedback.working())
+                {
+                    return;
+                }
+                self.event_session.next_request += 1;
+                if let Some(input) = self.event_section_input.as_mut() {
+                    input.request = self.event_session.next_request;
+                    input.feedback.active_action = Some(intent);
+                }
+                self.read_event_targets(self.event_session.next_request, cx);
+            }
+            EventControlIntent::CopyFeedTag => {}
+        }
+    }
+
+    fn select_show_event(&mut self, event_id: String, cx: &mut Context<Self>) {
+        let Some(input) = &mut self.event_section_input else {
+            return;
+        };
+        if input.feedback.working()
+            || !input
+                .registry
+                .events
+                .iter()
+                .any(|event| event.event_id == event_id)
+        {
+            return;
+        }
+        self.event_session.remember(input);
+        self.event_session.next_request += 1;
+        input.request = self.event_session.next_request;
+        input.feedback.selection = EventCommandState::Working;
+        let requested_event = input
+            .registry
+            .events
+            .iter()
+            .find(|event| event.event_id == event_id)
+            .cloned();
+        input.record_event_report_for(
+            EventReportOperation::Selection,
+            chrono::Utc::now(),
+            requested_event.clone(),
+        );
+        let request = input.request;
+        let context = input.context.clone();
+        let error_context = context.clone();
+        let command = SelectShowEvent {
+            conn: Arc::clone(&self.conn),
+            broadcast: self.broadcast.clone(),
+            event_id,
+            expected_revision: input.registry.revision,
+        };
+        self.reproject_show_page_from_current_queue();
+        cx.notify();
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, mut input, cx| {
+                if !this.event_request_is_current(request, &context) {
+                    return;
+                }
+                if let Some(event) = &input.selected_event {
+                    input.feedback = this
+                        .event_session
+                        .feedback
+                        .get(&(context.clone(), event.event_id.clone()))
+                        .cloned()
+                        .unwrap_or_default();
+                }
+                input.feedback.selection = EventCommandState::Succeeded;
+                input.record_event_report(EventReportOperation::Selection, chrono::Utc::now());
+                input.request = request;
+                this.event_section_input = Some(input);
+                this.reproject_show_page_from_current_queue();
+                this.run_event_registry_command(EventRegistryAction::Check, cx);
+            },
+            move |this, error, cx| {
+                if !this.event_request_is_current(request, &error_context) {
+                    return;
+                }
+                if let Some(input) = &mut this.event_section_input {
+                    input.feedback.selection = EventCommandState::Failed {
+                        detail: error.to_string(),
+                    };
+                    input.record_event_report_for(
+                        EventReportOperation::Selection,
+                        chrono::Utc::now(),
+                        requested_event.clone(),
+                    );
+                }
+                this.reproject_show_page_from_current_queue();
+                cx.notify();
+            },
+        );
+    }
+
+    fn read_event_targets(&mut self, request: u64, cx: &mut Context<Self>) {
+        let Some(input) = &mut self.event_section_input else {
+            return;
+        };
+        input.feedback.target_read = EventCommandState::Working;
+        input.record_event_report(EventReportOperation::TargetRead, chrono::Utc::now());
+        let context = input.context.clone();
+        let error_context = context.clone();
+        let command = ReadEventTargets {
+            broadcast: self.broadcast.clone(),
+        };
+        self.reproject_show_page_from_current_queue();
+        cx.notify();
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, targets, cx| {
+                if !this.event_request_is_current(request, &context) {
+                    return;
+                }
+                this.apply_target_read(targets, cx);
+            },
+            move |this, error, cx| {
+                if !this.event_request_is_current(request, &error_context) {
+                    return;
+                }
+                this.apply_target_read(
+                    EventTargetListInput::Failed {
+                        detail: error.to_string(),
+                    },
+                    cx,
+                );
+            },
+        );
+    }
+
+    fn apply_target_read(&mut self, targets: EventTargetListInput, cx: &mut Context<Self>) {
+        if let Some(input) = &mut self.event_section_input {
+            input.feedback.target_read = match &targets {
+                EventTargetListInput::Loaded { .. } => EventCommandState::Succeeded,
+                EventTargetListInput::Failed { detail } => EventCommandState::Failed {
+                    detail: detail.clone(),
+                },
+                EventTargetListInput::CommandsUnavailable => EventCommandState::Failed {
+                    detail: "Publisher target commands unavailable".to_owned(),
+                },
+                EventTargetListInput::NotReachable => EventCommandState::Failed {
+                    detail: "Publisher not reachable".to_owned(),
+                },
+                EventTargetListInput::Unknown => EventCommandState::Failed {
+                    detail: "No target observation".to_owned(),
+                },
+            };
+            input.targets = targets;
+            input.record_event_report(EventReportOperation::TargetRead, chrono::Utc::now());
+            if input.feedback.target_mutation == EventCommandState::Working {
+                input.feedback.target_mutation = EventCommandState::Succeeded;
+                input.record_event_report(EventReportOperation::TargetMutation, chrono::Utc::now());
+            }
+        }
+        self.reproject_show_page_from_current_queue();
+        cx.notify();
+    }
+
+    fn finish_event_target(
+        &mut self,
+        request: u64,
+        context: &str,
+        command_id: ShowCommandId,
+        completion: ShowCommandCompletion,
+        cx: &mut Context<Self>,
+    ) {
+        // Even a failed restart requires fresh service observation: the target write may have succeeded.
+        if !self
+            .show_commands
+            .complete(command_id, completion.returned_at, true)
+        {
+            return;
+        }
+        self.invalidate_publisher_service_snapshot();
+        if !self.event_request_is_current(request, context) {
+            return;
+        }
+        if let Some(input) = &mut self.event_section_input {
+            if let Err(error) = completion.result {
+                input.feedback.target_mutation = EventCommandState::Failed {
+                    detail: error.to_string(),
+                };
+                input.record_event_report(EventReportOperation::TargetMutation, chrono::Utc::now());
+            }
+        }
+        self.read_event_targets(request, cx);
+    }
+}
+
+struct SelectShowEvent {
+    conn: Arc<Mutex<Connection>>,
+    broadcast: config::BroadcastConfig,
+    event_id: String,
+    expected_revision: i64,
+}
+
+impl ApplicationCommand for SelectShowEvent {
+    type Output = EventSectionInput;
+    fn execute(self, context: &CommandContext) -> crate::application::CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| event_registry_error("database lock poisoned"))?;
+        let current = db::broadcast_event_selection(&conn).map_err(event_registry_error)?;
+        if current.revision != self.expected_revision {
+            return Err(event_registry_error(
+                "Event choice changed; refresh the events list",
+            ));
+        }
+        db::select_broadcast_event(&conn, &self.event_id).map_err(event_registry_error)?;
+        Ok(CommandOutcome::without_events(load_event_section(
+            &conn,
+            &self.broadcast,
+        )))
+    }
+}
+
+struct ReadEventTargets {
+    broadcast: config::BroadcastConfig,
+}
+impl ApplicationCommand for ReadEventTargets {
+    type Output = EventTargetListInput;
+    fn execute(self, context: &CommandContext) -> crate::application::CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        Ok(CommandOutcome::without_events(read_targets(
+            &self.broadcast,
+        )))
+    }
+}
+
+fn event_input_identity(input: &EventSectionInput) -> (&str, Option<&str>, i64) {
+    (
+        &input.context,
+        input.registry.selected_id.as_deref(),
+        input.registry.revision,
+    )
 }

@@ -26,6 +26,7 @@ pub enum IconName {
     Back,
     ChevronLeft,
     ChevronRight,
+    ChevronDown,
     Check,
     Close,
     Info,
@@ -53,6 +54,7 @@ impl IconName {
             | Self::Back
             | Self::ChevronLeft
             | Self::ChevronRight
+            | Self::ChevronDown
             | Self::Check
             | Self::Close
             | Self::Info
@@ -76,6 +78,7 @@ impl IconName {
             Self::Back => Some("\u{2190}"),
             Self::ChevronLeft => Some("\u{2039}"),
             Self::ChevronRight => Some("\u{203A}"),
+            Self::ChevronDown => Some("\u{2304}"),
             Self::Check => Some("\u{2713}"),
             Self::Close => Some("\u{00D7}"),
             Self::Info => Some("i"),
@@ -100,6 +103,7 @@ impl IconName {
             | Self::Back
             | Self::ChevronLeft
             | Self::ChevronRight
+            | Self::ChevronDown
             | Self::Check
             | Self::Close
             | Self::Info
@@ -127,6 +131,7 @@ impl IconName {
             | Self::Back
             | Self::ChevronLeft
             | Self::ChevronRight
+            | Self::ChevronDown
             | Self::Check
             | Self::Close
             | Self::Info

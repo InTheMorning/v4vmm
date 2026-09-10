@@ -7,6 +7,9 @@
 
 #![warn(clippy::pedantic)]
 
+mod event_report;
+pub(crate) use event_report::{EventCheckResponse, EventReportOperation};
+
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -546,6 +549,7 @@ pub(crate) struct PublisherLogsDisplay {
 /// Display-ready service row for the Publisher section.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PublisherServiceDisplay {
+    pub(crate) badge: ShowItemBadge,
     /// Role this unit plays in the broadcast chain.
     pub(crate) role: PublisherServiceRole,
     /// Stable row identifier.
@@ -581,6 +585,10 @@ pub(crate) struct ShowLogPaneDisplay {
     available_height: f32,
     pub(crate) close: PublisherActionDisplay,
     role: Option<PublisherServiceRole>,
+    event_source: Option<String>,
+    pub(crate) service_detail: Option<String>,
+    pub(crate) feed_tag: Option<String>,
+    pub(crate) copy_feed_tag: Option<EventActionDisplay>,
     request: Option<ShowLogRequestId>,
     next_request: u64,
 }
@@ -605,10 +613,14 @@ impl ShowLogPaneDisplay {
             close: PublisherActionDisplay {
                 id: "show-log-pane-close".to_owned(),
                 label: "Close",
-                a11y_label: "Close service logs".to_owned(),
+                a11y_label: "Close logs".to_owned(),
                 availability: PublisherActionAvailability::Unavailable,
             },
             role: None,
+            event_source: None,
+            service_detail: None,
+            feed_tag: None,
+            copy_feed_tag: None,
             request: None,
             next_request: 0,
         }
@@ -624,6 +636,10 @@ impl ShowLogPaneDisplay {
         let request = ShowLogRequestId(self.next_request);
         self.request = Some(request);
         self.role = Some(role);
+        self.feed_tag = None;
+        self.copy_feed_tag = None;
+        self.service_detail = None;
+        self.event_source = None;
         self.open = true;
         self.unit_name = unit_name;
         "Reading service logs…".clone_into(&mut self.text);
@@ -637,6 +653,7 @@ impl ShowLogPaneDisplay {
         self.open = false;
         self.request = None;
         self.role = None;
+        self.event_source = None;
         self.close.availability = PublisherActionAvailability::Unavailable;
     }
 
@@ -707,6 +724,13 @@ pub(crate) struct PublisherSectionDisplay {
 /// Display-ready Event section for the `Show` screen mount.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct EventSectionDisplay {
+    pub(crate) badge: ShowItemBadge,
+    pub(crate) activity: Option<&'static str>,
+    pub(crate) picker: EventPickerDisplay,
+    pub(crate) primary: Option<EventControlDisplay>,
+    pub(crate) overflow: Vec<EventControlDisplay>,
+    pub(crate) logs: EventActionDisplay,
+    pub(crate) diagnostics: String,
     /// Stable section title.
     pub(crate) title: &'static str,
     /// Summary label for the selected broadcast event.
@@ -777,7 +801,7 @@ impl EventState {
             Self::Unknown => EventStateDisplay {
                 state: self,
                 label: "Unknown",
-                detail: "Event liveness has not been checked.",
+                detail: "The app has not confirmed whether the relay still has this event.",
             },
             Self::Live => EventStateDisplay {
                 state: self,
@@ -899,6 +923,13 @@ pub(crate) enum EventCommandState {
 /// Registration and checking have independent results (ADR 0059).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct EventCommandFeedback {
+    report: event_report::EventReport,
+    pub(crate) check_response: EventCheckResponse,
+    pub(crate) verification_failure: Option<String>,
+    pub(crate) selection: EventCommandState,
+    pub(crate) target_read: EventCommandState,
+    pub(crate) target_mutation: EventCommandState,
+    pub(crate) active_action: Option<EventControlIntent>,
     pub(crate) registration: EventCommandState,
     pub(crate) check: EventCommandState,
 }
@@ -907,6 +938,9 @@ impl EventCommandFeedback {
     pub(crate) fn working(&self) -> bool {
         matches!(self.registration, EventCommandState::Working)
             || matches!(self.check, EventCommandState::Working)
+            || matches!(self.selection, EventCommandState::Working)
+            || matches!(self.target_read, EventCommandState::Working)
+            || matches!(self.target_mutation, EventCommandState::Working)
     }
 
     fn registration_message(&self) -> Option<String> {
@@ -941,6 +975,10 @@ impl EventActionsDisplay {
 /// Input for projecting an Event section.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct EventSectionInput {
+    pub(crate) liveness_confirmed: bool,
+    pub(crate) registry: EventRegistryInput,
+    pub(crate) context: String,
+    pub(crate) request: u64,
     /// Independent registration and liveness results.
     pub(crate) feedback: EventCommandFeedback,
     /// Selected event, if the registry has one.
@@ -956,6 +994,8 @@ pub(crate) struct EventSectionInput {
 /// Input for projecting a selected broadcast event.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct EventSelectionInput {
+    pub(crate) created_at: i64,
+    pub(crate) last_checked_at: Option<i64>,
     /// Optional operator label.
     pub(crate) label: Option<String>,
     /// Relay event identifier.
@@ -1599,6 +1639,12 @@ impl ShowPageVm {
             return None;
         }
         let request = self.log_pane.begin_read(role, service.unit_name.clone());
+        self.log_pane.service_detail = Some(format!(
+            "{}: {}\n{}",
+            service.label,
+            service.state.label(),
+            service.state.detail()
+        ));
         self.refresh_log_actions();
         Some(request)
     }
@@ -1665,11 +1711,31 @@ impl ShowPageVm {
             for service in &mut publisher.services {
                 if service.role == role {
                     service.state = PublisherServiceStateDisplay::Working;
+                    service.badge = service_badge(&service.state);
                     service.actions = service_actions(role, service.label, &service.state);
                 }
             }
         }
         if let Some(publisher) = self.publisher.as_mut() {
+            if role == PublisherServiceRole::Publisher {
+                if let Some(event) = &mut publisher.event {
+                    event.actions.attach.availability = EventActionAvailability::Unavailable;
+                    event.actions.detach.availability = EventActionAvailability::Unavailable;
+                    if let Some(primary) = &mut event.primary {
+                        if matches!(
+                            primary.intent,
+                            EventControlIntent::Attach | EventControlIntent::Detach
+                        ) {
+                            primary.action.availability = EventActionAvailability::Unavailable;
+                        }
+                    }
+                    for control in &mut event.overflow {
+                        if control.intent == EventControlIntent::Detach {
+                            control.action.availability = EventActionAvailability::Unavailable;
+                        }
+                    }
+                }
+            }
             publisher.update_summary();
         }
         self.cards = show_cards(
@@ -1869,58 +1935,25 @@ fn live_metadata_card_state(section: &PublisherSectionDisplay) -> (ShowCardState
     let Some(event) = &section.event else {
         return (ShowCardStateKind::Unknown, "Event: loading".to_owned());
     };
-    let state = match event.event.state.state {
-        EventState::None => Some(ShowCardStateKind::Attention),
-        EventState::Dead => Some(ShowCardStateKind::Failed),
-        EventState::Unknown => Some(ShowCardStateKind::Unknown),
-        EventState::Live => None,
-    };
-    if let Some(state) = state {
-        return (state, format!("Event: {}", event.event.state.label));
-    }
-    match event.target.state {
-        EventTargetAttachmentState::Attached => {}
-        EventTargetAttachmentState::NotAttached => {
-            return (
-                ShowCardStateKind::Attention,
-                "Event: not attached".to_owned(),
-            )
-        }
-        EventTargetAttachmentState::Unknown
-        | EventTargetAttachmentState::CommandsUnavailable
-        | EventTargetAttachmentState::NotReachable
-        | EventTargetAttachmentState::Failed => {
-            return (
-                ShowCardStateKind::Unknown,
-                format!("Event: {}", event.target.label),
-            )
-        }
+    if event.badge.kind != ShowCardStateKind::Ok {
+        return (event.badge.kind, format!("Event: {}", event.badge.label));
     }
     // The earliest unready row names the remedy; failures decide the section state.
     let first_unready = section
         .services
         .iter()
-        .find(|service| !matches!(service.state.kind(), PublisherServiceStateKind::Active));
+        .find(|service| service.badge.kind != ShowCardStateKind::Ok);
     if let Some(service) = first_unready {
         let state = if section
             .services
             .iter()
-            .any(|service| matches!(service.state.kind(), PublisherServiceStateKind::Failed))
+            .any(|service| service.badge.kind == ShowCardStateKind::Failed)
         {
             ShowCardStateKind::Failed
         } else {
             ShowCardStateKind::Attention
         };
-        return (
-            state,
-            format!("{}: {}", service.label, service.state.label()),
-        );
-    }
-    if section.services.len() != 2 {
-        return (
-            ShowCardStateKind::Attention,
-            "Producer: status unavailable".to_owned(),
-        );
+        return (state, format!("{}: {}", service.label, service.badge.label));
     }
     (
         ShowCardStateKind::Ok,
@@ -2056,20 +2089,52 @@ impl EventSectionDisplay {
             .selected_event
             .as_ref()
             .map(|event| feed_tag_for_event(&event.event_id));
-        let hint = event_hint(input);
-        let actions = EventActionsDisplay::from_state(
+        let hint = event_hint(input).or_else(|| event_result_hint(input));
+        let mut actions = EventActionsDisplay::from_state(
             &event,
             &target,
             input.attach_target_name.trim(),
             publisher_reachable,
             &input.feedback,
         );
+        if input.registry.status != EventRegistryStatus::Loaded
+            || input.registry.selected_id.is_some()
+            || !input.registry.events.is_empty()
+        {
+            actions.create.availability = EventActionAvailability::Unavailable;
+        }
+        if input.feedback.verification_failure.is_some() {
+            actions.attach.availability = EventActionAvailability::Unavailable;
+            actions.replace.availability = EventActionAvailability::Unavailable;
+        }
+        if let EventTargetListInput::Loaded { targets } = &input.targets {
+            if let Some(target) = targets
+                .iter()
+                .find(|target| target.name == input.attach_target_name.trim())
+            {
+                if Some(target.event_id.as_str()) != event.event_id.as_deref() {
+                    actions.attach.a11y_label = format!(
+                        "Attach this event; replace {} on target {} and restart Publisher",
+                        target.event_id, target.name
+                    );
+                }
+            }
+        }
         let summary = match &event.event_id {
             Some(event_id) => format!("{event_id} - {}", target.label),
             None => event.state.label.to_owned(),
         };
 
         Self {
+            badge: event_badge(input, &target),
+            activity: (input.feedback.check == EventCommandState::Working
+                || input.feedback.target_read == EventCommandState::Working)
+                .then_some("Checking"),
+            picker: event_picker(input, &event),
+            primary: event_primary(input, &actions),
+            overflow: event_overflow(input, &actions),
+            logs: event_control("show-event-logs", "Logs", true),
+            diagnostics: event_diagnostics(input),
             title: "Event",
             registration_message: input.feedback.registration_message(),
             check_message: input.feedback.check_message(),
@@ -2120,9 +2185,17 @@ impl EventTargetAttachmentDisplay {
         match &input.targets {
             EventTargetListInput::Loaded { targets } => targets
                 .iter()
-                .find(|target| target.event_id == selected_event.event_id)
+                .find(|target| {
+                    !input.attach_target_name.trim().is_empty()
+                        && target.name == input.attach_target_name.trim()
+                        && target.event_id == selected_event.event_id
+                })
                 .map_or_else(
-                    || Self::not_attached("No publisher target carries this event."),
+                    || {
+                        Self::not_attached(
+                            "The configured publisher target does not carry this event.",
+                        )
+                    },
                     |target| Self::attached(&target.name),
                 ),
             EventTargetListInput::Unknown => Self {
@@ -2222,8 +2295,8 @@ impl EventActionsDisplay {
                 } else {
                     "Check"
                 },
-                "Check selected broadcast event liveness",
-                event.state.state == EventState::Unknown && !feedback.working(),
+                "Check whether the relay still has the selected event",
+                event.state.state != EventState::None && !feedback.working(),
             ),
             copy_feed_tag: registry_action_display(
                 "event-copy-feed-tag",
@@ -2311,18 +2384,58 @@ impl PublisherSectionDisplay {
         log_pane: &ShowLogPaneDisplay,
         event: Option<EventSectionDisplay>,
     ) -> Option<Self> {
-        let mut services: Vec<_> = snapshot
-            .into_iter()
-            .flat_map(|snapshot| &snapshot.units)
-            .map(|unit| PublisherServiceDisplay::from_snapshot(unit, log_pane))
-            .collect();
-        if services.is_empty() && event.is_none() {
+        if snapshot.is_none_or(|snapshot| snapshot.units.is_empty()) && event.is_none() {
             return None;
         }
-        services.sort_by_key(|service| match service.role {
-            PublisherServiceRole::Producer => 0,
-            PublisherServiceRole::Publisher => 1,
+        let event = event.or_else(|| {
+            Some(EventSectionDisplay::from_input(
+                &EventSectionInput {
+                    liveness_confirmed: true,
+                    registry: EventRegistryInput {
+                        status: EventRegistryStatus::Loading,
+                        ..EventRegistryInput::default()
+                    },
+                    feedback: EventCommandFeedback::default(),
+                    selected_event: None,
+                    targets: EventTargetListInput::Unknown,
+                    attach_target_name: String::new(),
+                    context: String::new(),
+                    request: 0,
+                    remote_host: false,
+                },
+                false,
+            ))
         });
+        let services = [
+            PublisherServiceRole::Producer,
+            PublisherServiceRole::Publisher,
+        ]
+        .into_iter()
+        .map(|role| {
+            let units: Vec<_> = snapshot
+                .into_iter()
+                .flat_map(|snapshot| &snapshot.units)
+                .filter(|unit| unit.role == role)
+                .collect();
+            if let [unit] = units.as_slice() {
+                PublisherServiceDisplay::from_snapshot(unit, log_pane)
+            } else {
+                let state =
+                    PublisherServiceStateDisplay::from_service_state(&ServiceState::Unknown);
+                let label = service_label(role);
+                PublisherServiceDisplay {
+                    role,
+                    id: format!("publisher-service-{}", service_id_seed(role)),
+                    label,
+                    unit_name: "Status unavailable".to_owned(),
+                    badge: ShowItemBadge::new(ShowCardStateKind::Unknown, "Status unavailable"),
+                    actions: service_actions(role, label, &state),
+                    logs: service_logs(role, label, "Status unavailable", &state, log_pane),
+                    state,
+                }
+            }
+        })
+        .collect();
         let mut section = Self {
             title: "Live Metadata",
             summary: String::new(),
@@ -2353,6 +2466,7 @@ impl PublisherServiceDisplay {
         let id_seed = service_id_seed(snapshot.role);
         let unit_name = snapshot.unit_name.clone();
         Self {
+            badge: service_badge(&state),
             role: snapshot.role,
             id: format!("publisher-service-{id_seed}"),
             label,
@@ -2722,7 +2836,9 @@ mod tests {
             // A batch begun before return but finished afterwards is not fresh, even if agreeing.
             let mut stale = command_snapshot(
                 expected.clone(),
-                returned_at - std::time::Duration::from_millis(1),
+                returned_at
+                    .checked_sub(std::time::Duration::from_millis(1))
+                    .expect("test timestamp supports an earlier observation"),
             );
             stale.at = later;
             commands.observe(&stale);
@@ -3105,6 +3221,8 @@ mod tests {
         ] {
             let selected_event =
                 (!matches!(state, EventState::None)).then(|| EventSelectionInput {
+                    created_at: 0,
+                    last_checked_at: None,
                     label: None,
                     event_id: "event-one".to_owned(),
                     endpoint: "https://relay.example".to_owned(),
@@ -3200,6 +3318,8 @@ mod tests {
         ]);
         let input = event_input(
             Some(EventSelectionInput {
+                created_at: 0,
+                last_checked_at: None,
                 label: Some("Late Night".to_owned()),
                 event_id: "event-one".to_owned(),
                 endpoint: "https://relay.example".to_owned(),
@@ -3445,7 +3565,7 @@ mod tests {
             Some(&snapshot),
             ShowLogPaneDisplay::closed(),
         );
-        let service = &vm.publisher.expect("publisher section").services[0];
+        let service = &vm.publisher.expect("publisher section").services[1];
 
         assert_eq!(
             service.state,
@@ -3460,9 +3580,7 @@ mod tests {
 
     #[test]
     fn every_publisher_service_state_returns_a_detail_line() {
-        // An optional detail line changed the height of the publisher strip every
-        // time a unit started, failed, or restarted, and moved the log panel with
-        // it. Every state must return a line so the row height stays fixed.
+        // Situational ADR 0063: each service state retains an explanation in Logs.
         let states = [
             PublisherServiceStateDisplay::Active,
             PublisherServiceStateDisplay::Inactive,
@@ -3494,7 +3612,7 @@ mod tests {
             Some(&snapshot),
             ShowLogPaneDisplay::closed(),
         );
-        let service = &vm.publisher.expect("publisher section").services[0];
+        let service = &vm.publisher.expect("publisher section").services[1];
 
         assert_eq!(service.state, PublisherServiceStateDisplay::NotInstalled);
         assert_eq!(service.state.detail(), "Unit file not found.");
@@ -3534,7 +3652,7 @@ mod tests {
             })
         );
         assert_eq!(
-            vm.publisher.expect("publisher section").services[0].state,
+            vm.publisher.expect("publisher section").services[1].state,
             PublisherServiceStateDisplay::NotReachable
         );
     }
@@ -3601,8 +3719,10 @@ mod tests {
             "musicindex-live-publisher@mixxx.service",
             ServiceState::Active,
         )]);
-        let input = event_input(
+        let mut input = event_input(
             Some(EventSelectionInput {
+                created_at: 0,
+                last_checked_at: None,
                 label: Some("Late Night".to_owned()),
                 event_id: "event&one".to_owned(),
                 endpoint: "https://relay.example".to_owned(),
@@ -3618,6 +3738,7 @@ mod tests {
             },
         );
 
+        input.attach_target_name = "late-night".to_owned();
         let vm = ShowPageVm::from_queue_publisher_readiness_and_event(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
@@ -3654,6 +3775,8 @@ mod tests {
         )]);
         let input = event_input(
             Some(EventSelectionInput {
+                created_at: 0,
+                last_checked_at: None,
                 label: None,
                 event_id: "event-one".to_owned(),
                 endpoint: "https://relay.example".to_owned(),
@@ -3707,6 +3830,8 @@ mod tests {
         );
         let input = event_input(
             Some(EventSelectionInput {
+                created_at: 0,
+                last_checked_at: None,
                 label: None,
                 event_id: "event-one".to_owned(),
                 endpoint: "https://relay.example".to_owned(),
@@ -3768,6 +3893,8 @@ mod tests {
         )]);
         let input = event_input(
             Some(EventSelectionInput {
+                created_at: 0,
+                last_checked_at: None,
                 label: None,
                 event_id: "event-one".to_owned(),
                 endpoint: "https://relay.example".to_owned(),
@@ -3812,6 +3939,8 @@ mod tests {
         );
         let mut input = event_input(
             Some(EventSelectionInput {
+                created_at: 0,
+                last_checked_at: None,
                 label: None,
                 event_id: "event-one".to_owned(),
                 endpoint: "https://relay.example".to_owned(),
@@ -4179,7 +4308,7 @@ mod tests {
             .toggle_publisher_logs(PublisherServiceRole::Publisher)
             .is_none());
         assert!(!vm.log_pane.open);
-        assert!(vm.publisher.as_ref().unwrap().services[0]
+        assert!(vm.publisher.as_ref().unwrap().services[1]
             .logs
             .action
             .disabled());
@@ -4264,6 +4393,8 @@ mod tests {
     fn ready_event_input() -> EventSectionInput {
         event_input(
             Some(EventSelectionInput {
+                created_at: 0,
+                last_checked_at: None,
                 label: None,
                 event_id: "event-one".to_owned(),
                 endpoint: "https://relay.example".to_owned(),
@@ -4345,7 +4476,11 @@ mod tests {
                 EventRegistryAction::Check,
             ] {
                 let display = event.actions.registry_action(candidate);
-                assert_eq!(!display.disabled(), action == Some(candidate));
+                assert_eq!(
+                    !display.disabled(),
+                    action == Some(candidate)
+                        || (candidate == EventRegistryAction::Check && state != EventState::None)
+                );
                 assert!(!display.a11y_label.is_empty());
             }
             assert_eq!(
@@ -4356,6 +4491,13 @@ mod tests {
                 assert!(event.feed_tag.unwrap().contains("event-one"));
             }
         }
+        assert_event_attachment_readiness(&snapshot);
+    }
+
+    /// Situational ADR 0059: attachment query failures cannot claim confirmed absence.
+    fn assert_event_attachment_readiness(
+        snapshot: &broadcast_service_watch::BroadcastServiceWatchSnapshot,
+    ) {
         for (targets, expected, attach) in [
             (
                 EventTargetListInput::Unknown,
@@ -4391,7 +4533,7 @@ mod tests {
             assert_eq!(!event.actions.attach.disabled(), attach);
             assert!(!event.target.detail.is_empty());
             let section = PublisherSectionDisplay::from_snapshot(
-                Some(&snapshot),
+                Some(snapshot),
                 &ShowLogPaneDisplay::closed(),
                 Some(event),
             )
@@ -4438,12 +4580,13 @@ mod tests {
                     Some(EventSectionDisplay::from_input(&ready_event_input(), true)),
                 )
                 .unwrap();
-                section
+                let service = section
                     .services
                     .iter_mut()
                     .find(|service| service.role == role)
-                    .unwrap()
-                    .state = state.clone();
+                    .unwrap();
+                service.state = state.clone();
+                service.badge = service_badge(&state);
                 section.update_summary();
                 let card = ShowCardDisplay::from_live_metadata(&section);
                 let expected = match state {
@@ -4483,12 +4626,24 @@ mod tests {
             }
             for feedback in [
                 EventCommandFeedback {
+                    verification_failure: None,
+                    selection: EventCommandState::Idle,
+                    target_read: EventCommandState::Idle,
+                    target_mutation: EventCommandState::Idle,
+                    active_action: None,
                     registration: EventCommandState::Working,
                     check: EventCommandState::Idle,
+                    ..EventCommandFeedback::default()
                 },
                 EventCommandFeedback {
+                    verification_failure: None,
+                    selection: EventCommandState::Idle,
+                    target_read: EventCommandState::Idle,
+                    target_mutation: EventCommandState::Idle,
+                    active_action: None,
                     registration: EventCommandState::Succeeded,
                     check: EventCommandState::Working,
+                    ..EventCommandFeedback::default()
                 },
             ] {
                 busy.feedback = feedback;
@@ -4502,10 +4657,16 @@ mod tests {
             }
         }
         input.feedback = EventCommandFeedback {
+            verification_failure: None,
+            selection: EventCommandState::Idle,
+            target_read: EventCommandState::Idle,
+            target_mutation: EventCommandState::Idle,
+            active_action: None,
             registration: EventCommandState::Succeeded,
             check: EventCommandState::Failed {
                 detail: "connection lost".to_owned(),
             },
+            ..EventCommandFeedback::default()
         };
         let event = EventSectionDisplay::from_input(&input, true);
         assert_eq!(event.event.state.state, EventState::Unknown);
@@ -4525,6 +4686,10 @@ mod tests {
         targets: EventTargetListInput,
     ) -> EventSectionInput {
         EventSectionInput {
+            liveness_confirmed: true,
+            registry: EventRegistryInput::default(),
+            context: String::new(),
+            request: 0,
             feedback: EventCommandFeedback::default(),
             selected_event,
             targets,
@@ -4569,5 +4734,796 @@ mod tests {
             !card.a11y_label.trim().is_empty(),
             "card {card:?} has an empty accessibility label"
         );
+    }
+    /// Situational ADR 0059: configured name AND ID decide attachment, including an empty name.
+    #[test]
+    fn compact_event_configured_target_and_remote_hint() {
+        let mut input = ready_event_input();
+        let EventTargetListInput::Loaded { targets } = &mut input.targets else {
+            unreachable!()
+        };
+        targets[0].name = "unused".to_owned();
+        let event = EventSectionDisplay::from_input(&input, true);
+        assert_eq!(
+            event.badge,
+            ShowItemBadge::new(ShowCardStateKind::Attention, "Not attached")
+        );
+        assert!(event.actions.detach.disabled());
+        assert!(!event.actions.attach.disabled());
+        for name in ["", "   "] {
+            input.attach_target_name = name.to_owned();
+            let event = EventSectionDisplay::from_input(&input, true);
+            assert_eq!(event.badge.label, "Target not set");
+            assert!(event.actions.attach.disabled() && event.actions.detach.disabled());
+        }
+        input.attach_target_name = " default ".to_owned();
+        let EventTargetListInput::Loaded { targets } = &mut input.targets else {
+            unreachable!()
+        };
+        targets.push(EventTargetInput {
+            name: "default".to_owned(),
+            event_id: "event-one".to_owned(),
+        });
+        input.remote_host = true;
+        input.selected_event.as_mut().unwrap().token_file_missing = true;
+        let event = EventSectionDisplay::from_input(&input, true);
+        assert_eq!(
+            event.badge,
+            ShowItemBadge::new(ShowCardStateKind::Ok, "Attached")
+        );
+        assert_eq!(event.target.target_name.as_deref(), Some("default"));
+        assert!(event.hint.unwrap().contains("missing locally"));
+        input.remote_host = false;
+        assert!(event_hint(&input).is_none());
+        input.remote_host = true;
+        input.selected_event.as_mut().unwrap().token_file_missing = false;
+        assert!(event_hint(&input).is_none());
+        input.selected_event = None;
+        assert!(event_hint(&input).is_none());
+    }
+
+    /// Situational ADR 0059: independently completed read failures override retained confirmation.
+    #[test]
+    fn compact_event_passive_checks_and_mutations_have_distinct_readiness() {
+        let mut input = ready_event_input();
+        input.feedback.check = EventCommandState::Working;
+        input.feedback.target_read = EventCommandState::Working;
+        let event = EventSectionDisplay::from_input(&input, true);
+        assert_eq!(event.badge.kind, ShowCardStateKind::Ok);
+        assert_eq!(event.activity, Some("Checking"));
+        assert!(event.primary.unwrap().action.disabled());
+        input.liveness_confirmed = false;
+        assert_eq!(
+            EventSectionDisplay::from_input(&input, true).badge.label,
+            "Checking"
+        );
+        input.liveness_confirmed = true;
+        input.targets = EventTargetListInput::Failed {
+            detail: "private diagnostic body".to_owned(),
+        };
+        let event = EventSectionDisplay::from_input(&input, true);
+        assert_eq!(event.badge.label, "Target read failed");
+        input.feedback.check = EventCommandState::Failed {
+            detail: "relay query failed".to_owned(),
+        };
+        input.feedback.verification_failure = Some("relay query failed".to_owned());
+        input.targets = ready_event_input().targets;
+        assert_eq!(
+            EventSectionDisplay::from_input(&input, true).badge.label,
+            "Check failed"
+        );
+        // Retrying preserves the failed confirmation until a new answer.
+        input.feedback.check = EventCommandState::Working;
+        assert_eq!(
+            EventSectionDisplay::from_input(&input, true).badge.label,
+            "Check failed"
+        );
+        input.feedback = EventCommandFeedback::default();
+        input.selected_event.as_mut().unwrap().state = EventState::Unknown;
+        input.feedback.check = EventCommandState::Working;
+        assert_eq!(
+            EventSectionDisplay::from_input(&input, true).badge.label,
+            "Checking"
+        );
+        for (intent, expected) in [
+            (EventControlIntent::Create, "Creating"),
+            (EventControlIntent::Replace, "Replacing"),
+            (EventControlIntent::Attach, "Attaching"),
+            (EventControlIntent::Detach, "Detaching"),
+        ] {
+            let mut input = ready_event_input();
+            input.feedback.active_action = Some(intent);
+            if matches!(
+                intent,
+                EventControlIntent::Create | EventControlIntent::Replace
+            ) {
+                input.feedback.registration = EventCommandState::Working;
+            } else {
+                input.feedback.target_mutation = EventCommandState::Working;
+            }
+            let event = EventSectionDisplay::from_input(&input, true);
+            assert_eq!(
+                event.badge,
+                ShowItemBadge::new(ShowCardStateKind::Unknown, expected)
+            );
+            assert!(
+                event.actions.create.disabled()
+                    && event.actions.replace.disabled()
+                    && event.actions.check.disabled()
+                    && event.actions.attach.disabled()
+                    && event.actions.detach.disabled()
+            );
+            let expected_id = match intent {
+                EventControlIntent::Create => event.actions.create.id,
+                EventControlIntent::Replace => event.actions.replace.id,
+                EventControlIntent::Attach => event.actions.attach.id,
+                EventControlIntent::Detach => event.actions.detach.id,
+                _ => unreachable!(),
+            };
+            assert_eq!(event.primary.as_ref().unwrap().action.id, expected_id);
+            assert!(!event.logs.disabled() && !event.actions.copy_feed_tag.disabled());
+        }
+    }
+
+    /// Situational ADR 0059: event badge labels distinguish unknown facts from absence.
+    fn assert_compact_event_badge_table() {
+        use ShowCardStateKind::{Attention, Failed, Ok, Unknown};
+        let ready = ready_event_input();
+        for (targets, kind, label) in [
+            (EventTargetListInput::Unknown, Unknown, "Target unknown"),
+            (
+                EventTargetListInput::CommandsUnavailable,
+                Unknown,
+                "Commands unavailable",
+            ),
+            (EventTargetListInput::NotReachable, Unknown, "Not reachable"),
+            (
+                EventTargetListInput::Failed {
+                    detail: "bad json".to_owned(),
+                },
+                Unknown,
+                "Target read failed",
+            ),
+            (
+                EventTargetListInput::Loaded { targets: vec![] },
+                Attention,
+                "Not attached",
+            ),
+            (ready.targets.clone(), Ok, "Attached"),
+        ] {
+            let mut input = ready.clone();
+            input.targets = targets;
+            assert_eq!(
+                EventSectionDisplay::from_input(&input, true).badge,
+                ShowItemBadge::new(kind, label)
+            );
+        }
+        for (state, kind, label) in [
+            (EventState::Dead, Failed, "Dead"),
+            (EventState::Unknown, Unknown, "Unknown"),
+            (EventState::None, Attention, "No event"),
+        ] {
+            let mut input = ready.clone();
+            if state == EventState::None {
+                input.selected_event = None;
+            } else {
+                input.selected_event.as_mut().unwrap().state = state;
+            }
+            assert_eq!(
+                EventSectionDisplay::from_input(&input, true).badge,
+                ShowItemBadge::new(kind, label)
+            );
+        }
+        for (status, label) in [
+            (EventRegistryStatus::Loading, "Loading"),
+            (
+                EventRegistryStatus::Failed("locked".to_owned()),
+                "Events unavailable",
+            ),
+        ] {
+            let mut input = ready.clone();
+            input.registry.status = status;
+            assert_eq!(
+                EventSectionDisplay::from_input(&input, true).badge,
+                ShowItemBadge::new(Unknown, label)
+            );
+        }
+        let mut missing = ready.clone();
+        missing.selected_event = None;
+        missing.registry.selected_id = Some("gone".to_owned());
+        let event = EventSectionDisplay::from_input(&missing, true);
+        assert_eq!(event.badge.label, "Event unavailable");
+        assert!(event.actions.create.disabled());
+    }
+
+    /// Situational ADR 0059: every label and every role combination uses the same badge facts.
+    #[test]
+    fn compact_event_badge_tables_and_card_equivalence() {
+        use ShowCardStateKind::{Attention, Failed, Ok, Unknown};
+        assert_compact_event_badge_table();
+        let ready = ready_event_input();
+        let states = [
+            PublisherServiceStateDisplay::Active,
+            PublisherServiceStateDisplay::Inactive,
+            PublisherServiceStateDisplay::Starting,
+            PublisherServiceStateDisplay::Stopping,
+            PublisherServiceStateDisplay::Failed {
+                reason: "exit-code".to_owned(),
+            },
+            PublisherServiceStateDisplay::NotInstalled,
+            PublisherServiceStateDisplay::NotReachable,
+            PublisherServiceStateDisplay::Unknown,
+            PublisherServiceStateDisplay::Working,
+        ];
+        for (state, (kind, label)) in states.iter().zip([
+            (Ok, "Active"),
+            (Attention, "Inactive"),
+            (Attention, "Starting"),
+            (Attention, "Stopping"),
+            (Failed, "Failed"),
+            (Attention, "Not installed"),
+            (Attention, "Not reachable"),
+            (Unknown, "Unknown"),
+            (Unknown, "Working"),
+        ]) {
+            assert_eq!(service_badge(state), ShowItemBadge::new(kind, label));
+        }
+        let snapshot = publisher_snapshot([
+            (PublisherServiceRole::Producer, "p", ServiceState::Active),
+            (PublisherServiceRole::Publisher, "q", ServiceState::Active),
+        ]);
+        for event_ok in [false, true] {
+            for producer in &states {
+                for publisher in &states {
+                    let mut input = ready.clone();
+                    if !event_ok {
+                        input.selected_event.as_mut().unwrap().state = EventState::Dead;
+                    }
+                    let mut section = PublisherSectionDisplay::from_snapshot(
+                        Some(&snapshot),
+                        &ShowLogPaneDisplay::closed(),
+                        Some(EventSectionDisplay::from_input(&input, true)),
+                    )
+                    .unwrap();
+                    section.services[0].badge = service_badge(producer);
+                    section.services[1].badge = service_badge(publisher);
+                    let card_ok = live_metadata_card_state(&section).0 == Ok;
+                    assert_eq!(
+                        card_ok,
+                        event_ok
+                            && producer.kind() == PublisherServiceStateKind::Active
+                            && publisher.kind() == PublisherServiceStateKind::Active
+                    );
+                }
+            }
+        }
+        for units in [
+            vec![],
+            vec![snapshot.units[0].clone()],
+            vec![snapshot.units[0].clone(), snapshot.units[0].clone()],
+            vec![
+                snapshot.units[0].clone(),
+                snapshot.units[1].clone(),
+                snapshot.units[1].clone(),
+            ],
+        ] {
+            let mut snapshot = snapshot.clone();
+            snapshot.units = units;
+            let section = PublisherSectionDisplay::from_snapshot(
+                Some(&snapshot),
+                &ShowLogPaneDisplay::closed(),
+                Some(EventSectionDisplay::from_input(&ready, true)),
+            )
+            .unwrap();
+            assert_eq!(section.services.len(), 2);
+            assert!(section
+                .services
+                .iter()
+                .any(|service| service.badge.label == "Status unavailable"));
+            assert_ne!(live_metadata_card_state(&section).0, Ok);
+        }
+    }
+
+    /// Situational ADR 0063: snapshot/source switching preserves exact text and rejects stale journals.
+    #[test]
+    fn compact_event_logs_picker_and_diagnostics_are_identity_scoped() {
+        let mut input = ready_event_input();
+        input.registry.events = vec![input.selected_event.clone().unwrap()];
+        input.registry.selected_id = Some("event-one".to_owned());
+        let mut other = input.selected_event.clone().unwrap();
+        other.event_id = "event-two".to_owned();
+        other.label = Some("Same label".to_owned());
+        input.registry.events.insert(0, other.clone());
+        input.feedback.registration = EventCommandState::Succeeded;
+        input.feedback.check = EventCommandState::Failed {
+            detail: "HTTP 503 diagnostic body".to_owned(),
+        };
+        input.record_event_report(EventReportOperation::Registration, chrono::Utc::now());
+        input.record_event_report(EventReportOperation::Check, chrono::Utc::now());
+        let event = EventSectionDisplay::from_input(&input, true);
+        assert!(event.picker.entries[0].detail.contains("event-two"));
+        assert!(event.picker.entries[1]
+            .label
+            .contains("Selected · Configured"));
+        assert!(!event.summary.contains("token") && !event.summary.contains("503"));
+        assert!(
+            event.diagnostics.contains("/tmp/event-one.token")
+                && event.diagnostics.contains("HTTP 503 diagnostic body")
+        );
+        assert!(event
+            .diagnostics
+            .contains(event.feed_tag.as_deref().unwrap()));
+        let mut colliding = input.registry.events.clone();
+        colliding[0].event_id = "aaaaaaaaaaaaaaaaaa1-same-suffix".to_owned();
+        colliding[1].event_id = "bbbbbbbbbbbbbbbbbb2-same-suffix".to_owned();
+        assert_ne!(
+            picker_event_id(&colliding[0].event_id, &colliding),
+            picker_event_id(&colliding[1].event_id, &colliding)
+        );
+        assert!(
+            compact_event_label(&"long label ".repeat(20))
+                .chars()
+                .count()
+                <= 33
+        );
+        let mut pane = ShowLogPaneDisplay::closed();
+        let stale = pane.begin_read(
+            PublisherServiceRole::Producer,
+            "producer.service".to_owned(),
+        );
+        pane.show_event(&input);
+        assert!(!pane.close.disabled());
+        assert!(!pane.apply_result(stale, Ok("old journal".to_owned())));
+        let first_text = pane.text.clone();
+        input.selected_event = Some(other);
+        input.registry.selected_id = Some("event-two".to_owned());
+        input.registry.revision += 1;
+        pane.show_event(&input);
+        assert!(pane.unit_name.contains("event-two"));
+        assert_ne!(pane.text, first_text);
+        assert!(pane.text.contains("App selected event event-two."));
+        let current = pane.begin_read(
+            PublisherServiceRole::Publisher,
+            "publisher.service".to_owned(),
+        );
+        assert!(!pane.shows_event());
+        assert!(pane.apply_result(current, Ok("line one\nline two\n".to_owned())));
+        assert_eq!(pane.text, "line one\nline two\n");
+    }
+}
+
+/// Renderer-free badge shared by card and item projections (ADR 0059/0063).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ShowItemBadge {
+    pub(crate) kind: ShowCardStateKind,
+    pub(crate) label: &'static str,
+}
+
+impl ShowItemBadge {
+    const fn new(kind: ShowCardStateKind, label: &'static str) -> Self {
+        Self { kind, label }
+    }
+}
+
+/// Registry loading is distinct from a successfully read empty registry.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) enum EventRegistryStatus {
+    Loading,
+    Failed(String),
+    #[default]
+    Loaded,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct EventRegistryInput {
+    pub(crate) status: EventRegistryStatus,
+    pub(crate) events: Vec<EventSelectionInput>,
+    pub(crate) selected_id: Option<String>,
+    pub(crate) revision: i64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum EventControlIntent {
+    Create,
+    Replace,
+    Check,
+    ReadTargets,
+    Attach,
+    Detach,
+    Refresh,
+    CopyFeedTag,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EventControlDisplay {
+    pub(crate) intent: EventControlIntent,
+    pub(crate) action: EventActionDisplay,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EventPickerEntry {
+    pub(crate) detail: String,
+    pub(crate) event_id: String,
+    pub(crate) label: String,
+    pub(crate) a11y_label: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EventPickerDisplay {
+    pub(crate) label: String,
+    pub(crate) a11y_label: String,
+    pub(crate) availability: EventActionAvailability,
+    pub(crate) entries: Vec<EventPickerEntry>,
+}
+
+fn event_control(id: &'static str, label: &'static str, available: bool) -> EventActionDisplay {
+    registry_action_display(id, label, label, available)
+}
+
+fn event_badge(input: &EventSectionInput, target: &EventTargetAttachmentDisplay) -> ShowItemBadge {
+    use ShowCardStateKind::{Attention, Failed, Ok, Unknown};
+    let feedback = &input.feedback;
+    let value = if feedback.registration == EventCommandState::Working {
+        (
+            Unknown,
+            if feedback.active_action == Some(EventControlIntent::Replace) {
+                "Replacing"
+            } else {
+                "Creating"
+            },
+        )
+    } else if feedback.target_mutation == EventCommandState::Working {
+        (
+            Unknown,
+            if feedback.active_action == Some(EventControlIntent::Detach) {
+                "Detaching"
+            } else {
+                "Attaching"
+            },
+        )
+    } else {
+        match &input.registry.status {
+            EventRegistryStatus::Loading => return ShowItemBadge::new(Unknown, "Loading"),
+            EventRegistryStatus::Failed(_) => {
+                return ShowItemBadge::new(Unknown, "Events unavailable")
+            }
+            EventRegistryStatus::Loaded => {}
+        }
+        let Some(event) = &input.selected_event else {
+            return ShowItemBadge::new(
+                Attention,
+                if input.registry.selected_id.is_some() {
+                    "Event unavailable"
+                } else {
+                    "No event"
+                },
+            );
+        };
+        if feedback.verification_failure.is_some()
+            || matches!(feedback.check, EventCommandState::Failed { .. })
+        {
+            (Unknown, "Check failed")
+        } else if feedback.check == EventCommandState::Working && !input.liveness_confirmed {
+            (Unknown, "Checking")
+        } else {
+            match event.state {
+                EventState::None => (Attention, "No event"),
+                EventState::Dead => (Failed, "Dead"),
+                EventState::Unknown => (
+                    Unknown,
+                    if feedback.check == EventCommandState::Working {
+                        "Checking"
+                    } else {
+                        "Unknown"
+                    },
+                ),
+                EventState::Live if input.attach_target_name.trim().is_empty() => {
+                    (Attention, "Target not set")
+                }
+                EventState::Live => match target.state {
+                    EventTargetAttachmentState::Attached => (Ok, "Attached"),
+                    EventTargetAttachmentState::NotAttached => (Attention, "Not attached"),
+                    EventTargetAttachmentState::Unknown => (Unknown, "Target unknown"),
+                    EventTargetAttachmentState::CommandsUnavailable => {
+                        (Unknown, "Commands unavailable")
+                    }
+                    EventTargetAttachmentState::NotReachable => (Unknown, "Not reachable"),
+                    EventTargetAttachmentState::Failed => (Unknown, "Target read failed"),
+                },
+            }
+        }
+    };
+    ShowItemBadge::new(value.0, value.1)
+}
+
+fn service_badge(state: &PublisherServiceStateDisplay) -> ShowItemBadge {
+    let kind = match state.kind() {
+        PublisherServiceStateKind::Active => ShowCardStateKind::Ok,
+        PublisherServiceStateKind::Failed => ShowCardStateKind::Failed,
+        PublisherServiceStateKind::Unknown | PublisherServiceStateKind::Working => {
+            ShowCardStateKind::Unknown
+        }
+        PublisherServiceStateKind::Inactive
+        | PublisherServiceStateKind::Starting
+        | PublisherServiceStateKind::Stopping
+        | PublisherServiceStateKind::NotInstalled
+        | PublisherServiceStateKind::NotReachable => ShowCardStateKind::Attention,
+    };
+    ShowItemBadge::new(kind, state.label())
+}
+
+fn event_primary(
+    input: &EventSectionInput,
+    actions: &EventActionsDisplay,
+) -> Option<EventControlDisplay> {
+    use EventControlIntent::{Attach, Check, Create, Detach, ReadTargets, Refresh, Replace};
+    if input.feedback.working() {
+        let intent = input.feedback.active_action.unwrap_or(Check);
+        let label = match intent {
+            Create => "Creating",
+            Replace => "Replacing",
+            Attach => "Attaching",
+            Detach => "Detaching",
+            _ => "Checking",
+        };
+        let mut action = match intent {
+            Create => actions.create.clone(),
+            Replace => actions.replace.clone(),
+            Check => actions.check.clone(),
+            Attach => actions.attach.clone(),
+            Detach => actions.detach.clone(),
+            ReadTargets => event_control("event-read-targets", label, false),
+            Refresh => event_control("event-refresh", label, false),
+            EventControlIntent::CopyFeedTag => actions.copy_feed_tag.clone(),
+        };
+        action.label = label;
+        action.a11y_label =
+            format!("{label} event; controls unavailable until the request finishes");
+        action.availability = EventActionAvailability::Unavailable;
+        return Some(EventControlDisplay { intent, action });
+    }
+    let (intent, action) = match &input.registry.status {
+        EventRegistryStatus::Loading => (Refresh, event_control("event-refresh", "Loading", false)),
+        EventRegistryStatus::Failed(_) => (
+            Refresh,
+            event_control("event-refresh", "Retry events", true),
+        ),
+        EventRegistryStatus::Loaded => match &input.selected_event {
+            None if input.registry.events.is_empty() && input.registry.selected_id.is_none() => {
+                (Create, actions.create.clone())
+            }
+            None => return None,
+            Some(_)
+                if input.feedback.verification_failure.is_some()
+                    || matches!(input.feedback.check, EventCommandState::Failed { .. }) =>
+            {
+                (Check, actions.check.clone())
+            }
+            Some(event) => match event.state {
+                EventState::None => return None,
+                EventState::Unknown => (Check, actions.check.clone()),
+                EventState::Dead => (Replace, actions.replace.clone()),
+                EventState::Live => match &input.targets {
+                    EventTargetListInput::Loaded { .. } if actions.attach.disabled() => {
+                        return None
+                    }
+                    EventTargetListInput::Loaded { .. } => (Attach, actions.attach.clone()),
+                    _ => (
+                        ReadTargets,
+                        event_control("event-read-targets", "Retry config", true),
+                    ),
+                },
+            },
+        },
+    };
+    Some(EventControlDisplay { intent, action })
+}
+
+fn event_overflow(
+    input: &EventSectionInput,
+    actions: &EventActionsDisplay,
+) -> Vec<EventControlDisplay> {
+    if input.selected_event.is_none() {
+        return Vec::new();
+    }
+    let mut check = actions.check.clone();
+    check.label = "Check again";
+    "Check whether the relay still has this event and read the publisher configuration again"
+        .clone_into(&mut check.a11y_label);
+    vec![
+        EventControlDisplay {
+            intent: EventControlIntent::CopyFeedTag,
+            action: actions.copy_feed_tag.clone(),
+        },
+        EventControlDisplay {
+            intent: EventControlIntent::Check,
+            action: check,
+        },
+        EventControlDisplay {
+            intent: EventControlIntent::Detach,
+            action: actions.detach.clone(),
+        },
+    ]
+}
+
+fn event_picker(input: &EventSectionInput, event: &EventSelectionDisplay) -> EventPickerDisplay {
+    let configured_id = match &input.targets {
+        EventTargetListInput::Loaded { targets } if !input.attach_target_name.trim().is_empty() => {
+            targets
+                .iter()
+                .find(|target| target.name == input.attach_target_name.trim())
+                .map(|target| target.event_id.as_str())
+        }
+        _ => None,
+    };
+    let entries = input
+        .registry
+        .events
+        .iter()
+        .map(|entry| {
+            let selected = input.registry.selected_id.as_deref() == Some(&entry.event_id);
+            let configured = configured_id == Some(&entry.event_id);
+            let id = picker_event_id(&entry.event_id, &input.registry.events);
+            let label = format!(
+                "{}{}{}",
+                entry.label.as_deref().unwrap_or(&id),
+                if selected { " · Selected" } else { "" },
+                if configured { " · Configured" } else { "" }
+            );
+            let detail = format!(
+                "{} · {} · {id}",
+                event_date(entry.created_at),
+                entry.state.display().label
+            );
+            EventPickerEntry {
+                event_id: entry.event_id.clone(),
+                a11y_label: format!("Select event {label}, {detail}, full ID {}", entry.event_id),
+                label,
+                detail,
+            }
+        })
+        .collect();
+    let label = if input.selected_event.is_none() && input.registry.selected_id.is_some() {
+        "Choose an event".to_owned()
+    } else if let Some(selected) = &input.selected_event {
+        selected
+            .label
+            .as_deref()
+            .filter(|label| !label.trim().is_empty())
+            .map_or_else(
+                || {
+                    let date = chrono::DateTime::from_timestamp(selected.created_at, 0)
+                        .map_or_else(String::new, |date| date.format("%m-%d %H:%M").to_string());
+                    format!(
+                        "{date} · {}",
+                        picker_event_id(&selected.event_id, &input.registry.events)
+                    )
+                },
+                compact_event_label,
+            )
+    } else {
+        event.label.clone()
+    };
+    EventPickerDisplay {
+        a11y_label: format!("Choose stored event, {}", event.label),
+        label,
+        entries,
+        availability: event_action_availability(
+            !input.feedback.working()
+                && !input.registry.events.is_empty()
+                && input.registry.status == EventRegistryStatus::Loaded,
+        ),
+    }
+}
+
+fn event_date(timestamp: i64) -> String {
+    chrono::DateTime::from_timestamp(timestamp, 0).map_or_else(
+        || timestamp.to_string(),
+        |date| date.format("%Y-%m-%d %H:%M UTC").to_string(),
+    )
+}
+
+fn event_diagnostics(input: &EventSectionInput) -> String {
+    event_report::render(input)
+}
+
+impl ShowLogPaneDisplay {
+    pub(crate) fn shows_event(&self) -> bool {
+        self.open && self.event_source.is_some()
+    }
+
+    /// Source and text move together; old journal responses lose their request ownership.
+    pub(crate) fn show_event(&mut self, input: &EventSectionInput) {
+        self.open = true;
+        self.close.availability = PublisherActionAvailability::Available;
+        self.service_detail = None;
+        self.role = None;
+        self.request = None;
+        self.event_source = Some(format!(
+            "{}:{}:{}",
+            input.context,
+            input.registry.revision,
+            input.registry.selected_id.as_deref().unwrap_or("none")
+        ));
+        self.unit_name = format!(
+            "Event · {}",
+            input
+                .selected_event
+                .as_ref()
+                .map_or("No event", |event| event.event_id.as_str())
+        );
+        self.text = event_diagnostics(input);
+        self.feed_tag = input
+            .selected_event
+            .as_ref()
+            .map(|event| feed_tag_for_event(&event.event_id));
+        self.copy_feed_tag = self
+            .feed_tag
+            .as_ref()
+            .map(|_| event_control("event-log-copy-feed-tag", "Copy feed tag", true));
+        self.line_count = self.text.lines().count();
+        self.line_count_label = format!("{} lines", self.line_count);
+    }
+}
+
+fn event_result_hint(input: &EventSectionInput) -> Option<String> {
+    if matches!(input.feedback.selection, EventCommandState::Failed { .. }) {
+        Some("Could not save the event choice. Open Logs.".to_owned())
+    } else if matches!(
+        input.feedback.registration,
+        EventCommandState::Failed { .. }
+    ) {
+        Some("Could not create the event. Open Logs.".to_owned())
+    } else if matches!(
+        input.feedback.target_mutation,
+        EventCommandState::Failed { .. }
+    ) {
+        Some("Publisher configuration action failed. Open Logs.".to_owned())
+    } else if let EventTargetListInput::Loaded { targets } = &input.targets {
+        targets
+            .iter()
+            .find(|target| {
+                target.name == input.attach_target_name.trim()
+                    && input
+                        .selected_event
+                        .as_ref()
+                        .is_some_and(|event| target.event_id != event.event_id)
+            })
+            .map(|target| {
+                format!(
+                    "Publisher configured for {}. Attach replaces it.",
+                    picker_event_id(&target.event_id, &input.registry.events)
+                )
+            })
+    } else {
+        None
+    }
+}
+
+/// Shorten IDs only when the displayed suffix distinguishes every stored entry.
+fn picker_event_id(id: &str, events: &[EventSelectionInput]) -> String {
+    let chars: Vec<char> = id.chars().collect();
+    if chars.len() <= 20 {
+        return id.to_owned();
+    }
+    for count in 8..chars.len() {
+        let suffix: String = chars[chars.len() - count..].iter().collect();
+        if !events
+            .iter()
+            .any(|event| event.event_id != id && event.event_id.ends_with(&suffix))
+        {
+            return format!("…{suffix}");
+        }
+    }
+    id.to_owned()
+}
+
+fn compact_event_label(label: &str) -> String {
+    let mut chars = label.trim().chars();
+    let prefix: String = chars.by_ref().take(32).collect();
+    if chars.next().is_some() {
+        format!("{prefix}…")
+    } else {
+        prefix
     }
 }

@@ -92,8 +92,8 @@ it to the publisher, and start the services from one screen.
 20. `v4vmm` [017, compact event controls and badges](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md).
     Approved 2026-09-09 under ADRs 0059 and 0063. Adds saved event selection,
     configured-target attachment correction, per-item badges, and Event
-    diagnostics. Implementation and the new operator visual gate are open;
-    task 016 remains accepted for its shipped scope.
+    diagnostics. Implementation, operator acceptance, and fixture cleanup are
+    complete on 2026-09-10. Task 016 remains accepted for its shipped scope.
 
 ### Independent track: bank the shows
 
@@ -164,7 +164,7 @@ Update this table when a packet lands.
 | `v4vmm` | 0063 004 log bottom pane | implemented - 2026-09-09; mechanical and operator visual acceptance met, including selectable text and right-click Copy |
 | `v4vmm` | [show action feedback 001 (A7, A8, A9)](../tasks/show-action-feedback-task-001-command-state-and-result.md) | implemented - 2026-09-10; mechanical acceptance Green; [operator visual acceptance passed](../tasks/show-action-feedback-task-001-command-state-and-result.md#operator-visual-check) for A7, A8, and A9 |
 | `v4vmm` | 016 event row in Live Metadata | implemented - 2026-09-09; mechanical acceptance Green; [all operator event recovery checks passed](../runbooks/broadcast-event-recovery-check.md), including Copy, service readiness, resizing, and registry/token preservation; visual acceptance met |
-| `v4vmm` | [017 compact event controls and badges](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md) | accepted - 2026-09-09; ready after action feedback 001 passed on 2026-09-10; implementation not started; mechanical acceptance outstanding; [operator visual gate open](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check) |
+| `v4vmm` | [017 compact event controls and badges](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md) | implemented - 2026-09-10; mechanical checks Green; [operator acceptance and fixture cleanup complete](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check), including preservation and confirmation of three intentional registrations; narrow log-body limitation tracked in the proposal; ADRs 0059/0063 reconciled |
 | `v4vmm` | 0064 001 relative local paths | implemented - 2026-09-09; visual acceptance met after path repair converted moved library |
 | `v4vmm` | 0064 002 repair report surface | ready |
 | `v4vmm` | 0065 001 tag repair service | implemented - 2026-09-09; no visual criteria |
@@ -175,14 +175,14 @@ Update this table when a packet lands.
 | `splitkit` | reserved 004 list and delete | ready; list envelope pinned |
 | `splitkit` | reserved 005 guards and review | ready; also reconciles this plan |
 
-## Current Blocker
+## Surface Rewrite — Complete
 
-ADR 0060 replaced the surface design on 2026-09-07. Every UI packet of ADR 0059
-is superseded or blocked until it is reconciled with that ADR.
+ADR 0060 replaced the surface design on 2026-09-07. The ADR 0059 UI packets
+were reconciled against it and are complete, including task 017's operator
+acceptance on 2026-09-10. The surface rewrite no longer blocks broadcast work.
 
-The restructure runs first. It needs ADR 0060 only. Cache, audition, and play
-history are features inside `Music`, not the structure of it, so their ADRs do
-not gate the structural work.
+The restructure ran first under ADR 0060. Cache, audition, and play history
+are separate features inside `Music`; they did not gate the structural work.
 
 | Step | Packet | State |
 |---|---|---|
@@ -191,11 +191,10 @@ not gate the structural work.
 | 3 | `docs/tasks/adr-0060-task-003-music-surface.md` | implemented - 2026-09-08; visual acceptance met |
 | 4 | `docs/tasks/adr-0060-task-004-live-status-strip.md` | implemented - 2026-09-08; visual acceptance met |
 
-`Show` comes before `Music`. The queue moves into `Show`, so `Show` must exist
-before the curation surface gives it up. The reverse order leaves playback with
-no home.
+`Show` preceded `Music` so it could own the queue before the curation surface
+gave it up.
 
-ADR 0062 then rebuilds what `Music` shows:
+ADR 0062 rebuilt what `Music` shows:
 
 | Step | Packet | State |
 |---|---|---|
@@ -206,8 +205,9 @@ ADR 0062 then rebuilds what `Music` shows:
 | 5 | `docs/tasks/adr-0062-task-005-retire-recent-feeds-destination.md` | complete - 2026-09-07 |
 
 The ADR 0059 packets were revised against ADR 0060 on 2026-09-08 and are no
-longer blocked. Packet 009 establishes how a section composes into the `Show`
-screen mount, so it runs before 012, 014, and 015.
+longer blocked. Packet 009 established how a section composes into the `Show`
+screen mount, so it ran before 012, 014, and 015. These packets are complete;
+their dependency order is retained below.
 
 | Order | Packet | Depends on |
 |---|---|---|
@@ -220,8 +220,8 @@ screen mount, so it runs before 012, 014, and 015.
 | 7 | 014 attach event to publisher target | 009, 010, and publisher task 001 |
 | 8 | 013 final guards and readiness | everything above |
 
-ADR 0063 rebuilds the `Show` layout. It does not block the packets above, and
-they do not block it. Packet 013 checks the layout that ADR 0063 leaves.
+ADR 0063 rebuilt the `Show` layout. Its four dashboard packets are complete,
+and task 017's compact-item amendment has passed operator acceptance.
 
 | Order | Packet | Depends on |
 |---|---|---|
@@ -278,6 +278,41 @@ is not mistaken for the whole plan.
 - Broadcaster identity and quotas in `splitkit`. Options recorded, no decision.
 - A remote control API in `musicindex-live-publisher`, for liquidsoap.
 - Liquidsoap as a source.
+- [Show narrow-layout proposal](show-narrow-layout-proposal.md): automatic/manual
+  compact cards and full-width logs, the overlap alternative, and requested
+  playback-bar removal. Playback scope is awaiting operator clarification.
+
+### Consistent UTC Log Timestamps
+
+Unscheduled follow-up - 2026-09-10. The operator requires consistent UTC
+timestamps across all logs, including log producers outside `v4vmm` where
+changes are needed. This requirement accompanies
+[per-log following and reading positions](hig-product-polish-backlog.md#a12---follow-latest-logs-and-remember-each-reading-position).
+It is not implemented or an additional gate on task 017.
+
+Agree a common timestamp contract in the owning ADRs before assigning packets:
+record the actual event time, use an unambiguous UTC date/time and zone marker,
+and specify consistent precision. Audit Event reports, local/remote service
+journals, fixture output, and affected publisher/producer/relay log emitters.
+`ServiceControl::logs` in `src/broadcast/control.rs` currently supplies no
+explicit UTC or timestamp-output format. The fixture journal also needs an
+explicit UTC marker. Other repositories have not yet been audited for this work.
+
+Make necessary corrections at the emitter or journal/transport boundary.
+Do not append a UTC label to an unknown local timestamp or assign the display
+time to an older event. Preserve source instants and uncertainty where an input
+does not identify its timezone.
+
+Future preferences may display local time and follow the user's locale.
+Those are presentation preferences over canonical UTC instants; they must not
+change the recorded event time. Their format and copy behavior need their own
+acceptance criteria when implemented.
+
+Delivery: decide the contract, update affected emitters/adapters in their owning
+repositories, then integrate the app presentation and fixtures. Verify the
+same instants under different local/remote timezone settings, with explicit
+UTC output by default. Add mechanical and operator checks to those future
+packets; current fixture acceptance does not prove upstream timestamp behavior.
 
 ## References
 

@@ -14075,14 +14075,9 @@ fn adr_0063_show_card_grid_shell_uses_vm_contract() {
     for required in [
         "display: ShowCardDisplay",
         "selected: bool",
+        "status_badge::render_state_badge",
         "on_select: Option<ShowCardClickHandler>",
         ".h(Size::MenuCompact.scaled(cx))",
-        ".child(SharedString::from(state_label))",
-        "const fn state_badge_tokens(state: ShowCardStateKind)",
-        "ShowCardStateKind::Ok => (SemanticColor::Success, SemanticColor::OnSuccess)",
-        "ShowCardStateKind::Attention => (SemanticColor::Warning, SemanticColor::OnWarning)",
-        "ShowCardStateKind::Failed => (SemanticColor::Danger, SemanticColor::OnDanger)",
-        "ShowCardStateKind::Unknown => (SemanticColor::Info, SemanticColor::OnInfo)",
     ] {
         if !card_source.contains(required) {
             violations.push(format!(
@@ -15333,8 +15328,9 @@ fn adr_0059_event_row_precedes_services_and_registry_actions_do_not_attach() {
             < detail.find("for service in section.services").unwrap(),
         "ADR 0059: Event must render before Producer and Publisher"
     );
-    assert!(panel.contains("section.actions.copy_feed_tag"));
-    assert!(panel.contains("cx.write_to_clipboard(ClipboardItem::new_string(feed_tag.clone()))"));
+    assert!(panel.contains("EventControlIntent::CopyFeedTag"));
+    assert!(panel.contains("cx.write_to_clipboard(ClipboardItem::new_string(tag.clone()))"));
+    assert!(vm.contains("action: actions.copy_feed_tag.clone()"));
     let app = read_source(&manifest_path("src/app/show.rs"));
     let command = source_between(
         &app,
@@ -15473,4 +15469,147 @@ fn adr_0065_feed_check_result_has_its_own_full_width_row() {
     assert!(result.contains(".child(SharedString::from(msg))"));
     assert!(!result.contains(".truncate()"));
     assert!(!result.contains("UiButton"));
+}
+
+/// Situational ADR 0063: cards and compact items share one labeled badge; disclosure owns diagnostics.
+#[test]
+fn adr_0063_compact_items_share_badges_and_event_log_disclosure() {
+    let badge = read_source(&manifest_path("src/ui/primitives/status_badge.rs"));
+    for required in [
+        ".child(SharedString::from(state_label))",
+        "const fn state_badge_tokens(state: ShowCardStateKind)",
+        "ShowCardStateKind::Ok => (SemanticColor::Success, SemanticColor::OnSuccess)",
+        "ShowCardStateKind::Attention => (SemanticColor::Warning, SemanticColor::OnWarning)",
+        "ShowCardStateKind::Failed => (SemanticColor::Danger, SemanticColor::OnDanger)",
+        "ShowCardStateKind::Unknown => (SemanticColor::Info, SemanticColor::OnInfo)",
+    ] {
+        assert!(
+            badge.contains(required),
+            "ADR 0063: shared badge missing {required}"
+        );
+    }
+    for file in [
+        "src/ui/composites/show_card.rs",
+        "src/ui/composites/show_detail_panel.rs",
+    ] {
+        let source = read_source(&manifest_path(file));
+        assert!(source.contains("status_badge::render_state_badge"));
+        assert!(!source.contains("fn state_badge_tokens"));
+    }
+    let panel = read_source(&manifest_path("src/ui/composites/show_detail_panel.rs"));
+    let event = source_between(
+        &panel,
+        "fn render_event_detail(",
+        "fn render_stream_detail(",
+    );
+    for required in [
+        "section.badge",
+        "section.activity",
+        "section.picker",
+        "section.primary",
+        "section.logs",
+        "section.overflow",
+        "section.hint",
+    ] {
+        assert!(
+            event
+                .split_whitespace()
+                .collect::<String>()
+                .contains(required),
+            "ADR 0063: compact event missing {required}"
+        );
+    }
+    for forbidden in [
+        "token_path",
+        "registration_message",
+        "check_message",
+        "diagnostics",
+        ".truncate()",
+        "render_detail_row(",
+    ] {
+        assert!(
+            !event.contains(forbidden),
+            "ADR 0063: inline event detail contains {forbidden}"
+        );
+    }
+    let app = read_source(&manifest_path("src/app/show.rs"));
+    assert!(app.contains("if self.show_page.log_pane.shows_event()"));
+    assert!(app.contains("self.show_page.log_pane.show_event(input)"));
+    let vm = read_source(&manifest_path("src/view_models/show.rs"));
+    let event_logs = source_between(&vm, "pub(crate) fn show_event(", "fn event_result_hint(");
+    for required in [
+        "self.request = None",
+        "self.role = None",
+        "self.event_source = Some",
+        "self.unit_name = format!",
+        "self.text = event_diagnostics(input)",
+    ] {
+        assert!(
+            event_logs.contains(required),
+            "ADR 0063: event source must move title and text together: {required}"
+        );
+    }
+    let menu = read_source(&manifest_path("src/ui/primitives/context_menu.rs"));
+    assert!(menu.contains(".max_h(Size::MenuRegular.scaled(cx))"));
+    assert!(menu.contains(".overflow_y_scroll()"));
+}
+
+/// Situational ADR 0063: item activity keeps its width and cannot grow the compact header vertically.
+#[test]
+fn adr_0063_item_activity_keeps_its_width_and_single_line() {
+    let panel = read_source(&manifest_path("src/ui/composites/show_detail_panel.rs"));
+    let header = source_between(&panel, "fn render_item_header(", "fn compact_detail(");
+    let activity = source_between(
+        header,
+        ".children(activity.map(",
+        ".child(render_state_badge(",
+    );
+    for required in [".flex_shrink_0()", ".whitespace_nowrap()"] {
+        assert!(
+            activity.contains(required),
+            "ADR 0063: item activity must resist letter-by-letter wrapping: {required}"
+        );
+    }
+}
+
+/// Situational ADR 0063: reports use recorded facts and preserve their plain text through the shared pane.
+#[test]
+fn adr_0063_event_reports_use_recorded_times_and_plain_text() {
+    let report = read_source(&manifest_path("src/view_models/show/event_report.rs"));
+    assert!(!report.contains("Utc::now()") && !report.contains("SystemTime::now()"));
+    assert!(!report.contains("use gpui"));
+    assert!(report.contains("at: DateTime<Utc>"));
+    let render = source_between(&report, "pub(super) fn render(", "fn target_description(");
+    assert!(render.contains("time(entry.at)"));
+    assert!(!render.contains("EventCommandState::Idle"));
+    let vm = read_source(&manifest_path("src/view_models/show.rs"));
+    let diagnostics = source_between(&vm, "fn event_diagnostics(", "impl ShowLogPaneDisplay {");
+    assert!(diagnostics.contains("event_report::render(input)"));
+    assert!(vm.contains("self.text = event_diagnostics(input)"));
+}
+
+/// Situational ADR 0059: target mutation reserves Publisher using the existing bounded readback policy.
+#[test]
+fn adr_0059_event_target_commands_share_publisher_ownership() {
+    let app = read_source(&manifest_path("src/app/show.rs"));
+    let target = source_between(
+        &app,
+        "fn run_event_target_command(",
+        "fn run_stream_encoder_command(",
+    );
+    assert!(target.contains("self.show_commands.begin_service("));
+    assert!(target.contains("PublisherServiceRole::Publisher"));
+    assert!(target.contains("input.feedback.target_mutation = EventCommandState::Working"));
+    assert!(target.contains("input.targets = EventTargetListInput::Unknown"));
+    let finish = source_between(&app, "fn finish_event_target(", "struct SelectShowEvent");
+    assert!(finish.contains(".complete(command_id, completion.returned_at, true)"));
+    assert!(finish.contains("self.invalidate_publisher_service_snapshot()"));
+    assert!(finish.contains("self.read_event_targets(request, cx)"));
+    let command = source_between(
+        &app,
+        "struct EventTargetCommand",
+        "fn event_target_name_for_operation(",
+    );
+    assert!(command.contains("selection.revision != self.selection_revision"));
+    assert!(command.contains("Target configuration saved; Publisher restart failed"));
 }

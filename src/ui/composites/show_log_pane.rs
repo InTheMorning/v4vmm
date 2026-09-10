@@ -8,8 +8,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, AnyElement, App, ClickEvent, FontWeight, IntoElement, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, RenderOnce, SharedString, Window,
+    div, prelude::*, AnyElement, App, ClickEvent, ClipboardItem, FontWeight, IntoElement,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, RenderOnce, SharedString, Window,
 };
 
 use crate::ui::composites::split_pane::{SplitPane, SplitPaneAxis};
@@ -175,6 +175,27 @@ fn render_log_output(
                                 .text_color(color(cx, SemanticColor::TertiaryLabel))
                                 .child(SharedString::from(display.line_count_label)),
                         ),
+                )
+                .children(display.service_detail.map(|detail| {
+                    div()
+                        .text_size(FontSize::Micro.scaled(cx))
+                        .text_color(color(cx, SemanticColor::SecondaryLabel))
+                        .child(SharedString::from(detail))
+                }))
+                .children(
+                    display
+                        .copy_feed_tag
+                        .zip(display.feed_tag)
+                        .map(|(action, tag)| {
+                            let disabled = action.disabled();
+                            Button::styled(action.id, ControlStyle::RowAction)
+                                .label(action.label)
+                                .a11y_label(action.a11y_label)
+                                .disabled(disabled)
+                                .on_activate(move |_, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(tag.clone()));
+                                })
+                        }),
                 )
                 .child(close),
         )

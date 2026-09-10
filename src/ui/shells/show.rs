@@ -21,7 +21,7 @@ use crate::ui::composites::{
 use crate::ui::shells::queue_now_playing::{render_queue_transport, QueueNowPlayingSlots};
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::show::{
-    PublisherServiceRole, ShowCardDisplay, ShowCardKind, ShowEmptyStateDisplay,
+    EventControlIntent, PublisherServiceRole, ShowCardDisplay, ShowCardKind, ShowEmptyStateDisplay,
     ShowNowPlayingDisplay, ShowPageVm, ShowPanelMode, ShowWidthClass,
 };
 
@@ -53,6 +53,28 @@ struct ShowCardSlots {
 }
 
 impl ShowSlots {
+    pub(crate) fn on_select_event(
+        mut self,
+        handler: impl Fn(String, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.panel = self.panel.on_select_event(handler);
+        self
+    }
+    pub(crate) fn on_open_event_logs(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.panel = self.panel.on_open_event_logs(handler);
+        self
+    }
+    pub(crate) fn on_event_control(
+        mut self,
+        handler: impl Fn(EventControlIntent, &ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.panel = self.panel.on_event_control(handler);
+        self
+    }
+
     /// Creates empty Show-screen slots.
     pub(crate) fn new() -> Self {
         Self::default()
@@ -205,51 +227,6 @@ impl ShowSlots {
         handler: impl Fn(&MouseUpEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.log.resize_end = Some(Rc::new(handler));
-        self
-    }
-
-    /// Supplies the event create callback.
-    pub(crate) fn on_create_event(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.panel = self.panel.on_create_event(handler);
-        self
-    }
-
-    /// Supplies the event replace callback.
-    pub(crate) fn on_replace_event(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.panel = self.panel.on_replace_event(handler);
-        self
-    }
-
-    /// Supplies the event check callback.
-    pub(crate) fn on_check_event(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.panel = self.panel.on_check_event(handler);
-        self
-    }
-
-    /// Supplies the Event target attach callback.
-    pub(crate) fn on_attach_event_target(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.panel = self.panel.on_attach_event_target(handler);
-        self
-    }
-
-    /// Supplies the Event target detach callback.
-    pub(crate) fn on_detach_event_target(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.panel = self.panel.on_detach_event_target(handler);
         self
     }
 

@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Isolated operator fixture for ADR 0059 task 016; never starts the desktop app."""
+"""Isolated operator fixture for ADR 0059 tasks 016/017; never starts the desktop app."""
 
 import json
 import os
 from pathlib import Path
+import sqlite3
 import sys
 import time
 import tomllib
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+
+JOURNAL_MODES = ("normal", "slow", "slow-fail")
 
 
 def fixture_root(value):
@@ -60,7 +64,7 @@ def verify_fixture(root):
     if (broadcast.get("selected_host") != host["name"]
             or broadcast.get("hosts") != [host]):
         raise SystemExit("Fixture config mismatch: expected the Task 016 fixture host. App launch stopped.")
-    for binary in ["systemctl", "musicindex-live-publisher"]:
+    for binary in ["systemctl", "musicindex-live-publisher", "journalctl"]:
         path = root / "bin" / binary
         if not path.is_file() or not os.access(path, os.X_OK):
             raise SystemExit(f"Fixture command stub is missing or not executable: {path}. App launch stopped.")
@@ -75,6 +79,8 @@ def setup(root):
     (root / "music").mkdir()
     (root / "mode").write_text("fail")
     (root / "producer-state").write_text("active")
+    (root / "publisher-state").write_text("active")
+    (root / "create-mode").write_text("live")
     (root / "targets.json").write_text('{"targets": []}')
     (root / "calls.jsonl").touch()
     config = (
@@ -85,7 +91,7 @@ def setup(root):
         '[[broadcast.hosts]]\nname = "Task 016 fixture"\ntransport = "local"\ninstance_name = "task016-fixture"\n'
     )
     (root / "config" / "v4vmm" / "config.toml").write_text(config)
-    for binary, action in [("systemctl", "service"), ("musicindex-live-publisher", "publisher")]:
+    for binary, action in [("systemctl", "service"), ("musicindex-live-publisher", "publisher"), ("journalctl", "journal")]:
         wrapper = root / "bin" / binary
         wrapper.write_text(
             '#!/usr/bin/env python3\nimport os, sys\n'
@@ -101,16 +107,62 @@ def record(root, operation, **fields):
         log.write(json.dumps({"operation": operation, **fields}) + "\n")
 
 
+def seed_target_scope(root):
+    """Prepare task 017's configured-versus-unused target check (ADR 0059)."""
+    verify_fixture(root)
+    try:
+        with sqlite3.connect((root / "app.sqlite").as_uri() + "?mode=ro",
+                             uri=True, timeout=5) as conn:
+            events = dict(conn.execute("SELECT event_id, token_path FROM broadcast_events"))
+            selection = conn.execute(
+                "SELECT event_id FROM broadcast_event_selection WHERE singleton = 1"
+            ).fetchone()
+    except sqlite3.Error as error:
+        raise SystemExit(
+            f"Could not read the fixture's saved events: {error}. "
+            "Open the fixture app and select your replacement event first."
+        ) from error
+    older_id = "fixture-event-1"
+    selected_id = selection[0] if selection else None
+    if not selected_id or selected_id == older_id:
+        raise SystemExit(
+            "Select your replacement event in the app and wait for its check to finish. "
+            "Keep fixture-event-1 as the older event."
+        )
+    if older_id not in events or selected_id not in events:
+        raise SystemExit(
+            "The fixture must contain fixture-event-1 and your selected replacement event. "
+            "Complete the Create/Replace checks first."
+        )
+    payload = {"targets": [
+        {"name": name, "event_id": event_id, "token_file": events[event_id],
+         "stream_delay_secs": 0.0}
+        for name, event_id in [("default", older_id), ("unused", selected_id)]
+    ]}
+    temporary = root / "targets.pending.json"
+    try:
+        temporary.write_text(json.dumps(payload))
+        temporary.replace(root / "targets.json")
+    except OSError as error:
+        raise SystemExit(f"Could not save the fixture targets: {error}") from error
+    record(root, "seed target scope", configured_event_id=older_id,
+           unused_event_id=selected_id)
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+    print(f"[{timestamp}] Fixture target default now uses event {older_id}.")
+    print(f"[{timestamp}] Fixture target unused now uses event {selected_id}.")
+    print("In the app, choose More → Check again. Expect Not attached.")
+
+
 def service(root, args):
     # This executable shadows systemctl only for the isolated app process.
     unit = next((arg for arg in args if arg.endswith(".service")), "")
     producer = unit == "mixxx-now-playing.service"
-    state = (root / "producer-state").read_text().strip() if producer else "active"
+    state_file = root / ("producer-state" if producer else "publisher-state")
+    state = state_file.read_text().strip()
     if "show" in args:
         print(f"LoadState=loaded\nActiveState={state}\nSubState={state}\nResult={'exit-code' if state == 'failed' else 'success'}")
     elif any(op in args for op in ["start", "stop", "restart", "reset-failed"]):
-        if producer:
-            (root / "producer-state").write_text("inactive" if "stop" in args else "active")
+        state_file.write_text("inactive" if "stop" in args or "reset-failed" in args else "active")
         record(root, "service action", unit=unit)
     else:
         raise SystemExit("Unsupported fixture service command")
@@ -123,18 +175,42 @@ def publisher(root, args):
     elif args[:2] == ["target", "add"]:
         value = lambda key: args[args.index(key) + 1]
         event_id = value("--event-id")
-        targets = [{"name": value("--name"), "event_id": event_id,
-                    "token_file": value("--token-file"), "stream_delay_secs": 0.0}]
+        name = value("--name")
+        targets = [target for target in json.loads((root / "targets.json").read_text())["targets"]
+                   if target["name"] != name]
+        targets.append({"name": name, "event_id": event_id,
+                        "token_file": value("--token-file"), "stream_delay_secs": 0.0})
         (root / "targets.json").write_text(json.dumps({"targets": targets}))
-        record(root, "target add", event_id=event_id)
+        record(root, "target add", name=name, event_id=event_id)
     elif args[:2] == ["target", "remove"]:
-        (root / "targets.json").write_text('{"targets": []}')
-        record(root, "target remove")
+        name = args[args.index("--name") + 1]
+        targets = [target for target in json.loads((root / "targets.json").read_text())["targets"]
+                   if target["name"] != name]
+        (root / "targets.json").write_text(json.dumps({"targets": targets}))
+        record(root, "target remove", name=name)
     else:
         raise SystemExit("Unsupported fixture publisher command")
 
 
-def serve(root):
+def journal(root, args):
+    unit = next((arg for arg in args if arg.endswith(".service")), "unknown service")
+    # Existing fixture directories and wrappers keep working without setup again.
+    mode_path = root / "journal-mode"
+    mode = mode_path.read_text().strip() if mode_path.exists() else "normal"
+    if mode not in JOURNAL_MODES:
+        raise SystemExit("Invalid fixture journal mode. Run journal-mode DIRECTORY normal.")
+    record(root, "journal", unit=unit, mode=mode)
+    if mode != "normal":
+        time.sleep(5)  # ADR 0063: allow switching or closing before the result arrives.
+    # Use the mode captured at request start, even if the operator changed it.
+    if mode == "slow-fail":
+        record(root, "journal result", unit=unit, mode=mode, result="failed")
+        raise SystemExit(f"Fixture could not read journal for {unit} (deliberate delayed failure).")
+    record(root, "journal result", unit=unit, mode=mode, result="succeeded")
+    print(f"Fixture journal: {unit}\n2026-09-10 12:00:00 service started\n2026-09-10 12:00:01 fixture observation complete")
+
+
+def relay_handler(root):
     class Relay(BaseHTTPRequestHandler):
         counter = 0
         read_ids = set()
@@ -154,6 +230,10 @@ def serve(root):
             self.rfile.read(int(self.headers.get("Content-Length", 0)))
             if self.path != "/v1/liveitems":
                 self.reply(404, {})
+                return
+            if (root / "create-mode").read_text().strip() == "fail":
+                record(root, "registration failed")
+                self.reply(503, {"error": "Fixture registration failure"})
                 return
             Relay.counter += 1
             event_id = f"fixture-event-{Relay.counter}"
@@ -175,6 +255,11 @@ def serve(root):
             self.reply(code, {"event_id": event_id, "seq": 1,
                               "updated_at": "2026-09-09T00:00:00Z", "metadata": {}})
 
+    return Relay
+
+
+def serve(root):
+    Relay = relay_handler(root)
     print(f"Fixture directory: {root}", flush=True)
     print("Fixture relay at http://127.0.0.1:17863; Ctrl+C stops it", flush=True)
     try:
@@ -189,7 +274,7 @@ def main():
         print(locate_fixture())
         return
     if len(sys.argv) < 3:
-        raise SystemExit("Usage: fixture.py locate | setup|verify|serve|mode|producer-state DIRECTORY [VALUE]")
+        raise SystemExit("Usage: fixture.py locate | setup|verify|serve|mode|create-mode|producer-state|publisher-state|target-scope|journal-mode DIRECTORY [VALUE]")
     action = sys.argv[1]
     if action == "setup":
         if not sys.argv[2].strip():
@@ -200,8 +285,25 @@ def main():
     if action == "verify":
         verify_fixture(root)
         print(f"Fixture verified: {root}\nRelay: http://127.0.0.1:17863\nSource must show: Task 016 fixture")
-    elif action in ("mode", "producer-state"):
-        allowed = ["fail", "live", "dead"] if action == "mode" else ["active", "inactive", "failed"]
+    elif action == "target-scope":
+        if len(sys.argv) != 3:
+            raise SystemExit("Usage: fixture.py target-scope DIRECTORY")
+        seed_target_scope(root)
+    elif action == "journal-mode":
+        if len(sys.argv) != 4 or sys.argv[3] not in JOURNAL_MODES:
+            raise SystemExit(f"Expected one of: {JOURNAL_MODES}")
+        verify_fixture(root)
+        mode = sys.argv[3]
+        pending = root / "journal-mode.pending"
+        pending.write_text(mode)
+        pending.replace(root / "journal-mode")
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+        response = {"normal": "return service logs immediately",
+                    "slow": "return service logs after five seconds",
+                    "slow-fail": "fail service-log reads after five seconds"}[mode]
+        print(f"[{timestamp}] Fixture will {response} for new requests.")
+    elif action in ("mode", "create-mode", "producer-state", "publisher-state"):
+        allowed = {"mode": ["fail", "live", "dead"], "create-mode": ["live", "fail"]}.get(action, ["active", "inactive", "failed"])
         if len(sys.argv) != 4 or sys.argv[3] not in allowed:
             raise SystemExit(f"Expected one of: {allowed}")
         (root / action).write_text(sys.argv[3])
@@ -209,6 +311,8 @@ def main():
         serve(root)
     elif action == "service":
         service(root, sys.argv[3:])
+    elif action == "journal":
+        journal(root, sys.argv[3:])
     elif action == "publisher":
         publisher(root, sys.argv[3:])
     else:
