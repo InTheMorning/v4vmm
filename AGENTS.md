@@ -22,10 +22,11 @@ toolbar search, playlist reordering, and metadata hydration. Their current
 requirements are indexed in [pending human checks](docs/pending-human-checks.md).
 Task 017's acceptance remains closed.
 
-Next work is authoring the packets for accepted
-[ADR 0066](docs/adr/0066-configuration-and-startup-failure-recovery.md), then
-implementing its startup and in-app repair work, followed by relay durability through
-reserved-event adoption. The delivery order also schedules narrow Show layout,
+Next work is [ADR 0066 task 001](docs/tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md).
+All thirteen startup and in-app repair packets are authored in the
+[phase plan](docs/plans/adr-0066-startup-recovery-phase-plan.md); implementation
+has not started. Relay durability through reserved-event adoption follows.
+The delivery order also schedules narrow Show layout,
 long-line inspection, per-log following, UTC timestamps, and steady-state work.
 When a real show is scheduled, publisher show-log task 001 takes priority.
 

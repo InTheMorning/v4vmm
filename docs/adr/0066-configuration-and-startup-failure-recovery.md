@@ -4,8 +4,9 @@
 
 Accepted - 2026-09-10.
 
-Implementation not started. Packet authoring is next; no visual acceptance
-is claimed.
+Implementation not started. Thirteen bounded packets are authored in the
+[phase plan](../plans/adr-0066-startup-recovery-phase-plan.md); task 001 is next.
+No visual acceptance is claimed.
 
 Revised 2026-09-10 after operator review: normal startup requires valid core
 configuration, usable storage for music files, and a working SQLite database.
@@ -283,34 +284,27 @@ also cannot start, retain the report and available non-I/O actions.
 
 ### Failure Policy By Startup Stage
 
-The symbols below identify current boundaries; their source line numbers may
-move. The implementation must preserve the distinction between these cases.
+Core configuration/music/SQLite failures enter recovery. Optional preparation
+failures remain scoped issues. A missing window uses stderr and unsuccessful
+exit; failure to activate an existing window is nonfatal, and a closed window
+ends startup. Expected failures are not programmer-invariant violations.
 
-| Stage and current owner | Result and recovery |
-|---|---|
-| Path resolution in `config::config_path` | Stop if the user configuration directory cannot be determined. Report that no file path was resolved. Ask the operator to correct the launch environment and relaunch; do not invent a path or use the working directory. |
-| Configuration parent creation in `config::config_path` | An existing readable configuration needs no parent-directory creation. For first-run creation, stop on failure; name the directory, intended `config.toml`, and OS error. Ask for an accessible configuration location. |
-| First-run defaults in `config::load_config` | Stop if default paths cannot be derived or the new document cannot be created safely. Name the failed operation and any known path. Do not open the database with unsaved defaults. |
-| Existing document read, parse, and core validation in `config::load_config` | Core recovery for unreadable or invalid TOML, or invalid `music_dir`/`db_path`. Name the file, field or line/column and error. Offer the appropriate document/path correction and fresh check. An unreadable file cannot be replaced with invented editor content. Decode optional fields separately so their errors do not reach this branch. |
-| Endpoint extraction in `config::load_musicindex_endpoint` | Fold into the same snapshot. An invalid value produces a MusicIndex issue and unavailable dependent actions; the app opens. A missing key still uses ADR 0010's default. A network failure is reported when a request is made and never becomes a startup requirement. |
-| Optional presentation-value decoding in `config.rs` | Continue with the applicable presentation default and a visible configuration issue. Invalid TOML syntax is still fatal because the core settings cannot be read reliably. The fallback does not authorize writing the file. |
-| `config::ensure_dirs` and music-storage verification | Separate the music root, per-tool subdirectories, and database parent. Failure of the music-root check or required database-parent setup blocks normal startup. A failure specific to an `artists` subtree restricts downloads that need it; it does not make otherwise usable music storage invalid. Name the path and failing operation. Do not redirect storage or recreate an absent configured music root. |
-| `db::open_db`: connection, pragmas, schema initialization, migrations, and usability check | Core recovery on failure. Name `db_path` and the substep, including migration name/version where supplied. Offer database checks, backup/preservation, and the applicable restore or repair tool. A lock/access error exposes Check again and explains what access is needed. No automatic reset or replacement to obtain a successful start. |
-| `db::repair_local_file_paths`: `Err` | Report the repair failure and any uncertainty about completed changes. If the failure establishes loss of required music-root or database usability, use core recovery. Otherwise continue, with file-dependent operations unavailable for unverified bindings; valid independent bindings remain usable. If the failed repair cannot identify individual affected rows, treat remaining unvalidated legacy bindings as unavailable until checked. Do not bypass `LibraryRelativePath` validation or erase bindings to make startup succeed. |
-| `db::repair_local_file_paths`: successful repair, or `LocalPathRepairSkip` | Retain ADR 0064's repair and both skip results. `NothingResolved` alone does not fail the music-root usability check. `MusicFolderMissing` establishes that required storage is unavailable and leads to core recovery, with all bindings preserved. The repair function's skip contract stays intact; the full repair-report surface remains ADR 0064 task 002. |
-| `ConfiguredPlaybackDriver::from_config` | Continue with a playback setup issue and an enabled correction/recheck action. Name the runtime directory or unsupported platform and error. Keep the configured driver choice; never replace failure with `Null`. Do not add a startup ping or binary check. A later playback failure updates that capability in place. |
-| `BroadcastConfig` validation / `DropFileProducer::new` | Isolate host selection, producer, and encoder validation. Continue with only dependent capabilities unavailable. An empty configured drop directory or invalid target identifies the producer field to correct; an absent `drop_directory` remains the deliberate disabled case. Construction does not test directory writability; later publication errors stay with the producer. |
-| `presentation::RuntimeHost::new` | Continue with runtime-dependent work unavailable, a resource report, and an explicit retry through the independent maintenance path. Constructors must not fall through to `AsyncCommandRunner::new`, which calls `Handle::current`, or try a second implicit runtime. Keep navigation, repair/report access, and independent actions functional. |
-| `ImageCache::new` / startup eviction | Failure to start optional eviction or prune thumbnails is nonfatal. Retain a visible scoped issue and continue with available cache behavior. Make the current `std::thread::spawn` launch fallible; do not let thread-creation failure panic. Do not reset library data to repair a thumbnail cache. |
-| `cx.open_window`, including the recovery window | If no window can be created, write the startup report to stderr and exit unsuccessfully. If recovery-window creation also fails, retain both failures. Do not recursively try error windows. |
-| Initial `window_handle.update` and later activation nudges | Failure to focus or refresh a still-existing window is nonfatal. Report it and let the operator select the window. If the window has gone away, finish shutdown; do not recreate it or repeat startup. |
+An error from `repair_local_file_paths` does not prove rollback. Recheck the core
+resources; if they are still usable, keep independently validated bindings
+available and contain unvalidated legacy bindings. If core usability is lost,
+enter recovery. Preserve ADR 0064's skip contracts: `NothingResolved` alone is
+not a core failure; `MusicFolderMissing` means required storage is unavailable.
 
-Assertions about programmer-owned invariants are not configuration recovery
-cases. These include the resolved config path having a parent, the fully wired
-`ApplicationServices` builder, and unique workspace frame identifiers. Keep
-such invariants explicit. Do not catch arbitrary panics and label them as bad
-operator configuration. This ADR handles application-owned fallible boundaries;
-it does not promise recovery from aborts inside the window-system library.
+[Task 002's stage inventory](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md#startup-stage-inventory)
+assigns every current bootstrap boundary to its implementation packet, including
+the missing runtime and optional worker paths in 003/004. It owns the procedures
+and failure-injection checks; no constructor adds to the minimum requirements.
+
+Keep programmer-owned invariants explicit, including the resolved configuration
+path having a parent, fixed ApplicationServices wiring and unique workspace
+frame identifiers. Do not catch arbitrary panics and label them as operator
+configuration errors. This decision does not promise recovery from aborts inside
+the window-system library.
 
 ### Recovery Reports Explain The Failure And The Next Action
 
@@ -430,69 +424,29 @@ decide A11/A12's log navigation or cross-repository timestamp contract.
 
 ## Verification Required For Implementation
 
-These are requirements for the future packet, not claims of passing tests.
+The [review checklist](../reviews/adr-0066-startup-recovery-review-checklist.md)
+maps every invariant and transferred verification requirement to a named packet.
+Each [packet](../plans/adr-0066-startup-recovery-phase-plan.md#sequence-and-stopping-points)
+owns concrete tests, guard names, failure fixtures and any operator visual check.
 
-### Mechanical
+Mechanical proof covers core probes, configuration preservation, scoped
+dependencies, safe reports, resource lifecycle, explicit correction/retry,
+consistent SQLite snapshots and migration-authority reuse. Human inspection
+covers readable recovery, correction without relaunch, optional-tool remediation
+and the database tools in Settings and core recovery.
 
-| Criterion | Proof at the owning layer |
-|---|---|
-| Every policy-table failure produces its declared outcome | Inject failures at the startup boundaries; assert typed core outcome, optional availability, and which factories run. Test successful core checks with all external services unreachable and with the runtime absent. Do not exhaust real system resources. |
-| Music storage is verified without damaging files | Filesystem tests cover unreadable/read-only directories, a file in place of a directory, an absent configured root, failed read-back and cleanup, and first-run setup. Compare existing audio bytes and assert probe cleanup or a reported residual path. A blocked download subtree must not fail an otherwise usable root. |
-| SQLite is actually usable | Database tests cover a valid existing and fresh database, read-only/corrupt/locked databases, migration failure, and failed read/write probes. Assert bounded lock handling, checks against the configured database, and no retained probe changes. |
-| Invalid core configuration stops; invalid optional configuration does not | Test invalid UTF-8/TOML and missing/wrong-type core paths against factory call records. Separately test each optional group, malformed whole optional tables, and valid sibling fields. Only the core cases prevent normal-app construction. |
-| Configuration survives failures and fallback | Compare bytes across failed startup and optional-error startup. Test all three ordinary save functions against missing/broken core documents and blocked automatic/unrelated saves. Test explicit repair preserving a backup and other TOML values, editor conflicts, invalid edits rejected before replacement, and fresh validation before persistence resumes. |
-| Defaults never clobber another file | Filesystem tests cover first-run success, a concurrent creator, dangling symlink, permission failure, and interrupted/failed creation. |
-| Endpoint and config share an observation | Change the underlying file after its read and verify all derived values still use that snapshot. A missing endpoint uses the default; wrong-type/invalid values disable only MusicIndex requests. No startup network success is required. |
-| Optional failures cannot block independent work or bypass command guards | View-model and command/query tests cover MusicIndex failure with local library operations, playback failure with external broadcast operations, producer failure with audio playback, and multiple simultaneous issues. Include toolbar/keyboard dispatch, unavailable-runtime construction paths, and a CLI command with an invalid unrelated optional setting. |
-| Repair leads back to the intended operation | View-model/command tests assert an enabled remediation route, retained track/event identity, and explicit retry after a fresh successful check. Saving alone does not repeat work. Test a missing PATH converter that becomes available in the same process, failed conversion with ffmpeg fallback, stale selection, retained-input validation, cleanup, and no duplicate library entry. |
-| Database maintenance works without a healthy normal app | Backend/command tests cover inspection without migrations, backup with committed WAL data, an invalid restore candidate, original/journal preservation, a supported interrupted-upgrade repair, unsupported corruption, and failed candidate installation. Verify quiescing/connection closure before replacement and revalidation before resumption. Test maintenance dispatch with no normal runtime or app database connection. |
-| Existing supported behavior survives | Retain presentation fallback, ADR 0064 skip results and binding preservation, explicit/default Null, absent drop producer, and lazy mpv startup. Core storage failure still prevents normal startup even when the repair function returns a skip. |
-| Repair failure is contained without claiming rollback | Inject failure after a completed repair statement. With core storage still usable, assert valid independent bindings remain usable and unverified bindings cannot drive file actions. With failed core storage, assert recovery. Neither outcome erases completed changes or claims rollback. |
-| Reports are useful and safe | View-model tests assert subject/path or unresolved-path wording, cause, consequence, recovery action, actual UTC time, report actions, and complete copied text. Test the visible normal-app notice, multiple scoped issues, and removal only after correction/successful observation. Seed TOML secrets and URL credentials; none may reach UI, stderr, or clipboard reports. |
-| Presentation and resumption have one lifecycle | Adapter tests cover window failures, activation, close, single-flight Check again, rejected edits, and successful repair followed by Open app. Assert no recursive error windows, no hidden migration during checking, no duplicate resources/actors, and correct exit outcomes before and after recovery. |
-| Ownership survives extraction | Situational ADR 0066 guards pin validation and maintenance/report ownership, exclude normal library/show dispatch and autosaves from core recovery, and forbid implicit missing-resource fallbacks. Maintenance work stays off the UI thread. Preserve existing `workspace_frame_phase_5_layout_persistence_contract`, `workspace_pane_width_persistence_contract`, and `cx_spawn_is_restricted_to_presentation_runtime_and_bootstrap` rules; update source-location assertions if ownership moves. |
+When a packet's implementation is ready, record its runnable gate in that
+packet, the delivery row and [pending human checks](../pending-human-checks.md).
+No implementation is ready for inspection today. Packet authoring opens no
+runnable human gate and claims no visual proof.
 
-The implementation packet names the concrete tests and runs the repository's
-build, test, format, and strict Clippy gates. Packet 001 owns the initial
-[mechanism retirement and handoff](#mechanism-retirement-owner); each subsequent
-packet replaces its remaining duplicated mechanism prose with guard references
-when its guards land.
+## Non-Goals
 
-### Operator Visual Check
-
-The implementation packet must supply isolated configuration/database fixtures,
-unindented copyable commands, expected results, and cleanup. It must cover:
-
-1. Invalid TOML: a readable path, parse location, consequence, and accessible
-   configuration editor; library/show operations remain unavailable. Copy the
-   report and compare its complete text.
-2. A directory or database access failure: the correct resource and recovery
-   wording, distinct from a TOML error. Use disposable paths only.
-3. A long path/error at normal and narrow window sizes: readable summary,
-   accessible disclosure, complete details, and reachable Copy/Quit controls.
-4. Correct the fixture through recovery, validate and save, check again, then
-   open the app. Verify the original backup and corrected settings. Compare the
-   pre-edit checksum to prove the failed launch itself did not rewrite the file.
-5. With valid music storage and SQLite, fail MusicIndex requests and playback
-   setup. The app opens, names both limitations, and permits local library work.
-   The affected surface offers a working configuration/check route. An offline
-   service must not display core recovery or look healthy.
-6. Use an invalid optional setting in otherwise valid TOML. Confirm the app
-   opens, identifies the key, preserves its value through layout changes, and
-   permits an explicit correction in Settings. Confirm the issue clears only
-   after the corrected setting loads.
-7. Fail a WAV conversion, follow its setup action, choose or make a converter
-   available, verify it, and retry the same track. Confirm completion without
-   relaunch, lost operation context, or duplicate library entries. Also cover
-   a working ffmpeg fallback so the UI reports its actual result.
-8. From both Settings and database-failure recovery, walk database checks,
-   backup/preservation, validated restore, and the supported upgrade-repair
-   recipe using disposable databases. Verify the original survives rejected
-   candidates and failures, and normal work resumes only after validation.
-
-When implementation is ready, record this gate in its packet, the delivery
-table, and [pending human checks](../pending-human-checks.md). No implementation
-is ready for visual inspection yet; this decision adds no runnable gate today.
+This decision does not rename configuration sections, move music, introduce an
+empty replacement database, promise arbitrary corruption salvage, change the
+download-format policy, or implement ADR 0064's full repair-history surface.
+Log navigation, local-time preferences and the cross-repository timestamp
+contract remain separate work.
 
 ## Alternatives Considered
 
@@ -545,37 +499,24 @@ operation will succeed, and unsupported corruption may still need external help.
 
 ## Follow-Up Work
 
-Write bounded implementation packets for this decision and
-its core-recovery and repair workflows. Cover core checks/configuration repair,
-optional capability/remediation wiring, database maintenance, and converter
-setup/retry in separately bounded packets; do not present all of them as one
-small exception-handling patch. Inventory dependent command, query,
-persistence, and composition owners and affected guards by symbol.
-Do not combine the workspace-format migration, ADR 0064's full repair-report
-surface, or log-panel work with this change. ADR 0066 owns containment of a
-failed startup repair; ADR 0064 continues to own conversion and repair history.
-Deferred item 7 stays blocked until this behavior is implemented and verified.
+Execute the thirteen [bounded packets](../plans/adr-0066-startup-recovery-phase-plan.md)
+one per session. They separate configuration safety, core recovery, optional
+capability/remediation wiring, session draining, converter setup/retry and
+database maintenance. Deferred item 7 stays blocked until this decision is
+implemented and verified. The delivery plan retains relay durability through
+adoption as the next block.
 
 ### Mechanism Retirement Owner
 
-The first ADR 0066 implementation packet, **task 001**, owns redistribution of
-this ADR's implementation detail. Its author must include the following
-documentation acceptance criterion before that packet is ready to execute:
+[Task 001](../tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md#mechanism-handoff)
+owns the documentation handoff. Stage procedures and detailed verification
+have moved into their packets and the review checklist. Task 001 verifies that
+coverage and each successor's explicit prose-retirement criterion.
 
-- Move stage-by-stage procedures and concrete verification instructions into
-  their owning packets. Keep the minimum requirements, recovery contracts,
-  ownership decisions, alternatives, and consequences in this ADR.
-- Keep a handoff table in task 001 mapping any temporarily retained mechanism
-  to its exact owning packet. No entry may be left as an unnamed future task.
-- Each packet must require deletion of the corresponding duplicated prose in
-  the same change that adds its guard, replacing it with the guard symbol and
-  verification artifact. Task 001 verifies those acceptance criteria exist
-  when it hands off later work; it does not wait for later implementation to
-  close its own scope.
-
-Task 001's review checks the ADR/packet diff and handoff table. This is an
-explicit documentation obligation of that first packet, not a promise that an
-unnamed final cleanup pass will shorten the ADR.
+Each packet removes duplicated mechanism prose when its guards land, recording
+the actual guard symbol and verification artifact. Binding decisions and
+invariants stay here. Task 001 closes its own work without waiting for later
+packets; no unnamed final cleanup owns this obligation.
 
 ## References
 

@@ -61,7 +61,8 @@ prioritized, and routed to the right governance artifact.
      visible with in-app correction and retry. Settings and startup recovery
      share configuration and database maintenance tools; disabled controls
      alone are not the recovery workflow. ADR 0066 owns the detailed policy.
-   - Route: write and execute ADR 0066's bounded implementation packets.
+   - Route: execute the [thirteen ADR 0066 packets](adr-0066-startup-recovery-phase-plan.md),
+     one per session. Packet authoring is complete; task 001 is next.
      **Implement and verify this before any config
      format change**, since a format change puts more operators in this state.
 7. Workspace configuration section naming.
