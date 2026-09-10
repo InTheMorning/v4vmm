@@ -15382,3 +15382,95 @@ fn adr_0059_event_row_precedes_services_and_registry_actions_do_not_attach() {
         "ADR 0059: project the registered event before requesting its initial check"
     );
 }
+
+/// Situational ADR 0059: every Show projection reapplies command ownership before rendering.
+#[test]
+fn adr_0059_show_command_feedback_survives_all_reprojections() {
+    let app = read_source(&manifest_path("src/app/show.rs"));
+    let projection = source_between(
+        &app,
+        "fn reproject_show_page(",
+        "fn reproject_show_page_from_current_queue(",
+    );
+    assert!(projection.contains(".with_command_state(&self.show_commands)"));
+    assert!(projection.contains(".with_status_message(&self.settings_status)"));
+    let watch = source_between(
+        &app,
+        "fn apply_publisher_service_snapshot(",
+        "fn apply_broadcast_readiness_snapshot(",
+    );
+    assert!(
+        watch.find("self.show_commands.observe(&snapshot)").unwrap()
+            < watch
+                .find("self.reproject_show_page_from_current_queue()")
+                .unwrap()
+    );
+    let completion = source_between(&app, "fn finish_show_command(", "fn open_publisher_logs(");
+    assert!(
+        completion.find("self.show_commands.complete(").unwrap()
+            < completion.find("self.settings_status =").unwrap()
+    );
+    for (start, end) in [
+        (
+            "fn run_publisher_service_command(",
+            "fn finish_show_command(",
+        ),
+        (
+            "fn run_stream_encoder_command(",
+            "fn invalidate_publisher_service_snapshot(",
+        ),
+    ] {
+        let command = source_between(&app, start, end);
+        assert!(command.contains("let Some(command_id) = self.show_commands.begin_"));
+        assert!(command.contains("this.finish_show_command(command_id, completion, cx)"));
+        assert!(command.contains("ShowCommandCompletion::new(Err(error))"));
+    }
+    for (start, end) in [
+        (
+            "impl ApplicationCommand for PublisherServiceCommand",
+            "struct ReadPublisherLogs",
+        ),
+        (
+            "impl ApplicationCommand for StreamEncoderCommand",
+            "fn selected_broadcast_host(",
+        ),
+    ] {
+        assert!(
+            source_between(&app, start, end)
+                .split_whitespace()
+                .collect::<String>()
+                .contains("ShowCommandCompletion::new(result"),
+            "ADR 0059: stamp command return in the worker, not the presentation callback"
+        );
+    }
+}
+
+/// Situational ADR 0059: Working uses typed unavailable stream controls, preserving the action row.
+#[test]
+fn adr_0059_stream_working_retains_typed_actions() {
+    let vm = read_source(&manifest_path("src/view_models/show.rs"));
+    let working = source_between(&vm, "fn mark_stream_working(", "fn with_command_state(");
+    assert!(!working.contains("stream.actions = None"));
+    assert!(working.contains("stream_actions(true, StreamConnectionState::Working)"));
+}
+
+/// Situational ADR 0065: all feed-check counts have a full-width row below the triggering control.
+#[test]
+fn adr_0065_feed_check_result_has_its_own_full_width_row() {
+    let library = read_source(&manifest_path("src/library/app_impl.rs"));
+    let section = source_between(
+        &library,
+        "let leading_pane = div()",
+        ".id(chrome.list_scroll_id)",
+    );
+    let result_at = section.find(".when_some(feed_status,").unwrap();
+    assert!(result_at > section.find("this.check_all_feeds(cx)").unwrap());
+    assert!(result_at > section.find("this.apply_all_feed_updates(cx)").unwrap());
+    let result = &section[result_at..];
+    assert!(section.contains(".id(\"feed-update-section\")"));
+    assert!(result.contains(".id(\"feed-update-result\")"));
+    assert!(result.contains(".w_full()"));
+    assert!(result.contains(".child(SharedString::from(msg))"));
+    assert!(!result.contains(".truncate()"));
+    assert!(!result.contains("UiButton"));
+}

@@ -15,10 +15,10 @@ Music and Show are built. ADR 0059 tasks 001-016 are complete. ADR 0059 is
 Accepted with partial implementation; task 017 implementation and operator
 visual acceptance remain open.
 
-Current work, in order:
+[Show action feedback task 001](docs/tasks/show-action-feedback-task-001-command-state-and-result.md)
+is complete, including operator visual acceptance.
 
-1. [Show action feedback task 001](docs/tasks/show-action-feedback-task-001-command-state-and-result.md).
-2. [ADR 0059 task 017, compact event controls and badges](docs/tasks/adr-0059-task-017-compact-event-controls-and-badges.md).
+Next: [ADR 0059 task 017, compact event controls and badges](docs/tasks/adr-0059-task-017-compact-event-controls-and-badges.md).
 
 `docs/plans/broadcast-chain-delivery-order.md` is the only cross-repository
 order. Read it before starting a session on broadcast work.

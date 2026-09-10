@@ -7,6 +7,9 @@
 
 #![warn(clippy::pedantic)]
 
+use std::collections::HashMap;
+use std::time::Instant;
+
 use crate::broadcast::{
     control::ServiceState,
     encoder::{AudioSignalState, EncoderState, ListenerCount, RecordingState},
@@ -17,6 +20,185 @@ use crate::view_models::queue_now_playing::{
 };
 
 pub(crate) const PUBLISHER_LOG_LINE_COUNT: usize = 50;
+
+/// Service command intent owned by Show (ADR 0059).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PublisherServiceOperation {
+    Start,
+    Stop,
+    Reset,
+}
+
+/// Stream command intent owned by Show (ADR 0059).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StreamEncoderOperation {
+    Connect,
+    Disconnect,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum ShowCommandTarget {
+    Service(PublisherServiceRole),
+    Stream,
+}
+
+/// Identity of one press; obsolete completions cannot release a later press.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ShowCommandId {
+    target: ShowCommandTarget,
+    sequence: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ShowCommandIntent {
+    Service(PublisherServiceRole, PublisherServiceOperation),
+    Stream(StreamEncoderOperation),
+}
+
+impl ShowCommandIntent {
+    fn target(self) -> ShowCommandTarget {
+        match self {
+            Self::Service(role, _) => ShowCommandTarget::Service(role),
+            Self::Stream(_) => ShowCommandTarget::Stream,
+        }
+    }
+
+    fn resolved_by(
+        self,
+        snapshot: &broadcast_service_watch::BroadcastServiceWatchSnapshot,
+    ) -> bool {
+        match self {
+            Self::Service(role, operation) => snapshot
+                .units
+                .iter()
+                .find(|unit| unit.role == role)
+                .is_some_and(|unit| match unit.state {
+                    ServiceState::Failed { .. }
+                    | ServiceState::NotInstalled
+                    | ServiceState::NotReachable => true,
+                    ServiceState::Active => operation != PublisherServiceOperation::Stop,
+                    ServiceState::Inactive => operation != PublisherServiceOperation::Start,
+                    ServiceState::Starting | ServiceState::Stopping | ServiceState::Unknown => {
+                        false
+                    }
+                }),
+            Self::Stream(operation) => match snapshot.encoder.status.state {
+                EncoderState::Connected => operation == StreamEncoderOperation::Connect,
+                EncoderState::Disconnected => operation == StreamEncoderOperation::Disconnect,
+                EncoderState::NotInstalled | EncoderState::NotReachable => true,
+                EncoderState::Connecting | EncoderState::Unknown => false,
+            },
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ShowCommandProgress {
+    id: ShowCommandId,
+    intent: ShowCommandIntent,
+    /// None means the command still owns its controls. Only its result releases ownership.
+    returned_at: Option<Instant>,
+    last_read_started_at: Option<Instant>,
+    fresh_samples: u8,
+}
+
+/// Retained command ownership and observation release policy for Show (ADR 0059).
+#[derive(Debug, Default)]
+pub(crate) struct ShowCommandState {
+    next_sequence: u64,
+    progress: HashMap<ShowCommandTarget, ShowCommandProgress>,
+}
+
+impl ShowCommandState {
+    /// Begin one service operation, rejecting another operation on the same role.
+    pub(crate) fn begin_service(
+        &mut self,
+        role: PublisherServiceRole,
+        operation: PublisherServiceOperation,
+    ) -> Option<ShowCommandId> {
+        self.begin(ShowCommandIntent::Service(role, operation))
+    }
+
+    /// Begin one stream operation, rejecting another operation on the stream.
+    pub(crate) fn begin_stream(
+        &mut self,
+        operation: StreamEncoderOperation,
+    ) -> Option<ShowCommandId> {
+        self.begin(ShowCommandIntent::Stream(operation))
+    }
+
+    fn begin(&mut self, intent: ShowCommandIntent) -> Option<ShowCommandId> {
+        let target = intent.target();
+        if self.progress.contains_key(&target) {
+            return None;
+        }
+        self.next_sequence = self.next_sequence.checked_add(1)?;
+        let id = ShowCommandId {
+            target,
+            sequence: self.next_sequence,
+        };
+        self.progress.insert(
+            target,
+            ShowCommandProgress {
+                id,
+                intent,
+                returned_at: None,
+                last_read_started_at: None,
+                fresh_samples: 0,
+            },
+        );
+        Some(id)
+    }
+
+    /// Apply only the matching result. Success waits for readback; failure restores observed state.
+    pub(crate) fn complete(
+        &mut self,
+        id: ShowCommandId,
+        returned_at: Instant,
+        succeeded: bool,
+    ) -> bool {
+        let Some(progress) = self.progress.get_mut(&id.target) else {
+            return false;
+        };
+        if progress.id != id || progress.returned_at.is_some() {
+            return false;
+        }
+        if succeeded {
+            progress.returned_at = Some(returned_at);
+        } else {
+            self.progress.remove(&id.target);
+        }
+        true
+    }
+
+    /// Reconcile a watch delivery once; projection alone must not count as another sample.
+    pub(crate) fn observe(
+        &mut self,
+        snapshot: &broadcast_service_watch::BroadcastServiceWatchSnapshot,
+    ) {
+        const MAX_FRESH_SAMPLES: u8 = 3;
+        self.progress.retain(|_, progress| {
+            let Some(returned_at) = progress.returned_at else {
+                return true;
+            };
+            if snapshot.read_started_at <= returned_at
+                || progress
+                    .last_read_started_at
+                    .is_some_and(|last| snapshot.read_started_at <= last)
+            {
+                return true;
+            }
+            progress.last_read_started_at = Some(snapshot.read_started_at);
+            progress.fresh_samples += 1;
+            !progress.intent.resolved_by(snapshot) && progress.fresh_samples < MAX_FRESH_SAMPLES
+        });
+    }
+
+    /// Invalidate the old host's commands without reusing their sequence numbers.
+    pub(crate) fn clear(&mut self) {
+        self.progress.clear();
+    }
+}
 
 /// Display-ready empty state for an idle show surface.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1475,8 +1657,8 @@ impl ShowPageVm {
     ///
     /// An operator presses an action and the answer takes seconds: the command
     /// blocks, and then the watch actor reads the new state. This holds the row
-    /// in the meantime, so the press has an immediate effect. The next snapshot
-    /// replaces it.
+    /// in the meantime. The retained command state determines when readback
+    /// can replace it (ADR 0059).
     #[must_use]
     pub(crate) fn mark_service_working(mut self, role: PublisherServiceRole) -> Self {
         if let Some(publisher) = self.publisher.as_mut() {
@@ -1506,13 +1688,26 @@ impl ShowPageVm {
     pub(crate) fn mark_stream_working(mut self) -> Self {
         if let Some(stream) = self.stream.as_mut() {
             stream.connection = StreamConnectionState::Working.display();
-            stream.actions = None;
+            stream.actions = stream_actions(true, StreamConnectionState::Working);
+            stream.summary = format!("{} - {}", stream.server_label, stream.connection.label);
         }
         self.cards = show_cards(
             self.source.as_ref(),
             self.publisher.as_ref(),
             self.stream.as_ref(),
         );
+        self
+    }
+
+    /// Apply retained transitions after every projection, including queue and event refreshes.
+    #[must_use]
+    pub(crate) fn with_command_state(mut self, commands: &ShowCommandState) -> Self {
+        for target in commands.progress.keys() {
+            self = match target {
+                ShowCommandTarget::Service(role) => self.mark_service_working(*role),
+                ShowCommandTarget::Stream => self.mark_stream_working(),
+            };
+        }
         self
     }
 
@@ -2451,6 +2646,329 @@ mod tests {
     use crate::view_models::queue_now_playing::{QueueTrackInput, TransportState};
 
     use super::*;
+
+    fn command_snapshot(
+        state: ServiceState,
+        read_started_at: Instant,
+    ) -> broadcast_service_watch::BroadcastServiceWatchSnapshot {
+        let mut snapshot = publisher_snapshot([
+            (
+                PublisherServiceRole::Producer,
+                "producer.service",
+                ServiceState::Active,
+            ),
+            (PublisherServiceRole::Publisher, "publisher.service", state),
+        ]);
+        snapshot.read_started_at = read_started_at;
+        snapshot.at = read_started_at + std::time::Duration::from_millis(100);
+        snapshot.encoder.configured = true;
+        snapshot.encoder.status.state = EncoderState::Disconnected;
+        snapshot
+    }
+
+    fn command_page(
+        snapshot: &broadcast_service_watch::BroadcastServiceWatchSnapshot,
+        commands: &ShowCommandState,
+    ) -> ShowPageVm {
+        ShowPageVm::from_queue_and_publisher(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(snapshot),
+            ShowLogPaneDisplay::closed(),
+        )
+        .with_command_state(commands)
+    }
+
+    fn command_service(page: &ShowPageVm, role: PublisherServiceRole) -> &PublisherServiceDisplay {
+        page.publisher
+            .as_ref()
+            .unwrap()
+            .services
+            .iter()
+            .find(|service| service.role == role)
+            .unwrap()
+    }
+
+    /// Situational ADR 0059: only a read begun after completion can release a requested transition.
+    #[test]
+    fn show_command_transition_requires_fresh_read_and_matching_direction() {
+        let returned_at = Instant::now();
+        let later = returned_at + std::time::Duration::from_secs(1);
+        for (operation, old, expected) in [
+            (
+                PublisherServiceOperation::Stop,
+                ServiceState::Active,
+                ServiceState::Inactive,
+            ),
+            (
+                PublisherServiceOperation::Start,
+                ServiceState::Inactive,
+                ServiceState::Active,
+            ),
+        ] {
+            let mut commands = ShowCommandState::default();
+            let id = commands
+                .begin_service(PublisherServiceRole::Publisher, operation)
+                .unwrap();
+            let agreeing = command_snapshot(expected.clone(), later);
+            commands.observe(&agreeing);
+            let page = command_page(&agreeing, &commands);
+            let service = command_service(&page, PublisherServiceRole::Publisher);
+            assert_eq!(service.state, PublisherServiceStateDisplay::Working);
+            assert!(service.actions.start.disabled() && service.actions.stop.disabled());
+            assert!(commands
+                .begin_service(PublisherServiceRole::Publisher, operation)
+                .is_none());
+            assert!(commands.complete(id, returned_at, true));
+            // A batch begun before return but finished afterwards is not fresh, even if agreeing.
+            let mut stale = command_snapshot(
+                expected.clone(),
+                returned_at - std::time::Duration::from_millis(1),
+            );
+            stale.at = later;
+            commands.observe(&stale);
+            assert_eq!(
+                command_service(
+                    &command_page(&stale, &commands),
+                    PublisherServiceRole::Publisher
+                )
+                .state,
+                PublisherServiceStateDisplay::Working
+            );
+            let old_sample = command_snapshot(old, later);
+            commands.observe(&old_sample);
+            assert_eq!(
+                command_service(
+                    &command_page(&old_sample, &commands),
+                    PublisherServiceRole::Publisher
+                )
+                .state,
+                PublisherServiceStateDisplay::Working
+            );
+            let fresh =
+                command_snapshot(expected.clone(), later + std::time::Duration::from_secs(1));
+            commands.observe(&fresh);
+            assert_eq!(
+                command_service(
+                    &command_page(&fresh, &commands),
+                    PublisherServiceRole::Publisher
+                )
+                .state,
+                PublisherServiceStateDisplay::from_service_state(&expected)
+            );
+        }
+    }
+
+    /// Situational ADR 0059: failures end transitions without clearing another role or a newer press.
+    #[test]
+    fn show_command_failures_and_old_results_keep_role_ownership_separate() {
+        let mut commands = ShowCommandState::default();
+        let now = Instant::now();
+        let first = commands
+            .begin_service(
+                PublisherServiceRole::Publisher,
+                PublisherServiceOperation::Start,
+            )
+            .unwrap();
+        let producer = commands
+            .begin_service(
+                PublisherServiceRole::Producer,
+                PublisherServiceOperation::Stop,
+            )
+            .unwrap();
+        assert!(commands.complete(first, now, false));
+        let failed = command_snapshot(
+            ServiceState::Failed {
+                reason: "exit-code".to_owned(),
+            },
+            now,
+        );
+        let page = command_page(&failed, &commands);
+        assert_eq!(
+            command_service(&page, PublisherServiceRole::Publisher)
+                .state
+                .kind(),
+            PublisherServiceStateKind::Failed
+        );
+        assert_eq!(
+            command_service(&page, PublisherServiceRole::Producer).state,
+            PublisherServiceStateDisplay::Working
+        );
+        let second = commands
+            .begin_service(
+                PublisherServiceRole::Publisher,
+                PublisherServiceOperation::Reset,
+            )
+            .unwrap();
+        assert_ne!(first, second);
+        assert!(!commands.complete(first, now, true));
+        assert!(!commands.complete(first, now, false));
+        assert_eq!(
+            command_service(
+                &command_page(&failed, &commands),
+                PublisherServiceRole::Publisher
+            )
+            .state,
+            PublisherServiceStateDisplay::Working
+        );
+        assert!(commands.complete(second, now, true));
+        let fresh = command_snapshot(
+            ServiceState::Inactive,
+            now + std::time::Duration::from_secs(1),
+        );
+        commands.observe(&fresh);
+        assert_eq!(
+            command_service(
+                &command_page(&fresh, &commands),
+                PublisherServiceRole::Publisher
+            )
+            .state,
+            PublisherServiceStateDisplay::Inactive
+        );
+        assert!(commands.complete(producer, now, false));
+        assert!(commands.progress.is_empty());
+        let old_host = commands
+            .begin_stream(StreamEncoderOperation::Connect)
+            .unwrap();
+        commands.clear();
+        let new_host = commands
+            .begin_stream(StreamEncoderOperation::Connect)
+            .unwrap();
+        assert!(!commands.complete(old_host, now, false));
+        assert!(commands.complete(new_host, now, false));
+    }
+
+    /// Situational ADR 0059: a failed start or inaccessible unit is an answer, even without agreement.
+    #[test]
+    fn show_command_fresh_settled_failure_releases_immediately() {
+        let now = Instant::now();
+        for state in [
+            ServiceState::Failed {
+                reason: "crashed".to_owned(),
+            },
+            ServiceState::NotInstalled,
+            ServiceState::NotReachable,
+        ] {
+            let mut commands = ShowCommandState::default();
+            let id = commands
+                .begin_service(
+                    PublisherServiceRole::Publisher,
+                    PublisherServiceOperation::Start,
+                )
+                .unwrap();
+            assert!(commands.complete(id, now, true));
+            let sample = command_snapshot(state.clone(), now + std::time::Duration::from_secs(1));
+            commands.observe(&sample);
+            assert_eq!(
+                command_service(
+                    &command_page(&sample, &commands),
+                    PublisherServiceRole::Publisher
+                )
+                .state,
+                PublisherServiceStateDisplay::from_service_state(&state)
+            );
+        }
+    }
+
+    /// Situational ADR 0059: three distinct fresh samples bound a transition; reprojection is not a sample.
+    #[test]
+    fn show_command_transition_is_bounded_and_duplicate_reads_do_not_count() {
+        let now = Instant::now();
+        for state in [
+            ServiceState::Active,
+            ServiceState::Starting,
+            ServiceState::Stopping,
+            ServiceState::Unknown,
+        ] {
+            let mut commands = ShowCommandState::default();
+            let id = commands
+                .begin_service(
+                    PublisherServiceRole::Publisher,
+                    PublisherServiceOperation::Stop,
+                )
+                .unwrap();
+            assert!(commands.complete(id, now, true));
+            for n in 1..=3 {
+                let sample =
+                    command_snapshot(state.clone(), now + std::time::Duration::from_secs(n));
+                commands.observe(&sample);
+                for _ in 0..4 {
+                    commands.observe(&sample);
+                    let page = command_page(&sample, &commands);
+                    let expected = if n < 3 {
+                        PublisherServiceStateDisplay::Working
+                    } else {
+                        PublisherServiceStateDisplay::from_service_state(&state)
+                    };
+                    assert_eq!(
+                        command_service(&page, PublisherServiceRole::Publisher).state,
+                        expected
+                    );
+                }
+            }
+        }
+    }
+
+    /// Situational ADR 0059: stream actions stay mounted and disabled until command readback resolves.
+    #[test]
+    fn show_command_stream_keeps_controls_and_uses_the_service_release_policy() {
+        let now = Instant::now();
+        for (operation, expected) in [
+            (StreamEncoderOperation::Connect, EncoderState::Connected),
+            (
+                StreamEncoderOperation::Disconnect,
+                EncoderState::Disconnected,
+            ),
+        ] {
+            let mut commands = ShowCommandState::default();
+            let id = commands.begin_stream(operation).unwrap();
+            let mut sample = command_snapshot(ServiceState::Active, now);
+            sample.encoder.status.state = expected;
+            commands.observe(&sample);
+            let stream = command_page(&sample, &commands).stream.unwrap();
+            assert_eq!(stream.connection.state, StreamConnectionState::Working);
+            let actions = stream.actions.unwrap();
+            assert!(actions.connect.disabled() && actions.disconnect.disabled());
+            assert!(commands.begin_stream(operation).is_none());
+            assert!(commands.complete(id, now, true));
+            commands.observe(&sample);
+            assert_eq!(
+                command_page(&sample, &commands)
+                    .stream
+                    .unwrap()
+                    .connection
+                    .state,
+                StreamConnectionState::Working
+            );
+            sample.read_started_at = now + std::time::Duration::from_secs(1);
+            commands.observe(&sample);
+            assert_eq!(
+                command_page(&sample, &commands)
+                    .stream
+                    .unwrap()
+                    .connection
+                    .state,
+                stream_connection_state(expected)
+            );
+            assert!(commands.begin_stream(operation).is_some());
+        }
+        let mut commands = ShowCommandState::default();
+        let id = commands
+            .begin_stream(StreamEncoderOperation::Connect)
+            .unwrap();
+        assert!(commands.complete(id, now, true));
+        for n in 1..=3 {
+            commands.observe(&command_snapshot(
+                ServiceState::Active,
+                now + std::time::Duration::from_secs(n),
+            ));
+        }
+        assert!(commands.progress.is_empty());
+        let id = commands
+            .begin_stream(StreamEncoderOperation::Connect)
+            .unwrap();
+        assert!(commands.complete(id, now, false));
+        assert!(commands.progress.is_empty());
+    }
 
     fn track(id: i64, title: &str, now_playing: bool) -> QueueTrackInput {
         QueueTrackInput {
@@ -3736,6 +4254,7 @@ mod tests {
         encoder: broadcast_service_watch::BroadcastEncoderSnapshot,
     ) -> broadcast_service_watch::BroadcastServiceWatchSnapshot {
         broadcast_service_watch::BroadcastServiceWatchSnapshot {
+            read_started_at: std::time::Instant::now(),
             at: std::time::Instant::now(),
             units,
             encoder,

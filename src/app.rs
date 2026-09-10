@@ -41,7 +41,7 @@ use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::app_toolbar::AppToolbarVm;
 use crate::view_models::library::{LibraryTrackRowVm, LibraryTree};
 use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchResultsTab};
-use crate::view_models::show::{EventSectionInput, ShowPageVm};
+use crate::view_models::show::{EventSectionInput, ShowCommandState, ShowPageVm};
 use crate::view_models::workspace::{
     ContentFilter, ContentViewMode, FilterChipStripWidthClass, FrameNavigationEntry,
     FrameNavigationState, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState,
@@ -134,6 +134,7 @@ pub struct TopApp {
     search_results_detail: Option<SearchResultsInspectorPageVm>,
     queue_text_filter: Option<String>,
     show_page: ShowPageVm,
+    show_commands: ShowCommandState,
     broadcast: config::BroadcastConfig,
     music_dir: PathBuf,
     content_pane_width: gpui::Pixels,
@@ -309,6 +310,7 @@ impl TopApp {
             search_results_detail: None,
             queue_text_filter: None,
             show_page: ShowPageVm::idle(),
+            show_commands: ShowCommandState::default(),
             broadcast,
             music_dir,
             content_pane_width: Self::initial_content_pane_width(workspace_layout_prefs),

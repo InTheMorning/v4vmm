@@ -3,8 +3,8 @@
 Status: Accepted - 2026-09-09.
 Implementation not started. Mechanical acceptance outstanding; operator visual
 acceptance open for ADR 0059 behavior and ADR 0063 presentation.
-Scheduling: waits for Show action feedback task 001; do not implement that
-prerequisite as part of this packet.
+Scheduling: ready for the next session. Show action feedback task 001 passed
+operator acceptance on 2026-09-10; its prerequisite is complete.
 
 ## Goal
 
@@ -19,7 +19,8 @@ attachment; passive checks retain confirmation until their result arrives.
 - [ADR 0059 task 016](adr-0059-task-016-event-row-in-live-metadata.md): complete.
 - [ADR 0063 task 004](adr-0063-task-004-log-bottom-pane.md): complete.
 - [Show action feedback task 001](show-action-feedback-task-001-command-state-and-result.md):
-  pending. Consume its per-role command ownership, fresh-observation release,
+  complete on 2026-09-10, including operator visual acceptance. Consume its
+  per-role command ownership, fresh-observation release,
   and bounded transition policy for service mutations and the publisher restart
   caused by Attach/Detach. It is a separate session and packet.
 

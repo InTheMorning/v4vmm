@@ -90,9 +90,12 @@ Current plans:
 
 Current implementation packets:
 
+- [Show action feedback task 001](tasks/show-action-feedback-task-001-command-state-and-result.md):
+  complete with operator acceptance on 2026-09-10; the
+  [isolated feedback fixture](runbooks/show-action-feedback-fixture.py) remains for regression checks
 - [ADR 0059 task 017: Compact event controls and badges](tasks/adr-0059-task-017-compact-event-controls-and-badges.md):
-  accepted amendments to ADRs 0059/0063; implementation awaits action feedback
-  task 001 and operator visual acceptance remains open
+  accepted amendments to ADRs 0059/0063; prerequisite complete, ready to implement;
+  its operator visual acceptance remains open
 
 Current reviews:
 

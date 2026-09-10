@@ -114,6 +114,8 @@ pub struct BroadcastEncoderSnapshot {
 /// Snapshot published after each service observation tick.
 #[derive(Clone, Debug)]
 pub struct BroadcastServiceWatchSnapshot {
+    /// Time before the batch began reading, used to establish command freshness.
+    pub read_started_at: Instant,
     /// Capture time for ordering/debugging. Consumers can ignore it.
     pub at: Instant,
     /// State for each observed unit.
@@ -125,6 +127,7 @@ pub struct BroadcastServiceWatchSnapshot {
 impl BroadcastServiceWatchSnapshot {
     fn unknown(units: &[BroadcastServiceWatchUnit], encoder: &BroadcastEncoderWatchTarget) -> Self {
         Self::new(
+            Instant::now(),
             units
                 .iter()
                 .map(|unit| BroadcastServiceUnitSnapshot {
@@ -138,8 +141,13 @@ impl BroadcastServiceWatchSnapshot {
         )
     }
 
-    fn new(units: Vec<BroadcastServiceUnitSnapshot>, encoder: BroadcastEncoderSnapshot) -> Self {
+    fn new(
+        read_started_at: Instant,
+        units: Vec<BroadcastServiceUnitSnapshot>,
+        encoder: BroadcastEncoderSnapshot,
+    ) -> Self {
         Self {
+            read_started_at,
             at: Instant::now(),
             units,
             encoder,
@@ -308,6 +316,7 @@ fn read_broadcast_status_blocking(
     reader: &SharedBroadcastStatusReader,
 ) -> BroadcastServiceWatchSnapshot {
     BroadcastServiceWatchSnapshot::new(
+        Instant::now(),
         units
             .iter()
             .map(|unit| BroadcastServiceUnitSnapshot {
@@ -367,6 +376,35 @@ mod tests {
     };
 
     use super::*;
+
+    /// Situational ADR 0059: freshness starts before every service and encoder read.
+    #[test]
+    fn show_watch_read_start_precedes_all_reads_and_end_follows_them() {
+        struct TimedReader(Mutex<Vec<Instant>>);
+        impl BroadcastStatusReader for TimedReader {
+            fn show(&self, _: &Transport, _: &UnitRef) -> Result<ServiceState, String> {
+                self.0.lock().unwrap().push(Instant::now());
+                Ok(ServiceState::Active)
+            }
+
+            fn encoder_status(&self, _: &EncoderTarget) -> Result<EncoderStatus, String> {
+                self.0.lock().unwrap().push(Instant::now());
+                Ok(EncoderStatus::unknown())
+            }
+        }
+        let reader = Arc::new(TimedReader(Mutex::new(Vec::new())));
+        let snapshot = read_broadcast_status_blocking(
+            &watch_units(),
+            &watch_encoder(),
+            &(Arc::clone(&reader) as SharedBroadcastStatusReader),
+        );
+        let reads = reader.0.lock().unwrap();
+        assert_eq!(reads.len(), 3);
+        for read in reads.iter() {
+            assert!(snapshot.read_started_at <= *read);
+            assert!(*read <= snapshot.at);
+        }
+    }
 
     #[tokio::test(flavor = "current_thread")]
     async fn service_watch_reads_all_units_and_encoder_into_snapshot() {

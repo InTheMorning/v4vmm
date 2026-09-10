@@ -87,7 +87,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0062](0062-music-content-surface.md) | Music opens on recent mixed entity rows | Accepted |
 | [0063](0063-show-dashboard-layout.md) | Show cards, compact item badges, detail panel, and shared diagnostics pane | Accepted |
 | [0064](0064-local-file-addressing.md) | Downloaded files live under music_dir and store a relative path | Accepted |
-| [0065](0065-payment-route-tag-repair.md) | A tag repair is gated on the file, not on feed staleness | Accepted |
+| [0065](0065-payment-route-tag-repair.md) | A tag repair is gated on the file, not on feed staleness | Implemented |
 
 ## UI Presentation
 

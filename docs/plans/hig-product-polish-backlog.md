@@ -58,82 +58,37 @@ Rules:
 
 #### A7 - The Feed Check Result Has No Room To Read
 
-Packet: `docs/tasks/show-action-feedback-task-001-command-state-and-result.md`.
+Closed - 2026-09-10. Implementation, mechanical checks, and operator visual
+acceptance passed in [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md#operator-visual-check).
 
-Reported by an operator on 2026-09-09, after ADR 0065 gave `Check all feeds`
-more to say.
-
-The result message renders in the left sidebar header, beside the button, in a
-`flex_row` that the button already shares. See `src/library/app_impl.rs`, the
-`feed_status` child of the feed-update row.
-
-The message now names five counts: feeds checked, feeds stale, tracks repaired,
-tracks the publisher must fix, and failures. A narrow column cuts it, so the
-operator reads the start of a sentence and guesses the rest.
-
-Owner: ADR 0065, the surface the amendment changed.
-
-Bounded fix, in the order to try:
-
-- give the message its own row under the button, at the sidebar width
-- or move it to the content region, where the readiness list it describes lives
-- or shorten the message and put the counts in the readiness list header
-
-Do not truncate it. `docs/troubleshooting/column-text-truncation.md` records
-what stacked text does with `truncate()`, and a cut count reads as a wrong
-count.
-
-Related: `Show` had the same defect in a worse form. Every broadcast command
-wrote its result to `settings_status`, which only `Settings` rendered, so a
-failed action reported nothing. That is fixed. This is the same lesson at a
-smaller scale: **a surface that starts an action reports the result of that
-action, in a place with room for it.**
+The operator reported unreadable counts on 2026-09-09 after ADR 0065 expanded
+the result. The situational guard
+`adr_0065_feed_check_result_has_its_own_full_width_row` now covers its placement;
+`feed_check_route_repair_status_reports_counts_separately` covers the wording.
+The operator confirmed full readability at the smallest sidebar width.
 
 #### A8 - Service Actions Can Briefly Repaint The Previous State
 
-Packet: `docs/tasks/show-action-feedback-task-001-command-state-and-result.md`.
+Closed - 2026-09-10. Implementation, mechanical checks, and operator visual
+acceptance passed in [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md#operator-visual-check).
 
-Reported by an operator on 2026-09-09, while closing the ADR 0063 follow-up
-visual check.
-
-`Start` and `Stop` answer immediately with the expected transition state, but a
-watch refresh can briefly repaint the old service state before the final state
-arrives. A stop can flash `Started` before `Stopped`, and a start can flash
-`Stopped` before `Started`.
-
-Owner: ADR 0059 and ADR 0063, because this is a `Show` service-state
-presentation issue after the dashboard restructuring.
-
-Bounded fix:
-
-- keep the operator-requested transition state authoritative until the command
-  completes or fails
-- only let the service watch replace it when the reported state agrees with the
-  requested direction or the command has left the in-flight state
-- add unit coverage for start and stop so a stale watch sample cannot override
-  the immediate transition display
+The operator reported stale service-state flashes on 2026-09-09. The packet's
+named `show_command_*` tests and
+`adr_0059_show_command_feedback_survives_all_reprojections` cover command
+ownership, read-start freshness, failures, and bounded transition release
+(situational, ADR 0059). The operator confirmed feedback during normal, failed,
+and disagreeing readback.
 
 #### A9 - Stream Command Buttons Briefly Disappear
 
-Packet: `docs/tasks/show-action-feedback-task-001-command-state-and-result.md`.
+Closed - 2026-09-10. Implementation, mechanical checks, and operator visual
+acceptance passed in [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md#operator-visual-check).
 
-Reported by an operator on 2026-09-09, while closing the ADR 0059 task 015
-visual check.
-
-The stream encoder connect and disconnect commands work, and the connection
-state changes as intended, but both action buttons briefly disappear after
-either command is pressed.
-
-Owner: ADR 0059 task 015, because this is the `Show` Stream section action
-presentation.
-
-Bounded fix:
-
-- keep the action row mounted while a stream command is in flight
-- represent temporary command state through typed action availability or labels,
-  not by removing both controls
-- add view-model coverage so a stream command in flight still projects an
-  action row
+The operator reported disappearing controls on 2026-09-09.
+`show_command_stream_keeps_controls_and_uses_the_service_release_policy` and
+`adr_0059_stream_working_retains_typed_actions` cover the typed action row
+(situational, ADR 0059). The operator confirmed stable control placement and row
+height during Connect/Disconnect (ADR 0063).
 
 ### Track B - HIG Product-Completeness Gaps
 

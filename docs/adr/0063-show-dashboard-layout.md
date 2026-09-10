@@ -6,7 +6,15 @@ Accepted - 2026-09-09.
 
 Implementation partial: dashboard tasks 001-004 complete; compact per-item
 badges and Event diagnostics under ADR 0059 task 017 await implementation and
-operator verification.
+operator verification. Show action feedback task 001 is complete, including
+operator acceptance of control placement and row height.
+
+Reconciled 2026-09-10: the operator confirmed action feedback task 001 tested and
+passed. Its visual gate is closed; task 017's gate remains open.
+
+Amended 2026-09-10: [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md)
+keeps Stream controls mounted through commands. ADR 0059 owns the command-state
+guards; the packet records operator acceptance of stable placement and height.
 
 Amended 2026-09-09: the operator approved a compact Event item, labeled badges
 for Event/Producer/Publisher, and Event diagnostics in the shared bottom pane.

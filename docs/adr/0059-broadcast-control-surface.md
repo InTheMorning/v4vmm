@@ -6,6 +6,16 @@ Accepted - 2026-09-09.
 
 Implementation partial: tasks 001-016 complete; task 017 compact event controls,
 badges, and diagnostics implementation and operator verification outstanding.
+Show action feedback task 001 is complete, including operator visual acceptance.
+
+Reconciled 2026-09-10: the operator confirmed action feedback task 001 tested and
+passed. A7-A9 are closed; task 017 is ready to implement.
+
+Amended 2026-09-10: [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md)
+corrects stale service-state flashes and disappearing stream controls. Its
+[verification inventory](../tasks/show-action-feedback-task-001-command-state-and-result.md#verification)
+names the situational guards for command ownership and read-start freshness;
+operator acceptance passed on 2026-09-10.
 
 Amended 2026-09-09: the operator approved stored-event selection, compact
 per-item status, and on-demand diagnostics after finding the accepted event row
@@ -413,8 +423,8 @@ affect that service. Attach/Detach also restart Publisher, so Publisher projects
 Working until a fresh observation resolves that transition. An unrelated service
 retains its own state. Failed mutations trigger readback and expose partial
 results; an old observation cannot release the transition. This uses the
-command ownership and fresh-observation contract of the action-feedback packet
-[specified in task 017](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#dependencies),
+command ownership and fresh-observation policy guarded by
+[Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md#verification),
 rather than implementing a second transition policy.
 
 ### Tokens Are Files

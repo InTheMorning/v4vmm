@@ -2783,58 +2783,71 @@ impl Render for LibraryApp {
                     disabled,
                 } = action;
                 div()
+                    .id("feed-update-section")
                     .flex()
-                    .flex_row()
-                    .items_center()
-                    .justify_between()
-                    .gap(spacing::SM)
-                    .px(spacing::MD)
-                    .py(spacing::XS)
-                    .border_b_1()
-                    .border_color(color::border_subtle())
+                    .flex_col()
+                    .w_full()
+                    .min_w_0()
                     .child(
                         div()
                             .flex()
-                            .flex_col()
-                            .gap(spacing::XXS)
+                            .flex_row()
+                            .items_center()
+                            .justify_between()
+                            .gap(spacing::SM)
+                            .px(spacing::MD)
+                            .py(spacing::XS)
+                            .border_b_1()
+                            .border_color(color::border_subtle())
                             .child(
                                 div()
-                                    .text_xs()
-                                    .text_color(status_color)
-                                    .child(SharedString::from(status_text)),
+                                    .flex()
+                                    .flex_col()
+                                    .gap(spacing::XXS)
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(status_color)
+                                            .child(SharedString::from(status_text)),
+                                    )
+                                    .when_some(feed_state_label, |el, label| {
+                                        el.child(
+                                            div()
+                                                .text_xs()
+                                                .font_weight(FontWeight::MEDIUM)
+                                                .text_color(color::accent())
+                                                .child(SharedString::from(label)),
+                                        )
+                                    }),
                             )
-                            .when_some(feed_state_label, |el, label| {
-                                el.child(
-                                    div()
-                                        .text_xs()
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .text_color(color::accent())
-                                        .child(SharedString::from(label)),
-                                )
-                            })
-                            .when_some(feed_status, |el, msg| {
-                                el.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(color::text_muted())
-                                        .child(SharedString::from(msg)),
-                                )
+                            .child(if kind == FeedUpdateActionKind::ApplyUpdates {
+                                UiButton::styled(button_id, ControlStyle::Primary)
+                                    .label(label)
+                                    .disabled(disabled)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.apply_all_feed_updates(cx);
+                                    }))
+                            } else {
+                                UiButton::styled(button_id, ControlStyle::Secondary)
+                                    .label(label)
+                                    .disabled(disabled)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.check_all_feeds(cx);
+                                    }))
                             }),
                     )
-                    .child(if kind == FeedUpdateActionKind::ApplyUpdates {
-                        UiButton::styled(button_id, ControlStyle::Primary)
-                            .label(label)
-                            .disabled(disabled)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.apply_all_feed_updates(cx);
-                            }))
-                    } else {
-                        UiButton::styled(button_id, ControlStyle::Secondary)
-                            .label(label)
-                            .disabled(disabled)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.check_all_feeds(cx);
-                            }))
+                    .when_some(feed_status, |el, msg| {
+                        el.child(
+                            div()
+                                .id("feed-update-result")
+                                .w_full()
+                                .min_w_0()
+                                .px(spacing::MD)
+                                .py(spacing::XS)
+                                .text_xs()
+                                .text_color(color::text_muted())
+                                .child(SharedString::from(msg)),
+                        )
                     })
             })
             .child(

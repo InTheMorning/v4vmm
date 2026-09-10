@@ -19,7 +19,7 @@ only. A closed check leaves no entry here.
 ## 1. Compact Event Controls And Item Badges — ADR 0059 Task 017
 
 Status: Open - 2026-09-09. Awaiting implementation and fixture extensions;
-scheduled after Show action feedback task 001. Design approval is not visual
+the action-feedback prerequisite is complete. Design approval is not visual
 acceptance. Task 016's earlier recovery gate remains closed for its shipped scope.
 
 Owner: [task 017](tasks/adr-0059-task-017-compact-event-controls-and-badges.md).

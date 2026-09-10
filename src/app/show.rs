@@ -8,6 +8,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use gpui::{Context, Entity};
 use rusqlite::Connection;
@@ -34,8 +35,9 @@ use crate::view_models::live_status::LiveStatusDisplay;
 use crate::view_models::queue_now_playing::QueueNowPlayingPageVm;
 use crate::view_models::show::{
     EventCommandFeedback, EventCommandState, EventRegistryAction, EventSectionInput,
-    EventSelectionInput, EventState, EventTargetInput, EventTargetListInput, PublisherServiceRole,
-    ShowCardKind, ShowLogRequestId, ShowPageVm, PUBLISHER_LOG_LINE_COUNT,
+    EventSelectionInput, EventState, EventTargetInput, EventTargetListInput,
+    PublisherServiceOperation, PublisherServiceRole, ShowCardKind, ShowCommandId, ShowLogRequestId,
+    ShowPageVm, StreamEncoderOperation, PUBLISHER_LOG_LINE_COUNT,
 };
 use crate::view_models::workspace::FrameNavigationEntry;
 use crate::{config, db};
@@ -295,6 +297,7 @@ impl TopApp {
                 return;
             }
         };
+        self.show_commands.clear();
         let handle = start_broadcast_service_watch(&host, units, encoder);
         self.publisher_service_snapshot = Some(handle.latest());
         bridge_watch(
@@ -339,6 +342,7 @@ impl TopApp {
         snapshot: BroadcastServiceWatchSnapshot,
         cx: &mut Context<Self>,
     ) {
+        self.show_commands.observe(&snapshot);
         self.publisher_service_snapshot = Some(snapshot);
         self.reproject_show_page_from_current_queue();
         cx.notify();
@@ -373,14 +377,13 @@ impl TopApp {
             self.broadcast_readiness_snapshot.as_ref(),
             self.event_section_input.as_ref(),
         )
+        .with_command_state(&self.show_commands)
+        .with_status_message(&self.settings_status)
         .with_panel_state(panel_mode, panel_open);
     }
 
     fn reproject_show_page_from_current_queue(&mut self) {
         self.reproject_show_page(self.show_page.queue.clone());
-        // The projection rebuilds the page, so carry the message across it.
-        let message = self.settings_status.clone();
-        self.show_page = self.show_page.clone().with_status_message(&message);
     }
 
     fn select_show_card_detail(&mut self, kind: ShowCardKind, cx: &mut Context<Self>) {
@@ -425,10 +428,11 @@ impl TopApp {
                 return;
             }
         };
-        // Answer the press at once. The command blocks, and the watch actor
-        // reads the new state after it returns, so without this the row holds
-        // its old state for seconds.
-        self.show_page = self.show_page.clone().mark_service_working(role);
+        let Some(command_id) = self.show_commands.begin_service(role, operation) else {
+            return;
+        };
+        self.settings_status.clear();
+        self.reproject_show_page_from_current_queue();
         cx.notify();
 
         present_command(
@@ -436,17 +440,35 @@ impl TopApp {
             command,
             CommandContext::next(),
             cx,
-            |this, (), _cx| {
-                this.settings_status.clear();
-                this.invalidate_publisher_service_snapshot();
+            move |this, completion, cx| {
+                this.finish_show_command(command_id, completion, cx);
             },
-            |this, error, cx| {
-                this.settings_status = format!("Publisher command error: {error:#}");
-                // Put the real state back, or the row stays `Working` forever.
-                this.invalidate_publisher_service_snapshot();
-                this.refresh_show_page(cx);
+            move |this, error, cx| {
+                this.finish_show_command(command_id, ShowCommandCompletion::new(Err(error)), cx);
             },
         );
+    }
+
+    fn finish_show_command(
+        &mut self,
+        command_id: ShowCommandId,
+        completion: ShowCommandCompletion,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.show_commands.complete(
+            command_id,
+            completion.returned_at,
+            completion.result.is_ok(),
+        ) {
+            return;
+        }
+        self.settings_status = completion
+            .result
+            .err()
+            .map_or_else(String::new, |error| error.to_string());
+        self.reproject_show_page_from_current_queue();
+        self.invalidate_publisher_service_snapshot();
+        cx.notify();
     }
 
     fn open_publisher_logs(&mut self, role: PublisherServiceRole, cx: &mut Context<Self>) {
@@ -630,9 +652,11 @@ impl TopApp {
                 return;
             }
         };
-        // Answer the press at once, and put the failure on this screen.
-        self.show_page = self.show_page.clone().mark_stream_working();
+        let Some(command_id) = self.show_commands.begin_stream(operation) else {
+            return;
+        };
         self.settings_status.clear();
+        self.reproject_show_page_from_current_queue();
         cx.notify();
 
         present_command(
@@ -640,14 +664,11 @@ impl TopApp {
             command,
             CommandContext::next(),
             cx,
-            |this, (), _cx| {
-                this.settings_status.clear();
-                this.invalidate_publisher_service_snapshot();
+            move |this, completion, cx| {
+                this.finish_show_command(command_id, completion, cx);
             },
-            |this, error, cx| {
-                this.settings_status = format!("Stream command error: {error:#}");
-                this.invalidate_publisher_service_snapshot();
-                this.refresh_show_page(cx);
+            move |this, error, cx| {
+                this.finish_show_command(command_id, ShowCommandCompletion::new(Err(error)), cx);
             },
         );
     }
@@ -901,11 +922,19 @@ struct ShowPageProjection {
     event_section_input: Option<EventSectionInput>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PublisherServiceOperation {
-    Start,
-    Stop,
-    Reset,
+/// Capture completion in the worker, before presentation callback scheduling (ADR 0059).
+struct ShowCommandCompletion {
+    returned_at: Instant,
+    result: Result<(), CommandError>,
+}
+
+impl ShowCommandCompletion {
+    fn new(result: Result<(), CommandError>) -> Self {
+        Self {
+            returned_at: Instant::now(),
+            result,
+        }
+    }
 }
 
 struct PublisherServiceCommand {
@@ -931,13 +960,13 @@ impl PublisherServiceCommand {
 }
 
 impl ApplicationCommand for PublisherServiceCommand {
-    type Output = ();
+    type Output = ShowCommandCompletion;
 
     fn execute(self, context: &CommandContext) -> crate::application::CommandResult<Self::Output> {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
-        match self.operation {
+        let result = match self.operation {
             PublisherServiceOperation::Start => control::start(&self.transport, &self.unit),
             PublisherServiceOperation::Stop => control::stop(&self.transport, &self.unit),
             PublisherServiceOperation::Reset => control::reset(&self.transport, &self.unit),
@@ -948,9 +977,11 @@ impl ApplicationCommand for PublisherServiceCommand {
                 operation_label(self.operation),
                 role_label(self.role)
             ))
-        })?;
+        });
 
-        Ok(CommandOutcome::without_events(()))
+        Ok(CommandOutcome::without_events(ShowCommandCompletion::new(
+            result,
+        )))
     }
 }
 
@@ -1097,12 +1128,6 @@ fn start_broadcast_readiness_watch(
     crate::runtime::broadcast_readiness::start(conn)
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum StreamEncoderOperation {
-    Connect,
-    Disconnect,
-}
-
 struct StreamEncoderCommand {
     target: EncoderTarget,
     server_name: Option<String>,
@@ -1130,13 +1155,13 @@ impl StreamEncoderCommand {
 }
 
 impl ApplicationCommand for StreamEncoderCommand {
-    type Output = ();
+    type Output = ShowCommandCompletion;
 
     fn execute(self, context: &CommandContext) -> crate::application::CommandResult<Self::Output> {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
-        match self.operation {
+        let result = match self.operation {
             StreamEncoderOperation::Connect => {
                 encoder::connect(&self.target, self.server_name.as_deref())
             }
@@ -1147,9 +1172,11 @@ impl ApplicationCommand for StreamEncoderCommand {
                 "{} stream encoder: {error:#}",
                 stream_operation_label(self.operation)
             ))
-        })?;
+        });
 
-        Ok(CommandOutcome::without_events(()))
+        Ok(CommandOutcome::without_events(ShowCommandCompletion::new(
+            result,
+        )))
     }
 }
 
@@ -1401,6 +1428,7 @@ mod tests {
 
     fn show_event_project(input: &EventSectionInput) -> EventSectionDisplay {
         let snapshot = BroadcastServiceWatchSnapshot {
+            read_started_at: Instant::now(),
             at: Instant::now(),
             units: [
                 PublisherServiceRole::Producer,

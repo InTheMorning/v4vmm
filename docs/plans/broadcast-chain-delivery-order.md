@@ -87,7 +87,8 @@ it to the publisher, and start the services from one screen.
     packets. Adds Create, Replace, and retryable liveness checks to the event row.
 19. `v4vmm` [Show action feedback 001](../tasks/show-action-feedback-task-001-command-state-and-result.md).
     Its service command ownership and fresh-observation policy are prerequisites
-    for the new item badges. Complete it in its own session.
+    for the new item badges. Implementation, mechanical checks, and operator
+    visual acceptance are complete on 2026-09-10.
 20. `v4vmm` [017, compact event controls and badges](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md).
     Approved 2026-09-09 under ADRs 0059 and 0063. Adds saved event selection,
     configured-target attachment correction, per-item badges, and Event
@@ -155,19 +156,19 @@ Update this table when a packet lands.
 | `v4vmm` | 014 attach event | implemented - 2026-09-08; visual acceptance met with default target attach and detach |
 | `v4vmm` | 011 mpv producer | implemented - 2026-09-08 |
 | `v4vmm` | 012 readiness report | implemented - 2026-09-08; visual acceptance met with readiness CLI count |
-| `v4vmm` | 015 stream encoder | implemented - 2026-09-08; visual acceptance met with no encoder and `butt`; command buttons briefly disappearing moved to polish backlog |
+| `v4vmm` | 015 stream encoder | implemented - 2026-09-08; visual acceptance met with no encoder and `butt`; command-button disappearance fixed and accepted in action feedback 001 on 2026-09-10 |
 | `v4vmm` | 013 final guards | implemented - 2026-09-09; ADR 0059 review and final guard coverage complete |
 | `v4vmm` | 0063 001 card contract | implemented - 2026-09-08; no visual criteria |
 | `v4vmm` | 0063 002 card grid shell | implemented - 2026-09-08; visual acceptance met after the 2026-09-09 fix retest |
 | `v4vmm` | 0063 003 detail panel | implemented - 2026-09-08; visual acceptance met after the 2026-09-09 fix retest; log placement moved to 004 |
 | `v4vmm` | 0063 004 log bottom pane | implemented - 2026-09-09; mechanical and operator visual acceptance met, including selectable text and right-click Copy |
-| `v4vmm` | show action feedback 001 (A7, A8, A9) | ready |
+| `v4vmm` | [show action feedback 001 (A7, A8, A9)](../tasks/show-action-feedback-task-001-command-state-and-result.md) | implemented - 2026-09-10; mechanical acceptance Green; [operator visual acceptance passed](../tasks/show-action-feedback-task-001-command-state-and-result.md#operator-visual-check) for A7, A8, and A9 |
 | `v4vmm` | 016 event row in Live Metadata | implemented - 2026-09-09; mechanical acceptance Green; [all operator event recovery checks passed](../runbooks/broadcast-event-recovery-check.md), including Copy, service readiness, resizing, and registry/token preservation; visual acceptance met |
-| `v4vmm` | [017 compact event controls and badges](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md) | accepted - 2026-09-09; awaiting show action feedback 001; implementation not started; mechanical acceptance outstanding; [operator visual gate open](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check) |
+| `v4vmm` | [017 compact event controls and badges](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md) | accepted - 2026-09-09; ready after action feedback 001 passed on 2026-09-10; implementation not started; mechanical acceptance outstanding; [operator visual gate open](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check) |
 | `v4vmm` | 0064 001 relative local paths | implemented - 2026-09-09; visual acceptance met after path repair converted moved library |
 | `v4vmm` | 0064 002 repair report surface | ready |
 | `v4vmm` | 0065 001 tag repair service | implemented - 2026-09-09; no visual criteria |
-| `v4vmm` | 0065 002 check-all-feeds repair and list actions | implemented - 2026-09-09; visual acceptance met; result message width moved to polish backlog |
+| `v4vmm` | 0065 002 check-all-feeds repair and list actions | implemented - 2026-09-09; visual acceptance met; result-row readability fixed and accepted in action feedback 001 on 2026-09-10 |
 | `splitkit` | reserved 001 store boundary | ready |
 | `splitkit` | reserved 002 reserved class | ready; response contract pinned against `LiveItemCreateResponse` |
 | `splitkit` | reserved 003 restore and TTL | ready; this is the packet that stops the 24-hour death |

@@ -2,7 +2,17 @@
 
 ## Status
 
-Accepted - 2026-09-08.
+Implemented - 2026-09-10.
+
+Reconciled 2026-09-10: the operator confirmed Show action feedback task 001 tested
+and passed, closing the final feed-result readability gate. Tag-repair
+[task 001](../tasks/adr-0065-task-001-tag-repair-service.md) and
+[task 002](../tasks/adr-0065-task-002-readiness-list-actions.md) were already complete.
+
+Amended 2026-09-10: the expanded feed-check counts now have their own result row.
+`adr_0065_feed_check_result_has_its_own_full_width_row` guards placement without
+changing count wording. [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md#operator-visual-check)
+records the passed readability check.
 
 ## Context
 
@@ -148,11 +158,6 @@ contract, and a file that travels to another machine carries its own routes.
 - An operator learns which tracks need a publisher to act.
 
 ## Follow-Up Work
-
-- The `Check all feeds` result has no room to read. The amendment gave the
-  button five counts to report, and the message renders beside the button in
-  the sidebar header, where it is cut. Recorded as item A7 in
-  `docs/plans/hig-product-polish-backlog.md`.
 
 - Decide whether the app warns at download time when a feed carries no payment
   routes, so the problem is visible before a show.
