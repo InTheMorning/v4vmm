@@ -72,7 +72,7 @@ Current plans:
 - [ADR 0066 startup recovery phase plan](plans/adr-0066-startup-recovery-phase-plan.md):
   thirteen bounded packets for configuration safety, core recovery, optional-tool
   repair, managed session resumption, converter retry, and database maintenance;
-  implementation not started
+  task 001 complete; task 002 is next
 - [Show narrow-layout proposal](plans/show-narrow-layout-proposal.md):
   compact cards, full-width logs and an overlap alternative, readable log-body
   allocation, and hiding the playback bar only when every typed action is
@@ -105,8 +105,9 @@ Current plans:
 
 Current implementation packets:
 
-- [ADR 0066 task 001: Config snapshot and safe persistence](tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md):
-  next packet; the [phase plan](plans/adr-0066-startup-recovery-phase-plan.md#sequence-and-stopping-points)
+- [ADR 0066 task 002: Core checks and startup reports](tasks/adr-0066-task-002-core-checks-and-startup-reports.md):
+  next packet; [task 001](tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md)
+  is complete. The [phase plan](plans/adr-0066-startup-recovery-phase-plan.md#sequence-and-stopping-points)
   lists all thirteen packets and dependencies
 - [Show action feedback task 001](tasks/show-action-feedback-task-001-command-state-and-result.md):
   complete with operator acceptance on 2026-09-10; the

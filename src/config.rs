@@ -1,10 +1,16 @@
-// src/config.rs
+//! Configuration decoding and persistence (ADRs 0010, 0046, 0051 and 0066).
+
+use std::collections::BTreeSet;
+use std::fmt;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use anyhow::{anyhow, Context, Result};
 use directories::{BaseDirs, ProjectDirs};
-use serde::{Deserialize, Deserializer, Serialize};
-use std::collections::BTreeSet;
-use std::fs;
-use std::path::{Path, PathBuf};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 
 use crate::api::DEFAULT_BASE_URL;
 use crate::broadcast::encoder::EncoderTarget;
@@ -13,7 +19,7 @@ use crate::broadcast::transport::Transport;
 use crate::theme_profile::ThemeProfile;
 use crate::view_models::workspace::{ContentViewMode, WorkspaceLayoutConfig};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct Config {
     /// Where v4vmm-managed audio files are stored.
     /// Example: "/home/user/V4Vmusic"
@@ -27,61 +33,47 @@ pub struct Config {
     /// `None`, v4vmm resolves `flac` via `$PATH`. Install via your package
     /// manager (e.g. `apt install flac`, `brew install flac`). Without it,
     /// WAV downloads are left untagged.
-    #[serde(default)]
     pub flac_path: Option<PathBuf>,
 
     /// Playback backend configuration. Missing config defaults to no playback
     /// driver so existing configs keep loading unchanged.
-    #[serde(default)]
     pub playback: PlaybackConfig,
 
     /// Broadcast host configuration. Missing config defaults to one local host.
-    #[serde(default)]
     pub broadcast: BroadcastConfig,
 
     /// Global UI scale factor. Mirrors iOS Dynamic Type's named steps.
     /// Missing value defaults to `medium` (1.0×).
-    #[serde(default, deserialize_with = "deserialize_ui_scale")]
     pub ui_scale: UiScale,
 
     /// Runtime theme profile. Missing value defaults to the existing dark
     /// profile so older config files keep their appearance.
-    #[serde(default)]
     pub theme_profile: ThemeProfile,
 
     /// Additive ADR 0046 workspace layout persistence.
     ///
     /// Missing or malformed values fall back to the default workspace layout in
     /// the workspace VM, so older or manually edited configs keep loading.
-    #[serde(default, deserialize_with = "deserialize_workspace_layout_config")]
     pub(crate) workspace_layout: Option<WorkspaceLayoutConfig>,
 
     /// Additive ADR 0051 workspace layout preferences.
     ///
     /// Missing or malformed values fall back to the default pane width in the
     /// app bootstrap, so older or manually edited configs keep loading.
-    #[serde(default, deserialize_with = "deserialize_workspace_config")]
     pub(crate) workspace: Option<WorkspaceConfig>,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct WorkspaceConfig {
     /// Forward-compatible workspace layout preferences.
-    #[serde(default, deserialize_with = "deserialize_workspace_layout_prefs")]
     pub(crate) layout: Option<WorkspaceLayoutPrefs>,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct WorkspaceLayoutPrefs {
     /// Persisted content-pane width in logical pixels.
-    #[serde(
-        default,
-        deserialize_with = "deserialize_optional_f32",
-        skip_serializing_if = "Option::is_none"
-    )]
     pub(crate) content_pane_width: Option<f32>,
     /// Persisted Music content-list presentation mode.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) content_list_view_mode: Option<ContentViewMode>,
 }
 
@@ -114,93 +106,9 @@ impl UiScale {
     }
 }
 
-fn deserialize_ui_scale<'de, D>(deserializer: D) -> std::result::Result<UiScale, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let raw = String::deserialize(deserializer)?;
-    match raw.as_str() {
-        "x-small" => Ok(UiScale::XSmall),
-        "small" => Ok(UiScale::Small),
-        "medium" => Ok(UiScale::Medium),
-        "large" => Ok(UiScale::Large),
-        "x-large" => Ok(UiScale::XLarge),
-        other => Err(serde::de::Error::custom(format!(
-            "unknown ui_scale {other:?}; expected one of \
-             \"x-small\", \"small\", \"medium\", \"large\", \"x-large\""
-        ))),
-    }
-}
-
-fn deserialize_workspace_layout_config<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<WorkspaceLayoutConfig>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let value = toml::Value::deserialize(deserializer)?;
-    match value.try_into::<WorkspaceLayoutConfig>() {
-        Ok(config) => Ok(Some(config)),
-        Err(error) => {
-            eprintln!("v4vmm::config: ignoring malformed workspace_layout: {error}");
-            Ok(None)
-        }
-    }
-}
-
-fn deserialize_workspace_config<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<WorkspaceConfig>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let value = toml::Value::deserialize(deserializer)?;
-    match value.try_into::<WorkspaceConfig>() {
-        Ok(config) => Ok(Some(config)),
-        Err(error) => {
-            eprintln!("v4vmm::config: ignoring malformed workspace: {error}");
-            Ok(None)
-        }
-    }
-}
-
-fn deserialize_workspace_layout_prefs<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<WorkspaceLayoutPrefs>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let value = toml::Value::deserialize(deserializer)?;
-    match value.try_into::<WorkspaceLayoutPrefs>() {
-        Ok(config) => Ok(Some(config)),
-        Err(error) => {
-            eprintln!("v4vmm::config: ignoring malformed workspace.layout: {error}");
-            Ok(None)
-        }
-    }
-}
-
-fn deserialize_optional_f32<'de, D>(deserializer: D) -> std::result::Result<Option<f32>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let value = Option::<toml::Value>::deserialize(deserializer)?;
-    match value {
-        None => Ok(None),
-        Some(toml::Value::Float(value)) => Ok(Some(value as f32)),
-        Some(toml::Value::Integer(value)) => Ok(Some(value as f32)),
-        Some(other) => Err(serde::de::Error::custom(format!(
-            "expected integer or float, got {other}"
-        ))),
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlaybackConfig {
-    #[serde(default, deserialize_with = "deserialize_playback_driver")]
     pub driver: PlaybackDriver,
-
-    #[serde(default)]
     pub mpv_path: Option<PathBuf>,
 }
 
@@ -213,7 +121,8 @@ impl Default for PlaybackConfig {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum PlaybackDriver {
     #[default]
     Null,
@@ -439,98 +348,629 @@ fn default_encoder_binary_path() -> PathBuf {
     PathBuf::from(EncoderTarget::default_binary())
 }
 
-fn deserialize_playback_driver<'de, D>(
-    deserializer: D,
-) -> std::result::Result<PlaybackDriver, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let driver = String::deserialize(deserializer)?;
-    match driver.as_str() {
-        "null" => Ok(PlaybackDriver::Null),
-        "mpv" => Ok(PlaybackDriver::Mpv),
-        other => Err(serde::de::Error::custom(format!(
-            "unknown playback driver {other:?}; expected \"null\" or \"mpv\""
-        ))),
+/// A safe, typed field error. Rejected values and serde excerpts are never stored.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConfigFieldIssue {
+    pub field: &'static str,
+    pub kind: ConfigIssueKind,
+    pub explanation: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConfigIssueKind {
+    Missing,
+    InvalidValue,
+    NotATable,
+}
+
+impl fmt::Display for ConfigFieldIssue {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "App cannot use {}: {}",
+            self.field, self.explanation
+        )
     }
 }
 
-fn parse_playback_config(raw: &str) -> Result<PlaybackConfig> {
-    let table = raw.parse::<toml::Table>().context("parse TOML")?;
-    match table.get("playback") {
-        Some(value) => value.clone().try_into().context("parse playback config"),
-        None => Ok(PlaybackConfig::default()),
+impl std::error::Error for ConfigFieldIssue {}
+
+pub type ConfigField<T> = std::result::Result<T, ConfigFieldIssue>;
+
+/// One document observation, including independent validation results.
+///
+/// Invalid core fields remain in the snapshot so an endpoint-only reader can
+/// still require just its endpoint. The normal app must require both core paths.
+/// The private source bytes/document are intentionally excluded from Debug.
+pub struct ConfigSnapshot {
+    path: PathBuf,
+    original_bytes: Vec<u8>,
+    document: toml::Table,
+    pub music_dir: ConfigField<PathBuf>,
+    pub db_path: ConfigField<PathBuf>,
+    pub musicindex_endpoint: ConfigField<String>,
+    pub flac_path: ConfigField<Option<PathBuf>>,
+    pub playback_driver: ConfigField<PlaybackDriver>,
+    pub mpv_path: ConfigField<Option<PathBuf>>,
+    pub broadcast_hosts: ConfigField<Vec<BroadcastHostConfig>>,
+    pub selected_host: ConfigField<Option<String>>,
+    pub drop_directory: ConfigField<Option<PathBuf>>,
+    pub drop_file_target: ConfigField<String>,
+    pub encoder: ConfigField<Option<BroadcastEncoderConfig>>,
+    pub ui_scale: ConfigField<UiScale>,
+    pub theme_profile: ConfigField<ThemeProfile>,
+    pub(crate) workspace_layout: ConfigField<Option<WorkspaceLayoutConfig>>,
+    pub(crate) content_pane_width: ConfigField<Option<f32>>,
+    pub(crate) content_list_view_mode: ConfigField<Option<ContentViewMode>>,
+}
+
+impl fmt::Debug for ConfigSnapshot {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ConfigSnapshot")
+            .field("path", &self.path)
+            .field("issues", &self.issues())
+            .finish_non_exhaustive()
     }
 }
 
-/// Determine the config path.
-/// For now, Linux-first: use XDG config dir via `directories` crate.
-/// Typically: ~/.config/v4vmm/config.toml
-pub fn config_path() -> Result<PathBuf> {
-    let proj = ProjectDirs::from("xyz", "HeyCitizen", "v4vmm")
-        .ok_or_else(|| anyhow!("could not determine user config directory"))?;
+type ConfigTable<'a> = ConfigField<Option<&'a toml::Table>>;
 
-    // Linux: ~/.config/v4vmm/config.toml (the crate handles the base)
-    let mut path = proj.config_dir().to_path_buf();
-    fs::create_dir_all(&path).with_context(|| format!("create config dir {}", path.display()))?;
+fn invalid_field(field: &'static str, explanation: &'static str) -> ConfigFieldIssue {
+    ConfigFieldIssue {
+        field,
+        kind: ConfigIssueKind::InvalidValue,
+        explanation,
+    }
+}
 
-    path.push("config.toml");
+fn child_table<'a>(parent: ConfigTable<'a>, key: &str, field: &'static str) -> ConfigTable<'a> {
+    match parent?.and_then(|table| table.get(key)) {
+        None => Ok(None),
+        Some(toml::Value::Table(table)) => Ok(Some(table)),
+        Some(_) => Err(ConfigFieldIssue {
+            field,
+            kind: ConfigIssueKind::NotATable,
+            explanation: "expected a TOML table",
+        }),
+    }
+}
+
+fn decode_field<T: DeserializeOwned>(
+    table: ConfigTable<'_>,
+    key: &'static str,
+    field: &'static str,
+    explanation: &'static str,
+) -> ConfigField<Option<T>> {
+    table?
+        .and_then(|table| table.get(key))
+        .map(|value| {
+            value
+                .clone()
+                .try_into::<T>()
+                .map_err(|_| invalid_field(field, explanation))
+        })
+        .transpose()
+}
+
+fn required_path(table: &toml::Table, key: &'static str) -> ConfigField<PathBuf> {
+    let path = decode_field::<PathBuf>(
+        Ok(Some(table)),
+        key,
+        key,
+        "expected a non-empty path string",
+    )?
+    .ok_or(ConfigFieldIssue {
+        field: key,
+        kind: ConfigIssueKind::Missing,
+        explanation: "required path is missing",
+    })?;
+    if path.as_os_str().is_empty() {
+        return Err(invalid_field(key, "required path is empty"));
+    }
     Ok(path)
 }
 
-/// Load config from TOML.
-/// If missing, writes a default config and returns it.
-pub fn load_config(cfg_path: &Path) -> Result<Config> {
-    if !cfg_path.exists() {
-        let default = default_config_toml()?;
-        fs::write(cfg_path, default.as_bytes())
-            .with_context(|| format!("write default config {}", cfg_path.display()))?;
+fn optional_path(
+    table: ConfigTable<'_>,
+    key: &'static str,
+    field: &'static str,
+) -> ConfigField<Option<PathBuf>> {
+    let path = decode_field::<PathBuf>(table, key, field, "expected a non-empty path string")?;
+    if path
+        .as_ref()
+        .is_some_and(|path| path.as_os_str().is_empty())
+    {
+        return Err(invalid_field(field, "configured path is empty"));
+    }
+    Ok(path)
+}
 
-        println!(
-            "Created default config at {}\nEdit it if needed, then re-run.",
-            cfg_path.display()
+fn snapshot_hosts(table: ConfigTable<'_>) -> ConfigField<Vec<BroadcastHostConfig>> {
+    let hosts = decode_field::<Vec<BroadcastHostConfig>>(
+        table,
+        "hosts",
+        "broadcast.hosts",
+        "expected a list of valid broadcast hosts",
+    )?
+    .unwrap_or_else(default_broadcast_hosts);
+    let mut names = BTreeSet::new();
+    if hosts.is_empty()
+        || hosts
+            .iter()
+            .any(|host| host.validate().is_err() || !names.insert(host.name.trim().to_owned()))
+    {
+        return Err(invalid_field(
+            "broadcast.hosts",
+            "hosts must be valid, non-empty and have distinct names",
+        ));
+    }
+    Ok(hosts)
+}
+
+fn snapshot_encoder(table: ConfigTable<'_>) -> ConfigField<Option<BroadcastEncoderConfig>> {
+    let encoder = decode_field::<BroadcastEncoderConfig>(
+        table,
+        "encoder",
+        "broadcast.encoder",
+        "expected valid encoder settings",
+    )?;
+    if encoder
+        .as_ref()
+        .is_some_and(|encoder| encoder.validate().is_err())
+    {
+        return Err(invalid_field(
+            "broadcast.encoder",
+            "encoder settings are invalid",
+        ));
+    }
+    Ok(encoder)
+}
+
+fn snapshot_width(table: ConfigTable<'_>) -> ConfigField<Option<f32>> {
+    // Keep ADR 0051's numeric decoding. The existing view-model/UI bounds still
+    // own clamping; this loader does not introduce another width policy.
+    let value = table?.and_then(|table| table.get("content_pane_width"));
+    match value {
+        None => Ok(None),
+        Some(toml::Value::Float(width)) => Ok(Some(*width as f32)),
+        Some(toml::Value::Integer(width)) => Ok(Some(*width as f32)),
+        Some(_) => Err(invalid_field(
+            "workspace.layout.content_pane_width",
+            "expected an integer or float",
+        )),
+    }
+}
+
+impl ConfigSnapshot {
+    /// Read an existing configuration, without first-run creation.
+    ///
+    /// # Errors
+    /// Returns an error for an unreadable file or invalid UTF-8/TOML. Individual
+    /// field failures are retained in the snapshot instead.
+    pub fn read_existing(path: &Path) -> Result<Self> {
+        Self::read_with(path, |path| fs::read(path))
+    }
+
+    fn read_with(path: &Path, read: impl FnOnce(&Path) -> io::Result<Vec<u8>>) -> Result<Self> {
+        let bytes = read(path)
+            .with_context(|| format!("App could not read configuration {}", path.display()))?;
+        Self::from_bytes(path, bytes)
+    }
+
+    /// Parse one immutable observation; field access never rereads its file.
+    ///
+    /// # Errors
+    /// Returns a safe path/location error for invalid UTF-8 or TOML.
+    pub fn from_bytes(path: &Path, bytes: Vec<u8>) -> Result<Self> {
+        let raw = std::str::from_utf8(&bytes)
+            .with_context(|| format!("Configuration {} is not UTF-8", path.display()))?;
+        let document = raw.parse::<toml::Table>().map_err(|error| {
+            let offset = error.span().map_or(0, |span| span.start.min(raw.len()));
+            let prefix = &raw[..raw.floor_char_boundary(offset)];
+            let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+            let column = prefix.rsplit('\n').next().unwrap_or_default().chars().count() + 1;
+            anyhow!(
+                "App could not parse TOML in {} at line {line}, column {column}. Correct the document before saving.",
+                path.display()
+            )
+        })?;
+        let root = Ok(Some(&document));
+        let playback = child_table(root, "playback", "playback");
+        let broadcast = child_table(root, "broadcast", "broadcast");
+        let workspace = child_table(root, "workspace", "workspace");
+        let layout = child_table(workspace, "layout", "workspace.layout");
+        let broadcast_hosts = snapshot_hosts(broadcast);
+        let mut selected_host = decode_field::<String>(
+            broadcast,
+            "selected_host",
+            "broadcast.selected_host",
+            "expected a host name string",
         );
+        // An unreadable host list is not evidence that a selected name is absent.
+        if let (Ok(Some(selected)), Ok(hosts)) = (&selected_host, &broadcast_hosts) {
+            if !hosts.iter().any(|host| host.name.trim() == selected.trim()) {
+                selected_host = Err(invalid_field(
+                    "broadcast.selected_host",
+                    "selected name is not in broadcast.hosts",
+                ));
+            }
+        }
+        let drop_directory = optional_path(broadcast, "drop_directory", "broadcast.drop_directory");
+        let mut drop_file_target = decode_field::<String>(
+            broadcast,
+            "drop_file_target",
+            "broadcast.drop_file_target",
+            "expected a target name string",
+        )
+        .map(|target| target.unwrap_or_else(default_drop_file_target));
+        if matches!(&drop_directory, Ok(Some(_))) {
+            if let Ok(target) = &drop_file_target {
+                if DropFileProducer::validate_target_name(target).is_err() {
+                    drop_file_target = Err(invalid_field(
+                        "broadcast.drop_file_target",
+                        "expected a visible target file name",
+                    ));
+                }
+            }
+        }
+        let musicindex_endpoint = decode_field::<String>(
+            root,
+            "musicindex_endpoint",
+            "musicindex_endpoint",
+            "expected an HTTP or HTTPS URL string",
+        )
+        .and_then(|endpoint| {
+            endpoint.map_or_else(
+                || Ok(DEFAULT_BASE_URL.to_owned()),
+                |endpoint| {
+                    normalize_musicindex_endpoint(&endpoint).map_err(|_| {
+                        invalid_field("musicindex_endpoint", "expected a valid HTTP or HTTPS URL")
+                    })
+                },
+            )
+        });
+        Ok(Self {
+            music_dir: required_path(&document, "music_dir"),
+            db_path: required_path(&document, "db_path"),
+            musicindex_endpoint,
+            flac_path: optional_path(root, "flac_path", "flac_path"),
+            playback_driver: decode_field::<PlaybackDriver>(
+                playback,
+                "driver",
+                "playback.driver",
+                "expected \"null\" or \"mpv\"",
+            )
+            .map(Option::unwrap_or_default),
+            mpv_path: optional_path(playback, "mpv_path", "playback.mpv_path"),
+            broadcast_hosts,
+            selected_host,
+            drop_directory,
+            drop_file_target,
+            encoder: snapshot_encoder(broadcast),
+            ui_scale: decode_field::<UiScale>(
+                root,
+                "ui_scale",
+                "ui_scale",
+                "expected x-small, small, medium, large or x-large",
+            )
+            .map(Option::unwrap_or_default),
+            theme_profile: decode_field::<ThemeProfile>(
+                root,
+                "theme_profile",
+                "theme_profile",
+                "expected a supported theme profile",
+            )
+            .map(Option::unwrap_or_default),
+            workspace_layout: decode_field(
+                root,
+                "workspace_layout",
+                "workspace_layout",
+                "expected a valid workspace frame layout",
+            ),
+            content_pane_width: snapshot_width(layout),
+            content_list_view_mode: decode_field(
+                layout,
+                "content_list_view_mode",
+                "workspace.layout.content_list_view_mode",
+                "expected list or tiles",
+            ),
+            path: path.to_path_buf(),
+            original_bytes: bytes,
+            document,
+        })
     }
 
-    let raw = fs::read_to_string(cfg_path)
-        .with_context(|| format!("read config {}", cfg_path.display()))?;
-
-    let _playback = parse_playback_config(&raw)
-        .with_context(|| format!("parse playback config {}", cfg_path.display()))?;
-    let cfg: Config =
-        toml::from_str(&raw).with_context(|| format!("parse TOML {}", cfg_path.display()))?;
-
-    if cfg.music_dir.as_os_str().is_empty() {
-        return Err(anyhow!("config: music_dir is empty"));
+    #[must_use]
+    pub fn original_bytes(&self) -> &[u8] {
+        &self.original_bytes
     }
-    if cfg.db_path.as_os_str().is_empty() {
-        return Err(anyhow!("config: db_path is empty"));
-    }
-    cfg.broadcast
-        .validate()
-        .with_context(|| format!("parse broadcast config {}", cfg_path.display()))?;
 
-    Ok(cfg)
+    /// All field issues, including errors hidden by legacy layout fallback.
+    #[must_use]
+    pub fn issues(&self) -> Vec<ConfigFieldIssue> {
+        let mut issues = Vec::new();
+        for issue in [
+            self.music_dir.as_ref().err(),
+            self.db_path.as_ref().err(),
+            self.musicindex_endpoint.as_ref().err(),
+            self.flac_path.as_ref().err(),
+            self.playback_driver.as_ref().err(),
+            self.mpv_path.as_ref().err(),
+            self.broadcast_hosts.as_ref().err(),
+            self.selected_host.as_ref().err(),
+            self.drop_directory.as_ref().err(),
+            self.drop_file_target.as_ref().err(),
+            self.encoder.as_ref().err(),
+            self.ui_scale.as_ref().err(),
+            self.theme_profile.as_ref().err(),
+            self.workspace_layout.as_ref().err(),
+            self.content_pane_width.as_ref().err(),
+            self.content_list_view_mode.as_ref().err(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !issues.contains(issue) {
+                issues.push(*issue);
+            }
+        }
+        issues
+    }
+
+    fn require_saveable(&self) -> Result<()> {
+        if let Some(issue) = self.issues().first() {
+            return Err(anyhow!(
+                "App did not save configuration {}. {issue}. Correct the file before saving settings.",
+                self.path.display()
+            ));
+        }
+        Ok(())
+    }
+
+    fn legacy_workspace(&self) -> Option<WorkspaceConfig> {
+        let workspace = self.document.get("workspace")?.as_table()?;
+        let layout = workspace
+            .get("layout")
+            .and_then(toml::Value::as_table)
+            .and_then(|_| {
+                Some(WorkspaceLayoutPrefs {
+                    content_pane_width: self.content_pane_width.as_ref().ok().copied()?,
+                    content_list_view_mode: self.content_list_view_mode.as_ref().ok().copied()?,
+                })
+            });
+        Some(WorkspaceConfig { layout })
+    }
+
+    /// Strict adapter for existing Config consumers. Scoped callers use fields.
+    ///
+    /// # Errors
+    /// Rejects invalid Config fields except the established workspace fallback.
+    /// The endpoint has its own reader because Config never carried that field.
+    pub fn legacy_config(&self) -> Result<Config> {
+        for issue in self.issues().iter().filter(|issue| {
+            issue.field == "workspace"
+                || issue.field.starts_with("workspace.")
+                || issue.field == "workspace_layout"
+        }) {
+            eprintln!("v4vmm::config: ignoring malformed {}: {issue}", issue.field);
+        }
+        Ok(Config {
+            music_dir: self.music_dir.clone()?,
+            db_path: self.db_path.clone()?,
+            flac_path: self.flac_path.clone()?,
+            playback: PlaybackConfig {
+                driver: self.playback_driver?,
+                mpv_path: self.mpv_path.clone()?,
+            },
+            broadcast: BroadcastConfig {
+                hosts: self.broadcast_hosts.clone()?,
+                selected_host: self.selected_host.clone()?,
+                drop_directory: self.drop_directory.clone()?,
+                drop_file_target: self.drop_file_target.clone()?,
+                encoder: self.encoder.clone()?,
+            },
+            ui_scale: self.ui_scale?,
+            theme_profile: self.theme_profile?,
+            workspace_layout: self.workspace_layout.clone().unwrap_or_default(),
+            workspace: self.legacy_workspace(),
+        })
+    }
+}
+
+/// Resolve the configuration path without creating any directory.
+pub fn config_path() -> Result<PathBuf> {
+    let proj = ProjectDirs::from("xyz", "HeyCitizen", "v4vmm")
+        .ok_or_else(|| anyhow!("could not determine user config directory"))?;
+    Ok(proj.config_dir().join("config.toml"))
+}
+
+/// Read one snapshot, creating defaults only for a genuinely absent entry.
+///
+/// # Errors
+/// Reports read/parse or safe first-run creation failures without substituting
+/// in-memory defaults. Field validation results stay in the snapshot.
+pub fn load_config_snapshot(cfg_path: &Path) -> Result<ConfigSnapshot> {
+    load_snapshot_with_defaults(cfg_path, default_config_toml)
+}
+
+fn load_snapshot_with_defaults(
+    cfg_path: &Path,
+    defaults: impl FnOnce() -> Result<String>,
+) -> Result<ConfigSnapshot> {
+    match fs::symlink_metadata(cfg_path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            let default = defaults()?;
+            // Validate the whole generated document before publishing any bytes.
+            ConfigSnapshot::from_bytes(cfg_path, default.as_bytes().to_vec())?
+                .require_saveable()?;
+            let parent = cfg_path
+                .parent()
+                .filter(|path| !path.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+            fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "App could not create configuration directory {}",
+                    parent.display()
+                )
+            })?;
+            let created = publish_default_config(cfg_path, default.as_bytes())?;
+            if created {
+                eprintln!(
+                    "App created default configuration at {}. Edit it if needed, then re-run.",
+                    cfg_path.display()
+                );
+            }
+        }
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!("App could not inspect configuration {}", cfg_path.display())
+            })
+        }
+    }
+    ConfigSnapshot::read_existing(cfg_path)
+}
+
+// The counter avoids collisions between callers; create_new protects entries
+// left by another process (including a previous process with this PID).
+static DEFAULT_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+// Bound collision handling rather than looping forever in an unusable folder.
+const DEFAULT_TEMP_ATTEMPTS: usize = 32;
+
+fn default_config_temporary(cfg_path: &Path) -> Result<(PathBuf, File)> {
+    for _ in 0..DEFAULT_TEMP_ATTEMPTS {
+        let sequence = DEFAULT_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = cfg_path.with_file_name(format!(
+            ".v4vmm-config-{}-{sequence}.tmp",
+            std::process::id(),
+        ));
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(&path) {
+            Ok(file) => return Ok((path, file)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "App could not create temporary configuration {}",
+                        path.display()
+                    )
+                })
+            }
+        }
+    }
+    Err(anyhow!(
+        "App could not reserve a temporary configuration beside {}",
+        cfg_path.display()
+    ))
+}
+
+fn publish_default_config(cfg_path: &Path, bytes: &[u8]) -> Result<bool> {
+    publish_default_with(
+        cfg_path,
+        bytes,
+        |file, bytes| {
+            file.write_all(bytes)?;
+            file.sync_all()
+        },
+        |temporary, destination| fs::hard_link(temporary, destination),
+        |temporary| fs::remove_file(temporary),
+    )
+}
+
+// Narrow first-run I/O seams allow write/publication/cleanup failures to be
+// tested without changing global permissions or exhausting the filesystem.
+fn publish_default_with(
+    cfg_path: &Path,
+    bytes: &[u8],
+    write_and_sync: impl FnOnce(&mut File, &[u8]) -> io::Result<()>,
+    publish: impl FnOnce(&Path, &Path) -> io::Result<()>,
+    cleanup: impl FnOnce(&Path) -> io::Result<()>,
+) -> Result<bool> {
+    let (temporary, mut file) = default_config_temporary(cfg_path)?;
+    let result = (|| {
+        write_and_sync(&mut file, bytes).with_context(|| {
+            format!(
+                "App could not write and sync temporary configuration {}",
+                temporary.display()
+            )
+        })?;
+        match publish(&temporary, cfg_path) {
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(false),
+            Err(error) => Err(error).with_context(|| {
+                format!(
+                    "App could not publish default configuration {}",
+                    cfg_path.display()
+                )
+            }),
+        }
+    })();
+    drop(file);
+    if let Err(error) = cleanup(&temporary) {
+        let state = match &result {
+            Ok(true) => "The complete default configuration was published.".to_owned(),
+            Ok(false) => "Another configuration entry already exists.".to_owned(),
+            Err(error) => format!("Default creation failed: {error:#}."),
+        };
+        return Err(anyhow!(
+            "{state} App could not remove temporary configuration {}: {error}. The temporary file remains.",
+            temporary.display()
+        ));
+    }
+    result
+}
+
+/// Compatibility reader; scoped consumers use load_config_snapshot.
+///
+/// # Errors
+/// Rejects invalid operational Config fields and never replaces an existing
+/// document. Existing workspace fallback remains available without save access.
+pub fn load_config(cfg_path: &Path) -> Result<Config> {
+    load_config_snapshot(cfg_path)?
+        .legacy_config()
+        .with_context(|| format!("App could not load configuration {}", cfg_path.display()))
 }
 
 pub fn load_musicindex_endpoint(cfg_path: &Path) -> Result<String> {
-    if !cfg_path.exists() {
-        let _ = load_config(cfg_path)?;
-    }
+    load_config_snapshot(cfg_path)?
+        .musicindex_endpoint
+        .with_context(|| {
+            format!(
+                "App could not read MusicIndex settings from {}",
+                cfg_path.display()
+            )
+        })
+}
 
-    let raw = fs::read_to_string(cfg_path)
-        .with_context(|| format!("read config {}", cfg_path.display()))?;
-    let table = raw
-        .parse::<toml::Table>()
-        .with_context(|| format!("parse TOML {}", cfg_path.display()))?;
+fn read_config_for_save(cfg_path: &Path) -> Result<ConfigSnapshot> {
+    let snapshot = ConfigSnapshot::read_existing(cfg_path)?;
+    snapshot.require_saveable()?;
+    Ok(snapshot)
+}
 
-    match table
-        .get("musicindex_endpoint")
-        .and_then(toml::Value::as_str)
-    {
-        Some(endpoint) => normalize_musicindex_endpoint(endpoint),
-        None => Ok(DEFAULT_BASE_URL.to_string()),
-    }
+fn write_existing_config(cfg_path: &Path, table: &toml::Table) -> Result<()> {
+    let updated = toml::to_string_pretty(table).context("serialize config TOML")?;
+    // No create flag: deletion after validation must not turn an ordinary save
+    // into first-run creation. Explicit conflict-protected repair is task 006.
+    let mut file = OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(cfg_path)
+        .with_context(|| {
+            format!(
+                "App could not open existing configuration {} for saving",
+                cfg_path.display()
+            )
+        })?;
+    file.write_all(updated.as_bytes())
+        .with_context(|| format!("App could not save configuration {}", cfg_path.display()))
 }
 
 pub fn save_app_settings(
@@ -541,18 +981,10 @@ pub fn save_app_settings(
     ui_scale: UiScale,
     theme_profile: ThemeProfile,
 ) -> Result<(String, PathBuf, Option<PathBuf>, UiScale, ThemeProfile)> {
+    let mut table = read_config_for_save(cfg_path)?.document;
     let endpoint = normalize_musicindex_endpoint(endpoint)?;
     let music_dir = normalize_music_dir(music_dir)?;
     let flac_path = normalize_flac_path(flac_path)?;
-    if !cfg_path.exists() {
-        let _ = load_config(cfg_path)?;
-    }
-
-    let raw = fs::read_to_string(cfg_path)
-        .with_context(|| format!("read config {}", cfg_path.display()))?;
-    let mut table = raw
-        .parse::<toml::Table>()
-        .with_context(|| format!("parse TOML {}", cfg_path.display()))?;
     table.insert(
         "musicindex_endpoint".into(),
         toml::Value::String(endpoint.clone()),
@@ -581,9 +1013,7 @@ pub fn save_app_settings(
         }
     }
 
-    let updated = toml::to_string_pretty(&table).context("serialize config TOML")?;
-    fs::write(cfg_path, updated.as_bytes())
-        .with_context(|| format!("write config {}", cfg_path.display()))?;
+    write_existing_config(cfg_path, &table)?;
     Ok((endpoint, music_dir, flac_path, ui_scale, theme_profile))
 }
 
@@ -591,38 +1021,19 @@ pub(crate) fn save_workspace_layout(
     cfg_path: &Path,
     workspace_layout: &WorkspaceLayoutConfig,
 ) -> Result<()> {
-    if !cfg_path.exists() {
-        let _ = load_config(cfg_path)?;
-    }
-
-    let raw = fs::read_to_string(cfg_path)
-        .with_context(|| format!("read config {}", cfg_path.display()))?;
-    let mut table = raw
-        .parse::<toml::Table>()
-        .with_context(|| format!("parse TOML {}", cfg_path.display()))?;
+    let mut table = read_config_for_save(cfg_path)?.document;
     let layout_value =
         toml::Value::try_from(workspace_layout).context("serialize workspace layout config")?;
     table.insert("workspace_layout".into(), layout_value);
 
-    let updated = toml::to_string_pretty(&table).context("serialize config TOML")?;
-    fs::write(cfg_path, updated.as_bytes())
-        .with_context(|| format!("write config {}", cfg_path.display()))?;
-    Ok(())
+    write_existing_config(cfg_path, &table)
 }
 
 pub(crate) fn save_workspace_layout_prefs(
     cfg_path: &Path,
     workspace_layout_prefs: &WorkspaceLayoutPrefs,
 ) -> Result<()> {
-    if !cfg_path.exists() {
-        let _ = load_config(cfg_path)?;
-    }
-
-    let raw = fs::read_to_string(cfg_path)
-        .with_context(|| format!("read config {}", cfg_path.display()))?;
-    let mut table = raw
-        .parse::<toml::Table>()
-        .with_context(|| format!("parse TOML {}", cfg_path.display()))?;
+    let mut table = read_config_for_save(cfg_path)?.document;
 
     if !table.get("workspace").is_some_and(toml::Value::is_table) {
         table.insert("workspace".into(), toml::Value::Table(toml::Table::new()));
@@ -665,10 +1076,7 @@ pub(crate) fn save_workspace_layout_prefs(
         }
     }
 
-    let updated = toml::to_string_pretty(&table).context("serialize config TOML")?;
-    fs::write(cfg_path, updated.as_bytes())
-        .with_context(|| format!("write config {}", cfg_path.display()))?;
-    Ok(())
+    write_existing_config(cfg_path, &table)
 }
 
 pub fn normalize_musicindex_endpoint(endpoint: &str) -> Result<String> {
@@ -682,8 +1090,7 @@ pub fn normalize_musicindex_endpoint(endpoint: &str) -> Result<String> {
     } else {
         format!("https://{trimmed}")
     };
-    let url = reqwest::Url::parse(&candidate)
-        .with_context(|| format!("parse musicindex_endpoint {candidate:?}"))?;
+    let url = reqwest::Url::parse(&candidate).context("parse musicindex_endpoint URL")?;
     match url.scheme() {
         "http" | "https" => {}
         scheme => return Err(anyhow!("unsupported musicindex_endpoint scheme: {scheme}")),
@@ -758,13 +1165,13 @@ fn default_config_toml() -> Result<String> {
         r#"# v4vmm config
 
 # V4V-only library root
-music_dir = "{}"
+music_dir = {}
 
 # SQLite database path (app data)
-db_path = "{}"
+db_path = {}
 
 # MusicIndex API endpoint
-musicindex_endpoint = "{}"
+musicindex_endpoint = {}
 
 # Visual profile. Supported values: "system", "dark", "light",
 # "high-contrast-dark", and "high-contrast-light".
@@ -807,9 +1214,9 @@ theme_profile = "dark"
 # Workspace layout is persisted automatically. Missing or malformed values
 # fall back to the default layout.
 "#,
-        music_dir.display(),
-        db_path.display(),
-        DEFAULT_BASE_URL,
+        toml::Value::String(music_dir.display().to_string()),
+        toml::Value::String(db_path.display().to_string()),
+        toml::Value::String(DEFAULT_BASE_URL.to_owned()),
     ))
 }
 
@@ -879,13 +1286,19 @@ mod tests {
 
     #[test]
     fn load_config_defaults_missing_playback_to_null_driver() {
-        let cfg = parse_playback_config(
+        let cfg = ConfigSnapshot::from_bytes(
+            Path::new("config.toml"),
             r#"
 music_dir = "/tmp/music"
 db_path = "/tmp/v4vmm.sqlite"
-"#,
+"#
+            .as_bytes()
+            .to_vec(),
         )
-        .expect("parse playback config");
+        .expect("parse config snapshot")
+        .legacy_config()
+        .expect("valid config")
+        .playback;
 
         assert_eq!(cfg.driver, PlaybackDriver::Null);
         assert_eq!(cfg.mpv_path, None);
@@ -1403,14 +1816,15 @@ theme_profile = "solarized"
         let message = format!("{error:#}");
 
         assert!(
-            message.contains("unknown variant `solarized`"),
+            message.contains("theme_profile") && message.contains("supported theme profile"),
             "unexpected error: {message}"
         );
     }
 
     #[test]
     fn load_config_parses_mpv_playback_config() {
-        let cfg = parse_playback_config(
+        let cfg = ConfigSnapshot::from_bytes(
+            Path::new("config.toml"),
             r#"
 music_dir = "/tmp/music"
 db_path = "/tmp/v4vmm.sqlite"
@@ -1418,9 +1832,14 @@ db_path = "/tmp/v4vmm.sqlite"
 [playback]
 driver = "mpv"
 mpv_path = "/usr/bin/mpv"
-"#,
+"#
+            .as_bytes()
+            .to_vec(),
         )
-        .expect("parse playback config");
+        .expect("parse config snapshot")
+        .legacy_config()
+        .expect("valid config")
+        .playback;
 
         assert_eq!(cfg.driver, PlaybackDriver::Mpv);
         assert_eq!(cfg.mpv_path, Some(PathBuf::from("/usr/bin/mpv")));
@@ -1446,7 +1865,7 @@ driver = "vlc"
         let message = format!("{error:#}");
 
         assert!(
-            message.contains("unknown playback driver \"vlc\""),
+            message.contains("playback.driver"),
             "unexpected error: {message}"
         );
         assert!(
@@ -1665,7 +2084,7 @@ kind = "detail"
     }
 
     #[test]
-    fn save_workspace_layout_prefs_recovers_malformed_workspace_tables() {
+    fn save_workspace_layout_prefs_rejects_malformed_workspace_tables() {
         let temp = tempfile::tempdir().expect("tempdir");
         let cfg_path = temp.path().join("config.toml");
         fs::write(
@@ -1678,6 +2097,7 @@ workspace = "not a table"
         )
         .expect("write config");
 
+        let before = fs::read(&cfg_path).expect("original bytes");
         save_workspace_layout_prefs(
             &cfg_path,
             &WorkspaceLayoutPrefs {
@@ -1685,19 +2105,8 @@ workspace = "not a table"
                 content_list_view_mode: None,
             },
         )
-        .expect("save workspace layout prefs");
-
-        let cfg = load_config(&cfg_path).expect("load config");
-        let prefs = cfg
-            .workspace
-            .as_ref()
-            .and_then(|workspace| workspace.layout.as_ref());
-
-        assert_eq!(
-            prefs.and_then(|prefs| prefs.content_pane_width),
-            Some(900.0),
-            "workspace prefs save should replace malformed workspace tables"
-        );
+        .expect_err("ordinary saves cannot repair malformed settings");
+        assert_eq!(fs::read(&cfg_path).expect("preserved bytes"), before);
     }
 
     #[test]
@@ -1758,5 +2167,579 @@ content_list_view_mode = "list"
             Some(ContentViewMode::List),
             "workspace prefs should deserialize the content-list view mode"
         );
+    }
+    // Situational: ADR 0066 invariants 3–4. These are behavioral guards for
+    // document preservation and independently decoded configuration facts.
+    const SNAPSHOT_CORE: &str = "music_dir = \"/tmp/music\"\ndb_path = \"/tmp/library.sqlite\"\n";
+
+    fn config_snapshot(extra: &str) -> ConfigSnapshot {
+        ConfigSnapshot::from_bytes(
+            Path::new("/tmp/config.toml"),
+            format!("{SNAPSHOT_CORE}{extra}").into_bytes(),
+        )
+        .expect("parsed snapshot")
+    }
+
+    #[test]
+    fn adr_0066_snapshot_defaults_and_required_fields_are_distinct() {
+        let snapshot = config_snapshot("");
+        assert!(snapshot.issues().is_empty());
+        assert_eq!(
+            snapshot.musicindex_endpoint.as_deref().unwrap(),
+            DEFAULT_BASE_URL
+        );
+        assert_eq!(snapshot.playback_driver, Ok(PlaybackDriver::Null));
+        assert_eq!(snapshot.flac_path, Ok(None));
+        assert_eq!(snapshot.drop_directory, Ok(None));
+        assert_eq!(snapshot.encoder, Ok(None));
+        assert_eq!(
+            snapshot.broadcast_hosts.as_ref().unwrap(),
+            &default_broadcast_hosts()
+        );
+
+        for (raw, field, kind) in [
+            ("", "music_dir", ConfigIssueKind::Missing),
+            ("music_dir = 7", "music_dir", ConfigIssueKind::InvalidValue),
+            (
+                "music_dir = \"\"",
+                "music_dir",
+                ConfigIssueKind::InvalidValue,
+            ),
+            (
+                "music_dir = \"/tmp/music\"",
+                "db_path",
+                ConfigIssueKind::Missing,
+            ),
+            (
+                "music_dir = \"/tmp/music\"\ndb_path = []",
+                "db_path",
+                ConfigIssueKind::InvalidValue,
+            ),
+        ] {
+            let snapshot =
+                ConfigSnapshot::from_bytes(Path::new("config.toml"), raw.as_bytes().to_vec())
+                    .unwrap();
+            assert!(
+                snapshot
+                    .issues()
+                    .iter()
+                    .any(|issue| issue.field == field && issue.kind == kind),
+                "{raw}"
+            );
+            assert!(snapshot.legacy_config().is_err());
+        }
+    }
+
+    #[test]
+    fn adr_0066_optional_fields_fail_without_poisoning_core_paths() {
+        for (extra, field) in [
+            ("musicindex_endpoint = 3", "musicindex_endpoint"),
+            (
+                "musicindex_endpoint = 'ftp://example.test'",
+                "musicindex_endpoint",
+            ),
+            ("flac_path = false", "flac_path"),
+            ("flac_path = ''", "flac_path"),
+            ("ui_scale = 'huge'", "ui_scale"),
+            ("theme_profile = false", "theme_profile"),
+            ("workspace_layout = false", "workspace_layout"),
+            ("[playback]\ndriver = 'other'", "playback.driver"),
+            ("[playback]\nmpv_path = 8", "playback.mpv_path"),
+            ("[broadcast]\nhosts = []", "broadcast.hosts"),
+            (
+                "[broadcast]\nselected_host = 'absent'",
+                "broadcast.selected_host",
+            ),
+            (
+                "[broadcast]\ndrop_directory = ''",
+                "broadcast.drop_directory",
+            ),
+            (
+                "[broadcast]\ndrop_file_target = 5",
+                "broadcast.drop_file_target",
+            ),
+            (
+                "[broadcast]\ndrop_directory = '/tmp/producer'\ndrop_file_target = '../hidden'",
+                "broadcast.drop_file_target",
+            ),
+            ("[broadcast.encoder]\nport = 'bad'", "broadcast.encoder"),
+            (
+                "[workspace.layout]\ncontent_list_view_mode = 'other'",
+                "workspace.layout.content_list_view_mode",
+            ),
+            (
+                "[workspace.layout]\ncontent_pane_width = 'wide'",
+                "workspace.layout.content_pane_width",
+            ),
+        ] {
+            let snapshot = config_snapshot(extra);
+            assert_eq!(
+                snapshot.music_dir.as_ref().unwrap(),
+                &PathBuf::from("/tmp/music")
+            );
+            assert_eq!(
+                snapshot.db_path.as_ref().unwrap(),
+                &PathBuf::from("/tmp/library.sqlite")
+            );
+            assert!(
+                snapshot.issues().iter().any(|issue| issue.field == field),
+                "{extra}"
+            );
+            assert!(snapshot.require_saveable().is_err(), "{extra}");
+        }
+    }
+
+    #[test]
+    fn adr_0066_malformed_optional_tables_keep_other_groups_available() {
+        for group in ["playback", "broadcast", "workspace"] {
+            let snapshot = config_snapshot(&format!("{group} = false"));
+            assert!(snapshot.music_dir.is_ok());
+            assert!(snapshot.db_path.is_ok());
+            assert!(snapshot.musicindex_endpoint.is_ok());
+            assert!(snapshot
+                .issues()
+                .iter()
+                .any(|issue| issue.field == group && issue.kind == ConfigIssueKind::NotATable));
+            match group {
+                "playback" => {
+                    assert!(snapshot.playback_driver.is_err());
+                    assert!(snapshot.mpv_path.is_err());
+                    assert!(snapshot.broadcast_hosts.is_ok());
+                }
+                "broadcast" => {
+                    assert!(snapshot.broadcast_hosts.is_err());
+                    assert!(snapshot.selected_host.is_err());
+                    assert!(snapshot.drop_directory.is_err());
+                    assert!(snapshot.encoder.is_err());
+                    assert!(snapshot.playback_driver.is_ok());
+                }
+                _ => {
+                    assert!(snapshot.content_pane_width.is_err());
+                    assert!(snapshot.content_list_view_mode.is_err());
+                    assert!(snapshot.playback_driver.is_ok());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn adr_0066_readable_tables_preserve_valid_sibling_fields() {
+        let snapshot = config_snapshot(
+            "[playback]\ndriver = 'broken'\nmpv_path = '/bin/mpv'\n\
+             [broadcast]\nhosts = false\nselected_host = 'Local'\n\
+             drop_directory = '/tmp/producer'\ndrop_file_target = 'default'\n\
+             [broadcast.encoder]\nbinary_path = 'butt'\n\
+             [workspace.layout]\ncontent_pane_width = 'wide'\ncontent_list_view_mode = 'list'\n",
+        );
+        assert!(snapshot.playback_driver.is_err());
+        assert_eq!(snapshot.mpv_path.unwrap(), Some(PathBuf::from("/bin/mpv")));
+        assert!(snapshot.broadcast_hosts.is_err());
+        assert_eq!(snapshot.selected_host.unwrap().as_deref(), Some("Local"));
+        assert_eq!(
+            snapshot.drop_directory.unwrap(),
+            Some(PathBuf::from("/tmp/producer"))
+        );
+        assert_eq!(snapshot.drop_file_target.unwrap(), "default");
+        assert!(snapshot.encoder.unwrap().is_some());
+        assert!(snapshot.content_pane_width.is_err());
+        assert_eq!(
+            snapshot.content_list_view_mode.unwrap(),
+            Some(ContentViewMode::List)
+        );
+
+        let snapshot = config_snapshot(
+            "[broadcast]\ndrop_directory = 3\n[broadcast.encoder]\nbinary_path = 'butt'",
+        );
+        assert!(snapshot.drop_directory.is_err());
+        assert!(snapshot.encoder.unwrap().is_some());
+        assert!(snapshot.broadcast_hosts.is_ok());
+
+        // Keep task 017's deliberately unset publisher target representable.
+        assert_eq!(
+            config_snapshot("[broadcast]\ndrop_file_target = ''").drop_file_target,
+            Ok(String::new())
+        );
+    }
+
+    #[test]
+    fn adr_0066_endpoint_reader_requires_only_its_own_field() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let raw = "music_dir = false\ndb_path = []\nmusicindex_endpoint = 'https://index.test/'\n[playback]\ndriver = 'broken'";
+        fs::write(&path, raw).unwrap();
+        assert_eq!(
+            load_musicindex_endpoint(&path).unwrap(),
+            "https://index.test"
+        );
+        assert!(load_config(&path).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), raw);
+        fs::write(&path, format!("{SNAPSHOT_CORE}musicindex_endpoint = 23")).unwrap();
+        assert!(load_musicindex_endpoint(&path).is_err());
+    }
+
+    #[test]
+    fn adr_0066_snapshot_keeps_one_read_even_if_the_file_changes() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let old = format!("{SNAPSHOT_CORE}musicindex_endpoint = 'https://old.test'");
+        fs::write(&path, &old).unwrap();
+        let mut reads = 0;
+        let snapshot = ConfigSnapshot::read_with(&path, |path| {
+            reads += 1;
+            let bytes = fs::read(path)?;
+            fs::write(
+                path,
+                "music_dir = false\nmusicindex_endpoint = 'https://new.test'",
+            )?;
+            Ok(bytes)
+        })
+        .unwrap();
+        assert_eq!(reads, 1);
+        assert_eq!(snapshot.original_bytes(), old.as_bytes());
+        assert_eq!(
+            snapshot.musicindex_endpoint.as_ref().unwrap(),
+            "https://old.test"
+        );
+        assert_eq!(
+            snapshot.legacy_config().unwrap().music_dir,
+            PathBuf::from("/tmp/music")
+        );
+        assert!(!ConfigSnapshot::read_existing(&path)
+            .unwrap()
+            .music_dir
+            .is_ok());
+    }
+
+    #[test]
+    fn adr_0066_config_diagnostics_exclude_rejected_values_and_source_bytes() {
+        let secret = "private-credential-0066";
+        let snapshot = config_snapshot(&format!(
+            "musicindex_endpoint = 'http://user:{secret}@[invalid'\ntheme_profile = '{secret}'\n[playback]\ndriver = '{secret}'"
+        ));
+        let messages = format!(
+            "{snapshot:?}\n{:#}\n{:#}",
+            snapshot.require_saveable().unwrap_err(),
+            snapshot.legacy_config().unwrap_err()
+        );
+        assert!(!messages.contains(secret));
+        assert!(messages.contains("musicindex_endpoint"));
+        let parse_error = ConfigSnapshot::from_bytes(
+            Path::new("config.toml"),
+            format!("secret = '{secret}'\n[broken").into_bytes(),
+        )
+        .unwrap_err();
+        let text = format!("{parse_error:#?}");
+        assert!(text.contains("line 2"));
+        assert!(!text.contains(secret));
+        let utf8_error =
+            ConfigSnapshot::from_bytes(Path::new("config.toml"), vec![0xff]).unwrap_err();
+        assert!(format!("{utf8_error:#}").contains("not UTF-8"));
+        let url_error =
+            normalize_musicindex_endpoint(&format!("http://user:{secret}@[invalid")).unwrap_err();
+        assert!(!format!("{url_error:#?}").contains(secret));
+    }
+
+    fn ordinary_saves(path: &Path) -> [Result<()>; 3] {
+        [
+            save_app_settings(
+                path,
+                DEFAULT_BASE_URL,
+                "/tmp/changed",
+                "",
+                UiScale::Large,
+                ThemeProfile::Dark,
+            )
+            .map(|_| ()),
+            save_workspace_layout(path, &WorkspaceLayout::default().to_config()),
+            save_workspace_layout_prefs(
+                path,
+                &WorkspaceLayoutPrefs {
+                    content_pane_width: Some(800.0),
+                    content_list_view_mode: Some(ContentViewMode::List),
+                },
+            ),
+        ]
+    }
+
+    #[test]
+    fn adr_0066_all_ordinary_saves_preserve_broken_documents() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let cases = [
+            vec![0xff],
+            b"[broken".to_vec(),
+            b"music_dir = false\ndb_path = '/tmp/db'".to_vec(),
+            b"music_dir = '/tmp/music'\ndb_path = ''".to_vec(),
+            b"db_path = '/tmp/db'".to_vec(),
+            format!("{SNAPSHOT_CORE}musicindex_endpoint = 4").into_bytes(),
+            format!("{SNAPSHOT_CORE}workspace = 'broken'").into_bytes(),
+            format!("{SNAPSHOT_CORE}workspace_layout = false").into_bytes(),
+            format!("{SNAPSHOT_CORE}[workspace.layout]\ncontent_pane_width = 'wrong'").into_bytes(),
+            format!("{SNAPSHOT_CORE}[broadcast.encoder]\nbinary_path = ''").into_bytes(),
+            format!("{SNAPSHOT_CORE}[playback]\ndriver = 'wrong'").into_bytes(),
+            format!("{SNAPSHOT_CORE}theme_profile = 'wrong'").into_bytes(),
+            format!("{SNAPSHOT_CORE}ui_scale = 'wrong'").into_bytes(),
+        ];
+        for bytes in cases {
+            fs::write(&path, &bytes).unwrap();
+            for result in ordinary_saves(&path) {
+                assert!(result.is_err());
+                assert_eq!(fs::read(&path).unwrap(), bytes);
+            }
+        }
+    }
+
+    #[test]
+    fn adr_0066_saves_never_recreate_a_missing_document() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("missing/config.toml");
+        for result in ordinary_saves(&path) {
+            assert!(result.is_err());
+            assert!(!path.exists());
+            assert!(!path.parent().unwrap().exists());
+        }
+        let path = temp.path().join("config.toml");
+        fs::write(&path, SNAPSHOT_CORE).unwrap();
+        let snapshot = read_config_for_save(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+        assert!(write_existing_config(&path, &snapshot.document).is_err());
+        assert!(
+            !path.exists(),
+            "save must not create even after a successful earlier read"
+        );
+    }
+
+    #[test]
+    fn adr_0066_saves_resume_after_a_fresh_valid_document() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        fs::write(&path, format!("{SNAPSHOT_CORE}ui_scale = 'broken'")).unwrap();
+        assert!(ordinary_saves(&path).iter().all(Result::is_err));
+        fs::write(
+            &path,
+            format!("{SNAPSHOT_CORE}custom_future_value = 'keep'"),
+        )
+        .unwrap();
+        for result in ordinary_saves(&path) {
+            result.unwrap();
+        }
+        let snapshot = ConfigSnapshot::read_existing(&path).unwrap();
+        assert!(snapshot.issues().is_empty());
+        assert_eq!(
+            snapshot.document["custom_future_value"].as_str(),
+            Some("keep")
+        );
+    }
+
+    #[test]
+    fn adr_0066_first_run_publishes_only_a_valid_complete_document() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("new/config.toml");
+        let snapshot = load_snapshot_with_defaults(&path, || Ok(SNAPSHOT_CORE.to_owned())).unwrap();
+        assert_eq!(snapshot.original_bytes(), SNAPSHOT_CORE.as_bytes());
+        assert_eq!(fs::read(&path).unwrap(), SNAPSHOT_CORE.as_bytes());
+        assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        let bad_path = temp.path().join("bad/config.toml");
+        assert!(load_snapshot_with_defaults(&bad_path, || Ok("[broken".to_owned())).is_err());
+        assert!(!bad_path.parent().unwrap().exists());
+        assert!(
+            load_snapshot_with_defaults(&bad_path, || Err(anyhow!("cannot derive defaults")))
+                .is_err()
+        );
+        assert!(!bad_path.exists());
+
+        let default = default_config_toml().unwrap();
+        assert!(
+            ConfigSnapshot::from_bytes(Path::new("config.toml"), default.into_bytes())
+                .unwrap()
+                .issues()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn adr_0066_first_run_reads_the_competing_creators_document() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let winner = format!("{SNAPSHOT_CORE}musicindex_endpoint = 'https://winner.test'");
+        let snapshot = load_snapshot_with_defaults(&path, || {
+            fs::write(&path, &winner)?;
+            Ok(SNAPSHOT_CORE.to_owned())
+        })
+        .unwrap();
+        assert_eq!(snapshot.original_bytes(), winner.as_bytes());
+        assert_eq!(snapshot.musicindex_endpoint.unwrap(), "https://winner.test");
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn adr_0066_concurrent_first_run_writers_do_not_clobber() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let barrier = std::sync::Barrier::new(4);
+        let snapshots = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..4).map(|index| {
+                let path = &path;
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    load_snapshot_with_defaults(path, || {
+                        barrier.wait();
+                        Ok(format!("{SNAPSHOT_CORE}musicindex_endpoint = 'https://writer-{index}.test'"))
+                    }).unwrap()
+                })
+            }).collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        let saved = fs::read(&path).unwrap();
+        for snapshot in snapshots {
+            assert_eq!(snapshot.original_bytes(), saved);
+        }
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn adr_0066_symlinks_and_unreadable_entries_never_invoke_defaults() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let absent_target = temp.path().join("missing.toml");
+        symlink(&absent_target, &path).unwrap();
+        assert!(load_snapshot_with_defaults(&path, || panic!(
+            "must not create defaults for a dangling symlink"
+        ))
+        .is_err());
+        assert!(!absent_target.exists());
+        assert!(fs::symlink_metadata(&path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(ordinary_saves(&path).iter().all(Result::is_err));
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        assert!(load_snapshot_with_defaults(&path, || panic!(
+            "must not create defaults for a directory"
+        ))
+        .is_err());
+        assert!(path.is_dir());
+        assert!(ordinary_saves(&path).iter().all(Result::is_err));
+    }
+
+    #[test]
+    fn adr_0066_existing_bad_bytes_and_read_denial_do_not_create_defaults() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        for bytes in [b"[broken".as_slice(), &[0xff]] {
+            fs::write(&path, bytes).unwrap();
+            assert!(load_snapshot_with_defaults(&path, || panic!(
+                "existing bytes must be preserved"
+            ))
+            .is_err());
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+        }
+        fs::write(&path, SNAPSHOT_CORE).unwrap();
+        let error = ConfigSnapshot::read_with(&path, |_| {
+            Err(io::Error::from(io::ErrorKind::PermissionDenied))
+        })
+        .unwrap_err();
+        assert!(format!("{error:#}").contains(&path.display().to_string()));
+        assert_eq!(fs::read_to_string(&path).unwrap(), SNAPSHOT_CORE);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn adr_0066_permission_denial_preserves_config_across_load_and_saves() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        fs::write(&path, SNAPSHOT_CORE).unwrap();
+        let permissions = fs::metadata(&path).unwrap().permissions();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0)).unwrap();
+        // Privileged test runners can bypass permissions; the injected reader
+        // test above still covers PermissionDenied on those hosts.
+        let denied = fs::read(&path).is_err();
+        let loaded = load_snapshot_with_defaults(&path, || panic!("existing entry"));
+        let saves = ordinary_saves(&path);
+        fs::set_permissions(&path, permissions).unwrap();
+        if denied {
+            assert!(loaded.is_err());
+            assert!(saves.iter().all(Result::is_err));
+            assert_eq!(fs::read_to_string(&path).unwrap(), SNAPSHOT_CORE);
+        }
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn adr_0066_failed_default_writes_and_publication_clean_owned_temporaries() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let error = publish_default_with(
+            &path,
+            SNAPSHOT_CORE.as_bytes(),
+            |file, _| {
+                file.write_all(b"partial")?;
+                Err(io::Error::from(io::ErrorKind::WriteZero))
+            },
+            |_, _| panic!("incomplete bytes must not be published"),
+            |temporary| fs::remove_file(temporary),
+        )
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("temporary configuration"));
+        assert!(!path.exists());
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 0);
+
+        let error = publish_default_with(
+            &path,
+            SNAPSHOT_CORE.as_bytes(),
+            |file, bytes| {
+                file.write_all(bytes)?;
+                file.sync_all()
+            },
+            |_, _| Err(io::Error::from(io::ErrorKind::PermissionDenied)),
+            |temporary| fs::remove_file(temporary),
+        )
+        .unwrap_err();
+        assert!(format!("{error:#}").contains(&path.display().to_string()));
+        assert!(!path.exists());
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn adr_0066_failed_default_cleanup_reports_the_remaining_path() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let error = publish_default_with(
+            &path,
+            SNAPSHOT_CORE.as_bytes(),
+            |file, bytes| {
+                file.write_all(bytes)?;
+                file.sync_all()
+            },
+            |temporary, destination| fs::hard_link(temporary, destination),
+            |_| Err(io::Error::from(io::ErrorKind::PermissionDenied)),
+        )
+        .unwrap_err();
+        let remaining = fs::read_dir(temp.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|candidate| candidate != &path)
+            .unwrap();
+        let report = format!("{error:#}");
+        assert!(report.contains("complete default configuration was published"));
+        assert!(report.contains(&remaining.display().to_string()));
+        assert_eq!(fs::read(&remaining).unwrap(), SNAPSHOT_CORE.as_bytes());
+        assert_eq!(fs::read(&path).unwrap(), SNAPSHOT_CORE.as_bytes());
     }
 }

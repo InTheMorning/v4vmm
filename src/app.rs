@@ -772,7 +772,8 @@ impl TopApp {
                     cx.notify();
                     return;
                 }
-                let cfg = match config::load_config(&self.cfg_path)
+                let cfg = match config::ConfigSnapshot::read_existing(&self.cfg_path)
+                    .and_then(|snapshot| snapshot.legacy_config())
                     .and_then(|cfg| config::ensure_dirs(&cfg).map(|()| cfg))
                 {
                     Ok(cfg) => cfg,

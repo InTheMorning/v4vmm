@@ -2,9 +2,9 @@
 
 ## Status And Scope
 
-Review requirements authored - 2026-09-10.
-Implementation not started. This is a checklist for future packet reviews,
-not a report of passing implementation or a runnable operator gate.
+Task 001 reviewed - 2026-09-10; mechanical gate Green.
+Implementation remains partial. Tasks 002–013 retain the requirements below.
+Task 001 opens no operator visual gate.
 
 Read the [ADR](../adr/0066-configuration-and-startup-failure-recovery.md),
 [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md), active packet and
@@ -92,7 +92,35 @@ recovery layout merely because another maintenance command is added. Add a
 regression check only when an affected owner changed or a concern remains.
 Never close a visual gate from mechanical results.
 
-No ADR 0066 operator result has been recorded at authoring time.
+No ADR 0066 operator result is claimed. Task 001 requires no visual check.
+
+## Task 001 Review — 2026-09-10
+
+Scope: [config snapshot and safe persistence](../tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md#implementation-and-proof).
+Green: formatting, cargo check, full cargo test and strict production Clippy.
+The suite passed 1,275 unit tests and 221 architecture tests; 10 existing
+documentation examples are ignored. No app launch or visual acceptance.
+
+- C1–C5: snapshot, sibling-field, safe-diagnostic, filesystem-failure and
+  all-three-save tests are linked in the packet. The injected reader proves one
+  observation despite a backing-file change. Real first-run competitors share a
+  publication barrier; permission tests include both injected denial and Unix
+  file permissions. Byte assertions cover refused ordinary saves.
+- C6: reviewed the ADR and all thirteen packet owners against the handoff.
+  Every remaining mechanism has a named owner. Tasks 002–013 each retain the
+  documentation-proof criterion and explicit prose-retirement constraint.
+  Task 013 retains ADR 0016's shared migration registry/ledger, including
+  candidate-copy repair; no second schema-mutation authority is introduced.
+- The packet's implemented steps and coding prompt were retired in favor of
+  live symbols and passing guards. ADR decisions/invariants remain unchanged.
+  The existing ADR 0046/0051 guards were updated to the new decoding owner;
+  their layout fallback and persistence rules remain guarded.
+- Invariants 3–4 have task 001 proof, with explicit correction and complete
+  caller migration still assigned to 006 and 004. Core probes, recovery UI,
+  optional-tool isolation and database tools remain later work.
+- Packet, phase plan, ADR partial line/index, delivery/deferred indexes,
+  docs index and AGENTS.md agree: 001 complete; 002 next; series Accepted.
+  Pending human checks are unchanged. No deviation from the bounded scope.
 
 ## Final Series Review
 

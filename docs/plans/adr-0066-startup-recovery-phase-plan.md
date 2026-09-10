@@ -2,9 +2,9 @@
 
 ## Status
 
-Ready for implementation - 2026-09-10.
-ADR 0066 is Accepted. All thirteen packets are authored; none is implemented.
-Task 001 is next. No new runnable operator gate exists at this planning stage.
+Implementation in progress - 2026-09-10.
+ADR 0066 remains Accepted. Task 001 is complete; tasks 002–013 remain.
+Task 002 is next. Task 001 opens no new operator gate.
 
 This plan executes [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md).
 The [delivery order](broadcast-chain-delivery-order.md#current-delivery-order)
@@ -60,7 +60,7 @@ an unwalked visual gate into a claim that the next dependency is complete.
 
 | Packet | Usable result | Prerequisite | State |
 |---|---|---|---|
-| [001: Config Snapshot And Safe Persistence](../tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md) | Read configuration once, distinguish core errors from optional errors, and prevent ordinary saves from destroying a document that needs repair. | Accepted ADR | Not started |
+| [001: Config Snapshot And Safe Persistence](../tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md) | Read configuration once, distinguish core errors from optional errors, and prevent ordinary saves from destroying a document that needs repair. | Accepted ADR | Complete - 2026-09-10; mechanical gate Green; no visual gate |
 | [002: Core Checks And Startup Reports](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md) | Show a useful recovery screen for broken core configuration, unusable music storage, or unusable SQLite, with safe checks and a single startup lifecycle. | 001 | Not started |
 | [003: Runtime Failure And Shell Availability](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md) | Keep navigation, reports and repair access working when the normal background runtime or optional thumbnail worker cannot start. | 002 | Not started |
 | [004: Optional Tool Isolation](../tasks/adr-0066-task-004-optional-tool-isolation.md) | Open the app with valid core resources even when optional configuration or tool preparation fails, and limit only the operations that actually depend on each failure. | 003 | Not started |
@@ -219,5 +219,5 @@ this plan specifies a future test. Preserve all inherited gates.
 
 Only all thirteen completed packets plus their actual operator acceptance permit
 ADR 0066 to become Implemented, deferred item 6 to close, and the config-format
-dependency to release. The present status is implementation not started.
+dependency to release. Task 001 is complete; the series remains partial.
 

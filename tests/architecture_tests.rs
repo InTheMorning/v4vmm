@@ -1739,6 +1739,138 @@ fn workspace_split_pane_uses_fluid_resize_pattern() {
 }
 
 #[test]
+fn adr_0066_config_creation_and_save_ownership() {
+    // Situational: ADR 0066 invariants 3–4. Filesystem/snapshot behavior is
+    // exercised by config::tests::adr_0066_*; this guard owns caller routing.
+    let config_file = read_source(&manifest_path("src/config.rs"));
+    let config = production_source(&config_file);
+    assert_adr_0066_first_run_owner(config);
+
+    let readers = source_between(config, "pub fn load_config(", "fn read_config_for_save(");
+    assert_eq!(
+        readers.matches("load_config_snapshot(cfg_path)?").count(),
+        2
+    );
+    let save_guard = source_between(
+        config,
+        "fn read_config_for_save(",
+        "fn write_existing_config(",
+    );
+    assert!(save_guard.contains("ConfigSnapshot::read_existing(cfg_path)?"));
+    assert!(save_guard.contains("snapshot.require_saveable()?"));
+    assert!(!save_guard.contains("load_config_snapshot"));
+    let writer = source_between(
+        config,
+        "fn write_existing_config(",
+        "pub fn save_app_settings(",
+    );
+    assert!(writer.contains(".open(cfg_path)"));
+    assert!(!writer.contains(".create("));
+    assert!(!writer.contains(".create_new("));
+
+    for (start, end) in [
+        (
+            "pub fn save_app_settings(",
+            "pub(crate) fn save_workspace_layout(",
+        ),
+        (
+            "pub(crate) fn save_workspace_layout(",
+            "pub(crate) fn save_workspace_layout_prefs(",
+        ),
+        (
+            "pub(crate) fn save_workspace_layout_prefs(",
+            "pub fn normalize_musicindex_endpoint(",
+        ),
+    ] {
+        let save = source_between(config, start, end);
+        assert!(
+            save.contains("read_config_for_save(cfg_path)?"),
+            "ADR 0066 unguarded {start}"
+        );
+        assert!(save.contains("write_existing_config(cfg_path, &table)"));
+        for forbidden in [
+            "default_config_toml",
+            "load_config(",
+            "load_config_snapshot(",
+            "fs::write",
+            ".create(",
+            ".exists()",
+        ] {
+            assert!(
+                !save.contains(forbidden),
+                "ADR 0066 {start} bypasses save ownership with {forbidden}"
+            );
+        }
+    }
+
+    let app = read_source(&manifest_path("src/app.rs"));
+    let save = source_between(&app, "fn save_settings(", "fn reload_cached(");
+    assert!(save.contains("config::save_app_settings("));
+    assert!(save.contains("config::ConfigSnapshot::read_existing(&self.cfg_path)"));
+    assert!(!save.contains("config::load_config("));
+    let failure = save.rsplit_once("Err(error) => {").unwrap().1;
+    assert!(!failure.contains("persist_workspace_layout"));
+    let layout = source_between(
+        &app,
+        "fn persist_workspace_layout(",
+        "fn initial_workspace_layout(",
+    );
+    assert!(layout.contains("config::save_workspace_layout("));
+    let resize = read_source(&manifest_path("src/app/resize.rs"));
+    assert!(resize.contains("config::save_workspace_layout_prefs("));
+}
+
+// Situational helper for ADR 0066 invariants 3–4.
+fn assert_adr_0066_first_run_owner(config: &str) {
+    let path = source_between(
+        config,
+        "pub fn config_path(",
+        "pub fn load_config_snapshot(",
+    );
+    assert!(!path.contains("create_dir"));
+
+    let first_run = source_between(
+        config,
+        "fn load_snapshot_with_defaults(",
+        "static DEFAULT_TEMP_SEQUENCE",
+    );
+    for required in [
+        "fs::symlink_metadata",
+        "io::ErrorKind::NotFound",
+        "require_saveable()?",
+        "publish_default_config",
+        "eprintln!",
+        "ConfigSnapshot::read_existing",
+    ] {
+        assert!(
+            first_run.contains(required),
+            "ADR 0066 first-run owner missing {required}"
+        );
+    }
+    assert!(!first_run.contains(".exists()"));
+    assert!(!first_run
+        .lines()
+        .any(|line| line.trim_start().starts_with("println!")));
+    let publication = source_between(
+        config,
+        "fn default_config_temporary(",
+        "pub fn load_config(",
+    );
+    for required in [
+        "create_new(true)",
+        "file.sync_all()",
+        "fs::hard_link",
+        "io::ErrorKind::AlreadyExists",
+        "fs::remove_file",
+    ] {
+        assert!(
+            publication.contains(required),
+            "ADR 0066 safe publication missing {required}"
+        );
+    }
+}
+
+#[test]
 fn workspace_frame_phase_5_layout_persistence_contract() {
     let workspace_source = workspace_vm_source();
     let config_source = read_source(&manifest_path("src/config.rs"));
@@ -1768,10 +1900,10 @@ fn workspace_frame_phase_5_layout_persistence_contract() {
     for required in [
         "WorkspaceLayoutConfig",
         "workspace_layout: Option<WorkspaceLayoutConfig>",
-        "deserialize_workspace_layout_config",
+        "workspace_layout: decode_field(",
         "pub(crate) fn save_workspace_layout(",
         "toml::Value::try_from(workspace_layout)",
-        "ignoring malformed workspace_layout",
+        "issue.field == \"workspace_layout\"",
     ] {
         if !config_source.contains(required) {
             violations.push(format!(
@@ -1820,9 +1952,8 @@ fn workspace_pane_width_persistence_contract() {
     for required in [
         "WorkspaceConfig",
         "WorkspaceLayoutPrefs",
-        "deserialize_workspace_config",
-        "deserialize_workspace_layout_prefs",
-        "deserialize_optional_f32",
+        "fn legacy_workspace(&self)",
+        "content_pane_width: snapshot_width(layout)",
         "save_workspace_layout_prefs",
         "workspace: Option<WorkspaceConfig>",
     ] {

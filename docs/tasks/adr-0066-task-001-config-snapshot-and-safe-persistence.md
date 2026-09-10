@@ -1,7 +1,8 @@
 # ADR 0066 Task 001: Config Snapshot And Safe Persistence
 
-Status: Ready - 2026-09-10.
-Implementation not started. No new layout is specified.
+Status: Complete - 2026-09-10.
+Mechanical gate Green. No new layout or operator visual gate.
+Task 002 is next; it was not started in this session.
 
 ## Goal
 
@@ -12,11 +13,8 @@ Read configuration once, distinguish core errors from optional errors, and preve
 Read [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md),
 the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md), this whole packet, and the
 [review checklist](../reviews/adr-0066-startup-recovery-review-checklist.md).
-This is the next implementation packet.
-Complete this packet in one session; do not start its successor.
-Names marked **new**, including tests and guards, are implementation targets,
-not claims that those files or symbols already exist. If a predecessor already
-created a listed owner, extend that owner.
+This packet is complete. Its guard references below own the implemented
+mechanics; the handoff table still assigns the remaining work.
 
 ## Files To Inspect
 
@@ -28,16 +26,14 @@ created a listed owner, extend that owner.
 - docs/adr/0010-musicindex-endpoint-setting.md; docs/adr/0046-workspace-frame-architecture.md; docs/adr/0051-workspace-pane-width-persistence.md
 - `tests/architecture_tests.rs`; `AGENTS.md`
 
-## Files Likely To Change
+## Files Changed
 
 - src/config.rs
 - src/app.rs — persistence entry points only
-- src/app/resize.rs — persistence error handling only
 - tests/architecture_tests.rs
-- This packet's Status/evidence, the phase plan and review checklist.
-- ADR 0066's guard references/partial line and the delivery/deferred indexes as
-  appropriate; `docs/pending-human-checks.md` when a runnable visual gate opens.
-  Update `AGENTS.md` when the next executable packet changes.
+- This packet, the phase plan, review checklist, ADR 0066 and its index,
+  docs/README.md, delivery/deferred indexes, and AGENTS.md.
+- Existing pending human checks are unchanged; this packet adds no visual gate.
 
 ## Do Not Touch
 
@@ -61,34 +57,47 @@ created a listed owner, extend that owner.
   actual guard symbol and verification artifact in this packet; keep the ADR's
   binding decision/invariants. Task 001 owns the series handoff review.
 
-## Implementation Steps
+## Implementation And Proof
 
-1. Introduce a ConfigSnapshot in config.rs containing the original bytes, core paths, independently decoded optional groups, and typed field issues. Use one TOML parse. Distinguish missing fields, explicit invalid fields, and a malformed whole table. Decode host selection, local producer, and encoder independently inside a readable broadcast table. An invalid sibling must not invalidate valid fields. Preserve current defaults for omitted optional settings.
+Implementation procedures are retired in favor of the following live owners
+and guards. Binding decisions remain in ADR 0066.
 
-   Keep individual field validation outcomes in the snapshot even when a core
-   field is invalid. GUI startup aggregates both core requirements. A CLI
-   operation requests only its own fields: an endpoint-only command does not
-   need a valid music path, and a database-only query does not probe music
-   storage. Invalid whole-document TOML still prevents reliable extraction.
+| Responsibility | Implemented owner |
+|---|---|
+| One parsed document and independent field outcomes | `ConfigSnapshot`, `ConfigFieldIssue`, `ConfigIssueKind` in [config.rs](../../src/config.rs) |
+| Existing readers and temporary strict behavior | `ConfigSnapshot::legacy_config`, `load_config`, `load_musicindex_endpoint` |
+| First-run creation | `load_config_snapshot`, `load_snapshot_with_defaults`, `publish_default_config` |
+| All ordinary saves | `read_config_for_save`, `write_existing_config`; `TopApp::save_settings` reloads through `ConfigSnapshot::read_existing` |
+| Ownership/routing | Situational `adr_0066_config_creation_and_save_ownership` in [architecture_tests.rs](../../tests/architecture_tests.rs), ADR 0066 invariants 3–4 |
 
-2. Keep existing load_config callers compiling through a strict compatibility adapter over that snapshot; it must not silently manufacture an operational endpoint, player, or host for an invalid value. Task 004 moves the scoped callers off this adapter. load_musicindex_endpoint must use the same parsing policy and require only its own optional value from the parsed document. Task 004 removes the GUI's second startup read and command-specific rereads.
+The old whole-Config/workspace/playback serde adapters were removed after tracing
+all readers to the snapshot. `workspace_frame_phase_5_layout_persistence_contract`
+and `workspace_pane_width_persistence_contract` now name the snapshot and legacy
+layout adapter; their ADR 0046/0051 fallback and persistence rules remain.
+`load_config_rejects_unknown_theme_profile` and
+`load_config_rejects_unknown_playback_driver` retain strict rejection without
+printing rejected values. The superseded ordinary-save recovery assertion is now
+`save_workspace_layout_prefs_rejects_malformed_workspace_tables`.
 
-   Preserve the compatibility reader's existing malformed-layout fallback and
-   its load_config_ignores_malformed_workspace_layout/_prefs tests. The snapshot
-   records those issues even when that reader returns a layout default, so saves
-   still refuse to overwrite the invalid values. The compatibility reader's
-   existing rejection of unknown theme/player values stays until callers move
-   to scoped access. Do not make it silently supply an operational substitute.
+Task 004 still owns the GUI's single startup snapshot and scoped command/query
+consumers. The strict compatibility reader still rejects invalid operational
+settings. Task 006 owns explicit correction with preservation and conflict
+checks. Ordinary saves provide neither repair nor concurrent edit merging.
+Startup recovery remains unimplemented until task 002 and its follow-through.
 
-3. Separate config path resolution from directory creation. Inspect the directory entry with symlink_metadata: only NotFound on an absent entry permits first-run creation. A dangling symlink, directory, unreadable file, invalid UTF-8, or bad TOML is an error. Write and sync a complete validated sibling temporary file, then publish without replacement using a same-filesystem hard link. On AlreadyExists, read the winner. Remove only the owned temporary file; report any cleanup failure. First-run notices use stderr, never successful CLI JSON stdout.
+## Mechanical Evidence
 
-4. Give all ordinary save paths a common fresh-read guard. Missing/unreadable/invalid TOML or invalid core fields reject the save. Optional errors reject autosaves and unrelated setting saves. A focused explicit correction may change only its declared fields, preserve unedited TOML values, validate those fields and the core, and retain other issues. Task 006 supplies the backup/conflict-protected correction command; do not expose an unprotected repair shortcut here.
+Green - 2026-09-10:
 
-5. Do not let save_settings immediately perform an unrelated layout save after an optional validation failure. Resume persistence only after a clean fresh validation. Normal database edits remain independent. Preserve current successful serialization behavior; no comment-preservation or concurrent merge feature.
+- `cargo fmt -- --check`
+- `cargo check --quiet`
+- `cargo test --quiet`: 1,275 unit tests and 221 architecture tests passed;
+  10 documentation examples remain ignored by the existing suite.
+- `cargo clippy --quiet -- -D warnings`
 
-6. Update superseded config tests by name: load_config_rejects_unknown_theme_profile and load_config_rejects_unknown_playback_driver keep asserting the strict adapter errors and gain snapshot tests proving scoped issues. save_workspace_layout_prefs_recovers_malformed_workspace_tables must instead assert ordinary save refusal and unchanged bytes; explicit correction is covered in task 006.
-
-7. Review the mechanism handoff below against the ADR and every successor packet. Verify each has its own prose-retirement criterion. Record task 001's own guard references when complete; later guards are later packets' obligations.
+The focused configuration suite contains 49 passing tests. `src/app/resize.rs`
+already delegates to the common save owner and reports failures; it needed no
+edit. No database, playback, transport or renderer implementation changed.
 
 ## Mechanism Handoff
 
@@ -120,22 +129,17 @@ for tasks 002–013.
 
 ## Acceptance Criteria
 
-Mechanical; assert at the named owner. Test/guard names below marked new must
-be implemented by this packet.
+Mechanical evidence lives in [config.rs tests](../../src/config.rs) unless
+specified otherwise. The table records the actual proof for each criterion.
 
-| ID | Proof owner | Required assertion |
-|---|---|---|
-| C1 | config snapshot tests | Invalid UTF-8/TOML and wrong/missing core paths fail core decoding. Each optional field/table fails only its own group; valid siblings survive. Missing endpoint defaults; wrong type does not. |
-| C2 | filesystem tests in config.rs | Absent first run succeeds; concurrent creator wins without overwrite; dangling symlink and permission failures never create defaults; failed publication/cleanup names residual paths. Existing bytes remain unchanged. |
-| C3 | save tests for all three entry points | Missing/broken core and optional-error autosaves preserve bytes. Unrelated saves fail. Valid existing settings/layout saves retain their previous values and behavior. |
-| C4 | snapshot test with injected reader | Change the backing file after one read; all fields in the returned snapshot still describe the first bytes. |
-| C5 | new situational guard adr_0066_config_creation_and_save_ownership | Only first-run loading creates an absent config; all ordinary save paths use the guarded owner. Cite ADR 0066 invariants 3–4. |
-| C6 | documentation review | The handoff assigns every mechanism to a named packet, preserves all accepted decisions, and leaves no successor without a prose-retirement criterion. |
-
-Documentation proof: remove this packet's duplicate mechanism prose as its guards
-land; record actual symbols and fixture/runbook anchors. Keep its Status,
-the plan, ADR partial line, delivery row and pending-human-check index truthful.
-An unwalked visual check cannot pass through a green mechanical suite.
+| ID | Passing evidence |
+|---|---|
+| C1 | `adr_0066_snapshot_defaults_and_required_fields_are_distinct`, `adr_0066_optional_fields_fail_without_poisoning_core_paths`, `adr_0066_malformed_optional_tables_keep_other_groups_available`, `adr_0066_readable_tables_preserve_valid_sibling_fields`, `adr_0066_endpoint_reader_requires_only_its_own_field`; safe errors: `adr_0066_config_diagnostics_exclude_rejected_values_and_source_bytes` |
+| C2 | `adr_0066_first_run_publishes_only_a_valid_complete_document`, `adr_0066_first_run_reads_the_competing_creators_document`, `adr_0066_concurrent_first_run_writers_do_not_clobber`, `adr_0066_symlinks_and_unreadable_entries_never_invoke_defaults`, `adr_0066_existing_bad_bytes_and_read_denial_do_not_create_defaults`, `adr_0066_permission_denial_preserves_config_across_load_and_saves`, `adr_0066_failed_default_writes_and_publication_clean_owned_temporaries`, `adr_0066_failed_default_cleanup_reports_the_remaining_path` |
+| C3 | `adr_0066_all_ordinary_saves_preserve_broken_documents`, `adr_0066_saves_never_recreate_a_missing_document`, `adr_0066_saves_resume_after_a_fresh_valid_document`, `save_workspace_layout_prefs_rejects_malformed_workspace_tables`; existing settings/layout round-trip tests stay Green |
+| C4 | `adr_0066_snapshot_keeps_one_read_even_if_the_file_changes` |
+| C5 | `adr_0066_config_creation_and_save_ownership` in [architecture_tests.rs](../../tests/architecture_tests.rs), situational ADR 0066 invariants 3–4 |
+| C6 | [Task 001 handoff review](../reviews/adr-0066-startup-recovery-review-checklist.md#task-001-review--2026-09-10): every mechanism has a packet owner; 002–013 each retain their own prose-retirement criterion |
 
 ## Test Commands
 
@@ -154,9 +158,9 @@ integration-test file.
 
 ## Operator Visual Check
 
-No new visual gate is planned. The implementation report must say this explicitly.
-If the implementation changes presentation, supply a focused manual check and
-track it before acceptance; do not infer visual proof from backend tests.
+No new operator visual check applies: this packet changes backend decoding,
+file persistence and safe diagnostics, with no renderer, view-model or layout
+change. The app was not launched. Existing human checks remain open unchanged.
 
 ## Rollback
 
@@ -180,46 +184,3 @@ A caller requires silently defaulting an invalid optional group, a save cannot p
 Routine placement inside the named owner is authorized. If a boundary needs a
 new architectural decision, name the conflict and proposed bounded correction
 before widening this packet.
-
-## Prompt for lower-context coding model
-
-You are implementing one bounded task from a larger plan.
-
-Implement only this task. Do not redesign the architecture.
-
-Read:
-- `AGENTS.md`
-- `docs/adr/0066-configuration-and-startup-failure-recovery.md`
-- `docs/plans/adr-0066-startup-recovery-phase-plan.md`
-- This packet in full, including Files To Inspect, implementation steps and criteria.
-
-Goal:
-- Read configuration once, distinguish core errors from optional errors, and prevent ordinary saves from destroying a document that needs repair.
-
-Constraints:
-- Follow this packet's Constraints and Implementation Steps.
-- Preserve its data, dependency and prose-retirement contracts.
-- One packet this session. Never run the app.
-
-Do not touch:
-- src/db.rs and database schema
-- Playback, download, broadcast transport, and renderer layout
-- Workspace TOML key names; config-format migration
-
-Acceptance criteria:
-- Prove every mechanical row in this packet at its named owner.
-- Record actual guard references and keep trackers consistent.
-- Do not claim a visual change or visual acceptance from these backend checks.
-
-Test commands:
-- `cargo fmt -- --check`
-- `cargo check --quiet`
-- `cargo test --quiet`
-- `cargo clippy --quiet -- -D warnings`
-
-At the end, report:
-1. files changed
-2. tests run
-3. behavior changed
-4. deviations from task
-5. unresolved concerns

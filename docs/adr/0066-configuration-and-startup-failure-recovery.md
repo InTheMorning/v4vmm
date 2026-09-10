@@ -4,9 +4,10 @@
 
 Accepted - 2026-09-10.
 
-Implementation not started. Thirteen bounded packets are authored in the
-[phase plan](../plans/adr-0066-startup-recovery-phase-plan.md); task 001 is next.
-No visual acceptance is claimed.
+Implementation partial: task 001 complete - 2026-09-10; tasks 002–013 remain in
+the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md). Task 002 is next.
+Task 001 changes no layout and opens no visual gate. Startup recovery and
+optional-tool isolation are not implemented yet.
 
 Revised 2026-09-10 after operator review: normal startup requires valid core
 configuration, usable storage for music files, and a working SQLite database.
@@ -33,9 +34,11 @@ loader's `expect` alone leaves the same failure mode at the next stage.
 
 Three current behaviors constrain recovery:
 
-- [config.rs](../../src/config.rs) writes defaults when `Path::exists` is
-  false, and reads the file again for `load_musicindex_endpoint`. Settings
-  and both workspace save functions can also invoke default creation.
+- At decision time, [config.rs](../../src/config.rs) treated `Path::exists`
+  failure as permission to write defaults, including from ordinary saves.
+  Task 001 replaces that behavior; its preservation and ownership guards are
+  linked below. The GUI still reads configuration again for its endpoint
+  until task 004 migrates scoped consumers.
 - `open_db` initializes schema and applies migrations.
   `repair_local_file_paths` updates rows and records unresolved paths before
   removing their download bindings. Neither function wraps its entire work in
@@ -437,8 +440,13 @@ and the database tools in Settings and core recovery.
 
 When a packet's implementation is ready, record its runnable gate in that
 packet, the delivery row and [pending human checks](../pending-human-checks.md).
-No implementation is ready for inspection today. Packet authoring opens no
-runnable human gate and claims no visual proof.
+Task 001's backend verification is recorded in its
+[implementation evidence](../tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md#implementation-and-proof).
+`adr_0066_config_creation_and_save_ownership` in
+[architecture_tests.rs](../../tests/architecture_tests.rs) guards first-run and
+save ownership under invariants 3–4; the packet links the filesystem and snapshot
+tests in [config.rs](../../src/config.rs). Task 001 opens no visual gate.
+Later packets open their own runnable human checks when implemented.
 
 ## Non-Goals
 
@@ -510,8 +518,9 @@ adoption as the next block.
 
 [Task 001](../tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md#mechanism-handoff)
 owns the documentation handoff. Stage procedures and detailed verification
-have moved into their packets and the review checklist. Task 001 verifies that
-coverage and each successor's explicit prose-retirement criterion.
+have moved into their packets and the review checklist. Task 001's
+[handoff review](../reviews/adr-0066-startup-recovery-review-checklist.md#task-001-review--2026-09-10)
+verified coverage and each successor's explicit prose-retirement criterion.
 
 Each packet removes duplicated mechanism prose when its guards land, recording
 the actual guard symbol and verification artifact. Binding decisions and

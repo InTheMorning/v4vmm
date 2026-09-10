@@ -47,7 +47,8 @@ prioritized, and routed to the right governance artifact.
      `docs/research/broadcast-recording-and-feed-publishing.md`.
 6. Configuration failure behavior.
    - Status: [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md)
-     Accepted - 2026-09-10. No implementation yet. The 2026-09-07 incident
+     Accepted - 2026-09-10. Implementation partial: task 001 protects configuration
+     reads and ordinary saves. The 2026-09-07 startup incident
      remains: structurally invalid `config.toml` panics in
      `src/app/bootstrap.rs::run_app`; recovery needs hand-editing TOML.
    - Note: a malformed layout *value* already falls back with a warning. This
@@ -62,7 +63,7 @@ prioritized, and routed to the right governance artifact.
      share configuration and database maintenance tools; disabled controls
      alone are not the recovery workflow. ADR 0066 owns the detailed policy.
    - Route: execute the [thirteen ADR 0066 packets](adr-0066-startup-recovery-phase-plan.md),
-     one per session. Packet authoring is complete; task 001 is next.
+     one per session. Task 001 is complete; task 002 is next.
      **Implement and verify this before any config
      format change**, since a format change puts more operators in this state.
 7. Workspace configuration section naming.
