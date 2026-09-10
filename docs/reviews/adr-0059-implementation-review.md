@@ -82,7 +82,9 @@ lines and delivery-order rows record the checks.
 | Stream encoder controls | Pass | ADR 0059 task 015 confirmed not-configured and `butt` connect/disconnect states |
 | Show cards and panel | Pass | ADR 0063 tasks 002 and 003 were retested after card and panel fixes |
 
-No human visual gate remains open in `docs/pending-human-checks.md`.
+No ADR 0059 visual gate remains open for the tasks reviewed here.
+`docs/pending-human-checks.md` also indexes unrelated inherited checks; this
+review does not establish repository-wide closure. Scope corrected 2026-09-10.
 
 ## Missing Tests And Residual Risk
 

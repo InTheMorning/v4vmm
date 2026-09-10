@@ -2,7 +2,18 @@
 
 ## Status
 
-Implemented - 2026-05-18.
+Accepted - 2026-09-10.
+
+Implementation partial: Tasks 001-006 have recorded mechanical completion;
+feed and track hydration visual acceptance remains unverified.
+
+Amended 2026-09-10: the governance sweep found that task 004 and 005 reviews
+still require operator inspection. Task 006's guard-only review does not close
+those gates, and no later acceptance record was found. The
+[review checklist](../reviews/adr-0054-review-checklist.md) and
+[pending human checks](../pending-human-checks.md) now carry the surviving
+local/Index detail checks under ADRs 0047/0048/0060. The storage decision is
+unchanged.
 
 ## Context
 

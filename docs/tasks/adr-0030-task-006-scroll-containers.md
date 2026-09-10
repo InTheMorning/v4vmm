@@ -2,7 +2,15 @@
 
 ## Status
 
-Implemented.
+Accepted - 2026-09-10.
+Implementation recorded; surviving scroll acceptance remains open.
+
+Reconciled against ADRs 0047/0048/0060/0062: separate Discovery and Recent
+Feeds paths are retired. The old implementation steps below are historical.
+The current check covers Music details and Settings. Follow
+[Scroll Containers](../runbooks/inherited-ui-checks.md#scroll-containers--adr-0030-task-006),
+including fixture preparation and cleanup. Record each overflowing pane and
+theme in the [task review](../reviews/adr-0030-task-006-review.md).
 
 ## Goal
 

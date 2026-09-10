@@ -29,7 +29,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0045](0045-track-artist-binding.md) | Track to artist binding for library artist views | Implemented |
 | [0052](0052-library-index-data-parity-triage.md) | Triage of Library versus Index detail gaps | Implemented |
 | [0053](0053-local-detail-source-fact-parity.md) | Source-fact route for parity gaps not locally durable | Accepted |
-| [0054](0054-local-metadata-source-fact-persistence.md) | Feed and track metadata facts persist by source | Implemented |
+| [0054](0054-local-metadata-source-fact-persistence.md) | Feed and track metadata facts persist by source; hydration visual checks remain open | Accepted, partial |
 
 ## Metadata
 
@@ -96,33 +96,34 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0003](0003-musicindex-search-ui-module.md) | MusicIndex search UI module | Accepted |
 | [0009](0009-search-thumbnail-cache-and-batch-tagging.md) | Thumbnail cache and feed batch tagging | Accepted |
 | [0013](0013-shared-discover-track-row.md) | Shared track row module | Accepted |
-| [0030](0030-discovery-library-ui-fixes.md) | Discovery and library correctness fixes | Accepted |
+| [0030](0030-discovery-library-ui-fixes.md) | Current Music/Settings scroll check survives earlier surface fixes | Accepted, partial |
 | [0031](0031-release-detail-presentation-contract.md) | Release detail composition | Implemented |
 | [0035](0035-track-surface-consolidation.md) | One track detail surface | Implemented |
 | [0036](0036-feed-visual-and-provenance-surface-consistency.md) | Feed visual and provenance consistency | Implemented |
 | [0037](0037-same-entity-surface-parity.md) | Same-entity surface parity | Accepted, partial |
-| [0039](0039-dynamic-type-ramp.md) | Dynamic type ramp | Proposed |
-| [0043](0043-top-toolbar-global-search.md) | Toolbar now-playing frame and global search | Accepted, partial |
+| [0039](0039-dynamic-type-ramp.md) | Text-scaling policy unspecified; explicitly unscheduled | Proposed |
+| [0043](0043-top-toolbar-global-search.md) | Global toolbar search; current light/dark width checks remain open | Accepted, partial |
 | [0044](0044-playlist-drag-handle-reordering.md) | Playlist drag handle reordering | Accepted, partial |
 | [0049](0049-inspector-source-ownership.md) | Inspector source tree and filter ownership | Implemented |
 | [0051](0051-workspace-pane-width-persistence.md) | Content pane width persistence | Implemented |
 
 ## Review Candidates
 
-ADR 0060 replaces the `Discover` surface with `Music`. These ADRs describe
-surfaces that decision affects, and each needs a supersede-or-keep judgment
-before the restructure lands:
+ADR 0060 replaced the Discover surface with Music. Legacy module records
+0003 and 0013 still need a separate supersede-or-keep judgment. That deferred
+record cleanup does not require restoring their old screens:
 
 - 0003, MusicIndex search UI module
 - 0013, Shared track row module
-- 0030, Discovery and library UI correctness fixes
-- 0043, Toolbar now-playing frame and global search
 
-Two more need a status decision rather than a scope one:
+The [2026-09-10 reconciliation](../reviews/2026-09-10-governance-reconciliation.md)
+retired replaced requirements before restoring current human checks:
 
-- 0039 sits at `Proposed` with no phase plan or task packets.
-- 0025, 0037, 0043, and 0044 record partial implementation. Each needs its open
-  gate closed or routed to the deferred work index.
+- 0030, 0037, 0043, 0044, and 0054 have surviving checks in
+  [pending human checks](../pending-human-checks.md).
+- 0039 remains Proposed and unscheduled because its policy is unspecified.
+- 0025 remains partially implemented; its recorded visual passes are not an
+  open operator gate. Further theme work uses bounded packets.
 
 ## Known Drift
 

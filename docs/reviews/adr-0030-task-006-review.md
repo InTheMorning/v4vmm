@@ -1,5 +1,18 @@
 # ADR 0030 Task 006 Review: Scroll Containers
 
+## Current Gate
+
+Open - reconciled 2026-09-10. The old Discovery/Recent Feeds scroll paths
+are retired by ADRs 0047/0048/0060/0062. Bounded scrolling survives on Music's
+local and Index details and Settings. Follow
+[Scroll Containers](../runbooks/inherited-ui-checks.md#scroll-containers--adr-0030-task-006).
+
+Record wheel, scrollbar, and supported keyboard results for each overflowing
+pane in Light and Dark. Missing fixtures leave that subcheck open.
+The original review below records mechanical evidence and the unmet check.
+
+## Historical Review
+
 ## Reviewed Artifact
 
 - `src/ui/composites/release_detail_surface.rs`

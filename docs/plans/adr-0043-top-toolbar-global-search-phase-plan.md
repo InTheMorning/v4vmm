@@ -1,5 +1,15 @@
 # ADR 0043 Top Toolbar Global Search Phase Plan
 
+## Current Scope
+
+Reconciled 2026-09-10. This sequence records the original implementation;
+its toolbar player, global scope controls, Search workspace, and Recent Feeds
+root were superseded by ADRs 0046/0047/0048/0060/0062. Do not execute that
+sequence again. [Task 004](../tasks/adr-0043-task-004-guards-and-visual-readiness.md)
+now owns only the surviving toolbar check. The
+[checklist](../reviews/adr-0043-review-checklist.md) names the current owners
+and retired requirements.
+
 ## Goal
 
 Create a top app toolbar with a distinct Now Playing frame and one

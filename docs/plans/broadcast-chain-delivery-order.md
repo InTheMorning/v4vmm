@@ -2,7 +2,8 @@
 
 ## Status
 
-Active index - 2026-09-07.
+Active index - 2026-09-10. Operator-approved order; one implementation packet
+per session.
 
 ## Purpose
 
@@ -21,117 +22,57 @@ lands.
 | `musicindex-live-publisher` | ADR 0003 show log, plus control surface support | 4 |
 | `splitkit` | ADR 0001, reserved live items | 5 |
 
-## Hard Dependencies
+## Current Delivery Order
 
-Two of the three are now satisfied. The third is soft and open.
+Approved by the operator on 2026-09-10. Complete one phase or packet per
+session. Restored human checks remain visible in the Progress table and
+[pending human checks](../pending-human-checks.md); listing them does not
+require walking them before the independent chain work.
 
-| Blocked packet | Waits for | Reason |
+| Order | Work | Completion point |
 |---|---|---|
-| ~~`v4vmm` 014, attach event to target~~ | ~~`musicindex-live-publisher` control surface 001~~ | Satisfied 2026-09-07 (`a5b434e`). `target add`, `target list`, and `target remove` all shipped |
-| ~~`v4vmm` 014~~ | ~~`v4vmm` 010, remote hosts~~ | Satisfied 2026-09-08. Packet 010 shipped the transport |
-| `v4vmm` 009, publisher section | `musicindex-live-publisher` control surface 002 | Soft, and still open. Control surface 002 shipped 2026-09-07 (`459854c`), so `--version` and `config show --json` exist. Packet 009 shipped without consuming them, so the section still reports one state less. See Later Work |
+| 1 | Governance reconciliation | Sweep ADR statuses and review gate prose; retire replaced requirements before indexing survivors; correct AGENTS.md; retain ADR 0039 as Proposed and unscheduled |
+| 2 | Configuration failure behavior | Decide and implement per-stage startup failure handling; preserve the broken file, report path/error/recovery, and define no-overwrite behavior before offering defaults |
+| 3 | Relay durability through adoption | splitkit reserved 001 → 002 → 003; deploy, reserve an event, configure the publisher to use it, then implement the v4vmm reservation packet |
+| 3, follow-through | splitkit reserved 004 → 005 | List/delete, final guards, and delivery reconciliation; explicitly scheduled after adoption, with interim command-line reservation allowing these before the v4vmm packet if needed |
+| 4 | Narrow Show layout and A10 | ADR 0063 amendment and packet: compact cards, full-width log docking, card-title readability, and hiding transport only when every typed action is unavailable; one combined visual gate |
+| 5 | A11, then A12 and UTC | Decide long-line wrapping/horizontal navigation first; design per-log following and the timestamp contract together, then deliver separate bounded packets |
+| 6 | Steady state | v4vmm ADR 0064 task 002; publisher show-log 001 → 002; installed-but-unconfigured publisher state |
 
-`splitkit` blocks nothing and is blocked by nothing.
+**Priority trigger:** when a real show is scheduled, publisher show-log task
+001 becomes the next packet ahead of this order and must be operational before
+that show if its timeline is to be captured. Verify that logging is enabled
+and writing entries. Timeline data that was never recorded cannot be recovered.
+This trigger does not combine two implementation phases into one session.
 
-## Recommended Order
+### Dependencies And Adoption
 
-One packet for each session, as the `v4vmm` AGENTS.md mandate requires.
+- Configuration failure behavior precedes deferred item 7's workspace-config
+  format migration and any other config format change.
+- splitkit 002 adds the reservation route; 003 adds restoration and idle-TTL
+  exemption. The v4vmm reservation packet consumes 002's contract and cannot
+  claim operational durability without 003 deployed.
+- Ordinary events remain ephemeral. Their default expiry is after 24 hours
+  without activity; a restart also loses them. Existing events are not
+  automatically converted to reserved events.
+- Adoption means the publisher uses a newly reserved identity and its saved
+  token. Verify identity/token survival across relay restart and idle expiry,
+  and resume publication after the restored event initially serves an empty
+  payload. Preserve the old configuration for rollback during deployment.
+- The interim reservation uses the documented relay API from an operator
+  terminal. v4vmm's future reservation packet must define credential handling,
+  selection, and publisher configuration without treating an ordinary Create
+  as a durable reservation.
+- A11's display treatment informs A12's reading anchors. A12 must define fresh
+  entry delivery, source identity, and replaced/trimmed-anchor behavior.
+  Its app work does not wait for timestamp corrections in other repositories.
+- The publisher's machine-readable configuration facts already exist. A new
+  v4vmm packet must consume them to distinguish installed-but-unconfigured
+  from the current service states.
 
-### Stage 1: Unblock the chain
-
-1. `musicindex-live-publisher` control surface 001, target management.
-2. `musicindex-live-publisher` control surface 002, machine-readable CLI.
-
-Both are small and both remove a block. Do them first so no `v4vmm` session
-stalls later.
-
-### Stage 2: The v4vmm backend
-
-3. `v4vmm` 001, live surface reduction.
-4. `v4vmm` 002, event registry schema.
-5. `v4vmm` 003, event registry service and CLI.
-6. `v4vmm` 004, relay observation actor.
-
-No interface work. At the end of this stage the app can create an event, store
-its token, test whether it is alive, and read what the relay serves.
-
-### Stage 3: The Broadcast frame
-
-7. `v4vmm` 005, broadcast page view model.
-8. `v4vmm` 006, broadcast workspace frame kind.
-9. `v4vmm` 007, broadcast shell and frame adapter.
-
-Packets 005 and 006 do not depend on each other.
-
-### Stage 4: Service control
-
-10. `v4vmm` 008, publisher service control.
-11. `v4vmm` 009, publisher section wiring and log panel.
-12. `v4vmm` 010, remote hosts over SSH.
-13. `v4vmm` 014, attach event to publisher target.
-
-Packet 014 closes the loop. After it, an operator can create an event, attach
-it to the publisher, and start the services from one screen.
-
-### Stage 5: Sources and reporting
-
-14. `v4vmm` 011, mpv drop-file producer.
-15. `v4vmm` 012, library broadcast readiness report.
-16. `v4vmm` 015, stream encoder section.
-
-### Stage 6: ADR 0059 Closure And Amendments
-
-17. `v4vmm` 013, final guards and readiness gate.
-18. `v4vmm` [016, event row in Live Metadata](../tasks/adr-0059-task-016-event-row-in-live-metadata.md).
-    Added by the 2026-09-09 amendment, after packet 014 and ADR 0063's dashboard
-    packets. Adds Create, Replace, and retryable liveness checks to the event row.
-19. `v4vmm` [Show action feedback 001](../tasks/show-action-feedback-task-001-command-state-and-result.md).
-    Its service command ownership and fresh-observation policy are prerequisites
-    for the new item badges. Implementation, mechanical checks, and operator
-    visual acceptance are complete on 2026-09-10.
-20. `v4vmm` [017, compact event controls and badges](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md).
-    Approved 2026-09-09 under ADRs 0059 and 0063. Adds saved event selection,
-    configured-target attachment correction, per-item badges, and Event
-    diagnostics. Implementation, operator acceptance, and fixture cleanup are
-    complete on 2026-09-10. Task 016 remains accepted for its shipped scope.
-
-### Independent track: bank the shows
-
-- `musicindex-live-publisher` show log 001, log writer.
-- `musicindex-live-publisher` show log 002, read contract and documentation.
-
-These depend on nothing and block nothing. They need only the drop-file watcher
-that already exists.
-
-**Do them early if shows start before the control surface is finished.** A show
-that runs without the log can never become an episode. Data that is not
-captured cannot be recovered.
-
-### Independent track: relay durability
-
-- `splitkit` reserved live items 001 through 005.
-
-Also independent. Without it, every event dies when the relay restarts or after
-24 hours of no activity, and listeners must tune again.
-
-Its urgency is a product question, not a technical one: it matters as soon as a
-show repeats or a station runs continuously.
-
-## An Alternative Order
-
-The order above builds the interface before the loop closes. A different
-priority reaches a working chain sooner.
-
-Packet 014 depends on `v4vmm` 010 because the attach runs through the transport.
-A local-only attach needs no transport. Splitting 014 into a local step and a
-remote step makes this order possible:
-
-1. `musicindex-live-publisher` control surface 001.
-2. `v4vmm` 001, 002, 003.
-3. `v4vmm` 014, local half only.
-
-That reaches a complete chain at the command line, with no interface, in four
-sessions. Choose it if proving the chain matters more than showing it.
+Show view-model decomposition and wider all-target Clippy cleanup remain
+unscheduled. Cache/dump policy, audition, and play history remain separate
+future decisions, outside this execution order.
 
 ## Progress
 
@@ -139,6 +80,14 @@ Update this table when a packet lands.
 
 | Repository | Packet | State |
 |---|---|---|
+| `v4vmm` | [governance reconciliation](../reviews/2026-09-10-governance-reconciliation.md) | complete - 2026-09-10; documentation only; surviving gates indexed below |
+| `v4vmm` | [0030 006 scroll containers](../tasks/adr-0030-task-006-scroll-containers.md) | implementation recorded; current Music/Settings visual check open |
+| `v4vmm` | [0037 001 feed identity](../tasks/adr-0037-task-001-feed-identity-action-parity.md) | implementation recorded; local/Index identity visual check open |
+| `v4vmm` | [0037 002 track detail parity](../tasks/adr-0037-task-002-track-header-action-parity.md) | implementation recorded; local/Index track visual check open |
+| `v4vmm` | [0043 004 toolbar readiness](../tasks/adr-0043-task-004-guards-and-visual-readiness.md) | implementation recorded; surviving normal/narrow Light/Dark check open |
+| `v4vmm` | [0044 003 playlist reorder](../tasks/adr-0044-task-003-playlist-reorder-guards-visual.md) | implementation recorded; current handle/menu/insertion visual check open |
+| `v4vmm` | [0054 004 feed hydration](../tasks/adr-0054-task-004-feed-read-model-hydration.md) | implementation recorded; stored metadata visual check open |
+| `v4vmm` | [0054 005 track hydration](../tasks/adr-0054-task-005-track-read-model-hydration.md) | implementation recorded; stored metadata/fallback visual check open |
 | `musicindex-live-publisher` | control surface 001 | complete - 2026-09-07 (`a5b434e`) |
 | `musicindex-live-publisher` | control surface 002 | complete - 2026-09-07 (`459854c`) |
 | `musicindex-live-publisher` | show log 001 | not started |
@@ -171,9 +120,9 @@ Update this table when a packet lands.
 | `v4vmm` | 0065 002 check-all-feeds repair and list actions | implemented - 2026-09-09; visual acceptance met; result-row readability fixed and accepted in action feedback 001 on 2026-09-10 |
 | `splitkit` | reserved 001 store boundary | ready |
 | `splitkit` | reserved 002 reserved class | ready; response contract pinned against `LiveItemCreateResponse` |
-| `splitkit` | reserved 003 restore and TTL | ready; this is the packet that stops the 24-hour death |
-| `splitkit` | reserved 004 list and delete | ready; list envelope pinned |
-| `splitkit` | reserved 005 guards and review | ready; also reconciles this plan |
+| `splitkit` | reserved 003 restore and TTL | ready; restores reserved identities and exempts them from idle expiry; ephemeral behavior remains unchanged |
+| `splitkit` | reserved 004 list and delete | ready; scheduled after adoption, or before the v4vmm reservation packet while command-line reservation is the interim; list envelope pinned |
+| `splitkit` | reserved 005 guards and review | ready; follows 004; final relay review also reconciles this plan |
 
 ## Surface Rewrite — Complete
 
@@ -249,7 +198,7 @@ only after task 001, and the list becomes usable after task 002.
 ADR 0065 was amended on 2026-09-08: `Check all feeds` performs the repair, so
 an operator does not need to know a second action exists.
 
-After that:
+Unscheduled follow-ups:
 
 1. Write the cache and dump policy decision. `Dump` needs it.
 2. Write the audition decision, and the play-history decision.
@@ -262,13 +211,14 @@ work that ADR 0060 does not touch.
 
 ## Later Work
 
-These have no packets and are not scheduled. They are listed so the order above
-is not mistaken for the whole plan.
+These entries include work awaiting packets and unscheduled work. The Current
+Delivery Order above determines priority; an entry here is not a second order.
 
 - A `v4vmm` packet for reserving a durable live item. `splitkit` reserved live
-  items 002 adds the route, and nothing in `v4vmm` calls it. Until then an
-  operator reserves an item with `curl` and pastes the identifier. Needed
-  before a station runs more than one show a week.
+  items 002 adds the route, and nothing in `v4vmm` calls it. After 002/003 are
+  deployed, command-line reservation and publisher configuration provide the
+  interim adoption path. This does not automatically add the new event to the
+  app registry. The app packet completes reservation and selection in v4vmm.
 - A seventh `ServiceState` in `v4vmm`, for a publisher that is installed and
   not configured. `musicindex-live-publisher` control-surface task 002 supplies
   the two facts that separate it, through `--version` and `config show --json`.
@@ -280,12 +230,13 @@ is not mistaken for the whole plan.
 - Liquidsoap as a source.
 - [Show narrow-layout proposal](show-narrow-layout-proposal.md): automatic/manual
   compact cards and full-width logs, the overlap alternative, and requested
-  playback-bar removal. Playback scope is awaiting operator clarification.
+  hiding of the playback bar when all typed actions are unavailable. The
+  operator resolved that scope on 2026-09-10; working controls remain.
 
 ### Consistent UTC Log Timestamps
 
-Unscheduled follow-up - 2026-09-10. The operator requires consistent UTC
-timestamps across all logs, including log producers outside `v4vmm` where
+Scheduled for design with A12 after A11 - 2026-09-10. The operator requires
+consistent UTC timestamps across all logs, including producers outside `v4vmm` where
 changes are needed. This requirement accompanies
 [per-log following and reading positions](hig-product-polish-backlog.md#a12---follow-latest-logs-and-remember-each-reading-position).
 It is not implemented or an additional gate on task 017.

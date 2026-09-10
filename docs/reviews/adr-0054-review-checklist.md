@@ -1,5 +1,17 @@
 # ADR 0054 Review Checklist
 
+## Gate Status
+
+Open - reconciled 2026-09-10. Tasks 004 and 005 have recorded mechanical
+completion, but their reviews contain no operator acceptance of the visible
+feed/track hydration paths. Task 006 changed guards only; its lack of a visual
+criterion does not close those earlier requirements.
+
+ADRs 0047/0048/0060 replace separate Library/Discover screens with local and
+Index origins in Music. The persisted-fact display and fallback requirements
+survive. Inspect the same facts on those current paths; do not restore old
+screens or demand identical values from different sources.
+
 ## Scope
 
 Review ADR 0054 implementation slices against:
@@ -33,12 +45,21 @@ Review ADR 0054 implementation slices against:
 - [x] Tests are green for the task's required gate list.
   Status: targeted Task 006 gates passed locally.
 
-## Merge Recommendation Template
+## Operator Visual Check
 
-- Pass/fail:
-- Required fixes:
-- Optional improvements:
-- Architectural drift:
-- Missing tests:
-- Safe to merge:
-- Next task packet adjustments:
+Follow [Metadata Hydration](../runbooks/inherited-ui-checks.md#metadata-hydration--adr-0054-tasks-004-and-005).
+
+| Packet | Required proof | Light | Dark |
+|---|---|---|---|
+| 004 | Known persisted feed facts remain readable through local entry, including when Index is unavailable | Open | Open |
+| 005 | Known persisted track facts remain readable through local entry and remote fallback; source claims stay separate | Open | Open |
+
+Record entity identifiers, populated facts, endpoint state, and results.
+Fixtures without the source facts leave the relevant criterion open.
+
+## Merge Recommendation
+
+Mechanical implementation remains recorded. Keep ADR 0054 and its phase plan
+Accepted until these checks pass and fixture cleanup is confirmed. Reconcile
+both task statuses, this checklist, the ADR/index, delivery, and pending checks
+when acceptance changes.

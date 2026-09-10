@@ -2,7 +2,10 @@
 
 ## Status
 
-Implemented - 2026-05-18.
+Accepted - 2026-09-10.
+Implementation recorded for Tasks 001-006; operator acceptance of feed/track
+hydration remains open. The [review checklist](../reviews/adr-0054-review-checklist.md)
+reconciles the task 004/005 residual checks with current Music entry routes.
 
 ## Goal
 

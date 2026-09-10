@@ -4,6 +4,15 @@
 
 Active backlog - 2026-05-18.
 
+Delivery reconciled 2026-09-10: the
+[approved order](broadcast-chain-delivery-order.md#current-delivery-order)
+puts A10 with narrow-layout work after relay adoption. Playback scope is
+resolved: hide the bar when every typed action is unavailable; retain working
+controls. Then settle A11's long-line treatment before A12's reading anchors.
+Design A12 with UTC timestamps, but deliver bounded packets so app following
+does not wait for corrections to external emitters. These decisions do not
+claim implementation or add a gate to the completed task 017.
+
 ## Purpose
 
 Keep Apple HIG product-completeness work visible without reopening the

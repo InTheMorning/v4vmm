@@ -2,9 +2,14 @@
 
 ## Status
 
-Proposed - 2026-05-04. No phase plan, task packets, or review checklist
-exist for this ADR, so implementation cannot be verified either way. Needs an
-owner decision: execute, supersede, or archive.
+Proposed - 2026-05-04.
+
+Unscheduled. Text-scale tiers, maximum scale, wrapping, and truncation policy
+remain unspecified. No implementation or operator acceptance is claimed.
+
+Reconciled 2026-09-10: the operator retained this proposal without scheduling
+it. The text-scaling requirement has not been withdrawn; age is not a reason
+to archive it. A defined policy must precede a phase plan and task packets.
 
 ## Context
 

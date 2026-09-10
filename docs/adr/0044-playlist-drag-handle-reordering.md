@@ -2,9 +2,16 @@
 
 ## Status
 
-Accepted - 2026-05-08. Implementation partial: follow-up fixes landed.
-Operator visual recheck outstanding. See
-`docs/reviews/adr-0044-review-checklist.md`.
+Accepted - 2026-05-08.
+
+Implementation partial: follow-up fixes landed; current playlist reorder
+visual checks remain open in [task 003](../tasks/adr-0044-task-003-playlist-reorder-guards-visual.md).
+
+Amended 2026-09-10: the reorder contract survives. ADRs 0046/0047 replace the
+inspector-owned Back to Playlist button and `InspectorOrigin` with frame
+navigation. ADR 0060 places playlists in Music. The
+[review checklist](../reviews/adr-0044-review-checklist.md) retains insertion,
+menu, availability, and in-place update checks on the current paths.
 
 ## Context
 

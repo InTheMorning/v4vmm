@@ -6,6 +6,12 @@ Proposed - 2026-09-10. Requested during ADR 0059 task 017 visual inspection.
 No layout or playback behavior has changed. The operator accepted the pane
 resize/navigation walkthrough while identifying the narrow-window limitation.
 
+Playback scope resolved by the operator on 2026-09-10: hide the entire bar and
+its spacing when every typed action is unavailable; retain working controls.
+The layout amendment and implementation packet remain to be written in the
+[approved delivery order](broadcast-chain-delivery-order.md#current-delivery-order).
+Include A10 card-title clipping in that packet's shared-owner work and visual gate.
+
 On acceptance, move the decisions into the owning ADR amendment or a new ADR
 where a decision is reversed, and create a bounded implementation packet.
 Archive this proposal with a superseding link and update current-plan links
@@ -77,20 +83,15 @@ feedback loop between pane measurement and automatic mode changes.
 
 ## Playback Bar Scope
 
-The operator requested removal of the dead playback controls. Clarification is
-pending: remove the bar only when none of its actions can act, or remove it
-from Show entirely, including active built-in playback.
+The operator chose this scope on 2026-09-10: omit the entire bar and its
+spacing when every typed transport action is unavailable. Retain working
+controls, including playing or paused built-in playback. Record visibility in
+the ADR 0063 amendment and derive it in the view model from `TransportDisplay`.
+An active external broadcast does not establish built-in transport availability.
 
-Recommendation pending that answer: omit the entire bar and its spacing when
-the typed transport actions are all unavailable. Determine this in the view
-model. Do not use the presence of an active external broadcast as a proxy for
-built-in playback controls. Keep working controls available for playing or
-paused built-in playback if the operator chooses the narrower scope.
-
-The controls are wired through `ShowSlots` and `TransportDisplay`; they are
-not unreachable code. Removing the active-playback surface too would reverse
-the current ADR 0060/0063 decision and needs an explicit replacement decision
-under ADR 0057, including where supported playback actions remain accessible.
+`ShowSlots` wires the existing controls. The chosen scope preserves the
+ADR 0060/0063 placement of working transport inside Show and does not retire
+the active-playback surface.
 
 ## Alternatives And Consequences
 
@@ -134,7 +135,7 @@ still-binding rule they enforce:
 
 Mechanical checks must cover the layout resolver at narrow/wide and short/tall
 bounds, scaling, panel/log open states, manual preferences, minimum log-body
-allocation, and typed transport visibility after its scope is decided. Preserve
+allocation, and the agreed typed transport visibility. Preserve
 the existing source, selection/Copy, and late-result guards.
 
 Visual checks must demonstrate readable log text at the screenshot's narrow

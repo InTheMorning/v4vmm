@@ -2,8 +2,11 @@
 
 ## Status
 
-Active index - 2026-05-18. Reconciled 2026-08-28 for ADR 0056, ADR 0057, and
-ADR 0058.
+Active index - 2026-05-18. Reconciled 2026-09-10 for inherited human gates,
+configuration failure scope, and the operator's delivery priorities.
+
+Item numbers below are stable identifiers. The execution order is the
+[broadcast-chain delivery order](broadcast-chain-delivery-order.md#current-delivery-order).
 
 ## Purpose
 
@@ -49,9 +52,15 @@ prioritized, and routed to the right governance artifact.
    - Note: a malformed layout *value* already falls back with a warning. This
      item is the level above that, where the file does not parse at all.
      Settings manages only a few keys, so operators hand-edit this file.
-   - Decision needed: start with defaults and warn, back the broken file up and
-     start with defaults, or refuse to start but report the error in the
-     interface rather than a panic.
+   - Direction agreed 2026-09-10: preserve the broken file and report its path,
+     the parse error, and the recovery action. A defaults-start path requires
+     an explicit no-overwrite policy before any save can run.
+   - The ADR must inventory startup failures separately in
+     `src/app/bootstrap.rs::run_app`: config-path resolution, config load,
+     endpoint load, directory creation, database open, local-path repair,
+     playback-driver construction, and the remaining fallible startup stages.
+     For each, decide whether to refuse and report or continue with a named
+     capability unavailable. A database failure is not a TOML parse failure.
    - Route: future ADR. **Settle this before any config format change**, since
      a format change is exactly what puts more operators in this state.
 7. Workspace configuration section naming.
@@ -94,7 +103,9 @@ prioritized, and routed to the right governance artifact.
   `Proposed` / `Accepted` / `Implemented` / `Superseded by ADR NNNN`, each with a
   date. ADR 0057 also supersedes ADR 0001's immutability clause, making the
   in-place amendment practice explicit and bounded. ADR 0039 could not be
-  verified in either direction and stays `Proposed` pending an owner decision.
+  verified in either direction. The operator retained it as `Proposed` and
+  explicitly unscheduled on 2026-09-10 because its text-scaling policy is
+  unspecified; it has not been withdrawn.
 
 - ADR 0056 remote media fetch validation completed on 2026-08-28 via Tasks
   001-004, implemented as one change and reviewed in

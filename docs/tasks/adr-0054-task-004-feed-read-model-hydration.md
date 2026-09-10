@@ -1,5 +1,17 @@
 # ADR 0054 Task 004: Feed Read-Model Hydration
 
+Status: Accepted - 2026-09-10.
+Implementation recorded; operator visual acceptance remains open.
+
+## Current Acceptance Scope
+
+The implementation steps below are historical. The surviving visual check
+uses local and Index origins in Music under ADRs 0047/0048/0060.
+Follow [Metadata Hydration](../runbooks/inherited-ui-checks.md#metadata-hydration--adr-0054-tasks-004-and-005),
+including preparation and cleanup. Record this packet's feed or track result
+separately in the [review checklist](../reviews/adr-0054-review-checklist.md).
+No new visual acceptance is claimed by the governance reconciliation.
+
 ## Goal
 
 Hydrate local feed detail read models from persisted feed metadata source facts

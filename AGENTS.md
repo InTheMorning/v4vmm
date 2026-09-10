@@ -17,9 +17,15 @@ Music and Show are built. ADR 0059 tasks 001-017 are complete. ADRs 0059 and
 [Show action feedback task 001](docs/tasks/show-action-feedback-task-001-command-state-and-result.md)
 is complete, including operator visual acceptance.
 
-No operator acceptance check is open. Layout and log follow-ups are recorded
-in the [product polish backlog](docs/plans/hig-product-polish-backlog.md) and
-the [narrow Show layout proposal](docs/plans/show-narrow-layout-proposal.md).
+Inherited operator checks remain open for scrolling, identity/detail parity,
+toolbar search, playlist reordering, and metadata hydration. Their current
+requirements are indexed in [pending human checks](docs/pending-human-checks.md).
+Task 017's acceptance remains closed.
+
+Next work is configuration failure behavior, then relay durability through
+reserved-event adoption. The delivery order also schedules narrow Show layout,
+long-line inspection, per-log following, UTC timestamps, and steady-state work.
+When a real show is scheduled, publisher show-log task 001 takes priority.
 
 `docs/plans/broadcast-chain-delivery-order.md` is the only cross-repository
 order. Read it before starting a session on broadcast work.
@@ -127,6 +133,12 @@ make the subject and consequence clear. ADRs 0059/0063 own Event report data.
 **Every fix gets a guard.** A user-confirmed fix is incomplete without a test,
 an architecture guard, or a documented manual check that blocks the same class
 of regression.
+
+**Reconcile human gates by meaning.** Read ADR status sections and review gate
+statements, including prose. Checkbox syntax is not a gate inventory. Before
+listing an inherited check, retire replaced requirements with the superseding
+ADR named, and preserve each surviving requirement in the pending-check index.
+Scope a claim of no open checks to the packet or ADR actually reviewed.
 
 **A guard names its class and its ADR.** A durable guard enforces the set
 above. A situational guard cites one ADR and is deleted when that ADR is

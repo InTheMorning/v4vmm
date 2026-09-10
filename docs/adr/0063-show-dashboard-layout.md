@@ -13,7 +13,8 @@ Reconciled 2026-09-10: the operator confirmed action feedback task 001 tested an
 passed. Its visual gate is closed. Task 017's operator acceptance also passed,
 with the narrow-window limitation recorded as deferred work in the packet.
 The operator confirmed fixture cleanup, closing task 017's final gate and
-returning this ADR to Implemented. No operator acceptance check remains open.
+returning this ADR to Implemented. No operator acceptance check for this ADR
+remains open.
 
 Amended 2026-09-10: [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md)
 keeps Stream controls mounted through commands. ADR 0059 owns the command-state

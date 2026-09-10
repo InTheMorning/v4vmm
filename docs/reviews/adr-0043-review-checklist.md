@@ -1,116 +1,62 @@
 # ADR 0043 Review Checklist
 
-## Reviewed Artifacts
-
-- `docs/adr/0043-top-toolbar-global-search.md`
-- `docs/plans/adr-0043-top-toolbar-global-search-phase-plan.md`
-- `docs/tasks/adr-0043-task-001-app-toolbar-frame.md`
-- `docs/tasks/adr-0043-task-002-global-search-contract.md`
-- `docs/tasks/adr-0043-task-003-search-workspace-results.md`
-- `docs/tasks/adr-0043-task-004-guards-and-visual-readiness.md`
-
 ## Gate Status
 
-Status: Awaiting operator visual recheck after follow-up fixes on 2026-05-14.
+Open - reconciled 2026-09-10. Only current toolbar readability and interaction
+need operator recheck. [Task 004](../tasks/adr-0043-task-004-guards-and-visual-readiness.md)
+owns that gate. Historical mechanical results do not establish current visual
+acceptance.
 
-Readiness decision: Pending visual verification.
+## Requirement Disposition
 
-## Required Checks
+| Earlier requirement | Disposition and owner |
+|---|---|
+| Three-zone toolbar with trailing Now Playing frame; compact player width; player composition ownership | Retired. ADR 0046 moved transport into the queue frame; ADR 0060 removed the toolbar player; ADR 0063 owns Show transport placement |
+| Global All/Library/Index scope controls, GlobalSearchScope, and grouped results in a Search workspace | Retired. ADR 0047 moved filtering to frame chrome and unified origins; ADR 0048 owns ContentList search navigation |
+| Rename Discover tab to Search; test a separate Search workspace | Retired. ADRs 0048/0060 define search as a command and Music/Show/Settings as sections |
+| Recent Feeds as the empty-query Search root | Retired. ADR 0062 removed the separate destination and owns Music's default content |
+| Single toolbar search, VM-owned display facts, input focus, Enter/Search submission | Retained on current Music routing |
+| Readable normal/narrow toolbar in Light and Dark | Retained; open visual gate |
+| Local query returns library members only | Retained mechanical boundary; no global-scope control is required |
 
-- [x] Toolbar has stable leading navigation, center global search, and
-  trailing Now Playing frame.
-- [x] Now Playing remains app-shell-owned under `src/app/`.
-- [x] Now Playing is not extracted into a single-use composite.
-- [x] One visible search field exists in the app toolbar.
-- [x] Library and Search screens do not render duplicate visible search
-  input chrome.
-- [x] `cmd-f` focuses the global toolbar search.
-- [x] Search scope labels, placeholder, ids, and accessibility labels
-  come from view-model display contracts.
-- [x] `All` scope renders grouped Library results before MusicIndex
-  results.
-- [x] `Library` scope does not call MusicIndex.
-- [x] `Index` scope does not render local Library results.
-- [x] MusicIndex type filters apply only to MusicIndex results.
-- [x] Recent feeds/discovery root remains visible when Search has no
-  query.
-- [x] Local Library query returns only in-library tracks.
-- [x] Architecture tests cover toolbar ownership.
-- [x] Architecture tests cover global-search contract and local-query
-  boundary.
-- [x] Architecture tests cover duplicate-search
-  prevention.
-- [x] Toolbar search field renders with a search icon and a clear affordance.
-- [x] Toolbar search button label comes from the toolbar view-model contract.
-- [x] Index-only Search workspace filters are hidden for Library scope.
-- [x] App-shell tab naming uses Search instead of Discover for the global
-  search workspace.
-- [ ] Light-theme visual proof reviewed at normal and narrow widths.
-- [ ] Dark-theme visual proof reviewed at normal and narrow widths.
-- [x] `cargo fmt -- --check` green.
-- [x] `cargo check` green.
-- [x] `cargo test` green.
-- [x] `cargo clippy -- -D warnings` green.
+The retired requirements are not part of the checklist below. No structural
+retirement is recorded as a visual pass.
 
-## Required Fixes
+## Mechanical Ownership
 
-- User visual screenshots on 2026-05-13 showed narrow-toolbar clipping risk:
-  scope labels could be partially visible between Settings and the Now
-  Playing frame.
-- Initial mitigation on 2026-05-13 made app-toolbar scope controls and the
-  submit button progressively hide at named layout-token breakpoints. This was
-  superseded by the 2026-05-14 HIG fix below so the primary Search action
-  remains visible.
-- Follow-up visual review on 2026-05-14 still showed clipping at a narrow dark
-  toolbar width: scope controls and the Search submit control could remain
-  visible while the global search field was no longer legible.
-- Fixed on 2026-05-14: the named toolbar breakpoints were raised so optional
-  scope and submit controls collapse earlier, preserving the global search
-  field and Now Playing frame as the narrow-width toolbar priorities.
-- Second follow-up visual review on 2026-05-14 still showed the global search
-  field clipped because the Now Playing frame kept its full-width size in a
-  compact toolbar.
-- Fixed on 2026-05-14: Now Playing now uses a named compact-width rule below
-  the toolbar breakpoint, preserving its frame while yielding enough center
-  toolbar space for the search field.
-- HIG drift review on 2026-05-14 found that narrow-width hiding removed the
-  trailing primary Search action and made scope switching unavailable. Fixed
-  on 2026-05-14: Search submit stays inline above the compact breakpoint,
-  Search/scope commands collapse to the shared menu primitive below it, and
-  toolbar width is computed once in `render_tab_bar` before being passed into
-  search rendering.
-- Operator screenshot review on 2026-05-14 showed the toolbar still clipping
-  at compact width. Fixed on 2026-05-14: compact Now Playing now uses the
-  `MenuRegular` width and compact global search renders as input plus overflow
-  menu, avoiding the partial scope label and submit-button overlap.
-- Visual proof still needs operator recheck because this execution session
-  cannot inspect the running display directly.
+Existing guards in tests/architecture_tests.rs:
 
-## Optional Improvements
+- app_toolbar_exposes_tabs_and_global_search_without_now_playing_chip
+- global_search_contract_has_toolbar_vm_and_local_query_boundary
+- global_search_replaces_screen_local_search_chrome
+- global_search_routes_to_content_list
+- adr_0060_toolbar_no_longer_carries_now_playing_chip
 
-- No drift in Tasks 001-003. Toolbar display strings and ids route through
-  `src/view_models/app_toolbar.rs`; Now Playing remains app-shell-owned in
-  `src/app/playback_bar.rs`. The local Library search query routes through
-  `ApplicationQueryService`, `library_service`, and `db` without changing
-  MusicIndex API behavior. Grouped Search results are source-aware in
-  `src/view_models/search.rs`, and local Library rows open local track detail
-  instead of reusing MusicIndex ids. Recent feeds remain the empty-query Search
-  root so the toolbar query stays the single source of search state. The
-  app-shell tab/key/focus naming now uses Search; legacy `discover` shell
-  module names remain as existing surface structure.
+These replace repeated implementation assertions. Current owners are
+src/view_models/app_toolbar.rs, src/app/tab_bar.rs, src/app/search_dispatch.rs,
+and src/app/keyboard.rs.
 
-## Architectural Drift
+## Operator Visual Check
 
-- Visual proof is still pending after the 2026-05-14 narrow-toolbar fix.
-  Final light/dark evidence remains assigned to Task 004.
+Follow [Search Toolbar](../runbooks/inherited-ui-checks.md#search-toolbar--adr-0043-task-004).
 
-## Missing Tests
+- [ ] Normal width, Light: input, clear control, Search action, focus, and submission.
+- [ ] Narrow width, Light: readable input and reachable compact action/menu.
+- [ ] Normal width, Dark: the same controls and behavior.
+- [ ] Narrow width, Dark: the same compact layout and behavior.
 
-- Task 004 still needs final light/dark visual proof at normal and narrow
-  widths after the 2026-05-14 fix.
+No extra global input may appear in entity details. Frame-local filtering is
+allowed by ADR 0047. Enter and the Search action must reach the same current
+result surface.
+
+## Evidence
+
+The 2026-05-14 review recorded mechanical checks Green and repeated narrow
+toolbar clipping fixes. Its last light/dark recheck remained outstanding.
+Later ADRs replaced the player and scope structures involved. This
+reconciliation retires those structures but supplies no new toolbar acceptance.
 
 ## Merge Recommendation
 
-Pending. Do not mark ADR 0043 ready until light and dark visual proof
-confirms the toolbar, global search field, Search workspace, and Now Playing
-frame remain legible at normal and narrow widths.
+Keep ADR 0043 Accepted until the surviving visual gate passes; record each
+result here and in task 004, then reconcile delivery and pending checks.

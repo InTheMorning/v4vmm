@@ -31,6 +31,10 @@ Core:
   renders as `...`, the mitigation, and the root cause that is still open
 - [Pending human checks](pending-human-checks.md): the acceptance criteria that
   are open now and need a person, and the method to reach each state
+- [Inherited UI checks](runbooks/inherited-ui-checks.md): current Music,
+  Settings, and toolbar procedures with a disposable database/audio copy
+- [Governance reconciliation](reviews/2026-09-10-governance-reconciliation.md):
+  gate-prose sweep, retired requirements, surviving checks, and delivery priority
 
 Current governance:
 
@@ -64,7 +68,8 @@ Current plans:
 
 - [Show narrow-layout proposal](plans/show-narrow-layout-proposal.md):
   compact cards, full-width logs and an overlap alternative, readable log-body
-  allocation, and playback-bar removal with scope awaiting clarification
+  allocation, and hiding the playback bar only when every typed action is
+  unavailable; scope agreed, amendment and packet scheduled
 - [ADR 0023 migration plan](plans/adr-0023-design-system-migration.md):
   remaining design-system and view-model work
 - [Discovery and Library UI fixes plan](plans/discovery-library-ui-fixes.md):

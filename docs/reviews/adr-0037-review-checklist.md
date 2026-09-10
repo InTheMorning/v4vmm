@@ -1,110 +1,58 @@
 # ADR 0037 Review Checklist
 
-## Reviewed Artifacts
-
-- `docs/adr/0037-same-entity-surface-parity.md`
-- `docs/plans/adr-0037-same-entity-surface-parity-phase-plan.md`
-- `docs/tasks/adr-0037-task-001-feed-identity-action-parity.md`
-- `docs/tasks/adr-0037-task-002-track-header-action-parity.md`
-
 ## Gate Status
 
-Status: Task 001 implemented with automated evidence green. Visual smoke found
-a Library hydration blocker; follow-up fix implemented and awaiting screenshot
-re-check. Task 002 implemented with automated evidence green; track-detail
-visual smoke pending.
+Open - reconciled 2026-09-10. Task 001 feed-identity hydration and task 002
+track-detail parity retain operator checks. Earlier mechanical evidence does
+not close the visual gaps.
 
-## Structural Review Questions
+## Requirement Disposition
 
-### Pass 1 (Task 001)
+| Earlier requirement | Disposition and owner |
+|---|---|
+| Separate Library and Discover screens and four specifically named screen screenshots | Retired by ADRs 0047/0048/0060. Compare local and Index origins inside Music, in both themes; record entity identity and entry route |
+| src/ui_entity.rs, src/ui_track.rs, src/search.rs, and renderer-supplied identity prefixes | Retired by ADR 0038 helper/display migration and ADR 0047 screen retirement. Current helpers are in src/ui/shells/entity.rs and src/ui/shells/track.rs |
+| Website/Nostr/RSS payloads, shared identity controls, missing-local-fact regression | Retained on current local and Index paths |
+| Track header/action/section parity | Retained for the same source facts; origin differences must not become different shared layouts |
+| Library-only advanced panels and Discover-specific navigation controls | Replaced by ADR 0047's download-dependent disclosure and frame navigation; do not demand retired screen-local controls |
+| Light/dark proof using populated identity fixtures | Retained; absent source facts do not prove hydration failure or success |
 
-- Do Library and Discover feed detail render identity actions from
-  `ui_entity::render_feed_identity_actions(page, id_prefix)`?
-- Does the helper consume `ReleaseDetailPageVm.identity_actions` only —
-  no reach back into `FeedView.identity.*` or `feed_url`?
-- Does `EntityActionVm` carry `payload: Option<String>`?
-  - Populated for `OpenWebsite`, `CopyNostr`, `OpenRss`.
-  - `None` for every other action kind.
-- Do `IdentityLinksVm::actions` and `ReleaseDetailVm::identity_actions`
-  populate the payload?
-- Are Website-open, Nostr-copy, and RSS-open click behaviors preserved?
-- Are ElementId prefixes distinct per surface
-  (`discover-feed-…` vs `library-feed-…`)?
-- Are contributor identity rows untouched
-  (`library_contributor_identity_actions` byte-identical)?
-- Did the task add `release_feed_identity_actions_use_shared_renderer`?
-  Does it forbid `IdentityActionKind::Rss` in `src/ui_feed.rs` and
-  `src/library.rs` and require `fn render_feed_identity_actions` in
-  `src/ui_entity.rs`?
-- Was the helper's `EntityActionKind` match exhaustive enough that
-  unexpected kinds (Play, Download, …) are skipped, not panicked?
+## Mechanical Ownership
 
-### Cross-cutting
+Existing guards in tests/architecture_tests.rs:
 
-- Did visual smoke use user-provided screenshots at the pinned paths?
-- Are both light and dark theme screenshots present (HIG dark-mode parity)?
-- Do track identity actions preserve Discover's feed navigation/audio play
-  controls and Library's advanced panels as contextual, screen-bound actions?
+- release_feed_identity_actions_use_shared_renderer
+- track_identity_links_use_shared_renderer
 
-## Task Results
+Identity payload tests remain in src/view_models/entity_detail.rs and
+src/view_models/track_detail.rs. Local paths are
+src/ui/shells/library/feed_detail.rs and track_detail.rs; Index details use
+src/ui/shells/search_results_inspector.rs and the same shared helpers.
 
-| Task | Status | Required Evidence | Notes |
+## Operator Visual Check
+
+Follow [Identity And Detail Parity](../runbooks/inherited-ui-checks.md#identity-and-detail-parity--adr-0037-tasks-001-and-002).
+
+| Task | Light | Dark | Required fixture |
 |---|---|---|---|
-| Task 001 feed identity action parity | Follow-up fix implemented; visual re-check pending | VM payload field + tests, shared helper, architecture guard, checks, four screenshots | Shared feed identity renderer landed; user screenshots showed Discover identity facts missing from Library; Library album selection now hydrates missing feed source facts by feed GUID |
-| Task 002 track header/action parity   | Implemented; visual smoke pending | Track VM payload actions, shared helper, Discover/Library route-through, architecture guard, four screenshots | Reuses `EntityActionVm.payload`; Discover feed navigation/audio play and Library advanced panels remain screen-bound |
+| 001: local/Index feed identity and hydration | Open | Open | Same feed, known Website/Nostr/RSS facts |
+| 002: local/Index track detail parity | Open | Open | Same track, known Website/Nostr facts and a downloaded local copy |
 
-## Visual Smoke
+Capture each entry route, not just one shared shell. Check link/copy targets
+and contextual disclosure without requiring different source claims to match.
 
-Required screenshot paths (capture both themes):
+## Evidence
 
-| Surface | Light | Dark |
-|---|---|---|
-| Library feed detail   | `docs/reviews/screenshots/adr-0037-library-feed-identity-light.png` | `docs/reviews/screenshots/adr-0037-library-feed-identity-dark.png` |
-| Discover feed detail  | `docs/reviews/screenshots/adr-0037-discover-feed-identity-light.png` | `docs/reviews/screenshots/adr-0037-discover-feed-identity-dark.png` |
-| Library track detail  | `docs/reviews/screenshots/adr-0037-library-track-detail-light.png` | `docs/reviews/screenshots/adr-0037-library-track-detail-dark.png` |
-| Discover track detail | `docs/reviews/screenshots/adr-0037-discover-track-detail-light.png` | `docs/reviews/screenshots/adr-0037-discover-track-detail-dark.png` |
+On 2026-05-02, screenshots of Way to Go and The Heycitizen Experience showed
+Index identity controls missing from the local route. The follow-up hydration
+fix was recorded, but its visual recheck was not. The 2026-05-03 MoeFactz
+attempt had no stored track identity facts, so it did not prove task 002.
+These observations document the original gap, not a current reproduced failure.
 
-Capture conditions:
-- Project's standard dev window size (no manual resize).
-- Theme toggled via the app's theme control; use the project default theme
-  variant for each side.
-- Feed must have all three identity sources populated (website, nostr, RSS)
-  so the full button row renders. If no real feed in fixtures has all
-  three, document the substitute.
+The original task reviews retain dated implementation evidence. Their retired
+screen instructions are replaced by this checklist and the current runbook.
 
-Received visual evidence:
-- User-provided screenshots in chat on 2026-05-02 cover Discover dark,
-  Library dark, Discover light, and Library light for `Way to Go`.
-- Discover dark/light show `Website` and `RSS` feed identity actions.
-- Library dark/light show `RSS` only for the same feed.
-- No screenshot shows a Nostr identity action for this fixture.
-- Follow-up user screenshots in chat on 2026-05-02 cover Discover dark,
-  Library dark, Discover light, and Library light for
-  `The Heycitizen Experience`.
-- Follow-up Discover screenshots show `Website`, `Nostr`, and `RSS`; follow-up
-  Library screenshots show `RSS` only.
-- Follow-up fix: Library album nodes now retain `feed_guid`, selected Library
-  albums with incomplete feed identity facts fetch MusicIndex feed source facts,
-  persist them through `identity_ingest::persist_musicindex_feed`, and update
-  the open album detail snapshot.
-- Result: visual gate needs one more Library/Discover screenshot pass for
-  `The Heycitizen Experience` after the hydration task runs on selection.
-- Task 002 track-detail screenshots have not yet been captured. They need a
-  normal track with Website and Nostr identity facts so Library and Discover
-  can be compared in both themes.
-- Attempted Task 002 visual smoke on 2026-05-03 with the local Library track
-  `MoeFactz`; the track detail rendered, but the local SQLite data had no
-  `owner_kind='track'` identity link or ID rows, so there were no structured
-  Website/Nostr buttons to compare.
+## Merge Recommendation
 
-## Automated Checks
-
-- `cargo fmt -- --check`: Green
-- `cargo check`: Green
-- `cargo test entity_action_vm_carries_identity_payload`: Green
-- `cargo test release_feed_identity_actions_use_shared_renderer`: Green
-- `cargo test track_detail_identity_actions_carry_payloads`: Green
-- `cargo test track_identity_links_use_shared_renderer`: Green
-- `cargo test`: Green
-- `cargo clippy -- -D warnings`: Green
-- `git diff --check`: Green
+Keep ADR 0037 Accepted. Close tasks 001 and 002 separately when their populated
+fixtures pass in both themes; reconcile the ADR, delivery, and pending checks.

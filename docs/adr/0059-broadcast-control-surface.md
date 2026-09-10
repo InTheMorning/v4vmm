@@ -13,7 +13,7 @@ passed. A7-A9 are closed. Task 017's operator acceptance also passed, including
 preservation and confirmation that all three registrations were intentional.
 The operator confirmed fixture cleanup, closing task 017's final gate and
 returning this ADR to Implemented. The packet retains the narrow-window
-limitation as deferred work; no operator acceptance check remains open.
+limitation as deferred work; no operator acceptance check for this ADR remains open.
 
 Amended 2026-09-10: [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md)
 corrects stale service-state flashes and disappearing stream controls. Its

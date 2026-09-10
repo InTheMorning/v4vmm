@@ -2,9 +2,17 @@
 
 ## Status
 
-Accepted - 2026-05-08. Implementation partial: follow-up fixes landed.
-Operator visual recheck outstanding. See
-`docs/reviews/adr-0043-review-checklist.md`.
+Accepted - 2026-05-08.
+
+Implementation partial: toolbar search is built; the surviving normal/narrow,
+light/dark readability check remains open in
+[task 004](../tasks/adr-0043-task-004-guards-and-visual-readiness.md).
+
+Amended 2026-09-10: reconciled this record with ADRs 0046, 0047, 0048, 0060,
+and 0062. Retired the toolbar player, global scope controls, Search workspace,
+and separate Recent Feeds requirements. The
+[review checklist](../reviews/adr-0043-review-checklist.md) names each
+replacement and the surviving gate; no new visual acceptance is claimed.
 
 ## Context
 
@@ -29,29 +37,18 @@ search rows.
 
 ## Decision
 
-Replace the current tab-bar-shaped top strip with an app toolbar that
-has three stable zones:
+The toolbar owns one global search input. `TopApp` binds input and commands;
+`AppToolbarVm` owns presentation facts. Enter and the Search action submit the
+query. Local matches remain limited to library members.
 
-- Leading: a subtle app mark and navigation tabs.
-- Center: one global search field with scope control.
-- Trailing: a framed Now Playing region containing track state and
-  existing transport controls.
+The current routing, navigation, and section set belong to ADRs 0047, 0048,
+and 0060. Source filtering belongs to the content frame under ADR 0047.
+ADR 0062 owns Music's default content. This ADR retains search input ownership,
+display contracts, keyboard focus, and readable toolbar geometry.
 
-The global search field is owned by `TopApp`, not by Library or Search.
-Pressing Enter or Search routes to the Search workspace and runs a
-query according to `GlobalSearchScope`:
-
-- `All`: grouped local Library results followed by MusicIndex results.
-- `Library`: local in-library results only.
-- `Index`: MusicIndex results only.
-
-The Discover tab becomes the Search workspace. Its empty state may
-continue to show recent feeds/discovery content when no global query is
-active.
-
-Now Playing remains app-shell-owned under `src/app/` because it has one
-top-level call site. It must not be extracted into `ui/composites`
-unless a second real call site appears, per ADR 0042.
+The former three-zone toolbar, `GlobalSearchScope`, Search tab, and separate
+recent-feeds empty state are retired. The checklist's retirement table names
+the superseding ADR for each; those structures are not acceptance criteria.
 
 ## Alternatives Considered
 
@@ -61,9 +58,8 @@ unless a second real call site appears, per ADR 0042.
 - Put global results in an inline toolbar popover. Rejected for v1
   because it introduces more floating chrome and makes grouped result
   rendering harder to verify.
-- Move Now Playing to a bottom bar. Rejected because this macOS-style
-  app should avoid putting important controls at the bottom edge, where
-  windows can be partially obscured.
+- The original rejection of bottom transport placement is retired by
+  ADRs 0046 and 0060; Show transport placement is now owned by ADR 0063.
 - Run remote search live while typing. Deferred because existing
   command behavior is Enter/Search driven and live remote search would
   require cancellation/coalescing policy.
@@ -74,34 +70,29 @@ Positive:
 
 - Search becomes a predictable top-level command, aligned with HIG
   toolbar search guidance.
-- Now Playing gains a clear visual owner and can grow transport affordances
-  without crowding navigation.
-- Library and Search screens lose duplicate search chrome.
+- Playback placement is decided separately from toolbar search.
+- Music and search-origin details share the global search command.
 - The architecture gains explicit toolbar view-model contracts and guards.
 
 Negative:
 
-- `TopApp` owns another input entity and must coordinate routing to the
-  Search workspace.
+- `TopApp` owns the input entity and binds workspace-owned search routing.
 - Search results need a small local query path for in-library matches.
-- Existing Discover search input code must be retired carefully so
-  keyboard focus, recent feeds, and pagination keep working.
+- Narrow toolbar changes require human inspection of input and action
+  readability in both themes.
 
 ## Invariants
 
-- Toolbar display strings, scope labels, placeholders, ids, and
-  accessibility labels live in a GPUI-free view model.
+- Toolbar display strings, placeholders, ids, and accessibility labels live
+  in a GPUI-free view model.
 - The toolbar and app menu do not expose a product name before naming is
   decided. MusicIndex attribution belongs in a future About/settings surface,
   not persistent top-level chrome.
-- Library and Search screens do not create their own visible search
-  fields after this ADR lands.
+- Entity surfaces do not duplicate the global toolbar search field. A
+  frame-local content filter is a separate ADR 0047 affordance.
 - Local Library search returns only tracks currently in the library.
-- MusicIndex type filters apply only to MusicIndex results, not local
-  Library results.
-- Now Playing uses tokens and icon controls with stable hit targets.
-- Now Playing remains in `src/app/` unless a second real call site
-  justifies extraction.
+- Current content filters follow ADR 0047; the retired global scope enum and
+  grouped Search workspace must not be restored to satisfy this record.
 - Visual proof is required in light and dark themes before the feature
   is called complete.
 
@@ -117,4 +108,4 @@ Negative:
 
 - Revisit live local filtering or debounced remote search after the
   toolbar/result architecture is stable.
-- Consider richer Now Playing controls in a future playback-specific ADR.
+- Playback follow-ups belong to the current Show owners under ADRs 0060/0063.

@@ -1,5 +1,14 @@
 # ADR 0044 Playlist Drag Handle Reordering Phase Plan
 
+## Current Scope
+
+Reconciled 2026-09-10. Implementation is recorded; only the
+[task 003 visual check](../tasks/adr-0044-task-003-playlist-reorder-guards-visual.md)
+remains open. ADRs 0046/0047 replaced inspector-owned return controls with
+frame navigation, and ADR 0060 places playlists in Music. The
+[checklist](../reviews/adr-0044-review-checklist.md) names the surviving
+requirements. The sequence below is the earlier implementation record.
+
 ## Goal
 
 Replace playlist row up/down reorder arrows with handle-based

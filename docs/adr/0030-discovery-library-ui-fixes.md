@@ -4,6 +4,15 @@
 
 Accepted - 2026-05-01.
 
+Implementation partial: the task 006 review still records manual scroll
+verification without a later explicit closure. The surviving check is indexed
+in [pending human checks](../pending-human-checks.md).
+
+Amended 2026-09-10: retired separate Discovery and Recent Feeds paths from
+the inherited scroll check under ADRs 0047/0048/0060/0062. Verify bounded
+scrolling on current Music details and Settings; this does not reopen Show's
+accepted task 017 gate. See the [reconciliation review](../reviews/2026-09-10-governance-reconciliation.md).
+
 Amended - 2026-09-07: ADR 0062 withdraws the Recent Feeds
 reachability invariant because the separate Recent Feeds destination was
 removed. The recency query remains as Music's default content source.

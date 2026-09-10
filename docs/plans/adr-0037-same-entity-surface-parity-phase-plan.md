@@ -1,5 +1,14 @@
 # ADR 0037 Same-Entity Surface Parity Phase Plan
 
+## Current Scope
+
+Reconciled 2026-09-10. Tasks 001/002 retain visual acceptance only.
+ADRs 0047/0048/0060 replaced separate Library/Discover screens with local and
+Index origins in Music. ADR 0038 owns the migrated shared helpers. The
+[checklist](../reviews/adr-0037-review-checklist.md) retires old screen/file
+requirements and names current checks. The implementation sequence below is
+historical and must not be rerun to recreate removed screens.
+
 ## Goal
 
 Make the same feed or normal track recognizable across Library and Discover by

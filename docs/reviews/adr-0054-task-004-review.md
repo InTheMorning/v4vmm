@@ -1,5 +1,15 @@
 # ADR 0054 Task 004 Review: Feed Read-Model Hydration
 
+## Current Gate
+
+Reconciled 2026-09-10: implementation evidence below is historical.
+The [current checklist](adr-0054-review-checklist.md) owns the surviving
+visual criteria and retires replaced screen requirements. Follow its linked
+operator procedure; do not rerun the old screen instructions below.
+This packet's visual gate remains open.
+
+## Historical Review
+
 Date: 2026-05-18
 
 ## Reviewed Artifacts
