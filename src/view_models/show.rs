@@ -514,8 +514,10 @@ impl ShowLogPaneDisplay {
 pub(crate) struct PublisherSectionDisplay {
     /// Stable section title.
     pub(crate) title: &'static str,
-    /// Summary label for observed services.
+    /// Combined readiness of the event, attachment, and services.
     pub(crate) summary: String,
+    /// Event setup precedes the producer and publisher (ADR 0059).
+    pub(crate) event: Option<EventSectionDisplay>,
     /// Observed service rows, in fixed section order.
     pub(crate) services: Vec<PublisherServiceDisplay>,
 }
@@ -535,7 +537,11 @@ pub(crate) struct EventSectionDisplay {
     pub(crate) feed_tag: Option<String>,
     /// Operational hint for remote token-file setup.
     pub(crate) hint: Option<String>,
-    /// Attach and detach action state.
+    /// Registration result, independent of the liveness check.
+    pub(crate) registration_message: Option<String>,
+    /// Liveness progress or result.
+    pub(crate) check_message: Option<String>,
+    /// Event setup and target action state.
     pub(crate) actions: EventActionsDisplay,
 }
 
@@ -674,15 +680,87 @@ impl EventActionDisplay {
 /// Display-ready event target actions.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct EventActionsDisplay {
+    /// Register the first event.
+    pub(crate) create: EventActionDisplay,
+    /// Register a replacement for a dead event.
+    pub(crate) replace: EventActionDisplay,
+    /// Check an unknown event, including retries.
+    pub(crate) check: EventActionDisplay,
+    /// Copy the listener feed tag.
+    pub(crate) copy_feed_tag: EventActionDisplay,
     /// Attach action.
     pub(crate) attach: EventActionDisplay,
     /// Detach action.
     pub(crate) detach: EventActionDisplay,
 }
 
+/// Operator intent for registry commands (ADR 0059).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum EventRegistryAction {
+    Create,
+    Replace,
+    Check,
+}
+
+/// A command result retained across mounted-view reprojection.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) enum EventCommandState {
+    #[default]
+    Idle,
+    Working,
+    Succeeded,
+    Failed {
+        detail: String,
+    },
+}
+
+/// Registration and checking have independent results (ADR 0059).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct EventCommandFeedback {
+    pub(crate) registration: EventCommandState,
+    pub(crate) check: EventCommandState,
+}
+
+impl EventCommandFeedback {
+    pub(crate) fn working(&self) -> bool {
+        matches!(self.registration, EventCommandState::Working)
+            || matches!(self.check, EventCommandState::Working)
+    }
+
+    fn registration_message(&self) -> Option<String> {
+        match &self.registration {
+            EventCommandState::Idle => None,
+            EventCommandState::Working => Some("Registering event…".to_owned()),
+            EventCommandState::Succeeded => Some("Event registered. Token file saved.".to_owned()),
+            EventCommandState::Failed { detail } => Some(format!("Registration failed: {detail}")),
+        }
+    }
+
+    fn check_message(&self) -> Option<String> {
+        match &self.check {
+            EventCommandState::Idle => None,
+            EventCommandState::Working => Some("Checking event…".to_owned()),
+            EventCommandState::Succeeded => Some("Event check complete.".to_owned()),
+            EventCommandState::Failed { detail } => Some(format!("Event check failed: {detail}")),
+        }
+    }
+}
+
+impl EventActionsDisplay {
+    pub(crate) fn registry_action(&self, action: EventRegistryAction) -> &EventActionDisplay {
+        match action {
+            EventRegistryAction::Create => &self.create,
+            EventRegistryAction::Replace => &self.replace,
+            EventRegistryAction::Check => &self.check,
+        }
+    }
+}
+
 /// Input for projecting an Event section.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct EventSectionInput {
+    /// Independent registration and liveness results.
+    pub(crate) feedback: EventCommandFeedback,
     /// Selected event, if the registry has one.
     pub(crate) selected_event: Option<EventSelectionInput>,
     /// Latest target-list read for the selected publisher host.
@@ -997,14 +1075,12 @@ pub(crate) enum ShowCardKind {
     Source,
     /// Live metadata producer and publisher services.
     LiveMetadata,
-    /// Relay event and publisher target attachment.
-    Event,
     /// Stream encoder status.
     Stream,
 }
 
 impl ShowCardKind {
-    const ORDER: [Self; 4] = [Self::Source, Self::LiveMetadata, Self::Event, Self::Stream];
+    const ORDER: [Self; 3] = [Self::Source, Self::LiveMetadata, Self::Stream];
 
     /// Returns the stable visible title for this card kind.
     #[must_use]
@@ -1012,7 +1088,6 @@ impl ShowCardKind {
         match self {
             Self::Source => "Source",
             Self::LiveMetadata => "Live Metadata",
-            Self::Event => "Event",
             Self::Stream => "Stream",
         }
     }
@@ -1027,8 +1102,6 @@ pub(crate) enum ShowCardStateKind {
     Attention,
     /// The section reports a failed state.
     Failed,
-    /// The section exists but its subject is absent.
-    Absent,
     /// The section state is not known.
     Unknown,
 }
@@ -1209,8 +1282,6 @@ pub(crate) struct ShowPageVm {
     pub(crate) source: Option<SourceSectionDisplay>,
     /// Optional Publisher section; absent sections render nothing.
     pub(crate) publisher: Option<PublisherSectionDisplay>,
-    /// Optional Event section; absent sections render nothing.
-    pub(crate) event: Option<EventSectionDisplay>,
     /// Optional Stream section; absent sections render nothing.
     pub(crate) stream: Option<StreamSectionDisplay>,
     /// Dashboard card summaries in `ShowCardKind` order.
@@ -1292,10 +1363,6 @@ impl ShowPageVm {
         let active = queue.transport.play_pause_state.is_active();
         let source = publisher_snapshot
             .and_then(|snapshot| SourceSectionDisplay::from_snapshot(snapshot, readiness_snapshot));
-        let publisher = match publisher_snapshot {
-            Some(snapshot) => PublisherSectionDisplay::from_snapshot(snapshot, &log_pane),
-            None => None,
-        };
         let publisher_reachable = publisher_snapshot.is_some_and(|snapshot| {
             matches!(
                 source_reachability(snapshot.units.as_slice()),
@@ -1304,13 +1371,10 @@ impl ShowPageVm {
         });
         let event =
             event_input.map(|input| EventSectionDisplay::from_input(input, publisher_reachable));
+        let publisher =
+            PublisherSectionDisplay::from_snapshot(publisher_snapshot, &log_pane, event);
         let stream = publisher_snapshot.map(StreamSectionDisplay::from_snapshot);
-        let cards = show_cards(
-            source.as_ref(),
-            publisher.as_ref(),
-            event.as_ref(),
-            stream.as_ref(),
-        );
+        let cards = show_cards(source.as_ref(), publisher.as_ref(), stream.as_ref());
         Self {
             title: "Show",
             state_label,
@@ -1322,7 +1386,6 @@ impl ShowPageVm {
             }),
             source,
             publisher,
-            event,
             stream,
             cards,
             width_class: ShowWidthClass::default(),
@@ -1424,10 +1487,12 @@ impl ShowPageVm {
                 }
             }
         }
+        if let Some(publisher) = self.publisher.as_mut() {
+            publisher.update_summary();
+        }
         self.cards = show_cards(
             self.source.as_ref(),
             self.publisher.as_ref(),
-            self.event.as_ref(),
             self.stream.as_ref(),
         );
         self
@@ -1446,7 +1511,6 @@ impl ShowPageVm {
         self.cards = show_cards(
             self.source.as_ref(),
             self.publisher.as_ref(),
-            self.event.as_ref(),
             self.stream.as_ref(),
         );
         self
@@ -1508,7 +1572,6 @@ impl ShowPageVm {
 fn show_cards(
     source: Option<&SourceSectionDisplay>,
     publisher: Option<&PublisherSectionDisplay>,
-    event: Option<&EventSectionDisplay>,
     stream: Option<&StreamSectionDisplay>,
 ) -> Vec<ShowCardDisplay> {
     ShowCardKind::ORDER
@@ -1516,7 +1579,6 @@ fn show_cards(
         .filter_map(|kind| match kind {
             ShowCardKind::Source => source.map(ShowCardDisplay::from_source),
             ShowCardKind::LiveMetadata => publisher.map(ShowCardDisplay::from_live_metadata),
-            ShowCardKind::Event => event.map(ShowCardDisplay::from_event),
             ShowCardKind::Stream => stream.map(ShowCardDisplay::from_stream),
         })
         .collect()
@@ -1537,41 +1599,18 @@ impl ShowCardDisplay {
     }
 
     fn from_live_metadata(section: &PublisherSectionDisplay) -> Self {
-        let (state, state_label) = live_metadata_card_state(section.services.as_slice());
-        let primary = section
-            .services
-            .first()
-            .map_or_else(String::new, live_metadata_service_line);
-        let secondary = section
-            .services
-            .get(1)
-            .map_or_else(String::new, live_metadata_service_line);
-
+        let (state, primary) = live_metadata_card_state(section);
+        let state_label = if state == ShowCardStateKind::Ok {
+            "Ready"
+        } else {
+            "Not ready"
+        };
         Self::new(
             ShowCardKind::LiveMetadata,
             state_label,
             state,
-            non_empty_summary_line(&primary, "No services observed"),
-            secondary,
-        )
-    }
-
-    fn from_event(section: &EventSectionDisplay) -> Self {
-        let secondary = if section.event.event_id.is_some() {
-            format!(
-                "Target: {}",
-                non_empty_summary_line(&section.target.label, "unknown")
-            )
-        } else {
-            String::new()
-        };
-
-        Self::new(
-            ShowCardKind::Event,
-            section.event.state.label,
-            event_card_state(section.event.state.state),
-            non_empty_summary_line(&section.event.label, "No event selected"),
-            secondary,
+            primary,
+            section.summary.clone(),
         )
     }
 
@@ -1631,53 +1670,67 @@ const fn source_card_state(state: SourceReachabilityState) -> ShowCardStateKind 
     }
 }
 
-fn live_metadata_card_state(
-    services: &[PublisherServiceDisplay],
-) -> (ShowCardStateKind, &'static str) {
-    if services
+fn live_metadata_card_state(section: &PublisherSectionDisplay) -> (ShowCardStateKind, String) {
+    let Some(event) = &section.event else {
+        return (ShowCardStateKind::Unknown, "Event: loading".to_owned());
+    };
+    let state = match event.event.state.state {
+        EventState::None => Some(ShowCardStateKind::Attention),
+        EventState::Dead => Some(ShowCardStateKind::Failed),
+        EventState::Unknown => Some(ShowCardStateKind::Unknown),
+        EventState::Live => None,
+    };
+    if let Some(state) = state {
+        return (state, format!("Event: {}", event.event.state.label));
+    }
+    match event.target.state {
+        EventTargetAttachmentState::Attached => {}
+        EventTargetAttachmentState::NotAttached => {
+            return (
+                ShowCardStateKind::Attention,
+                "Event: not attached".to_owned(),
+            )
+        }
+        EventTargetAttachmentState::Unknown
+        | EventTargetAttachmentState::CommandsUnavailable
+        | EventTargetAttachmentState::NotReachable
+        | EventTargetAttachmentState::Failed => {
+            return (
+                ShowCardStateKind::Unknown,
+                format!("Event: {}", event.target.label),
+            )
+        }
+    }
+    // The earliest unready row names the remedy; failures decide the section state.
+    let first_unready = section
+        .services
         .iter()
-        .any(|service| matches!(service.state.kind(), PublisherServiceStateKind::Failed))
-    {
-        return (ShowCardStateKind::Failed, "Failed");
+        .find(|service| !matches!(service.state.kind(), PublisherServiceStateKind::Active));
+    if let Some(service) = first_unready {
+        let state = if section
+            .services
+            .iter()
+            .any(|service| matches!(service.state.kind(), PublisherServiceStateKind::Failed))
+        {
+            ShowCardStateKind::Failed
+        } else {
+            ShowCardStateKind::Attention
+        };
+        return (
+            state,
+            format!("{}: {}", service.label, service.state.label()),
+        );
     }
-
-    if services.iter().any(|service| {
-        matches!(
-            service.state.kind(),
-            PublisherServiceStateKind::NotInstalled | PublisherServiceStateKind::NotReachable
-        )
-    }) {
-        return (ShowCardStateKind::Attention, "Needs attention");
+    if section.services.len() != 2 {
+        return (
+            ShowCardStateKind::Attention,
+            "Producer: status unavailable".to_owned(),
+        );
     }
-
-    if services
-        .iter()
-        .any(|service| matches!(service.state.kind(), PublisherServiceStateKind::Unknown))
-    {
-        return (ShowCardStateKind::Unknown, "Unknown");
-    }
-
-    if services
-        .iter()
-        .all(|service| matches!(service.state.kind(), PublisherServiceStateKind::Active))
-    {
-        return (ShowCardStateKind::Ok, "Active");
-    }
-
-    (ShowCardStateKind::Attention, "Needs attention")
-}
-
-fn live_metadata_service_line(service: &PublisherServiceDisplay) -> String {
-    format!("{}: {}", service.label, service.state.label())
-}
-
-const fn event_card_state(state: EventState) -> ShowCardStateKind {
-    match state {
-        EventState::None => ShowCardStateKind::Absent,
-        EventState::Unknown => ShowCardStateKind::Unknown,
-        EventState::Live => ShowCardStateKind::Ok,
-        EventState::Dead => ShowCardStateKind::Failed,
-    }
+    (
+        ShowCardStateKind::Ok,
+        "Event, Producer, Publisher: ready".to_owned(),
+    )
 }
 
 const fn stream_card_state(state: StreamConnectionState) -> ShowCardStateKind {
@@ -1814,6 +1867,7 @@ impl EventSectionDisplay {
             &target,
             input.attach_target_name.trim(),
             publisher_reachable,
+            &input.feedback,
         );
         let summary = match &event.event_id {
             Some(event_id) => format!("{event_id} - {}", target.label),
@@ -1822,6 +1876,8 @@ impl EventSectionDisplay {
 
         Self {
             title: "Event",
+            registration_message: input.feedback.registration_message(),
+            check_message: input.feedback.check_message(),
             summary,
             event,
             target,
@@ -1930,25 +1986,56 @@ impl EventActionsDisplay {
         target: &EventTargetAttachmentDisplay,
         attach_target_name: &str,
         publisher_reachable: bool,
+        feedback: &EventCommandFeedback,
     ) -> Self {
         let has_event = event.event_id.is_some();
-        let event_live_enough = !matches!(event.state.state, EventState::Dead | EventState::None);
+        let event_live_enough = matches!(event.state.state, EventState::Live);
         let commands_ready = matches!(
             target.state,
             EventTargetAttachmentState::Attached | EventTargetAttachmentState::NotAttached
         );
-        let attach_available = has_event
+        let attach_available = !feedback.working()
+            && has_event
             && event_live_enough
             && publisher_reachable
             && commands_ready
             && matches!(target.state, EventTargetAttachmentState::NotAttached)
             && !attach_target_name.is_empty();
-        let detach_available = has_event
+        let detach_available = !feedback.working()
+            && has_event
             && publisher_reachable
             && commands_ready
             && matches!(target.state, EventTargetAttachmentState::Attached);
 
         Self {
+            create: registry_action_display(
+                "event-create",
+                "Create",
+                "Create broadcast event",
+                event.state.state == EventState::None && !feedback.working(),
+            ),
+            replace: registry_action_display(
+                "event-replace",
+                "Replace",
+                "Replace dead broadcast event",
+                event.state.state == EventState::Dead && !feedback.working(),
+            ),
+            check: registry_action_display(
+                "event-check",
+                if matches!(feedback.check, EventCommandState::Failed { .. }) {
+                    "Retry check"
+                } else {
+                    "Check"
+                },
+                "Check selected broadcast event liveness",
+                event.state.state == EventState::Unknown && !feedback.working(),
+            ),
+            copy_feed_tag: registry_action_display(
+                "event-copy-feed-tag",
+                "Copy feed tag",
+                "Copy listener feed tag",
+                has_event,
+            ),
             attach: EventActionDisplay {
                 id: "event-target-attach",
                 label: "Attach",
@@ -1971,6 +2058,20 @@ impl EventActionsDisplay {
                 availability: event_action_availability(detach_available),
             },
         }
+    }
+}
+
+fn registry_action_display(
+    id: &'static str,
+    label: &'static str,
+    a11y_label: &str,
+    available: bool,
+) -> EventActionDisplay {
+    EventActionDisplay {
+        id,
+        label,
+        a11y_label: a11y_label.to_owned(),
+        availability: event_action_availability(available),
     }
 }
 
@@ -2011,24 +2112,39 @@ const fn event_action_availability(available: bool) -> EventActionAvailability {
 
 impl PublisherSectionDisplay {
     fn from_snapshot(
-        snapshot: &broadcast_service_watch::BroadcastServiceWatchSnapshot,
+        snapshot: Option<&broadcast_service_watch::BroadcastServiceWatchSnapshot>,
         log_pane: &ShowLogPaneDisplay,
+        event: Option<EventSectionDisplay>,
     ) -> Option<Self> {
-        if snapshot.units.is_empty() {
-            return None;
-        }
-        let services: Vec<_> = snapshot
-            .units
-            .iter()
+        let mut services: Vec<_> = snapshot
+            .into_iter()
+            .flat_map(|snapshot| &snapshot.units)
             .map(|unit| PublisherServiceDisplay::from_snapshot(unit, log_pane))
             .collect();
-        let summary = service_summary(&services);
-
-        Some(Self {
+        if services.is_empty() && event.is_none() {
+            return None;
+        }
+        services.sort_by_key(|service| match service.role {
+            PublisherServiceRole::Producer => 0,
+            PublisherServiceRole::Publisher => 1,
+        });
+        let mut section = Self {
             title: "Live Metadata",
-            summary,
+            summary: String::new(),
+            event,
             services,
-        })
+        };
+        section.update_summary();
+        Some(section)
+    }
+
+    fn update_summary(&mut self) {
+        if live_metadata_card_state(self).0 == ShowCardStateKind::Ok {
+            "Live Metadata: ready"
+        } else {
+            "Live Metadata: not ready"
+        }
+        .clone_into(&mut self.summary);
     }
 }
 
@@ -2277,25 +2393,6 @@ fn service_logs(
     }
 }
 
-fn service_summary(services: &[PublisherServiceDisplay]) -> String {
-    let failed_count = services
-        .iter()
-        .filter(|service| {
-            matches!(
-                service.state,
-                PublisherServiceStateDisplay::Failed { .. }
-                    | PublisherServiceStateDisplay::NotInstalled
-                    | PublisherServiceStateDisplay::NotReachable
-            )
-        })
-        .count();
-    if failed_count == 0 {
-        format!("{} services observed", services.len())
-    } else {
-        format!("{failed_count} services need attention")
-    }
-}
-
 fn source_reachability(
     units: &[broadcast_service_watch::BroadcastServiceUnitSnapshot],
 ) -> SourceReachabilityState {
@@ -2395,7 +2492,6 @@ mod tests {
         assert!(vm.now_playing.is_none());
         assert!(vm.source.is_none());
         assert!(vm.publisher.is_none());
-        assert!(vm.event.is_none());
         assert!(vm.stream.is_none());
         assert!(vm.cards.is_empty());
         assert_eq!(vm.width_class, ShowWidthClass::default());
@@ -2474,9 +2570,12 @@ mod tests {
                 "musicindex-live-publisher@mixxx.service",
                 state,
             )]);
-            let publisher =
-                PublisherSectionDisplay::from_snapshot(&snapshot, &ShowLogPaneDisplay::closed())
-                    .expect("publisher section");
+            let publisher = PublisherSectionDisplay::from_snapshot(
+                Some(&snapshot),
+                &ShowLogPaneDisplay::closed(),
+                None,
+            )
+            .expect("publisher section");
             cards.push(ShowCardDisplay::from_live_metadata(&publisher));
         }
 
@@ -2502,7 +2601,13 @@ mod tests {
                 },
             );
             let event = EventSectionDisplay::from_input(&input, true);
-            cards.push(ShowCardDisplay::from_event(&event));
+            let publisher = PublisherSectionDisplay::from_snapshot(
+                None,
+                &ShowLogPaneDisplay::closed(),
+                Some(event),
+            )
+            .unwrap();
+            cards.push(ShowCardDisplay::from_live_metadata(&publisher));
         }
 
         for state in [
@@ -2555,7 +2660,6 @@ mod tests {
 
         assert!(vm.source.is_none());
         assert!(vm.publisher.is_none());
-        assert!(vm.event.is_none());
         assert_eq!(
             vm.cards.iter().map(|card| card.kind).collect::<Vec<_>>(),
             vec![ShowCardKind::Stream]
@@ -2639,11 +2743,11 @@ mod tests {
     fn show_panel_mode_defaults_to_cuelist_and_detail_holds_one_card() {
         assert_eq!(ShowPanelMode::default(), ShowPanelMode::Cuelist);
 
-        let detail = ShowPanelMode::Detail(ShowCardKind::Event);
+        let detail = ShowPanelMode::Detail(ShowCardKind::LiveMetadata);
         let ShowPanelMode::Detail(kind) = detail else {
             panic!("detail mode must hold one card kind");
         };
-        assert_eq!(kind, ShowCardKind::Event);
+        assert_eq!(kind, ShowCardKind::LiveMetadata);
     }
 
     #[test]
@@ -2678,7 +2782,7 @@ mod tests {
 
     #[test]
     fn show_panel_mode_is_exclusive_and_preserved_across_projection() {
-        let detail = ShowPanelMode::Detail(ShowCardKind::Event);
+        let detail = ShowPanelMode::Detail(ShowCardKind::LiveMetadata);
         assert!(!matches!(detail, ShowPanelMode::Cuelist));
 
         let vm = ShowPageVm::from_queue(QueueNowPlayingPageVm::builder().build())
@@ -2705,10 +2809,12 @@ mod tests {
                 },
             ),
         ]);
-        let vm = ShowPageVm::from_queue_and_publisher(
+        let vm = ShowPageVm::from_queue_publisher_readiness_and_event(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
             ShowLogPaneDisplay::closed(),
+            None,
+            Some(&ready_event_input()),
         );
         let card = vm
             .cards
@@ -2717,11 +2823,11 @@ mod tests {
             .expect("live metadata card");
 
         assert_eq!(card.state, ShowCardStateKind::Failed);
-        assert_eq!(card.state_label, "Failed");
+        assert_eq!(card.state_label, "Not ready");
     }
 
     #[test]
-    fn live_metadata_card_uses_two_service_lines() {
+    fn live_metadata_card_names_earliest_unready_row_and_section_state() {
         let snapshot = publisher_snapshot([
             (
                 PublisherServiceRole::Publisher,
@@ -2734,10 +2840,12 @@ mod tests {
                 ServiceState::Inactive,
             ),
         ]);
-        let vm = ShowPageVm::from_queue_and_publisher(
+        let vm = ShowPageVm::from_queue_publisher_readiness_and_event(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
             ShowLogPaneDisplay::closed(),
+            None,
+            Some(&ready_event_input()),
         );
         let card = vm
             .cards
@@ -2745,8 +2853,8 @@ mod tests {
             .find(|card| card.kind == ShowCardKind::LiveMetadata)
             .expect("live metadata card");
 
-        assert_eq!(card.primary, "Publisher: Active");
-        assert_eq!(card.secondary, "Producer: Inactive");
+        assert_eq!(card.primary, "Producer: Inactive");
+        assert_eq!(card.secondary, "Live Metadata: not ready");
     }
 
     #[test]
@@ -2785,20 +2893,20 @@ mod tests {
             })
         );
         assert_eq!(publisher.title, "Live Metadata");
-        assert_eq!(publisher.summary, "2 services observed");
+        assert_eq!(publisher.summary, "Live Metadata: not ready");
         assert_eq!(publisher.services.len(), 2);
         assert_eq!(
-            publisher.services[0].state,
+            publisher.services[1].state,
             PublisherServiceStateDisplay::Active
         );
-        assert!(publisher.services[0].actions.start.disabled());
-        assert!(!publisher.services[0].actions.stop.disabled());
+        assert!(publisher.services[1].actions.start.disabled());
+        assert!(!publisher.services[1].actions.stop.disabled());
         assert_eq!(
-            publisher.services[1].state,
+            publisher.services[0].state,
             PublisherServiceStateDisplay::Inactive
         );
-        assert!(!publisher.services[1].actions.start.disabled());
-        assert!(publisher.services[1].actions.stop.disabled());
+        assert!(!publisher.services[0].actions.start.disabled());
+        assert!(publisher.services[0].actions.stop.disabled());
         assert_eq!(
             vm.stream.expect("stream section").connection.state,
             StreamConnectionState::NotInstalled
@@ -2999,7 +3107,11 @@ mod tests {
             None,
             Some(&input),
         );
-        let event = vm.event.expect("event section");
+        let event = vm
+            .publisher
+            .expect("live metadata")
+            .event
+            .expect("event row");
 
         assert_eq!(event.title, "Event");
         assert_eq!(event.event.label, "Late Night");
@@ -3028,7 +3140,7 @@ mod tests {
                 event_id: "event-one".to_owned(),
                 endpoint: "https://relay.example".to_owned(),
                 token_path: "/tmp/event-one.token".to_owned(),
-                state: EventState::Unknown,
+                state: EventState::Live,
                 token_file_missing: false,
             }),
             EventTargetListInput::Loaded {
@@ -3046,7 +3158,11 @@ mod tests {
             None,
             Some(&input),
         );
-        let event = vm.event.expect("event section");
+        let event = vm
+            .publisher
+            .expect("live metadata")
+            .event
+            .expect("event row");
 
         assert_eq!(event.target.state, EventTargetAttachmentState::NotAttached);
         assert_eq!(event.target.label, "not attached");
@@ -3108,12 +3224,16 @@ mod tests {
         );
 
         assert!(dead_vm
+            .publisher
+            .expect("live metadata")
             .event
             .expect("dead event section")
             .actions
             .attach
             .disabled());
         assert!(unreachable_vm
+            .publisher
+            .expect("live metadata")
             .event
             .expect("unreachable event section")
             .actions
@@ -3147,7 +3267,11 @@ mod tests {
             None,
             Some(&input),
         );
-        let event = vm.event.expect("event section");
+        let event = vm
+            .publisher
+            .expect("live metadata")
+            .event
+            .expect("event row");
 
         assert_eq!(
             event.target.state,
@@ -3192,7 +3316,12 @@ mod tests {
         );
 
         assert_eq!(
-            vm.event.expect("event section").hint.as_deref(),
+            vm.publisher
+                .expect("live metadata")
+                .event
+                .expect("event row")
+                .hint
+                .as_deref(),
             Some("Token file is missing locally; copy it to the publisher host.")
         );
     }
@@ -3491,7 +3620,7 @@ mod tests {
             .toggle_publisher_logs(PublisherServiceRole::Producer)
             .unwrap();
         vm = ShowPageVm::from_queue_and_publisher(vm.queue.clone(), None, vm.log_pane.clone())
-            .with_panel_state(ShowPanelMode::Detail(ShowCardKind::Event), false);
+            .with_panel_state(ShowPanelMode::Detail(ShowCardKind::LiveMetadata), false);
         let pane = vm.log_pane.clone();
         assert!(!vm
             .log_pane
@@ -3505,7 +3634,10 @@ mod tests {
         assert!(!vm
             .log_pane
             .apply_result(current, Ok("duplicate".to_owned())));
-        assert_eq!(vm.panel_mode, ShowPanelMode::Detail(ShowCardKind::Event));
+        assert_eq!(
+            vm.panel_mode,
+            ShowPanelMode::Detail(ShowCardKind::LiveMetadata)
+        );
         assert!(!vm.panel_open);
     }
 
@@ -3610,11 +3742,271 @@ mod tests {
         }
     }
 
+    fn ready_event_input() -> EventSectionInput {
+        event_input(
+            Some(EventSelectionInput {
+                label: None,
+                event_id: "event-one".to_owned(),
+                endpoint: "https://relay.example".to_owned(),
+                token_path: "/tmp/event-one.token".to_owned(),
+                state: EventState::Live,
+                token_file_missing: false,
+            }),
+            EventTargetListInput::Loaded {
+                targets: vec![EventTargetInput {
+                    name: "default".to_owned(),
+                    event_id: "event-one".to_owned(),
+                }],
+            },
+        )
+    }
+
+    /// Situational ADR 0059: event liveness and attachment precede running services.
+    #[test]
+    fn show_event_readiness_table_covers_liveness_and_every_attachment_result() {
+        let snapshot = publisher_snapshot([
+            (
+                PublisherServiceRole::Publisher,
+                "publisher.service",
+                ServiceState::Active,
+            ),
+            (
+                PublisherServiceRole::Producer,
+                "producer.service",
+                ServiceState::Active,
+            ),
+        ]);
+        for (state, expected, action) in [
+            (
+                EventState::None,
+                ShowCardStateKind::Attention,
+                Some(EventRegistryAction::Create),
+            ),
+            (
+                EventState::Dead,
+                ShowCardStateKind::Failed,
+                Some(EventRegistryAction::Replace),
+            ),
+            (
+                EventState::Unknown,
+                ShowCardStateKind::Unknown,
+                Some(EventRegistryAction::Check),
+            ),
+            (EventState::Live, ShowCardStateKind::Ok, None),
+        ] {
+            let mut input = ready_event_input();
+            if state == EventState::None {
+                input.selected_event = None;
+            } else {
+                input.selected_event.as_mut().unwrap().state = state;
+            }
+            let vm = ShowPageVm::from_queue_publisher_readiness_and_event(
+                QueueNowPlayingPageVm::builder().build(),
+                Some(&snapshot),
+                ShowLogPaneDisplay::closed(),
+                None,
+                Some(&input),
+            );
+            assert_eq!(vm.cards.len(), 3);
+            let card = vm
+                .cards
+                .iter()
+                .find(|card| card.kind == ShowCardKind::LiveMetadata)
+                .unwrap();
+            assert_eq!(card.state, expected);
+            let section = vm.publisher.unwrap();
+            assert_eq!(
+                section.services.iter().map(|s| s.label).collect::<Vec<_>>(),
+                ["Producer", "Publisher"]
+            );
+            let event = section.event.unwrap();
+            for candidate in [
+                EventRegistryAction::Create,
+                EventRegistryAction::Replace,
+                EventRegistryAction::Check,
+            ] {
+                let display = event.actions.registry_action(candidate);
+                assert_eq!(!display.disabled(), action == Some(candidate));
+                assert!(!display.a11y_label.is_empty());
+            }
+            assert_eq!(
+                event.actions.copy_feed_tag.disabled(),
+                state == EventState::None
+            );
+            if state != EventState::None {
+                assert!(event.feed_tag.unwrap().contains("event-one"));
+            }
+        }
+        for (targets, expected, attach) in [
+            (
+                EventTargetListInput::Unknown,
+                ShowCardStateKind::Unknown,
+                false,
+            ),
+            (
+                EventTargetListInput::CommandsUnavailable,
+                ShowCardStateKind::Unknown,
+                false,
+            ),
+            (
+                EventTargetListInput::NotReachable,
+                ShowCardStateKind::Unknown,
+                false,
+            ),
+            (
+                EventTargetListInput::Failed {
+                    detail: "query rejected".to_owned(),
+                },
+                ShowCardStateKind::Unknown,
+                false,
+            ),
+            (
+                EventTargetListInput::Loaded { targets: vec![] },
+                ShowCardStateKind::Attention,
+                true,
+            ),
+        ] {
+            let mut input = ready_event_input();
+            input.targets = targets;
+            let event = EventSectionDisplay::from_input(&input, true);
+            assert_eq!(!event.actions.attach.disabled(), attach);
+            assert!(!event.target.detail.is_empty());
+            let section = PublisherSectionDisplay::from_snapshot(
+                Some(&snapshot),
+                &ShowLogPaneDisplay::closed(),
+                Some(event),
+            )
+            .unwrap();
+            assert_eq!(live_metadata_card_state(&section).0, expected);
+        }
+    }
+
+    /// Situational ADR 0059: stopped, transient, absent, and unknown services cannot read Ready.
+    #[test]
+    fn show_event_readiness_table_covers_every_service_state() {
+        for state in [
+            PublisherServiceStateDisplay::Active,
+            PublisherServiceStateDisplay::Inactive,
+            PublisherServiceStateDisplay::Starting,
+            PublisherServiceStateDisplay::Stopping,
+            PublisherServiceStateDisplay::Working,
+            PublisherServiceStateDisplay::Unknown,
+            PublisherServiceStateDisplay::NotInstalled,
+            PublisherServiceStateDisplay::NotReachable,
+            PublisherServiceStateDisplay::Failed {
+                reason: "exit-code".to_owned(),
+            },
+        ] {
+            for role in [
+                PublisherServiceRole::Producer,
+                PublisherServiceRole::Publisher,
+            ] {
+                let snapshot = publisher_snapshot([
+                    (
+                        PublisherServiceRole::Publisher,
+                        "publisher.service",
+                        ServiceState::Active,
+                    ),
+                    (
+                        PublisherServiceRole::Producer,
+                        "producer.service",
+                        ServiceState::Active,
+                    ),
+                ]);
+                let mut section = PublisherSectionDisplay::from_snapshot(
+                    Some(&snapshot),
+                    &ShowLogPaneDisplay::closed(),
+                    Some(EventSectionDisplay::from_input(&ready_event_input(), true)),
+                )
+                .unwrap();
+                section
+                    .services
+                    .iter_mut()
+                    .find(|service| service.role == role)
+                    .unwrap()
+                    .state = state.clone();
+                section.update_summary();
+                let card = ShowCardDisplay::from_live_metadata(&section);
+                let expected = match state {
+                    PublisherServiceStateDisplay::Active => ShowCardStateKind::Ok,
+                    PublisherServiceStateDisplay::Failed { .. } => ShowCardStateKind::Failed,
+                    _ => ShowCardStateKind::Attention,
+                };
+                assert_eq!(card.state, expected, "{role:?}: {state:?}");
+                if state != PublisherServiceStateDisplay::Active {
+                    assert!(card.primary.starts_with(service_label(role)));
+                    assert_eq!(card.secondary, "Live Metadata: not ready");
+                }
+            }
+        }
+    }
+
+    /// Situational ADR 0059: busy commands serialize; a failed check preserves registration success.
+    #[test]
+    fn show_event_unknown_check_retry_and_working_actions_are_typed() {
+        let mut input = ready_event_input();
+        input.selected_event.as_mut().unwrap().state = EventState::Unknown;
+        input.targets = EventTargetListInput::Loaded { targets: vec![] };
+        let event = EventSectionDisplay::from_input(&input, true);
+        assert_eq!(event.actions.check.label, "Check");
+        assert!(!event.actions.check.disabled());
+        assert!(
+            event.actions.create.disabled()
+                && event.actions.replace.disabled()
+                && event.actions.attach.disabled()
+        );
+        for state in [EventState::None, EventState::Dead, EventState::Unknown] {
+            let mut busy = input.clone();
+            if state == EventState::None {
+                busy.selected_event = None;
+            } else {
+                busy.selected_event.as_mut().unwrap().state = state;
+            }
+            for feedback in [
+                EventCommandFeedback {
+                    registration: EventCommandState::Working,
+                    check: EventCommandState::Idle,
+                },
+                EventCommandFeedback {
+                    registration: EventCommandState::Succeeded,
+                    check: EventCommandState::Working,
+                },
+            ] {
+                busy.feedback = feedback;
+                let event = EventSectionDisplay::from_input(&busy, true);
+                assert!(
+                    event.actions.create.disabled()
+                        && event.actions.replace.disabled()
+                        && event.actions.check.disabled()
+                );
+                assert!(event.registration_message.is_some() || event.check_message.is_some());
+            }
+        }
+        input.feedback = EventCommandFeedback {
+            registration: EventCommandState::Succeeded,
+            check: EventCommandState::Failed {
+                detail: "connection lost".to_owned(),
+            },
+        };
+        let event = EventSectionDisplay::from_input(&input, true);
+        assert_eq!(event.event.state.state, EventState::Unknown);
+        assert_eq!(event.actions.check.label, "Retry check");
+        assert!(!event.actions.check.disabled());
+        assert!(
+            event.actions.create.disabled()
+                && event.actions.replace.disabled()
+                && event.actions.attach.disabled()
+        );
+        assert!(event.registration_message.unwrap().contains("registered"));
+        assert!(event.check_message.unwrap().contains("connection lost"));
+    }
+
     fn event_input(
         selected_event: Option<EventSelectionInput>,
         targets: EventTargetListInput,
     ) -> EventSectionInput {
         EventSectionInput {
+            feedback: EventCommandFeedback::default(),
             selected_event,
             targets,
             attach_target_name: "default".to_owned(),

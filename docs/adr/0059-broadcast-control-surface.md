@@ -2,18 +2,24 @@
 
 ## Status
 
-Accepted - 2026-09-09. Implementation partial: tasks 001-015 complete and
-verified by `docs/reviews/adr-0059-implementation-review.md`, task 016
-outstanding.
+Implemented - 2026-09-09.
 
-The 2026-09-09 amendment that makes `Event` a row of `Live Metadata` opened that
-task. ADR 0057 keeps the status at `Accepted` until every gate closes, and
-forbids a fifth status for a partial state.
+Tasks 001-015 are verified by the
+[implementation review](../reviews/adr-0059-implementation-review.md).
+[Task 016](../tasks/adr-0059-task-016-event-row-in-live-metadata.md) records Green
+mechanical checks and operator acceptance of all event recovery checks in
+[the fixture walkthrough](../runbooks/broadcast-event-recovery-check.md).
+
+Reconciled 2026-09-09: the operator confirmed all broadcast event recovery tests
+pass, closing the final gate opened by the amendment that moves Event into
+Live Metadata. The status returns to `Implemented` under ADR 0057.
 
 Amended 2026-09-09: event setup includes explicit Create, Replace, and retryable
 Check actions. A dead entry stays selected, and a failed check after successful
 registration must not strand the operator or discard the new identity. Task 016
-specifies the action states and recovery tests.
+specifies the action states and recovery tests. The same-day implementation
+replaces the now-guarded event ownership, action, and readiness instructions
+below with their guard references, following ADR 0061.
 
 Amended 2026-09-06: the `Event` section must show the ready-to-paste
 `podcast:liveValue` tag with a copy action. Listener apps discover a live event
@@ -128,25 +134,23 @@ list of events that the operator created.
 A dead event must not cause an automatic replacement. A new event has a new
 identifier, and listeners must then tune again. The operator makes that choice.
 
-Amended 2026-09-09: the event row offers `Create` with no selected event and
-`Replace` with a selected dead event. Replace registers a new event and leaves
-the dead entry for Forget. Neither action attaches; attachment is a separate
-operator action that changes publisher configuration.
+Amended 2026-09-09: registry command ownership and separation from publisher
+mutation are enforced by
+`adr_0059_event_row_precedes_services_and_registry_actions_do_not_attach`
+(situational, ADR 0059) in `tests/architecture_tests.rs`.
 
-Successful registration shows the new identifier and token path immediately,
-then requests a liveness check for that identifier. Registration success remains
-visible if the check fails. An unknown event offers `Check`, or `Retry check`
-after failure, for that same identifier. A successful read establishes `Live`;
-`404` establishes `Dead`; a failed read preserves the stored status. A retry
-never registers another event or changes publisher configuration. Create,
-Replace, and Attach remain unavailable while liveness is unknown, and a failed
-check makes retry available again.
+The `show_event_*` tests in `src/app/show.rs` and `src/view_models/show.rs`
+enforce registration/check transitions, typed action availability, preserved
+identity and token files, retention of the old dead entry, and mounted-row
+projection. They cover failed reads, retry Live, retry 404, repeated failure,
+failed status storage, and obsolete refreshes.
 
-The existing registry service owns creation and stored liveness updates.
-Application commands call it; the view model owns action availability and
-separate registration/check feedback; the mounted row presents the result.
-[Task 016](../tasks/adr-0059-task-016-event-row-in-live-metadata.md) owns this
-flow and its mechanical and operator verification.
+A dead entry stays in the registry, so an operator needs Replace as well as
+Create. Registration and checking have separate results because a failed query
+does not undo the identity the relay just issued. Attachment is a separate
+operator decision because it changes publisher configuration.
+[Task 016](../tasks/adr-0059-task-016-event-row-in-live-metadata.md) records the
+implementation and completed operator verification.
 
 ### Tokens Are Files
 
@@ -202,25 +206,15 @@ Amended 2026-09-08. The section that holds the two services is named
 metadata publisher, so the section name states what the two services do. The
 services keep the names `Producer` and `Publisher` inside it.
 
-Amended 2026-09-09. **`Event` is not a section. It is the first row of
-`Live Metadata`.** There are three sections: `Source`, `Live Metadata`, and
-`Stream`.
+Event's nested ownership and detail order are enforced by
+`adr_0059_event_row_precedes_services_and_registry_actions_do_not_attach`
+(situational, ADR 0059). The `show_event_readiness_table_*` view-model tests
+cover the combined event, attachment, and service state.
 
-An event is not a peer of the two services. It is the identity they publish to,
-and without one the publisher has nothing to send. The rows of `Live Metadata`
-now read in the order the chain depends on them:
-
-1. `Event`, the identity the publisher writes to
-2. `Producer`, which writes the drop file
-3. `Publisher`, which sends what the producer wrote
-
-Each row is a precursor of the one under it. A reader who starts at the top and
-stops at the first row that is not ready has found the thing to fix.
-
-The state of `Live Metadata` accounts for the event. **No event means the
-section is not ready, whatever the two services report.** Two running services
-with no event publish nothing, and a card that reads `Active` in that state is
-telling the operator a comfortable lie.
+An event is the identity the services publish to. Without a live, attached
+event, two running services still publish nothing. A failed attachment query
+provides no evidence of absence, and a stopped service does no work. Chain
+order puts the earliest problem before the components that depend on it.
 
 A section is an optional field on `ShowPageVm` and a group of callbacks on
 `ShowSlots`. An absent section renders nothing. It does not render as

@@ -10,8 +10,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, AnyElement, App, ClickEvent, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, RenderOnce, SharedString, Styled, Window,
+    div, prelude::*, AnyElement, App, ClickEvent, ClipboardItem, FontWeight, InteractiveElement,
+    IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window,
 };
 
 use crate::ui::control_styles::ControlStyle;
@@ -47,8 +47,6 @@ pub(crate) struct ShowDetailPanelDisplay {
     pub(crate) source: Option<SourceSectionDisplay>,
     /// Live Metadata detail display, when available.
     pub(crate) publisher: Option<PublisherSectionDisplay>,
-    /// Event detail display, when available.
-    pub(crate) event: Option<EventSectionDisplay>,
     /// Stream detail display, when available.
     pub(crate) stream: Option<StreamSectionDisplay>,
 }
@@ -65,6 +63,9 @@ pub(crate) struct ShowDetailPanelSlots {
     publisher_stop: Option<PublisherClickHandler>,
     publisher_reset: Option<PublisherClickHandler>,
     publisher_open_logs: Option<PublisherClickHandler>,
+    event_create: Option<PanelClickHandler>,
+    event_replace: Option<PanelClickHandler>,
+    event_check: Option<PanelClickHandler>,
     event_attach: Option<PanelClickHandler>,
     event_detach: Option<PanelClickHandler>,
     stream_connect: Option<PanelClickHandler>,
@@ -149,6 +150,33 @@ impl ShowDetailPanelSlots {
         self
     }
 
+    /// Supplies the event registration callback.
+    pub(crate) fn on_create_event(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.event_create = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the event replacement callback.
+    pub(crate) fn on_replace_event(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.event_replace = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the event liveness check callback.
+    pub(crate) fn on_check_event(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.event_check = Some(Rc::new(handler));
+        self
+    }
+
     /// Supplies the Event target attach callback.
     pub(crate) fn on_attach_event_target(
         mut self,
@@ -197,7 +225,6 @@ pub(crate) struct ShowDetailPanel {
 struct ShowDetailSections {
     source: Option<SourceSectionDisplay>,
     publisher: Option<PublisherSectionDisplay>,
-    event: Option<EventSectionDisplay>,
     stream: Option<StreamSectionDisplay>,
 }
 
@@ -218,13 +245,11 @@ impl RenderOnce for ShowDetailPanel {
             queue,
             source,
             publisher,
-            event,
             stream,
         } = self.display;
         let sections = ShowDetailSections {
             source,
             publisher,
-            event,
             stream,
         };
 
@@ -369,10 +394,6 @@ fn render_card_detail(
             || render_missing_detail(kind, cx),
             |section| render_publisher_detail(section, slots, cx).into_any_element(),
         ),
-        ShowCardKind::Event => sections.event.map_or_else(
-            || render_missing_detail(kind, cx),
-            |section| render_event_detail(section, slots, cx).into_any_element(),
-        ),
         ShowCardKind::Stream => sections.stream.map_or_else(
             || render_missing_detail(kind, cx),
             |section| render_stream_detail(section, slots, cx).into_any_element(),
@@ -431,9 +452,10 @@ fn render_publisher_detail(
     slots: &ShowDetailPanelSlots,
     cx: &App,
 ) -> impl IntoElement {
-    let mut detail =
-        detail_stack(cx).child(render_detail_row("Summary", section.summary, None, cx));
-
+    let mut detail = detail_stack(cx);
+    if let Some(event) = section.event {
+        detail = detail.child(render_event_detail(event, slots, cx));
+    }
     for service in section.services {
         detail = detail.child(render_publisher_service(service, slots, cx));
     }
@@ -491,7 +513,11 @@ fn render_event_detail(
     slots: &ShowDetailPanelSlots,
     cx: &App,
 ) -> impl IntoElement {
-    let mut detail = detail_stack(cx)
+    let mut detail = div()
+        .flex()
+        .flex_col()
+        .min_w_0()
+        .gap(Spacing::SM.scaled(cx))
         .child(render_detail_row(
             "Event",
             section.event.label,
@@ -511,6 +537,29 @@ fn render_event_detail(
             cx,
         ));
 
+    detail = detail.child(render_controls(
+        vec![
+            event_action_button(section.actions.create, slots.event_create.clone())
+                .into_any_element(),
+            event_action_button(section.actions.replace, slots.event_replace.clone())
+                .into_any_element(),
+            event_action_button(section.actions.check, slots.event_check.clone())
+                .into_any_element(),
+            event_action_button(section.actions.attach, slots.event_attach.clone())
+                .into_any_element(),
+            event_action_button(section.actions.detach, slots.event_detach.clone())
+                .into_any_element(),
+        ],
+        cx,
+    ));
+
+    if let Some(message) = section.registration_message {
+        detail = detail.child(render_detail_row("Registration", message, None, cx));
+    }
+    if let Some(message) = section.check_message {
+        detail = detail.child(render_detail_row("Liveness check", message, None, cx));
+    }
+
     if let Some(event_id) = section.event.event_id {
         detail = detail.child(render_detail_row("Event ID", event_id, None, cx));
     }
@@ -521,26 +570,25 @@ fn render_event_detail(
         detail = detail.child(render_detail_row("Token", token_path, None, cx));
     }
     if let Some(feed_tag) = section.feed_tag {
-        detail = detail.child(render_code_block(
-            "show-event-feed-tag",
-            "Feed tag",
-            feed_tag,
-            cx,
-        ));
+        detail = detail
+            .child(render_code_block(
+                "show-event-feed-tag",
+                "Feed tag",
+                feed_tag.clone(),
+                cx,
+            ))
+            .child(event_action_button(
+                section.actions.copy_feed_tag,
+                Some(Rc::new(move |_, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(feed_tag.clone()));
+                })),
+            ));
     }
     if let Some(hint) = section.hint {
         detail = detail.child(render_detail_row("Hint", hint, None, cx));
     }
 
-    detail.child(render_controls(
-        vec![
-            event_action_button(section.actions.attach, slots.event_attach.clone())
-                .into_any_element(),
-            event_action_button(section.actions.detach, slots.event_detach.clone())
-                .into_any_element(),
-        ],
-        cx,
-    ))
+    detail
 }
 
 fn render_stream_detail(

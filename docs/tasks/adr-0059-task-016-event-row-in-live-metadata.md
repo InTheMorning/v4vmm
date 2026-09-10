@@ -1,9 +1,10 @@
 # ADR 0059 Task 016: Event Becomes The First Row Of Live Metadata
 
-Status: Ready - 2026-09-09. Follows the ADR 0059 amendment of the same day, and
-the ADR 0063 amendment that reduces the grid to three cards. The
-[amendment review](../reviews/adr-0059-task-016-amendment-review.md) is complete;
-implementation and its mechanical and visual acceptance remain outstanding.
+Status: Implemented - 2026-09-09. Mechanical acceptance Green. Operator visual
+acceptance met: all [broadcast event recovery checks](../runbooks/broadcast-event-recovery-check.md)
+passed, confirmed by the operator on 2026-09-09. No acceptance gate remains open.
+The [amendment review](../reviews/adr-0059-task-016-amendment-review.md) remains
+complete; it does not establish visual acceptance.
 
 ## Goal
 
@@ -353,3 +354,94 @@ At the end, report:
 4. deviations from task
 5. unresolved concerns
 6. operator visual check
+
+## Implementation Record - 2026-09-09
+
+- `src/view_models/show.rs`: three card kinds; Event inside Live Metadata;
+  Producer before Publisher; the complete readiness table; typed Create,
+  Replace, Check / Retry check, and Copy feed tag actions; independent
+  registration and check feedback.
+- `src/app/show.rs`: registry commands through the existing command runner;
+  immediate mounted-row projection followed by a check; preserved registry
+  identity and token file after failed checks; refresh protection during and
+  after mutations.
+- `src/ui/composites/show_detail_panel.rs`, `show_card.rs`, and
+  `src/ui/shells/show.rs`: nested event detail, callback slots, shared controls,
+  feed-tag copying, and removal of the Event card.
+- `tests/architecture_tests.rs`: updated three-card assertions and removed the
+  obsolete Absent badge assertion. The queue-separation assertions remain.
+  Added `adr_0059_event_row_precedes_services_and_registry_actions_do_not_attach`
+  (situational, ADR 0059).
+
+The `show_event_*` tests cover both registration paths followed by initial
+failure, retry success, repeated failure, and retry 404. They check one
+registration, stable identity/token path/file, preservation of the old dead
+entry, independent failure feedback, and projected Attach/Replace availability.
+They also cover a failed database status write and a refresh arriving during a
+command. The command boundary has no publisher mutation call; the architecture
+guard protects that separation.
+
+The old detail had no feed-tag Copy control, so this implementation supplies
+it to meet the packet's copy requirement. No registry, target service, runtime,
+Source, or Stream behavior changed. The unused Event-card helper and Absent
+card state were removed. No phase was added.
+
+Verification:
+
+- `cargo test --quiet`: Green, 1,237 unit tests and 213 architecture guards;
+  10 existing documentation tests ignored.
+- `cargo test show --lib --quiet`: Green, 65 tests.
+- `cargo test --test architecture_tests --quiet`: Green, 213 guards.
+- `cargo fmt -- --check`, `cargo check --quiet`,
+  `cargo clippy --quiet -- -D warnings`, and `cargo build --quiet`: Green.
+- Fixture setup, simulated service/target commands, and relay response
+  transitions: Green, without launching the desktop app.
+- Whitespace and 121 relative documentation links: Green.
+
+Documentation added: the fixture walkthrough and its Python fixture under
+`docs/runbooks/`. Documentation updated: this packet, ADR 0059, the ADR index,
+delivery order, pending human checks, broadcast operations, and the docs index.
+No files moved, no folders created, and no repository-root docs changed.
+
+Fixture follow-up - 2026-09-09: the operator encountered the generic invalid
+directory error while changing relay mode. The fixture now distinguishes empty
+arguments from invalid paths and provides `locate` to recover an existing
+directory across terminals. Discovery refuses missing or ambiguous fixtures.
+The walkthrough's situational ADR 0059 directory regression check is Green;
+it also proves an empty argument cannot mutate a fixture in the current
+directory. A subsequent screenshot showed the production endpoint and a token
+path containing the original placeholder directory name: the running window
+had not switched to the recovered fixture. The `verify` command now checks the
+fixture endpoint, database, library, host, and command stubs before launch.
+The extended directory regression check is Green; the walkthrough requires
+checking the displayed Source and endpoint before any event action. These
+fixture corrections were included in the accepted operator walkthrough below.
+
+## Operator Verification - 2026-09-09
+
+The operator screenshots show the isolated fixture with three matching cards,
+no-event Create, registration success followed by a retryable check failure,
+the retained Unknown event after reopening, and Dead with Replace available.
+The operator then reported all steps passed for Replace, its initial check
+failure, retry to Live on the same new event, and explicit Attach changing the
+section to ready. Replacement did not attach automatically.
+
+After the remaining checks were listed, the operator confirmed: "all broadcast
+event recovery tests pass". This closes feed-tag Copy, inactive and failed
+Producer readiness and recovery, resizing and detail-panel checks, and fixture
+registry/token preservation and command separation as well as the event
+recovery sequence above. Mechanical and operator acceptance are complete.
+
+The acceptance uses the isolated relay and simulated services; it does not
+claim production relay or publisher connectivity. The delivery-order row,
+ADR 0059 and its index, and the fixture walkthrough record completion. Task 016
+has been removed from pending human checks.
+
+## Operator Visual Check
+
+Passed - 2026-09-09. No further visual check is required for this implementation.
+The [isolated event recovery walkthrough](../runbooks/broadcast-event-recovery-check.md)
+remains the situational ADR 0059 manual regression check, with numbered setup
+commands, expected and wrong results, and cleanup. It requires Python 3.11 or
+newer, a desktop session, and free port 17863; publisher and service states are
+simulated. The operator ran the desktop app and reported acceptance.

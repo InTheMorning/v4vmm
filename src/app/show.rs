@@ -3,9 +3,10 @@
 //! ADR 0060 moves queue and transport presentation into a screen mount. This
 //! adapter binds existing playback projection and transport callbacks to the
 //! Show shell without introducing a workspace frame.
+//! ADR 0059 places event registration and retryable liveness checks inside Live Metadata.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use gpui::{Context, Entity};
@@ -17,6 +18,7 @@ use crate::application::{
 use crate::broadcast::control::{self, UnitRef};
 use crate::broadcast::encoder::{self, EncoderTarget};
 use crate::broadcast::publisher_targets::{self, PublisherTargetCommandError, PublisherTargetList};
+use crate::broadcast::registry::BroadcastRegistry;
 use crate::broadcast::transport::Transport;
 use crate::config::BroadcastHostConfig;
 use crate::presentation::present_command;
@@ -31,8 +33,9 @@ use crate::ui::shells::show::{render_show, ShowShell, ShowSlots};
 use crate::view_models::live_status::LiveStatusDisplay;
 use crate::view_models::queue_now_playing::QueueNowPlayingPageVm;
 use crate::view_models::show::{
-    EventSectionInput, EventSelectionInput, EventState, EventTargetInput, EventTargetListInput,
-    PublisherServiceRole, ShowCardKind, ShowLogRequestId, ShowPageVm, PUBLISHER_LOG_LINE_COUNT,
+    EventCommandFeedback, EventCommandState, EventRegistryAction, EventSectionInput,
+    EventSelectionInput, EventState, EventTargetInput, EventTargetListInput, PublisherServiceRole,
+    ShowCardKind, ShowLogRequestId, ShowPageVm, PUBLISHER_LOG_LINE_COUNT,
 };
 use crate::view_models::workspace::FrameNavigationEntry;
 use crate::{config, db};
@@ -61,6 +64,7 @@ pub(super) fn build_show_screen(
     let attach_event_entity = entity.clone();
     let detach_event_entity = entity.clone();
     let slots = with_log_slots(ShowSlots::new(), &entity);
+    let slots = with_event_registry_slots(slots, &entity);
     render_show(
         app.show_page.clone().with_window_width(window_width),
         slots
@@ -134,6 +138,29 @@ pub(super) fn build_show_screen(
                 });
             }),
     )
+}
+
+/// Binds the event row's explicit registry actions (ADR 0059).
+fn with_event_registry_slots(slots: ShowSlots, entity: &Entity<TopApp>) -> ShowSlots {
+    let create_event_entity = entity.clone();
+    let replace_event_entity = entity.clone();
+    let check_event_entity = entity.clone();
+    slots
+        .on_create_event(move |_, _, cx| {
+            create_event_entity.update(cx, |this, cx| {
+                this.run_event_registry_command(EventRegistryAction::Create, cx);
+            });
+        })
+        .on_replace_event(move |_, _, cx| {
+            replace_event_entity.update(cx, |this, cx| {
+                this.run_event_registry_command(EventRegistryAction::Replace, cx);
+            });
+        })
+        .on_check_event(move |_, _, cx| {
+            check_event_entity.update(cx, |this, cx| {
+                this.run_event_registry_command(EventRegistryAction::Check, cx);
+            });
+        })
 }
 
 /// Binds independent log reads and shared split resizing to the Show owner (ADR 0063).
@@ -281,6 +308,7 @@ impl TopApp {
     }
 
     pub(super) fn refresh_show_page(&self, cx: &mut Context<Self>) {
+        let requested_event_input = self.event_section_input.clone();
         let command = RefreshShowPage::new(
             Arc::clone(&self.conn),
             Arc::clone(&self.application_services),
@@ -292,8 +320,12 @@ impl TopApp {
             command,
             CommandContext::next(),
             cx,
-            |this, projection, _cx| {
-                this.event_section_input = projection.event_section_input;
+            move |this, projection, _cx| {
+                apply_event_refresh(
+                    &mut this.event_section_input,
+                    requested_event_input.as_ref(),
+                    projection.event_section_input,
+                );
                 this.reproject_show_page(projection.queue);
             },
             |this, error, _cx| {
@@ -477,6 +509,56 @@ impl TopApp {
         cx.notify();
     }
 
+    fn run_event_registry_command(&mut self, action: EventRegistryAction, cx: &mut Context<Self>) {
+        let available = self
+            .show_page
+            .publisher
+            .as_ref()
+            .and_then(|section| section.event.as_ref())
+            .is_some_and(|event| !event.actions.registry_action(action).disabled());
+        if !available {
+            return;
+        }
+        let Some(input) = self.event_section_input.as_mut() else {
+            return;
+        };
+        let command = EventRegistryCommand {
+            conn: Arc::clone(&self.conn),
+            cfg_path: self.cfg_path.clone(),
+            action,
+            selected_event: input.selected_event.clone(),
+        };
+        begin_event_registry_action(input, action);
+        self.reproject_show_page_from_current_queue();
+        cx.notify();
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, event, cx| {
+                let Some(input) = this.event_section_input.as_mut() else {
+                    return;
+                };
+                let next = apply_event_registry_result(input, action, Ok(event));
+                this.reproject_show_page_from_current_queue();
+                cx.notify();
+                if let Some(next) = next {
+                    this.run_event_registry_command(next, cx);
+                } else {
+                    this.refresh_show_page(cx);
+                }
+            },
+            move |this, error, cx| {
+                if let Some(input) = this.event_section_input.as_mut() {
+                    apply_event_registry_result(input, action, Err(error));
+                }
+                this.reproject_show_page_from_current_queue();
+                cx.notify();
+            },
+        );
+    }
+
     fn run_event_target_command(
         &mut self,
         operation: EventTargetOperation,
@@ -615,6 +697,152 @@ impl TopApp {
                 .and_then(|id| self.workspace_layout.frame_nav(id))
                 .is_some_and(|nav| matches!(nav.current(), FrameNavigationEntry::ReadinessIssues))
     }
+}
+
+/// Registry commands have no publisher transport or configuration mutation capability (ADR 0059).
+struct EventRegistryCommand {
+    conn: Arc<Mutex<Connection>>,
+    cfg_path: PathBuf,
+    action: EventRegistryAction,
+    selected_event: Option<EventSelectionInput>,
+}
+
+impl ApplicationCommand for EventRegistryCommand {
+    type Output = EventSelectionInput;
+
+    fn execute(self, context: &CommandContext) -> crate::application::CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| CommandError::Query("database lock poisoned".to_owned()))?;
+        // Revalidate stored identity and liveness before any relay mutation.
+        let selected = selected_event_input(&conn).map_err(event_registry_error)?;
+        if selected != self.selected_event {
+            return Err(CommandError::Other(
+                "Selected event changed; refresh Show before trying again.".to_owned(),
+            ));
+        }
+        let allowed = match self.action {
+            EventRegistryAction::Create => selected.is_none(),
+            EventRegistryAction::Replace => selected
+                .as_ref()
+                .is_some_and(|event| event.state == EventState::Dead),
+            EventRegistryAction::Check => selected
+                .as_ref()
+                .is_some_and(|event| event.state == EventState::Unknown),
+        };
+        if !allowed {
+            return Err(CommandError::Other(
+                "Event action is unavailable in the current state.".to_owned(),
+            ));
+        }
+        let endpoint = match &selected {
+            Some(event) if self.action == EventRegistryAction::Check => event.endpoint.clone(),
+            _ => config::load_musicindex_endpoint(&self.cfg_path).map_err(event_registry_error)?,
+        };
+        let directory = self
+            .cfg_path
+            .parent()
+            .ok_or_else(|| CommandError::Other("Config path has no directory".to_owned()))?
+            .join("broadcast")
+            .join("tokens");
+        let registry = BroadcastRegistry::with_token_directory(&conn, &endpoint, directory)
+            .map_err(event_registry_error)?;
+        let event = match self.action {
+            EventRegistryAction::Create | EventRegistryAction::Replace => {
+                registry
+                    .create_event(None)
+                    .map_err(event_registry_error)?
+                    .event
+            }
+            EventRegistryAction::Check => {
+                let event = selected
+                    .as_ref()
+                    .ok_or_else(|| CommandError::Other("No event selected".to_owned()))?;
+                registry
+                    .check_event(&event.event_id)
+                    .map_err(event_registry_error)?
+                    .event
+            }
+        };
+        Ok(CommandOutcome::without_events(event_selection_input(event)))
+    }
+}
+
+fn event_registry_error(error: impl std::fmt::Display) -> CommandError {
+    CommandError::Other(format!("{error:#}"))
+}
+
+fn begin_event_registry_action(input: &mut EventSectionInput, action: EventRegistryAction) {
+    match action {
+        EventRegistryAction::Create | EventRegistryAction::Replace => {
+            input.feedback = EventCommandFeedback {
+                registration: EventCommandState::Working,
+                check: EventCommandState::Idle,
+            };
+        }
+        EventRegistryAction::Check => input.feedback.check = EventCommandState::Working,
+    }
+}
+
+/// Applies the same mounted-row transition used by the presenter and command regression tests.
+fn apply_event_registry_result(
+    input: &mut EventSectionInput,
+    action: EventRegistryAction,
+    result: Result<EventSelectionInput, CommandError>,
+) -> Option<EventRegistryAction> {
+    match (action, result) {
+        (EventRegistryAction::Create | EventRegistryAction::Replace, Ok(event)) => {
+            input.selected_event = Some(event);
+            // Targets are queried separately after the check; old identity's attachment is not reused.
+            input.targets = EventTargetListInput::Unknown;
+            input.feedback.registration = EventCommandState::Succeeded;
+            Some(EventRegistryAction::Check)
+        }
+        (EventRegistryAction::Check, Ok(event)) => {
+            input.selected_event = Some(event);
+            input.feedback.check = EventCommandState::Succeeded;
+            None
+        }
+        (action, Err(error)) => {
+            let failure = EventCommandState::Failed {
+                detail: error.to_string(),
+            };
+            match action {
+                EventRegistryAction::Check => input.feedback.check = failure,
+                EventRegistryAction::Create | EventRegistryAction::Replace => {
+                    input.feedback.registration = failure;
+                }
+            }
+            None
+        }
+    }
+}
+
+/// A queued refresh cannot overwrite a registration or check completed since it was requested.
+fn apply_event_refresh(
+    current: &mut Option<EventSectionInput>,
+    requested: Option<&EventSectionInput>,
+    mut refreshed: Option<EventSectionInput>,
+) {
+    if current.as_ref() != requested
+        || current
+            .as_ref()
+            .is_some_and(|input| input.feedback.working())
+    {
+        return;
+    }
+    if let (Some(old), Some(new)) = (current.as_ref(), refreshed.as_mut()) {
+        if old.selected_event.as_ref().map(|event| &event.event_id)
+            == new.selected_event.as_ref().map(|event| &event.event_id)
+        {
+            new.feedback = old.feedback.clone();
+        }
+    }
+    *current = refreshed;
 }
 
 struct RefreshShowPage {
@@ -935,14 +1163,18 @@ fn selected_event_input(conn: &Connection) -> anyhow::Result<Option<EventSelecti
     let Some(event) = db::broadcast_events(conn)?.into_iter().next() else {
         return Ok(None);
     };
-    Ok(Some(EventSelectionInput {
+    Ok(Some(event_selection_input(event)))
+}
+
+fn event_selection_input(event: db::BroadcastEventRow) -> EventSelectionInput {
+    EventSelectionInput {
         label: event.label,
         event_id: event.event_id,
         endpoint: event.endpoint,
         token_file_missing: token_file_missing(&event.token_path),
         token_path: event.token_path,
         state: event_state(event.last_status),
-    }))
+    }
 }
 
 fn event_section_input(
@@ -952,6 +1184,7 @@ fn event_section_input(
     let attach_target_name = broadcast.drop_file_target.trim().to_owned();
     let Some(selected_event) = selected_event else {
         return Ok(Some(EventSectionInput {
+            feedback: EventCommandFeedback::default(),
             selected_event: None,
             targets: EventTargetListInput::Unknown,
             attach_target_name,
@@ -971,6 +1204,7 @@ fn event_section_input(
         },
     };
     Ok(Some(EventSectionInput {
+        feedback: EventCommandFeedback::default(),
         selected_event: Some(selected_event),
         targets,
         attach_target_name,
@@ -1088,5 +1322,394 @@ const fn event_target_operation_label(operation: EventTargetOperation) -> &'stat
     match operation {
         EventTargetOperation::Attach => "attach",
         EventTargetOperation::Detach => "detach",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+
+    use crate::broadcast::control::ServiceState;
+    use crate::runtime::broadcast_service_watch::{
+        BroadcastEncoderSnapshot, BroadcastServiceUnitSnapshot,
+    };
+    use crate::view_models::show::{EventSectionDisplay, ShowLogPaneDisplay};
+
+    fn show_event_db(temp: &tempfile::TempDir) -> Connection {
+        let cfg = config::Config {
+            music_dir: temp.path().join("music"),
+            db_path: temp.path().join("app.sqlite"),
+            flac_path: None,
+            playback: config::PlaybackConfig::default(),
+            broadcast: config::BroadcastConfig::default(),
+            ui_scale: config::UiScale::default(),
+            theme_profile: crate::theme_profile::ThemeProfile::default(),
+            workspace_layout: None,
+            workspace: None,
+        };
+        db::open_db(&cfg).unwrap()
+    }
+
+    fn show_event_relay(statuses: Vec<u16>) -> (String, std::thread::JoinHandle<Vec<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let thread = std::thread::spawn(move || {
+            let mut requests = Vec::new();
+            for status in statuses {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    stream.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                }
+                let request = String::from_utf8(request).unwrap();
+                let body_length = request
+                    .lines()
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|length| length.trim().parse::<usize>().unwrap())
+                    })
+                    .unwrap_or(0);
+                stream.read_exact(&mut vec![0; body_length]).unwrap();
+                let line = request.lines().next().unwrap().to_owned();
+                let body = if line.starts_with("POST ") {
+                    serde_json::json!({
+                        "event_id": "event-new", "broadcaster_token": "fixture-secret",
+                        "metadata_url": "/v1/liveitems/event-new/metadata", "events_url": "/events",
+                    })
+                    .to_string()
+                } else {
+                    serde_json::json!({
+                        "event_id": "event-new", "seq": 1, "updated_at": "2026-09-09T00:00:00Z", "metadata": {},
+                    }).to_string()
+                };
+                requests.push(line);
+                write!(stream, "HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            }
+            requests
+        });
+        (endpoint, thread)
+    }
+
+    fn show_event_project(input: &EventSectionInput) -> EventSectionDisplay {
+        let snapshot = BroadcastServiceWatchSnapshot {
+            at: Instant::now(),
+            units: [
+                PublisherServiceRole::Producer,
+                PublisherServiceRole::Publisher,
+            ]
+            .into_iter()
+            .map(|role| BroadcastServiceUnitSnapshot {
+                role,
+                host_name: "Local".to_owned(),
+                unit_name: "fixture.service".to_owned(),
+                state: ServiceState::Active,
+            })
+            .collect(),
+            encoder: BroadcastEncoderSnapshot {
+                server_name: "Not configured".to_owned(),
+                configured: false,
+                status: encoder::EncoderStatus::not_installed(),
+            },
+        };
+        ShowPageVm::from_queue_publisher_readiness_and_event(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&snapshot),
+            ShowLogPaneDisplay::closed(),
+            None,
+            Some(input),
+        )
+        .publisher
+        .unwrap()
+        .event
+        .unwrap()
+    }
+
+    fn show_event_execute(
+        command: EventRegistryCommand,
+        input: &mut EventSectionInput,
+    ) -> Option<EventRegistryAction> {
+        let action = command.action;
+        assert!(!show_event_project(input)
+            .actions
+            .registry_action(action)
+            .disabled());
+        begin_event_registry_action(input, action);
+        let working = show_event_project(input);
+        assert!(
+            working.actions.create.disabled()
+                && working.actions.replace.disabled()
+                && working.actions.check.disabled()
+        );
+        let result = command
+            .execute(&CommandContext::next())
+            .map(|outcome| outcome.into_parts().0);
+        apply_event_registry_result(input, action, result)
+    }
+
+    /// Situational ADR 0059: run real registry commands and the mounted-row presenter transitions.
+    fn show_event_recovery_sequence(action: EventRegistryAction, retry_status: u16) {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = Arc::new(Mutex::new(show_event_db(&temp)));
+        let (endpoint, relay) = show_event_relay(vec![200, 503, retry_status]);
+        let cfg_path = temp.path().join("config.toml");
+        let config_before = format!(
+            "musicindex_endpoint = {endpoint:?}\n[broadcast]\ndrop_file_target = \"default\"\n"
+        );
+        fs::write(&cfg_path, &config_before).unwrap();
+        // A sentinel publisher configuration must survive registration/checking byte for byte.
+        let publisher_path = temp.path().join("publisher-config.toml");
+        fs::write(&publisher_path, "targets = []\n").unwrap();
+        let old = if action == EventRegistryAction::Replace {
+            let token_path = temp.path().join("old.token");
+            crate::broadcast::tokens::write_token_file(&token_path, "old-secret").unwrap();
+            let locked = conn.lock().unwrap();
+            db::insert_broadcast_event(
+                &locked,
+                &db::BroadcastEventInput {
+                    event_id: "event-old".to_owned(),
+                    label: None,
+                    endpoint: endpoint.clone(),
+                    token_path: token_path.to_string_lossy().into_owned(),
+                    created_at: 1,
+                    last_checked_at: Some(2),
+                    last_status: Some(db::BroadcastEventStatus::Dead),
+                },
+            )
+            .unwrap();
+            db::broadcast_event_by_event_id(&locked, "event-old").unwrap()
+        } else {
+            None
+        };
+        let mut input = EventSectionInput {
+            feedback: EventCommandFeedback::default(),
+            selected_event: selected_event_input(&conn.lock().unwrap()).unwrap(),
+            targets: EventTargetListInput::Loaded { targets: vec![] },
+            attach_target_name: "default".to_owned(),
+            remote_host: false,
+        };
+        let command = |action, input: &EventSectionInput| EventRegistryCommand {
+            conn: Arc::clone(&conn),
+            cfg_path: cfg_path.clone(),
+            action,
+            selected_event: input.selected_event.clone(),
+        };
+        let before_registration = Some(input.clone());
+        let next = show_event_execute(command(action, &input), &mut input);
+        assert_eq!(next, Some(EventRegistryAction::Check));
+        let registered = input.selected_event.clone().unwrap();
+        assert_eq!(registered.event_id, "event-new");
+        assert_eq!(registered.state, EventState::Unknown);
+        let token_before = fs::read(&registered.token_path).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            assert_eq!(
+                fs::metadata(&registered.token_path)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+        let row = show_event_project(&input);
+        assert_eq!(row.event.event_id.as_deref(), Some("event-new"));
+        assert_eq!(row.event.token_path.as_ref(), Some(&registered.token_path));
+        assert!(row.registration_message.unwrap().contains("registered"));
+        // A refresh begun before registration must not erase the new identity or feedback.
+        let mut current = Some(input.clone());
+        apply_event_refresh(
+            &mut current,
+            before_registration.as_ref(),
+            before_registration.clone(),
+        );
+        assert_eq!(current, Some(input.clone()));
+        show_event_execute(command(next.unwrap(), &input), &mut input);
+        assert_eq!(input.selected_event.as_ref(), Some(&registered));
+        let failed = show_event_project(&input);
+        assert!(failed.registration_message.unwrap().contains("registered"));
+        assert!(failed.check_message.unwrap().contains("failed"));
+        assert_eq!(failed.actions.check.label, "Retry check");
+        assert!(!failed.actions.check.disabled());
+        assert!(
+            failed.actions.create.disabled()
+                && failed.actions.replace.disabled()
+                && failed.actions.attach.disabled()
+        );
+        show_event_execute(command(EventRegistryAction::Check, &input), &mut input);
+        let stored = selected_event_input(&conn.lock().unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.event_id, registered.event_id);
+        assert_eq!(stored.token_path, registered.token_path);
+        assert_eq!(fs::read(&registered.token_path).unwrap(), token_before);
+        let expected = match retry_status {
+            200 => EventState::Live,
+            404 => EventState::Dead,
+            _ => EventState::Unknown,
+        };
+        assert_eq!(stored.state, expected);
+        assert_eq!(input.selected_event.as_ref(), Some(&stored));
+        // Production uses this same refresh merger after an independent target-list read.
+        let mut refreshed = input.clone();
+        refreshed.feedback = EventCommandFeedback::default();
+        refreshed.targets = EventTargetListInput::Loaded { targets: vec![] };
+        let requested = Some(input.clone());
+        let mut current = requested.clone();
+        apply_event_refresh(&mut current, requested.as_ref(), Some(refreshed));
+        let row = show_event_project(current.as_ref().unwrap());
+        assert_eq!(row.event.state.state, expected);
+        assert_eq!(!row.actions.attach.disabled(), expected == EventState::Live);
+        assert_eq!(
+            !row.actions.replace.disabled(),
+            expected == EventState::Dead
+        );
+        assert_eq!(
+            !row.actions.check.disabled(),
+            expected == EventState::Unknown
+        );
+        assert_eq!(row.event.event_id.as_deref(), Some("event-new"));
+        assert_eq!(row.event.token_path.as_ref(), Some(&registered.token_path));
+        assert_eq!(fs::read_to_string(&cfg_path).unwrap(), config_before);
+        assert_eq!(
+            fs::read_to_string(&publisher_path).unwrap(),
+            "targets = []\n"
+        );
+        let locked = conn.lock().unwrap();
+        assert_eq!(
+            db::broadcast_events(&locked).unwrap().len(),
+            if old.is_some() { 2 } else { 1 }
+        );
+        assert_eq!(
+            db::broadcast_event_by_event_id(&locked, "event-old").unwrap(),
+            old
+        );
+        if let Some(old) = old {
+            assert_eq!(fs::read_to_string(old.token_path).unwrap(), "old-secret");
+        }
+        assert!(!format!("{row:?}").contains("fixture-secret"));
+        assert_eq!(
+            relay.join().unwrap(),
+            [
+                "POST /v1/liveitems HTTP/1.1",
+                "GET /v1/liveitems/event-new/metadata HTTP/1.1",
+                "GET /v1/liveitems/event-new/metadata HTTP/1.1",
+            ]
+        );
+    }
+
+    #[test]
+    fn show_event_create_initial_failure_then_retry_live() {
+        show_event_recovery_sequence(EventRegistryAction::Create, 200);
+    }
+    #[test]
+    fn show_event_replace_initial_failure_then_retry_live() {
+        show_event_recovery_sequence(EventRegistryAction::Replace, 200);
+    }
+    #[test]
+    fn show_event_create_failed_retry_remains_retryable() {
+        show_event_recovery_sequence(EventRegistryAction::Create, 503);
+    }
+    #[test]
+    fn show_event_replace_failed_retry_remains_retryable() {
+        show_event_recovery_sequence(EventRegistryAction::Replace, 503);
+    }
+    #[test]
+    fn show_event_create_retry_404_stores_dead_before_offering_replace() {
+        show_event_recovery_sequence(EventRegistryAction::Create, 404);
+    }
+    #[test]
+    fn show_event_replace_retry_404_stores_dead_before_offering_replace() {
+        show_event_recovery_sequence(EventRegistryAction::Replace, 404);
+    }
+    /// Situational ADR 0059: an observed Live response is not success until its status is stored.
+    #[test]
+    fn show_event_status_write_failure_retains_unknown_and_retry() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = Arc::new(Mutex::new(show_event_db(&temp)));
+        let (endpoint, relay) = show_event_relay(vec![200, 200, 200]);
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(&cfg_path, format!("musicindex_endpoint = {endpoint:?}\n")).unwrap();
+        let mut input = EventSectionInput {
+            feedback: EventCommandFeedback::default(),
+            selected_event: None,
+            targets: EventTargetListInput::Unknown,
+            attach_target_name: "default".to_owned(),
+            remote_host: false,
+        };
+        let command = |action, input: &EventSectionInput| EventRegistryCommand {
+            conn: Arc::clone(&conn),
+            cfg_path: cfg_path.clone(),
+            action,
+            selected_event: input.selected_event.clone(),
+        };
+        assert_eq!(
+            show_event_execute(command(EventRegistryAction::Create, &input), &mut input),
+            Some(EventRegistryAction::Check)
+        );
+        let registered = input.selected_event.clone();
+        conn.lock().unwrap().execute_batch("CREATE TRIGGER reject_event_check BEFORE UPDATE ON broadcast_events BEGIN SELECT RAISE(FAIL, 'status write failed'); END;").unwrap();
+        show_event_execute(command(EventRegistryAction::Check, &input), &mut input);
+        assert_eq!(input.selected_event, registered);
+        assert_eq!(
+            selected_event_input(&conn.lock().unwrap()).unwrap(),
+            registered
+        );
+        let row = show_event_project(&input);
+        assert!(row.check_message.unwrap().contains("status write failed"));
+        assert_eq!(row.actions.check.label, "Retry check");
+        assert!(!row.actions.check.disabled());
+        assert!(row.actions.replace.disabled() && row.actions.attach.disabled());
+        conn.lock()
+            .unwrap()
+            .execute_batch("DROP TRIGGER reject_event_check;")
+            .unwrap();
+        show_event_execute(command(EventRegistryAction::Check, &input), &mut input);
+        assert_eq!(
+            show_event_project(&input).event.state.state,
+            EventState::Live
+        );
+        assert_eq!(relay.join().unwrap().len(), 3);
+    }
+
+    /// Situational ADR 0059: an in-flight registry command owns its row until completion.
+    #[test]
+    fn show_event_refresh_cannot_clear_progress_or_failure_feedback() {
+        let mut input = EventSectionInput {
+            feedback: EventCommandFeedback::default(),
+            selected_event: None,
+            targets: EventTargetListInput::Unknown,
+            attach_target_name: "default".to_owned(),
+            remote_host: false,
+        };
+        begin_event_registry_action(&mut input, EventRegistryAction::Create);
+        let requested = Some(input.clone());
+        let mut current = requested.clone();
+        let mut refreshed = input.clone();
+        refreshed.feedback = EventCommandFeedback::default();
+        apply_event_refresh(&mut current, requested.as_ref(), Some(refreshed));
+        assert_eq!(current, requested);
+        apply_event_registry_result(
+            &mut input,
+            EventRegistryAction::Create,
+            Err(CommandError::Other("registration rejected".to_owned())),
+        );
+        let row = show_event_project(&input);
+        assert!(row
+            .registration_message
+            .unwrap()
+            .contains("registration rejected"));
+        assert!(!row.actions.create.disabled());
+        assert!(row.actions.replace.disabled() && row.actions.check.disabled());
+        assert_eq!(row.event.state.state, EventState::None);
     }
 }

@@ -18,7 +18,13 @@ run when the app is closed.
 
 ## Create An Event
 
-Create the relay event from a terminal:
+In Show, open Live Metadata. Create registers an event when none is selected;
+Replace registers a new identity when the selected event is Dead and keeps the
+old entry for Forget. The row checks the new event automatically. If that check
+fails, Retry check checks the same identity and preserves its token file.
+Attachment remains a separate action.
+
+The terminal equivalent is:
 
 ```bash
 v4vmm broadcast events create --json --label "show-name"
@@ -35,7 +41,7 @@ v4vmm broadcast events check EVENT_ID --json
 ## Publish The RSS Live Tag
 
 Listener apps find a live event only through the `podcast:liveValue` tag in the
-RSS feed of the show. Paste the tag from the Event section, or build it from the
+RSS feed of the show. Use Copy feed tag in the Event row of Live Metadata, or build it from the
 event identifier:
 
 ```xml
@@ -157,3 +163,9 @@ identifier from the updated feed.
 - [ADR 0059](../adr/0059-broadcast-control-surface.md)
 - [Broadcast chain architecture](../architecture/broadcast-chain.md)
 - [ADR 0059 implementation review](../reviews/adr-0059-implementation-review.md)
+
+## Verify The Event Recovery Interface
+
+The [task 016 visual walkthrough](broadcast-event-recovery-check.md) supplies
+an isolated relay and service fixture for failed initial checks, retry, and
+dead-event replacement. It includes cleanup and does not use production units.

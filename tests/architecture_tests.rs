@@ -12423,7 +12423,7 @@ fn adr_0059_source_kind_literals_stay_at_adapter_boundaries() {
     );
 }
 
-/// Situational ADR 0059 and ADR 0060: Show broadcast sections stay separate
+/// Situational ADR 0059: Show broadcast sections stay separate
 /// from the queue transport.
 #[test]
 fn adr_0059_show_broadcast_sections_stay_separate_from_queue_now_playing() {
@@ -12443,7 +12443,6 @@ fn adr_0059_show_broadcast_sections_stay_separate_from_queue_now_playing() {
         "pub(crate) queue: QueueNowPlayingPageVm",
         "ShowCardKind::Source",
         "ShowCardKind::LiveMetadata",
-        "ShowCardKind::Event",
         "ShowCardKind::Stream",
     ] {
         if !show_source.contains(required) {
@@ -13830,14 +13829,12 @@ fn adr_0063_show_card_contract_is_renderer_free_and_column_only() {
         "pub(crate) enum ShowCardKind",
         "Source",
         "LiveMetadata",
-        "Event",
         "Stream",
-        "const ORDER: [Self; 4]",
+        "const ORDER: [Self; 3]",
         "pub(crate) enum ShowCardStateKind",
         "Ok",
         "Attention",
         "Failed",
-        "Absent",
         "Unknown",
         "pub(crate) enum ShowPanelMode",
         "Cuelist",
@@ -14085,7 +14082,6 @@ fn adr_0063_show_card_grid_shell_uses_vm_contract() {
         "ShowCardStateKind::Ok => (SemanticColor::Success, SemanticColor::OnSuccess)",
         "ShowCardStateKind::Attention => (SemanticColor::Warning, SemanticColor::OnWarning)",
         "ShowCardStateKind::Failed => (SemanticColor::Danger, SemanticColor::OnDanger)",
-        "ShowCardStateKind::Absent => (SemanticColor::SystemFill, SemanticColor::SecondaryLabel)",
         "ShowCardStateKind::Unknown => (SemanticColor::Info, SemanticColor::OnInfo)",
     ] {
         if !card_source.contains(required) {
@@ -15307,4 +15303,82 @@ fn adr_0063_log_copy_menu_preserves_selection_and_uses_typed_actions() {
     for forbidden in ["use gpui", "SharedString", "FocusHandle"] {
         assert!(!vm.contains(forbidden), "Situational ADR 0063: text selection view model must remain renderer-free; found {forbidden}.");
     }
+}
+
+/// Situational ADR 0059: Event belongs to Live Metadata; registry actions cannot configure a publisher.
+#[test]
+fn adr_0059_event_row_precedes_services_and_registry_actions_do_not_attach() {
+    let vm = read_source(&manifest_path("src/view_models/show.rs"));
+    let kinds = source_between(&vm, "pub(crate) enum ShowCardKind", "impl ShowCardKind");
+    assert!(
+        !code_lines(kinds).any(|(_, line)| line.trim() == "Event,"),
+        "ADR 0059: Event is a row, never a card kind"
+    );
+    let publisher = source_between(
+        &vm,
+        "pub(crate) struct PublisherSectionDisplay",
+        "/// Display-ready Event",
+    );
+    assert!(publisher.contains("pub(crate) event: Option<EventSectionDisplay>"));
+    let page = source_between(&vm, "pub(crate) struct ShowPageVm", "impl ShowPageVm");
+    assert!(!page.contains("pub(crate) event:"));
+    let panel = read_source(&manifest_path("src/ui/composites/show_detail_panel.rs"));
+    let detail = source_between(
+        &panel,
+        "fn render_publisher_detail(",
+        "fn render_publisher_service(",
+    );
+    assert!(
+        detail.find("render_event_detail(").unwrap()
+            < detail.find("for service in section.services").unwrap(),
+        "ADR 0059: Event must render before Producer and Publisher"
+    );
+    assert!(panel.contains("section.actions.copy_feed_tag"));
+    assert!(panel.contains("cx.write_to_clipboard(ClipboardItem::new_string(feed_tag.clone()))"));
+    let app = read_source(&manifest_path("src/app/show.rs"));
+    let command = source_between(
+        &app,
+        "struct EventRegistryCommand",
+        "fn event_registry_error(",
+    );
+    let compact_command = command.split_whitespace().collect::<String>();
+    for required in [
+        "registry.create_event(None)",
+        "registry.check_event(&event.event_id)",
+    ] {
+        assert!(
+            compact_command.contains(required),
+            "ADR 0059: registry command must call {required}"
+        );
+    }
+    for forbidden in [
+        "publisher_targets",
+        "Transport",
+        "attach_event(",
+        "detach_target(",
+        "forget_event(",
+        "fs::write",
+        "println!",
+        "eprintln!",
+    ] {
+        assert!(
+            !command.contains(forbidden),
+            "ADR 0059: registration/checking must not use {forbidden}"
+        );
+    }
+    let wiring = source_between(
+        &app,
+        "fn run_event_registry_command(",
+        "fn run_event_target_command(",
+    );
+    assert!(wiring.contains("this.run_event_registry_command(next, cx)"));
+    assert!(
+        wiring
+            .find("this.reproject_show_page_from_current_queue()")
+            .unwrap()
+            < wiring
+                .find("this.run_event_registry_command(next, cx)")
+                .unwrap(),
+        "ADR 0059: project the registered event before requesting its initial check"
+    );
 }

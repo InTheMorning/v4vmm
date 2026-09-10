@@ -208,6 +208,33 @@ impl ShowSlots {
         self
     }
 
+    /// Supplies the event create callback.
+    pub(crate) fn on_create_event(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.panel = self.panel.on_create_event(handler);
+        self
+    }
+
+    /// Supplies the event replace callback.
+    pub(crate) fn on_replace_event(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.panel = self.panel.on_replace_event(handler);
+        self
+    }
+
+    /// Supplies the event check callback.
+    pub(crate) fn on_check_event(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.panel = self.panel.on_check_event(handler);
+        self
+    }
+
     /// Supplies the Event target attach callback.
     pub(crate) fn on_attach_event_target(
         mut self,
@@ -267,7 +294,6 @@ impl RenderOnce for ShowShell {
             empty_state,
             source,
             publisher,
-            event,
             stream,
             cards,
             width_class,
@@ -353,7 +379,6 @@ impl RenderOnce for ShowShell {
                             queue,
                             source,
                             publisher,
-                            event,
                             stream,
                         },
                         self.slots.panel,

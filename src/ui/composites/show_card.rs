@@ -188,7 +188,6 @@ const fn state_badge_tokens(state: ShowCardStateKind) -> (SemanticColor, Semanti
         ShowCardStateKind::Ok => (SemanticColor::Success, SemanticColor::OnSuccess),
         ShowCardStateKind::Attention => (SemanticColor::Warning, SemanticColor::OnWarning),
         ShowCardStateKind::Failed => (SemanticColor::Danger, SemanticColor::OnDanger),
-        ShowCardStateKind::Absent => (SemanticColor::SystemFill, SemanticColor::SecondaryLabel),
         ShowCardStateKind::Unknown => (SemanticColor::Info, SemanticColor::OnInfo),
     }
 }
@@ -197,7 +196,6 @@ const fn show_card_id(kind: ShowCardKind) -> &'static str {
     match kind {
         ShowCardKind::Source => "show-card-source",
         ShowCardKind::LiveMetadata => "show-card-live-metadata",
-        ShowCardKind::Event => "show-card-event",
         ShowCardKind::Stream => "show-card-stream",
     }
 }
