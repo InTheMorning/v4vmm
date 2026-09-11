@@ -34,8 +34,8 @@ require walking them before the independent chain work.
 |---|---|---|
 | 1 | Governance reconciliation | Sweep ADR statuses and review gate prose; retire replaced requirements before indexing survivors; correct AGENTS.md; retain ADR 0039 as Proposed and unscheduled |
 | 2, keyboard correction | [Platform shortcuts — ADR 0067](../tasks/adr-0067-task-001-platform-shortcuts.md) | Complete - 2026-09-11; Ctrl shortcuts, focus handling and Settings responsiveness accepted; fixture cleanup confirmed |
-| 2, Settings foundation — next | [Grouped Settings — ADR 0069 task 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Ready - 2026-09-11; implementation not started; group existing fields/reports without configuration-format or playback changes; operator procedure required before its visual gate opens |
-| 2 | [Configuration and startup failure recovery — ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md) | Accepted - 2026-09-10; tasks 001–003 complete; [task 004 implemented; operator gate open](../tasks/adr-0066-task-004-optional-tool-isolation.md), tasks 005–013 not started in the [phase plan](adr-0066-startup-recovery-phase-plan.md); finish implementation and acceptance before config format changes |
+| 2, Settings foundation | [Grouped Settings — ADR 0069 task 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Complete - 2026-09-11; mechanical checks Green; V1–V3 and all preservation inspections accepted; fixture cleanup confirmed; no configuration-format or playback changes |
+| 2 | [Configuration and startup failure recovery — ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md) | Accepted - 2026-09-10; tasks 001–003 and 005 complete; task 004 implemented with remaining operator gate open; task 006 ready for a fresh session, tasks 006–013 not started in the [phase plan](adr-0066-startup-recovery-phase-plan.md); finish implementation and acceptance before config format changes |
 | 2, Settings follow-through | [ADR 0069 editor, metadata and preset phases](adr-0069-settings-presets-phase-plan.md#sequence-and-stopping-points) | Planned; shared editor waits for 0066 tasks 005–007; new persisted mode/resource/preset formats wait for the full 0066 gate; author bounded packets before implementation; audio stays deferred |
 | 3 | Relay durability through adoption | splitkit reserved 001 → 002 → 003; deploy, reserve an event, configure the publisher to use it, then implement the v4vmm reservation packet |
 | 3, follow-through | splitkit reserved 004 → 005 | List/delete, final guards, and delivery reconciliation; explicitly scheduled after adoption, with interim command-line reservation allowing these before the v4vmm packet if needed |
@@ -55,7 +55,8 @@ This trigger does not combine two implementation phases into one session.
   format migration and any other config format change.
 - ADR 0069 task 001 is independent of the remaining ADR 0066 acceptance gate:
   it changes grouping and report navigation using current fields and writers.
-  It does not waive task 005's prerequisite or the configuration-format gate.
+  Its acceptance does not waive the configuration-format gate. The later
+  explicit task 005 scheduling exception is recorded below.
   Later Settings phases reuse the ADR 0066 editor/transition owners. PulseAudio
   and JACK selectors wait for ADR 0068 isolation; native PipeWire is later.
 - splitkit 002 adds the reservation route; 003 adds restoration and idle-TTL
@@ -96,14 +97,23 @@ changing the approved cross-repository order.
 The operator deferred playback work on 2026-09-11 and requested independent
 backlog closure. The [pending-work reconciliation](../reviews/2026-09-11-pending-work-reconciliation.md)
 records that bounded pass. Non-playback report/path-repair and inherited Music
-checks can proceed while audio/publication acceptance remains paused. Task 005
-still waits for task 004's gate; this does not waive its prerequisite.
+checks can proceed while audio/publication acceptance remains paused. Task 004's remaining gate stays open; the later explicit task 005 scheduling
+exception is recorded below.
 
 The operator then accepted [ADR 0069](../adr/0069-grouped-settings-and-selective-presets.md)
-on 2026-09-11. Its existing-field foundation is now the next implementation
-packet. This changes priority without accepting any open recovery or playback
-check. Preset recall edits a draft; configuring a setup must not activate the
+on 2026-09-11. Its existing-field foundation is complete: mechanical checks are Green,
+operator V1–V3 and preservation passed, and fixture cleanup is confirmed.
+This closes task 001 without accepting any open recovery or playback check.
+Preset recall edits a draft; configuring a setup must not activate the
 chain. Future Settings phases remain subject to the dependencies above.
+
+The operator then requested ADR 0066 task 005 on 2026-09-11. Its session
+drain/resumption implementation and mechanical checks are complete, using task
+004's delivered owners while retaining task 004's open acceptance gate.
+Task 005's [operator check](../runbooks/startup-recovery-check.md#task-005-session-drain-and-resumption),
+preservation inspection and fixture cleanup passed on 2026-09-11. Task 006 is
+ready for a fresh session; its implementation has not started.
+This explicit scheduling exception accepts no playback check or configuration-format change.
 
 ## Progress
 
@@ -113,8 +123,9 @@ Update this table when a packet lands.
 |---|---|---|
 | `v4vmm` | [governance reconciliation](../reviews/2026-09-10-governance-reconciliation.md) | complete - 2026-09-10; documentation only; surviving gates indexed below |
 | `v4vmm` | [pending-work reconciliation](../reviews/2026-09-11-pending-work-reconciliation.md) | Complete - 2026-09-11; ADR header-format debt and corpus guard closed; stale startup backlog and shortcut instructions corrected; 235 architecture tests and required checks Green; human gates remain open |
-| `v4vmm` | [0069 grouped Settings foundation 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | ADR Accepted - 2026-09-11; task ready and next; implementation not started; visual criteria specified but not runnable or accepted; no new pending-human gate yet |
-| `v4vmm` | [0066 configuration/startup failure recovery](adr-0066-startup-recovery-phase-plan.md) | ADR Accepted; tasks 001–003 complete, including [003 operator acceptance, preservation and fixture cleanup](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md#operator-evidence--2026-09-11) - 2026-09-11; task 004 implementation and mechanical gate Green; presentation case and preservation accepted - 2026-09-11; playback checks paused for cue/audition separation and observed mpv IPC error; remaining operator checks and final fixture cleanup open; task 005 waits; 005–013 not started |
+| `v4vmm` | [0069 grouped Settings foundation 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Complete - 2026-09-11; mechanical checks Green; V1–V3 and all preservation inspections accepted; fixture cleanup confirmed; ADR remains Accepted for later phases |
+| `v4vmm` | [0066 configuration/startup failure recovery](adr-0066-startup-recovery-phase-plan.md) | ADR Accepted; tasks 001–003 complete, including [003 operator acceptance, preservation and fixture cleanup](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md#operator-evidence--2026-09-11) - 2026-09-11; task 004 implementation and mechanical gate Green; presentation case and preservation accepted - 2026-09-11; playback checks paused for cue/audition separation and observed mpv IPC error; remaining operator checks and final fixture cleanup open; task 005 complete as recorded below; task 006 ready for a fresh session, 006–013 not started |
+| `v4vmm` | [0066 session drain and resumption 005](../tasks/adr-0066-task-005-session-drain-and-resumption.md) | Complete - 2026-09-11; mechanical checks Green; [operator V1–V3 and preservation](../tasks/adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11) accepted; fixture cleanup confirmed; task 006 ready for a fresh session |
 | `v4vmm` | [0067 platform shortcuts 001](../tasks/adr-0067-task-001-platform-shortcuts.md) | Complete - 2026-09-11; mechanical gate Green; all shortcut checks, preservation and fixture cleanup accepted; ADR Implemented |
 | `v4vmm` | [0068 Show cue and audition isolation](../adr/0068-show-cue-and-audition-isolation.md) | Proposed - 2026-09-11; requested ADR drafted; implementation and its visual/audio checks not started; does not close 0066 task 004's paused playback gate |
 | `v4vmm` | [0030 006 scroll containers](../tasks/adr-0030-task-006-scroll-containers.md) | implementation recorded; current Music/Settings visual check open |

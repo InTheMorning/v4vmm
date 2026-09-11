@@ -73,17 +73,18 @@ Current governance:
   audition audio/state; implementation and operator verification remain open
 - [ADR 0069: Grouped Settings and selective presets](adr/0069-grouped-settings-and-selective-presets.md):
   accepted Settings groups, metadata resource selection, separate audio settings
-  and component-masked preset snapshots; implementation not started
+  and component-masked preset snapshots; task 001 complete, later phases not started
 
 Current plans:
 
 - [ADR 0069 Settings and presets phase plan](plans/adr-0069-settings-presets-phase-plan.md):
-  existing-field foundation next; shared guarded editing, metadata selection,
+  existing-field foundation complete; guarded editing, metadata selection,
   selective presets and deferred audio integration have explicit prerequisites
 - [ADR 0066 startup recovery phase plan](plans/adr-0066-startup-recovery-phase-plan.md):
   thirteen bounded packets for configuration safety, core recovery, optional-tool
   repair, managed session resumption, converter retry, and database maintenance;
-  tasks 001–003 complete; task 004 implemented, operator gate open
+  tasks 001–003 and 005 complete; task 004's remaining operator gate stays open;
+  task 006 is ready for a fresh session
 - [Show narrow-layout proposal](plans/show-narrow-layout-proposal.md):
   compact cards, full-width logs and an overlap alternative, readable log-body
   allocation, and hiding the playback bar only when every typed action is
@@ -116,9 +117,15 @@ Current plans:
 
 Current implementation packets:
 
+- [ADR 0066 task 005: Session drain and resumption](tasks/adr-0066-task-005-session-drain-and-resumption.md):
+  complete with mechanical checks Green, [operator V1–V3 and preservation](tasks/adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11)
+  accepted, and fixture cleanup confirmed
+- [ADR 0066 task 006: Configuration repair and resumption](tasks/adr-0066-task-006-configuration-repair-and-resumption.md):
+  ready for a fresh session; implementation has not started
 - [ADR 0069 task 001: Grouped Settings foundation](tasks/adr-0069-task-001-grouped-settings-foundation.md):
-  next independent packet; General, Library and Diagnostics using current
-  fields and save behavior; implementation and visual verification not started
+  General, Library and Diagnostics using current fields and save behavior;
+  complete with mechanical checks Green, [operator acceptance](runbooks/settings-foundation-check.md),
+  preservation inspection and fixture cleanup
 - [ADR 0066 task 004: Optional tool isolation](tasks/adr-0066-task-004-optional-tool-isolation.md):
   implemented; operator visual acceptance, preservation inspection and fixture
   cleanup remain open. Tasks 001–003 are complete, including
@@ -135,13 +142,13 @@ Current reviews:
 
 - [ADR 0069 Settings and presets review checklist](reviews/adr-0069-settings-presets-review-checklist.md):
   component recall, shared persistence, UI ownership and deferred audio proof;
-  no implementation acceptance claimed
+  task 001 complete with mechanical review Green, operator acceptance and fixture cleanup
 - [Pending-work reconciliation](reviews/2026-09-11-pending-work-reconciliation.md):
   ADR status-format guard, corrected startup backlog and operator shortcuts,
   and independent checks available while playback is deferred
 - [ADR 0066 startup recovery review checklist](reviews/adr-0066-startup-recovery-review-checklist.md):
-  tasks 001–003 complete with operator evidence; task 004 mechanical proof
-  recorded and operator gate open; later coverage belongs to tasks 005–013
+  tasks 001–003 and 005 complete with operator evidence; task 004 mechanical proof
+  recorded with its remaining operator gate open; later coverage belongs to tasks 006–013
 - [Staged Show packets review](reviews/staged-show-packets-review-2026-09-09.md):
   review of the 2026-09-09 staged revisions and follow-up on the packet
   corrections

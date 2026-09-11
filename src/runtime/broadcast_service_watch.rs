@@ -9,6 +9,8 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::application::session_lifecycle::SessionLifecycle;
+
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::broadcast::control::{self, ServiceState, UnitRef};
@@ -212,12 +214,14 @@ enum BroadcastServiceWatchCommand {
 pub fn start(
     units: Vec<BroadcastServiceWatchUnit>,
     encoder: BroadcastEncoderWatchTarget,
+    session: &SessionLifecycle,
 ) -> BroadcastServiceWatchHandle {
-    start_with_reader(
+    start_in_session(
         units,
         encoder,
         Arc::new(ControlBroadcastStatusReader),
         BROADCAST_SERVICE_POLL_INTERVAL,
+        session,
     )
 }
 
@@ -241,18 +245,30 @@ impl BroadcastStatusReader for ControlBroadcastStatusReader {
     }
 }
 
+#[cfg(test)]
 fn start_with_reader(
     units: Vec<BroadcastServiceWatchUnit>,
     encoder: BroadcastEncoderWatchTarget,
     reader: SharedBroadcastStatusReader,
     interval: Duration,
 ) -> BroadcastServiceWatchHandle {
+    start_in_session(units, encoder, reader, interval, &SessionLifecycle::new())
+}
+
+fn start_in_session(
+    units: Vec<BroadcastServiceWatchUnit>,
+    encoder: BroadcastEncoderWatchTarget,
+    reader: SharedBroadcastStatusReader,
+    interval: Duration,
+    session: &SessionLifecycle,
+) -> BroadcastServiceWatchHandle {
     let (snapshot_tx, snapshot_rx) =
         watch::channel(BroadcastServiceWatchSnapshot::unknown(&units, &encoder));
     let (inbox_tx, mut inbox_rx) = mpsc::channel::<BroadcastServiceWatchCommand>(INBOX_CAPACITY);
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
 
-    tokio::spawn(async move {
+    let stop = session.stop_token();
+    session.spawn_actor("Broadcast service observations", async move {
         publish_snapshot(
             &snapshot_tx,
             units.clone(),
@@ -263,6 +279,7 @@ fn start_with_reader(
         loop {
             tokio::select! {
                 biased;
+                () = stop.cancelled() => break,
                 _ = &mut shutdown_rx => break,
                 command = inbox_rx.recv() => {
                     let Some(BroadcastServiceWatchCommand::RefreshNow) = command else {

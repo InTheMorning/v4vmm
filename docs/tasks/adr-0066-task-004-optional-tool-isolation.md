@@ -6,7 +6,9 @@ Producer-case preservation is Green; its playback acceptance remains open.
 The remaining operator checks and final fixture cleanup are open. Playback-dependent
 checks are paused after the operator identified the missing Show cue/audition
 separation; the producer screenshot also contains an unresolved mpv IPC error.
-Task 005 is not started and waits for this gate.
+Task 005 is complete under the operator's explicit scheduling exception;
+[its acceptance](adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11)
+closes none of this packet's remaining checks.
 
 ## Goal
 
@@ -152,7 +154,8 @@ These are necessary consumers of the removed strict adapter. Playlist shell
 wiring passes typed availability through its existing view-model display; the
 screen never rereads its own GPUI entity during rendering. No new service state,
 protocol, schema migration, configuration format or correction/retry workflow
-was added. Task 005 and all later packets remain unstarted.
+was added. Session draining and resumption are delivered separately by task 005;
+tasks 006–013 have not started.
 
 ## Command And Query Dependency Inventory
 
@@ -322,7 +325,8 @@ no timestamp; no completion time is inferred from earlier report observations.
 
 This closes the presentation case only. The first case's remaining visual
 confirmation, producer failure with audible playback, publisher isolation,
-partial path repair and final fixture cleanup remain open. Task 005 stays pending.
+partial path repair and final fixture cleanup remain open. Task 005's later,
+separate acceptance does not close them.
 
 ### Playback Workflow Correction — 2026-09-11
 

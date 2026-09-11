@@ -317,3 +317,5 @@ mod tests {
         );
     }
 }
+
+pub(crate) mod settings;

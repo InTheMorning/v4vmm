@@ -5,6 +5,8 @@ use std::fmt;
 /// Error returned by command execution.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommandError {
+    /// The old app session no longer admits work.
+    SessionDraining(u64),
     /// An execution dependency is unavailable; the remedy remains callable.
     Unavailable(crate::application::capability::ExecutionUnavailable),
     /// Playlist command failed.
@@ -29,6 +31,7 @@ impl fmt::Display for CommandError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Unavailable(reason) => reason.fmt(f),
+            Self::SessionDraining(generation) => write!(f, "App session {generation} is ending; the command did not run. Open a fresh session after maintenance."),
             Self::Playlist(message) => write!(f, "playlist command failed: {message}"),
             Self::Feed(message) => write!(f, "feed command failed: {message}"),
             Self::Download(message) => write!(f, "download command failed: {message}"),

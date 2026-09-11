@@ -32,6 +32,10 @@ pub struct CapabilityReportVm {
 }
 
 impl CapabilityReportVm {
+    pub(crate) fn is_working(&self) -> bool {
+        self.running.is_some()
+    }
+
     pub const TITLE: &'static str = "Background tools";
 
     #[must_use]
@@ -401,6 +405,33 @@ mod tests {
                 .unwrap()
                 .contains(&format!("check {expected}")));
             assert!(vm.report().contains("1970-01-01 00:00:00 UTC"));
+        }
+    }
+
+    #[test]
+    fn adr_0069_report_navigation_preserves_issues_times_and_retry_result() {
+        use crate::view_models::settings::{SettingsAction, SettingsGroup, SettingsVm};
+
+        let mut report = vm();
+        let generation = report.begin(Dependency::BackgroundRuntime).unwrap();
+        assert!(report.complete(Dependency::BackgroundRuntime, generation));
+        report.record_completion(
+            Dependency::BackgroundRuntime,
+            generation,
+            SystemTime::UNIX_EPOCH,
+        );
+        let before = report.report();
+        let mut settings = SettingsVm::default();
+        for group in SettingsGroup::ALL {
+            settings.dispatch(SettingsAction::SelectGroup(group));
+            settings.dispatch(SettingsAction::OpenReport);
+            assert_eq!(settings.selected(), SettingsGroup::Diagnostics);
+            assert_eq!(report.issues().count(), 2);
+            assert_eq!(report.report(), before);
+            assert_eq!(
+                report.action(CapabilityAction::CopyReport).availability,
+                StartupAvailability::Available
+            );
         }
     }
 }

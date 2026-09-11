@@ -77,6 +77,14 @@ impl ConfiguredPlaybackDriver {
         }
     }
 
+    pub(crate) fn shutdown_for_maintenance(&self) -> Result<()> {
+        match self {
+            Self::Null(_) => Ok(()),
+            #[cfg(unix)]
+            Self::Mpv(driver) => driver.shutdown_for_maintenance(),
+        }
+    }
+
     pub fn ping(&self) -> Result<()> {
         match self {
             Self::Null(_) => Ok(()),

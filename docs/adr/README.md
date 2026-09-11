@@ -30,7 +30,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0052](0052-library-index-data-parity-triage.md) | Triage of Library versus Index detail gaps | Implemented |
 | [0053](0053-local-detail-source-fact-parity.md) | Source-fact route for parity gaps not locally durable | Accepted |
 | [0054](0054-local-metadata-source-fact-persistence.md) | Feed and track metadata facts persist by source; hydration visual checks remain open | Accepted, partial |
-| [0066](0066-configuration-and-startup-failure-recovery.md) | Core startup requirements; in-app repair and optional-tool retry; [001–003 complete; 004 implemented, operator gate open; 005–013 not started](../plans/adr-0066-startup-recovery-phase-plan.md) | Accepted |
+| [0066](0066-configuration-and-startup-failure-recovery.md) | Core startup requirements; in-app repair and optional-tool retry; [001–003 and 005 complete; 004 implemented, operator gate open; 006 ready, 006–013 not started](../plans/adr-0066-startup-recovery-phase-plan.md) | Accepted |
 
 ## Metadata
 
@@ -91,7 +91,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0064](0064-local-file-addressing.md) | Downloaded files live under music_dir and store a relative path | Accepted |
 | [0065](0065-payment-route-tag-repair.md) | A tag repair is gated on the file, not on feed staleness | Implemented |
 | [0067](0067-platform-shortcut-modifiers.md) | Ctrl app shortcuts on Linux; Command and native Hide actions on macOS | Implemented |
-| [0069](0069-grouped-settings-and-selective-presets.md) | Grouped Settings, live metadata resource selection, independent audio configuration and selective preset snapshots; [task 001 ready, implementation not started](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Accepted |
+| [0069](0069-grouped-settings-and-selective-presets.md) | Grouped Settings, live metadata resource selection, independent audio configuration and selective preset snapshots; [task 001 complete; later phases not started](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Accepted |
 
 ## UI Presentation
 

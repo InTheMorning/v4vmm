@@ -286,6 +286,44 @@ mod tests {
     use crate::db::{init_schema, migrate_schema};
     use crate::runtime::RowSlot;
 
+    #[test]
+    fn adr_0066_paged_actor_releases_its_exclusive_configured_connection() {
+        use std::time::Duration;
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("library.sqlite");
+        let connection = Connection::open(&path).unwrap();
+        init_schema(&connection).unwrap();
+        migrate_schema(&connection).unwrap();
+        connection
+            .execute_batch("PRAGMA locking_mode=EXCLUSIVE; BEGIN EXCLUSIVE; COMMIT;")
+            .unwrap();
+        let observer = Connection::open(&path).unwrap();
+        observer.busy_timeout(Duration::ZERO).unwrap();
+        assert!(observer
+            .query_row("SELECT count(*) FROM tracks", [], |row| row
+                .get::<_, i64>(0))
+            .is_err());
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let bus = VmBus::new();
+        let session = bus.session().clone();
+        let handle = {
+            let _entered = runtime.enter();
+            PagedTrackListActor::new(connection, TrackListing::Library)
+                .unwrap()
+                .spawn(bus)
+        };
+        session.begin_drain();
+        session.wait_for_work(Duration::from_secs(1)).unwrap();
+        assert!(!handle.try_send(PagedTrackListMsg::Refresh));
+        assert_eq!(
+            observer
+                .query_row("SELECT count(*) FROM tracks", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+
     fn open_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         conn.pragma_update(None, "foreign_keys", "ON").unwrap();

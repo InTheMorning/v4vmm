@@ -9,8 +9,11 @@ acceptance, preservation inspection and fixture cleanup. The
 is complete. Settings responsiveness and cached-file recovery passed; temporary
 diagnostics are removed. Task 004 implementation and mechanical checks are complete;
 its presentation case and producer preservation passed. Remaining operator checks
-and fixture cleanup are open; playback-dependent checks are deferred. Tasks 005–013
-remain unstarted; task 005 waits for task 004 acceptance.
+and fixture cleanup are open; playback-dependent checks are deferred. Task 005
+is complete with mechanical checks Green; operator V1–V3, preservation
+inspection and fixture cleanup are accepted. It proceeded at the
+operator's explicit request on 2026-09-11; task 004 keeps its remaining
+acceptance gate. Task 006 is ready for a fresh session. Tasks 006–013 remain unstarted.
 
 This plan executes [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md).
 The [delivery order](broadcast-chain-delivery-order.md#current-delivery-order)
@@ -20,7 +23,7 @@ The real-show scheduling trigger still moves publisher show-log task 001 first.
 
 The operator accepted [ADR 0069](../adr/0069-grouped-settings-and-selective-presets.md)
 on 2026-09-11. Its [existing-field Settings foundation](../tasks/adr-0069-task-001-grouped-settings-foundation.md)
-is the next independent packet while playback is deferred. It changes no
+is complete, including operator acceptance, preservation and fixture cleanup. It changes no
 configuration format or prerequisite in this series. Later Settings editing
 reuses tasks 005–007; new persisted formats remain behind this series' full gate.
 
@@ -70,7 +73,9 @@ UTC corrections, narrow Show layout, and Clippy/decomposition debt stay separate
 ## Sequence And Stopping Points
 
 Execute in this order, one packet per session. Each row stops after its own
-mechanical gate and any applicable operator acceptance. Do not silently roll
+mechanical gate and any applicable operator acceptance. The operator explicitly
+authorized starting 005 before task 004's remaining acceptance on 2026-09-11;
+that exception closes none of task 004's checks. Do not silently roll
 an unwalked visual gate into a claim that the next dependency is complete.
 
 | Packet | Usable result | Prerequisite | State |
@@ -79,8 +84,8 @@ an unwalked visual gate into a claim that the next dependency is complete.
 | [002: Core Checks And Startup Reports](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md) | Show a useful recovery screen for broken core configuration, unusable music storage, or unusable SQLite, with safe checks and a single startup lifecycle. | 001 | Complete - 2026-09-10; mechanical gate Green; operator acceptance and fixture cleanup confirmed |
 | [003: Runtime Failure And Shell Availability](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md) | Keep navigation, reports and repair access working when the normal background runtime or optional thumbnail worker cannot start. | 002 | Complete - 2026-09-11; mechanical gate Green; operator acceptance, preservation and fixture cleanup confirmed |
 | [004: Optional Tool Isolation](../tasks/adr-0066-task-004-optional-tool-isolation.md) | Open the app with valid core resources even when optional configuration or tool preparation fails, and limit only the operations that actually depend on each failure. | 003 | Implemented - 2026-09-11; mechanical gate Green; presentation case and preservation accepted - 2026-09-11; playback checks paused for missing Show cue/audition separation and observed mpv IPC error; remaining operator checks and final fixture cleanup open |
-| [005: Session Drain And Resumption](../tasks/adr-0066-task-005-session-drain-and-resumption.md) | Stop the app's own work, release every configured database handle, and resume one fresh session before any live core correction or database maintenance can use this transition. | 004 | Not started |
-| [006: Configuration Repair And Resumption](../tasks/adr-0066-task-006-configuration-repair-and-resumption.md) | Repair configuration inside recovery or Settings, preserve the original file, and return to a freshly verified app session. | 005 | Not started |
+| [005: Session Drain And Resumption](../tasks/adr-0066-task-005-session-drain-and-resumption.md) | Stop the app's own work, release every configured database handle, and resume one fresh session before any live core correction or database maintenance can use this transition. | 004 implementation; operator authorized starting 005 before its remaining acceptance on 2026-09-11 | Complete - 2026-09-11; mechanical gate Green; operator V1–V3, preservation inspection and fixture cleanup accepted |
+| [006: Configuration Repair And Resumption](../tasks/adr-0066-task-006-configuration-repair-and-resumption.md) | Repair configuration inside recovery or Settings, preserve the original file, and return to a freshly verified app session. | 005 | Ready for a fresh session - 2026-09-11; implementation not started |
 | [007: Optional Tool Correction And Retry](../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md) | Turn optional-tool failures into a direct Settings correction route and an explicit, freshly checked retry of the original action. | 006 | Not started |
 | [008: Converter Verification And Setup](../tasks/adr-0066-task-008-converter-verification-and-setup.md) | Let the operator configure and freshly test FLAC/ffmpeg availability without restarting the app, while preserving the actual conversion fallback policy. | 007 | Not started |
 | [009: Conversion Retry And Retained Input](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md) | Return from converter setup to the same track, reuse valid downloaded input where possible, and avoid duplicate library materialization. | 008 | Not started |
@@ -232,4 +237,6 @@ this plan specifies a future test. Preserve all inherited gates.
 Only all thirteen completed packets plus their actual operator acceptance permit
 ADR 0066 to become Implemented, deferred item 6 to close, and the config-format
 dependency to release. Tasks 001–003 are complete; task 004 is implemented with its operator gate open.
-Tasks 005–013 have not started. The series remains partial.
+Task 005 is complete, including operator acceptance, preservation inspection and
+fixture cleanup. Task 006 is ready for a fresh session; tasks 006–013 have not
+started. The series remains partial.

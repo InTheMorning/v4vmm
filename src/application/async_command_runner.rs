@@ -31,6 +31,7 @@ use crate::application::capability::ExecutionUnavailable;
 use crate::application::command_bus::{ApplicationCommand, CommandBus, CommandResult};
 use crate::application::command_context::CommandContext;
 use crate::application::events::ApplicationEvent;
+use crate::application::session_lifecycle::SessionLifecycle;
 use crate::application::CommandError;
 use crate::runtime::{VmBus, VmEvent};
 
@@ -42,6 +43,7 @@ pub struct AsyncCommandRunner {
     event_bus: Arc<ApplicationEventBus>,
     vm_bus: Option<VmBus>,
     runtime_handle: Result<Handle, ExecutionUnavailable>,
+    session: SessionLifecycle,
 }
 
 impl AsyncCommandRunner {
@@ -57,6 +59,7 @@ impl AsyncCommandRunner {
             event_bus,
             vm_bus: None,
             runtime_handle: Err(reason),
+            session: SessionLifecycle::new(),
         }
     }
 
@@ -101,6 +104,7 @@ impl AsyncCommandRunner {
             event_bus,
             vm_bus: None,
             runtime_handle: Ok(runtime_handle),
+            session: SessionLifecycle::new(),
         }
     }
 
@@ -126,9 +130,21 @@ impl AsyncCommandRunner {
         Self {
             command_bus,
             event_bus,
+            session: vm_bus.session().clone(),
             vm_bus: Some(vm_bus),
             runtime_handle: Ok(runtime_handle),
         }
+    }
+
+    /// Session admission shared by commands and stale-completion checks.
+    #[must_use]
+    pub fn session(&self) -> &SessionLifecycle {
+        &self.session
+    }
+
+    pub(crate) fn with_session(mut self, session: SessionLifecycle) -> Self {
+        self.session = session;
+        self
     }
 
     /// Dispatches `command` onto the tokio blocking pool.
@@ -161,6 +177,16 @@ impl AsyncCommandRunner {
                 return rx;
             }
         };
+        let name = std::any::type_name::<C>()
+            .rsplit("::")
+            .next()
+            .unwrap_or("Application command");
+        let Some(work) = self.session.admit(name) else {
+            let _ = tx.send(Err(CommandError::SessionDraining(
+                self.session.generation(),
+            )));
+            return rx;
+        };
         let command_bus = Arc::clone(&self.command_bus);
         let event_bus = Arc::clone(&self.event_bus);
         let vm_bus = self.vm_bus.clone();
@@ -179,6 +205,7 @@ impl AsyncCommandRunner {
             // send fails silently — that is the intended fire-and-forget
             // path.
             let _ = tx.send(result);
+            drop(work);
         });
 
         rx
@@ -239,6 +266,69 @@ mod tests {
         fn on_application_events(&self, events: &[ApplicationEvent]) {
             self.seen.lock().expect("lock").extend_from_slice(events);
         }
+    }
+
+    #[test]
+    fn adr_0066_dropped_receiver_keeps_blocking_command_counted_through_drain() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            mpsc,
+        };
+        struct Held {
+            started: mpsc::Sender<()>,
+            release: Mutex<mpsc::Receiver<()>>,
+            writes: Arc<AtomicUsize>,
+        }
+        impl ApplicationCommand for Held {
+            type Output = ();
+            fn execute(self, _: &CommandContext) -> CommandResult<()> {
+                self.started.send(()).unwrap();
+                self.release.lock().unwrap().recv().unwrap();
+                self.writes.fetch_add(1, Ordering::SeqCst);
+                Ok(CommandOutcome::without_events(()))
+            }
+        }
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let runner = AsyncCommandRunner::with_runtime_handle(
+            Arc::new(CommandBus::new()),
+            Arc::new(ApplicationEventBus::new()),
+            runtime.handle().clone(),
+        );
+        let (started, running) = mpsc::channel();
+        let (release, hold) = mpsc::channel();
+        let writes = Arc::new(AtomicUsize::new(0));
+        drop(runner.dispatch(
+            Held {
+                started,
+                release: Mutex::new(hold),
+                writes: writes.clone(),
+            },
+            CommandContext::next(),
+        ));
+        running.recv().unwrap();
+        assert!(runner.session().begin_drain());
+        assert!(runner
+            .session()
+            .wait_for_work(std::time::Duration::from_millis(20))
+            .is_err());
+        assert_eq!(writes.load(Ordering::SeqCst), 0);
+        let late = runner
+            .dispatch(
+                EchoCommand {
+                    value: 1,
+                    emit: vec![],
+                },
+                CommandContext::next(),
+            )
+            .blocking_recv()
+            .unwrap();
+        assert!(matches!(late, Err(CommandError::SessionDraining(_))));
+        release.send(()).unwrap();
+        runner
+            .session()
+            .wait_for_work(std::time::Duration::from_secs(1))
+            .unwrap();
+        assert_eq!(writes.load(Ordering::SeqCst), 1);
     }
 
     struct EchoCommand {

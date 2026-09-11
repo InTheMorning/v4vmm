@@ -15,9 +15,13 @@ When you need to look something up, consult this map first to find the right fil
 | Recovery state/actions/reports; shared geometry; screen wiring | `src/view_models/startup.rs`, `src/ui/composites/startup_report.rs`, `src/app/startup.rs` |
 | Scoped background issues and command remedies | `src/application/capability.rs`, `src/view_models/startup/capabilities.rs` |
 | Search failure explanation/disclosure; shared report URL redaction | `src/view_models/search_results/failure.rs`, `src/diagnostics.rs` |
+| Settings groups and field/action contracts; shared form/navigation; screen wiring | `src/view_models/settings.rs`, `src/ui/composites/settings.rs`, `src/app/settings.rs` (ADR 0069) |
 | Settings cached-file query and saved observation | `src/application/queries/library.rs`, `src/view_models/cached_files.rs`, `src/app.rs` |
 | Runtime/cache repair wiring in the existing shell | `src/app/capabilities.rs` |
 | Independent maintenance worker and GPUI completion | `src/presentation/maintenance_executor.rs`, `src/presentation/startup_presenter.rs` |
+| Session admission, tracked work and maintenance authority | `src/application/session_lifecycle.rs`, `src/application/async_command_runner.rs` (ADR 0066) |
+| Session teardown and fresh-session wiring | `src/presentation/session_transition.rs`, `src/app/session.rs`, `src/app/startup.rs` |
+| Session actions and recorded reports; shared maintenance forms | `src/view_models/startup/session.rs`, `src/ui/composites/maintenance_forms.rs` |
 | MusicIndex HTTP client | `src/api.rs` |
 | RSS fetch + Podcasting 2.0 parse | `src/rss/` |
 | ID3v2.4 read/write, `AudioTags`, `Id3v24Edit`, `apply_id3v24_edits` | `src/audio_tags.rs` |

@@ -46,6 +46,7 @@ pub struct ImageCache {
     writes_since_eviction: Mutex<u32>,
     observations: CapabilityObservations,
     maintenance_running: Arc<std::sync::atomic::AtomicBool>,
+    session: Option<crate::application::session_lifecycle::SessionLifecycle>,
 }
 
 impl ImageCache {
@@ -53,14 +54,16 @@ impl ImageCache {
         cache_dir: PathBuf,
         observations: CapabilityObservations,
         spawn: CacheWorker,
+        session: crate::application::session_lifecycle::SessionLifecycle,
     ) -> Arc<Self> {
-        Self::with_observations(
+        Self::in_session(
             cache_dir,
             DEFAULT_HOT_CAPACITY,
             DEFAULT_MAX_DIM,
             DEFAULT_MAX_DISK_BYTES,
             observations,
             spawn,
+            Some(session),
         )
     }
 
@@ -97,8 +100,29 @@ impl ImageCache {
         observations: CapabilityObservations,
         spawn: CacheWorker,
     ) -> Arc<Self> {
+        Self::in_session(
+            cache_dir,
+            hot_capacity,
+            max_dimension,
+            max_disk_bytes,
+            observations,
+            spawn,
+            None,
+        )
+    }
+
+    fn in_session(
+        cache_dir: PathBuf,
+        hot_capacity: usize,
+        max_dimension: u32,
+        max_disk_bytes: u64,
+        observations: CapabilityObservations,
+        spawn: CacheWorker,
+        session: Option<crate::application::session_lifecycle::SessionLifecycle>,
+    ) -> Arc<Self> {
         let capacity = NonZeroUsize::new(hot_capacity.max(1)).unwrap();
         let cache = Arc::new(Self {
+            session,
             cache_dir: cache_dir.clone(),
             hot: Mutex::new(LruCache::new(capacity)),
             static_hot: Mutex::new(LruCache::new(capacity)),
@@ -142,6 +166,16 @@ impl ImageCache {
         if self.maintenance_running.swap(true, Ordering::AcqRel) {
             return None;
         }
+        let work = match &self.session {
+            Some(session) => match session.admit("Thumbnail cleanup") {
+                Some(work) => Some(work),
+                None => {
+                    self.maintenance_running.store(false, Ordering::Release);
+                    return None;
+                }
+            },
+            None => None,
+        };
         let running = self.maintenance_running.clone();
         let dir = self.cache_dir.clone();
         let limit = self.max_disk_bytes;
@@ -158,6 +192,7 @@ impl ImageCache {
                 CapabilityObservation::new(Dependency::ThumbnailMaintenance, failure).at_path(&dir),
             );
             running.store(false, Ordering::Release);
+            drop(work);
         })) {
             Ok(handle) => Some(handle),
             Err(error) => {

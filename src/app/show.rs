@@ -1335,7 +1335,7 @@ fn start_broadcast_service_watch(
     encoder: BroadcastEncoderWatchTarget,
 ) -> BroadcastServiceWatchHandle {
     let _enter = host.handle().enter();
-    crate::runtime::broadcast_service_watch::start(units, encoder)
+    crate::runtime::broadcast_service_watch::start(units, encoder, host.bus().session())
 }
 
 fn start_broadcast_readiness_watch(
@@ -1343,7 +1343,7 @@ fn start_broadcast_readiness_watch(
     conn: Arc<Mutex<Connection>>,
 ) -> BroadcastReadinessWatchHandle {
     let _enter = host.handle().enter();
-    crate::runtime::broadcast_readiness::start(conn)
+    crate::runtime::broadcast_readiness::start(conn, host.bus().session())
 }
 
 struct StreamEncoderCommand {

@@ -388,7 +388,9 @@ const SCREEN_FILES: &[&str] = &[
     "src/app.rs",
     "src/app/breadcrumb.rs",
     "src/app/startup.rs",
+    "src/app/session.rs",
     "src/app/capabilities.rs",
+    "src/app/settings.rs",
     "src/app/bootstrap.rs",
     "src/app/events.rs",
     "src/app/keyboard.rs",
@@ -1853,7 +1855,8 @@ fn adr_0066_runtime_retry_keeps_one_host_and_independent_reports() {
     assert!(app.contains("self.playback_polling.is_some()"));
     assert!(app.contains("self.render_capabilities(false, cx)"));
     assert!(app.contains("with_execution_availability(command_runner.availability())"));
-    assert!(app.contains("app.render_capabilities(true, cx)"));
+    assert!(read_source(&manifest_path("src/app/settings.rs"))
+        .contains("app.render_capabilities(true, cx)"));
     let library = read_source(&manifest_path("src/library/app_impl.rs"));
     for required in [
         "self.runtime_host.is_some()",
@@ -4820,7 +4823,10 @@ fn adr_0067_mount_and_section_changes_establish_a_persistent_focus_path() {
     assert!(tabs.contains(".track_focus(focus_handle)")
         && tabs.contains("focus_handle_for_key(key, self).focus(window);"),
         "Situational ADR 0067: transition focus must use the persistent handles mounted by the shared tab bar");
-    let render = source_between(&app, "impl Render for TopApp", "fn render_ui_scale_picker");
+    let render = app
+        .split_once("impl Render for TopApp")
+        .expect("app renderer")
+        .1;
     assert!(
         !render.contains("focus_active_tab("),
         "Situational ADR 0067: rendering must not repeatedly steal focus from inputs"
@@ -4830,7 +4836,8 @@ fn adr_0067_mount_and_section_changes_establish_a_persistent_focus_path() {
 #[test]
 fn adr_0040_settings_cache_reads_leave_the_render_thread() {
     let app = read_source(&manifest_path("src/app.rs"));
-    let render = app
+    let settings = read_source(&manifest_path("src/app/settings.rs"));
+    let render = settings
         .split_once("fn render_settings(")
         .expect("Settings renderer")
         .1;
@@ -4845,7 +4852,10 @@ fn adr_0040_settings_cache_reads_leave_the_render_thread() {
     assert!(!load.contains(".lock()") && !load.contains("build_tree("));
     assert!(render.contains("app.cached_files.status()"));
     let select = source_between(&app, "fn select_tab(", "fn content_list_frame_id(");
-    assert!(select.contains("self.reload_cached(cx);"));
+    assert!(
+        select.contains("self.cached_files.enter();")
+            && select.contains("self.start_cached_load(cx);")
+    );
     for path in ["src/app/events.rs", "src/app/capabilities.rs"] {
         assert!(read_source(&manifest_path(path)).contains("self.reload_cached(cx);"),
             "Situational ADR 0040: mutations and runtime recovery must refresh the mounted Settings observation");
@@ -5370,39 +5380,27 @@ fn adr_0055_search_view_model_is_decomposed_under_module_tree() {
 
 #[test]
 fn settings_form_inputs_fill_scaled_frame_width() {
-    let app_source = read_source(&manifest_path("src/app.rs"));
-    let mut violations = Vec::new();
-
+    // Situational ADR 0069: shared form retains the existing scale/width contract.
+    let form = read_source(&manifest_path("src/ui/composites/settings.rs"));
+    let screen = read_source(&manifest_path("src/app/settings.rs"));
     for required in [
-        "let settings_column_width = layout::scaled_dimension(layout::SETTINGS_COLUMN_WIDTH, cx);",
-        ".w(settings_column_width)\n                .max_w(relative(1.0))",
-        "fn render_settings_text_input(",
+        "layout::scaled_dimension(layout::SETTINGS_COLUMN_WIDTH, cx)",
+        ".w(settings_column_width)",
+        ".max_w(relative(1.0))",
+        "pub(crate) fn settings_text_input(",
         "div()\n        .w_full()\n        .min_w_0()\n        .flex()\n        .flex_row()",
         "Input::new(input)",
         ".scaled(Size::Small, cx)\n                .flex_1()\n                .min_w_0()",
-        "render_settings_text_input(&endpoint_input, cx)",
-        "render_settings_text_input(&music_dir_input, cx)",
-        "render_settings_text_input(&flac_path_input, cx)",
     ] {
-        if !app_source.contains(required) {
-            violations.push(format!(
-                "src/app.rs: settings form width/scale contract missing `{required}`"
-            ));
-        }
-    }
-
-    if app_source.contains(".max_w(layout::SETTINGS_COLUMN_WIDTH)") {
-        violations.push(
-            "src/app.rs: settings form must not use unscaled SETTINGS_COLUMN_WIDTH directly"
-                .to_string(),
+        assert!(
+            form.contains(required),
+            "shared Settings form contract missing {required}"
         );
     }
-
-    assert!(
-        violations.is_empty(),
-        "settings form width/scale violations:\n{}",
-        violations.join("\n")
-    );
+    for field in ["endpoint_input", "music_dir_input", "flac_path_input"] {
+        assert!(screen.contains(&format!("settings_text_input(&app.{field}, cx)")));
+    }
+    assert!(!form.contains(".max_w(layout::SETTINGS_COLUMN_WIDTH)"));
 }
 
 #[test]
@@ -14112,11 +14110,10 @@ fn adr_0060_live_status_strip_contract_and_mount_are_guarded() {
     let composite_mod_source = read_source(&manifest_path("src/ui/composites/mod.rs"));
     let app_source = read_source(&manifest_path("src/app.rs"));
     let show_adapter_source = read_source(&manifest_path("src/app/show.rs"));
-    let app_render = source_between(
-        &app_source,
-        "impl Render for TopApp",
-        "fn render_ui_scale_picker",
-    );
+    let app_render = app_source
+        .split_once("impl Render for TopApp")
+        .expect("app renderer")
+        .1;
     let build_live_status_strip = source_between(
         &show_adapter_source,
         "pub(super) fn build_live_status_strip(",
@@ -16397,4 +16394,324 @@ fn adr_0066_repair_failure_preserves_bindings() {
     assert!(
         startup.contains("fn adr_0066_partial_repair_keeps_committed_and_unvalidated_bindings()")
     );
+}
+
+/// Situational ADR 0069: Tab navigation must identify the focused action at the shared primitive.
+#[test]
+fn adr_0069_keyboard_buttons_show_focus_without_layout_shift() {
+    let button = read_source(&manifest_path("src/ui/primitives/button.rs"));
+    let enabled = source_between(&button, "if disabled {", "if let Some(icon) = leading_icon");
+    let keyboard = enabled
+        .rsplit_once("if let Some(handler) = on_activate {")
+        .unwrap()
+        .1;
+    for required in [
+        "keyboard_button_focus(hit_target, appearance, cx)",
+        ".tab_index(0)",
+        ".rounded(radius)",
+        "keyboard_activation_key(event)",
+    ] {
+        assert!(
+            keyboard.contains(required),
+            "Situational ADR 0069: keyboard buttons must share focus and activation: {required}"
+        );
+    }
+    let focus = source_between(
+        &button,
+        "fn keyboard_button_focus(",
+        "fn button_description(",
+    );
+    for required in [
+        "layout::scaled_dimension(layout::CONTROL_FOCUS_RING_WIDTH, cx)",
+        "resolve_color(cx, SemanticColor::Focus, appearance)",
+        ".border(focus_ring_width)",
+        ".border_color(gpui::transparent_black())",
+        ".focus(move |style| style.border_color(focus_color))",
+    ] {
+        assert!(
+            focus.contains(required),
+            "Situational ADR 0069: keyboard button focus requires {required}"
+        );
+    }
+    assert!(focus.find(".border(focus_ring_width)").unwrap() < focus.find(".focus(").unwrap());
+    assert!(
+        !focus.contains("style.border("),
+        "Focus must not change layout dimensions"
+    );
+    let disabled = enabled.split_once("} else {").unwrap().0;
+    assert!(!disabled.contains(".tab_index(") && !disabled.contains("keyboard_button_focus("));
+}
+
+/// Situational ADR 0069: one live, portable Settings owner; navigation is inert.
+#[test]
+fn adr_0069_settings_group_ownership() {
+    let app = read_source(&manifest_path("src/app.rs"));
+    let screen = read_source(&manifest_path("src/app/settings.rs"));
+    let vm = read_source(&manifest_path("src/view_models/settings.rs"));
+    let form = read_source(&manifest_path("src/ui/composites/settings.rs"));
+    let capabilities = read_source(&manifest_path("src/app/capabilities.rs"));
+    assert!(
+        app.contains("use settings::render_settings;") && app.contains("settings: SettingsVm,")
+    );
+    assert!(!app.contains("fn render_settings(") && !app.contains("fn render_ui_scale_picker("));
+    assert_eq!(screen.matches("fn render_settings(").count(), 1);
+    for required in [
+        "settings_frame(navigation, content, cx)",
+        "settings_field(field, input, cx)",
+        "app.render_capabilities(true, cx)",
+        "app.cached_files.status()",
+    ] {
+        assert!(
+            screen.contains(required),
+            "Settings must reuse the shared owner: {required}"
+        );
+    }
+    for forbidden in [
+        "gpui",
+        "serde",
+        "std::fs",
+        "save_app_settings(",
+        "present_command(",
+    ] {
+        assert!(
+            !vm.contains(forbidden),
+            "Settings VM must stay portable and session-local: {forbidden}"
+        );
+    }
+    for forbidden in [
+        ".lock()",
+        "cx.spawn",
+        "config::save_app_settings(",
+        ".text_size(",
+        ".gap(",
+        "truncate()",
+    ] {
+        assert!(
+            !screen.contains(forbidden),
+            "Settings screen must only compose and dispatch: {forbidden}"
+        );
+    }
+    assert!(form.contains(".flex_wrap()") && form.contains(".on_activate("));
+    assert!(form.contains(".a11y_label(") && form.contains(".disabled(display.availability"));
+    assert!(
+        form.find(".child(navigation)").unwrap() < form.find(".id(\"settings-scroll\")").unwrap()
+    );
+    assert!(form.contains(".min_h_0()") && form.contains(".overflow_y_scrollbar()"));
+    assert!(!form.contains("truncate()"));
+    let select = source_between(&app, "fn select_tab(", "fn set_frame_filter(");
+    let navigation = source_between(select, "AppTab::Settings => {", "AppTab::Music => {");
+    assert!(navigation.contains("self.settings.dispatch(SettingsAction::Open)"));
+    for forbidden in [
+        "save_settings(",
+        "set_value(",
+        "SettingsVm::default",
+        "reload_cached(",
+    ] {
+        assert!(
+            !navigation.contains(forbidden),
+            "Settings re-entry must preserve session inputs and observations: {forbidden}"
+        );
+    }
+    for field in ["endpoint_input", "music_dir_input", "flac_path_input"] {
+        assert!(app.contains(&format!("{field}: Entity<InputState>")));
+    }
+    let dispatch = source_between(
+        &screen,
+        "pub(super) fn settings_action(",
+        "fn use_default_settings(",
+    );
+    assert!(dispatch.contains("SettingsEffect::Navigate => {}"));
+    assert!(
+        !dispatch.contains("focus_active_tab("),
+        "Situational ADR 0069: selecting a group must retain focus on its mounted button"
+    );
+    let button = read_source(&manifest_path("src/ui/primitives/button.rs"));
+    assert!(!button.contains("prevent_default("),
+        "Situational ADR 0069: group buttons must keep GPUI mouse-down focus transfer before hiding an input");
+    assert_eq!(
+        dispatch.matches("self.save_settings(window, cx)").count(),
+        1
+    );
+    assert_eq!(
+        dispatch
+            .matches("self.use_default_settings(window, cx)")
+            .count(),
+        1
+    );
+    assert!(!dispatch.contains("set_value(") && !dispatch.contains("present_command("));
+    let defaults = source_between(
+        &screen,
+        "fn use_default_settings(",
+        "pub(super) fn render_settings(",
+    );
+    assert_eq!(
+        defaults.matches("self.save_settings(window, cx)").count(),
+        1
+    );
+    for required in [
+        "self.endpoint_input.update",
+        "self.music_dir_input.update",
+        "self.flac_path_input.update",
+        "self.set_ui_scale(",
+        "self.set_theme_profile(",
+    ] {
+        assert!(defaults.contains(required));
+    }
+    let save = source_between(&app, "fn save_settings(", "fn reload_cached(");
+    assert_eq!(save.matches("config::save_app_settings(").count(), 1);
+    for field in [
+        "endpoint_input",
+        "music_dir_input",
+        "flac_path_input",
+        "ui_scale",
+        "theme_profile",
+    ] {
+        assert!(save.contains(field), "shared Save must retain {field}");
+    }
+    let report = source_between(
+        &capabilities,
+        "CapabilityAction::Configure(_) =>",
+        "CapabilityAction::CopyReport =>",
+    );
+    assert!(
+        report.find("SettingsAction::OpenReport").unwrap()
+            < report.find("self.select_tab(AppTab::Settings").unwrap()
+    );
+    for file in ["src/config.rs", "src/db.rs"] {
+        let source = read_source(&manifest_path(file));
+        for forbidden in [
+            "SettingsGroup",
+            "SettingsVm",
+            "settings_group",
+            "selected_settings_group",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "group navigation must not change persistence: {file} {forbidden}"
+            );
+        }
+    }
+}
+
+/// Situational ADR 0066, invariants 5–6: core maintenance consumes one proven session drain.
+#[test]
+fn adr_0066_core_maintenance_drains_the_session() {
+    let lifecycle = read_source(&manifest_path("src/application/session_lifecycle.rs"));
+    for required in [
+        "enum SessionPhase",
+        "Running",
+        "Draining",
+        "Maintenance",
+        "Resuming",
+        "struct MaintenanceSession",
+        "struct SessionDrain",
+        "SESSION_DRAIN_TIMEOUT",
+        "Arc::try_unwrap(connection)",
+        "connection.close()",
+        "wait_for_work",
+        "state.phase != SessionPhase::Running",
+        "self.0.stop.cancel()",
+        "!state.owners.is_empty()",
+        "shutdown_for_maintenance()",
+        "finish_session_playback",
+    ] {
+        assert!(
+            lifecycle.contains(required),
+            "ADR 0066 managed maintenance requires {required}"
+        );
+    }
+    assert!(
+        !lifecycle.contains("strong_count"),
+        "ADR 0066 requires actual close/ownership transfer"
+    );
+    assert!(
+        !lifecycle.contains("pub struct MaintenanceSession"),
+        "ADR 0066 capability is internal and cannot be constructed by callers"
+    );
+    let runner = read_source(&manifest_path("src/application/async_command_runner.rs"));
+    let dispatch = runner.find("pub fn dispatch<C>").unwrap();
+    let admission = runner[dispatch..].find("self.session.admit(name)").unwrap();
+    let spawn = runner[dispatch..]
+        .find("runtime_handle.spawn_blocking")
+        .unwrap();
+    assert!(
+        admission < spawn,
+        "ADR 0066 admission must count work before enqueueing it"
+    );
+    assert!(runner.contains("CommandError::SessionDraining"));
+    assert!(runner.contains("drop(work)"));
+    for path in [
+        "src/runtime/actor.rs",
+        "src/runtime/playback_polling.rs",
+        "src/runtime/broadcast_readiness.rs",
+        "src/runtime/broadcast_service_watch.rs",
+        "src/runtime/musicbrainz_feed_saga.rs",
+    ] {
+        let actor = read_source(&manifest_path(path));
+        assert!(
+            actor.contains("session.spawn_actor("),
+            "ADR 0066 untracked actor: {path}"
+        );
+        assert!(
+            actor.contains("stop.cancelled()"),
+            "ADR 0066 missing actor stop: {path}"
+        );
+    }
+    let paged = read_source(&manifest_path("src/application/paged_track_list.rs"));
+    assert!(paged.contains("conn: Connection"));
+    assert!(paged.contains("actor::spawn(self, bus)"));
+    assert!(paged.contains("adr_0066_paged_actor_releases_its_exclusive_configured_connection"));
+    let transition = read_source(&manifest_path("src/presentation/session_transition.rs"));
+    assert!(transition.contains("Arc::try_unwrap(runtime)"));
+    assert!(transition.contains("self.drain.finish()?"));
+    let screen = read_source(&manifest_path("src/app/startup.rs"));
+    for required in [
+        "maintenance: Option<MaintenanceSession>",
+        "maintenance.begin_resume()",
+        "maintenance.resume_failed()",
+        "this.normal.take()",
+        "this.close_session_resources",
+        "worker.retire(result)",
+    ] {
+        assert!(
+            screen.contains(required),
+            "ADR 0066 root must retain managed transition: {required}"
+        );
+    }
+    let presenter = read_source(&manifest_path(
+        "src/presentation/async_command_presenter.rs",
+    ));
+    assert!(presenter.contains("!session.accepts(generation)"));
+    let form = read_source(&manifest_path("src/ui/composites/maintenance_forms.rs"));
+    for forbidden in [
+        "std::fs",
+        "Connection",
+        "RuntimeHost",
+        "thread::sleep",
+        "spawn_blocking",
+    ] {
+        assert!(
+            !form.contains(forbidden),
+            "ADR 0066 maintenance form cannot own {forbidden}"
+        );
+    }
+    for path in [
+        "src/app/session.rs",
+        "src/application/session_lifecycle.rs",
+        "src/presentation/session_transition.rs",
+    ] {
+        let source = read_source(&manifest_path(path));
+        for forbidden in [
+            "control::stop",
+            "encoder::disconnect",
+            "remove_file(db",
+            "save_app_settings",
+            "cx.spawn",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "ADR 0066 session teardown must not call {forbidden} in {path}"
+            );
+        }
+    }
 }

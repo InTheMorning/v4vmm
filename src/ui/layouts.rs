@@ -20,6 +20,7 @@ pub const WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT: Pixels = px(840.0);
 pub const ROW_HEIGHT: Pixels = px(36.0);
 pub const MIN_HIT_TARGET: Pixels = px(44.0);
 pub const HIT_TARGET_MIN: Pixels = MIN_HIT_TARGET;
+pub const CONTROL_FOCUS_RING_WIDTH: Pixels = px(2.0);
 pub const INSPECTOR_WIDTH: Pixels = px(360.0);
 pub const INSPECTOR_MIN_WIDTH: Pixels = px(200.0);
 pub const INSPECTOR_MAX_WIDTH: Pixels = px(800.0);

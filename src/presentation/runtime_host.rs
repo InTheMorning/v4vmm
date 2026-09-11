@@ -1,5 +1,5 @@
 //! Runtime host: owns the tokio runtime + cross-actor [`VmBus`] for the
-//! lifetime of a desktop GPUI session (ADR 0040).
+//! lifetime of a desktop GPUI session (ADRs 0040 and 0066).
 //!
 //! ### Why a host?
 //!
@@ -10,14 +10,15 @@
 //!   can be called from any thread (including from a GPUI listener), and
 //! * a single [`VmBus`] every actor subscribes to for invalidation events.
 //!
-//! Hosts are constructed once in [`crate::app::bootstrap::run_app`] and
-//! shared across screens via [`Arc<RuntimeHost>`]. When the desktop window
-//! drops, the host drops, and the runtime shuts down all spawned actors.
+//! Each normal-session preparation constructs a host and shares it across
+//! screens via [`Arc<RuntimeHost>`]. Managed maintenance waits for actor
+//! completion, then releases the runtime on the independent worker before
+//! another session can open.
 //!
 //! ### Layer rules
 //!
 //! Lives under `src/presentation/` because it bridges `gpui` callers to
-//! `runtime` actors. Screens (`src/library.rs`, `src/discover.rs`) hold an
+//! `runtime` actors. Screens hold an
 //! `Arc<RuntimeHost>` but never touch [`tokio::runtime::Runtime`] directly.
 
 #![warn(clippy::pedantic)]
@@ -26,6 +27,7 @@ use std::sync::Arc;
 
 use tokio::runtime::{Builder, Runtime};
 
+use crate::application::session_lifecycle::{SessionLifecycle, SessionWork};
 use crate::runtime::VmBus;
 
 /// Owned tokio runtime + cross-actor invalidation bus.
@@ -35,11 +37,15 @@ use crate::runtime::VmBus;
 pub struct RuntimeHost {
     runtime: Runtime,
     bus: VmBus,
+    _session_owner: SessionWork,
 }
 
 impl RuntimeHost {
     /// Desktop creation seam; fixture failures exist only in debug builds.
-    pub(crate) fn for_config(path: &std::path::Path) -> std::io::Result<Arc<Self>> {
+    pub(crate) fn for_config(
+        path: &std::path::Path,
+        session: SessionLifecycle,
+    ) -> std::io::Result<Arc<Self>> {
         #[cfg(debug_assertions)]
         if crate::startup::fixture::injected_failure(
             path,
@@ -49,7 +55,7 @@ impl RuntimeHost {
         }
         #[cfg(not(debug_assertions))]
         let _ = path;
-        Self::new()
+        Self::new_in_session(session)
     }
 
     /// Build a host with a multi-thread tokio runtime.
@@ -59,7 +65,11 @@ impl RuntimeHost {
     /// Returns the underlying [`tokio::io::Error`] if the runtime cannot
     /// be created (e.g. exhausted file descriptors).
     pub fn new() -> std::io::Result<Arc<Self>> {
-        Self::new_with(|| {
+        Self::new_in_session(SessionLifecycle::new())
+    }
+
+    fn new_in_session(session: SessionLifecycle) -> std::io::Result<Arc<Self>> {
+        Self::build_in_session(session, || {
             Builder::new_multi_thread()
                 .enable_all()
                 .thread_name("v4vmm-runtime")
@@ -67,11 +77,23 @@ impl RuntimeHost {
         })
     }
 
+    #[cfg(test)]
     fn new_with(build: impl FnOnce() -> std::io::Result<Runtime>) -> std::io::Result<Arc<Self>> {
+        Self::build_in_session(SessionLifecycle::new(), build)
+    }
+
+    fn build_in_session(
+        session: SessionLifecycle,
+        build: impl FnOnce() -> std::io::Result<Runtime>,
+    ) -> std::io::Result<Arc<Self>> {
+        let owner = session
+            .own("Background runtime")
+            .ok_or_else(|| std::io::Error::other("app session is ending"))?;
         let runtime = build()?;
         Ok(Arc::new(Self {
             runtime,
-            bus: VmBus::new(),
+            bus: VmBus::for_session(session),
+            _session_owner: owner,
         }))
     }
 

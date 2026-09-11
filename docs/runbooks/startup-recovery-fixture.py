@@ -21,6 +21,7 @@ CASES = ("normal", "invalid-toml", "music-missing", "music-file", "db-locked", "
          "endpoint-and-player-unavailable", "presentation-invalid", "producer-unavailable",
          "publisher-invalid", "partial-path-repair")
 OPTIONAL_CASES = CASES[-5:]
+CASES += ("session-held-command",)
 
 
 def digest(path):
@@ -151,9 +152,11 @@ def hold_lock(root):
 
 def mode(root, case):
     previous = json.loads((root / "case.json").read_text())["case"]
-    if (case in OPTIONAL_CASES or previous in OPTIONAL_CASES) and owned_process(root, "app.pid"):
-        raise SystemExit("Close the fixture app before changing optional-tool cases.")
+    if (case in OPTIONAL_CASES or previous in OPTIONAL_CASES or "session-held-command" in (case, previous)) and owned_process(root, "app.pid"):
+        raise SystemExit("Close the fixture app before changing optional-tool or session cases.")
     release_lock(root)
+    if case != "session-held-command":
+        (root / "session.hold").unlink(missing_ok=True)
     if (root / "music.saved").exists():
         if (root / "music").is_file():
             (root / "music").unlink()
@@ -209,6 +212,10 @@ def mode(root, case):
         text = text.replace(json.dumps(str(root / "music")), json.dumps(str(long_path)))
         cfg.write_text(text)
         purpose = "App must wrap and copy the full missing path. Launch the fixture; inspect narrow and normal widths."
+    elif case == "session-held-command":
+        (root / "session.hold").write_text("Release this admitted command with session-release.\n")
+        (root / "session-observations.jsonl").unlink(missing_ok=True)
+        purpose = "App must report the held command during session drain. Use session-status, then session-release and Retry drain."
     elif case == "runtime-unavailable":
         purpose = "App must open Music and offer a background-runtime report and Check again. Navigation and local search must work."
     elif case == "cache-worker-unavailable":
@@ -255,7 +262,7 @@ def setup():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock"))
+    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "session-status", "session-release"))
     parser.add_argument("directory", nargs="?")
     parser.add_argument("case", nargs="?", choices=CASES)
     args = parser.parse_args()
@@ -283,6 +290,13 @@ def main():
         if not args.case:
             parser.error("mode requires a case")
         mode(root, args.case)
+    elif args.command == "session-status":
+        report = root / "session-observations.jsonl"
+        observations = [json.loads(line) for line in report.read_text().splitlines()] if report.exists() else []
+        print(json.dumps({"held": (root / "session.hold").exists(), "observations": observations}, indent=2))
+    elif args.command == "session-release":
+        (root / "session.hold").unlink(missing_ok=True)
+        print("Released the fixture session command; use Retry drain in the app.")
     elif args.command == "inspect":
         inspect(root, manifest)
     elif args.command == "hold-lock":

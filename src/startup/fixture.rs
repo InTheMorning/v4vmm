@@ -255,3 +255,108 @@ mod tests {
         assert!(fixture_failure(&root, &config, Dependency::BackgroundRuntime).is_err());
     }
 }
+
+/// Record actual mounted generations and hold admitted work only in a verified debug fixture.
+pub(crate) fn observe_session(
+    runner: &crate::application::AsyncCommandRunner,
+    config_path: PathBuf,
+    connection: std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>,
+) {
+    if std::env::var_os("V4VMM_STARTUP_FIXTURE").is_none() {
+        return;
+    }
+    drop(runner.dispatch(
+        FixtureSessionCommand {
+            config_path,
+            generation: runner.session().generation(),
+            _connection: connection,
+        },
+        crate::application::CommandContext::next(),
+    ));
+}
+
+struct FixtureSessionCommand {
+    config_path: PathBuf,
+    generation: u64,
+    _connection: std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>,
+}
+
+impl crate::application::ApplicationCommand for FixtureSessionCommand {
+    type Output = ();
+
+    fn execute(
+        self,
+        _: &crate::application::CommandContext,
+    ) -> crate::application::CommandResult<()> {
+        self.run().map_err(|error| {
+            crate::application::CommandError::Other(format!(
+                "Fixture session observation failed: {error:#}"
+            ))
+        })?;
+        Ok(crate::application::CommandOutcome::without_events(()))
+    }
+}
+
+impl FixtureSessionCommand {
+    fn run(&self) -> Result<()> {
+        let Some(root) = std::env::var_os("V4VMM_STARTUP_FIXTURE") else {
+            return Ok(());
+        };
+        let root = verified_config_root(Path::new(&root), &self.config_path)?;
+        let hold = root.join("session.hold");
+        ensure!(
+            !hold.is_symlink(),
+            "Fixture hold marker cannot be a symlink"
+        );
+        let holding = hold.try_exists()?;
+        append_session_observation(
+            &root,
+            self.generation,
+            if holding { "command-held" } else { "opened" },
+        )?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
+        while hold.try_exists()? {
+            ensure!(
+                std::time::Instant::now() < deadline,
+                "Fixture hold exceeded ten minutes; command finished without a database write"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        if holding {
+            append_session_observation(&root, self.generation, "command-released")?;
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn record_session_release(config_path: &Path, generation: u64) {
+    let result = (|| -> Result<()> {
+        let Some(root) = std::env::var_os("V4VMM_STARTUP_FIXTURE") else {
+            return Ok(());
+        };
+        let root = verified_config_root(Path::new(&root), config_path)?;
+        append_session_observation(&root, generation, "maintenance")
+    })();
+    if let Err(error) = result {
+        eprintln!("Fixture could not record session resource release: {error:#}");
+    }
+}
+
+fn append_session_observation(root: &Path, generation: u64, state: &str) -> Result<()> {
+    use std::io::Write;
+    let path = root.join("session-observations.jsonl");
+    ensure!(
+        !path.is_symlink(),
+        "Fixture session report cannot be a symlink"
+    );
+    let mut output = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    writeln!(
+        output,
+        "{}",
+        json!({"generation": generation, "state": state})
+    )?;
+    Ok(())
+}

@@ -6,6 +6,13 @@ Complete - 2026-09-11. Independent documentation and guard work is closed;
 mechanical verification is Green. No application behavior or human acceptance
 changed in this pass.
 
+The findings below record this review's cutoff. Later on 2026-09-11, the
+operator explicitly requested ADR 0066 task 005 and accepted its implementation,
+V1–V3, preservation and fixture cleanup. That later work is recorded in
+[task 005](../tasks/adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11)
+and the current [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md).
+Task 004's remaining gate stays open.
+
 ## Scope And Evidence
 
 Reviewed the current ADR index, delivery order, deferred-work index, ADR 0066

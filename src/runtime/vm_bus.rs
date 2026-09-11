@@ -11,6 +11,7 @@
 
 #![warn(clippy::pedantic)]
 
+use crate::application::session_lifecycle::SessionLifecycle;
 use tokio::sync::broadcast;
 
 const DEFAULT_CAPACITY: usize = 256;
@@ -33,19 +34,35 @@ pub enum VmEvent {
 #[must_use]
 pub struct VmBus {
     sender: broadcast::Sender<VmEvent>,
+    session: SessionLifecycle,
 }
 
 impl VmBus {
     /// Create a new bus with the default capacity.
     pub fn new() -> Self {
         let (sender, _receiver) = broadcast::channel(DEFAULT_CAPACITY);
-        Self { sender }
+        Self {
+            sender,
+            session: SessionLifecycle::new(),
+        }
     }
 
     /// Create a new bus with a specific channel capacity.
     pub fn with_capacity(capacity: usize) -> Self {
         let (sender, _receiver) = broadcast::channel(capacity);
-        Self { sender }
+        Self {
+            sender,
+            session: SessionLifecycle::new(),
+        }
+    }
+
+    pub(crate) fn for_session(session: SessionLifecycle) -> Self {
+        let (sender, _) = broadcast::channel(DEFAULT_CAPACITY);
+        Self { sender, session }
+    }
+
+    pub(crate) fn session(&self) -> &SessionLifecycle {
+        &self.session
     }
 
     /// Publish an event. Returns `true` when at least one receiver is live.

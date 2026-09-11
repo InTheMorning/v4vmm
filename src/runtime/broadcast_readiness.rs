@@ -8,7 +8,9 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::application::session_lifecycle::SessionLifecycle;
 use rusqlite::Connection;
+
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::application::queries::broadcast::{
@@ -73,23 +75,29 @@ enum BroadcastReadinessCommand {
 
 /// Spawns the broadcast readiness actor on the current tokio runtime.
 #[must_use]
-pub(crate) fn start(conn: Arc<Mutex<Connection>>) -> BroadcastReadinessWatchHandle {
-    start_with_interval(conn, BROADCAST_READINESS_POLL_INTERVAL)
+pub(crate) fn start(
+    conn: Arc<Mutex<Connection>>,
+    session: &SessionLifecycle,
+) -> BroadcastReadinessWatchHandle {
+    start_with_interval(conn, BROADCAST_READINESS_POLL_INTERVAL, session)
 }
 
 fn start_with_interval(
     conn: Arc<Mutex<Connection>>,
     interval: Duration,
+    session: &SessionLifecycle,
 ) -> BroadcastReadinessWatchHandle {
     let (snapshot_tx, snapshot_rx) = watch::channel(BroadcastReadinessSnapshot::default());
     let (inbox_tx, mut inbox_rx) = mpsc::channel::<BroadcastReadinessCommand>(INBOX_CAPACITY);
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
 
-    tokio::spawn(async move {
+    let stop = session.stop_token();
+    session.spawn_actor("Library readiness scan", async move {
         publish_snapshot(&snapshot_tx, Arc::clone(&conn)).await;
         loop {
             tokio::select! {
                 biased;
+                () = stop.cancelled() => break,
                 _ = &mut shutdown_rx => break,
                 command = inbox_rx.recv() => {
                     let Some(BroadcastReadinessCommand::RefreshNow) = command else {
@@ -181,7 +189,11 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn broadcast_readiness_actor_refreshes_on_command() -> anyhow::Result<()> {
         let conn = setup_test_db()?;
-        let handle = start_with_interval(Arc::clone(&conn), Duration::from_secs(60));
+        let handle = start_with_interval(
+            Arc::clone(&conn),
+            Duration::from_secs(60),
+            &SessionLifecycle::new(),
+        );
         let mut receiver = handle.subscribe();
 
         wait_for_report(&mut receiver).await;

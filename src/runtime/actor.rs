@@ -139,10 +139,13 @@ where
     let (inbox_tx, mut inbox_rx) = mpsc::channel::<A::Message>(inbox_capacity);
     let mut bus_rx = bus.subscribe();
 
-    tokio::spawn(async move {
+    let session = bus.session().clone();
+    let stop = session.stop_token();
+    session.spawn_actor("Paged library actor and database connection", async move {
         loop {
             tokio::select! {
                 biased;
+                () = stop.cancelled() => break,
                 message = inbox_rx.recv() => {
                     let Some(message) = message else { break };
                     if let Some(new_state) = actor.handle(message, &bus) {

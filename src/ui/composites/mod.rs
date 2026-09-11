@@ -118,3 +118,6 @@ pub use track_metadata_grid::{
 };
 pub use track_row::TrackRow;
 pub(crate) use view_mode_control::{view_mode_control, ViewModeControlSlots};
+
+pub(crate) mod maintenance_forms;
+pub(crate) mod settings;

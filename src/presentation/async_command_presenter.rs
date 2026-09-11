@@ -28,6 +28,8 @@ pub fn present_command<T, C, OnSuccess, OnError>(
     OnSuccess: FnOnce(&mut T, C::Output, &mut Context<T>) + 'static,
     OnError: FnOnce(&mut T, CommandError, &mut Context<T>) + 'static,
 {
+    let session = runner.session().clone();
+    let generation = session.generation();
     let rx = runner.dispatch(command, context);
     cx.spawn(async move |this: WeakEntity<T>, cx: &mut AsyncApp| {
         let result = rx.await.unwrap_or_else(|_| {
@@ -35,6 +37,9 @@ pub fn present_command<T, C, OnSuccess, OnError>(
                 "command result channel closed before completion".to_string(),
             ))
         });
+        if !session.accepts(generation) {
+            return;
+        }
         this.update(cx, move |this, cx| {
             match result {
                 Ok(outcome) => {

@@ -183,6 +183,14 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
         Ok(update)
     }
 
+    /// Finish existing playback state during managed session maintenance (ADR 0066).
+    pub(crate) fn finish_session_playback(&mut self, conn: &Connection) -> Result<()> {
+        if db::playback_session(conn, &self.session_id)?.is_some() {
+            self.stop(conn)?;
+        }
+        Ok(())
+    }
+
     pub fn stop(&mut self, conn: &Connection) -> Result<db::PlaybackSessionRow> {
         self.driver.stop()?;
         self.eof_armed = false;

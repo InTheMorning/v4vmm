@@ -6,9 +6,12 @@ Tasks 001–003 are complete - 2026-09-11. Mechanical checks are Green;
 operator acceptance, final preservation inspection and fixture cleanup are
 confirmed. The keyboard checks use ADR 0067's accepted Ctrl bindings.
 Settings responsiveness and cached-file recovery are accepted; temporary
-diagnostics are removed. ADR 0066 remains partial. Task 004 implementation and
-mechanical checks are complete; operator visual acceptance, preservation
-inspection and fixture cleanup remain open. Tasks 005–013 have not started.
+diagnostics are removed. ADR 0066 remains partial. Task 005 is complete with
+mechanical checks Green, operator V1–V3 and preservation accepted, and fixture
+cleanup confirmed. Task 004's implementation and mechanical checks are complete;
+its presentation case and producer preservation are accepted. Its remaining
+operator checks and fixture cleanup stay open; playback checks are deferred.
+Task 006 is ready for a fresh session; tasks 006–013 have not started.
 
 Read the [ADR](../adr/0066-configuration-and-startup-failure-recovery.md),
 [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md), active packet and
@@ -376,7 +379,8 @@ The presentation case has operator acceptance and Green preservation inspection.
 [Task 004's runbook](../runbooks/startup-recovery-check.md#task-004-optional-tool-isolation)
 still owns the first case's remaining visual confirmation, producer failure
 with audible playback, publisher isolation, partial path repair, their remaining
-preservation checks and operator cleanup. Task 005 waits.
+preservation checks and operator cleanup. The operator subsequently authorized
+task 005 before these remaining checks; that exception accepts none of them.
 Tasks 001–003, ADR 0067 and the five inherited check groups retain their prior scope.
 
 The operator's presentation screenshot exposed configuration warnings duplicated
@@ -407,3 +411,48 @@ bindings, library data, migrations and the producer blocker remain preserved,
 with no residual probes. This closes that case's preservation check only.
 Playback acceptance remains paused and final fixture cleanup remains open. See
 [the recorded inspection](../tasks/adr-0066-task-004-optional-tool-isolation.md#producer-preservation-inspection--2026-09-11).
+
+## Task 005 Review — 2026-09-11
+
+[Implementation and proof](../tasks/adr-0066-task-005-session-drain-and-resumption.md#implementation-and-proof)
+cover C1–C5. The live Diagnostics action uses typed view-model state and shared
+maintenance forms. The command runner, five live desktop actor paths, thumbnail
+worker and runtime share a session owner. Configured connection release is
+proved both through actual ownership transfer/close and the paged actor's
+separate SQLite connection test. A dropped command receiver remains tracked.
+
+Teardown and abandoned preparation resources are released by the independent
+maintenance worker. The owned-child test verifies that shutdown reaps only the
+app's child; the transition sends no external service stop command. A real core
+prepare/drain/recheck/resume test verifies a larger generation, failed-check
+recovery and configuration preservation. Existing presenter and view-model
+tests cover single mounting and stale-result rejection.
+
+`adr_0066_core_maintenance_drains_the_session` guards the live ownership route
+under ADR 0066 invariants 5–6. The packet's implementation recipe and coding
+prompt are replaced by the actual proof inventory. Full tests, production
+Clippy, check, formatting and build are Green. The fixture's held/released
+marker, status, preservation and cleanup commands passed without starting GPUI.
+
+The [operator check](../runbooks/startup-recovery-check.md#task-005-session-drain-and-resumption)
+passed V1–V3, final preservation inspection and fixture cleanup on 2026-09-11. The
+operator's explicit scheduling exception lets task 005 use task 004's delivered
+owners; it does not accept task 004's paused playback workflow or remaining
+checks. Task 006 is ready for a fresh session and has not started. No
+configuration editor, database installation or configuration-format change is
+included in task 005.
+
+The [operator evidence](../tasks/adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11)
+records fixture `/tmp/v4vmm-startup-oaq_8a7x`. Session 1 exceeded the fixture's
+ten-minute hold deadline before drain, so only the held-work check was repeated.
+Session 2 retained `FixtureSessionCommand: 1` through failures recorded at
+18:40:14 and 18:44:08 UTC, then reached recovery at 18:45:06 after release.
+The copied report retained both failures and the original timestamps. Terminal
+JSON confirmed `command-held → command-released → maintenance` for session 2,
+followed by exactly one session 3 `opened`, with `held: false`.
+
+The operator accepted the library, reports, keyboard access and applicable
+theme/width checks. Preservation inspection retained music, bindings, library
+and migrations 1–11 with no residual probes; only permitted workspace preferences
+changed in configuration. The operator confirmed the fixture's removal. This
+closes task 005's gate and removes its entry from the pending-human index.

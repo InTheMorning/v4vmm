@@ -4,13 +4,17 @@
 
 Accepted - 2026-09-10.
 
-Implementation partial: tasks 001–003 complete, including operator acceptance,
-preservation inspection and fixture cleanup. Task 004 implementation and
-mechanical checks are complete; its operator visual acceptance, preservation
-inspection and fixture cleanup remain open. Tasks 005–013 have not started in
+Implementation partial: tasks 001–003 and 005 are complete, including applicable
+operator acceptance, preservation inspection and fixture cleanup. Task 004's
+implementation and mechanical checks are complete; its presentation case and
+producer preservation are accepted. Its remaining operator checks and fixture
+cleanup stay open; playback checks are deferred. Task 005 proceeded at the
+operator's explicit request without closing task 004. Task 006 is ready for a
+fresh session; tasks 006–013 have not started in
 the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md).
-Amended 2026-09-11: scoped optional-tool isolation is implemented; in-app
-correction/retry and the remaining maintenance tools are still pending.
+Amended 2026-09-11: scoped optional-tool isolation and managed session draining
+and resumption are implemented; in-app correction/retry and the remaining
+maintenance tools are still pending.
 
 Amended 2026-09-10: [ADR 0067](0067-platform-shortcut-modifiers.md) changes Linux
 shortcuts to Ctrl at the operator's request. Task 003's keyboard checks
@@ -477,13 +481,23 @@ records optional factory failures, independent commands, scoped CLI/RSS reads an
 partially committed path repair. Its [operator check](../runbooks/startup-recovery-check.md#task-004-optional-tool-isolation)
 remains open.
 
+Task 005 adds `adr_0066_core_maintenance_drains_the_session`, a situational guard
+for invariants 5–6 in the same architecture suite. Its
+[proof inventory](../tasks/adr-0066-task-005-session-drain-and-resumption.md#implementation-and-proof)
+records atomic admission, held work and connections, actual resource release,
+owned-child shutdown, fresh preparation and stale-result rejection. The
+[operator check](../runbooks/startup-recovery-check.md#task-005-session-drain-and-resumption)
+passed on 2026-09-11, including preservation inspection and fixture cleanup.
+The packet records the accepted session 2 → 3 transition and the earlier
+expired fixture attempt separately.
+
 Task 003's operator-reported search-error clipping correction is guarded by
 `adr_0066_search_failure_report_stays_readable_and_vm_owned`. The packet's
 [correction evidence](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md#operator-correction-readable-search-failures)
 links typed failure wording, shared wrapping/disclosure, recorded UTC and
 safe report-copy checks. The focused operator recheck passed, including
-Library-filter separation and playlist uniqueness. Task 003's remaining gate
-stays open.
+Library-filter separation and playlist uniqueness. Task 003's later acceptance,
+preservation inspection and fixture cleanup also passed on 2026-09-11.
 
 ## Non-Goals
 

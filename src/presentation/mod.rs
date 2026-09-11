@@ -11,6 +11,7 @@ pub mod event_bridge;
 pub mod gpui_event_bridge;
 pub mod gpui_vm_bridge;
 pub mod runtime_host;
+pub(crate) mod session_transition;
 
 pub use async_command_presenter::present_command;
 pub use event_bridge::PresentationEventBridge;

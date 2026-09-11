@@ -522,3 +522,152 @@ unset optional_dir
 
 Cleanup removes only the verified fixture, including its WAVs, database,
 path-failure trigger, blocker files, temporary mpv sockets and configuration.
+
+## Task 005: Session Drain And Resumption
+
+Owner: [task 005](../tasks/adr-0066-task-005-session-drain-and-resumption.md).
+Operator V1–V3, preservation inspection and fixture cleanup accepted - 2026-09-11.
+The [packet records the evidence](../tasks/adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11).
+These steps remain available for regression; no repeat is requested for that acceptance.
+
+Needs: a Linux desktop, Python 3.11+, and this checkout's rebuilt debug binary.
+No audio hardware, installed mpv, network service or running broadcast service
+is needed. The fixture uses the explicit Null driver, local tracks and external
+command stubs. This check does not accept task 004's deferred playback workflow.
+Use a **new** fixture; retain task 004's separate fixture.
+
+### 1. Prepare A Held Command
+
+Close the normal app. In a desktop terminal:
+
+```bash
+cd /home/citizen/build/v4vmm
+cargo build --locked --offline --quiet
+session_fixture=$(python3 docs/runbooks/startup-recovery-fixture.py setup)
+python3 docs/runbooks/startup-recovery-fixture.py verify "$session_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py mode "$session_fixture" session-held-command
+python3 docs/runbooks/startup-recovery-fixture.py run "$session_fixture"
+```
+
+Keep that terminal open. In a second terminal, assign `session_fixture` to the
+exact directory printed by verify, then run:
+
+```bash
+cd /home/citizen/build/v4vmm
+python3 docs/runbooks/startup-recovery-fixture.py session-status "$session_fixture"
+```
+
+Expect `held: true` and one `command-held` observation with a generation number.
+The admitted command holds an actual configured database reference but writes
+no database records. It finishes when step 4 releases it, or after a ten-minute
+fixture deadline. If no observation has appeared yet, wait and check again.
+Complete the held-work and release checks within ten minutes of opening that
+session. If V1 takes longer, use the deadline procedure in step 3; accepted V1
+checks do not need to be repeated. The `held` flag describes the marker file,
+which can remain present after the command's deadline expires.
+
+### 2. V1 — Inspect The Session Action
+
+In Music, open **Startup fixture playlist** so its paged actor is active.
+Press Ctrl+Comma and choose Diagnostics. The App session section must explain
+that End app session stops this app's work and built-in playback, discards
+unsaved Settings edits and leaves the external services running. Record its
+current session number. Inspect this section in Light and Dark, at normal and
+roughly 560-pixel widths. Change themes in General without choosing Save or Use
+Defaults; theme changes apply immediately and this check must preserve the
+fixture configuration. Use Tab/Shift+Tab to reach its button. The explanation
+and action must remain readable, unclipped and reachable by scrolling.
+
+Choose **End app session**. Normal Music/Show/Settings content must be replaced
+by the session report. The window must keep responding while the app waits.
+This explicit action authorizes stopping built-in playback and recording any
+existing playback session as stopped; it does not edit configuration or library
+membership. The Null-driver fixture does not require an audible playback check.
+
+### 3. V2 — Held Work Must Block Maintenance
+
+After approximately five seconds, expect a report that maintenance is still
+unavailable and that `FixtureSessionCommand` remains. **Retry drain** and
+**Copy report** must be usable. **Open app** and core repair controls must not
+be available yet. Retry once while the command is still held: the app must
+remain in this waiting/failure state with a new recorded report entry.
+
+Copy the report into a blank scratch editor. At normal and narrow widths,
+confirm that the copied text includes the waiting work, session number and
+recorded UTC times without clipping. Rendering or resizing must not change the
+recorded times.
+
+If recovery opens without a held-work failure, compare the recorded session
+startup and drain times. A drain after the ten-minute fixture deadline does not
+prove V2. While the hold marker is still present, choose **Open app**, confirm
+the new generation's `command-held` observation with `session-status`, open the
+fixture playlist and immediately repeat the held-work check. Retain the earlier
+generation observations as history. If maintenance opens while the command is
+still held within its deadline, keep the fixture and report the failure.
+
+### 4. Release And Retry
+
+In the second terminal:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py session-release "$session_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py session-status "$session_fixture"
+```
+
+Expect `held: false`; `command-released` appears when the worker observes the
+release. Choose **Retry drain** in the app. Recovery must become available only
+after the resource-release report. It checks the core resources without
+starting a new normal session. Copy report must retain the earlier session
+messages and their original times. The fixture status must now contain one
+`maintenance` observation for the old generation.
+Inspect the recovery report at normal and narrow widths before proceeding;
+it uses the theme selected before ending the session.
+
+### 5. V3 — Open One Fresh Session
+
+Choose **Open app** after the core checks pass. Music must reappear once, with
+one copy of the fixture playlist and its three tracks. Return to Settings →
+Diagnostics. The current session number must be larger than the old one, and
+the previous session report must retain its waiting, release and resumption
+entries. Inspect the retained session report in Light and Dark at both widths,
+using General's immediate theme choice without saving it. No line or action may
+be inaccessible. Do not repeat unrelated accepted Settings field or audio checks.
+
+In the second terminal:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py session-status "$session_fixture"
+```
+
+For the accepted held-work attempt, expect the old `command-held`/
+`command-released`/`maintenance` generation followed by exactly one new `opened`
+generation, with `held: false`. Earlier generations from an expired attempt
+remain in the history. A duplicate opening after the tested drain or an old
+generation appearing as the resumed session fails this check. Paste this
+command's JSON output when reporting generation evidence.
+
+### 6. Inspect And Clean Up
+
+Quit the app with Ctrl+Q. In the original terminal:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py inspect "$session_fixture"
+```
+
+Every preservation flag must be true, with no residual music or database
+probes. Configuration may differ only in the permitted workspace preferences.
+The fixture must retain three tracks and playlist memberships, one playlist,
+the original bindings and migrations 1–11. Record V1–V3 and inspection results
+before cleanup. On failure, keep this fixture for diagnosis; release a held
+command with step 4 before quitting, rather than killing its work.
+
+After all results pass:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py cleanup "$session_fixture" &&
+unset session_fixture
+```
+
+Close the scratch editor buffer and remove a separate scratch report only if
+you saved one. Cleanup removes only this fixture's config, database, music,
+markers and observation file; it changes no real service or desktop audio route.

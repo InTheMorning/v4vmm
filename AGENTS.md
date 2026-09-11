@@ -28,10 +28,13 @@ its platform-shortcut packet is complete with all operator checks accepted.
 Settings responsiveness and cached-file recovery are accepted, and the
 temporary timing/profiling tools are removed.
 
-Next is [ADR 0069 task 001: Grouped Settings foundation](docs/tasks/adr-0069-task-001-grouped-settings-foundation.md).
-[ADR 0069](docs/adr/0069-grouped-settings-and-selective-presets.md) is Accepted;
-implementation has not started. The first packet groups existing controls and
-reports without changing the configuration format. The
+[ADR 0069 task 001: Grouped Settings foundation](docs/tasks/adr-0069-task-001-grouped-settings-foundation.md)
+is complete with mechanical checks Green, operator V1–V3 and preservation
+acceptance, and confirmed fixture cleanup. Its
+[operator procedure](docs/runbooks/settings-foundation-check.md) remains a regression check.
+The packet groups existing controls and reports without changing the configuration format.
+[ADR 0069](docs/adr/0069-grouped-settings-and-selective-presets.md) remains Accepted;
+later implementation has not started. The
 [Settings phase plan](docs/plans/adr-0069-settings-presets-phase-plan.md)
 keeps guarded editing, live metadata selection and presets behind their named
 recovery prerequisites; audio integration remains deferred.
@@ -40,7 +43,13 @@ recovery prerequisites; audio integration remains deferred.
 still has an open acceptance gate.
 Implementation and mechanical checks are complete; presentation acceptance and
 producer preservation passed. Remaining operator checks and fixture cleanup
-are open. Task 005 waits for that gate. Tasks 005–013 remain in the
+are open.
+[Task 005: Session drain and resumption](docs/tasks/adr-0066-task-005-session-drain-and-resumption.md)
+is complete with mechanical checks Green, operator V1–V3 and preservation
+accepted, and fixture cleanup confirmed. Next is
+[task 006: Configuration repair and resumption](docs/tasks/adr-0066-task-006-configuration-repair-and-resumption.md)
+in a fresh session; implementation has not started. Task 004 retains its
+remaining checks under the recorded scheduling exception. Tasks 006–013 remain in the
 [phase plan](docs/plans/adr-0066-startup-recovery-phase-plan.md).
 [ADR 0068: Show cue and audition isolation](docs/adr/0068-show-cue-and-audition-isolation.md)
 is Proposed; its implementation has not started. Task 004's playback checks

@@ -2,9 +2,35 @@
 
 #![warn(clippy::pedantic)]
 
+use crate::application::capability::ExecutionUnavailable;
 use crate::application::errors::command::CommandError;
 
-use super::library::LibraryTree;
+use super::library::{LibraryTrackRowVm, LibraryTree};
+use super::startup::StartupAvailability;
+
+#[derive(Clone, Debug)]
+pub(crate) enum CachedFileAction {
+    Delete(String),
+    DeleteAll,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CachedFileActionDisplay {
+    pub(crate) action: CachedFileAction,
+    pub(crate) id: String,
+    pub(crate) label: &'static str,
+    pub(crate) a11y_label: String,
+    pub(crate) availability: StartupAvailability,
+}
+
+#[derive(Debug)]
+pub(crate) enum CachedFileRow {
+    Artist(String),
+    Track {
+        title: String,
+        delete: CachedFileActionDisplay,
+    },
+}
 
 #[derive(Debug, Default, PartialEq, Eq)]
 enum LoadState {
@@ -26,6 +52,69 @@ pub(crate) struct CachedFilesVm {
 }
 
 impl CachedFilesVm {
+    pub(crate) fn rows(
+        &self,
+        music_dir: &std::path::Path,
+        execution: Result<(), ExecutionUnavailable>,
+    ) -> Vec<CachedFileRow> {
+        let mut rows = Vec::new();
+        for artist in &self.tree.artists {
+            rows.push(CachedFileRow::Artist(artist.name.clone()));
+            for album in &artist.albums {
+                for track in &album.tracks {
+                    let title = LibraryTrackRowVm::new(track, None).compact_title();
+                    let path = track
+                        .local_path
+                        .as_ref()
+                        .map(|path| path.resolve(music_dir));
+                    rows.push(CachedFileRow::Track {
+                        delete: CachedFileActionDisplay {
+                            action: CachedFileAction::Delete(
+                                path.as_ref()
+                                    .map(|path| path.display().to_string())
+                                    .unwrap_or_default(),
+                            ),
+                            id: format!("del-cached-{}", track.id),
+                            label: "Delete",
+                            a11y_label: format!("Delete cached file for {title}"),
+                            availability: if execution.is_ok() && path.is_some() {
+                                StartupAvailability::Available
+                            } else {
+                                StartupAvailability::Unavailable
+                            },
+                        },
+                        title,
+                    });
+                }
+            }
+        }
+        rows
+    }
+
+    pub(crate) fn delete_all_action(
+        &self,
+        execution: Result<(), ExecutionUnavailable>,
+    ) -> Option<CachedFileActionDisplay> {
+        self.has_files().then(|| CachedFileActionDisplay {
+            action: CachedFileAction::DeleteAll,
+            id: "delete-all-cached-settings".into(),
+            label: "Delete All Cached",
+            a11y_label: "Delete all cached music files".into(),
+            availability: if execution.is_ok() {
+                StartupAvailability::Available
+            } else {
+                StartupAvailability::Unavailable
+            },
+        })
+    }
+
+    /// Ordinary entry admits the first read or a failed-read retry, never a refresh of valid data.
+    pub(crate) fn enter(&mut self) {
+        if matches!(self.state, LoadState::NotRequested | LoadState::Failed) {
+            self.invalidate();
+        }
+    }
+
     pub(crate) fn tree(&self) -> &LibraryTree {
         &self.tree
     }
@@ -100,6 +189,42 @@ impl CachedFilesVm {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adr_0069_cache_entry_reuses_valid_and_in_flight_observations() {
+        let mut vm = CachedFilesVm::default();
+        vm.enter();
+        assert!(vm.begin_load());
+        for _ in 0..3 {
+            vm.enter();
+            assert!(!vm.begin_load());
+        }
+        vm.complete(Ok((3, LibraryTree::default())));
+        assert_eq!(vm.title(), "Cached files (3)");
+        for _ in 0..3 {
+            vm.enter();
+            assert!(!vm.begin_load());
+            assert_eq!(vm.title(), "Cached files (3)");
+        }
+        vm.invalidate(); // An actual mutation still refreshes the mounted observation.
+        assert!(vm.begin_load());
+        vm.complete(Err(CommandError::Query("failed read".into())));
+        assert!(!vm.begin_load());
+        vm.enter(); // Existing explicit re-entry retry for a failed read.
+        assert!(vm.begin_load());
+        vm.complete(Err(CommandError::Unavailable(
+            ExecutionUnavailable::RUNTIME,
+        )));
+        vm.enter();
+        assert!(!vm.begin_load()); // Runtime recovery remains the explicit Check again route.
+        assert_eq!(vm.title(), "Cached files (3)");
+        assert_eq!(
+            vm.delete_all_action(Err(ExecutionUnavailable::RUNTIME))
+                .unwrap()
+                .availability,
+            StartupAvailability::Unavailable
+        );
+    }
 
     #[test]
     fn adr_0066_unread_and_failed_cache_are_not_reported_as_empty() {

@@ -175,5 +175,6 @@ Open - implementation and mechanical checks recorded 2026-09-11.
 - [ADR 0068](adr/0068-show-cue-and-audition-isolation.md) now proposes that
   separation. Its visual/audio check is specified but not runnable before
   implementation; the draft does not close this gate or reopen accepted cases.
-- Task 005 remains pending until this gate passes. Tasks 001–003 and ADR 0067
-  remain accepted; the inherited checks above are separate.
+- Task 005's completion does not accept any of this packet's remaining checks.
+  Its scheduling exception remains recorded in the phase plan. The inherited
+  checks above are separate.

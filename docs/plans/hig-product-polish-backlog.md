@@ -276,6 +276,37 @@ Acceptance direction:
 - Add architecture/unit coverage for command routing and smoke coverage for
   search focus and breadcrumb back navigation.
 
+#### 11. Linux Text Selection and Primary Paste
+
+Reported during ADR 0069 task 001 acceptance - 2026-09-11: the operator could
+not select an entire Settings field with double/triple clicks or paste the
+Linux primary selection with the middle mouse button. This is a shared input
+follow-up, outside the grouped Settings foundation's structural scope.
+
+Inspection of the pinned `gpui-component` 0.5.1 input shows a double-left-click
+word-selection handler and Ctrl+A for select-all. Triple-click select-all and
+middle-button paste are absent. The report does not establish a failure of
+double-click word selection. GPUI 0.2.2 exposes Linux primary-selection read
+and write APIs; the input component does not wire them to these interactions.
+
+Acceptance direction for a bounded follow-up packet:
+
+- Keep double-click word selection; add triple-click line selection, covering
+  the entire value in a single-line field. Verify URLs, paths and Unicode text.
+- Publish selected input text to the Linux primary selection and paste that
+  selection on middle-click. Preserve the ordinary clipboard and Ctrl+C/V.
+- Own the behavior in the shared text-input integration, with a declared
+  primitive/composite and platform boundary; avoid Settings-only handlers.
+- Add behavioral coverage for selection ranges and insertion/replacement,
+  plus desktop checks in Settings and toolbar search for keyboard focus,
+  cross-application primary selection and ordinary clipboard preservation.
+- Use a disposable Settings fixture and a separate text editor for the manual
+  check. Keep edits unsaved and clean up the fixture after recording results.
+
+No implementation or acceptance is claimed here. The active ADR 0069 Save
+investigation remains in its
+[task packet](../tasks/adr-0069-task-001-grouped-settings-foundation.md).
+
 ## Non-Goals
 
 - No return to a standalone Search tab.

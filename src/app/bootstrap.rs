@@ -119,6 +119,7 @@ pub fn run_app() -> bool {
 
 pub(super) struct NormalStartup {
     cfg: config::ConfigSnapshot,
+    session: crate::application::session_lifecycle::SessionLifecycle,
     cfg_path: std::path::PathBuf,
     conn: Arc<Mutex<rusqlite::Connection>>,
     musicindex_endpoint: config::MusicIndexEndpoint,
@@ -162,7 +163,8 @@ pub(super) fn prepare_normal(core: PreparedCore) -> Result<NormalStartup, CoreCh
     let musicindex_endpoint =
         config::MusicIndexEndpoint::from_field(cfg.musicindex_endpoint.clone());
     let conn = Arc::new(Mutex::new(connection));
-    let runtime = RuntimeHost::for_config(&cfg_path);
+    let session = crate::application::session_lifecycle::SessionLifecycle::new();
+    let runtime = RuntimeHost::for_config(&cfg_path, session.clone());
     capability_observations.record(CapabilityObservation::new(
         Dependency::BackgroundRuntime,
         runtime
@@ -179,9 +181,11 @@ pub(super) fn prepare_normal(core: PreparedCore) -> Result<NormalStartup, CoreCh
         thumbnail_cache_dir,
         capability_observations.clone(),
         cache_worker_for_config(&cfg_path),
+        session.clone(),
     );
     Ok(NormalStartup {
         cfg,
+        session,
         cfg_path,
         conn,
         musicindex_endpoint,
@@ -200,6 +204,7 @@ pub(super) fn mount_normal<T: 'static>(
     cx: &mut Context<T>,
 ) -> Entity<TopApp> {
     let NormalStartup {
+        session,
         cfg,
         cfg_path,
         conn,
@@ -232,6 +237,7 @@ pub(super) fn mount_normal<T: 'static>(
             theme_profile,
             playback_owner,
             runtime_host,
+            session,
             window,
             cx,
         );
@@ -296,6 +302,79 @@ fn nudge_window(window_handle: gpui::AnyWindowHandle, cx: &mut gpui::App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adr_0066_drained_core_reopens_fresh_only_after_successful_checks() {
+        use crate::application::session_lifecycle::{SessionDrain, SessionPhase};
+        use crate::presentation::session_transition::SessionTransition;
+        use crate::startup::{CheckIntent, CoreResult, StartupBackend};
+        fn drain(
+            prepared: NormalStartup,
+        ) -> (
+            crate::application::session_lifecycle::MaintenanceSession,
+            crate::application::session_lifecycle::SessionLifecycle,
+        ) {
+            let NormalStartup {
+                conn,
+                session,
+                playback_owner,
+                runtime_host,
+                cfg_path,
+                ..
+            } = prepared;
+            session.begin_drain();
+            let mut transition = SessionTransition {
+                drain: SessionDrain::new(session.clone(), conn, playback_owner),
+                runtime: runtime_host,
+                #[cfg(debug_assertions)]
+                config_path: cfg_path,
+            };
+            transition.wait_for_work().unwrap();
+            (transition.close().unwrap(), session)
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let music = temp.path().join("music");
+        std::fs::create_dir(&music).unwrap();
+        let cfg_path = temp.path().join("config.toml");
+        let original = format!(
+            "music_dir = {:?}\ndb_path = {:?}\n[playback]\ndriver = \"null\"\n",
+            music,
+            temp.path().join("library.sqlite")
+        );
+        std::fs::write(&cfg_path, &original).unwrap();
+        let mut backend = StartupBackend::new(Some(cfg_path.clone()));
+        let CoreResult::Prepared(core) = backend.execute(CheckIntent::Initial) else {
+            panic!("valid core");
+        };
+        let first = prepare_normal(*core).unwrap_or_else(|_| panic!("valid preparation"));
+        let (mut authority, old) = drain(first);
+        assert_eq!(old.phase(), SessionPhase::Maintenance);
+        assert!(authority.begin_resume());
+        std::fs::rename(&music, temp.path().join("music.saved")).unwrap();
+        let CoreResult::Checked(failed) = backend.execute(CheckIntent::Check) else {
+            panic!("missing storage must stay in recovery");
+        };
+        assert!(!failed.can_open());
+        authority.resume_failed();
+        assert_eq!(old.phase(), SessionPhase::Maintenance);
+        assert!(!old.accepts(old.generation()));
+        std::fs::rename(temp.path().join("music.saved"), &music).unwrap();
+        let CoreResult::Checked(checked) = backend.execute(CheckIntent::Check) else {
+            panic!("check-only cannot open");
+        };
+        assert!(authority.begin_resume());
+        let CoreResult::Prepared(core) = backend.execute(CheckIntent::Open {
+            checked_bytes: checked.checked_bytes().unwrap().to_vec(),
+        }) else {
+            panic!("fresh checked preparation");
+        };
+        let fresh = prepare_normal(*core).unwrap_or_else(|_| panic!("fresh preparation"));
+        assert!(fresh.session.generation() > old.generation());
+        assert!(fresh.session.accepts(fresh.session.generation()));
+        assert!(!fresh.session.accepts(old.generation()));
+        let _ = drain(fresh);
+        assert_eq!(std::fs::read_to_string(cfg_path).unwrap(), original);
+    }
 
     #[test]
     fn adr_0066_normal_factory_scopes_each_optional_group_and_keeps_config_bytes() {

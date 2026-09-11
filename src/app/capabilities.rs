@@ -70,7 +70,11 @@ impl TopApp {
             return;
         }
         match action {
-            CapabilityAction::Configure(_) => self.select_tab(AppTab::Settings, window, cx),
+            CapabilityAction::Configure(_) => {
+                self.settings
+                    .dispatch(crate::view_models::settings::SettingsAction::OpenReport);
+                self.select_tab(AppTab::Settings, window, cx);
+            }
             CapabilityAction::CopyReport => {
                 cx.write_to_clipboard(ClipboardItem::new_string(self.capability_vm.report()));
             }
@@ -94,8 +98,9 @@ impl TopApp {
         };
         let cfg_path = self.cfg_path.clone();
         let cache = self.image_cache.clone();
+        let session = self.command_runner.session().clone();
         let receiver = worker.submit(move || match dependency {
-            Dependency::BackgroundRuntime => RuntimeHost::for_config(&cfg_path)
+            Dependency::BackgroundRuntime => RuntimeHost::for_config(&cfg_path, session)
                 .map(RecoveredCapability::Runtime)
                 .map_err(|error| CapabilityFailure::RuntimeStart(error.kind())),
             Dependency::ThumbnailMaintenance => cache
@@ -104,10 +109,16 @@ impl TopApp {
             _ => Err(CapabilityFailure::MaintenanceUnavailable),
         });
         match receiver {
-            Ok(receiver) => present_startup(receiver, window, cx, move |this, result, _, cx| {
-                let result = result.unwrap_or(Err(CapabilityFailure::MaintenanceUnavailable));
-                this.complete_capability(dependency, generation, result, cx);
-            }),
+            Ok(receiver) => present_startup(
+                receiver,
+                worker.clone(),
+                window,
+                cx,
+                move |this, result, _, cx| {
+                    let result = result.unwrap_or(Err(CapabilityFailure::MaintenanceUnavailable));
+                    this.complete_capability(dependency, generation, result, cx);
+                },
+            ),
             Err(_) => self.complete_capability(
                 dependency,
                 generation,

@@ -1876,6 +1876,68 @@ extra = "keep"
     }
 
     #[test]
+    fn adr_0069_saved_settings_survive_subsequent_workspace_saves() {
+        // Situational ADR 0069: General saves Library edits before workspace writers run.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+db_path = "/tmp/v4vmm.sqlite"
+music_dir = "/tmp/music"
+musicindex_endpoint = "http://127.0.0.1:9"
+theme_profile = "dark"
+ui_scale = "medium"
+extra = "keep"
+[playback]
+driver = "null"
+"#,
+        )
+        .expect("write config");
+
+        save_app_settings(
+            &cfg_path,
+            "http://127.0.0.1:9/settings-foundation",
+            "/tmp/music",
+            "/usr/bin/flac",
+            UiScale::Large,
+            ThemeProfile::Light,
+        )
+        .expect("save General and Library values");
+        save_workspace_layout(&cfg_path, &WorkspaceLayout::default_layout().to_config())
+            .expect("save workspace after Settings");
+        save_workspace_layout_prefs(
+            &cfg_path,
+            &WorkspaceLayoutPrefs {
+                content_pane_width: Some(560.0),
+                content_list_view_mode: Some(ContentViewMode::List),
+            },
+        )
+        .expect("save workspace preferences");
+
+        let mut actual = fs::read_to_string(&cfg_path)
+            .expect("read config")
+            .parse::<toml::Table>()
+            .expect("parse config");
+        actual.remove("workspace");
+        actual.remove("workspace_layout");
+        let expected = r#"
+db_path = "/tmp/v4vmm.sqlite"
+music_dir = "/tmp/music"
+musicindex_endpoint = "http://127.0.0.1:9/settings-foundation"
+flac_path = "/usr/bin/flac"
+theme_profile = "light"
+ui_scale = "large"
+extra = "keep"
+[playback]
+driver = "null"
+"#
+        .parse::<toml::Table>()
+        .expect("expected config");
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn save_workspace_layout_persists_without_dropping_existing_values() {
         let temp = tempfile::tempdir().expect("tempdir");
         let cfg_path = temp.path().join("config.toml");

@@ -2,10 +2,10 @@
 
 ## Status
 
-Design accepted - 2026-09-11. Implementation not started.
-[Task 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md) is the next
-independent implementation packet. Its visual check is specified but not yet
-runnable. Later rows are phase boundaries, not ready-to-execute task packets.
+Design accepted - 2026-09-11. [Task 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md)
+is complete with mechanical checks Green, operator V1–V3 and preservation
+acceptance, and confirmed fixture cleanup. Its [operator procedure](../runbooks/settings-foundation-check.md)
+remains a regression check. Later rows are phase boundaries, not ready-to-execute task packets.
 
 ## Goal
 
@@ -24,9 +24,12 @@ sharing. Do not mix unrelated pending UI polish into the Settings foundation.
 
 - `src/config.rs` owns scoped configuration readers and ordinary persistence.
   `TopApp` owns Settings inputs, saving and existing runtime updates.
-- ADR 0066 tasks 001–003 are accepted and task 004 is implemented with remaining
-  operator checks. Tasks 005–013 have not started; task 005 still waits for
-  task 004 acceptance. This plan changes no such dependency.
+- ADR 0066 tasks 001–003 and 005 are complete, including applicable operator
+  acceptance and fixture cleanup. Task 004 is implemented with remaining
+  operator checks; task 005 used the operator's explicit scheduling exception.
+  Task 006 is ready for a fresh session; tasks 006–013 have not started. The
+  shared Settings editor still needs tasks 006–007, and this plan changes no
+  configuration-format prerequisite.
 - ADR 0066 tasks 005–007 own session transitions, guarded shared correction and
   optional retry. Reuse those owners instead of constructing a Settings-only
   transaction engine.
@@ -60,7 +63,7 @@ implementation. Finish one packet per session.
 
 | Phase | Usable result | Prerequisite | State |
 |---|---|---|---|
-| [001: Grouped Settings foundation](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Existing controls grouped under General, Library and Diagnostics; persistent in-session navigation/inputs and direct report routing | Accepted ADR 0069; existing app and scoped config owners | Ready; implementation not started |
+| [001: Grouped Settings foundation](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Existing controls grouped under General, Library and Diagnostics; persistent in-session navigation/inputs and direct report routing | Accepted ADR 0069; existing app and scoped config owners | Complete - 2026-09-11; mechanical checks Green; V1–V3 and preservation accepted; fixture cleanup confirmed |
 | 002: Shared guarded editor | One draft/save/cancel contract, field errors and saved/running distinctions integrated with shared recovery commands | 001 accepted; ADR 0066 tasks 005–007 complete with their required acceptance | Not started; author packet after inspecting those delivered owners |
 | 003: Live metadata setup | General mode selection and Live Metadata producer/publisher editors, compatible defaults and explicit apply behavior | 002 accepted; full ADR 0066 configuration-format prerequisite released | Not started; author schema and bounded packets before edits |
 | 004: Selective presets | Versioned named snapshots; save/recall masks for delivered components, composition in a draft, change review and conflict-safe persistence | 003 accepted; shared guarded persistence ready | Not started; split persistence/recall model and UI into separate packets if needed |
@@ -70,9 +73,9 @@ The initial preset UI lists only implemented components. Show/Audition audio
 checkboxes arrive with their adapters, not as disabled promises. Native PipeWire
 is a later adapter packet, not part of the first audio delivery.
 
-Task 001 can proceed without closing ADR 0066 task 004's playback gate.
-Completing task 001 does not automatically make task 002 executable. The next
-session must inspect actual prerequisites. If later scheduling needs a narrower
+Task 001 completed independently of ADR 0066 task 004's playback gate.
+Task 002 still waits for ADR 0066 tasks 005–007. The next session must inspect
+actual prerequisites. If later scheduling needs a narrower
 configuration-format dependency, record that decision explicitly before writing
 new configuration; do not infer it from this Settings priority change.
 

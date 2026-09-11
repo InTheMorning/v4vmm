@@ -6,7 +6,10 @@ Accepted - 2026-09-11.
 
 The operator accepted grouped Settings, selectable live metadata resources,
 independent audio outputs and console-style selective preset save/recall.
-Implementation has not started. The [phase plan](../plans/adr-0069-settings-presets-phase-plan.md)
+Task 001 is complete with mechanical checks Green, operator V1–V3 and
+preservation accepted, and fixture cleanup confirmed on 2026-09-11.
+The [operator procedure](../runbooks/settings-foundation-check.md) remains a regression check.
+Later implementation has not started. The [phase plan](../plans/adr-0069-settings-presets-phase-plan.md)
 and [first packet](../tasks/adr-0069-task-001-grouped-settings-foundation.md)
 separate the existing-field foundation from guarded editing, new configuration
 and playback integration. ADR 0068 remains Proposed; accepting this Settings

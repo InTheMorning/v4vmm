@@ -137,6 +137,7 @@ enum TrackSubscriptionAction {
 fn command_error_detail(error: CommandError) -> String {
     match error {
         CommandError::Unavailable(reason) => reason.to_string(),
+        error @ CommandError::SessionDraining(_) => error.to_string(),
         CommandError::Playlist(message)
         | CommandError::Feed(message)
         | CommandError::Download(message)
@@ -643,6 +644,19 @@ impl LibraryApp {
         self.start_recent_music_load(false, cx);
     }
 
+    pub(crate) fn release_session_actors(&mut self) {
+        self.playlist_actor.take();
+        self.musicbrainz_feed_saga.take();
+        self.runtime_host.take();
+    }
+
+    pub(crate) fn bind_session(
+        &mut self,
+        session: crate::application::session_lifecycle::SessionLifecycle,
+    ) {
+        self.command_runner = self.command_runner.clone().with_session(session);
+    }
+
     fn maybe_start_musicbrainz_feed_saga(&mut self, cx: &mut Context<Self>) {
         if self.musicbrainz_feed_saga.is_some() {
             return;
@@ -651,8 +665,10 @@ impl LibraryApp {
             return;
         };
         let _enter = host.handle().enter();
-        let handle =
-            crate::runtime::musicbrainz_feed_saga::spawn(self.application_services.command_bus());
+        let handle = crate::runtime::musicbrainz_feed_saga::spawn(
+            self.application_services.command_bus(),
+            host.bus().session(),
+        );
         bridge_watch(
             handle.subscribe(),
             |this: &mut Self, state, cx| {

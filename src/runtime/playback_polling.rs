@@ -9,7 +9,9 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::application::session_lifecycle::SessionLifecycle;
 use rusqlite::Connection;
+
 use tokio::sync::{oneshot, watch};
 
 use crate::playback_driver::PlaybackDriver;
@@ -73,6 +75,7 @@ impl Drop for PlaybackPollingHandle {
 pub fn spawn<D>(
     playback_owner: Arc<Mutex<PlaybackOwner<D>>>,
     conn: Arc<Mutex<Connection>>,
+    session: &SessionLifecycle,
 ) -> PlaybackPollingHandle
 where
     D: PlaybackDriver + 'static,
@@ -81,10 +84,12 @@ where
         watch::channel(PlaybackTickSnapshot::new(PlaybackTickOutcome::Idle));
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
 
-    tokio::spawn(async move {
+    let stop = session.stop_token();
+    session.spawn_actor("Built-in playback polling", async move {
         loop {
             tokio::select! {
                 biased;
+                () = stop.cancelled() => break,
                 _ = &mut shutdown_rx => break,
                 () = tokio::time::sleep(PLAYBACK_POLL_INTERVAL) => {
                     let outcome =

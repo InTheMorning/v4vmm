@@ -16,6 +16,7 @@ pub(crate) fn quit_after_window_close(cx: &App) {
 
 pub(crate) fn present_startup<T: 'static, R: Send + 'static>(
     receiver: oneshot::Receiver<R>,
+    worker: crate::presentation::maintenance_executor::MaintenanceClient,
     window: &Window,
     cx: &mut Context<T>,
     apply: impl FnOnce(&mut T, Result<R, oneshot::error::RecvError>, &mut Window, &mut Context<T>)
@@ -23,15 +24,22 @@ pub(crate) fn present_startup<T: 'static, R: Send + 'static>(
 ) {
     let window = window.window_handle();
     cx.spawn(async move |entity, cx| {
-        let result = receiver.await;
+        let result = std::sync::Arc::new(std::sync::Mutex::new(Some(receiver.await)));
+        let delivery = result.clone();
         // A closed window/entity discards the result. The worker remains owned
         // by bootstrap until its current operation finishes and is joined.
         let _ = window.update(cx, |_, window, cx| {
             let _ = entity.update(cx, |this, cx| {
-                apply(this, result, window, cx);
+                if let Some(result) = delivery.lock().expect("startup completion").take() {
+                    apply(this, result, window, cx);
+                }
                 cx.notify();
             });
         });
+        let undelivered = result.lock().expect("startup completion").take();
+        if let Some(result) = undelivered {
+            worker.retire(result);
+        }
     })
     .detach();
 }

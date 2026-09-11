@@ -8,12 +8,16 @@ use std::sync::{
 
 use gpui::{ClipboardItem, Context, Entity, IntoElement, Render, Window};
 
+use crate::application::session_lifecycle::MaintenanceSession;
 use crate::presentation::maintenance_executor::MaintenanceClient;
+use crate::presentation::session_transition::SessionTransition;
 use crate::presentation::startup_presenter::{mount_current, present_startup};
 use crate::startup::{
     CheckIntent, CoreCheckOutcome, CoreResult, StartupBackend, StartupIssue, StartupStage,
 };
+use crate::ui::composites::maintenance_forms::session_drain;
 use crate::ui::composites::startup_report::startup_report;
+use crate::view_models::startup::session::{SessionAction, SessionReportVm};
 use crate::view_models::startup::{StartupAction, StartupAvailability, StartupReportVm};
 
 use super::{bootstrap, TopApp};
@@ -24,6 +28,9 @@ pub(super) struct StartupScreen {
     backend: Arc<Mutex<StartupBackend>>,
     normal: Option<Entity<TopApp>>,
     opened: Arc<AtomicBool>,
+    draining: Option<Arc<Mutex<SessionTransition>>>,
+    session_vm: Option<SessionReportVm>,
+    maintenance: Option<MaintenanceSession>,
 }
 impl StartupScreen {
     pub(super) fn new(worker: Option<MaintenanceClient>, opened: Arc<AtomicBool>) -> Self {
@@ -38,6 +45,9 @@ impl StartupScreen {
             backend: Arc::new(Mutex::new(StartupBackend::new(None))),
             normal: None,
             opened,
+            draining: None,
+            session_vm: None,
+            maintenance: None,
         }
     }
     pub(super) fn begin(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -90,6 +100,13 @@ impl StartupScreen {
         let Some(worker) = &self.worker else {
             return;
         };
+        if action == StartupAction::OpenApp {
+            if let Some(maintenance) = &mut self.maintenance {
+                if !maintenance.begin_resume() {
+                    return;
+                }
+            }
+        }
         let backend = self.backend.clone();
         let receiver = worker.submit(move || {
             match backend
@@ -101,10 +118,17 @@ impl StartupScreen {
                 CoreResult::Prepared(core) => bootstrap::prepare_normal(*core),
             }
         });
-        match receiver {
-            Ok(receiver) => {
-                present_startup(receiver, window, cx, move |this, result, window, cx| {
+        if let Ok(receiver) = receiver {
+            present_startup(
+                receiver,
+                worker.clone(),
+                window,
+                cx,
+                move |this, result, window, cx| {
                     if !this.vm.accepts(generation) {
+                        if let Some(worker) = &this.worker {
+                            worker.retire(result);
+                        }
                         return;
                     }
                     match result {
@@ -112,11 +136,13 @@ impl StartupScreen {
                             if let Some(normal) = mount_current(&mut this.vm, generation, || {
                                 bootstrap::mount_normal(prepared, this.worker.clone(), window, cx)
                             }) {
-                                this.normal = Some(normal);
-                                this.opened.store(true, Ordering::Release);
+                                this.install_normal_session(normal, cx);
                             }
                         }
                         Ok(Err(outcome)) => {
+                            if let Some(maintenance) = &mut this.maintenance {
+                                maintenance.resume_failed();
+                            }
                             this.vm.complete(generation, outcome);
                             eprintln!("{}", this.vm.report());
                         }
@@ -129,23 +155,206 @@ impl StartupScreen {
                             cx.quit();
                         }
                     }
+                },
+            );
+        } else {
+            if let Some(maintenance) = &mut self.maintenance {
+                maintenance.resume_failed();
+            }
+            self.vm
+                .complete(generation, CoreCheckOutcome::blocked(worker_issue()));
+        }
+
+        cx.notify();
+    }
+
+    fn install_normal_session(&mut self, normal: Entity<TopApp>, cx: &mut Context<Self>) {
+        let parent = cx.weak_entity();
+        let callback: crate::ui::composites::maintenance_forms::SessionCallback =
+            Rc::new(move |action, window, cx| {
+                let parent = parent.clone();
+                window.defer(cx, move |window, cx| {
+                    let _ = parent.update(cx, |this, cx| this.session_action(action, window, cx));
                 });
+            });
+        if let Some(report) = &mut self.session_vm {
+            let fresh = normal.read(cx).command_runner.session().generation();
+            report.resumed(fresh);
+        }
+        normal.update(cx, |app, _| {
+            app.session_callback = Some(callback);
+            app.previous_session_report = self
+                .session_vm
+                .as_ref()
+                .map_or_else(String::new, |report| report.report.clone());
+        });
+        self.maintenance.take();
+        self.draining.take();
+        #[cfg(debug_assertions)]
+        {
+            let app = normal.read(cx);
+            crate::startup::fixture::observe_session(
+                &app.command_runner,
+                app.cfg_path.clone(),
+                app.conn.clone(),
+            );
+        }
+        self.normal = Some(normal);
+        self.opened.store(true, Ordering::Release);
+    }
+
+    fn session_action(
+        &mut self,
+        action: SessionAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match action {
+            SessionAction::EndSession => {
+                if self.draining.is_some() {
+                    return;
+                }
+                let Some(normal) = self.normal.as_ref() else {
+                    return;
+                };
+                let previous = normal.read(cx).capability_vm.report();
+                let Some(resources) = normal.update(cx, TopApp::begin_session_drain) else {
+                    return;
+                };
+                let mut report = SessionReportVm::new(resources.drain.session.generation());
+                if let Some(prior) = &self.session_vm {
+                    report.retain_previous(&prior.report);
+                }
+                report.retain_previous(&previous);
+                self.session_vm = Some(report);
+                self.draining = Some(Arc::new(Mutex::new(resources)));
+                self.run_drain(window, cx);
             }
-            Err(_) => {
-                self.vm
-                    .complete(generation, CoreCheckOutcome::blocked(worker_issue()));
+            SessionAction::RetryDrain => {
+                if self.session_vm.as_ref().is_some_and(|vm| !vm.working) {
+                    self.run_drain(window, cx);
+                }
             }
+            SessionAction::CopyReport => {
+                if let Some(vm) = &self.session_vm {
+                    cx.write_to_clipboard(ClipboardItem::new_string(vm.report.clone()));
+                }
+            }
+            SessionAction::Quit => cx.quit(),
         }
         cx.notify();
+    }
+
+    fn run_drain(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(resources) = self.draining.clone() else {
+            return;
+        };
+        let Some(worker) = self.worker.as_ref() else {
+            return;
+        };
+        if let Some(vm) = &mut self.session_vm {
+            vm.working = true;
+        }
+        let receiver = worker.submit(move || {
+            resources
+                .lock()
+                .expect("session transition")
+                .wait_for_work()
+        });
+        match receiver {
+            Ok(receiver) => present_startup(
+                receiver,
+                worker.clone(),
+                window,
+                cx,
+                |this, result, window, cx| {
+                    match result {
+                        Ok(Ok(())) => {
+                            // Work acknowledged completion. Unmount children before transferring the
+                            // last configured connection and dropping the runtime on the worker.
+                            this.normal.take();
+                            this.close_session_resources(window, cx);
+                        }
+                        Ok(Err(pending)) => this.drain_failed(&pending),
+                        Err(_) => this.drain_failed(&[
+                            "The independent maintenance worker did not return a result".into(),
+                        ]),
+                    }
+                },
+            ),
+            Err(_) => self.drain_failed(&[
+                "The independent maintenance worker is busy or unavailable".into(),
+            ]),
+        }
+        cx.notify();
+    }
+
+    fn close_session_resources(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(resources) = self.draining.clone() else {
+            return;
+        };
+        let Some(worker) = self.worker.as_ref() else {
+            return;
+        };
+        let receiver = worker.submit(move || resources.lock().expect("session transition").close());
+        match receiver {
+            Ok(receiver) => present_startup(
+                receiver,
+                worker.clone(),
+                window,
+                cx,
+                |this, result, window, cx| match result {
+                    Ok(Ok(maintenance)) => {
+                        debug_assert_eq!(
+                            this.session_vm.as_ref().map(|vm| vm.generation),
+                            Some(maintenance.generation())
+                        );
+                        if let Some(vm) = &mut this.session_vm {
+                            vm.released();
+                            this.vm.return_to_recovery(vm.report.clone());
+                        }
+                        this.maintenance = Some(maintenance);
+                        this.request(StartupAction::CheckAgain, CheckIntent::Check, window, cx);
+                    }
+                    Ok(Err(pending)) => this.drain_failed(&pending),
+                    Err(_) => this.drain_failed(&[
+                        "The independent maintenance worker did not return a result".into(),
+                    ]),
+                },
+            ),
+            Err(_) => self.drain_failed(&[
+                "The independent maintenance worker is busy or unavailable".into(),
+            ]),
+        }
+    }
+
+    fn drain_failed(&mut self, pending: &[String]) {
+        if let Some(vm) = &mut self.session_vm {
+            vm.failed(pending);
+        }
     }
 }
 impl Drop for StartupScreen {
     fn drop(&mut self) {
+        if let (Some(worker), Some(resources)) = (&self.worker, self.draining.take()) {
+            worker.retire(resources);
+        }
         self.vm.close();
     }
 }
 impl Render for StartupScreen {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.draining.is_some() && self.maintenance.is_none() {
+            if let Some(vm) = &self.session_vm {
+                let entity = cx.weak_entity();
+                let callback: crate::ui::composites::maintenance_forms::SessionCallback =
+                    Rc::new(move |action, window, cx| {
+                        let _ =
+                            entity.update(cx, |this, cx| this.session_action(action, window, cx));
+                    });
+                return session_drain(vm, &callback, cx);
+            }
+        }
         if let Some(normal) = &self.normal {
             return normal.clone().into_any_element();
         }

@@ -10,6 +10,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::application::session_lifecycle::SessionLifecycle;
+
 use tokio::sync::{mpsc, watch};
 
 use crate::application::command_bus::CommandBus;
@@ -182,16 +184,31 @@ impl MusicBrainzFeedSagaExecutor for CommandBusMusicBrainzExecutor {
 
 /// Spawns the `MusicBrainz` feed saga actor on the current tokio runtime.
 #[must_use]
-pub fn spawn(command_bus: Arc<CommandBus>) -> MusicBrainzFeedSagaHandle {
-    spawn_with_executor(Arc::new(CommandBusMusicBrainzExecutor::new(command_bus)))
+pub fn spawn(
+    command_bus: Arc<CommandBus>,
+    session: &SessionLifecycle,
+) -> MusicBrainzFeedSagaHandle {
+    spawn_in_session(
+        Arc::new(CommandBusMusicBrainzExecutor::new(command_bus)),
+        session,
+    )
 }
 
-fn spawn_with_executor(executor: SharedExecutor) -> MusicBrainzFeedSagaHandle {
+fn spawn_in_session(
+    executor: SharedExecutor,
+    session: &SessionLifecycle,
+) -> MusicBrainzFeedSagaHandle {
     let (snapshot_tx, snapshot_rx) = watch::channel(MusicBrainzFeedSagaState::Idle);
     let (inbox_tx, mut inbox_rx) = mpsc::channel::<StartFeedLookup>(SAGA_INBOX_CAPACITY);
 
-    tokio::spawn(async move {
-        while let Some(request) = inbox_rx.recv().await {
+    let stop = session.stop_token();
+    session.spawn_actor("MusicBrainz feed lookup", async move {
+        loop {
+            let request = tokio::select! {
+                biased;
+                () = stop.cancelled() => break,
+                request = inbox_rx.recv() => match request { Some(request) => request, None => break },
+            };
             run_feed_lookup(request, Arc::clone(&executor), |state| {
                 let _ = snapshot_tx.send(state);
             })

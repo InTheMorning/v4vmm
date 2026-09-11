@@ -7,6 +7,7 @@ use crate::db::startup::DbStage;
 use crate::startup::{CoreCheckOutcome, IssueSeverity, StartupIssue, StartupStage};
 
 pub(crate) mod capabilities;
+pub(crate) mod session;
 
 /// Project residual normal-startup notices (ADR 0066).
 /// Optional configuration issues already have a persistent capability report.
@@ -68,6 +69,7 @@ pub struct StartupReportVm {
     pub worker_available: bool,
     pub details: bool,
     pub outcome: CoreCheckOutcome,
+    pub(crate) session_report: String,
 }
 impl StartupReportVm {
     #[must_use]
@@ -78,8 +80,16 @@ impl StartupReportVm {
             worker_available,
             details: true,
             outcome: CoreCheckOutcome::pending(),
+            session_report: String::new(),
         }
     }
+    pub(crate) fn return_to_recovery(&mut self, report: String) {
+        self.generation += 1;
+        self.phase = StartupPhase::Idle;
+        self.outcome = CoreCheckOutcome::pending();
+        self.session_report = report;
+    }
+
     pub fn begin(&mut self, action: StartupAction) -> Option<u64> {
         let work = match action {
             StartupAction::CheckAgain => StartupWork::Check,
@@ -147,7 +157,11 @@ impl StartupReportVm {
     }
     #[must_use]
     pub fn report(&self) -> String {
-        let report = format_report(&self.outcome);
+        let report = if self.session_report.is_empty() {
+            format_report(&self.outcome)
+        } else {
+            format!("{}\n{}", self.session_report, format_report(&self.outcome))
+        };
         match self.feedback() {
             Some(feedback) => format!("{feedback}\n\n{report}"),
             None => report,
@@ -338,6 +352,31 @@ mod tests {
     use super::*;
     use crate::startup::StartupIssue;
     use std::time::{Duration, UNIX_EPOCH};
+
+    #[test]
+    fn adr_0066_recovery_retains_session_report_and_rejects_old_mounts() {
+        let mut vm = StartupReportVm::new(true);
+        let old = vm.begin(StartupAction::CheckAgain).unwrap();
+        assert!(vm.mount(old));
+        let retained = "[2026-09-11 12:00:00 UTC] App closed session 1 resources.";
+        vm.return_to_recovery(retained.into());
+        assert!(!vm.mount(old));
+        let current = vm.begin(StartupAction::CheckAgain).unwrap();
+        let failure = CoreCheckOutcome::blocked(StartupIssue::new(
+            StartupStage::MusicInspect,
+            None,
+            "Music storage is unavailable.",
+            "Mount storage and check again.",
+        ));
+        assert!(vm.complete(current, failure));
+        assert!(vm.report().contains(retained));
+        assert!(vm.report().contains("Music storage is unavailable"));
+        assert_eq!(
+            vm.action(StartupAction::OpenApp).availability,
+            StartupAvailability::Unavailable
+        );
+        assert!(!vm.mount(old));
+    }
 
     #[test]
     fn adr_0066_identical_rechecks_keep_distinct_visible_completions() {

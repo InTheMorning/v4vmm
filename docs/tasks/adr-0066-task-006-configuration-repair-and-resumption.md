@@ -1,7 +1,8 @@
 # ADR 0066 Task 006: Configuration Repair And Resumption
 
-Status: Ready after the preceding packet - 2026-09-10.
-Implementation not started. Operator check specified below; not runnable or accepted yet.
+Status: Ready - 2026-09-11; task 005 acceptance and fixture cleanup complete.
+Implementation not started. Begin in a fresh session. Operator check specified
+below; not runnable or accepted yet.
 
 ## Goal
 

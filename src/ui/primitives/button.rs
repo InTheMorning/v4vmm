@@ -4,6 +4,7 @@
 //! token system fully owns the visual contract: every color, padding, and
 //! radius resolves through [`crate::ui::tokens`]. Click handlers are plain
 //! callbacks — the primitive owns no state.
+//! Keyboard actions share visible focus chrome (ADRs 0033/0034/0069).
 //!
 //! Size selection follows the HIG button rule: every variant ships with
 //! ≥ 14pt **semibold** label text so filled / tinted variants qualify as
@@ -21,6 +22,7 @@ use gpui::{
 
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::{Icon, IconName, IconSize};
+use crate::ui::layouts as layout;
 use crate::ui::tokens::{
     resolve_color, Appearance, FontSize, Radius, SemanticColor, Size, Spacing,
 };
@@ -439,8 +441,9 @@ impl RenderOnce for Button {
                 });
             }
             if let Some(handler) = on_activate {
-                hit_target = hit_target
+                hit_target = keyboard_button_focus(hit_target, appearance, cx)
                     .tab_index(0)
+                    .rounded(radius)
                     .on_key_down(move |event, window, cx| {
                         if keyboard_activation_key(event) {
                             cx.stop_propagation();
@@ -463,6 +466,19 @@ impl RenderOnce for Button {
             hit_target.child(visual.child(label))
         }
     }
+}
+
+fn keyboard_button_focus(
+    target: gpui::Stateful<gpui::Div>,
+    appearance: Option<Appearance>,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
+    let focus_ring_width = layout::scaled_dimension(layout::CONTROL_FOCUS_RING_WIDTH, cx);
+    let focus_color = resolve_color(cx, SemanticColor::Focus, appearance);
+    target
+        .border(focus_ring_width)
+        .border_color(gpui::transparent_black())
+        .focus(move |style| style.border_color(focus_color))
 }
 
 fn button_description(

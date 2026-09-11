@@ -160,30 +160,51 @@ impl MpvDriver {
     }
 
     pub fn shutdown(&self) {
-        let mut state = self.inner.lock().expect("mpv driver mutex");
+        let _ = self.shutdown_for_maintenance();
+    }
+
+    /// Stop and reap only this driver's child, retaining failed ownership for retry (ADR 0066).
+    pub(crate) fn shutdown_for_maintenance(&self) -> Result<()> {
+        let mut state = self
+            .inner
+            .lock()
+            .map_err(|_| anyhow!("mpv driver mutex poisoned"))?;
         let _ = send_quit(&mut state);
         if let Some(child) = state.child.as_mut() {
-            let deadline = Instant::now() + Duration::from_millis(500);
+            let grace = Instant::now() + Duration::from_millis(500);
+            let deadline = grace + Duration::from_millis(500);
+            let mut killed = false;
             loop {
-                match child.try_wait() {
-                    Ok(Some(_)) => break,
-                    Ok(None) if Instant::now() < deadline => {
-                        std::thread::sleep(Duration::from_millis(20));
-                    }
-                    _ => {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        break;
-                    }
+                if child
+                    .try_wait()
+                    .context("wait for app-owned mpv child")?
+                    .is_some()
+                {
+                    break;
                 }
+                if Instant::now() >= deadline {
+                    return Err(anyhow!(
+                        "app-owned mpv child has not exited; retry session drain"
+                    ));
+                }
+                if !killed && Instant::now() >= grace {
+                    child.kill().context("stop app-owned mpv child")?;
+                    killed = true;
+                }
+                std::thread::sleep(Duration::from_millis(20));
             }
         }
-        if let Some(path) = &state.socket_path {
-            let _ = fs::remove_file(path);
-        }
         state.child = None;
-        state.socket_path = None;
         state.stream = None;
+        if let Some(path) = &state.socket_path {
+            match fs::remove_file(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error).context("remove app-owned mpv IPC socket"),
+            }
+        }
+        state.socket_path = None;
+        Ok(())
     }
 }
 
@@ -366,6 +387,21 @@ mod tests {
     use std::thread;
 
     use super::*;
+
+    #[test]
+    fn adr_0066_shutdown_reaps_only_the_app_owned_child_without_mpv() {
+        let driver = test_driver();
+        let owned = Command::new("sleep").arg("30").spawn().unwrap();
+        let mut independent = Command::new("sleep").arg("30").spawn().unwrap();
+        driver.inner.lock().unwrap().child = Some(owned);
+        let result = driver.shutdown_for_maintenance();
+        let independent_running = independent.try_wait().unwrap().is_none();
+        independent.kill().unwrap();
+        independent.wait().unwrap();
+        result.unwrap();
+        assert!(driver.inner.lock().unwrap().child.is_none());
+        assert!(independent_running, "unowned processes must remain running");
+    }
 
     fn test_state(stream: UnixStream) -> MpvState {
         MpvState {
