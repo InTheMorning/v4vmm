@@ -2,17 +2,13 @@
 
 ## Status
 
-Implementation in progress - 2026-09-10.
-ADR 0066 remains Accepted. Tasks 001 and 002 are complete. Task 002's
-[operator check](../runbooks/startup-recovery-check.md#task-002-core-checks-and-reports)
-passed and fixture cleanup is confirmed. Task 003 is implemented; its mechanical
-gate is Green and its [operator check](../runbooks/startup-recovery-check.md#task-003-background-tools)
-is open for refresh/playback shortcuts and the Settings responsiveness correction. The operator-requested
-[ADR 0067 correction](../tasks/adr-0067-task-001-platform-shortcuts.md) supplies
-standard Ctrl bindings for that check after Super was intercepted.
-All other operator checks, including the search-error correction, preservation
-inspection and fixture cleanup, passed.
-Tasks 004–013 have not started.
+Implementation in progress - 2026-09-11.
+ADR 0066 remains Accepted. Tasks 001–003 are complete, including operator
+acceptance, preservation inspection and fixture cleanup. The
+[ADR 0067 shortcut correction](../tasks/adr-0067-task-001-platform-shortcuts.md)
+is complete. Settings responsiveness and cached-file recovery passed; temporary
+diagnostics are removed. Task 004 is ready and has not started. Tasks 005–013
+remain unstarted.
 
 This plan executes [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md).
 The [delivery order](broadcast-chain-delivery-order.md#current-delivery-order)
@@ -43,8 +39,10 @@ UTC corrections, narrow Show layout, and Clippy/decomposition debt stay separate
   constructor's expectation is not a product requirement.
 - Configuration readers and savers are in config.rs. A strict compatibility
   reader remains temporarily while scoped consumers are migrated.
-- The normal shell currently assumes a player and runner; both TopApp and
-  LibraryApp fall back to an implicit runner when RuntimeHost is absent.
+- The normal shell still assumes a configured player. Task 003 makes runner
+  availability explicit in TopApp and LibraryApp; neither constructs an
+  implicit runner when RuntimeHost is absent. Other optional constructors
+  remain assigned to task 004.
 - Database connections include the main shared connection and the library
   paged actor's separately opened connection. Dropping command result receivers
   does not cancel blocking work.
@@ -54,7 +52,7 @@ UTC corrections, narrow Show layout, and Clippy/decomposition debt stay separate
 - Event reports already record UTC under ADR 0063. ADR 0066 extends that scoped
   precedent; this series does not choose cross-repo timestamp precision.
 - These are staged slices. Task 002 proves core recovery; task 003 adds
-  runtime/cache recovery and awaits operator acceptance. Other optional
+  runtime/cache recovery with operator acceptance complete. Other optional
   constructor failures remain assigned to 004. The temporary
   coupling is a recorded incomplete implementation, never a new core rule.
 - New files/types/guard names in packets are proposed implementation targets.
@@ -71,8 +69,8 @@ an unwalked visual gate into a claim that the next dependency is complete.
 |---|---|---|---|
 | [001: Config Snapshot And Safe Persistence](../tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md) | Read configuration once, distinguish core errors from optional errors, and prevent ordinary saves from destroying a document that needs repair. | Accepted ADR | Complete - 2026-09-10; mechanical gate Green; no visual gate |
 | [002: Core Checks And Startup Reports](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md) | Show a useful recovery screen for broken core configuration, unusable music storage, or unusable SQLite, with safe checks and a single startup lifecycle. | 001 | Complete - 2026-09-10; mechanical gate Green; operator acceptance and fixture cleanup confirmed |
-| [003: Runtime Failure And Shell Availability](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md) | Keep navigation, reports and repair access working when the normal background runtime or optional thumbnail worker cannot start. | 002 | Implementation recorded - 2026-09-10; mechanical gate Green; keyboard check and Settings responsiveness recheck open, using ADR 0067 Ctrl bindings; other operator checks and fixture cleanup passed |
-| [004: Optional Tool Isolation](../tasks/adr-0066-task-004-optional-tool-isolation.md) | Open the app with valid core resources even when optional configuration or tool preparation fails, and limit only the operations that actually depend on each failure. | 003 | Not started |
+| [003: Runtime Failure And Shell Availability](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md) | Keep navigation, reports and repair access working when the normal background runtime or optional thumbnail worker cannot start. | 002 | Complete - 2026-09-11; mechanical gate Green; operator acceptance, preservation and fixture cleanup confirmed |
+| [004: Optional Tool Isolation](../tasks/adr-0066-task-004-optional-tool-isolation.md) | Open the app with valid core resources even when optional configuration or tool preparation fails, and limit only the operations that actually depend on each failure. | 003 | Ready - 2026-09-11; prerequisite complete; implementation not started |
 | [005: Session Drain And Resumption](../tasks/adr-0066-task-005-session-drain-and-resumption.md) | Stop the app's own work, release every configured database handle, and resume one fresh session before any live core correction or database maintenance can use this transition. | 004 | Not started |
 | [006: Configuration Repair And Resumption](../tasks/adr-0066-task-006-configuration-repair-and-resumption.md) | Repair configuration inside recovery or Settings, preserve the original file, and return to a freshly verified app session. | 005 | Not started |
 | [007: Optional Tool Correction And Retry](../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md) | Turn optional-tool failures into a direct Settings correction route and an explicit, freshly checked retry of the original action. | 006 | Not started |
@@ -171,7 +169,7 @@ need no repeat.
 Task 003 extends the same fixture with runtime-unavailable,
 cache-worker-unavailable and simultaneous-failure modes. Its
 [Background tools check](../runbooks/startup-recovery-check.md#task-003-background-tools)
-is open. Later packets extend these owners rather than duplicating setup or
+passed, including final fixture cleanup. Later packets extend these owners rather than duplicating setup or
 schema construction.
 
 Use Rust fixture support for current-schema construction and migration failure
@@ -225,5 +223,5 @@ this plan specifies a future test. Preserve all inherited gates.
 
 Only all thirteen completed packets plus their actual operator acceptance permit
 ADR 0066 to become Implemented, deferred item 6 to close, and the config-format
-dependency to release. Tasks 001 and 002 are complete; task 003 awaits
-operator acceptance. The series remains partial.
+dependency to release. Tasks 001–003 are complete; task 004 is ready and has
+not started. The series remains partial.

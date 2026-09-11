@@ -2,10 +2,12 @@
 
 ## Status
 
-Accepted - 2026-09-10. The operator requested standard Ctrl shortcuts on Linux
-after the window manager intercepted Super during ADR 0066 task 003 acceptance.
-Implementation recorded: [task 001](../tasks/adr-0067-task-001-platform-shortcuts.md)
-is mechanically Green; operator verification remains open.
+Implemented - 2026-09-11.
+
+[Task 001](../tasks/adr-0067-task-001-platform-shortcuts.md) records mechanical
+verification, operator acceptance, preservation inspection and fixture cleanup.
+Amended 2026-09-11: completion is verified after the operator confirmed initial
+and section-transition focus, standard editing, command rejection and clean Quit.
 
 Amended 2026-09-10 after the first operator attempt: shortcuts worked only after
 repeated attempts. The normal app must focus its persistent selected tab at
@@ -39,9 +41,8 @@ and word movement. Bare Enter, Escape and arrows retain their active-pane scope
 and must not replace input editing or search submission.
 
 This adds no preference, config key, layout change or command availability rule.
-ADR 0066's runtime rejection still applies to every shortcut. Its remaining
-keyboard check uses Ctrl on Linux; the previously intercepted attempt remains
-unverified until a person completes the replacement check.
+ADR 0066's runtime rejection still applies to every shortcut. Its keyboard
+checks use Ctrl on Linux and passed with actual desktop key delivery.
 
 ## Invariants
 

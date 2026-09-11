@@ -30,7 +30,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0052](0052-library-index-data-parity-triage.md) | Triage of Library versus Index detail gaps | Implemented |
 | [0053](0053-local-detail-source-fact-parity.md) | Source-fact route for parity gaps not locally durable | Accepted |
 | [0054](0054-local-metadata-source-fact-persistence.md) | Feed and track metadata facts persist by source; hydration visual checks remain open | Accepted, partial |
-| [0066](0066-configuration-and-startup-failure-recovery.md) | Core startup requirements; in-app repair and optional-tool retry; [001–002 complete; 003 visual check open; 004–013 not started](../plans/adr-0066-startup-recovery-phase-plan.md) | Accepted |
+| [0066](0066-configuration-and-startup-failure-recovery.md) | Core startup requirements; in-app repair and optional-tool retry; [001–003 complete; 004 ready; 004–013 not started](../plans/adr-0066-startup-recovery-phase-plan.md) | Accepted |
 
 ## Metadata
 
@@ -89,7 +89,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0063](0063-show-dashboard-layout.md) | Show cards, compact item badges, detail panel, and shared diagnostics pane; operator acceptance complete | Implemented |
 | [0064](0064-local-file-addressing.md) | Downloaded files live under music_dir and store a relative path | Accepted |
 | [0065](0065-payment-route-tag-repair.md) | A tag repair is gated on the file, not on feed staleness | Implemented |
-| [0067](0067-platform-shortcut-modifiers.md) | Ctrl app shortcuts on Linux; Command and native Hide actions on macOS | Accepted |
+| [0067](0067-platform-shortcut-modifiers.md) | Ctrl app shortcuts on Linux; Command and native Hide actions on macOS | Implemented |
 
 ## UI Presentation
 

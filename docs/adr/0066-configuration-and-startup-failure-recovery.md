@@ -4,17 +4,15 @@
 
 Accepted - 2026-09-10.
 
-Implementation partial: tasks 001 and 002 complete - 2026-09-10, including
-task 002's operator acceptance and fixture cleanup. Task 003's runtime/cache
-recovery is implemented, with the mechanical gate Green. Its refresh/playback
-keyboard check and the Settings responsiveness correction remain open; earlier
-operator checks and fixture cleanup passed. Tasks
-004–013 have not started in the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md).
+Implementation partial: tasks 001–003 complete, including operator acceptance,
+preservation inspection and fixture cleanup. Tasks 004–013 have not started in
+the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md).
+Amended 2026-09-11: task 003 completion is verified; task 004 is the next packet.
 Other optional-tool isolation and in-app correction tools remain unimplemented.
 
 Amended 2026-09-10: [ADR 0067](0067-platform-shortcut-modifiers.md) changes Linux
-shortcuts to Ctrl at the operator's request. Task 003's remaining keyboard check
-uses those bindings; its runtime-rejection requirement and recorded passes remain.
+shortcuts to Ctrl at the operator's request. Task 003's keyboard checks
+use those bindings; its runtime-rejection requirement and recorded passes remain.
 
 Revised 2026-09-10 after operator review: normal startup requires valid core
 configuration, usable storage for music files, and a working SQLite database.

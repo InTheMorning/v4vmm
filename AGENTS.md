@@ -22,24 +22,15 @@ toolbar search, playlist reordering, and metadata hydration. Their current
 requirements are indexed in [pending human checks](docs/pending-human-checks.md).
 Task 017's acceptance remains closed.
 
-ADR 0066 tasks 001 and 002 are complete, including task 002's operator
-acceptance and fixture cleanup.
-Current work is [ADR 0067 task 001: Platform shortcuts](docs/tasks/adr-0067-task-001-platform-shortcuts.md),
-requested to replace Linux Super shortcuts with Ctrl. It unblocks the remaining
-refresh/playback keyboard check in ADR 0066 task 003. That task's other operator
-checks and fixture cleanup passed; its unavailable runner, scoped reports and
-explicit runtime/cache checks are implemented and mechanically Green.
-ADR 0067's modifier and initial/section-transition focus corrections, keymap tests
-and debug build are Green; first-attempt keyboard delivery awaits operator recheck.
-The task 003 Settings correction moves cache-list reads off the render thread;
-its tests and debug build are Green. The operator still observes a delay;
-task 003 timings and CPU profiling identify font parsing during layout.
-The debug text dependencies are optimized; the local text comparison is Green.
-Operator timings now show 22–24 ms layout and 37–50 ms through the following
-frame callback. Visual responsiveness/readability confirmation remains open;
-task 003 owns removal of both probes after that confirmation.
-Tasks 004–013 have not started in the
-[phase plan](docs/plans/adr-0066-startup-recovery-phase-plan.md).
+ADR 0066 tasks 001–003 are complete, including operator acceptance,
+preservation inspection and fixture cleanup. ADR 0067 is Implemented;
+its platform-shortcut packet is complete with all operator checks accepted.
+Settings responsiveness and cached-file recovery are accepted, and the
+temporary timing/profiling tools are removed.
+
+Next is [ADR 0066 task 004: Optional tool isolation](docs/tasks/adr-0066-task-004-optional-tool-isolation.md).
+Its prerequisite is complete; implementation has not started. Tasks 004–013
+remain in the [phase plan](docs/plans/adr-0066-startup-recovery-phase-plan.md).
 Relay durability through reserved-event adoption follows.
 The delivery order also schedules narrow Show layout,
 long-line inspection, per-log following, UTC timestamps, and steady-state work.

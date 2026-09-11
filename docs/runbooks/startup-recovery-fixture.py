@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Isolated ADR 0066 fixture. run opens the GUI; profile-settings samples its main thread."""
+"""Isolated ADR 0066 fixture. Only run opens the GUI."""
 import argparse
 import hashlib
 import json
@@ -18,7 +18,6 @@ KIND = "v4vmm-startup-recovery-v1"
 REPO = Path(__file__).resolve().parents[2]
 CASES = ("normal", "invalid-toml", "music-missing", "music-file", "db-locked", "long-path",
          "runtime-unavailable", "cache-worker-unavailable", "runtime-and-cache-unavailable")
-SETTINGS_PROFILE_SECONDS = 15
 
 
 def digest(path):
@@ -48,9 +47,6 @@ def environment(root):
     for name in tuple(env):
         if name.startswith("V4VMM_"):
             del env[name]
-    # Temporary task 003 draw diagnostic; all other app overrides stay stripped.
-    if os.environ.get("V4VMM_SETTINGS_TIMING") == "1":
-        env["V4VMM_SETTINGS_TIMING"] = "1"
     env.update(HOME=str(root / "home"), XDG_CONFIG_HOME=str(root / "config"),
                XDG_DATA_HOME=str(root / "data"), XDG_CACHE_HOME=str(root / "cache"),
                PATH=str(root / "bin") + os.pathsep + os.defpath,
@@ -206,42 +202,9 @@ def setup():
     print("Fixture created. Use verify, mode, run and inspect with this exact directory.", file=sys.stderr)
 
 
-def profile_settings(root):
-    """Temporary task 003 diagnostic; sample only this verified fixture's UI thread."""
-    pid = owned_process(root, "app.pid")
-    if pid is None:
-        raise SystemExit("The fixture app must be open. Run this script with run first.")
-    perf = shutil.which("perf")
-    if perf is None:
-        raise SystemExit("The perf program is not installed. Install your distribution's perf package, then retry this command.")
-    capture = Path(tempfile.mkdtemp(prefix="settings-profile-", dir=root))
-    data = capture / "samples.data"
-    report = capture / "report.txt"
-    print(f"For the next {SETTINGS_PROFILE_SECONDS} seconds, alternate Music and Settings. Wait for Settings to draw each time.", flush=True)
-    # No stack-memory snapshots or unrelated processes. The main thread's
-    # instruction addresses and symbol names identify where its CPU time goes.
-    recorded = subprocess.run([
-        perf, "record", "--quiet", "--event", "cycles:u", "--freq", "199",
-        "--call-graph", "fp", "--no-inherit", "--tid", str(pid), "--output", str(data),
-        "--", "sleep", str(SETTINGS_PROFILE_SECONDS),
-    ], check=False)
-    if recorded.returncode != 0:
-        raise SystemExit("Perf could not capture the Settings profile. Keep the error above for diagnosis; the app was not changed.")
-    rendered = subprocess.run([
-        perf, "report", "--stdio", "--no-children", "--sort", "symbol",
-        "--call-graph", "none", "--percent-limit", "1", "--input", str(data),
-    ], text=True, capture_output=True, check=False)
-    if rendered.returncode != 0:
-        print(rendered.stderr, file=sys.stderr)
-        raise SystemExit(f"Perf could not read its capture. Samples remain at {data}.")
-    report.write_text(rendered.stdout)
-    print(rendered.stdout)
-    print(f"Profile saved: {report}\nCopy the report above. Keep the fixture app open.")
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "profile-settings"))
+    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock"))
     parser.add_argument("directory", nargs="?")
     parser.add_argument("case", nargs="?", choices=CASES)
     args = parser.parse_args()
@@ -273,8 +236,6 @@ def main():
         inspect(root, manifest)
     elif args.command == "hold-lock":
         hold_lock(root)
-    elif args.command == "profile-settings":
-        profile_settings(root)
     elif args.command == "run":
         if owned_process(root, "app.pid"):
             raise SystemExit("This fixture app is already open.")

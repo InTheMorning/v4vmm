@@ -15,7 +15,6 @@ When you need to look something up, consult this map first to find the right fil
 | Recovery state/actions/reports; shared geometry; screen wiring | `src/view_models/startup.rs`, `src/ui/composites/startup_report.rs`, `src/app/startup.rs` |
 | Scoped background issues and command remedies | `src/application/capability.rs`, `src/view_models/startup/capabilities.rs` |
 | Search failure explanation/disclosure; shared report URL redaction | `src/view_models/search_results/failure.rs`, `src/diagnostics.rs` |
-| Temporary Settings selection/draw timing (task 003 owns retirement) | `src/presentation/settings_timing.rs` |
 | Settings cached-file query and saved observation | `src/application/queries/library.rs`, `src/view_models/cached_files.rs`, `src/app.rs` |
 | Runtime/cache repair wiring in the existing shell | `src/app/capabilities.rs` |
 | Independent maintenance worker and GPUI completion | `src/presentation/maintenance_executor.rs`, `src/presentation/startup_presenter.rs` |

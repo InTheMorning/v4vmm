@@ -1,6 +1,6 @@
 # ADR 0066 Task 004: Optional Tool Isolation
 
-Status: Ready after the preceding packet - 2026-09-10.
+Status: Ready - 2026-09-11; task 003 prerequisite complete, including operator acceptance and fixture cleanup.
 Implementation not started. Operator check specified below; not runnable or accepted yet.
 
 ## Goal

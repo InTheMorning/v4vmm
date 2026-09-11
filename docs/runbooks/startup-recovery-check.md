@@ -188,8 +188,9 @@ own optional constructor isolation and the in-app correction editors.
 ## Task 003: Background Tools
 
 Owner: [task 003](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md).
-Operator acceptance is open. These checks prove that failed background tools
-do not prevent startup, and that Check again repairs them in the same window.
+Operator acceptance and fixture cleanup are complete - 2026-09-11. These
+procedures remain for regression checks: failed background tools do not prevent
+startup, and Check again repairs them in the same window.
 Task 002's accepted core checks need no repeat.
 
 Needs: a Linux desktop, Python 3.11 or later and the new debug binary. No real
@@ -230,7 +231,8 @@ If the window manager intercepts a shortcut, record the affected check as
 unverified and continue the other checks. Do not count an intercepted key as an
 app rejection. The earlier Super-key checks were intercepted; use the focused
 [Ctrl shortcut check](../tasks/adr-0067-task-001-platform-shortcuts.md#operator-visual-check)
-to complete the remaining keyboard acceptance without repeating accepted checks.
+to verify keyboard delivery when regression testing; its operator acceptance is
+complete and needs no repeat.
 
 In Settings, press the runtime's **Check again** twice, waiting for each to
 finish. The error should remain, but the completed check number must advance.

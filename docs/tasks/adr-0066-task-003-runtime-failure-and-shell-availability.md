@@ -1,6 +1,6 @@
 # ADR 0066 Task 003: Runtime Failure And Shell Availability
 
-Status: Implementation recorded - 2026-09-10; refresh/playback keyboard acceptance and the Settings responsiveness correction remain open; earlier operator checks and fixture cleanup passed.
+Status: Complete - 2026-09-11; mechanical gate Green; all operator checks, final preservation inspection and fixture cleanup accepted.
 Mechanical gate Green. Task 004 has not started.
 
 ## Goal
@@ -124,7 +124,7 @@ implementation instructions.
 The [visual recheck](../runbooks/startup-recovery-check.md#2a-recheck-search-failure-readability)
 passed for normal/narrow widths, expanded details, complete copy, Library-filter
 separation and playlist uniqueness. This focused correction is operator-accepted;
-the remaining task 003 checks stay open.
+the remaining task 003 checks subsequently passed as recorded below.
 
 ### Operator Correction: Settings Responsiveness
 
@@ -158,61 +158,40 @@ Settings-correction verification is Green: 18 focused cache tests, all 230
 architecture tests, cargo check, formatting, strict production Clippy and the
 rebuilt debug binary. The agent did not launch the GUI.
 
-Operator recheck is open. Reuse the current shortcut fixture. Close and relaunch:
+Responsiveness/readability and both cached-file state checks passed on
+2026-09-11. The steps below remain as regression instructions; do not repeat
+them for acceptance. Reuse an isolated startup fixture and launch it with:
 
 ```bash
 python3 docs/runbooks/startup-recovery-fixture.py run "$recovery_dir"
 ```
 
-1. Open Settings with the mouse, then alternate Music/Settings several times.
-   Immediately type in a Settings field. A visible pause or lost input fails.
-2. In the unavailable-runtime fixture, scroll to Cached files. It must explain
-   that the list could not be read and point to Background tools. It must not
-   claim that the list is empty.
-3. After the remaining shortcut checks, set the fixture to normal in the other
-   terminal and choose Check again for Background runtime:
+1. Accepted: Settings responds promptly and its text remains complete and readable.
+   Do not repeat this check for probe removal alone.
+2. Accepted: in the unavailable-runtime fixture, Cached files explained that
+   the list could not be read because background tools were unavailable,
+   pointed to Check again, and did not claim that the list was empty.
+3. Accepted: with the app open, set the fixture to normal in the other terminal
+   and choose Check again for Background runtime:
 
    ```bash
    python3 docs/runbooks/startup-recovery-fixture.py mode "$recovery_dir" normal
    ```
 
-   Cached files must update in the mounted Settings pane after repair. This
+   Cached files updated in the mounted Settings pane after repair. This
    fixture has no cached tracks, so the completed read should say No cached
    files. Typing or switching tabs must not repeatedly start reads on rendering.
    No real external service is required. Keep previous accepted recovery checks
    closed; finish preservation inspection and cleanup using the shortcut packet.
 
-### Remaining Settings Delay: Timing Capture
+### Settings Delay Evidence
 
-The operator rechecked the background-cache correction and still observed a
-delay before Settings drew. The subsequent CPU profile identifies font parsing
-in text layout as a second cost. Its correction awaits operator acceptance.
-
-Temporary owner: `src/presentation/settings_timing.rs`, wired at Settings
-selection and the first subsequent TopApp frame. `V4VMM_SETTINGS_TIMING=1`
-enables the probe in debug builds only. It records the request's UTC time and
-elapsed selection, composition, layout, prepaint, paint-command and following
-frame-callback checkpoints. The final interval includes presentation and waiting;
-it does not prove GPU execution time or the moment pixels reached the display.
-No setting values, typed text, endpoints or file contents enter the probe.
-Probe verification is Green: report-format unit test, all 230 architecture
-guards, cargo check, strict production Clippy, formatting and debug build.
-A script-level check confirms the fixture passes only the exact timing opt-in.
-The agent did not launch the GUI. Operator timings are recorded below.
-`startup-recovery-fixture.py` preserves exactly this flag while continuing to
-strip other app overrides.
-
-Close the current fixture and run:
-
-```bash
-V4VMM_SETTINGS_TIMING=1 python3 docs/runbooks/startup-recovery-fixture.py run "$recovery_dir"
-```
-
-Open Settings, return to Music, then open Settings again. Wait for it to draw
-each time. Copy the two timing blocks from the terminal for diagnosis. This is
-a measurement, not a pass/fail acceptance check. The existing fixture and mode
-remain; relaunch without the flag to disable tracing. Do not clean up the
-fixture until the remaining shortcut and responsiveness checks finish.
+A temporary debug probe measured selection, frame composition, layout,
+prepaint, paint submission and the following frame callback. That last interval
+includes presentation and waiting; it does not measure when pixels reached the
+display. A temporary fixture command also sampled the verified app's main thread
+with Linux perf. Both probes were removed after the operator accepted the fix.
+The measurements and correction remain here as evidence.
 
 Operator evidence — 2026-09-11 UTC:
 
@@ -221,33 +200,6 @@ Operator evidence — 2026-09-11 UTC:
 | 01:28:01 | 0.052 ms | 0.347 ms | 489.369 ms | 547.349 ms |
 | 01:28:03 | 0.031 ms | 0.333 ms | 479.124 ms | 533.052 ms |
 | 01:28:04 | 0.035 ms | 0.351 ms | 496.977 ms | 536.999 ms |
-
-The delay repeats and is concentrated between layout request completion and
-prepaint. It is not explained by selection handling or frame composition.
-These measurements identify a stage, not its expensive function. CPU-only
-synthetic size-solver and text-shaping probes did not reproduce the half-second
-interval; they do not verify the operator's actual layout or font environment.
-
-The temporary `profile-settings` fixture command now samples only the verified
-app's main thread for 15 seconds. Linux `perf` must be installed and allowed to
-sample the user's process. It captures instruction addresses and frame-pointer
-return addresses, without raw stack-memory snapshots. A unique directory inside
-the fixture holds the samples and symbol report; normal fixture cleanup removes
-it. It does not launch another app or change the fixture's mode/configuration.
-Mocked subprocess checks verified thread ownership, report writing, rejection of
-a closed fixture and capture-failure handling. The agent did not run the profiler
-against the GUI. The operator completed the capture recorded below; another
-capture is unnecessary unless the corrected build still stalls.
-
-In a second terminal, with the fixture app still open:
-
-```bash
-python3 docs/runbooks/startup-recovery-fixture.py profile-settings "$recovery_dir"
-```
-
-Alternate Music and Settings during the 15-second capture, waiting for each draw.
-Copy the printed profile. Leave the app open. If perf rejects the capture, retain
-its error; an empty or failed capture is not evidence that no stall exists.
 
 ### Debug Text Shaping Correction
 
@@ -278,14 +230,14 @@ using Liberation Sans from the agent's installed fonts. After the first pass,
 the unoptimized runs took 37.339–37.834 ms; the optimized runs took
 1.349–1.427 ms. The complete glyph-layout debug output had the same fingerprint
 on every pass before and after (`d7266c32cf0e71ee`). This verifies the local
-speedup and output parity; the operator's font environment and full frame still
-need the focused recheck. No GUI was launched by the agent.
+speedup and output parity. The operator's desktop measurements follow below.
+No GUI was launched by the agent.
 
 Mechanical verification of the rebuilt debug profile is Green: cargo check,
 formatting, strict production Clippy, debug build, all 1,322 unit tests and all
 230 architecture tests. Ten existing doctests remain ignored. The initial
 sandboxed suite could not complete its socket fixtures; the complete rerun with
-local sockets permitted passed. This does not close the operator gate.
+local sockets permitted passed. Operator acceptance is recorded separately below.
 
 Operator timings after the correction — 2026-09-11 UTC:
 
@@ -298,9 +250,9 @@ Operator timings after the correction — 2026-09-11 UTC:
 
 The reported half-second layout interval is absent on all four visits. Layout
 now takes 22–24 ms, about twenty times faster on the operator's desktop.
-These timings establish the improvement; the operator's confirmation of
-responsiveness and complete, readable text is still pending. No new capture is
-needed to answer that visual check.
+The operator then explicitly confirmed responsiveness and complete, readable
+text. This closes the Settings speed/readability gate. It does not accept the
+remaining shortcut or cached-file state checks.
 
 **Situational manual regression guard — ADR 0066 task 003:** after changing the
 text dependency profiles or upgrading the text stack, use a normal `cargo build`
@@ -308,18 +260,20 @@ and the existing startup fixture with its Background tools report visible.
 Alternate Music and Settings, waiting for each draw. Settings must respond to a
 single request without the reported half-second pause; reports, inputs and
 cached-file states must remain complete and readable. First-entry and repeat
-visits both count. For this open gate, relaunch with the timing flag above and
-record two new timing blocks. A remaining roughly 500 ms layout interval or
-missed input fails the recheck. This manual guard survives removal of the
-temporary probes; it needs no external service and shares the fixture's normal
-preservation inspection and cleanup.
+visits both count. A visible pause or missed input fails the check. The guard
+needs no external service and shares the fixture's normal preservation
+inspection and cleanup.
 
-**Retirement owner:** this packet must remove `settings_timing.rs`, its module,
-TopApp field/call sites, the fixture flag exception and the temporary
-`profile-settings` command when the measured cause
-is corrected and the focused operator recheck passes. Retain the regression
-guard for the actual correction and its evidence. Do not ship the probe as
-permanent instrumentation by omission.
+**Retirement complete — 2026-09-11:** this packet removed the temporary
+`settings_timing.rs` module, its TopApp state and frame wrapper, the fixture's
+timing-environment exception, and its `profile-settings` command. The optimized
+text dependencies, cache-query guards and manual regression check remain.
+Existing profile captures stay in the operator's fixture until normal cleanup.
+Removal verification is Green: cargo check, formatting, strict production
+Clippy, debug build, four shortcut unit tests and all 230 architecture checks.
+The fixture's help lists no profiling command, and its environment check
+confirms that the retired timing flag is stripped. The deleted probe's own
+report-format test retired with it; no new runtime instrumentation was added.
 
 ### Original Packet Criteria
 
@@ -381,13 +335,11 @@ integration-test file.
 
 ## Operator Visual Check
 
-Only refresh/playback keyboard rejection remains open. The operator requested
-standard Ctrl shortcuts on Linux in ADR 0067 after Super was intercepted.
-Use Ctrl+R and Ctrl+Alt+P in its focused
-[operator check](adr-0067-task-001-platform-shortcuts.md#operator-visual-check).
-All other operator checks, preservation inspection and fixture cleanup passed;
-they need no repeat. The evidence below records the keyboard limitation without
-claiming desktop key delivery from mechanical dispatch tests.
+Complete - 2026-09-11. Refresh/playback keyboard rejection and both cached-file
+state checks passed. Quit returned exit code 0; final preservation inspection
+and fixture cleanup passed. The procedures in this packet and the
+[shortcut packet](adr-0067-task-001-platform-shortcuts.md#operator-visual-check)
+remain for regression checks. No acceptance check remains open for this packet.
 
 ### Operator Evidence — 2026-09-10
 
@@ -467,7 +419,33 @@ with migration records preserved, no residual music probes and zero database pro
 
 The operator confirmed fixture cleanup after the final preservation inspection.
 
-Still open: refresh/playback keyboard rejection on a desktop that forwards the keys.
+At the end of the 2026-09-10 run, refresh/playback keyboard rejection remained
+unverified because the window manager intercepted Super.
+
+### Operator Evidence — 2026-09-11
+
+After relaunching the current fixture in `runtime-and-cache-unavailable` mode,
+the operator pressed Ctrl+R once in Music. Refresh reported unavailable
+background tools, finished loading and left navigation working. The operator
+confirmed pass. One Ctrl+Alt+P press in Music then produced a Settings result
+explaining that playback failed because background tools were unavailable.
+Navigation and repair controls stayed usable; the operator confirmed pass.
+Keyboard rejection is accepted. In Settings, Cached files then explained that
+background tools were unavailable and pointed to Check again in Background
+tools, without claiming an empty list. The operator confirmed pass. With the
+app still open, the operator set the fixture to normal, chose Check again for
+Background runtime, and confirmed that Cached files changed to No cached files
+without leaving Settings. Recovery in place passed. Ctrl+Q then closed the app
+and the fixture terminal reported exit code 0; the operator confirmed pass.
+Final inspection in normal mode passed. Configuration changes are confined to
+workspace preferences (`config_bytes_unchanged: false`,
+`normal_workspace_preferences_only: true`); config and music are preserved.
+Migration versions 1–11 are preserved, one playlist remains, database probes
+are zero and residual music probes are empty. The operator then confirmed the
+cleanup command's Removed fixture message. All acceptance and cleanup gates
+are closed. The accepted desktop build used revision 6c63451 with the temporary
+timing/profiling code removed; the retirement build and checks were Green before
+the final operator sequence. Task 004 is next and has not started.
 
 ## Rollback
 

@@ -1,6 +1,6 @@
 # ADR 0067 Task 001: Platform Shortcuts
 
-Status: Implementation recorded - 2026-09-10; mechanical gate Green, including focus correction; operator recheck open.
+Status: Complete - 2026-09-11; mechanical gate Green, including focus correction; all shortcut checks, final preservation inspection and fixture cleanup accepted.
 
 ## Goal And Owners
 
@@ -43,10 +43,10 @@ binary for the operator. No wider lint cleanup belongs to this packet.
 
 ## Operator Visual Check
 
-Open. Use a new isolated startup fixture; the previous accepted fixture has
-been removed. A Linux desktop with Ctrl delivered to the app is required.
-For the focus recheck, close and relaunch the current shortcut fixture with
-the rebuilt binary; do not create another fixture if that one is still available.
+Complete - 2026-09-11, including fixture cleanup. The following procedure stays
+as the situational regression check; no repeat is required for acceptance.
+It needs a Linux desktop that delivers Ctrl to the app and an isolated startup
+fixture. Reuse an existing verified fixture or create one with the commands below.
 
 1. From the repository root:
 
@@ -70,8 +70,8 @@ the rebuilt binary; do not create another fixture if that one is still available
    unavailable-background-tools explanation. Open Settings after the playback
    shortcut; below the settings controls, its result must say playback failed
    because background tools are unavailable. Navigation and repair must stay
-   accessible. A permanent loading state or absent command result fails the check. This is the remaining
-   ADR 0066 task 003 keyboard check; record actual delivery before closing it.
+   accessible. A permanent loading state or absent command result fails the check.
+   This also verifies ADR 0066 task 003's keyboard rejection requirement.
 
 4. Press Ctrl+Q. Expect exit code 0. Inspect preservation, then clean up:
 
@@ -93,8 +93,35 @@ by a section change. The correction explicitly focuses the existing selected-tab
 handle at both transitions. Whether an additional startup stall occurred is
 unconfirmed. The operator subsequently reported a Settings-entry stall; its
 [bounded correction and focused recheck](adr-0066-task-003-runtime-failure-and-shell-availability.md#operator-correction-settings-responsiveness)
-belong to task 003 under ADR 0040. Retest first-attempt delivery after rebuilding;
-do not repeat accepted recovery checks.
+belong to task 003 under ADR 0040. The operator accepted Settings responsiveness
+and readability on 2026-09-11 after the debug text dependencies were optimized;
+temporary diagnostics are removed. The first-press navigation recheck below
+passed; do not repeat it or accepted recovery checks.
+
+Operator result - 2026-09-11: after relaunching the rebuilt fixture, and before
+clicking inside the app, Ctrl+2, Ctrl+3 and Ctrl+1 each opened Show, Settings and
+Music immediately on one press. Initial focus delivery is accepted. The operator
+then clicked the Settings MusicIndex endpoint input and confirmed that Ctrl+2,
+Ctrl+3 and Ctrl+1 again opened Show, Settings and Music immediately, with no
+extra clicks or repeated presses. Navigation after leaving an input is accepted.
+Ctrl+Comma then opened Settings, and Ctrl+F moved the typing cursor from the
+MusicIndex endpoint input to the toolbar search without changing the endpoint.
+The operator accepted both shortcuts. In toolbar search, the operator then
+accepted Ctrl+A/C/X/V/Z and Ctrl+Left/Right using disposable text: selection,
+copy/cut/paste, undo and word movement worked without navigation or playback.
+After relaunching in `runtime-and-cache-unavailable` mode, one Ctrl+R press in
+Music reported unavailable background tools, finished loading and preserved
+navigation. Refresh rejection is accepted. One Ctrl+Alt+P press in Music then
+produced a Settings result explaining that playback failed because background
+tools were unavailable. Navigation and repair controls remained usable; the
+operator confirmed pass. Ctrl+Q then closed the app and the fixture terminal
+reported exit code 0; the operator confirmed pass. All shortcut checks are
+accepted. Final normal-mode inspection also passed: config changes are confined
+to workspace preferences, config/music/migration records are preserved, one
+playlist remains, and database/music probes are absent. The operator then
+confirmed the cleanup command's Removed fixture message. The accepted build
+used revision 6c63451 with the temporary Settings timing/profiling code removed.
+All operator and cleanup gates are closed.
 
 Mechanical evidence - 2026-09-10: Green. Formatting, cargo check, strict
 production Clippy, nine keyboard tests, four menu tests, all 228 architecture
@@ -121,6 +148,7 @@ C7 requires adapter deletion or an exact justified caller inventory, and removes
 the strict startup adapter call and its optional-configuration expect in either
 case. Task 004 implementation has not started.
 
-Operator acceptance remains open. Keep this packet, ADR status, delivery row and pending-human-checks
-aligned. Mechanical success does not prove desktop key delivery. If rejected,
-revert this shortcut change without touching operator configuration or data.
+Operator acceptance is complete, with the evidence above. The ADR status and
+delivery row record completion; this packet has no pending-human-check entry.
+If a regression requires rollback, revert the shortcut change without touching
+operator configuration or data.

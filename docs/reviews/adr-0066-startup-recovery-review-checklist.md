@@ -2,12 +2,12 @@
 
 ## Status And Scope
 
-Tasks 001–003 mechanically reviewed - 2026-09-10; gate Green.
-Tasks 001 and 002 are complete, including task 002's operator acceptance and fixture cleanup.
-Task 003 is implemented; refresh/playback keyboard acceptance and the Settings responsiveness correction remain open,
-using the Ctrl bindings from ADR 0067.
-Other operator checks and fixture cleanup passed.
-Implementation remains partial; tasks 004–013 have not started.
+Tasks 001–003 are complete - 2026-09-11. Mechanical checks are Green;
+operator acceptance, final preservation inspection and fixture cleanup are
+confirmed. The keyboard checks use ADR 0067's accepted Ctrl bindings.
+Settings responsiveness and cached-file recovery are accepted; temporary
+diagnostics are removed. ADR 0066 remains partial; task 004 is ready and tasks
+004–013 have not started.
 
 Read the [ADR](../adr/0066-configuration-and-startup-failure-recovery.md),
 [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md), active packet and
@@ -302,6 +302,34 @@ The operator subsequently requested standard Linux Ctrl bindings; the focused
 [ADR 0067 check](../tasks/adr-0067-task-001-platform-shortcuts.md#operator-visual-check)
 owns actual refresh/playback key delivery and rejection acceptance.
 No operator approval is inferred from passing mechanical tests.
+
+## Settings Responsiveness Acceptance — 2026-09-11
+
+The operator confirmed responsive Settings navigation and complete, readable
+text after four measured visits at 02:00:18–02:00:22 UTC. Layout took
+22.163–24.371 ms and the following frame callback arrived after 37.045–50.274 ms.
+The temporary timing module/frame wrapper and fixture profiling command are
+removed; optimized debug text dependencies and the packet's manual regression
+check remain. This closes the speed/readability gate. First-press Ctrl+2/3/1
+section navigation subsequently passed before any in-app click and after
+leaving the Settings endpoint input. Ctrl+Comma opened Settings and Ctrl+F
+moved focus from its endpoint input to toolbar search; both passed. Toolbar text
+selection, copy/cut/paste, undo and word movement passed without navigation or
+playback. After a fresh unavailable-runtime launch, Ctrl+R reported unavailable
+background tools, finished loading and preserved navigation. Refresh rejection
+passed. Ctrl+Alt+P subsequently reported playback failure due to unavailable
+background tools in Settings, preserving navigation and repair; the operator
+confirmed pass. The cached-file unavailable message then passed: it explained
+the failed read, pointed to Background tools and did not claim an empty list.
+The operator then changed the fixture to normal, retried Background runtime and
+confirmed No cached files appeared without leaving Settings. Cache recovery
+passed. Ctrl+Q then closed the app with fixture exit code 0; the operator
+confirmed pass. Final normal-mode inspection passed: config and music are
+preserved, only workspace preferences changed, migration versions 1–11 remain,
+one playlist remains and no database/music probes remain. The operator then
+confirmed the cleanup command's Removed fixture message. Tasks 0066/003 and
+0067/001 are complete; their pending-human-check entry is removed. Task 004 is
+ready for a new session and has not started.
 
 ## Final Series Review
 

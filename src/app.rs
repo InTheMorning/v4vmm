@@ -22,7 +22,6 @@ use crate::library::{LibraryApp, LibraryAppEvent};
 use crate::media::ImageCache;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::PlaybackOwner;
-use crate::presentation::settings_timing::SettingsTiming;
 use crate::presentation::{bridge_watch, present_command, GpuiEventBridge};
 use crate::runtime::playback_polling::{PlaybackPollingHandle, PlaybackTickOutcome};
 use crate::runtime::{
@@ -149,7 +148,6 @@ pub struct TopApp {
     theme_profile: ThemeProfile,
     cfg_path: PathBuf,
     settings_status: String,
-    settings_timing: Option<SettingsTiming>,
     music_tab_focus: gpui::FocusHandle,
     show_tab_focus: gpui::FocusHandle,
     settings_tab_focus: gpui::FocusHandle,
@@ -352,7 +350,6 @@ impl TopApp {
             image_cache,
             remote_detail_thumbnails: BTreeMap::new(),
             cached_files: CachedFilesVm::default(),
-            settings_timing: None,
             application_services,
             command_runner,
             application_event_bridge,
@@ -421,11 +418,6 @@ impl TopApp {
     }
 
     fn select_tab(&mut self, tab: AppTab, window: &mut Window, cx: &mut Context<Self>) {
-        self.settings_timing = if tab == AppTab::Settings {
-            SettingsTiming::begin()
-        } else {
-            None
-        };
         self.tab = tab;
         self.focus_active_tab(window);
 
@@ -457,9 +449,6 @@ impl TopApp {
                     self.settings_status = format!("Error switching tabs: {error}");
                 }
                 self.sync_search_results_detail_with_nav(content_list_id);
-                if let Some(timing) = &self.settings_timing {
-                    timing.mark("App finished handling Settings selection");
-                }
             }
             AppTab::Music => {
                 let restoring_from_settings = self
@@ -1308,10 +1297,6 @@ impl Drop for TopApp {
 
 impl Render for TopApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let timing = self.settings_timing.take();
-        if let Some(timing) = &timing {
-            timing.mark("App began composing the Settings frame");
-        }
         self.defer_application_event_drain(window, cx);
         let mount = self.active_workspace_screen_mount();
         let filter_chip_width_class = filter_chip_strip_width_class(window.bounds().size.width);
@@ -1324,7 +1309,7 @@ impl Render for TopApp {
         };
         let bg_canvas = color(cx, SemanticColor::SystemBackground);
         let text_primary = color(cx, SemanticColor::Label);
-        let frame = div()
+        div()
             .size_full()
             .bg(bg_canvas)
             .text_color(text_primary)
@@ -1367,13 +1352,6 @@ impl Render for TopApp {
                     )),
             )
             .children(render_window_layers(window, cx))
-            .into_any_element();
-        if let Some(timing) = timing {
-            timing.mark("App finished composing the Settings frame");
-            timing.wrap(frame)
-        } else {
-            frame
-        }
     }
 }
 
