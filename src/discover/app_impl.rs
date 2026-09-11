@@ -69,7 +69,7 @@ impl SearchApp {
     pub fn new(
         conn: Arc<Mutex<Connection>>,
         cache: Arc<ImageCache>,
-        musicindex_endpoint: String,
+        musicindex_endpoint: crate::config::MusicIndexEndpoint,
         application_services: Arc<ApplicationServices>,
         runtime_host: Option<Arc<crate::presentation::RuntimeHost>>,
         window: &mut Window,
@@ -109,7 +109,11 @@ impl SearchApp {
         this
     }
 
-    pub fn set_musicindex_endpoint(&mut self, endpoint: String, cx: &mut Context<Self>) {
+    pub fn set_musicindex_endpoint(
+        &mut self,
+        endpoint: crate::config::MusicIndexEndpoint,
+        cx: &mut Context<Self>,
+    ) {
         if self.musicindex_endpoint == endpoint {
             return;
         }
@@ -2151,8 +2155,13 @@ pub(crate) fn detail_rows_from_strings(rows: Vec<(String, String)>) -> Vec<Detai
 }
 
 enum SearchSubscribeRequest {
-    Feed(Box<Feed>, String),
-    Track(Box<TrackContext>, Vec<Id3v24Edit>, String, bool),
+    Feed(Box<Feed>, crate::config::MusicIndexEndpoint),
+    Track(
+        Box<TrackContext>,
+        Vec<Id3v24Edit>,
+        crate::config::MusicIndexEndpoint,
+        bool,
+    ),
 }
 
 fn local_subscription_for_detail(

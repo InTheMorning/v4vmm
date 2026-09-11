@@ -40,7 +40,7 @@ pub(crate) struct DiscoverSearchResults {
 pub(crate) struct FetchDiscoverSearchResults {
     conn: SharedConnection,
     query_service: Arc<ApplicationQueryService>,
-    endpoint: String,
+    endpoint: crate::config::MusicIndexEndpoint,
     query: String,
     filter: ContentFilter,
     append: bool,
@@ -59,7 +59,7 @@ impl FetchDiscoverSearchResults {
     pub(crate) fn new(
         conn: SharedConnection,
         query_service: Arc<ApplicationQueryService>,
-        endpoint: impl Into<String>,
+        endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         query: impl Into<String>,
         filter: ContentFilter,
         append: bool,
@@ -96,14 +96,17 @@ impl ApplicationCommand for FetchDiscoverSearchResults {
 /// Fetches remote Index search result rows for presentation.
 #[derive(Clone, Debug)]
 pub(crate) struct FetchIndexSearchResults {
-    endpoint: String,
+    endpoint: crate::config::MusicIndexEndpoint,
     query: String,
 }
 
 impl FetchIndexSearchResults {
     /// Creates an Index search query command.
     #[must_use]
-    pub(crate) fn new(endpoint: impl Into<String>, query: impl Into<String>) -> Self {
+    pub(crate) fn new(
+        endpoint: impl Into<crate::config::MusicIndexEndpoint>,
+        query: impl Into<String>,
+    ) -> Self {
         Self {
             endpoint: endpoint.into(),
             query: query.into(),
@@ -161,8 +164,11 @@ fn query_error(error: &anyhow::Error) -> CommandError {
     CommandError::Query(format!("{error:#}"))
 }
 
-fn fetch_index_search_result_rows(endpoint: &str, query: &str) -> Result<IndexSearchResultRows> {
-    let client = crate::api::Client::new_with_base_url(endpoint.to_string());
+fn fetch_index_search_result_rows(
+    endpoint: &crate::config::MusicIndexEndpoint,
+    query: &str,
+) -> Result<IndexSearchResultRows> {
+    let client = crate::api::Client::new_with_base_url(endpoint.clone());
     let mut rows = IndexSearchResultRows::default();
     let mut artists = BTreeMap::new();
 

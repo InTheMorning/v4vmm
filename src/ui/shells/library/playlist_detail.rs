@@ -87,7 +87,7 @@ fn render_eager_playlist_detail(
                 .and_then(|url| album_thumbs.get(url))
                 .cloned()
                 .flatten();
-            let display = row.display(playlist_id);
+            let display = row.display_with_playback(playlist_id, chrome.playback_availability);
             let on_play = display.controls.play_enabled.then(|| {
                 click_slot(cx.listener(move |_this, _, _, cx| {
                     cx.emit(LibraryAppEvent::PlayPlaylistAt {
@@ -211,6 +211,7 @@ fn try_render_paged(
                 last_position,
                 &track,
                 album_thumbs,
+                chrome.playback_availability,
                 cx,
             )),
         }
@@ -257,6 +258,7 @@ fn render_ready_paged_playlist_row(
     last_position: usize,
     track: &Arc<crate::db::TrackRow>,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
+    playback_availability: Result<(), crate::application::capability::ExecutionUnavailable>,
     cx: &mut Context<LibraryApp>,
 ) -> PlaylistShellRow {
     let track_for_select = (*track).clone();
@@ -275,7 +277,7 @@ fn render_ready_paged_playlist_row(
         position,
         last_position,
     )
-    .display(playlist_id);
+    .display_with_playback(playlist_id, playback_availability);
     let on_play = display.controls.play_enabled.then(|| {
         click_slot(cx.listener(move |_this, _, _, cx| {
             cx.emit(LibraryAppEvent::PlayPlaylistAt {

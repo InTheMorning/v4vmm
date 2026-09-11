@@ -5,10 +5,12 @@
 Accepted - 2026-09-10.
 
 Implementation partial: tasks 001–003 complete, including operator acceptance,
-preservation inspection and fixture cleanup. Tasks 004–013 have not started in
+preservation inspection and fixture cleanup. Task 004 implementation and
+mechanical checks are complete; its operator visual acceptance, preservation
+inspection and fixture cleanup remain open. Tasks 005–013 have not started in
 the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md).
-Amended 2026-09-11: task 003 completion is verified; task 004 is the next packet.
-Other optional-tool isolation and in-app correction tools remain unimplemented.
+Amended 2026-09-11: scoped optional-tool isolation is implemented; in-app
+correction/retry and the remaining maintenance tools are still pending.
 
 Amended 2026-09-10: [ADR 0067](0067-platform-shortcut-modifiers.md) changes Linux
 shortcuts to Ctrl at the operator's request. Task 003's keyboard checks
@@ -41,9 +43,9 @@ Three current behaviors constrain recovery:
 
 - At decision time, [config.rs](../../src/config.rs) treated `Path::exists`
   failure as permission to write defaults, including from ordinary saves.
-  Task 001 replaces that behavior; its preservation and ownership guards are
-  linked below. The GUI still reads configuration again for its endpoint
-  until task 004 migrates scoped consumers.
+  Task 001 replaced that behavior; its preservation and ownership guards are
+  linked below. Task 004 removes the strict compatibility adapter and the
+  second startup endpoint read.
 - `open_db` initializes schema and applies migrations.
   `repair_local_file_paths` updates rows and records unresolved paths before
   removing their download bindings. Neither function wraps its entire work in
@@ -465,6 +467,14 @@ Task 003 adds `adr_0066_missing_runtime_has_no_implicit_runner` and
 architecture suite. Its [proof inventory](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md#mechanical-evidence)
 links runner rejection, independent local queries, runtime retry, issue isolation
 and cache-failure tests. Its [operator check](../runbooks/startup-recovery-check.md#task-003-background-tools)
+passed, including preservation inspection and fixture cleanup, on 2026-09-11.
+
+Task 004 adds `adr_0066_optional_dependencies_are_scoped`,
+`adr_0066_repair_failure_preserves_bindings` and
+`adr_0066_whole_config_adapter_callers_are_explicit` in the same architecture
+suite. Its [proof and caller inventory](../tasks/adr-0066-task-004-optional-tool-isolation.md#implementation-and-proof)
+records optional factory failures, independent commands, scoped CLI/RSS reads and
+partially committed path repair. Its [operator check](../runbooks/startup-recovery-check.md#task-004-optional-tool-isolation)
 remains open.
 
 Task 003's operator-reported search-error clipping correction is guarded by

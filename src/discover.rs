@@ -8,15 +8,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
-use gpui::{
-    prelude::*, size, Application, Bounds, Image, ScrollHandle, WindowBounds, WindowOptions,
-};
-use gpui_component::Root;
+use gpui::{Image, ScrollHandle};
 use rusqlite::Connection;
 
 use crate::api::{Artist, Feed, PaymentRoute, Publisher, Track};
 use crate::application::{ApplicationServices, AsyncCommandRunner};
-use crate::config;
 use crate::db;
 use crate::media::ImageCache;
 use crate::metadata::*;
@@ -130,7 +126,7 @@ pub struct SearchApp {
     application_services: Arc<ApplicationServices>,
     command_runner: AsyncCommandRunner,
     cache: Arc<ImageCache>,
-    musicindex_endpoint: String,
+    musicindex_endpoint: crate::config::MusicIndexEndpoint,
     /// Stateful screen view-model. Owns all pure UI scalars,
     /// pane-state flags, and loaded snapshots (results, recent feeds,
     /// playlists). Fields kept on `SearchApp` itself are GPUI-bound
@@ -193,68 +189,6 @@ fn join_values(values: &[String]) -> Option<String> {
     } else {
         Some(values.join(" · "))
     }
-}
-
-use crate::ui::layouts as layout;
-
-pub fn run_search_app() {
-    let app = Application::new().with_assets(gpui_component_assets::Assets);
-
-    app.run(move |cx| {
-        gpui_component::init(cx);
-        crate::ui::theme_bridge::install_theme(
-            crate::theme_profile::ThemeProfile::Dark,
-            crate::ui::tokens::ScaleFactor::Medium,
-            cx,
-        );
-        let cfg_path = config::config_path().expect("config path");
-        let cfg = config::load_config(&cfg_path).expect("load config");
-        config::ensure_dirs(&cfg).expect("ensure dirs");
-        let conn = db::open_db(&cfg).expect("open db");
-        let conn = Arc::new(Mutex::new(conn));
-        let musicindex_endpoint =
-            config::load_musicindex_endpoint(&cfg_path).expect("load MusicIndex endpoint");
-
-        crate::ui::theme_bridge::install_theme(cfg.theme_profile, cfg.ui_scale.into(), cx);
-
-        let thumbnail_cache_dir = cfg_path
-            .parent()
-            .expect("config path has parent")
-            .join("thumbnail-cache");
-        let image_cache = ImageCache::new(thumbnail_cache_dir);
-        let application_services = Arc::new(
-            ApplicationServices::local_with_service_adapters()
-                .expect("application services are fully wired"),
-        );
-        let runtime_host =
-            crate::presentation::RuntimeHost::new().expect("start ADR 0040 tokio runtime");
-
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                    None,
-                    size(layout::WINDOW_WIDTH, layout::WINDOW_HEIGHT),
-                    cx,
-                ))),
-                ..Default::default()
-            },
-            |window, cx| {
-                let view = cx.new(|cx| {
-                    SearchApp::new(
-                        conn,
-                        image_cache,
-                        musicindex_endpoint,
-                        application_services,
-                        Some(runtime_host),
-                        window,
-                        cx,
-                    )
-                });
-                cx.new(|cx| Root::new(view, window, cx))
-            },
-        )
-        .expect("failed to open window");
-    });
 }
 
 #[cfg(test)]

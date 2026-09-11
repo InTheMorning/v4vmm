@@ -335,3 +335,190 @@ Both inspections must report preserved configuration, music and migration
 records, one playlist, and no leftover probes. Normal workspace preferences
 may have been saved. A crash, lost data, duplicate window, hidden repair action,
 or one repair clearing the other issue fails this gate.
+
+## Task 004: Optional Tool Isolation
+
+Owner: [task 004](../tasks/adr-0066-task-004-optional-tool-isolation.md).
+Operator acceptance is open. These checks cover the new optional-resource
+boundaries; tasks 002/003 and ADR 0067 keep their accepted results.
+
+Playback-dependent checks are paused following the operator's 2026-09-11
+workflow correction. Music Play currently shares the Show playback session;
+the required separate audition path and explicit Show cue loading are missing.
+Do not use Music Play to satisfy a Show playback check. The producer screenshot
+also reports an unresolved mpv IPC read error. Report and preservation checks
+remain useful, but do not accept audio or metadata publication. See
+[the recorded correction](../tasks/adr-0066-task-004-optional-tool-isolation.md#playback-workflow-correction--2026-09-11).
+
+Needs: this checkout's debug binary, Python 3.11+, a Linux desktop, an installed
+`mpv` binary, and working desktop audio for the producer-failure case. Start
+with the volume low. The fixture supplies three quiet, 30-second WAV tracks,
+one playlist, and all broken paths/configuration. External publisher/encoder
+commands use failing local stubs, so their expected result is an attempted
+command followed by the fixture's service-unavailable report. No real service,
+relay or MusicIndex is needed. The real mpv binary is used only in the
+producer-failure case, with sockets inside the verified fixture directory.
+Agents may use seed, mode, inspect and CLI commands; only a person uses `run`.
+
+### 1. Create The Fixture
+
+Run from the repository root in one desktop terminal:
+
+```bash
+cargo build --quiet
+optional_dir="$(python3 docs/runbooks/startup-recovery-fixture.py setup)"
+python3 docs/runbooks/startup-recovery-fixture.py verify "$optional_dir"
+```
+
+An agent's `/tmp` path may not be visible in the desktop session. The commands
+above create the fixture in the operator's environment. For an agent-prepared
+fixture, transfer its archive through the shared checkout and extract it into
+the operator's `/tmp`, preserving the archive's top-level directory name. The
+manifest and configuration contain that absolute path. Run `verify` in the
+desktop terminal before opening the transferred fixture.
+
+Keep this terminal and variable. Close the fixture app before every mode change.
+Keep the fixture through all five cases. Cleanup belongs only to step 6; do not
+run it between cases.
+After each run, the terminal must report exit code 0. Inspect after closing:
+config, music, library, bindings and migration preservation must be true; no
+music/producer/database probe may remain. Stop on a failed inspection and keep
+the directory for diagnosis. Do not use Settings Save to repair these fixtures.
+
+If a saved path no longer contains `fixture.json`, use `locate` to find another
+verified fixture. If none exists, run `setup` again and assign its printed path
+to `optional_dir`. Select the next outstanding case with `mode` before `run`.
+Previously recorded report and inspection evidence remains valid; a replacement
+fixture does not confirm any visual check that was left unconfirmed.
+
+### 2. Fail Index And Player Preparation Together
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py mode "$optional_dir" endpoint-and-player-unavailable
+python3 docs/runbooks/startup-recovery-fixture.py run "$optional_dir"
+```
+
+Music must open normally. Open Background tools in Settings: the invalid
+MusicIndex setting and failed playback preparation must remain separate.
+Copy the report and paste into an editor; verify both subjects and their recorded
+UTC times. Search for `a.wav` using the toolbar and Ctrl+K: the local track must
+remain visible, with an Index failure explanation. Open Startup fixture playlist;
+all three rows remain browsable. Play actions must be unavailable; Space on Show
+must not start audio. Navigate back to Settings and confirm both reports remain.
+A recovery-only window, missing local results, substituted player or cleared
+report is wrong. Close the app.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py inspect "$optional_dir"
+```
+
+### 3. Preserve Invalid Presentation Settings
+
+Accepted - 2026-09-11, including the duplicate-warning recheck, resizing/navigation
+and post-run preservation inspection. Retained for regression; proceed to step 4
+when continuing task 004's outstanding checks.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py mode "$optional_dir" presentation-invalid
+python3 docs/runbooks/startup-recovery-fixture.py run "$optional_dir"
+```
+
+Inspect Music, Show and Settings at normal and narrow widths. Text and controls
+must remain usable with the documented defaults. Settings must retain distinct
+reports for theme, scale and content view mode. Resize and navigate several times,
+then close. Silent correction, disappearing reports or unusable fallback layout
+is wrong.
+
+The 2026-09-11 screenshot exposed duplicate warnings in Show. With the rebuilt
+binary, each configuration warning must appear once in the shared top notice;
+the repeated red block below Idle must be absent. Open report must still expose
+the complete Settings report. Keep this check open until inspected at normal
+and narrow widths after navigation.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py inspect "$optional_dir"
+```
+
+For this case, `config_bytes_unchanged` must be true, not merely
+`normal_workspace_preferences_only`.
+
+### 4. Fail Producer Preparation, Then Publisher Selection
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py mode "$optional_dir" producer-unavailable
+python3 docs/runbooks/startup-recovery-fixture.py run "$optional_dir"
+```
+
+No audio starts when the app opens. Open Show without invoking Music Play.
+The Source card and Settings must retain the drop-file preparation failure.
+Publisher setup must remain independent: its watch must report the fixture's
+external service failure rather than a producer configuration failure. If a
+service action is available, invoke it and verify its result names that service.
+A lost producer report or a publisher result replaced by the producer failure
+is wrong. This only checks the reports. Audible playback, progress and
+pause/resume remain unaccepted and paused until the Show cue workflow exists.
+That check must load the playlist without starting audio, then start playback
+from Show; Music audition must leave Show playback and publication unchanged.
+Do not substitute the current playlist Play command. Close and inspect before
+selecting the next case:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py inspect "$optional_dir"
+python3 docs/runbooks/startup-recovery-fixture.py mode "$optional_dir" publisher-invalid
+python3 docs/runbooks/startup-recovery-fixture.py run "$optional_dir"
+```
+
+Publisher host controls must be unavailable with a setup report.
+The independent encoder watch must reach the fixture's `butt` stub and report
+that encoder result. A publisher-host error must not replace the encoder result.
+The producer-publication check remains open and paused with the playback check.
+Once the Show cue workflow exists, its instructions must verify metadata
+publication during Show playback despite the publisher-host error. This case
+configures Null, so it cannot prove audible playback. The missing-value-routes
+readiness note is expected for these fixture WAVs; Music audition must not
+publish Show metadata. Do not invoke Music Play to create the metadata file.
+
+Close the app and inspect from the original terminal:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py inspect "$optional_dir"
+```
+
+### 5. Contain A Partially Applied Path Repair
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py mode "$optional_dir" partial-path-repair
+python3 docs/runbooks/startup-recovery-fixture.py run "$optional_dir"
+```
+
+Normal Music must open with all three tracks and a persistent path-repair warning.
+The report must explain that completed changes and remaining bindings were
+retained. `a.wav` and `c.wav` remain usable; `b.wav` stays visible but its play
+action must be unavailable. Inspect action availability without starting playback;
+this check does not accept the current Music playback routing. Do not remove
+tracks or run another repair.
+A rollback claim, disappearing track, or executable absolute binding is wrong.
+Close and inspect:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py inspect "$optional_dir"
+```
+
+`bindings` must be `["a.wav", "/old/music/b.wav", "c.wav"]`, and
+`repair_not_attempted` must be false. All three tracks and playlist entries remain.
+
+### 6. Record Results And Clean Up
+
+Record each case, report-copy result, preservation inspection and observed
+failures in task 004. Keep the paused audio/publication results explicitly
+unaccepted. Its visual gate closes only after all five
+cases pass. Leave any failed fixture intact until its evidence is recorded.
+Once the app is closed and all inspections pass:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py cleanup "$optional_dir"
+unset optional_dir
+```
+
+Cleanup removes only the verified fixture, including its WAVs, database,
+path-failure trigger, blocker files, temporary mpv sockets and configuration.

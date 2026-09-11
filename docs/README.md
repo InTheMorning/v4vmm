@@ -68,13 +68,16 @@ Current governance:
 - [ADR 0066: Configuration and startup failure recovery](adr/0066-configuration-and-startup-failure-recovery.md):
   accepted core startup requirements, configuration/database recovery tools,
   and optional-tool setup/retry; implementation precedes config format changes
+- [ADR 0068: Show cue and audition isolation](adr/0068-show-cue-and-audition-isolation.md):
+  proposed playlist-to-cue preparation, explicit Show playback and independent
+  audition audio/state; implementation and operator verification remain open
 
 Current plans:
 
 - [ADR 0066 startup recovery phase plan](plans/adr-0066-startup-recovery-phase-plan.md):
   thirteen bounded packets for configuration safety, core recovery, optional-tool
   repair, managed session resumption, converter retry, and database maintenance;
-  tasks 001–003 complete; task 004 ready, implementation not started
+  tasks 001–003 complete; task 004 implemented, operator gate open
 - [Show narrow-layout proposal](plans/show-narrow-layout-proposal.md):
   compact cards, full-width logs and an overlap alternative, readable log-body
   allocation, and hiding the playback bar only when every typed action is
@@ -108,7 +111,8 @@ Current plans:
 Current implementation packets:
 
 - [ADR 0066 task 004: Optional tool isolation](tasks/adr-0066-task-004-optional-tool-isolation.md):
-  ready; implementation not started. Tasks 001–003 are complete, including
+  implemented; operator visual acceptance, preservation inspection and fixture
+  cleanup remain open. Tasks 001–003 are complete, including
   operator acceptance and fixture cleanup. The [phase plan](plans/adr-0066-startup-recovery-phase-plan.md#sequence-and-stopping-points)
   lists all thirteen packets and dependencies
 - [Show action feedback task 001](tasks/show-action-feedback-task-001-command-state-and-result.md):
@@ -121,8 +125,8 @@ Current implementation packets:
 Current reviews:
 
 - [ADR 0066 startup recovery review checklist](reviews/adr-0066-startup-recovery-review-checklist.md):
-  tasks 001–003 complete with operator evidence; remaining invariant coverage
-  belongs to tasks 004–013
+  tasks 001–003 complete with operator evidence; task 004 mechanical proof
+  recorded and operator gate open; later coverage belongs to tasks 005–013
 - [Staged Show packets review](reviews/staged-show-packets-review-2026-09-09.md):
   review of the 2026-09-09 staged revisions and follow-up on the packet
   corrections

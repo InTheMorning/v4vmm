@@ -1843,7 +1843,6 @@ fn adr_0066_runtime_retry_keeps_one_host_and_independent_reports() {
     let install = source_between(&source, "fn install_runtime(", "\n}");
     for call in [
         "library.install_runtime(",
-        "self.maybe_start_playback_polling(",
         "self.maybe_start_broadcast_readiness_watch(",
         "self.maybe_start_broadcast_service_watch(",
     ] {
@@ -2105,10 +2104,14 @@ fn adr_0066_config_creation_and_save_ownership() {
     let config = production_source(&config_file);
     assert_adr_0066_first_run_owner(config);
 
-    let readers = source_between(config, "pub fn load_config(", "fn read_config_for_save(");
+    let readers = source_between(
+        config,
+        "pub fn load_musicindex_endpoint(",
+        "fn read_config_for_save(",
+    );
     assert_eq!(
         readers.matches("load_config_snapshot(cfg_path)?").count(),
-        2
+        1
     );
     let save_guard = source_between(
         config,
@@ -2165,7 +2168,17 @@ fn adr_0066_config_creation_and_save_ownership() {
     let app = read_source(&manifest_path("src/app.rs"));
     let save = source_between(&app, "fn save_settings(", "fn reload_cached(");
     assert!(save.contains("config::save_app_settings("));
-    assert!(save.contains("config::ConfigSnapshot::read_existing(&self.cfg_path)"));
+    // Situational ADR 0066: download-only preparation cannot suppress already saved settings.
+    let applied = source_between(
+        save,
+        "let download_preparation =",
+        "self.settings_status = match download_preparation",
+    );
+    assert!(applied.contains("self.musicindex_endpoint ="));
+    assert!(applied.contains("playback_owner.set_music_dir("));
+    assert!(!applied.contains("return;"));
+    // save_app_settings owns the fresh snapshot and rejects invalid siblings.
+    assert!(!save.contains("require_saveable().is_ok()"));
     assert!(!save.contains("config::load_config("));
     let failure = save.rsplit_once("Err(error) => {").unwrap().1;
     assert!(!failure.contains("persist_workspace_layout"));
@@ -2213,7 +2226,7 @@ fn assert_adr_0066_first_run_owner(config: &str) {
     let publication = source_between(
         config,
         "fn default_config_temporary(",
-        "pub fn load_config(",
+        "pub fn load_musicindex_endpoint(",
     );
     for required in [
         "create_new(true)",
@@ -2258,11 +2271,11 @@ fn workspace_frame_phase_5_layout_persistence_contract() {
 
     for required in [
         "WorkspaceLayoutConfig",
-        "workspace_layout: Option<WorkspaceLayoutConfig>",
+        "workspace_layout: ConfigField<Option<WorkspaceLayoutConfig>>",
         "workspace_layout: decode_field(",
         "pub(crate) fn save_workspace_layout(",
         "toml::Value::try_from(workspace_layout)",
-        "issue.field == \"workspace_layout\"",
+        "self.workspace_layout",
     ] {
         if !config_source.contains(required) {
             violations.push(format!(
@@ -2311,10 +2324,10 @@ fn workspace_pane_width_persistence_contract() {
     for required in [
         "WorkspaceConfig",
         "WorkspaceLayoutPrefs",
-        "fn legacy_workspace(&self)",
+        "fn workspace_preferences(&self)",
         "content_pane_width: snapshot_width(layout)",
         "save_workspace_layout_prefs",
-        "workspace: Option<WorkspaceConfig>",
+        "self.content_pane_width.unwrap_or_default()",
     ] {
         if !config_source.contains(required) {
             violations.push(format!(
@@ -2346,7 +2359,7 @@ fn workspace_pane_width_persistence_contract() {
 
     for required in [
         ".workspace",
-        "workspace.layout.clone()",
+        "workspace.layout",
         "workspace_layout_prefs.as_ref()",
     ] {
         if !bootstrap_source.contains(required) {
@@ -10904,15 +10917,6 @@ fn appearance_dark_is_approved(file: &str, source: &str, line_number: usize) -> 
                 "Re-apply theme now that config has provided",
             ],
         ),
-        "src/discover.rs" => nearby_source_mentions(
-            source,
-            line_number,
-            &[
-                "pub fn run_search_app()",
-                "gpui_component::init(cx)",
-                "cfg.ui_scale.into()",
-            ],
-        ),
         _ => false,
     }
 }
@@ -16166,4 +16170,130 @@ fn adr_0059_event_target_commands_share_publisher_ownership() {
     );
     assert!(command.contains("selection.revision != self.selection_revision"));
     assert!(command.contains("Target configuration saved; Publisher restart failed"));
+}
+
+#[test]
+fn adr_0066_whole_config_adapter_callers_are_explicit() {
+    // Situational: ADR 0066 task 004. The whole-config caller inventory is empty.
+    let mut files = Vec::new();
+    collect_rust_files(&manifest_path("src"), &mut files);
+    for file in files {
+        let source = read_source(&file);
+        for forbidden in ["legacy_config(", "load_config(", "pub struct Config {"] {
+            assert!(
+                !source.contains(forbidden),
+                "ADR 0066: whole-config adapter reintroduced in {}: {forbidden}",
+                file.display()
+            );
+        }
+    }
+    let bootstrap = read_source(&manifest_path("src/app/bootstrap.rs"));
+    let preparation = source_between(
+        &bootstrap,
+        "pub(super) fn prepare_normal(",
+        "pub(super) fn mount_normal",
+    );
+    assert!(!preparation.contains("ConfigSnapshot::read_existing"));
+    assert!(!preparation.contains("load_musicindex_endpoint"));
+    let cli = read_source(&manifest_path("src/cli.rs"));
+    assert_eq!(
+        production_source(&cli)
+            .matches("load_config_snapshot(")
+            .count(),
+        1
+    );
+    assert!(cli.contains("OnceCell<Result<config::ConfigSnapshot>>"));
+}
+
+#[test]
+fn adr_0066_optional_dependencies_are_scoped() {
+    // Situational: ADR 0066 task 004. Behavioral proofs live beside the factory,
+    // API, RSS service, Show VM and CLI; this guard keeps their live wiring.
+    let startup = read_source(&manifest_path("src/startup.rs"));
+    let preparation = source_between(
+        &startup,
+        "fn prepare_playback_with(",
+        "pub(crate) fn prepare_local_paths(",
+    );
+    assert!(preparation.contains("snapshot.playback().ok()?"));
+    assert!(preparation.contains("producer.prepare_directory()?"));
+    assert!(preparation.contains("Dependency::Playback"));
+    for forbidden in ["NullDriver::new", "Driver::Null", ".ping(", ".load("] {
+        assert!(!preparation.contains(forbidden));
+    }
+    let bootstrap = read_source(&manifest_path("src/app/bootstrap.rs"));
+    assert!(bootstrap.contains("Option<Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>>"));
+    assert!(!production_source(&bootstrap).contains("maybe_start_playback_polling"));
+    // Situational ADR 0066: shared configuration reports must not also become Show status.
+    let mount = source_between(
+        &bootstrap,
+        "pub(super) fn mount_normal",
+        "pub(super) fn cache_worker_for_config",
+    );
+    assert!(mount.contains("normal_startup_status(&notices)"));
+    assert!(!mount.contains("issue.cause"));
+    let playback = read_source(&manifest_path("src/app/playback_bar.rs"));
+    assert_eq!(
+        playback
+            .matches("let Some(owner) = self.available_playback_owner(cx)")
+            .count(),
+        4
+    );
+    assert!(playback.contains(".require(crate::application::capability::Dependency::Playback)"));
+    assert!(playback.contains("this.maybe_start_playback_polling(cx)"));
+    let keyboard = read_source(&manifest_path("src/app/keyboard.rs"));
+    assert!(keyboard.contains("self.toggle_playback_paused(cx)"));
+    let api = read_source(&manifest_path("src/api.rs"));
+    assert!(api.contains("self.base_url.require()?"));
+    let search = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    assert!(search.contains("AppToolbarVm::index_search_availability("));
+    assert!(search.contains("search_local_library_tracks("));
+    let show = read_source(&manifest_path("src/app/show.rs"));
+    assert!(show.contains("broadcast_watch_inputs(&self.broadcast)"));
+    assert!(show.contains(".with_feature_availability("));
+    let rss = read_source(&manifest_path("src/rss/subscribe.rs"));
+    assert!(rss.contains("(feed_guid.as_deref(), musicindex_endpoint.require())"));
+    let cli = read_source(&manifest_path("src/cli.rs"));
+    assert!(cli.contains("forget_local_event("));
+    assert!(cli.contains("db::broadcast_events("));
+}
+
+#[test]
+fn adr_0066_repair_failure_preserves_bindings() {
+    // Situational: ADR 0066 task 004; retain ADR 0064 skip and binding safety.
+    let startup = read_source(&manifest_path("src/startup.rs"));
+    let repair = source_between(
+        &startup,
+        "pub(crate) fn prepare_local_paths(",
+        "#[cfg(test)]",
+    );
+    for required in [
+        "repair_local_file_paths(connection, music_dir)",
+        "storage::check_music(music_dir, false, false)",
+        "database::check_database(db_path)",
+        "CoreCheckOutcome::blocked",
+    ] {
+        assert!(
+            repair.contains(required),
+            "missing repair containment: {required}"
+        );
+    }
+    for forbidden in [
+        "DELETE FROM",
+        "UPDATE local_files",
+        "prepare_database(",
+        "create_dir",
+    ] {
+        assert!(!repair.contains(forbidden));
+    }
+    let database = read_source(&manifest_path("src/db.rs"));
+    let binding = source_between(&database, "fn local_path_from_sql(", "\n}");
+    assert!(binding.contains("LibraryRelativePath::from_stored"));
+    assert!(binding.contains(".ok()"));
+    let bootstrap = read_source(&manifest_path("src/app/bootstrap.rs"));
+    assert!(bootstrap.contains("prepare_local_paths("));
+    assert!(bootstrap.contains("CapabilityFailure::PathRepair"));
+    assert!(
+        startup.contains("fn adr_0066_partial_repair_keeps_committed_and_unvalidated_bindings()")
+    );
 }

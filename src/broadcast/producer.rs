@@ -12,7 +12,9 @@
 
 use std::fs;
 use std::io::ErrorKind;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
@@ -37,6 +39,7 @@ const FEED_GUID_KEY: &str = "Feed Guid";
 const IMAGE_KEY: &str = "Image";
 const TRACK_GUID_KEY: &str = "Track Guid";
 const VALUE_ROUTES_KEY: &str = "Value Routes";
+static PREPARATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 const MUSICINDEX_VOCABULARY: &[(&str, &str)] = &[
     (FEED_GUID_KEY, "TXXX:MusicIndex Feed Guid"),
     (IMAGE_KEY, "TXXX:MusicIndex Image"),
@@ -82,6 +85,30 @@ struct DropFile<'a> {
 }
 
 impl DropFileProducer {
+    /// Verify that the producer can write its configured directory (ADR 0066).
+    ///
+    /// # Errors
+    /// Reports directory/probe errors without touching an existing drop file.
+    pub(crate) fn prepare_directory(&self) -> Result<()> {
+        fs::create_dir_all(&self.drop_directory).context("prepare producer directory")?;
+        let probe = self.drop_directory.join(format!(
+            ".v4vmm-producer-probe-{}-{}",
+            std::process::id(),
+            PREPARATION_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&probe)
+            .context("create producer write probe")?;
+        let written = file
+            .write_all(b"v4vmm producer probe")
+            .context("write producer probe");
+        drop(file);
+        fs::remove_file(&probe)
+            .with_context(|| format!("remove producer probe {}", probe.display()))?;
+        written
+    }
     /// Create an active producer for one watched directory and target.
     ///
     /// # Errors

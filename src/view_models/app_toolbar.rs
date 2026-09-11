@@ -21,6 +21,8 @@ pub(crate) struct AppToolbarTabDisplay {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GlobalSearchDisplay {
+    /// Local search remains available independently of optional Index requests.
+    pub(crate) availability: crate::view_models::startup::StartupAvailability,
     pub(crate) input_id: &'static str,
     pub(crate) placeholder: &'static str,
     pub(crate) search_button_id: &'static str,
@@ -43,6 +45,11 @@ pub(crate) struct AppToolbarDisplay {
 pub(crate) struct AppToolbarVm;
 
 impl AppToolbarVm {
+    pub(crate) fn index_search_availability(
+        features: crate::application::capability::FeatureAvailability,
+    ) -> Result<(), crate::application::capability::ExecutionUnavailable> {
+        features.require(crate::application::capability::Dependency::MusicIndex)
+    }
     #[must_use]
     pub(crate) const fn new() -> Self {
         Self
@@ -78,6 +85,7 @@ impl AppToolbarVm {
                 },
             ],
             global_search: GlobalSearchDisplay {
+                availability: crate::view_models::startup::StartupAvailability::Available,
                 input_id: "app-toolbar-global-search-input",
                 placeholder: "Search Library and Index",
                 search_button_id: "app-toolbar-global-search-submit",

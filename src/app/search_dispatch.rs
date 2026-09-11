@@ -89,17 +89,41 @@ impl TopApp {
     }
 
     pub(super) fn start_index_search_for_query(&mut self, query: &str, cx: &mut Context<Self>) {
+        if let Err(reason) =
+            crate::view_models::app_toolbar::AppToolbarVm::index_search_availability(
+                self.feature_availability(),
+            )
+        {
+            if let Some(detail) = self
+                .search_results_detail
+                .as_mut()
+                .filter(|detail| detail.query() == query)
+            {
+                detail.set_index_error(
+                    &crate::application::errors::command::CommandError::Unavailable(reason),
+                    self.musicindex_endpoint
+                        .require()
+                        .unwrap_or("Invalid musicindex_endpoint setting"),
+                    std::time::SystemTime::now(),
+                );
+            }
+            cx.notify();
+            return;
+        }
         if let Some(detail) = &mut self.search_results_detail {
             if detail.query() == query {
                 detail.mark_index_loading();
             }
         }
 
-        let endpoint = self.endpoint_input.read(cx).value().to_string();
+        let endpoint = self.musicindex_endpoint.clone();
         let request_query = query.to_string();
         let success_query = request_query.clone();
         let error_query = request_query.clone();
-        let error_endpoint = endpoint.clone();
+        let error_endpoint = endpoint
+            .require()
+            .unwrap_or("Invalid musicindex_endpoint setting")
+            .to_owned();
         let command = FetchIndexSearchResults::new(endpoint, request_query);
         present_command(
             &self.command_runner,
@@ -644,7 +668,7 @@ impl TopApp {
             self.application_services.download_manager(),
             SubscribeFeedRequest {
                 feed: api_feed_from_view(feed),
-                musicindex_endpoint: self.endpoint_input.read(cx).value().to_string(),
+                musicindex_endpoint: self.musicindex_endpoint.clone(),
             },
         );
         present_command(
@@ -712,7 +736,7 @@ impl TopApp {
                     feed: Some(api_feed_from_view(feed)),
                 }),
                 edits: Vec::new(),
-                musicindex_endpoint: self.endpoint_input.read(cx).value().to_string(),
+                musicindex_endpoint: self.musicindex_endpoint.clone(),
                 mark_feed_subscribed: false,
                 return_tag_compare: true,
             },
@@ -749,7 +773,7 @@ impl TopApp {
             &self.conn,
             &feed_guid,
             feed.feed_url.as_deref(),
-            &self.endpoint_input.read(cx).value(),
+            &self.musicindex_endpoint,
         ) {
             Ok(feed_id) => feed_id,
             Err(error) => {
@@ -785,7 +809,7 @@ impl TopApp {
             &self.conn,
             &feed_guid,
             feed.feed_url.as_deref(),
-            &self.endpoint_input.read(cx).value(),
+            &self.musicindex_endpoint,
         ) {
             self.settings_status = format!("Error preparing feed: {error:#}");
             cx.notify();

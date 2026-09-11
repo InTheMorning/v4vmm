@@ -196,6 +196,16 @@ pub(crate) struct QueueNowPlayingPageVm {
 }
 
 impl QueueNowPlayingPageVm {
+    pub(crate) fn apply_playback_availability(
+        &mut self,
+        availability: Result<(), crate::application::capability::ExecutionUnavailable>,
+    ) {
+        if availability.is_err() {
+            self.transport.disabled = true;
+            self.transport.skip_previous.disabled = true;
+            self.transport.skip_next.disabled = true;
+        }
+    }
     /// Creates a queue page builder.
     pub(crate) fn builder() -> QueueNowPlayingPageVmBuilder {
         QueueNowPlayingPageVmBuilder::default()

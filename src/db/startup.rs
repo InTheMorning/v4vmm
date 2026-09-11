@@ -73,6 +73,11 @@ fn open(path: &Path, create: bool, wait: Duration) -> Result<Connection, DbCheck
     Ok(conn)
 }
 
+/// Open an admitted database for a secondary actor without initializing or migrating it.
+pub(crate) fn open_existing(path: &Path) -> Result<Connection, DbCheckError> {
+    open(path, false, STARTUP_BUSY_TIMEOUT)
+}
+
 /// Check existing main-database storage. This never initializes or migrates it.
 pub fn check_database(path: &Path) -> Result<DatabaseReadiness, DbCheckError> {
     check_with_wait(path, STARTUP_BUSY_TIMEOUT)

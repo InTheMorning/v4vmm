@@ -27,6 +27,21 @@ fn fixture_failure(
     dependency: crate::application::capability::Dependency,
 ) -> Result<bool> {
     use crate::application::capability::Dependency;
+    let root = verified_config_root(root, config_path)?;
+    let state: serde_json::Value = serde_json::from_slice(&fs::read(root.join("case.json"))?)?;
+    Ok(matches!(
+        (state["case"].as_str(), dependency),
+        (
+            Some("runtime-unavailable" | "runtime-and-cache-unavailable"),
+            Dependency::BackgroundRuntime
+        ) | (
+            Some("cache-worker-unavailable" | "runtime-and-cache-unavailable"),
+            Dependency::ThumbnailMaintenance
+        )
+    ))
+}
+
+fn verified_config_root(root: &Path, config_path: &Path) -> Result<PathBuf> {
     let root = verified_root(&root.to_string_lossy())?;
     ensure!(
         config_path.canonicalize()? == root.join("config/v4vmm/config.toml").canonicalize()?,
@@ -39,17 +54,22 @@ fn fixture_failure(
             == std::env::current_exe()?.canonicalize()?,
         "Fixture binary mismatch"
     );
-    let state: serde_json::Value = serde_json::from_slice(&fs::read(root.join("case.json"))?)?;
-    Ok(matches!(
-        (state["case"].as_str(), dependency),
-        (
-            Some("runtime-unavailable" | "runtime-and-cache-unavailable"),
-            Dependency::BackgroundRuntime
-        ) | (
-            Some("cache-worker-unavailable" | "runtime-and-cache-unavailable"),
-            Dependency::ThumbnailMaintenance
-        )
-    ))
+    Ok(root)
+}
+
+/// Keep mpv sockets inside a verified debug fixture, without changing the desktop runtime.
+pub(crate) fn playback_runtime_directory(config_path: &Path) -> Option<PathBuf> {
+    let root = std::env::var_os("V4VMM_STARTUP_FIXTURE")?;
+    let root = verified_config_root(Path::new(&root), config_path).ok()?;
+    let state: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("case.json")).ok()?).ok()?;
+    Some(
+        root.join(if state["case"] == "endpoint-and-player-unavailable" {
+            "occupied-runtime"
+        } else {
+            "mpv-runtime"
+        }),
+    )
 }
 
 fn verified_root(path: &str) -> Result<PathBuf> {
@@ -97,6 +117,7 @@ pub fn run_cli(args: &[String]) -> Result<()> {
                 root.join("music/unchanged-audio.bin"),
                 b"startup fixture music bytes\n",
             )?;
+            seed_tracks(&conn, &root)?;
             let config = format!("music_dir = {}\ndb_path = {}\nmusicindex_endpoint = \"http://127.0.0.1:9\"\n[playback]\ndriver = \"null\"\n",
                 toml::Value::String(root.join("music").display().to_string()),
                 toml::Value::String(db_path.display().to_string()));
@@ -119,12 +140,73 @@ pub fn run_cli(args: &[String]) -> Result<()> {
                 [],
                 |r| r.get(0),
             )?;
+            let bindings = conn
+                .prepare("SELECT path FROM local_files ORDER BY track_id")?
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let tracks: i64 = conn.query_row("SELECT count(*) FROM tracks", [], |r| r.get(0))?;
+            let playlist_tracks: i64 =
+                conn.query_row("SELECT count(*) FROM playlist_tracks", [], |r| r.get(0))?;
             println!(
                 "{}",
-                json!({"migration_versions": versions, "playlists": playlists, "database_probes": probes})
+                json!({"migration_versions": versions, "playlists": playlists, "database_probes": probes,
+                    "bindings": bindings, "tracks": tracks, "playlist_tracks": playlist_tracks})
             );
         }
+        "paths" => {
+            let conn = rusqlite::Connection::open(&db_path)?;
+            conn.execute_batch("DROP TRIGGER IF EXISTS fixture_stop_second_path;")?;
+            for (id, name) in [(1, "a.wav"), (2, "b.wav"), (3, "c.wav")] {
+                conn.execute(
+                    "UPDATE local_files SET path = ?1 WHERE track_id = ?2",
+                    rusqlite::params![name, id],
+                )?;
+            }
+            let state: serde_json::Value =
+                serde_json::from_slice(&fs::read(root.join("case.json"))?)?;
+            if state["case"] == "partial-path-repair" {
+                conn.execute_batch("UPDATE local_files SET path = '/old/music/' || path WHERE track_id IN (1, 2);
+                    CREATE TRIGGER fixture_stop_second_path BEFORE UPDATE OF path ON local_files
+                    WHEN OLD.track_id = 2 BEGIN SELECT RAISE(FAIL, 'fixture path repair failure'); END;")?;
+            }
+        }
         _ => anyhow::bail!("Unknown fixture command; use seed or inspect"),
+    }
+    Ok(())
+}
+
+fn seed_tracks(conn: &rusqlite::Connection, root: &Path) -> Result<()> {
+    conn.execute("INSERT INTO feeds (id, feed_url, feed_guid, title) VALUES (1, 'fixture:rss', 'fixture-feed', 'Startup fixture')", [])?;
+    // A quiet 30-second tone makes actual playback audible in a desktop session.
+    let sample_count = 8_000_u32 * 30;
+    let data_bytes = sample_count * 2;
+    let mut wav = b"RIFF".to_vec();
+    wav.extend((36 + data_bytes).to_le_bytes());
+    wav.extend(b"WAVEfmt ");
+    wav.extend(16_u32.to_le_bytes());
+    wav.extend(1_u16.to_le_bytes());
+    wav.extend(1_u16.to_le_bytes());
+    wav.extend(8_000_u32.to_le_bytes());
+    wav.extend(16_000_u32.to_le_bytes());
+    wav.extend(2_u16.to_le_bytes());
+    wav.extend(16_u16.to_le_bytes());
+    wav.extend(b"data");
+    wav.extend(data_bytes.to_le_bytes());
+    for sample in 0..sample_count {
+        let value: i16 = if sample % 40 < 20 { 300 } else { -300 };
+        wav.extend(value.to_le_bytes());
+    }
+    for (id, name) in [(1, "a.wav"), (2, "b.wav"), (3, "c.wav")] {
+        fs::write(root.join("music").join(name), &wav)?;
+        conn.execute("INSERT INTO tracks (id, feed_id, item_guid, track_title, duration_seconds, is_in_library) VALUES (?1, 1, ?2, ?2, 30, 1)", rusqlite::params![id, name])?;
+        conn.execute(
+            "INSERT INTO local_files (path, track_id) VALUES (?1, ?2)",
+            rusqlite::params![name, id],
+        )?;
+        conn.execute(
+            "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (1, ?1, ?1)",
+            [id],
+        )?;
     }
     Ok(())
 }

@@ -60,7 +60,7 @@ impl CheckFeedStalenessResult {
 #[derive(Clone, Debug)]
 pub struct CheckFeedStaleness {
     conn: SharedConnection,
-    musicindex_endpoint: String,
+    musicindex_endpoint: crate::config::MusicIndexEndpoint,
     feed_id: i64,
 }
 
@@ -69,7 +69,7 @@ impl CheckFeedStaleness {
     #[must_use]
     pub fn new(
         conn: SharedConnection,
-        musicindex_endpoint: impl Into<String>,
+        musicindex_endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         feed_id: i64,
     ) -> Self {
         Self {
@@ -126,7 +126,7 @@ impl CheckSubscribedFeedsResult {
 #[derive(Clone, Debug)]
 pub struct CheckSubscribedFeeds {
     conn: SharedConnection,
-    musicindex_endpoint: String,
+    musicindex_endpoint: crate::config::MusicIndexEndpoint,
     feeds: Vec<db::FeedStaleCheckRow>,
 }
 
@@ -135,7 +135,7 @@ impl CheckSubscribedFeeds {
     #[must_use]
     pub fn new(
         conn: SharedConnection,
-        musicindex_endpoint: impl Into<String>,
+        musicindex_endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         feeds: Vec<db::FeedStaleCheckRow>,
     ) -> Self {
         Self {
@@ -231,7 +231,7 @@ impl ApplyFeedUpdatesResult {
 #[derive(Clone, Debug)]
 pub struct ApplyFeedUpdates {
     conn: SharedConnection,
-    musicindex_endpoint: String,
+    musicindex_endpoint: crate::config::MusicIndexEndpoint,
     stale: Vec<StaleFeed>,
 }
 
@@ -240,7 +240,7 @@ impl ApplyFeedUpdates {
     #[must_use]
     pub fn new(
         conn: SharedConnection,
-        musicindex_endpoint: impl Into<String>,
+        musicindex_endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         stale: Vec<StaleFeed>,
     ) -> Self {
         Self {
@@ -338,7 +338,7 @@ impl CheckFeedsAndRepairRoutesResult {
 #[derive(Clone, Debug)]
 pub(crate) struct CheckFeedsAndRepairRoutes {
     conn: SharedConnection,
-    musicindex_endpoint: String,
+    musicindex_endpoint: crate::config::MusicIndexEndpoint,
     music_dir: PathBuf,
     feeds: Vec<db::FeedStaleCheckRow>,
 }
@@ -348,7 +348,7 @@ impl CheckFeedsAndRepairRoutes {
     #[must_use]
     pub(crate) fn new(
         conn: SharedConnection,
-        musicindex_endpoint: impl Into<String>,
+        musicindex_endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         music_dir: PathBuf,
         feeds: Vec<db::FeedStaleCheckRow>,
     ) -> Self {
@@ -837,7 +837,7 @@ mod tests {
         let conn = setup_test_db()?;
         let request = SubscribeFeedRequest {
             feed: crate::api::Feed::default(),
-            musicindex_endpoint: "https://api.example.test".to_string(),
+            musicindex_endpoint: "https://api.example.test".into(),
         };
 
         let outcome = CommandBus::new().execute(

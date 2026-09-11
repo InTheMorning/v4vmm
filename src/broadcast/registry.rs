@@ -63,6 +63,27 @@ impl std::error::Error for EventCheckSaveError {
     }
 }
 
+/// Forget a local registration and its token without requiring a remote endpoint.
+///
+/// # Errors
+/// Reports database or token-file removal errors.
+pub fn forget_local_event(
+    conn: &Connection,
+    event_id: &str,
+) -> Result<Option<db::BroadcastEventRow>> {
+    let Some(event) = db::broadcast_event_by_event_id(conn, event_id)? else {
+        return Ok(None);
+    };
+
+    remove_token_file(Path::new(&event.token_path))?;
+    anyhow::ensure!(
+        db::delete_broadcast_event(conn, event.id)?,
+        "broadcast event disappeared before delete: {}",
+        event.event_id
+    );
+    Ok(Some(event))
+}
+
 impl<'a> BroadcastRegistry<'a> {
     /// Build a registry using the default token directory.
     ///
@@ -154,17 +175,7 @@ impl<'a> BroadcastRegistry<'a> {
     /// Returns an error if the event identifier is invalid, the token file
     /// cannot be removed, or the database delete fails.
     pub fn forget_event(&self, event_id: &str) -> Result<Option<db::BroadcastEventRow>> {
-        let Some(event) = db::broadcast_event_by_event_id(self.conn, event_id)? else {
-            return Ok(None);
-        };
-
-        remove_token_file(Path::new(&event.token_path))?;
-        anyhow::ensure!(
-            db::delete_broadcast_event(self.conn, event.id)?,
-            "broadcast event disappeared before delete: {}",
-            event.event_id
-        );
-        Ok(Some(event))
+        forget_local_event(self.conn, event_id)
     }
 
     /// Check one stored broadcast event for relay liveness.
@@ -279,8 +290,6 @@ mod tests {
     use anyhow::Result;
 
     use super::*;
-    use crate::config::{BroadcastConfig, Config, PlaybackConfig, UiScale};
-    use crate::theme_profile::ThemeProfile;
 
     const FIXED_TIME: i64 = 1_778_284_900;
 
@@ -289,18 +298,7 @@ mod tests {
     }
 
     fn test_db(temp: &tempfile::TempDir) -> Result<Connection> {
-        let cfg = Config {
-            music_dir: temp.path().join("music"),
-            db_path: temp.path().join("v4vmm.sqlite"),
-            flac_path: None,
-            playback: PlaybackConfig::default(),
-            broadcast: BroadcastConfig::default(),
-            ui_scale: UiScale::default(),
-            theme_profile: ThemeProfile::default(),
-            workspace_layout: None,
-            workspace: None,
-        };
-        db::open_db(&cfg)
+        db::open_db(&temp.path().join("v4vmm.sqlite"))
     }
 
     fn registry<'a>(
@@ -644,11 +642,8 @@ mod tests {
                 last_status: Some(db::BroadcastEventStatus::Unknown),
             },
         )?;
-        let registry = registry(&conn, endpoint, &temp)?;
-
-        let forgotten = registry
-            .forget_event("event-one")?
-            .context("event should be forgotten")?;
+        let forgotten =
+            forget_local_event(&conn, "event-one")?.context("event should be forgotten")?;
 
         assert_eq!(forgotten.event_id, "event-one");
         assert!(
@@ -660,7 +655,7 @@ mod tests {
             "forget should remove the local token file"
         );
         assert!(
-            registry.forget_event("missing")?.is_none(),
+            forget_local_event(&conn, "missing")?.is_none(),
             "forget should report missing events without relay calls"
         );
         Ok(())

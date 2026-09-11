@@ -28,7 +28,7 @@ use super::search::{
 /// Fetches one remote Recent Feeds page for presentation.
 #[derive(Clone, Debug)]
 pub(crate) struct FetchRecentFeedsPage {
-    endpoint: String,
+    endpoint: crate::config::MusicIndexEndpoint,
     cursor: Option<String>,
     resume_after: usize,
 }
@@ -37,7 +37,7 @@ impl FetchRecentFeedsPage {
     /// Creates a Recent Feeds page query command.
     #[must_use]
     pub(crate) fn new(
-        endpoint: impl Into<String>,
+        endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         cursor: Option<String>,
         resume_after: usize,
     ) -> Self {
@@ -69,14 +69,17 @@ impl ApplicationCommand for FetchRecentFeedsPage {
 /// Fetches one parked Discover recent-feeds page.
 #[derive(Clone, Debug)]
 pub(crate) struct FetchDiscoverRecentFeeds {
-    endpoint: String,
+    endpoint: crate::config::MusicIndexEndpoint,
     cursor: Option<String>,
 }
 
 impl FetchDiscoverRecentFeeds {
     /// Creates a parked Discover recent-feeds query command.
     #[must_use]
-    pub(crate) fn new(endpoint: impl Into<String>, cursor: Option<String>) -> Self {
+    pub(crate) fn new(
+        endpoint: impl Into<crate::config::MusicIndexEndpoint>,
+        cursor: Option<String>,
+    ) -> Self {
         Self {
             endpoint: endpoint.into(),
             cursor,
@@ -131,7 +134,7 @@ pub(crate) struct InspectorDetailResult {
 /// Fetches a parked Discover inspector detail payload.
 #[derive(Clone, Debug)]
 pub(crate) struct FetchInspectorDetail {
-    endpoint: String,
+    endpoint: crate::config::MusicIndexEndpoint,
     entity_type: String,
     entity_id: String,
     feed_guid: Option<String>,
@@ -141,7 +144,7 @@ impl FetchInspectorDetail {
     /// Creates an inspector detail query command.
     #[must_use]
     pub(crate) fn new(
-        endpoint: impl Into<String>,
+        endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         entity_type: impl Into<String>,
         entity_id: impl Into<String>,
         feed_guid: Option<String>,
@@ -177,7 +180,7 @@ impl ApplicationCommand for FetchInspectorDetail {
 /// Fetches source contributors for a parked Discover inspector entity.
 #[derive(Clone, Debug)]
 pub(crate) struct FetchContributors {
-    endpoint: String,
+    endpoint: crate::config::MusicIndexEndpoint,
     entity_type: String,
     entity_id: String,
 }
@@ -186,7 +189,7 @@ impl FetchContributors {
     /// Creates a contributors query command.
     #[must_use]
     pub(crate) fn new(
-        endpoint: impl Into<String>,
+        endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         entity_type: impl Into<String>,
         entity_id: impl Into<String>,
     ) -> Self {
@@ -216,7 +219,7 @@ impl ApplicationCommand for FetchContributors {
 /// Fetches value routes for a parked Discover inspector entity.
 #[derive(Clone, Debug)]
 pub(crate) struct FetchValueRoutes {
-    endpoint: String,
+    endpoint: crate::config::MusicIndexEndpoint,
     entity_type: String,
     entity_id: String,
 }
@@ -225,7 +228,7 @@ impl FetchValueRoutes {
     /// Creates a value-routes query command.
     #[must_use]
     pub(crate) fn new(
-        endpoint: impl Into<String>,
+        endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         entity_type: impl Into<String>,
         entity_id: impl Into<String>,
     ) -> Self {
@@ -255,14 +258,17 @@ impl ApplicationCommand for FetchValueRoutes {
 /// Resolves podroll feed references for a parked Discover feed inspector.
 #[derive(Clone, Debug)]
 pub(crate) struct ResolvePodrollFeeds {
-    endpoint: String,
+    endpoint: crate::config::MusicIndexEndpoint,
     feed_url: String,
 }
 
 impl ResolvePodrollFeeds {
     /// Creates a podroll resolution query command.
     #[must_use]
-    pub(crate) fn new(endpoint: impl Into<String>, feed_url: impl Into<String>) -> Self {
+    pub(crate) fn new(
+        endpoint: impl Into<crate::config::MusicIndexEndpoint>,
+        feed_url: impl Into<String>,
+    ) -> Self {
         Self {
             endpoint: endpoint.into(),
             feed_url: feed_url.into(),
@@ -285,11 +291,11 @@ impl ApplicationCommand for ResolvePodrollFeeds {
 }
 
 fn fetch_recent_feed_result_rows(
-    endpoint: &str,
+    endpoint: &crate::config::MusicIndexEndpoint,
     cursor: Option<&str>,
     start_index: usize,
 ) -> Result<RecentFeedsPageBatch> {
-    let client = crate::api::Client::new_with_base_url(endpoint.to_string());
+    let client = crate::api::Client::new_with_base_url(endpoint.clone());
     let response = client.fetch_recent_feeds(Some(crate::api::PAGE_LIMIT), cursor)?;
     let rows = response
         .data

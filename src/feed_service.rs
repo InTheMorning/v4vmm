@@ -41,7 +41,7 @@ pub struct StagedMusicBrainzLookup {
 
 pub fn fetch_library_track_context(
     track: &TrackRow,
-    musicindex_endpoint: &str,
+    musicindex_endpoint: &crate::config::MusicIndexEndpoint,
 ) -> Result<TrackContext> {
     let (fetched_track, fetched_feed) = fetch_library_track_detail(track, musicindex_endpoint)?;
     Ok(merge_track_context_from_detail(
@@ -53,9 +53,9 @@ pub fn fetch_library_track_context(
 
 fn fetch_library_track_detail(
     track: &TrackRow,
-    musicindex_endpoint: &str,
+    musicindex_endpoint: &crate::config::MusicIndexEndpoint,
 ) -> Result<(Option<Track>, Option<Feed>)> {
-    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.to_string());
+    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.clone());
     let include =
         Some("source_links,source_ids,source_release_claims,source_contributors,payment_routes");
     let fetched_track = track
@@ -213,7 +213,7 @@ pub fn ensure_feed_in_db(
     conn: &Arc<Mutex<Connection>>,
     feed_guid: &str,
     feed_url: Option<&str>,
-    musicindex_endpoint: &str,
+    musicindex_endpoint: &crate::config::MusicIndexEndpoint,
 ) -> Result<i64> {
     {
         let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
@@ -222,12 +222,9 @@ pub fn ensure_feed_in_db(
         }
     }
     let url = feed_url.ok_or_else(|| anyhow!("feed URL unknown; cannot auto-subscribe"))?;
-    let cfg_path = crate::config::config_path()?;
-    let cfg = crate::config::load_config(&cfg_path)?;
-    crate::config::ensure_dirs(&cfg)?;
     {
         let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-        crate::rss::subscribe_feed(&cfg, &mut db, url, musicindex_endpoint)?;
+        crate::rss::subscribe_feed(&mut db, url, musicindex_endpoint)?;
     }
     let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
     db::find_feed_id_by_guid(&db, feed_guid)?
@@ -236,7 +233,7 @@ pub fn ensure_feed_in_db(
 
 pub fn check_feed_staleness(
     conn: &Arc<Mutex<Connection>>,
-    musicindex_endpoint: &str,
+    musicindex_endpoint: &crate::config::MusicIndexEndpoint,
     feed_id: i64,
 ) -> Result<Option<StaleFeed>> {
     let stored = {
@@ -246,7 +243,7 @@ pub fn check_feed_staleness(
     let Some(stored) = stored else {
         return Ok(None);
     };
-    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.to_string());
+    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.clone());
     let api_feed = client.fetch_feed(&stored.feed_guid, None)?;
     let Some(api_updated_at) = api_feed.updated_at else {
         return Ok(None);
@@ -267,12 +264,12 @@ pub fn check_feed_staleness(
 
 pub fn apply_feed_updates(
     conn: &Arc<Mutex<Connection>>,
-    musicindex_endpoint: &str,
+    musicindex_endpoint: &crate::config::MusicIndexEndpoint,
     stale: &StaleFeed,
 ) -> Result<FeedApplyOutcome> {
     let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
-    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.to_string());
+    let music_dir = config::ConfigSnapshot::read_existing(&cfg_path)?.music_dir?;
+    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.clone());
     let include =
         Some("source_links,source_ids,source_release_claims,source_contributors,payment_routes");
     let feed_update = client.fetch_feed(&stale.feed_guid, include).ok();
@@ -297,7 +294,7 @@ pub fn apply_feed_updates(
         let Some(local_path) = track
             .local_path
             .as_ref()
-            .map(|path| path.resolve(&cfg.music_dir))
+            .map(|path| path.resolve(&music_dir))
         else {
             continue;
         };
@@ -475,11 +472,11 @@ fn contributor_from_local(row: db::LocalContributorRow) -> Contributor {
 
 pub fn lookup_musicbrainz_library_track(track: &TrackRow) -> Result<MusicBrainzLookupResult> {
     let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
+    let music_dir = config::ConfigSnapshot::read_existing(&cfg_path)?.music_dir?;
     let path = track
         .local_path
         .as_ref()
-        .map(|path| path.resolve(&cfg.music_dir))
+        .map(|path| path.resolve(&music_dir))
         .ok_or_else(|| anyhow!("library track has no local file"))?;
     let tags = read_audio_tags(&path)?;
     let context = track_row_to_track_context(track);
@@ -504,11 +501,11 @@ pub fn lookup_musicbrainz_library_track(track: &TrackRow) -> Result<MusicBrainzL
 
 pub fn lookup_musicbrainz_stage_for_track(track: &TrackRow) -> Result<StagedMusicBrainzLookup> {
     let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
+    let music_dir = config::ConfigSnapshot::read_existing(&cfg_path)?.music_dir?;
     let path = track
         .local_path
         .as_ref()
-        .map(|path| path.resolve(&cfg.music_dir))
+        .map(|path| path.resolve(&music_dir))
         .ok_or_else(|| anyhow!("no local file"))?;
     let tags = read_audio_tags(&path)?;
     let api_track = crate::subscribe_service::track_row_to_api_track(track);
@@ -538,11 +535,11 @@ pub fn stage_candidate_for_track(
     candidate: &MusicBrainzCandidate,
 ) -> Result<StagedMusicBrainzLookup> {
     let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
+    let music_dir = config::ConfigSnapshot::read_existing(&cfg_path)?.music_dir?;
     let path = track
         .local_path
         .as_ref()
-        .map(|path| path.resolve(&cfg.music_dir))
+        .map(|path| path.resolve(&music_dir))
         .ok_or_else(|| anyhow!("no local file"))?;
     let tags = read_audio_tags(&path)?;
     Ok(StagedMusicBrainzLookup {

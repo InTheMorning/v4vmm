@@ -30,7 +30,7 @@ pub enum SubscribeTrackRequest {
     SearchTrack {
         track_context: Box<TrackContext>,
         edits: Vec<Id3v24Edit>,
-        musicindex_endpoint: String,
+        musicindex_endpoint: crate::config::MusicIndexEndpoint,
         mark_feed_subscribed: bool,
         return_tag_compare: bool,
     },
@@ -47,7 +47,7 @@ pub struct SubscribeTrackOutcome {
 
 pub struct SubscribeFeedRequest {
     pub feed: Feed,
-    pub musicindex_endpoint: String,
+    pub musicindex_endpoint: crate::config::MusicIndexEndpoint,
 }
 
 pub struct SubscribeFeedOutcome {
@@ -60,7 +60,7 @@ struct SearchTrackSubscription {
     track_context: TrackContext,
     persistence_track: Option<Track>,
     edits: Vec<Id3v24Edit>,
-    musicindex_endpoint: String,
+    musicindex_endpoint: crate::config::MusicIndexEndpoint,
     mark_feed_subscribed: bool,
     return_tag_compare: bool,
 }
@@ -98,14 +98,14 @@ pub fn subscribe_track(
     request: SubscribeTrackRequest,
 ) -> Result<SubscribeTrackOutcome> {
     let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
-    config::ensure_dirs(&cfg)?;
+    let cfg = config::ConfigSnapshot::read_existing(&cfg_path)?.downloads()?;
+    config::prepare_artists_directory(&cfg.music_dir)?;
     subscribe_track_with_config(conn, &cfg, request)
 }
 
 pub(crate) fn subscribe_track_with_config(
     conn: Arc<Mutex<Connection>>,
-    cfg: &config::Config,
+    cfg: &config::DownloadConfig,
     request: SubscribeTrackRequest,
 ) -> Result<SubscribeTrackOutcome> {
     match request {
@@ -138,14 +138,14 @@ pub fn subscribe_feed(
     request: SubscribeFeedRequest,
 ) -> Result<SubscribeFeedOutcome> {
     let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
-    config::ensure_dirs(&cfg)?;
+    let cfg = config::ConfigSnapshot::read_existing(&cfg_path)?.downloads()?;
+    config::prepare_artists_directory(&cfg.music_dir)?;
     subscribe_feed_with_config(conn, &cfg, request)
 }
 
 pub(crate) fn subscribe_feed_with_config(
     conn: Arc<Mutex<Connection>>,
-    cfg: &config::Config,
+    cfg: &config::DownloadConfig,
     request: SubscribeFeedRequest,
 ) -> Result<SubscribeFeedOutcome> {
     let mut feed = request.feed;
@@ -159,7 +159,7 @@ pub(crate) fn subscribe_feed_with_config(
 
     {
         let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-        rss::subscribe_feed(cfg, &mut db, &feed_url, &musicindex_endpoint)?;
+        rss::subscribe_feed(&mut db, &feed_url, &musicindex_endpoint)?;
         identity_ingest::persist_musicindex_context_by_feed_url(
             &mut db,
             &feed_url,
@@ -342,7 +342,7 @@ fn fill_missing_download_source_from_local_row(track: &mut Track, local: &TrackR
 
 fn subscribe_library_track_internal(
     conn: Arc<Mutex<Connection>>,
-    cfg: &config::Config,
+    cfg: &config::DownloadConfig,
     track: TrackRow,
 ) -> Result<SubscribeTrackOutcome> {
     let api_track = track_row_to_api_track(&track);
@@ -383,7 +383,7 @@ fn subscribe_library_track_internal(
 
 fn subscribe_track_from_search_internal(
     conn: Arc<Mutex<Connection>>,
-    cfg: &config::Config,
+    cfg: &config::DownloadConfig,
     input: SearchTrackSubscription,
 ) -> Result<SubscribeTrackOutcome> {
     let SearchTrackSubscription {
@@ -428,7 +428,7 @@ fn subscribe_track_from_search_internal(
 
     {
         let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-        rss::subscribe_feed(cfg, &mut db, &feed_url, &musicindex_endpoint)?;
+        rss::subscribe_feed(&mut db, &feed_url, &musicindex_endpoint)?;
         identity_ingest::persist_musicindex_context_by_feed_url(
             &mut db,
             &feed_url,
@@ -565,7 +565,7 @@ pub fn enrich_track_context_from_rss(track: &mut Track, feed: Option<&mut Feed>)
 }
 
 pub(crate) fn prepare_track_for_subscription_internal(
-    cfg: &config::Config,
+    cfg: &config::DownloadConfig,
     track: &Track,
     local_path: Option<&Path>,
 ) -> Result<PreparedTrack> {
@@ -612,8 +612,8 @@ pub fn download_and_compare_track(
     let mut track_context = TrackContext { track, feed };
     sanitize_track_context_source_text(&mut track_context);
     let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
-    config::ensure_dirs(&cfg)?;
+    let cfg = config::ConfigSnapshot::read_existing(&cfg_path)?.downloads()?;
+    config::prepare_artists_directory(&cfg.music_dir)?;
     if !force_download {
         if let Some(enclosure) = select_audio_enclosure(&track_context.track) {
             let candidate = local_track_path(
@@ -637,8 +637,8 @@ pub fn lookup_musicbrainz_track(
 ) -> Result<MusicBrainzLookupResult> {
     let track = client.fetch_track(entity_id, Some("source_enclosures"))?;
     let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
-    config::ensure_dirs(&cfg)?;
+    let cfg = config::ConfigSnapshot::read_existing(&cfg_path)?.downloads()?;
+    config::prepare_artists_directory(&cfg.music_dir)?;
     let downloaded = download_track(&cfg, &track)?;
     let tags = read_audio_tags(&downloaded.path)?;
     let metadata = musicbrainz_lookup_metadata(&track, &tags);
@@ -765,20 +765,12 @@ fn fill_missing_source_text(target: &mut Option<String>, fallback: &Option<Strin
 mod tests {
     use super::*;
     use crate::api::SourceEnclosure;
-    use crate::config::{BroadcastConfig, Config, PlaybackConfig};
-    use crate::theme_profile::ThemeProfile;
+    use crate::config::DownloadConfig;
 
-    fn cfg(temp: &std::path::Path) -> Config {
-        Config {
+    fn cfg(temp: &std::path::Path) -> DownloadConfig {
+        DownloadConfig {
             music_dir: temp.join("music"),
-            db_path: temp.join("db.sqlite"),
-            flac_path: None,
-            playback: PlaybackConfig::default(),
-            broadcast: BroadcastConfig::default(),
-            ui_scale: Default::default(),
-            theme_profile: ThemeProfile::default(),
-            workspace: None,
-            workspace_layout: None,
+            flac_path: Ok(None),
         }
     }
 

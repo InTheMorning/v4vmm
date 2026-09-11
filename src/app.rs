@@ -140,8 +140,9 @@ pub struct TopApp {
     queue_text_filter: Option<String>,
     show_page: ShowPageVm,
     show_commands: ShowCommandState,
-    broadcast: config::BroadcastConfig,
+    broadcast: config::BroadcastCapabilities,
     music_dir: PathBuf,
+    musicindex_endpoint: config::MusicIndexEndpoint,
     content_pane_width: gpui::Pixels,
     is_content_pane_resizing: bool,
     ui_scale: crate::config::UiScale,
@@ -154,7 +155,7 @@ pub struct TopApp {
     _global_search_sub: gpui::Subscription,
     _library_sub: gpui::Subscription,
     _appearance_sub: gpui::Subscription,
-    playback_owner: Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>,
+    playback_owner: Option<Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>>,
     playback_polling: Option<PlaybackPollingHandle>,
     broadcast_readiness_watch: Option<BroadcastReadinessWatchHandle>,
     broadcast_readiness_snapshot: Option<BroadcastReadinessSnapshot>,
@@ -193,15 +194,15 @@ impl TopApp {
         conn: Arc<Mutex<Connection>>,
         image_cache: Arc<ImageCache>,
         cfg_path: PathBuf,
-        musicindex_endpoint: String,
+        musicindex_endpoint: config::MusicIndexEndpoint,
         music_dir: PathBuf,
-        flac_path: Option<PathBuf>,
-        broadcast: config::BroadcastConfig,
+        flac_path: config::ConfigField<Option<PathBuf>>,
+        broadcast: config::BroadcastCapabilities,
         workspace_layout_config: Option<WorkspaceLayoutConfig>,
         workspace_layout_prefs: Option<&config::WorkspaceLayoutPrefs>,
         ui_scale: crate::config::UiScale,
         theme_profile: ThemeProfile,
-        playback_owner: Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>,
+        playback_owner: Option<Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>>,
         runtime_host: Option<Arc<crate::presentation::RuntimeHost>>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -244,7 +245,7 @@ impl TopApp {
         });
         let global_search_sub = cx.subscribe(&global_search_input, Self::on_global_search_event);
         let library = cx.new(|cx| {
-            LibraryApp::new_with_content_view_mode(
+            let mut library = LibraryApp::new_with_content_view_mode(
                 conn.clone(),
                 library_cache,
                 musicindex_endpoint.clone(),
@@ -254,7 +255,16 @@ impl TopApp {
                 Self::initial_content_list_view_mode(workspace_layout_prefs),
                 window,
                 cx,
-            )
+            );
+            library.playback_availability =
+                crate::application::capability::FeatureAvailability::from_resources(
+                    &musicindex_endpoint,
+                    &broadcast,
+                    playback_owner.is_some(),
+                )
+                .with_runtime(command_runner.availability())
+                .require(crate::application::capability::Dependency::Playback);
+            library
         });
         let library_sub = cx.subscribe(
             &library,
@@ -283,7 +293,7 @@ impl TopApp {
                 cx.notify();
             }
         });
-        let endpoint_default = musicindex_endpoint.clone();
+        let endpoint_default = musicindex_endpoint.require().unwrap_or_default().to_owned();
         let endpoint_input = cx.new(|cx: &mut Context<InputState>| {
             InputState::new(window, cx)
                 .placeholder("https://api.musicindex.org")
@@ -297,6 +307,8 @@ impl TopApp {
         });
         let flac_path_default = flac_path
             .as_ref()
+            .ok()
+            .and_then(Option::as_ref)
             .map(|p| p.display().to_string())
             .unwrap_or_default();
         let flac_path_input = cx.new(|cx: &mut Context<InputState>| {
@@ -325,6 +337,7 @@ impl TopApp {
             show_commands: ShowCommandState::default(),
             broadcast,
             music_dir,
+            musicindex_endpoint,
             content_pane_width: Self::initial_content_pane_width(workspace_layout_prefs),
             is_content_pane_resizing: false,
             ui_scale,
@@ -371,8 +384,10 @@ impl TopApp {
         let Some(host) = self.runtime_host.clone() else {
             return;
         };
-        if !self
-            .playback_owner
+        let Some(owner) = self.playback_owner.clone() else {
+            return;
+        };
+        if !owner
             .lock()
             .expect("lock playback owner")
             .driver()
@@ -380,18 +395,8 @@ impl TopApp {
         {
             return;
         }
-        {
-            let conn = self.conn.lock().expect("lock db");
-            let mut playback_owner = self.playback_owner.lock().expect("lock playback owner");
-            if let Err(error) = playback_owner.load_current_session(&conn) {
-                self.settings_status = format!("Playback error: {error:#}");
-            }
-        }
         let _enter = host.handle().enter();
-        let handle = crate::runtime::playback_polling::spawn(
-            Arc::clone(&self.playback_owner),
-            Arc::clone(&self.conn),
-        );
+        let handle = crate::runtime::playback_polling::spawn(owner, Arc::clone(&self.conn));
         bridge_watch(
             handle.subscribe(),
             |this: &mut Self, snapshot, cx| {
@@ -791,19 +796,10 @@ impl TopApp {
                     cx.notify();
                     return;
                 }
-                let cfg = match config::ConfigSnapshot::read_existing(&self.cfg_path)
-                    .and_then(|snapshot| snapshot.legacy_config())
-                    .and_then(|cfg| config::ensure_dirs(&cfg).map(|()| cfg))
-                {
-                    Ok(cfg) => cfg,
-                    Err(error) => {
-                        self.settings_status = format!("Error: {error:#}");
-                        cx.notify();
-                        return;
-                    }
-                };
+                let download_preparation = config::prepare_artists_directory(&normalized_music_dir);
+                self.musicindex_endpoint = normalized_endpoint.clone().into();
                 self.library.update(cx, |library, cx| {
-                    library.set_musicindex_endpoint(normalized_endpoint.clone(), cx);
+                    library.set_musicindex_endpoint(normalized_endpoint.clone().into(), cx);
                     library.set_music_dir(normalized_music_dir.clone(), cx);
                 });
                 self.endpoint_input.update(cx, |input, cx| {
@@ -813,8 +809,10 @@ impl TopApp {
                     input.set_value(normalized_music_dir.display().to_string(), window, cx);
                 });
                 self.music_dir.clone_from(&normalized_music_dir);
-                if let Ok(mut playback_owner) = self.playback_owner.lock() {
-                    playback_owner.set_music_dir(normalized_music_dir);
+                if let Some(owner) = &self.playback_owner {
+                    if let Ok(mut playback_owner) = owner.lock() {
+                        playback_owner.set_music_dir(normalized_music_dir);
+                    }
                 }
                 let flac_display = normalized_flac_path
                     .as_ref()
@@ -830,10 +828,16 @@ impl TopApp {
                     window,
                     cx,
                 );
-                self.settings_status = format!(
-                    "Saved settings. Music files download under {}/artists",
-                    cfg.music_dir.display()
-                );
+                self.settings_status = match download_preparation {
+                    Ok(()) => format!(
+                        "Saved settings. Music files download under {}/artists",
+                        self.music_dir.display()
+                    ),
+                    Err(error) => format!(
+                        "App applied the saved settings but could not prepare {}/artists for downloads: {error}",
+                        self.music_dir.display()
+                    ),
+                };
             }
             Err(error) => {
                 self.settings_status = format!("Error: {error:#}");
@@ -1274,19 +1278,21 @@ impl TopApp {
 
 impl Drop for TopApp {
     fn drop(&mut self) {
-        match self.playback_owner.lock() {
-            Ok(mut playback_owner) => {
-                if let Some(warning) = playback_owner.broadcast_drop_file_shutdown_warning() {
-                    eprintln!("{warning}");
-                }
-                if let Err(error) = playback_owner.clear_broadcast_drop_file() {
-                    eprintln!(
+        if let Some(owner) = &self.playback_owner {
+            match owner.lock() {
+                Ok(mut playback_owner) => {
+                    if let Some(warning) = playback_owner.broadcast_drop_file_shutdown_warning() {
+                        eprintln!("{warning}");
+                    }
+                    if let Err(error) = playback_owner.clear_broadcast_drop_file() {
+                        eprintln!(
                         "v4vmm::broadcast: failed to remove mpv now-playing drop file on shutdown: {error:#}"
                     );
+                    }
                 }
-            }
-            Err(_) => {
-                eprintln!("v4vmm::broadcast: failed to lock playback owner on shutdown");
+                Err(_) => {
+                    eprintln!("v4vmm::broadcast: failed to lock playback owner on shutdown");
+                }
             }
         }
         if let Err(error) = self.persist_workspace_layout() {

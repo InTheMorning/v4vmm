@@ -55,7 +55,17 @@ impl CapabilityReportVm {
     pub fn rows(&self, expanded: bool) -> Vec<CapabilityRowDisplay> {
         self.issues()
             .map(|issue| {
-                let intents = if expanded {
+                let can_check = matches!(
+                    issue.dependency,
+                    Dependency::BackgroundRuntime | Dependency::ThumbnailMaintenance
+                );
+                let intents = if !can_check {
+                    if expanded {
+                        Vec::new()
+                    } else {
+                        vec![CapabilityAction::Configure(issue.dependency)]
+                    }
+                } else if expanded {
                     vec![CapabilityAction::CheckAgain(issue.dependency)]
                 } else {
                     vec![
@@ -94,7 +104,10 @@ impl CapabilityReportVm {
             CapabilityAction::CheckAgain(dependency) => {
                 let availability = if self.running.is_some_and(|(active, _)| active == dependency) {
                     StartupAvailability::Working
-                } else if self.running.is_none()
+                } else if matches!(
+                    dependency,
+                    Dependency::BackgroundRuntime | Dependency::ThumbnailMaintenance
+                ) && self.running.is_none()
                     && self.worker_available
                     && self
                         .observations
@@ -199,6 +212,15 @@ pub fn dependency_title(dependency: Dependency) -> &'static str {
     match dependency {
         Dependency::BackgroundRuntime => "Background runtime",
         Dependency::ThumbnailMaintenance => "Thumbnail maintenance",
+        Dependency::MusicIndex => "MusicIndex",
+        Dependency::Playback => "Built-in playback",
+        Dependency::Publisher => "Publisher host",
+        Dependency::Producer => "Drop-file publication",
+        Dependency::Encoder => "Stream encoder",
+        Dependency::Converter => "Audio converter",
+        Dependency::Presentation => "Presentation settings",
+        Dependency::LibraryPaths => "Local file bindings",
+        Dependency::Configuration(field) => field,
     }
 }
 
@@ -207,6 +229,17 @@ pub fn consequence(dependency: Dependency) -> &'static str {
     match dependency {
         Dependency::BackgroundRuntime => "App cannot run background library loads, online searches, playback commands or broadcast checks. Navigation, local search, existing playlist browsing and these repair tools remain available.",
         Dependency::ThumbnailMaintenance => "App keeps its image cache usable, but cannot finish removing old thumbnail files.",
+        Dependency::MusicIndex => "App cannot send MusicIndex requests. Local library work and known RSS URLs remain available.",
+        Dependency::Playback => "App cannot use built-in playback. Library work and independent external broadcast controls remain available.",
+        Dependency::Publisher => "App cannot use this publisher host. Independent audio playback, drop-file publication and encoder controls remain available.",
+        Dependency::Producer => "App cannot publish built-in playback metadata to this drop file. Audio playback and external publisher controls remain available.",
+        Dependency::Encoder => "App cannot use this stream encoder. Publisher controls and library work remain available.",
+        Dependency::Converter => "App cannot use this converter setting. Other audio formats remain usable; WAV results report whether conversion succeeded or the WAV was retained.",
+        Dependency::Presentation => "App uses its documented presentation defaults. App leaves the configuration unchanged and pauses ordinary configuration saves.",
+        Dependency::LibraryPaths => "App retained completed path changes and remaining bindings. Only validated relative paths can drive file operations; unvalidated bindings remain stored.",
+        Dependency::Configuration("broadcast") => "App cannot use the malformed broadcast table for publisher controls, drop-file publication or encoder controls. Music and built-in playback remain available.",
+        Dependency::Configuration("playback.mpv_path") => "App cannot use this player path setting. Explicit or default Null playback does not depend on that path. Ordinary configuration saves remain paused.",
+        Dependency::Configuration(field) => consequence(configuration_dependency(field)),
     }
 }
 
@@ -217,9 +250,13 @@ pub fn observation_text(observation: &CapabilityObservation) -> String {
         Some(CapabilityFailure::CacheWorker(kind)) => ("App could not start its thumbnail cleanup worker", Some(kind)),
         Some(CapabilityFailure::CachePrune(kind)) => ("App could not finish scanning or removing old thumbnail files", Some(kind)),
         Some(CapabilityFailure::MaintenanceUnavailable) => ("App could not run this check on its independent maintenance worker", None),
+        Some(CapabilityFailure::Configuration(issue)) => return format!("{issue}. App did not change this setting. Ordinary configuration saves remain paused."),
+        Some(CapabilityFailure::Preparation) => return format!("App could not prepare {} from its configured resource.", dependency_title(observation.dependency)),
+        Some(CapabilityFailure::PathRepair) => ("App could not finish repairing local file paths. App rechecked music storage and SQLite and kept the library open", None),
         None => return match observation.dependency {
             Dependency::BackgroundRuntime => "App started its background runtime. This does not confirm that any external service is reachable.".into(),
             Dependency::ThumbnailMaintenance => "App completed its thumbnail cleanup scan.".into(),
+            _ => "App prepared this local dependency. No external service response was checked.".into(),
         },
     };
     match kind {
@@ -231,7 +268,22 @@ pub fn observation_text(observation: &CapabilityObservation) -> String {
 fn recovery(observation: &CapabilityObservation) -> &'static str {
     match observation.failure {
         Some(CapabilityFailure::CachePrune(_)) => "Check thumbnail-cache permissions and available storage, then choose Check again.",
+        Some(CapabilityFailure::Configuration(_)) => "Correct the named setting in the configuration file. The app keeps this observation until a fresh startup checks the correction.",
+        Some(CapabilityFailure::Preparation) => "Check the configured path, permissions and tool settings. Correct the resource before reopening the app.",
+        Some(CapabilityFailure::PathRepair) => "Inspect the music folder and preserved bindings before explicitly running local path repair. App has not rolled back completed statements.",
         _ => "Free system resources if necessary, then choose Check again. App will make a fresh attempt.",
+    }
+}
+
+pub(crate) fn configuration_dependency(field: &str) -> Dependency {
+    match field {
+        "musicindex_endpoint" => Dependency::MusicIndex,
+        "playback" | "playback.driver" | "playback.mpv_path" => Dependency::Playback,
+        "broadcast" | "broadcast.hosts" | "broadcast.selected_host" => Dependency::Publisher,
+        "broadcast.drop_directory" | "broadcast.drop_file_target" => Dependency::Producer,
+        "broadcast.encoder" => Dependency::Encoder,
+        "flac_path" => Dependency::Converter,
+        _ => Dependency::Presentation,
     }
 }
 

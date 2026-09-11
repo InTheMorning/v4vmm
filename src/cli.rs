@@ -17,173 +17,217 @@ use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::{api, config, db, debug_contracts, playback};
 
 pub fn run(args: &[String]) -> Result<()> {
+    let settings = &CliConfig::default();
     match args {
         [command] if command == "help" || command == "--help" || command == "-h" => {
             print_help();
             Ok(())
         }
-        [command, rest @ ..] if command == "now-playing" => print_now_playing(rest),
+        [command, rest @ ..] if command == "now-playing" => print_now_playing(settings, rest),
         [section, command, rest @ ..] if section == "liveitem" && command == "health" => {
-            check_liveitem_health(rest)
+            check_liveitem_health(settings, rest)
         }
         [section, command, ..] if section == "liveitem" && command == "create" => Err(anyhow!(
             "liveitem create is retired; use `v4vmm broadcast events create --json`"
         )),
         [section, command, event_id, rest @ ..] if section == "liveitem" && command == "latest" => {
-            print_liveitem_latest(event_id, rest)
+            print_liveitem_latest(settings, event_id, rest)
         }
         [section, area, command, rest @ ..]
             if section == "broadcast" && area == "events" && command == "list" =>
         {
-            print_broadcast_events(rest)
+            print_broadcast_events(settings, rest)
         }
         [section, area, command, rest @ ..]
             if section == "broadcast" && area == "events" && command == "create" =>
         {
-            create_broadcast_event(rest)
+            create_broadcast_event(settings, rest)
         }
         [section, area, command, event_id, rest @ ..]
             if section == "broadcast" && area == "events" && command == "forget" =>
         {
-            forget_broadcast_event(event_id, rest)
+            forget_broadcast_event(settings, event_id, rest)
         }
         [section, area, command, event_id, rest @ ..]
             if section == "broadcast" && area == "events" && command == "check" =>
         {
-            check_broadcast_event(event_id, rest)
+            check_broadcast_event(settings, event_id, rest)
         }
         [section, area, command, rest @ ..]
             if section == "broadcast" && area == "targets" && command == "list" =>
         {
-            print_broadcast_targets(rest)
+            print_broadcast_targets(settings, rest)
         }
         [section, area, command, event_id, rest @ ..]
             if section == "broadcast" && area == "targets" && command == "attach" =>
         {
-            attach_broadcast_target(event_id, rest)
+            attach_broadcast_target(settings, event_id, rest)
         }
         [section, command, rest @ ..] if section == "broadcast" && command == "readiness" => {
-            print_broadcast_readiness(rest)
+            print_broadcast_readiness(settings, rest)
         }
         [section, command, flag]
             if section == "broadcast" && command == "repair-routes" && flag == "--json" =>
         {
-            repair_broadcast_routes()
+            repair_broadcast_routes(settings)
         }
         [section, command, track_id, flag]
             if section == "broadcast" && command == "repair-routes" && flag == "--json" =>
         {
-            repair_broadcast_routes_for_track(parse_i64("track id", track_id)?)
+            repair_broadcast_routes_for_track(settings, parse_i64("track id", track_id)?)
         }
         [section, command, flag]
             if section == "playlists" && command == "list" && flag == "--json" =>
         {
-            print_playlists()
+            print_playlists(settings)
         }
         [section, command, playlist_id, flag]
             if section == "playlist" && command == "tracks" && flag == "--json" =>
         {
-            print_playlist_tracks(parse_i64("playlist id", playlist_id)?)
+            print_playlist_tracks(settings, parse_i64("playlist id", playlist_id)?)
         }
         [section, command, flag]
             if section == "library" && command == "tracks" && flag == "--json" =>
         {
-            print_library_tracks()
+            print_library_tracks(settings)
         }
         [section, command, flag]
             if section == "library" && command == "repair-paths" && flag == "--json" =>
         {
-            repair_library_paths()
+            repair_library_paths(settings)
         }
-        [section, command] if section == "player" && command == "ping" => ping_player(),
+        [section, command] if section == "player" && command == "ping" => ping_player(settings),
         [section, command, track_id, flag]
             if section == "track" && command == "inspect" && flag == "--json" =>
         {
-            print_track_inspect(parse_i64("track id", track_id)?)
+            print_track_inspect(settings, parse_i64("track id", track_id)?)
         }
         [section, command, rest @ ..] if section == "playlist" && command == "play" => {
-            play_playlist(rest)
+            play_playlist(settings, rest)
         }
         [section, command, track_id] if section == "playback" && command == "set-track" => {
-            set_track(parse_i64("track id", track_id)?)
+            set_track(settings, parse_i64("track id", track_id)?)
         }
         [section, command, position_ms] if section == "playback" && command == "position" => {
-            update_position(parse_u64("position ms", position_ms)?)
+            update_position(settings, parse_u64("position ms", position_ms)?)
         }
-        [section, command] if section == "playback" && command == "next" => skip_next(),
-        [section, command] if section == "playback" && command == "previous" => skip_previous(),
-        [section, command] if section == "playback" && command == "pause" => pause_playback(true),
-        [section, command] if section == "playback" && command == "resume" => pause_playback(false),
-        [section, command] if section == "playback" && command == "stop" => stop_playback(),
+        [section, command] if section == "playback" && command == "next" => skip_next(settings),
+        [section, command] if section == "playback" && command == "previous" => {
+            skip_previous(settings)
+        }
+        [section, command] if section == "playback" && command == "pause" => {
+            pause_playback(settings, true)
+        }
+        [section, command] if section == "playback" && command == "resume" => {
+            pause_playback(settings, false)
+        }
+        [section, command] if section == "playback" && command == "stop" => stop_playback(settings),
         _ => Err(anyhow!("unsupported command\n\n{}", help_text())),
     }
 }
 
-fn open_configured_db() -> Result<Connection> {
-    open_configured_db_with_config().map(|(_, conn)| conn)
+#[derive(Default)]
+struct CliConfig {
+    path: Option<std::path::PathBuf>,
+    snapshot: std::cell::OnceCell<Result<config::ConfigSnapshot>>,
 }
 
-fn open_configured_db_with_config() -> Result<(config::Config, Connection)> {
-    let (cfg, conn) = open_configured_db_with_config_without_repair()?;
-    db::repair_local_file_paths(&conn, &cfg.music_dir)?;
-    Ok((cfg, conn))
+impl CliConfig {
+    fn snapshot(&self) -> Result<&config::ConfigSnapshot> {
+        self.snapshot
+            .get_or_init(|| {
+                let path = self.path.clone().map_or_else(config::config_path, Ok)?;
+                config::load_config_snapshot(&path)
+            })
+            .as_ref()
+            .map_err(|error| anyhow!("{error:#}"))
+    }
 }
 
-fn open_configured_db_with_config_without_repair() -> Result<(config::Config, Connection)> {
-    let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
-    config::ensure_dirs(&cfg)?;
-    let conn = db::open_db(&cfg)?;
-    Ok((cfg, conn))
+fn open_configured_db(settings: &CliConfig) -> Result<Connection> {
+    let snapshot = settings.snapshot()?;
+    let db_path = snapshot.db_path.as_ref().map_err(|issue| *issue)?;
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent).context("prepare database directory")?;
+    }
+    db::open_db(db_path)
 }
 
-fn configured_musicindex_client(endpoint: Option<&str>) -> Result<api::Client> {
+fn open_configured_db_with_music_dir(
+    settings: &CliConfig,
+) -> Result<(std::path::PathBuf, Connection)> {
+    let (music_dir, conn) = open_configured_db_with_music_dir_without_repair(settings)?;
+    let db_path = settings
+        .snapshot()?
+        .db_path
+        .as_ref()
+        .map_err(|issue| *issue)?;
+    match crate::startup::prepare_local_paths(&conn, &music_dir, db_path) {
+        Ok(true) => eprintln!("App could not finish local path repair. App verified music storage and SQLite; completed changes and remaining bindings are retained. Only validated relative bindings can drive file operations."),
+        Ok(false) => {},
+        Err(outcome) => return Err(anyhow!("App cannot use core storage after path repair: {}", outcome.issues.iter().map(|issue| issue.cause.as_str()).collect::<Vec<_>>().join("; "))),
+    }
+    Ok((music_dir, conn))
+}
+
+fn open_configured_db_with_music_dir_without_repair(
+    settings: &CliConfig,
+) -> Result<(std::path::PathBuf, Connection)> {
+    let snapshot = settings.snapshot()?;
+    let music_dir = snapshot.music_dir.clone()?;
+    let conn = open_configured_db(settings)?;
+    Ok((music_dir, conn))
+}
+
+fn configured_musicindex_client(
+    settings: &CliConfig,
+    endpoint: Option<&str>,
+) -> Result<api::Client> {
     let base_url = match endpoint {
         Some(endpoint) => config::normalize_musicindex_endpoint(endpoint)?,
-        None => configured_musicindex_endpoint()?,
+        None => configured_musicindex_endpoint(settings)?,
     };
     Ok(api::Client::new_with_base_url(base_url))
 }
 
-fn configured_musicindex_endpoint() -> Result<String> {
-    let cfg_path = config::config_path()?;
-    config::load_musicindex_endpoint(&cfg_path)
+fn configured_musicindex_endpoint(settings: &CliConfig) -> Result<String> {
+    Ok(settings.snapshot()?.musicindex_endpoint.clone()?)
 }
 
-fn configured_broadcast_registry(conn: &Connection) -> Result<BroadcastRegistry<'_>> {
-    let cfg_path = config::config_path()?;
-    let endpoint = config::load_musicindex_endpoint(&cfg_path)?;
+fn configured_broadcast_registry<'a>(
+    settings: &CliConfig,
+    conn: &'a Connection,
+) -> Result<BroadcastRegistry<'a>> {
+    let endpoint = settings.snapshot()?.musicindex_endpoint.clone()?;
     BroadcastRegistry::new(conn, &endpoint)
 }
 
-fn configured_broadcast_host() -> Result<config::BroadcastHostConfig> {
-    let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
-    cfg.broadcast.selected_host().cloned()
+fn configured_broadcast_host(settings: &CliConfig) -> Result<config::BroadcastHostConfig> {
+    settings.snapshot()?.broadcast().selected_host().cloned()
 }
 
-fn print_now_playing(args: &[String]) -> Result<()> {
+fn print_now_playing(settings: &CliConfig, args: &[String]) -> Result<()> {
     parse_now_playing_options(args)?;
-    let conn = open_configured_db()?;
+    let conn = open_configured_db(settings)?;
     let update = playback::now_playing_update(&conn, playback::DEFAULT_SESSION_ID)?
         .context("no current playback session")?;
     print_json(&update)
 }
 
-fn check_liveitem_health(args: &[String]) -> Result<()> {
+fn check_liveitem_health(settings: &CliConfig, args: &[String]) -> Result<()> {
     let options = parse_live_options(args)?;
     anyhow::ensure!(!options.json, "liveitem health does not support --json");
 
-    let client = configured_musicindex_client(options.endpoint.as_deref())?;
+    let client = configured_musicindex_client(settings, options.endpoint.as_deref())?;
     println!("{}", client.health()?);
     Ok(())
 }
 
-fn print_liveitem_latest(event_id: &str, args: &[String]) -> Result<()> {
+fn print_liveitem_latest(settings: &CliConfig, event_id: &str, args: &[String]) -> Result<()> {
     let options = parse_live_options(args)?;
     anyhow::ensure!(options.json, "liveitem latest requires --json");
 
-    let client = configured_musicindex_client(options.endpoint.as_deref())?;
+    let client = configured_musicindex_client(settings, options.endpoint.as_deref())?;
     if let Some(response) = client.fetch_live_metadata_optional(event_id)? {
         return print_json(&response);
     }
@@ -196,58 +240,57 @@ fn print_liveitem_latest(event_id: &str, args: &[String]) -> Result<()> {
     })
 }
 
-fn print_broadcast_events(args: &[String]) -> Result<()> {
+fn print_broadcast_events(settings: &CliConfig, args: &[String]) -> Result<()> {
     parse_json_only_options("broadcast events list", args)?;
-    let conn = open_configured_db()?;
-    let registry = configured_broadcast_registry(&conn)?;
-    print_json(&registry.list_events()?)
+    let conn = open_configured_db(settings)?;
+    print_json(&db::broadcast_events(&conn)?)
 }
 
-fn create_broadcast_event(args: &[String]) -> Result<()> {
+fn create_broadcast_event(settings: &CliConfig, args: &[String]) -> Result<()> {
     let options = parse_broadcast_event_create_options(args)?;
     anyhow::ensure!(options.json, "broadcast events create requires --json");
 
-    let conn = open_configured_db()?;
-    let registry = configured_broadcast_registry(&conn)?;
+    let conn = open_configured_db(settings)?;
+    let registry = configured_broadcast_registry(settings, &conn)?;
     let created = registry.create_event(options.label.as_deref())?;
     print_json(&created)
 }
 
-fn forget_broadcast_event(event_id: &str, args: &[String]) -> Result<()> {
+fn forget_broadcast_event(settings: &CliConfig, event_id: &str, args: &[String]) -> Result<()> {
     anyhow::ensure!(
         args.is_empty(),
         "broadcast events forget does not accept extra arguments"
     );
-    let conn = open_configured_db()?;
-    let registry = configured_broadcast_registry(&conn)?;
-    let forgotten = registry
-        .forget_event(event_id)?
+    let conn = open_configured_db(settings)?;
+    let forgotten = crate::broadcast::registry::forget_local_event(&conn, event_id)?
         .with_context(|| format!("broadcast event not found: {event_id}"))?;
     println!("forgot broadcast event {}", forgotten.event_id);
     Ok(())
 }
 
-fn check_broadcast_event(event_id: &str, args: &[String]) -> Result<()> {
+fn check_broadcast_event(settings: &CliConfig, event_id: &str, args: &[String]) -> Result<()> {
     parse_json_only_options("broadcast events check", args)?;
-    let conn = open_configured_db()?;
-    let registry = configured_broadcast_registry(&conn)?;
+    let conn = open_configured_db(settings)?;
+    let event =
+        db::broadcast_event_by_event_id(&conn, event_id)?.context("broadcast event not found")?;
+    let registry = BroadcastRegistry::new(&conn, &event.endpoint)?;
     let checked = registry.check_event(event_id)?;
     print_json(&checked)
 }
 
-fn print_broadcast_targets(args: &[String]) -> Result<()> {
+fn print_broadcast_targets(settings: &CliConfig, args: &[String]) -> Result<()> {
     parse_json_only_options("broadcast targets list", args)?;
-    let host = configured_broadcast_host()?;
+    let host = configured_broadcast_host(settings)?;
     let targets = publisher_targets::list_targets(&host.transport, &host.instance_name)?;
     print_json(&targets)
 }
 
-fn attach_broadcast_target(event_id: &str, args: &[String]) -> Result<()> {
+fn attach_broadcast_target(settings: &CliConfig, event_id: &str, args: &[String]) -> Result<()> {
     let options = parse_broadcast_target_attach_options(args)?;
-    let conn = open_configured_db()?;
+    let conn = open_configured_db(settings)?;
     let event = db::broadcast_event_by_event_id(&conn, event_id)?
         .with_context(|| format!("broadcast event not found: {event_id}"))?;
-    let host = configured_broadcast_host()?;
+    let host = configured_broadcast_host(settings)?;
 
     publisher_targets::attach_event(
         &host.transport,
@@ -264,78 +307,76 @@ fn attach_broadcast_target(event_id: &str, args: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn print_broadcast_readiness(args: &[String]) -> Result<()> {
+fn print_broadcast_readiness(settings: &CliConfig, args: &[String]) -> Result<()> {
     parse_json_only_options("broadcast readiness", args)?;
-    let (cfg, conn) = open_configured_db_with_config()?;
-    let report =
-        ApplicationQueryService::new().broadcast_readiness_report(&conn, &cfg.music_dir)?;
+    let (music_dir, conn) = open_configured_db_with_music_dir(settings)?;
+    let report = ApplicationQueryService::new().broadcast_readiness_report(&conn, &music_dir)?;
     print_json(&report)
 }
 
-fn repair_broadcast_routes() -> Result<()> {
-    let (cfg, conn) = open_configured_db_with_config()?;
-    let endpoint = configured_musicindex_endpoint()?;
+fn repair_broadcast_routes(settings: &CliConfig) -> Result<()> {
+    let (music_dir, conn) = open_configured_db_with_music_dir(settings)?;
+    let endpoint = configured_musicindex_endpoint(settings)?;
     let shared = Arc::new(Mutex::new(conn));
     let outcome = CommandBus::new().execute(
-        RepairMissingPaymentRouteTags::new(shared, endpoint, cfg.music_dir),
+        RepairMissingPaymentRouteTags::new(shared, endpoint, music_dir),
         &CommandContext::next(),
     )?;
     print_json(outcome.value())
 }
 
-fn repair_broadcast_routes_for_track(track_id: i64) -> Result<()> {
-    let (cfg, conn) = open_configured_db_with_config()?;
-    let endpoint = configured_musicindex_endpoint()?;
+fn repair_broadcast_routes_for_track(settings: &CliConfig, track_id: i64) -> Result<()> {
+    let (music_dir, conn) = open_configured_db_with_music_dir(settings)?;
+    let endpoint = configured_musicindex_endpoint(settings)?;
     let shared = Arc::new(Mutex::new(conn));
     let outcome = CommandBus::new().execute(
-        RepairPaymentRoutesForTrack::new(shared, endpoint, cfg.music_dir, track_id),
+        RepairPaymentRoutesForTrack::new(shared, endpoint, music_dir, track_id),
         &CommandContext::next(),
     )?;
     print_json(outcome.value())
 }
 
-fn print_playlists() -> Result<()> {
-    let conn = open_configured_db()?;
+fn print_playlists(settings: &CliConfig) -> Result<()> {
+    let conn = open_configured_db(settings)?;
     let rows = debug_contracts::playlists(&conn)?;
     print_json(&rows)
 }
 
-fn print_playlist_tracks(playlist_id: i64) -> Result<()> {
-    let (cfg, conn) = open_configured_db_with_config()?;
-    let rows = debug_contracts::playlist_tracks(&conn, playlist_id, &cfg.music_dir)?;
+fn print_playlist_tracks(settings: &CliConfig, playlist_id: i64) -> Result<()> {
+    let (music_dir, conn) = open_configured_db_with_music_dir(settings)?;
+    let rows = debug_contracts::playlist_tracks(&conn, playlist_id, &music_dir)?;
     print_json(&rows)
 }
 
-fn print_library_tracks() -> Result<()> {
-    let (cfg, conn) = open_configured_db_with_config()?;
-    let rows = debug_contracts::library_tracks(&conn, &cfg.music_dir)?;
+fn print_library_tracks(settings: &CliConfig) -> Result<()> {
+    let (music_dir, conn) = open_configured_db_with_music_dir(settings)?;
+    let rows = debug_contracts::library_tracks(&conn, &music_dir)?;
     print_json(&rows)
 }
 
-fn repair_library_paths() -> Result<()> {
-    let (cfg, conn) = open_configured_db_with_config_without_repair()?;
-    let repair = db::repair_local_file_paths(&conn, &cfg.music_dir)?;
+fn repair_library_paths(settings: &CliConfig) -> Result<()> {
+    let (music_dir, conn) = open_configured_db_with_music_dir_without_repair(settings)?;
+    let repair = db::repair_local_file_paths(&conn, &music_dir)?;
     print_json(&repair)
 }
 
-fn print_track_inspect(track_id: i64) -> Result<()> {
-    let (cfg, conn) = open_configured_db_with_config()?;
-    let row = debug_contracts::track_inspect(&conn, track_id, &cfg.music_dir)?;
+fn print_track_inspect(settings: &CliConfig, track_id: i64) -> Result<()> {
+    let (music_dir, conn) = open_configured_db_with_music_dir(settings)?;
+    let row = debug_contracts::track_inspect(&conn, track_id, &music_dir)?;
     print_json(&row)
 }
 
-fn ping_player() -> Result<()> {
-    let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
-    let driver = ConfiguredPlaybackDriver::from_config(&cfg.playback)?;
+fn ping_player(settings: &CliConfig) -> Result<()> {
+    let playback = settings.snapshot()?.playback()?;
+    let driver = ConfiguredPlaybackDriver::from_config(&playback)?;
     driver.ping()?;
-    println!("ok {}", cfg.playback.driver.as_str());
+    println!("ok {}", playback.driver.as_str());
     Ok(())
 }
 
-fn play_playlist(args: &[String]) -> Result<()> {
+fn play_playlist(settings: &CliConfig, args: &[String]) -> Result<()> {
     let options = parse_playlist_play_options(args)?;
-    let conn = open_configured_db()?;
+    let conn = open_configured_db(settings)?;
     let update = if options.dry_run {
         playback::dry_run_playlist_at(
             &conn,
@@ -354,38 +395,38 @@ fn play_playlist(args: &[String]) -> Result<()> {
     print_json(&update)
 }
 
-fn set_track(track_id: i64) -> Result<()> {
-    let conn = open_configured_db()?;
+fn set_track(settings: &CliConfig, track_id: i64) -> Result<()> {
+    let conn = open_configured_db(settings)?;
     let update = playback::set_track(&conn, track_id, playback::DEFAULT_SESSION_ID)?;
     print_json(&update)
 }
 
-fn update_position(position_ms: u64) -> Result<()> {
-    let conn = open_configured_db()?;
+fn update_position(settings: &CliConfig, position_ms: u64) -> Result<()> {
+    let conn = open_configured_db(settings)?;
     let update = playback::update_position(&conn, position_ms, playback::DEFAULT_SESSION_ID)?;
     print_json(&update)
 }
 
-fn pause_playback(paused: bool) -> Result<()> {
-    let conn = open_configured_db()?;
+fn pause_playback(settings: &CliConfig, paused: bool) -> Result<()> {
+    let conn = open_configured_db(settings)?;
     let update = playback::update_paused(&conn, paused, playback::DEFAULT_SESSION_ID)?;
     print_json(&update)
 }
 
-fn skip_next() -> Result<()> {
-    let conn = open_configured_db()?;
+fn skip_next(settings: &CliConfig) -> Result<()> {
+    let conn = open_configured_db(settings)?;
     let update = playback::skip_next(&conn, playback::DEFAULT_SESSION_ID)?;
     print_json(&update)
 }
 
-fn skip_previous() -> Result<()> {
-    let conn = open_configured_db()?;
+fn skip_previous(settings: &CliConfig) -> Result<()> {
+    let conn = open_configured_db(settings)?;
     let update = playback::skip_previous(&conn, playback::DEFAULT_SESSION_ID)?;
     print_json(&update)
 }
 
-fn stop_playback() -> Result<()> {
-    let conn = open_configured_db()?;
+fn stop_playback(settings: &CliConfig) -> Result<()> {
+    let conn = open_configured_db(settings)?;
     let session = playback::stop(&conn, playback::DEFAULT_SESSION_ID)?;
     println!(
         "stopped session {} at sequence {}",
@@ -640,6 +681,47 @@ playback state without controlling an audio player."
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn adr_0066_cli_shares_one_snapshot_and_requires_only_used_fields() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let db_path = temp.path().join("library.sqlite");
+        let original = format!("music_dir = false\ndb_path = {:?}\nmusicindex_endpoint = 'https://original.test'\n[playback]\ndriver = 'broken'\n", db_path);
+        std::fs::write(&path, &original).unwrap();
+        let settings = CliConfig {
+            path: Some(path.clone()),
+            ..CliConfig::default()
+        };
+        assert_eq!(
+            configured_musicindex_endpoint(&settings).unwrap(),
+            "https://original.test"
+        );
+        let conn = open_configured_db(&settings).unwrap();
+        assert!(db::broadcast_events(&conn).unwrap().is_empty());
+        assert!(open_configured_db_with_music_dir(&settings).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        std::fs::write(
+            &path,
+            "musicindex_endpoint = 'https://changed.test'\ndb_path = false",
+        )
+        .unwrap();
+        assert_eq!(
+            configured_musicindex_endpoint(&settings).unwrap(),
+            "https://original.test"
+        );
+        assert!(open_configured_db(&settings).is_ok());
+        let fresh = CliConfig {
+            path: Some(path),
+            ..CliConfig::default()
+        };
+        assert_eq!(
+            configured_musicindex_endpoint(&fresh).unwrap(),
+            "https://changed.test"
+        );
+        assert!(open_configured_db(&fresh).is_err());
+    }
+
     use super::*;
 
     #[test]

@@ -101,6 +101,7 @@ impl TopApp {
             Dependency::ThumbnailMaintenance => cache
                 .check_maintenance(bootstrap::cache_worker_for_config(&cfg_path))
                 .map(|()| RecoveredCapability::Cache),
+            _ => Err(CapabilityFailure::MaintenanceUnavailable),
         });
         match receiver {
             Ok(receiver) => present_startup(receiver, window, cx, move |this, result, _, cx| {
@@ -170,7 +171,11 @@ impl TopApp {
         self.runtime_host = Some(host.clone());
         self.library
             .update(cx, |library, cx| library.install_runtime(host, cx));
-        self.maybe_start_playback_polling(cx);
+        let playback = self.playback_availability();
+        self.library.update(cx, |library, cx| {
+            library.playback_availability = playback;
+            cx.notify();
+        });
         self.maybe_start_broadcast_readiness_watch(cx);
         self.maybe_start_broadcast_service_watch(cx);
         self.refresh_show_page(cx);

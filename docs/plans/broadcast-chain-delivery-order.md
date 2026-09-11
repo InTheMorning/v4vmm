@@ -33,7 +33,7 @@ require walking them before the independent chain work.
 |---|---|---|
 | 1 | Governance reconciliation | Sweep ADR statuses and review gate prose; retire replaced requirements before indexing survivors; correct AGENTS.md; retain ADR 0039 as Proposed and unscheduled |
 | 2, keyboard correction | [Platform shortcuts — ADR 0067](../tasks/adr-0067-task-001-platform-shortcuts.md) | Complete - 2026-09-11; Ctrl shortcuts, focus handling and Settings responsiveness accepted; fixture cleanup confirmed |
-| 2 | [Configuration and startup failure recovery — ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md) | Accepted - 2026-09-10; tasks 001–003 complete; [task 004 ready](../tasks/adr-0066-task-004-optional-tool-isolation.md), tasks 004–013 not started in the [phase plan](adr-0066-startup-recovery-phase-plan.md); finish implementation and acceptance before config format changes |
+| 2 | [Configuration and startup failure recovery — ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md) | Accepted - 2026-09-10; tasks 001–003 complete; [task 004 implemented; operator gate open](../tasks/adr-0066-task-004-optional-tool-isolation.md), tasks 005–013 not started in the [phase plan](adr-0066-startup-recovery-phase-plan.md); finish implementation and acceptance before config format changes |
 | 3 | Relay durability through adoption | splitkit reserved 001 → 002 → 003; deploy, reserve an event, configure the publisher to use it, then implement the v4vmm reservation packet |
 | 3, follow-through | splitkit reserved 004 → 005 | List/delete, final guards, and delivery reconciliation; explicitly scheduled after adoption, with interim command-line reservation allowing these before the v4vmm packet if needed |
 | 4 | Narrow Show layout and A10 | ADR 0063 amendment and packet: compact cards, full-width log docking, card-title readability, and hiding transport only when every typed action is unavailable; one combined visual gate |
@@ -72,8 +72,18 @@ This trigger does not combine two implementation phases into one session.
   from the current service states.
 
 Show view-model decomposition and wider all-target Clippy cleanup remain
-unscheduled. Cache/dump policy, audition, and play history remain separate
-future decisions, outside this execution order.
+unscheduled. Cache/dump policy and play history remain separate future decisions.
+[ADR 0068: Show cue and audition isolation](../adr/0068-show-cue-and-audition-isolation.md)
+is Proposed - 2026-09-11; its implementation packets are not yet scheduled.
+
+On 2026-09-11, the operator clarified that a playlist loads into the Show cue
+before Show starts playback; other playback buttons use a separate audition
+audio path. Current Music Play shares the Show session and producer. Task 004's
+playback-dependent acceptance checks are paused pending acceptance and
+implementation of the proposed separation; its producer screenshot also contains
+an unresolved mpv IPC read error. See [the correction and remaining gate](../tasks/adr-0066-task-004-optional-tool-isolation.md#playback-workflow-correction--2026-09-11).
+This records a prerequisite to those checks, without starting another packet or
+changing the approved cross-repository order.
 
 ## Progress
 
@@ -82,8 +92,9 @@ Update this table when a packet lands.
 | Repository | Packet | State |
 |---|---|---|
 | `v4vmm` | [governance reconciliation](../reviews/2026-09-10-governance-reconciliation.md) | complete - 2026-09-10; documentation only; surviving gates indexed below |
-| `v4vmm` | [0066 configuration/startup failure recovery](adr-0066-startup-recovery-phase-plan.md) | ADR Accepted; tasks 001–003 complete, including [003 operator acceptance, preservation and fixture cleanup](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md#operator-evidence--2026-09-11) - 2026-09-11; mechanical gate Green; task 004 ready; 004–013 not started |
+| `v4vmm` | [0066 configuration/startup failure recovery](adr-0066-startup-recovery-phase-plan.md) | ADR Accepted; tasks 001–003 complete, including [003 operator acceptance, preservation and fixture cleanup](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md#operator-evidence--2026-09-11) - 2026-09-11; task 004 implementation and mechanical gate Green; presentation case and preservation accepted - 2026-09-11; playback checks paused for cue/audition separation and observed mpv IPC error; remaining operator checks and final fixture cleanup open; task 005 waits; 005–013 not started |
 | `v4vmm` | [0067 platform shortcuts 001](../tasks/adr-0067-task-001-platform-shortcuts.md) | Complete - 2026-09-11; mechanical gate Green; all shortcut checks, preservation and fixture cleanup accepted; ADR Implemented |
+| `v4vmm` | [0068 Show cue and audition isolation](../adr/0068-show-cue-and-audition-isolation.md) | Proposed - 2026-09-11; requested ADR drafted; implementation and its visual/audio checks not started; does not close 0066 task 004's paused playback gate |
 | `v4vmm` | [0030 006 scroll containers](../tasks/adr-0030-task-006-scroll-containers.md) | implementation recorded; current Music/Settings visual check open |
 | `v4vmm` | [0037 001 feed identity](../tasks/adr-0037-task-001-feed-identity-action-parity.md) | implementation recorded; local/Index identity visual check open |
 | `v4vmm` | [0037 002 track detail parity](../tasks/adr-0037-task-002-track-header-action-parity.md) | implementation recorded; local/Index track visual check open |
@@ -204,10 +215,14 @@ an operator does not need to know a second action exists.
 Unscheduled follow-ups:
 
 1. Write the cache and dump policy decision. `Dump` needs it.
-2. Write the audition decision, and the play-history decision.
+2. Review [proposed ADR 0068](../adr/0068-show-cue-and-audition-isolation.md) and
+   schedule its implementation with explicit reconciliation of task 004's
+   paused playback checks. Writing the ADR does not establish acceptance.
+3. Write the play-history decision.
 
-These carry no number until somebody writes them. A number reserved in prose
-collided once already, when ADR 0063 became the `Show` dashboard layout.
+Unwritten decisions carry no number until somebody writes them. A number
+reserved in prose collided once already, when ADR 0063 became the `Show`
+dashboard layout.
 
 `v4vmm` packets 001 through 004 shipped and are unaffected. They are backend
 work that ADR 0060 does not touch.

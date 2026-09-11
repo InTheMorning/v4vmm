@@ -531,7 +531,7 @@ impl LibraryApp {
     pub fn new(
         conn: Arc<Mutex<Connection>>,
         cache: Arc<ImageCache>,
-        musicindex_endpoint: String,
+        musicindex_endpoint: crate::config::MusicIndexEndpoint,
         music_dir: PathBuf,
         application_services: Arc<ApplicationServices>,
         runtime_host: Option<Arc<crate::presentation::RuntimeHost>>,
@@ -558,7 +558,7 @@ impl LibraryApp {
     pub(crate) fn new_with_content_view_mode(
         conn: Arc<Mutex<Connection>>,
         cache: Arc<ImageCache>,
-        musicindex_endpoint: String,
+        musicindex_endpoint: crate::config::MusicIndexEndpoint,
         music_dir: PathBuf,
         application_services: Arc<ApplicationServices>,
         runtime_host: Option<Arc<crate::presentation::RuntimeHost>>,
@@ -592,6 +592,11 @@ impl LibraryApp {
         let mut vm = LibraryViewModel::new();
         vm.set_content_view_mode(content_view_mode);
         let mut app = Self {
+            playback_availability: Err(
+                crate::application::capability::ExecutionUnavailable::configured(
+                    crate::application::capability::Dependency::Playback,
+                ),
+            ),
             conn,
             application_services,
             command_runner,
@@ -745,7 +750,11 @@ impl LibraryApp {
         Vec::new()
     }
 
-    pub fn set_musicindex_endpoint(&mut self, endpoint: String, cx: &mut Context<Self>) {
+    pub fn set_musicindex_endpoint(
+        &mut self,
+        endpoint: crate::config::MusicIndexEndpoint,
+        cx: &mut Context<Self>,
+    ) {
         self.musicindex_endpoint = endpoint;
         cx.notify();
     }
@@ -924,7 +933,7 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) {
         use crate::application::paged_track_list::{PagedTrackListActor, PagedTrackListMsg};
-        use crate::db::{open_db, TrackListing};
+        use crate::db::TrackListing;
 
         let Some(host) = self.runtime_host.clone() else {
             return;
@@ -941,17 +950,21 @@ impl LibraryApp {
         self.playlist_actor = None;
         // Open a dedicated connection for the actor: rusqlite Connections
         // are not Sync, and the actor consumes its connection by value.
-        let cfg = match crate::config::config_path()
+        let db_path = self
+            .conn
+            .lock()
             .ok()
-            .and_then(|path| crate::config::load_config(&path).ok())
-        {
-            Some(cfg) => cfg,
-            None => return,
+            .and_then(|conn| conn.path().map(std::path::PathBuf::from));
+        let Some(db_path) = db_path else {
+            return;
         };
-        let conn = match open_db(&cfg) {
+        let conn = match crate::db::startup::open_existing(&db_path) {
             Ok(conn) => conn,
-            Err(err) => {
-                eprintln!("v4vmm::library: failed to open actor DB conn: {err}");
+            Err(error) => {
+                self.vm.set_error_status(format!(
+                    "App could not open the playlist database: {}",
+                    error.reason
+                ));
                 return;
             }
         };
@@ -2548,7 +2561,8 @@ fn album_has_feed_identity_actions(facts: &LocalIdentityFacts) -> bool {
 
 impl Render for LibraryApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let chrome = LibraryViewModel::chrome_display();
+        let chrome = LibraryViewModel::chrome_display()
+            .with_playback_availability(self.playback_availability);
         let status = self.vm.status_snapshot();
         let status_color = if status.is_error {
             StatusRole::Danger.color(cx)
@@ -3173,8 +3187,11 @@ mod tests {
         };
         let conn = Arc::new(Mutex::new(conn));
 
-        let context =
-            fetch_library_track_context_with_local_fallback(&conn, &track, "http://127.0.0.1:9")?;
+        let context = fetch_library_track_context_with_local_fallback(
+            &conn,
+            &track,
+            &"http://127.0.0.1:9".into(),
+        )?;
 
         assert_eq!(
             context.track.description.as_deref(),

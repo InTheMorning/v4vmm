@@ -30,7 +30,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0052](0052-library-index-data-parity-triage.md) | Triage of Library versus Index detail gaps | Implemented |
 | [0053](0053-local-detail-source-fact-parity.md) | Source-fact route for parity gaps not locally durable | Accepted |
 | [0054](0054-local-metadata-source-fact-persistence.md) | Feed and track metadata facts persist by source; hydration visual checks remain open | Accepted, partial |
-| [0066](0066-configuration-and-startup-failure-recovery.md) | Core startup requirements; in-app repair and optional-tool retry; [001–003 complete; 004 ready; 004–013 not started](../plans/adr-0066-startup-recovery-phase-plan.md) | Accepted |
+| [0066](0066-configuration-and-startup-failure-recovery.md) | Core startup requirements; in-app repair and optional-tool retry; [001–003 complete; 004 implemented, operator gate open; 005–013 not started](../plans/adr-0066-startup-recovery-phase-plan.md) | Accepted |
 
 ## Metadata
 
@@ -65,6 +65,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0020](0020-simulated-playlist-playback.md) | Simulated playlist transport for relay smoke tests | Accepted |
 | [0021](0021-mpv-playback-driver.md) | mpv driver behind the `PlaybackDriver` trait | Implemented |
 | [0059](0059-broadcast-control-surface.md) | External publisher control, saved event selection, configured-target readiness; tasks 001-017 complete | Implemented |
+| [0068](0068-show-cue-and-audition-isolation.md) | Persisted Show cue, explicit Show transport, independent audition state/audio/publication boundaries; implementation not started | Proposed |
 
 ## UI Architecture
 

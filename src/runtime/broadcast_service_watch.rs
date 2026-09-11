@@ -81,6 +81,14 @@ pub struct BroadcastEncoderWatchTarget {
 }
 
 impl BroadcastEncoderWatchTarget {
+    /// Invalid settings have no command target and are distinct from absent setup.
+    #[must_use]
+    pub fn unavailable() -> Self {
+        Self {
+            server_name: "Configuration unavailable".to_owned(),
+            target: None,
+        }
+    }
     /// Create a configured encoder watch target.
     #[must_use]
     pub fn configured(server_name: impl Into<String>, target: EncoderTarget) -> Self {

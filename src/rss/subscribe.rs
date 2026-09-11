@@ -6,14 +6,12 @@ use std::io::Cursor;
 
 use super::helpers::*;
 use crate::api::Client as MusicIndexClient;
-use crate::config::Config;
 use crate::db;
 
 pub fn subscribe_feed(
-    _cfg: &Config,
     conn: &mut Connection,
     feed_url: &str,
-    musicindex_endpoint: &str,
+    musicindex_endpoint: &crate::config::MusicIndexEndpoint,
 ) -> Result<()> {
     // --- fetch ---
     let body = crate::http_client::document()
@@ -143,8 +141,8 @@ pub fn subscribe_feed(
 
     // Best-effort: capture MusicIndex feed `updated_at` so freshly-subscribed
     // feeds aren't immediately marked stale by the auto-update checker.
-    if let Some(guid) = feed_guid.as_deref() {
-        let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.to_string());
+    if let (Some(guid), Ok(endpoint)) = (feed_guid.as_deref(), musicindex_endpoint.require()) {
+        let client = MusicIndexClient::new_with_base_url(endpoint);
         match client.fetch_feed(guid, None) {
             Ok(api_feed) => {
                 if let Some(updated_at) = api_feed.updated_at {
@@ -311,7 +309,7 @@ pub fn subscribe_feed(
         persist_rss_track_identity(conn, feed_url, facts)?;
     }
 
-    println!("Subscribed/updated feed: {feed_title} (tracks upserted: {upserted})");
+    eprintln!("App subscribed or updated RSS feed {feed_title}; stored {upserted} track updates.");
     Ok(())
 }
 
@@ -467,6 +465,46 @@ fn clean_attr(ext: &Extension, name: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn adr_0066_known_rss_import_skips_invalid_index_and_retains_local_identity() -> Result<()> {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let url = format!("http://{}/feed.xml", listener.local_addr()?);
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut request = [0; 2048];
+            stream.read(&mut request).unwrap();
+            let body = r#"<rss version="2.0"><channel><title>Known RSS</title><link>https://feed.test</link><description>Fixture</description><item><guid>known-track</guid><title>Local needle</title><enclosure url="https://feed.test/audio.mp3" type="audio/mpeg" length="123"/></item></channel></rss>"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+        let mut conn = setup_test_db()?;
+        subscribe_feed(&mut conn, &url, &"invalid endpoint".into())?;
+        server.join().unwrap();
+        let id = db::find_track_id(&conn, Some(&url), Some("known-track"), None)?.unwrap();
+        conn.execute("UPDATE tracks SET is_in_library = 1 WHERE id = ?1", [id])?;
+        let rows = crate::application::ApplicationQueryService::new()
+            .search_local_library_tracks(&conn, "needle", None)?;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, id);
+        let feed_id: i64 =
+            conn.query_row("SELECT feed_id FROM tracks WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })?;
+        let links = db::local_identity_links(&conn, db::LocalIdentityOwner::Feed(feed_id))?;
+        assert!(links.iter().any(|link| link.source == "rss"));
+        Ok(())
+    }
+
     use super::*;
     use std::collections::BTreeMap;
 

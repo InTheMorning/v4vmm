@@ -2,11 +2,9 @@
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result};
-use rusqlite::types::Type;
 use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 
-use crate::config::Config;
 use crate::library_path::LibraryRelativePath;
 
 #[derive(Clone, Debug, Default)]
@@ -1251,7 +1249,7 @@ fn track_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<TrackRow> {
         is_in_library: row.get::<_, i64>(14)? != 0,
         feed_title: row.get(15)?,
         album_image_href: row.get(16)?,
-        local_path: local_path_from_sql(row.get(17)?, 17)?,
+        local_path: local_path_from_sql(row.get(17)?),
         pub_date: parse_local_track_pub_date(row.get::<_, Option<String>>(18)?.as_deref()),
         explicit: parse_itunes_explicit(row.get::<_, Option<String>>(19)?.as_deref()),
         transcript_url: transcript_url_from_extra_json(
@@ -1260,23 +1258,9 @@ fn track_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<TrackRow> {
     })
 }
 
-fn local_path_from_sql(
-    value: Option<String>,
-    column: usize,
-) -> rusqlite::Result<Option<LibraryRelativePath>> {
-    value
-        .map(LibraryRelativePath::from_stored)
-        .transpose()
-        .map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                column,
-                Type::Text,
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    error.to_string(),
-                )),
-            )
-        })
+// ADR 0066: incomplete legacy bindings remain stored, but cannot become file actions.
+fn local_path_from_sql(value: Option<String>) -> Option<LibraryRelativePath> {
+    value.and_then(|value| LibraryRelativePath::from_stored(value).ok())
 }
 
 fn parse_local_track_pub_date(value: Option<&str>) -> Option<i64> {
@@ -2852,9 +2836,7 @@ pub fn stop_playback_session(conn: &Connection, session_id: &str) -> Result<Play
     playback_session(conn, session_id)?.context("playback session missing after stop")
 }
 
-pub fn open_db(cfg: &Config) -> Result<Connection> {
-    let db_path = &cfg.db_path;
-
+pub fn open_db(db_path: &Path) -> Result<Connection> {
     let conn = Connection::open(db_path)
         .with_context(|| format!("open/create db {}", db_path.display()))?;
 

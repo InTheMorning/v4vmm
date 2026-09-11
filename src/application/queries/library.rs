@@ -117,7 +117,7 @@ impl ApplicationCommand for LoadCachedTracksTree {
 pub(crate) struct FetchLibraryTrackContext {
     conn: SharedConnection,
     track: TrackRow,
-    musicindex_endpoint: String,
+    musicindex_endpoint: crate::config::MusicIndexEndpoint,
 }
 
 impl FetchLibraryTrackContext {
@@ -126,7 +126,7 @@ impl FetchLibraryTrackContext {
     pub(crate) fn new(
         conn: SharedConnection,
         track: TrackRow,
-        musicindex_endpoint: impl Into<String>,
+        musicindex_endpoint: impl Into<crate::config::MusicIndexEndpoint>,
     ) -> Self {
         Self {
             conn,
@@ -185,7 +185,7 @@ impl ApplicationCommand for FetchLocalTrackContext {
 #[derive(Clone, Debug)]
 pub(crate) struct HydrateAlbumIdentity {
     conn: SharedConnection,
-    musicindex_endpoint: String,
+    musicindex_endpoint: crate::config::MusicIndexEndpoint,
     feed_id: i64,
     feed_guid: String,
 }
@@ -195,7 +195,7 @@ impl HydrateAlbumIdentity {
     #[must_use]
     pub(crate) fn new(
         conn: SharedConnection,
-        musicindex_endpoint: impl Into<String>,
+        musicindex_endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         feed_id: i64,
         feed_guid: impl Into<String>,
     ) -> Self {
@@ -230,7 +230,7 @@ impl ApplicationCommand for HydrateAlbumIdentity {
 #[derive(Clone, Debug)]
 pub(crate) struct CompareLibraryTrack {
     track: TrackRow,
-    musicindex_endpoint: String,
+    musicindex_endpoint: crate::config::MusicIndexEndpoint,
     music_dir: PathBuf,
 }
 
@@ -239,7 +239,7 @@ impl CompareLibraryTrack {
     #[must_use]
     pub(crate) fn new(
         track: TrackRow,
-        musicindex_endpoint: impl Into<String>,
+        musicindex_endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         music_dir: PathBuf,
     ) -> Self {
         Self {
@@ -404,7 +404,7 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
 pub(crate) fn fetch_library_track_context_with_local_fallback(
     conn: &SharedConnection,
     track: &TrackRow,
-    musicindex_endpoint: &str,
+    musicindex_endpoint: &crate::config::MusicIndexEndpoint,
 ) -> anyhow::Result<TrackContext> {
     let local_context = conn
         .lock()
@@ -444,11 +444,11 @@ pub(crate) fn apply_local_track_metadata_defaults(remote: &mut TrackContext, loc
 
 fn hydrate_album_identity_facts(
     conn: SharedConnection,
-    musicindex_endpoint: &str,
+    musicindex_endpoint: &crate::config::MusicIndexEndpoint,
     feed_id: i64,
     feed_guid: &str,
 ) -> anyhow::Result<AlbumIdentityHydration> {
-    let client = crate::api::Client::new_with_base_url(musicindex_endpoint.to_string());
+    let client = crate::api::Client::new_with_base_url(musicindex_endpoint.clone());
     let feed = client.fetch_feed(
         feed_guid,
         Some("source_links,source_ids,source_release_claims,source_contributors"),
@@ -472,7 +472,7 @@ fn hydrate_album_identity_facts(
 
 fn compare_library_track(
     track: &TrackRow,
-    musicindex_endpoint: &str,
+    musicindex_endpoint: &crate::config::MusicIndexEndpoint,
     music_dir: &Path,
 ) -> anyhow::Result<LibraryTrackCompare> {
     let path = track

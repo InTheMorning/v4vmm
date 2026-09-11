@@ -1528,6 +1528,106 @@ pub(crate) struct ShowPageVm {
 }
 
 impl ShowPageVm {
+    /// Apply scoped command dependencies without inventing remote service observations.
+    #[must_use]
+    pub(crate) fn with_feature_availability(
+        mut self,
+        features: crate::application::capability::FeatureAvailability,
+        observations: &crate::application::capability::CapabilitySnapshot,
+    ) -> Self {
+        use crate::application::capability::Dependency;
+        self.queue
+            .apply_playback_availability(features.require(Dependency::Playback));
+        if let Some(publisher) = &mut self.publisher {
+            if features.require(Dependency::Publisher).is_err() {
+                for service in &mut publisher.services {
+                    for action in [
+                        &mut service.actions.start,
+                        &mut service.actions.stop,
+                        &mut service.actions.reset,
+                        &mut service.logs.action,
+                    ] {
+                        action.availability = PublisherActionAvailability::Unavailable;
+                    }
+                }
+            }
+            if let Some(event) = &mut publisher.event {
+                if features.require(Dependency::MusicIndex).is_err() {
+                    event.actions.create.availability = EventActionAvailability::Unavailable;
+                    event.actions.replace.availability = EventActionAvailability::Unavailable;
+                }
+                if features.require(Dependency::Publisher).is_err() {
+                    event.actions.attach.availability = EventActionAvailability::Unavailable;
+                    event.actions.detach.availability = EventActionAvailability::Unavailable;
+                }
+                if features.require(Dependency::BackgroundRuntime).is_err() {
+                    event.actions.check.availability = EventActionAvailability::Unavailable;
+                    event.picker.availability = EventActionAvailability::Unavailable;
+                }
+                for control in event.primary.iter_mut().chain(event.overflow.iter_mut()) {
+                    let dependency = match control.intent {
+                        EventControlIntent::Create | EventControlIntent::Replace => {
+                            Dependency::MusicIndex
+                        }
+                        EventControlIntent::ReadTargets
+                        | EventControlIntent::Attach
+                        | EventControlIntent::Detach => Dependency::Publisher,
+                        EventControlIntent::CopyFeedTag => continue,
+                        _ => Dependency::BackgroundRuntime,
+                    };
+                    if features.require(dependency).is_err() {
+                        control.action.availability = EventActionAvailability::Unavailable;
+                    }
+                }
+            }
+        }
+        if features.require(Dependency::Encoder).is_err() {
+            if let Some(actions) = self
+                .stream
+                .as_mut()
+                .and_then(|stream| stream.actions.as_mut())
+            {
+                actions.connect.availability = StreamActionAvailability::Unavailable;
+                actions.disconnect.availability = StreamActionAvailability::Unavailable;
+            }
+        }
+        for observation in observations
+            .values()
+            .filter(|entry| entry.failure.is_some())
+        {
+            let dependency = match observation.dependency {
+                Dependency::Configuration(field) => {
+                    super::startup::capabilities::configuration_dependency(field)
+                }
+                dependency => dependency,
+            };
+            let kind = match dependency {
+                Dependency::Playback | Dependency::Producer | Dependency::LibraryPaths => {
+                    ShowCardKind::Source
+                }
+                Dependency::Publisher => ShowCardKind::LiveMetadata,
+                Dependency::Encoder => ShowCardKind::Stream,
+                _ => continue,
+            };
+            if let Some(card) = self.cards.iter_mut().find(|card| card.kind == kind) {
+                if !card.secondary.is_empty() {
+                    card.secondary.push(' ');
+                }
+                card.secondary
+                    .push_str(&super::startup::capabilities::observation_text(observation));
+                card.state = ShowCardStateKind::Attention;
+                "Setup needs attention".clone_into(&mut card.state_label);
+                card.a11y_label = show_card_a11y_label(
+                    card.title,
+                    &card.state_label,
+                    &card.primary,
+                    &card.secondary,
+                );
+            }
+        }
+        self
+    }
+
     /// ADR 0066: an unavailable query cannot establish that no show is active.
     #[must_use]
     pub(crate) fn with_execution_availability(
@@ -2770,6 +2870,73 @@ const fn transport_state_label(state: TransportState) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn adr_0066_show_projects_paired_availability_and_retains_setup_reports() {
+        use crate::application::capability::{
+            CapabilityFailure, CapabilityObservation, Dependency, FeatureAvailability,
+        };
+        let snapshot = publisher_snapshot([(
+            PublisherServiceRole::Publisher,
+            "publisher.service",
+            ServiceState::Active,
+        )]);
+        let config = crate::config::ConfigSnapshot::from_bytes(std::path::Path::new("fixture.toml"), b"musicindex_endpoint = false\n[broadcast]\nhosts = false\ndrop_directory = '/tmp/drop'\n[broadcast.encoder]\nbinary_path = 'butt'\n".to_vec()).unwrap();
+        let configured = FeatureAvailability::from_resources(
+            &crate::config::MusicIndexEndpoint::from_field(config.musicindex_endpoint.clone()),
+            &config.broadcast(),
+            true,
+        );
+        let observation = CapabilityObservation {
+            dependency: Dependency::Producer,
+            failure: Some(CapabilityFailure::Preparation),
+            resource: None,
+            observed_at: std::time::SystemTime::UNIX_EPOCH,
+        };
+        let observations = [(Dependency::Producer, observation)].into_iter().collect();
+        let make_page = |features| {
+            ShowPageVm::from_queue_and_publisher(
+                QueueNowPlayingPageVm::builder()
+                    .tracks([track(1, "Playable", true)])
+                    .transport_state(TransportState::Playing)
+                    .build(),
+                Some(&snapshot),
+                ShowLogPaneDisplay::closed(),
+            )
+            .with_feature_availability(features, &observations)
+            .with_panel_state(ShowPanelMode::Detail(ShowCardKind::Source), true)
+        };
+        let page = make_page(configured);
+        assert!(command_service(&page, PublisherServiceRole::Publisher)
+            .actions
+            .stop
+            .disabled());
+        assert!(!page.queue.transport.disabled);
+        assert!(page
+            .cards
+            .iter()
+            .any(|card| card.kind == ShowCardKind::Source
+                && card.secondary.contains("Drop-file publication")
+                && card.state == ShowCardStateKind::Attention));
+        let valid = crate::config::ConfigSnapshot::from_bytes(
+            std::path::Path::new("fixture.toml"),
+            Vec::new(),
+        )
+        .unwrap();
+        let no_player = make_page(FeatureAvailability::from_resources(
+            &"http://index.test".into(),
+            &valid.broadcast(),
+            false,
+        ));
+        assert!(no_player.queue.transport.disabled);
+        assert!(
+            !command_service(&no_player, PublisherServiceRole::Publisher)
+                .actions
+                .stop
+                .disabled()
+        );
+    }
+
     #[test]
     fn adr_0066_unavailable_show_query_does_not_claim_idle_playback() {
         use crate::application::capability::ExecutionUnavailable;

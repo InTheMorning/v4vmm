@@ -266,27 +266,7 @@ impl TopApp {
             return;
         };
 
-        let selected_host = match selected_broadcast_host(&self.broadcast) {
-            Ok(host) => host,
-            Err(error) => {
-                self.settings_status = format!("Publisher status error: {error:#}");
-                return;
-            }
-        };
-        let units = match broadcast_service_units(&selected_host) {
-            Ok(units) => units,
-            Err(error) => {
-                self.settings_status = format!("Publisher status error: {error}");
-                return;
-            }
-        };
-        let encoder = match broadcast_encoder_watch_target(&self.broadcast) {
-            Ok(encoder) => encoder,
-            Err(error) => {
-                self.settings_status = format!("Stream status error: {error:#}");
-                return;
-            }
-        };
+        let (units, encoder) = broadcast_watch_inputs(&self.broadcast);
         self.show_commands.clear();
         let handle = start_broadcast_service_watch(&host, units, encoder);
         self.publisher_service_snapshot = Some(handle.latest());
@@ -387,10 +367,14 @@ impl TopApp {
         .with_command_state(&self.show_commands)
         .with_status_message(&self.settings_status)
         .with_execution_availability(self.command_runner.availability())
+        .with_feature_availability(
+            self.feature_availability(),
+            &self.capability_observations.snapshot(),
+        )
         .with_panel_state(panel_mode, panel_open);
     }
 
-    fn reproject_show_page_from_current_queue(&mut self) {
+    pub(super) fn reproject_show_page_from_current_queue(&mut self) {
         self.reproject_show_page(self.show_page.queue.clone());
     }
 
@@ -1063,7 +1047,7 @@ struct RefreshShowPage {
     conn: Arc<Mutex<Connection>>,
     application_services: Arc<ApplicationServices>,
     queue_text_filter: Option<String>,
-    broadcast: config::BroadcastConfig,
+    broadcast: config::BroadcastCapabilities,
 }
 
 impl RefreshShowPage {
@@ -1071,7 +1055,7 @@ impl RefreshShowPage {
         conn: Arc<Mutex<Connection>>,
         application_services: Arc<ApplicationServices>,
         queue_text_filter: Option<String>,
-        broadcast: config::BroadcastConfig,
+        broadcast: config::BroadcastCapabilities,
     ) -> Self {
         Self {
             conn,
@@ -1370,11 +1354,13 @@ struct StreamEncoderCommand {
 
 impl StreamEncoderCommand {
     fn new(
-        broadcast: &crate::config::BroadcastConfig,
+        broadcast: &crate::config::BroadcastCapabilities,
         operation: StreamEncoderOperation,
     ) -> Result<Self, CommandError> {
         let encoder = broadcast
             .encoder
+            .as_ref()
+            .map_err(stream_command_error)?
             .as_ref()
             .ok_or_else(|| CommandError::Other("broadcast.encoder is not configured".to_owned()))?;
         Ok(Self {
@@ -1415,7 +1401,7 @@ impl ApplicationCommand for StreamEncoderCommand {
 }
 
 fn selected_broadcast_host(
-    broadcast: &crate::config::BroadcastConfig,
+    broadcast: &crate::config::BroadcastCapabilities,
 ) -> anyhow::Result<BroadcastHostConfig> {
     Ok(broadcast.selected_host()?.clone())
 }
@@ -1443,7 +1429,10 @@ fn event_selection_input(event: db::BroadcastEventRow) -> EventSelectionInput {
     }
 }
 
-fn load_event_section(conn: &Connection, broadcast: &config::BroadcastConfig) -> EventSectionInput {
+fn load_event_section(
+    conn: &Connection,
+    broadcast: &config::BroadcastCapabilities,
+) -> EventSectionInput {
     let mut input = empty_event_section(broadcast);
     let result = (|| -> anyhow::Result<()> {
         let selection = db::broadcast_event_selection(conn)?;
@@ -1463,7 +1452,7 @@ fn load_event_section(conn: &Connection, broadcast: &config::BroadcastConfig) ->
     input
 }
 
-fn empty_event_section(broadcast: &config::BroadcastConfig) -> EventSectionInput {
+fn empty_event_section(broadcast: &config::BroadcastCapabilities) -> EventSectionInput {
     EventSectionInput {
         liveness_confirmed: false,
         registry: EventRegistryInput {
@@ -1473,7 +1462,12 @@ fn empty_event_section(broadcast: &config::BroadcastConfig) -> EventSectionInput
         feedback: EventCommandFeedback::default(),
         selected_event: None,
         targets: EventTargetListInput::Unknown,
-        attach_target_name: broadcast.drop_file_target.trim().to_owned(),
+        attach_target_name: broadcast
+            .drop_file_target
+            .as_deref()
+            .unwrap_or_default()
+            .trim()
+            .to_owned(),
         remote_host: broadcast
             .selected_host()
             .is_ok_and(|host| matches!(host.transport, Transport::Ssh { .. })),
@@ -1482,7 +1476,7 @@ fn empty_event_section(broadcast: &config::BroadcastConfig) -> EventSectionInput
     }
 }
 
-fn event_context(broadcast: &config::BroadcastConfig) -> String {
+fn event_context(broadcast: &config::BroadcastCapabilities) -> String {
     broadcast.selected_host().map_or_else(
         |error| error.to_string(),
         |host| {
@@ -1491,13 +1485,17 @@ fn event_context(broadcast: &config::BroadcastConfig) -> String {
                 host.name,
                 host.instance_name,
                 host.transport,
-                broadcast.drop_file_target.trim()
+                broadcast
+                    .drop_file_target
+                    .as_deref()
+                    .unwrap_or_default()
+                    .trim()
             )
         },
     )
 }
 
-fn read_targets(broadcast: &config::BroadcastConfig) -> EventTargetListInput {
+fn read_targets(broadcast: &config::BroadcastCapabilities) -> EventTargetListInput {
     let host = match selected_broadcast_host(broadcast) {
         Ok(host) => host,
         Err(error) => {
@@ -1543,10 +1541,22 @@ fn token_file_missing(path: &str) -> bool {
     fs::metadata(path).is_err()
 }
 
+// ADR 0066: neither independent observer requires the other configuration.
+fn broadcast_watch_inputs(
+    broadcast: &config::BroadcastCapabilities,
+) -> (Vec<BroadcastServiceWatchUnit>, BroadcastEncoderWatchTarget) {
+    let units = selected_broadcast_host(broadcast)
+        .and_then(|host| broadcast_service_units(&host))
+        .unwrap_or_default();
+    let encoder = broadcast_encoder_watch_target(broadcast)
+        .unwrap_or_else(|_| BroadcastEncoderWatchTarget::unavailable());
+    (units, encoder)
+}
+
 fn broadcast_encoder_watch_target(
-    broadcast: &crate::config::BroadcastConfig,
+    broadcast: &crate::config::BroadcastCapabilities,
 ) -> anyhow::Result<BroadcastEncoderWatchTarget> {
-    let Some(encoder) = &broadcast.encoder else {
+    let Some(encoder) = broadcast.encoder.as_ref().map_err(|issue| *issue)? else {
         return Ok(BroadcastEncoderWatchTarget::not_configured());
     };
     Ok(BroadcastEncoderWatchTarget::configured(
@@ -1633,6 +1643,36 @@ const fn event_target_operation_label(operation: EventTargetOperation) -> &'stat
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn adr_0066_broadcast_observers_and_commands_are_independent() {
+        let snapshot = config::ConfigSnapshot::from_bytes(
+            std::path::Path::new("config.toml"),
+            b"[broadcast]\nhosts = false\n[broadcast.encoder]\naddress = '127.0.0.1'\n".to_vec(),
+        )
+        .unwrap();
+        let (units, encoder) = broadcast_watch_inputs(&snapshot.broadcast());
+        assert!(units.is_empty());
+        assert!(encoder.target.is_some());
+        assert!(
+            StreamEncoderCommand::new(&snapshot.broadcast(), StreamEncoderOperation::Connect)
+                .is_ok()
+        );
+        let snapshot = config::ConfigSnapshot::from_bytes(
+            std::path::Path::new("config.toml"),
+            b"[broadcast]\nencoder = false\n".to_vec(),
+        )
+        .unwrap();
+        let (units, encoder) = broadcast_watch_inputs(&snapshot.broadcast());
+        assert_eq!(units.len(), 2);
+        assert!(encoder.target.is_none());
+        assert_eq!(encoder.server_name, "Configuration unavailable");
+        assert!(
+            StreamEncoderCommand::new(&snapshot.broadcast(), StreamEncoderOperation::Connect)
+                .is_err()
+        );
+    }
+
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
@@ -1645,18 +1685,7 @@ mod tests {
     use crate::view_models::show::{EventSectionDisplay, ShowLogPaneDisplay};
 
     fn show_event_db(temp: &tempfile::TempDir) -> Connection {
-        let cfg = config::Config {
-            music_dir: temp.path().join("music"),
-            db_path: temp.path().join("app.sqlite"),
-            flac_path: None,
-            playback: config::PlaybackConfig::default(),
-            broadcast: config::BroadcastConfig::default(),
-            ui_scale: config::UiScale::default(),
-            theme_profile: crate::theme_profile::ThemeProfile::default(),
-            workspace_layout: None,
-            workspace: None,
-        };
-        db::open_db(&cfg).unwrap()
+        db::open_db(&temp.path().join("app.sqlite")).unwrap()
     }
 
     fn show_event_relay(statuses: Vec<u16>) -> (String, std::thread::JoinHandle<Vec<String>>) {
@@ -2128,8 +2157,12 @@ mod tests {
             db::select_broadcast_event(&conn, "older").unwrap();
             stored_test_event(&conn, temp.path(), "newer", &endpoint, 2);
         }
-        let mut input =
-            load_event_section(&conn.lock().unwrap(), &config::BroadcastConfig::default());
+        let mut input = load_event_section(
+            &conn.lock().unwrap(),
+            &config::ConfigSnapshot::from_bytes(std::path::Path::new("fixture.toml"), Vec::new())
+                .unwrap()
+                .broadcast(),
+        );
         assert_eq!(input.registry.events[0].event_id, "newer");
         assert_eq!(input.selected_event.as_ref().unwrap().event_id, "older");
         for action in [EventRegistryAction::Check, EventRegistryAction::Replace] {
@@ -2190,8 +2223,12 @@ mod tests {
         let cfg_path = temp.path().join("config.toml");
         fs::write(&cfg_path, format!("musicindex_endpoint = {endpoint:?}\n")).unwrap();
         conn.lock().unwrap().execute_batch("CREATE TRIGGER reject_choice BEFORE INSERT ON broadcast_event_selection BEGIN SELECT RAISE(FAIL, 'choice disk failure'); END;").unwrap();
-        let mut input =
-            load_event_section(&conn.lock().unwrap(), &config::BroadcastConfig::default());
+        let mut input = load_event_section(
+            &conn.lock().unwrap(),
+            &config::ConfigSnapshot::from_bytes(std::path::Path::new("fixture.toml"), Vec::new())
+                .unwrap()
+                .broadcast(),
+        );
         let command = EventRegistryCommand {
             conn: Arc::clone(&conn),
             cfg_path,
@@ -2235,13 +2272,23 @@ mod tests {
             .unwrap()
             .unwrap();
         db::delete_broadcast_event(&conn, old.id).unwrap();
-        let input = load_event_section(&conn, &config::BroadcastConfig::default());
+        let input = load_event_section(
+            &conn,
+            &config::ConfigSnapshot::from_bytes(std::path::Path::new("fixture.toml"), Vec::new())
+                .unwrap()
+                .broadcast(),
+        );
         assert!(input.selected_event.is_none());
         assert_eq!(input.registry.selected_id.as_deref(), Some("old"));
         assert_eq!(show_event_project(&input).badge.label, "Event unavailable");
         assert!(show_event_project(&input).actions.create.disabled());
         conn.execute_batch("DROP TABLE broadcast_events").unwrap();
-        let input = load_event_section(&conn, &config::BroadcastConfig::default());
+        let input = load_event_section(
+            &conn,
+            &config::ConfigSnapshot::from_bytes(std::path::Path::new("fixture.toml"), Vec::new())
+                .unwrap()
+                .broadcast(),
+        );
         assert!(matches!(
             input.registry.status,
             EventRegistryStatus::Failed(_)
@@ -2255,7 +2302,11 @@ mod tests {
     /// Situational ADR 0059: refreshes cannot resurrect old confirmation or another context's results.
     #[test]
     fn compact_event_context_revision_and_configured_detach_are_scoped() {
-        let mut input = empty_event_section(&config::BroadcastConfig::default());
+        let mut input = empty_event_section(
+            &config::ConfigSnapshot::from_bytes(std::path::Path::new("fixture.toml"), Vec::new())
+                .unwrap()
+                .broadcast(),
+        );
         input.context = "host / instance / default".to_owned();
         input.request = 7;
         input.registry.status = EventRegistryStatus::Loaded;
@@ -2556,7 +2607,7 @@ impl TopApp {
 
 struct SelectShowEvent {
     conn: Arc<Mutex<Connection>>,
-    broadcast: config::BroadcastConfig,
+    broadcast: config::BroadcastCapabilities,
     event_id: String,
     expected_revision: i64,
 }
@@ -2586,7 +2637,7 @@ impl ApplicationCommand for SelectShowEvent {
 }
 
 struct ReadEventTargets {
-    broadcast: config::BroadcastConfig,
+    broadcast: config::BroadcastCapabilities,
 }
 impl ApplicationCommand for ReadEventTargets {
     type Output = EventTargetListInput;

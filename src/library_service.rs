@@ -157,7 +157,7 @@ pub fn subscribe_then_append_to_playlist(
     track_ids: Vec<i64>,
 ) -> Result<AppendToPlaylistOutcome> {
     let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
+    let music_dir = config::ConfigSnapshot::read_existing(&cfg_path)?.music_dir?;
     let mut outcome = AppendToPlaylistOutcome::default();
     for track_id in track_ids {
         let track = {
@@ -173,7 +173,7 @@ pub fn subscribe_then_append_to_playlist(
             && track
                 .local_path
                 .as_ref()
-                .map(|path| path.resolve(&cfg.music_dir).exists())
+                .map(|path| path.resolve(&music_dir).exists())
                 .unwrap_or(false);
 
         if already_local {

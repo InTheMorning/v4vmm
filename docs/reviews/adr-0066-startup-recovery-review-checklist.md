@@ -6,8 +6,9 @@ Tasks 001–003 are complete - 2026-09-11. Mechanical checks are Green;
 operator acceptance, final preservation inspection and fixture cleanup are
 confirmed. The keyboard checks use ADR 0067's accepted Ctrl bindings.
 Settings responsiveness and cached-file recovery are accepted; temporary
-diagnostics are removed. ADR 0066 remains partial; task 004 is ready and tasks
-004–013 have not started.
+diagnostics are removed. ADR 0066 remains partial. Task 004 implementation and
+mechanical checks are complete; operator visual acceptance, preservation
+inspection and fixture cleanup remain open. Tasks 005–013 have not started.
 
 Read the [ADR](../adr/0066-configuration-and-startup-failure-recovery.md),
 [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md), active packet and
@@ -354,3 +355,55 @@ are complete. Confirm the following before changing it to Implemented:
 Report pass/fail, required fixes, optional improvements, whether this packet is
 ready to merge, and whether its successor needs a bounded amendment. Distinguish
 a mechanical pass from pending operator acceptance.
+
+
+## Task 004 Review — 2026-09-11
+
+[Implementation evidence and caller inventory](../tasks/adr-0066-task-004-optional-tool-isolation.md#implementation-and-proof)
+cover C1–C7. The strict Config and BroadcastConfig adapters are gone. The empty
+whole-config caller inventory is guarded. Optional resources and presentation
+siblings remain independent; prepared-player availability reaches Show and
+playlist displays as well as keyboard/command dispatch. Polling starts after a
+successful playback command, preserving lazy startup without editing queue data.
+
+The existing persistence and runtime guards follow the new owners. A GPUI
+re-entrancy guard caught a draft playlist projection; final wiring passes typed
+availability through the display input. Full tests and required build/lint/format
+checks are Green. Backend fixture checks retained config/audio, all tracks and
+playlist entries, migration versions and the first committed path update.
+
+The presentation case has operator acceptance and Green preservation inspection.
+[Task 004's runbook](../runbooks/startup-recovery-check.md#task-004-optional-tool-isolation)
+still owns the first case's remaining visual confirmation, producer failure
+with audible playback, publisher isolation, partial path repair, their remaining
+preservation checks and operator cleanup. Task 005 waits.
+Tasks 001–003, ADR 0067 and the five inherited check groups retain their prior scope.
+
+The operator's presentation screenshot exposed configuration warnings duplicated
+between the shared notice and Show status. The correction projects residual
+startup status through `normal_startup_status`; configuration notices retain
+their capability-report owner. Factory tests retain all three reports, preserve
+a separate download-directory notice and verify unchanged config/blocker bytes.
+The live call is covered by `adr_0066_optional_dependencies_are_scoped`.
+The operator supplied the presentation inspection and stated "pass" on
+2026-09-11, accepting the screenshot correction and the requested resize/navigation
+checks. The presentation recheck is closed in task 004 and removed from the
+pending index. The packet's remaining checks stay open.
+
+The operator's subsequent producer screenshot contains an mpv IPC read error;
+audio and preservation are not accepted from that image. The operator also
+rejected the runbook's Music Play route: a playlist must load into the Show cue
+before Show starts it, and other playback buttons must audition independently.
+The current commands share one playback owner and can publish drop-file metadata
+from Music Play. The runbook now pauses its playback-dependent portions pending
+that workflow decision and implementation. C2/C5's mechanical isolation proofs
+do not establish cue/audition separation. Keep these checks open as recorded in
+[task 004](../tasks/adr-0066-task-004-optional-tool-isolation.md#playback-workflow-correction--2026-09-11);
+the accepted presentation case is unaffected.
+
+The operator then supplied the `producer-unavailable` inspection. Preservation
+is Green: only permitted workspace preferences changed in configuration; music,
+bindings, library data, migrations and the producer blocker remain preserved,
+with no residual probes. This closes that case's preservation check only.
+Playback acceptance remains paused and final fixture cleanup remains open. See
+[the recorded inspection](../tasks/adr-0066-task-004-optional-tool-isolation.md#producer-preservation-inspection--2026-09-11).

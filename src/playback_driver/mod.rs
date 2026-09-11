@@ -42,6 +42,22 @@ pub enum ConfiguredPlaybackDriver {
 }
 
 impl ConfiguredPlaybackDriver {
+    /// Debug fixture adapter; construction remains lazy and sockets stay isolated.
+    #[cfg(all(debug_assertions, unix))]
+    pub(crate) fn from_config_in_directory(
+        config: &PlaybackConfig,
+        directory: std::path::PathBuf,
+    ) -> Result<Self> {
+        match config.driver {
+            PlaybackDriverConfig::Null => Self::from_config(config),
+            PlaybackDriverConfig::Mpv => MpvDriver::with_runtime_dir(
+                config.mpv_path.clone().unwrap_or_else(|| "mpv".into()),
+                directory,
+            )
+            .map(Self::Mpv),
+        }
+    }
+
     pub fn from_config(config: &PlaybackConfig) -> Result<Self> {
         match config.driver {
             PlaybackDriverConfig::Null => Ok(Self::Null(NullDriver::new())),

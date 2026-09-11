@@ -147,3 +147,32 @@ cp ~/.config/v4vmm/config.toml.bak ~/.config/v4vmm/config.toml
 
 - `docs/adr/0061-executable-governance.md`, for the mechanical and visual rule
 - `docs/plans/broadcast-chain-delivery-order.md`
+
+
+## 6. Optional Tool Isolation — ADR 0066 Task 004
+
+Open - implementation and mechanical checks recorded 2026-09-11.
+
+- Owner: [task 004](tasks/adr-0066-task-004-optional-tool-isolation.md).
+- Check: [Optional Tool Isolation](runbooks/startup-recovery-check.md#task-004-optional-tool-isolation).
+- Needs a Linux desktop, Python 3.11+, this checkout's debug binary, installed
+  mpv and working desktop audio for the producer-failure case. The fixture
+  supplies local tracks, broken paths and external-service stubs.
+- Remaining checks: confirm local search, playlist visibility, inactive Play/Space
+  and retained reports for paired Index/player failure; test producer failure
+  with audible playback, publisher failure with independent producer/encoder,
+  and partially applied path repair. Check report copy, preservation for the
+  publisher and path-repair cases, and final fixture cleanup. Producer-case
+  preservation is Green from the operator's 2026-09-11 inspection; its permitted
+  workspace preference changes do not close playback acceptance.
+- Playback-dependent portions are paused: the operator requires explicit Show
+  cue loading and playback from Show, with other Play buttons using a separate
+  audition audio path. Current Music Play shares the Show session and cannot
+  establish that workflow. The producer screenshot also reports an unresolved
+  mpv IPC read error. The producer case is incomplete; report-only checks do not
+  accept audio/publication. See [task 004's correction](tasks/adr-0066-task-004-optional-tool-isolation.md#playback-workflow-correction--2026-09-11).
+- [ADR 0068](adr/0068-show-cue-and-audition-isolation.md) now proposes that
+  separation. Its visual/audio check is specified but not runnable before
+  implementation; the draft does not close this gate or reopen accepted cases.
+- Task 005 remains pending until this gate passes. Tasks 001–003 and ADR 0067
+  remain accepted; the inherited checks above are separate.

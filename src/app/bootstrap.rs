@@ -14,6 +14,7 @@ use gpui_component::Root;
 use crate::application::capability::{
     CapabilityFailure, CapabilityObservation, CapabilityObservations, Dependency,
 };
+use crate::config;
 use crate::media::ImageCache;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::PlaybackOwner;
@@ -26,8 +27,7 @@ use crate::presentation::{
 };
 use crate::startup::{CoreCheckOutcome, PreparedCore, StartupIssue, StartupStage};
 use crate::ui::layouts as layout;
-use crate::view_models::startup::format_report;
-use crate::{config, db, playback};
+use crate::view_models::startup::{format_report, normal_startup_status};
 
 use super::{
     keyboard::install_key_bindings, menu::install_app_menu, startup::StartupScreen, TopApp,
@@ -35,7 +35,7 @@ use super::{
 
 /// Run one desktop session. False means recovery closed before normal startup.
 ///
-/// Optional constructor failures retain their existing policy until 003/004.
+/// Optional constructor failures remain scoped to their dependent operations.
 /// Programmer invariants are not caught or converted into recovery results.
 #[must_use]
 pub fn run_app() -> bool {
@@ -118,11 +118,11 @@ pub fn run_app() -> bool {
 }
 
 pub(super) struct NormalStartup {
-    cfg: config::Config,
+    cfg: config::ConfigSnapshot,
     cfg_path: std::path::PathBuf,
     conn: Arc<Mutex<rusqlite::Connection>>,
-    musicindex_endpoint: String,
-    playback_owner: Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>,
+    musicindex_endpoint: config::MusicIndexEndpoint,
+    playback_owner: Option<Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>>,
     runtime_host: Option<Arc<RuntimeHost>>,
     image_cache: Arc<ImageCache>,
     capability_observations: CapabilityObservations,
@@ -137,38 +137,31 @@ pub(super) fn prepare_normal(core: PreparedCore) -> Result<NormalStartup, CoreCh
         connection,
         notices,
     } = core;
-    // The strict optional adapter and second endpoint read are task 004's boundary.
-    let cfg = snapshot
-        .legacy_config()
-        .expect("load optional configuration (task 004)");
-    let musicindex_endpoint =
-        config::load_musicindex_endpoint(&cfg_path).expect("load MusicIndex endpoint");
-    let repair =
-        db::repair_local_file_paths(&connection, &cfg.music_dir).expect("repair local paths");
-    if repair.skipped == Some(db::LocalPathRepairSkip::MusicFolderMissing) {
-        return Err(CoreCheckOutcome::blocked(StartupIssue::new(
-            StartupStage::MusicInspect,
-            Some(&cfg.music_dir),
-            "Music storage disappeared before normal startup. App preserved the library bindings.",
-            "Mount or correct the music directory, then choose Check again.",
-        )));
-    }
-    let conn = Arc::new(Mutex::new(connection));
-    let playback_driver =
-        ConfiguredPlaybackDriver::from_config(&cfg.playback).expect("configure playback driver");
-    let drop_file_producer = cfg
-        .broadcast
-        .drop_file_producer()
-        .expect("configure broadcast drop-file producer");
-    let playback_owner = Arc::new(Mutex::new(
-        PlaybackOwner::new(
-            playback_driver,
-            playback::DEFAULT_SESSION_ID,
-            cfg.music_dir.clone(),
-        )
-        .with_drop_file_producer(drop_file_producer),
-    ));
+    let cfg = snapshot;
     let capability_observations = CapabilityObservations::default();
+    let music_dir = cfg
+        .music_dir
+        .as_ref()
+        .expect("core admission verified music path");
+    let db_path = cfg
+        .db_path
+        .as_ref()
+        .expect("core admission verified database path");
+    if crate::startup::prepare_local_paths(&connection, music_dir, db_path)? {
+        capability_observations.record(
+            CapabilityObservation::new(
+                Dependency::LibraryPaths,
+                Some(CapabilityFailure::PathRepair),
+            )
+            .at_path(db_path),
+        );
+    }
+    let playback_owner =
+        crate::startup::prepare_playback(&cfg, &cfg_path, &capability_observations)
+            .map(|owner| Arc::new(Mutex::new(owner)));
+    let musicindex_endpoint =
+        config::MusicIndexEndpoint::from_field(cfg.musicindex_endpoint.clone());
+    let conn = Arc::new(Mutex::new(connection));
     let runtime = RuntimeHost::for_config(&cfg_path);
     capability_observations.record(CapabilityObservation::new(
         Dependency::BackgroundRuntime,
@@ -218,28 +211,25 @@ pub(super) fn mount_normal<T: 'static>(
         notices,
     } = prepared;
     let workspace_layout_prefs = cfg
-        .workspace
-        .as_ref()
-        .and_then(|workspace| workspace.layout.clone());
-    crate::ui::theme_bridge::install_theme_for_window(
-        cfg.theme_profile,
-        cfg.ui_scale.into(),
-        window,
-        cx,
-    );
+        .workspace_preferences()
+        .and_then(|workspace| workspace.layout);
+    let broadcast = cfg.broadcast();
+    let theme_profile = cfg.theme_profile.unwrap_or_default();
+    let ui_scale = cfg.ui_scale.unwrap_or_default();
+    crate::ui::theme_bridge::install_theme_for_window(theme_profile, ui_scale.into(), window, cx);
     cx.new(|cx| {
         let mut app = TopApp::new(
             conn,
             image_cache,
             cfg_path,
             musicindex_endpoint,
-            cfg.music_dir,
+            cfg.music_dir.expect("core admission verified music path"),
             cfg.flac_path,
-            cfg.broadcast,
-            cfg.workspace_layout,
+            broadcast,
+            cfg.workspace_layout.unwrap_or_default(),
             workspace_layout_prefs.as_ref(),
-            cfg.ui_scale,
-            cfg.theme_profile,
+            ui_scale,
+            theme_profile,
             playback_owner,
             runtime_host,
             window,
@@ -247,16 +237,12 @@ pub(super) fn mount_normal<T: 'static>(
         );
         app.focus_active_tab(window);
         app.install_capability_controls(capability_observations, worker, cx);
-        app.maybe_start_playback_polling(cx);
         app.maybe_start_broadcast_readiness_watch(cx);
         app.maybe_start_broadcast_service_watch(cx);
         app.refresh_show_page(cx);
-        if !notices.is_empty() {
-            app.settings_status = notices
-                .iter()
-                .map(|issue| issue.cause.as_str())
-                .collect::<Vec<_>>()
-                .join("\n");
+        let status = normal_startup_status(&notices);
+        if !status.is_empty() {
+            app.settings_status = status;
         }
         app
     })
@@ -305,4 +291,126 @@ fn nudge_window(window_handle: gpui::AnyWindowHandle, cx: &mut gpui::App) {
         let _ = cx.refresh();
     })
     .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adr_0066_normal_factory_scopes_each_optional_group_and_keeps_config_bytes() {
+        let cases = [
+            "musicindex_endpoint = false\n",
+            "playback = false\n",
+            "broadcast = false\n",
+            "theme_profile = 12\n",
+            "ui_scale = false\n",
+            "workspace_layout = []\n",
+            "flac_path = false\n",
+            "[workspace]\nlayout = false\n",
+            "[playback]\ndriver = 'broken'\n",
+            "[broadcast]\nhosts = []\n",
+            "[broadcast]\nselected_host = 12\n",
+            "[broadcast]\ndrop_directory = false\n",
+            "[broadcast]\nencoder = false\n",
+            "[playback]\nmpv_path = false\n",
+        ];
+        for case in cases {
+            let temp = tempfile::tempdir().unwrap();
+            let music = temp.path().join("music");
+            std::fs::create_dir(&music).unwrap();
+            let path = temp.path().join("config.toml");
+            let bytes = format!(
+                "music_dir = {:?}\ndb_path = {:?}\n{case}",
+                music,
+                temp.path().join("library.sqlite")
+            );
+            std::fs::write(&path, &bytes).unwrap();
+            let mut backend = crate::startup::StartupBackend::new(Some(path.clone()));
+            let crate::startup::CoreResult::Prepared(core) =
+                backend.execute(crate::startup::CheckIntent::Initial)
+            else {
+                panic!("optional setting blocked core admission: {case}");
+            };
+            let prepared = prepare_normal(*core)
+                .unwrap_or_else(|_| panic!("optional setting blocked normal construction: {case}"));
+            assert!(
+                prepared
+                    .capability_observations
+                    .snapshot()
+                    .values()
+                    .any(|entry| entry.failure.is_some()),
+                "{case}"
+            );
+            if case.contains("musicindex_endpoint") {
+                assert!(prepared.musicindex_endpoint.require().is_err());
+            }
+            if case == "playback = false\n" || case.contains("driver = 'broken'") {
+                assert!(prepared.playback_owner.is_none());
+            }
+            if case.contains("mpv_path = false") {
+                assert!(
+                    prepared.playback_owner.is_some(),
+                    "unused mpv setting cannot disable configured Null"
+                );
+            }
+            assert!(normal_startup_status(&prepared.notices).is_empty());
+            drop(prepared);
+            assert_eq!(std::fs::read_to_string(path).unwrap(), bytes);
+        }
+    }
+
+    #[test]
+    fn adr_0066_optional_notices_have_one_normal_report_owner() {
+        let temp = tempfile::tempdir().unwrap();
+        let music = temp.path().join("music");
+        std::fs::create_dir(&music).unwrap();
+        let artists = music.join("artists");
+        std::fs::write(&artists, b"preserve download-directory blocker").unwrap();
+        let config_path = temp.path().join("config.toml");
+        let bytes = format!(
+            "music_dir = {:?}\ndb_path = {:?}\ntheme_profile = 42\nui_scale = false\n[workspace.layout]\ncontent_list_view_mode = false\n",
+            music, temp.path().join("library.sqlite"),
+        );
+        std::fs::write(&config_path, &bytes).unwrap();
+        let mut backend = crate::startup::StartupBackend::new(Some(config_path.clone()));
+        let crate::startup::CoreResult::Prepared(core) =
+            backend.execute(crate::startup::CheckIntent::Initial)
+        else {
+            panic!("optional failures must permit normal startup");
+        };
+        assert_eq!(core.notices.len(), 4);
+        let download_notice = core
+            .notices
+            .iter()
+            .find(|issue| issue.stage == StartupStage::Artists)
+            .unwrap()
+            .cause
+            .clone();
+        let prepared = prepare_normal(*core).unwrap_or_else(|_| panic!("core remains usable"));
+        assert_eq!(normal_startup_status(&prepared.notices), download_notice);
+        let reports = crate::view_models::startup::capabilities::CapabilityReportVm::new(
+            prepared.capability_observations.snapshot(),
+            true,
+        );
+        for field in [
+            "theme_profile",
+            "ui_scale",
+            "workspace.layout.content_list_view_mode",
+        ] {
+            assert_eq!(
+                reports
+                    .issues()
+                    .filter(|issue| issue.dependency == Dependency::Configuration(field))
+                    .count(),
+                1
+            );
+            assert!(reports.report().contains(field));
+        }
+        assert_eq!(
+            std::fs::read(&artists).unwrap(),
+            b"preserve download-directory blocker"
+        );
+        assert_eq!(std::fs::read_to_string(config_path).unwrap(), bytes);
+    }
 }

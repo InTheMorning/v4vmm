@@ -156,8 +156,8 @@ impl ApplicationQueryService {
 /// is classified as not ready.
 pub(crate) fn broadcast_readiness_report(conn: &Connection) -> Result<BroadcastReadinessReport> {
     let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
-    broadcast_readiness_report_for_music_dir(conn, &cfg.music_dir)
+    let music_dir = config::ConfigSnapshot::read_existing(&cfg_path)?.music_dir?;
+    broadcast_readiness_report_for_music_dir(conn, &music_dir)
 }
 
 /// Builds the broadcast readiness report with a configured music directory.

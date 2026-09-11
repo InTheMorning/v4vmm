@@ -17,7 +17,10 @@ import tomllib
 KIND = "v4vmm-startup-recovery-v1"
 REPO = Path(__file__).resolve().parents[2]
 CASES = ("normal", "invalid-toml", "music-missing", "music-file", "db-locked", "long-path",
-         "runtime-unavailable", "cache-worker-unavailable", "runtime-and-cache-unavailable")
+         "runtime-unavailable", "cache-worker-unavailable", "runtime-and-cache-unavailable",
+         "endpoint-and-player-unavailable", "presentation-invalid", "producer-unavailable",
+         "publisher-invalid", "partial-path-repair")
+OPTIONAL_CASES = CASES[-5:]
 
 
 def digest(path):
@@ -62,10 +65,11 @@ def inspect(root, manifest):
     unchanged = digest(cfg) == expected["config_sha256"]
     normal_preferences_only = False
     last_exit = root / "last-exit.json"
-    if not unchanged and last_exit.exists():
+    invalid_optional = expected["case"] in ("endpoint-and-player-unavailable", "presentation-invalid", "publisher-invalid")
+    if not unchanged and not invalid_optional and last_exit.exists():
         record = json.loads(last_exit.read_text())
         if record == {"code": 0, "config_sha256": expected["config_sha256"]}:
-            before = tomllib.loads((root / "config.baseline").read_text())
+            before = tomllib.loads((root / "case.config").read_text())
             after = tomllib.loads(cfg.read_text())
             for key in ("workspace", "workspace_layout"):
                 before.pop(key, None)
@@ -75,13 +79,26 @@ def inspect(root, manifest):
               "normal_workspace_preferences_only": normal_preferences_only,
               "config_preserved": unchanged or normal_preferences_only,
               "music_preserved": digest(audio) == manifest["audio_sha256"],
-              "residual_music_probes": [str(p.relative_to(root)) for p in root.rglob(".v4vmm-startup-probe-*")]}
+              "residual_music_probes": [str(p.relative_to(root)) for pattern in (".v4vmm-startup-probe-*", ".v4vmm-producer-probe-*") for p in root.rglob(pattern)]}
+    music = audio.parent
+    result["music_preserved"] &= all(digest(music / name) == expected_hash for name, expected_hash in manifest["track_sha256"].items())
     completed = subprocess.run([manifest["binary"], "startup-fixture", "inspect", str(root)],
                                env=environment(root), text=True, capture_output=True, check=True)
     result.update(json.loads(completed.stdout))
     result["migration_records_preserved"] = result["migration_versions"] == manifest["migration_versions"]
+    expected_bindings = ["a.wav", "b.wav", "c.wav"]
+    if expected["case"] == "partial-path-repair":
+        # Before launch neither update has run; after launch only the first commits.
+        expected_bindings = ["a.wav", "/old/music/b.wav", "c.wav"]
+        result["repair_not_attempted"] = result["bindings"] == ["/old/music/a.wav", "/old/music/b.wav", "c.wav"]
+    result["bindings_preserved"] = result["bindings"] == expected_bindings or result.get("repair_not_attempted", False)
+    result["library_preserved"] = result["tracks"] == 3 and result["playlist_tracks"] == 3
+    blockers = {"endpoint-and-player-unavailable": ("occupied-runtime", b"preserve runtime blocker\n"),
+                "producer-unavailable": ("occupied-producer", b"preserve producer blocker\n")}
+    blocker = blockers.get(expected["case"])
+    result["tool_blockers_preserved"] = blocker is None or (root / blocker[0]).read_bytes() == blocker[1]
     print(json.dumps(result, indent=2))
-    if not all(result[key] for key in ("config_preserved", "music_preserved", "migration_records_preserved")) or result["residual_music_probes"] or result["database_probes"] or result["playlists"] != 1:
+    if not all(result[key] for key in ("config_preserved", "music_preserved", "migration_records_preserved", "bindings_preserved", "library_preserved", "tool_blockers_preserved")) or result["residual_music_probes"] or result["database_probes"] or result["playlists"] != 1:
         raise SystemExit("Fixture inspection failed. Keep the fixture for diagnosis.")
 
 
@@ -133,6 +150,9 @@ def hold_lock(root):
 
 
 def mode(root, case):
+    previous = json.loads((root / "case.json").read_text())["case"]
+    if (case in OPTIONAL_CASES or previous in OPTIONAL_CASES) and owned_process(root, "app.pid"):
+        raise SystemExit("Close the fixture app before changing optional-tool cases.")
     release_lock(root)
     if (root / "music.saved").exists():
         if (root / "music").is_file():
@@ -140,7 +160,32 @@ def mode(root, case):
         (root / "music.saved").rename(root / "music")
     cfg = root / "config/v4vmm/config.toml"
     cfg.write_bytes((root / "config.baseline").read_bytes())
-    if case == "invalid-toml":
+    if case in OPTIONAL_CASES:
+        text = cfg.read_text()
+        if case == "endpoint-and-player-unavailable":
+            text = text.replace('musicindex_endpoint = "http://127.0.0.1:9"', 'musicindex_endpoint = "invalid endpoint"')
+            text = text.replace('driver = "null"', 'driver = "mpv"')
+            (root / "occupied-runtime").write_bytes(b"preserve runtime blocker\n")
+            purpose = "App must open normally, retain both setup reports, reject Index/playback commands and keep local search and playlists usable."
+        elif case == "presentation-invalid":
+            text = 'theme_profile = 42\nui_scale = "invalid"\n' + text
+            text += '\n[workspace.layout]\ncontent_list_view_mode = "invalid"\n'
+            purpose = "Resize and navigate with fallback presentation. Inspect must report config_bytes_unchanged after closing."
+        elif case == "producer-unavailable":
+            mpv = shutil.which("mpv")
+            if not mpv:
+                raise SystemExit("This audio check needs an installed mpv binary. Install it in the desktop session before selecting this case.")
+            text = text.replace('driver = "null"', 'driver = "mpv"\nmpv_path = ' + json.dumps(mpv))
+            (root / "occupied-producer").write_bytes(b"preserve producer blocker\n")
+            text += '\n[broadcast]\ndrop_directory = ' + json.dumps(str(root / "occupied-producer")) + '\n'
+            purpose = "Play a.wav in the fixture playlist: hear the quiet tone despite the producer setup report. External controls must still attempt the isolated service stub."
+        elif case == "publisher-invalid":
+            text += '\n[broadcast]\nhosts = "invalid"\ndrop_directory = ' + json.dumps(str(root / "drop")) + '\n[broadcast.encoder]\nbinary_path = "butt"\n'
+            purpose = "Publisher setup must fail independently. Local playback and drop publication must work; encoder checks must reach the isolated butt stub."
+        else:
+            purpose = "App must report incomplete path repair and retain all three library tracks. a.wav and c.wav remain playable; b.wav must not execute its unvalidated binding."
+        cfg.write_text(text)
+    elif case == "invalid-toml":
         with cfg.open("a") as stream:
             stream.write('\ninvalid = [\n# intentional fixture syntax error\n')
         purpose = "App must explain the TOML error and preserve this file. Launch the fixture."
@@ -173,6 +218,10 @@ def mode(root, case):
     else:
         purpose = "Fixture files are restored. Use Check again on the failed tool, or Check again and Open app in core recovery. Otherwise launch the fixture."
     (root / "case.json").write_text(json.dumps({"case": case, "config_sha256": digest(cfg)}))
+    shutil.copyfile(cfg, root / "case.config")
+    if case in OPTIONAL_CASES or previous in OPTIONAL_CASES:
+        _, manifest = verify(root)
+        subprocess.run([manifest["binary"], "startup-fixture", "paths", str(root)], env=environment(root), check=True)
     print(purpose)
 
 
@@ -194,10 +243,12 @@ def setup():
     cfg = root / "config/v4vmm/config.toml"
     shutil.copyfile(cfg, root / "config.baseline")
     manifest["audio_sha256"] = digest(root / "music/unchanged-audio.bin")
+    manifest["track_sha256"] = {name: digest(root / "music" / name) for name in ("a.wav", "b.wav", "c.wav")}
     output = subprocess.check_output([str(binary), "startup-fixture", "inspect", str(root)], env=environment(root), text=True)
     manifest["migration_versions"] = json.loads(output)["migration_versions"]
     (root / "fixture.json").write_text(json.dumps(manifest, indent=2))
     (root / "case.json").write_text(json.dumps({"case": "normal", "config_sha256": digest(cfg)}))
+    shutil.copyfile(cfg, root / "case.config")
     print(root)
     print("Fixture created. Use verify, mode, run and inspect with this exact directory.", file=sys.stderr)
 

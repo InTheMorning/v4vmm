@@ -45,14 +45,17 @@ impl ApplicationCommand for LookupMusicBrainzTrack {
 /// Looks up `MusicBrainz` candidates for one remote MusicIndex track.
 #[derive(Clone, Debug)]
 pub(crate) struct LookupRemoteMusicBrainzTrack {
-    endpoint: String,
+    endpoint: crate::config::MusicIndexEndpoint,
     entity_id: String,
 }
 
 impl LookupRemoteMusicBrainzTrack {
     /// Creates a remote track `MusicBrainz` lookup command.
     #[must_use]
-    pub(crate) fn new(endpoint: impl Into<String>, entity_id: impl Into<String>) -> Self {
+    pub(crate) fn new(
+        endpoint: impl Into<crate::config::MusicIndexEndpoint>,
+        entity_id: impl Into<String>,
+    ) -> Self {
         Self {
             endpoint: endpoint.into(),
             entity_id: entity_id.into(),
@@ -213,7 +216,7 @@ impl ApplicationCommand for ApplyTrackId3Edits {
 /// Downloads or rereads a remote track and compares its ID3 metadata.
 #[derive(Clone, Debug)]
 pub(crate) struct DownloadAndCompareTrack {
-    endpoint: String,
+    endpoint: crate::config::MusicIndexEndpoint,
     entity_id: String,
     force_download: bool,
 }
@@ -222,7 +225,7 @@ impl DownloadAndCompareTrack {
     /// Creates a remote track tag-comparison command.
     #[must_use]
     pub(crate) fn new(
-        endpoint: impl Into<String>,
+        endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         entity_id: impl Into<String>,
         force_download: bool,
     ) -> Self {

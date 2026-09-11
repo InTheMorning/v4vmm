@@ -8,6 +8,11 @@ Amends ADR 0048 for the app-section tab set. Supersedes the `Broadcast`
 workspace frame introduced under ADR 0059 and retains everything else in that
 ADR.
 
+Amended 2026-09-11: corrected the obsolete reserved audition ADR number to
+[proposed ADR 0068](0068-show-cue-and-audition-isolation.md). The workflow
+separation below remains binding; the proposed mechanism is not yet accepted
+or implemented.
+
 ## Context
 
 `docs/plans/curator-workflow-ui-design-brief.md` records the product intent.
@@ -87,7 +92,8 @@ the show. During curation they occupied a locked share of the window for a task
 the curator was not doing.
 
 Auditioning stays in `Music` as an inline affordance on a row, and it is a
-separate mechanism from show playback. ADR 0062 decides that mechanism.
+separate mechanism from show playback. [Proposed ADR 0068](0068-show-cue-and-audition-isolation.md)
+records that mechanism; its implementation remains open.
 
 ### Curation Shows Nothing Operational
 
@@ -227,7 +233,7 @@ Negative and risks:
 ## Follow-Up Work
 
 - ADR 0061, cache and dump policy. `Dump` cannot ship without it.
-- ADR 0062, audition playback model.
+- [ADR 0068, Show cue and audition isolation](0068-show-cue-and-audition-isolation.md), Proposed.
 - ADR 0063, play history and rotation warnings.
 - Mine the parked discover modules for the metadata grid and tree patterns,
   then delete them.

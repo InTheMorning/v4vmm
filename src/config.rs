@@ -19,50 +19,6 @@ use crate::broadcast::transport::Transport;
 use crate::theme_profile::ThemeProfile;
 use crate::view_models::workspace::{ContentViewMode, WorkspaceLayoutConfig};
 
-#[derive(Debug)]
-pub struct Config {
-    /// Where v4vmm-managed audio files are stored.
-    /// Example: "/home/user/V4Vmusic"
-    pub music_dir: PathBuf,
-
-    /// Where the sqlite DB lives.
-    /// Example: "/home/user/.local/share/v4vmm/v4vmm.sqlite"
-    pub db_path: PathBuf,
-
-    /// Override for the `flac` CLI used to re-encode WAV downloads. When
-    /// `None`, v4vmm resolves `flac` via `$PATH`. Install via your package
-    /// manager (e.g. `apt install flac`, `brew install flac`). Without it,
-    /// WAV downloads are left untagged.
-    pub flac_path: Option<PathBuf>,
-
-    /// Playback backend configuration. Missing config defaults to no playback
-    /// driver so existing configs keep loading unchanged.
-    pub playback: PlaybackConfig,
-
-    /// Broadcast host configuration. Missing config defaults to one local host.
-    pub broadcast: BroadcastConfig,
-
-    /// Global UI scale factor. Mirrors iOS Dynamic Type's named steps.
-    /// Missing value defaults to `medium` (1.0×).
-    pub ui_scale: UiScale,
-
-    /// Runtime theme profile. Missing value defaults to the existing dark
-    /// profile so older config files keep their appearance.
-    pub theme_profile: ThemeProfile,
-
-    /// Additive ADR 0046 workspace layout persistence.
-    ///
-    /// Missing or malformed values fall back to the default workspace layout in
-    /// the workspace VM, so older or manually edited configs keep loading.
-    pub(crate) workspace_layout: Option<WorkspaceLayoutConfig>,
-
-    /// Additive ADR 0051 workspace layout preferences.
-    ///
-    /// Missing or malformed values fall back to the default pane width in the
-    /// app bootstrap, so older or manually edited configs keep loading.
-    pub(crate) workspace: Option<WorkspaceConfig>,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct WorkspaceConfig {
     /// Forward-compatible workspace layout preferences.
@@ -135,100 +91,6 @@ impl PlaybackDriver {
             Self::Null => "null",
             Self::Mpv => "mpv",
         }
-    }
-}
-
-/// Broadcast host list configuration.
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
-pub struct BroadcastConfig {
-    /// Optional selected host name. When absent, the first host is selected.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub selected_host: Option<String>,
-    /// Optional publisher watch directory for the built-in mpv producer.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub drop_directory: Option<PathBuf>,
-    /// Publisher target name written by the built-in mpv producer.
-    #[serde(default = "default_drop_file_target")]
-    pub drop_file_target: String,
-    /// Configured broadcast hosts.
-    #[serde(default = "default_broadcast_hosts")]
-    pub hosts: Vec<BroadcastHostConfig>,
-    /// Optional stream encoder control configuration.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub encoder: Option<BroadcastEncoderConfig>,
-}
-
-impl Default for BroadcastConfig {
-    fn default() -> Self {
-        Self {
-            selected_host: None,
-            drop_directory: None,
-            drop_file_target: default_drop_file_target(),
-            hosts: default_broadcast_hosts(),
-            encoder: None,
-        }
-    }
-}
-
-impl BroadcastConfig {
-    /// Return the selected broadcast host.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the host list is empty or the selected host name
-    /// does not match a configured host.
-    pub fn selected_host(&self) -> Result<&BroadcastHostConfig> {
-        let Some(selected_host) = self.selected_host.as_deref() else {
-            return self
-                .hosts
-                .first()
-                .ok_or_else(|| anyhow!("config: broadcast.hosts is empty"));
-        };
-        let selected_host = selected_host.trim();
-        self.hosts
-            .iter()
-            .find(|host| host.name.trim() == selected_host)
-            .ok_or_else(|| anyhow!("config: broadcast selected_host {selected_host:?} not found"))
-    }
-
-    /// Build the built-in mpv drop-file producer when it is configured.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the configured target cannot be used as a visible
-    /// file name.
-    pub fn drop_file_producer(&self) -> Result<Option<DropFileProducer>> {
-        self.drop_directory
-            .as_ref()
-            .map(|drop_directory| {
-                DropFileProducer::new(drop_directory.clone(), self.drop_file_target.clone())
-            })
-            .transpose()
-    }
-
-    /// Validate host-list shape and selected host.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when a host field is empty, names are duplicated, the
-    /// list is empty, the transport is invalid, or the selected host is absent.
-    pub fn validate(&self) -> Result<()> {
-        let mut names = BTreeSet::new();
-        for host in &self.hosts {
-            host.validate()?;
-            let name = host.name.trim();
-            if !names.insert(name.to_owned()) {
-                return Err(anyhow!("config: duplicate broadcast host name {name:?}"));
-            }
-        }
-        let _ = self.selected_host()?;
-        if self.drop_directory.is_some() {
-            let _ = DropFileProducer::validate_target_name(&self.drop_file_target)?;
-        }
-        if let Some(encoder) = &self.encoder {
-            encoder.validate()?;
-        }
-        Ok(())
     }
 }
 
@@ -376,6 +238,92 @@ impl fmt::Display for ConfigFieldIssue {
 impl std::error::Error for ConfigFieldIssue {}
 
 pub type ConfigField<T> = std::result::Result<T, ConfigFieldIssue>;
+
+/// A configured endpoint retains an invalid setting instead of selecting a server.
+#[derive(Clone, PartialEq, Eq)]
+pub struct MusicIndexEndpoint(ConfigField<String>);
+
+impl MusicIndexEndpoint {
+    pub fn require(&self) -> ConfigField<&str> {
+        self.0.as_deref().map_err(|issue| *issue)
+    }
+
+    pub fn from_field(field: ConfigField<String>) -> Self {
+        Self(field)
+    }
+}
+
+impl fmt::Debug for MusicIndexEndpoint {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MusicIndexEndpoint")
+            .field("issue", &self.0.as_ref().err())
+            .finish_non_exhaustive()
+    }
+}
+
+impl From<String> for MusicIndexEndpoint {
+    fn from(value: String) -> Self {
+        Self(normalize_musicindex_endpoint(&value).map_err(|_| {
+            invalid_field("musicindex_endpoint", "expected a valid HTTP or HTTPS URL")
+        }))
+    }
+}
+
+impl From<&str> for MusicIndexEndpoint {
+    fn from(value: &str) -> Self {
+        value.to_owned().into()
+    }
+}
+
+impl From<&String> for MusicIndexEndpoint {
+    fn from(value: &String) -> Self {
+        value.as_str().into()
+    }
+}
+
+impl From<&MusicIndexEndpoint> for MusicIndexEndpoint {
+    fn from(value: &MusicIndexEndpoint) -> Self {
+        value.clone()
+    }
+}
+
+/// Only the settings consumed by local audio materialization (ADR 0066).
+#[derive(Clone, Debug)]
+pub struct DownloadConfig {
+    pub music_dir: PathBuf,
+    /// A malformed override is checked only when the audio needs conversion.
+    pub flac_path: ConfigField<Option<PathBuf>>,
+}
+
+/// Independently decoded broadcast dependencies (ADR 0066).
+#[derive(Clone, Debug)]
+pub struct BroadcastCapabilities {
+    pub hosts: ConfigField<Vec<BroadcastHostConfig>>,
+    pub selected_host: ConfigField<Option<String>>,
+    pub drop_directory: ConfigField<Option<PathBuf>>,
+    pub drop_file_target: ConfigField<String>,
+    pub encoder: ConfigField<Option<BroadcastEncoderConfig>>,
+}
+
+impl BroadcastCapabilities {
+    pub fn selected_host(&self) -> Result<&BroadcastHostConfig> {
+        let hosts = self.hosts.as_ref().map_err(|issue| *issue)?;
+        let selected = self.selected_host.as_ref().map_err(|issue| *issue)?;
+        selected.as_deref().map_or_else(
+            || hosts.first(),
+            |name| hosts.iter().find(|host| host.name.trim() == name.trim()),
+        ).ok_or_else(|| anyhow!("App cannot use the selected publisher host. Correct broadcast.hosts and broadcast.selected_host in Settings."))
+    }
+
+    pub fn drop_file_producer(&self) -> Result<Option<DropFileProducer>> {
+        let Some(directory) = self.drop_directory.as_ref().map_err(|issue| *issue)? else {
+            return Ok(None);
+        };
+        let target = self.drop_file_target.as_ref().map_err(|issue| *issue)?;
+        DropFileProducer::new(directory.clone(), target.clone()).map(Some)
+    }
+}
 
 /// One document observation, including independent validation results.
 ///
@@ -544,6 +492,35 @@ fn snapshot_width(table: ConfigTable<'_>) -> ConfigField<Option<f32>> {
 }
 
 impl ConfigSnapshot {
+    pub fn playback(&self) -> ConfigField<PlaybackConfig> {
+        let driver = self.playback_driver?;
+        Ok(PlaybackConfig {
+            driver,
+            mpv_path: if driver == PlaybackDriver::Mpv {
+                self.mpv_path.clone()?
+            } else {
+                None
+            },
+        })
+    }
+
+    pub fn broadcast(&self) -> BroadcastCapabilities {
+        BroadcastCapabilities {
+            hosts: self.broadcast_hosts.clone(),
+            selected_host: self.selected_host.clone(),
+            drop_directory: self.drop_directory.clone(),
+            drop_file_target: self.drop_file_target.clone(),
+            encoder: self.encoder.clone(),
+        }
+    }
+
+    pub fn downloads(&self) -> ConfigField<DownloadConfig> {
+        Ok(DownloadConfig {
+            music_dir: self.music_dir.clone()?,
+            flac_path: self.flac_path.clone(),
+        })
+    }
+
     /// Read an existing configuration, without first-run creation.
     ///
     /// # Errors
@@ -735,53 +712,16 @@ impl ConfigSnapshot {
         Ok(())
     }
 
-    fn legacy_workspace(&self) -> Option<WorkspaceConfig> {
+    pub(crate) fn workspace_preferences(&self) -> Option<WorkspaceConfig> {
         let workspace = self.document.get("workspace")?.as_table()?;
         let layout = workspace
             .get("layout")
             .and_then(toml::Value::as_table)
-            .and_then(|_| {
-                Some(WorkspaceLayoutPrefs {
-                    content_pane_width: self.content_pane_width.as_ref().ok().copied()?,
-                    content_list_view_mode: self.content_list_view_mode.as_ref().ok().copied()?,
-                })
+            .map(|_| WorkspaceLayoutPrefs {
+                content_pane_width: self.content_pane_width.unwrap_or_default(),
+                content_list_view_mode: self.content_list_view_mode.unwrap_or_default(),
             });
         Some(WorkspaceConfig { layout })
-    }
-
-    /// Strict adapter for existing Config consumers. Scoped callers use fields.
-    ///
-    /// # Errors
-    /// Rejects invalid Config fields except the established workspace fallback.
-    /// The endpoint has its own reader because Config never carried that field.
-    pub fn legacy_config(&self) -> Result<Config> {
-        for issue in self.issues().iter().filter(|issue| {
-            issue.field == "workspace"
-                || issue.field.starts_with("workspace.")
-                || issue.field == "workspace_layout"
-        }) {
-            eprintln!("v4vmm::config: ignoring malformed {}: {issue}", issue.field);
-        }
-        Ok(Config {
-            music_dir: self.music_dir.clone()?,
-            db_path: self.db_path.clone()?,
-            flac_path: self.flac_path.clone()?,
-            playback: PlaybackConfig {
-                driver: self.playback_driver?,
-                mpv_path: self.mpv_path.clone()?,
-            },
-            broadcast: BroadcastConfig {
-                hosts: self.broadcast_hosts.clone()?,
-                selected_host: self.selected_host.clone()?,
-                drop_directory: self.drop_directory.clone()?,
-                drop_file_target: self.drop_file_target.clone()?,
-                encoder: self.encoder.clone()?,
-            },
-            ui_scale: self.ui_scale?,
-            theme_profile: self.theme_profile?,
-            workspace_layout: self.workspace_layout.clone().unwrap_or_default(),
-            workspace: self.legacy_workspace(),
-        })
     }
 }
 
@@ -936,17 +876,6 @@ fn publish_default_with(
         ));
     }
     result
-}
-
-/// Compatibility reader; scoped consumers use load_config_snapshot.
-///
-/// # Errors
-/// Rejects invalid operational Config fields and never replaces an existing
-/// document. Existing workspace fallback remains available without save access.
-pub fn load_config(cfg_path: &Path) -> Result<Config> {
-    load_config_snapshot(cfg_path)?
-        .legacy_config()
-        .with_context(|| format!("App could not load configuration {}", cfg_path.display()))
 }
 
 pub fn load_musicindex_endpoint(cfg_path: &Path) -> Result<String> {
@@ -1231,27 +1160,6 @@ theme_profile = "dark"
     ))
 }
 
-/// Ensure the on-disk dirs exist:
-/// - music_dir
-/// - music_dir/artists
-/// - db_path parent dir
-pub fn ensure_dirs(cfg: &Config) -> Result<()> {
-    fs::create_dir_all(&cfg.music_dir)
-        .with_context(|| format!("create music_dir {}", cfg.music_dir.display()))?;
-    let artists_dir = cfg.music_dir.join("artists");
-    prepare_artists_directory(&cfg.music_dir)
-        .with_context(|| format!("create artists dir {}", artists_dir.display()))?;
-
-    let parent = cfg
-        .db_path
-        .parent()
-        .ok_or_else(|| anyhow!("db_path has no parent: {}", cfg.db_path.display()))?;
-    fs::create_dir_all(parent)
-        .with_context(|| format!("create db parent dir {}", parent.display()))?;
-
-    Ok(())
-}
-
 /// Prepare only the download subtree after the music root has been verified.
 pub fn prepare_artists_directory(music_dir: &Path) -> io::Result<()> {
     let artists = music_dir.join("artists");
@@ -1316,9 +1224,8 @@ db_path = "/tmp/v4vmm.sqlite"
             .to_vec(),
         )
         .expect("parse config snapshot")
-        .legacy_config()
-        .expect("valid config")
-        .playback;
+        .playback()
+        .expect("valid playback");
 
         assert_eq!(cfg.driver, PlaybackDriver::Null);
         assert_eq!(cfg.mpv_path, None);
@@ -1337,21 +1244,18 @@ db_path = "/tmp/v4vmm.sqlite"
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
-        let host = cfg.broadcast.selected_host().expect("selected host");
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
+        let broadcast = cfg.broadcast();
+        let host = broadcast.selected_host().expect("selected host");
 
-        assert_eq!(cfg.broadcast.hosts.len(), 1);
+        assert_eq!(broadcast.hosts.as_ref().unwrap().len(), 1);
         assert_eq!(host.name, "Local");
         assert_eq!(host.transport, Transport::Local);
         assert_eq!(host.instance_name, "mixxx");
-        assert_eq!(cfg.broadcast.drop_directory, None);
-        assert_eq!(cfg.broadcast.drop_file_target, "default");
-        assert!(cfg
-            .broadcast
-            .drop_file_producer()
-            .expect("producer")
-            .is_none());
-        assert!(cfg.broadcast.encoder.is_none());
+        assert_eq!(broadcast.drop_directory.as_ref().unwrap(), &None);
+        assert_eq!(broadcast.drop_file_target.as_ref().unwrap(), "default");
+        assert!(broadcast.drop_file_producer().expect("producer").is_none());
+        assert!(broadcast.encoder.unwrap().is_none());
     }
 
     #[test]
@@ -1381,10 +1285,11 @@ instance_name = "remote-mixxx"
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
-        let host = cfg.broadcast.selected_host().expect("selected host");
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
+        let broadcast = cfg.broadcast();
+        let host = broadcast.selected_host().expect("selected host");
 
-        assert_eq!(cfg.broadcast.hosts.len(), 2);
+        assert_eq!(broadcast.hosts.as_ref().unwrap().len(), 2);
         assert_eq!(host.name, "Studio");
         assert_eq!(
             host.transport,
@@ -1414,8 +1319,9 @@ default_server_name = "main"
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
-        let encoder = cfg.broadcast.encoder.expect("encoder config");
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
+        let broadcast = cfg.broadcast();
+        let encoder = broadcast.encoder.unwrap().expect("encoder config");
         let target = encoder.target().expect("encoder target");
 
         assert_eq!(encoder.binary_path, PathBuf::from("/usr/bin/butt"));
@@ -1443,15 +1349,15 @@ drop_file_target = "stream-a"
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
-        let producer = cfg
-            .broadcast
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
+        let broadcast = cfg.broadcast();
+        let producer = broadcast
             .drop_file_producer()
             .expect("producer config")
             .expect("active producer");
 
         assert_eq!(
-            cfg.broadcast.drop_directory,
+            broadcast.drop_directory.unwrap(),
             Some(PathBuf::from(
                 "/tmp/musicindex-live-publisher/mpv/nowplaying"
             ))
@@ -1476,9 +1382,9 @@ db_path = "/tmp/v4vmm.sqlite"
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
 
-        assert_eq!(cfg.theme_profile, ThemeProfile::Dark);
+        assert_eq!(cfg.theme_profile.unwrap(), ThemeProfile::Dark);
     }
 
     #[test]
@@ -1494,10 +1400,11 @@ db_path = "/tmp/v4vmm.sqlite"
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
 
         assert_eq!(
-            cfg.workspace_layout, None,
+            cfg.workspace_layout.clone().unwrap_or_default(),
+            None,
             "missing workspace layout should keep old configs valid"
         );
     }
@@ -1515,10 +1422,11 @@ db_path = "/tmp/v4vmm.sqlite"
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
 
         assert_eq!(
-            cfg.workspace, None,
+            cfg.workspace_preferences(),
+            None,
             "missing workspace prefs should keep old configs valid"
         );
     }
@@ -1547,8 +1455,9 @@ kind = "detail"
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
-        let layout = WorkspaceLayout::from_config(cfg.workspace_layout.as_ref());
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
+        let layout =
+            WorkspaceLayout::from_config(cfg.workspace_layout.clone().unwrap_or_default().as_ref());
 
         assert_eq!(
             layout.focused_frame().map(WorkspaceFrameState::kind),
@@ -1581,8 +1490,9 @@ kind = "queue_now_playing"
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
-        let layout = WorkspaceLayout::from_config(cfg.workspace_layout.as_ref());
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
+        let layout =
+            WorkspaceLayout::from_config(cfg.workspace_layout.clone().unwrap_or_default().as_ref());
         let kinds: Vec<_> = layout
             .frames()
             .iter()
@@ -1624,9 +1534,9 @@ other = true
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
-        let prefs = cfg
-            .workspace
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
+        let workspace = cfg.workspace_preferences();
+        let prefs = workspace
             .as_ref()
             .and_then(|workspace| workspace.layout.as_ref());
 
@@ -1653,9 +1563,9 @@ content_pane_width = 1024.5
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
-        let prefs = cfg
-            .workspace
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
+        let workspace = cfg.workspace_preferences();
+        let prefs = workspace
             .as_ref()
             .and_then(|workspace| workspace.layout.as_ref());
 
@@ -1680,10 +1590,11 @@ workspace_layout = "not a layout"
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
 
         assert_eq!(
-            cfg.workspace_layout, None,
+            cfg.workspace_layout.clone().unwrap_or_default(),
+            None,
             "malformed workspace layout should not make config loading fail"
         );
     }
@@ -1712,10 +1623,11 @@ kind = "future_frame"
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
 
         assert_eq!(
-            cfg.workspace_layout, None,
+            cfg.workspace_layout.clone().unwrap_or_default(),
+            None,
             "unknown workspace frame kinds should fall back instead of failing config load"
         );
     }
@@ -1744,10 +1656,11 @@ kind = "broadcast"
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
 
         assert_eq!(
-            cfg.workspace_layout, None,
+            cfg.workspace_layout.clone().unwrap_or_default(),
+            None,
             "configs written with the removed ADR 0059 Broadcast frame should fall back"
         );
     }
@@ -1765,18 +1678,22 @@ db_path = "/tmp/v4vmm.sqlite"
 [workspace]
 [workspace.layout]
 content_pane_width = "wide"
+content_list_view_mode = "tiles"
 "#,
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
 
         assert_eq!(
-            cfg.workspace
+            cfg.workspace_preferences()
                 .as_ref()
                 .and_then(|workspace| workspace.layout.as_ref()),
-            None,
-            "malformed workspace prefs should not make config loading fail"
+            Some(&WorkspaceLayoutPrefs {
+                content_pane_width: None,
+                content_list_view_mode: Some(ContentViewMode::Tiles)
+            }),
+            "invalid width falls back independently while the valid view mode survives"
         );
     }
 
@@ -1794,9 +1711,9 @@ theme_profile = "light"
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
 
-        assert_eq!(cfg.theme_profile, ThemeProfile::Light);
+        assert_eq!(cfg.theme_profile.unwrap(), ThemeProfile::Light);
     }
 
     #[test]
@@ -1813,9 +1730,9 @@ theme_profile = "system"
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
 
-        assert_eq!(cfg.theme_profile, ThemeProfile::System);
+        assert_eq!(cfg.theme_profile.unwrap(), ThemeProfile::System);
     }
 
     #[test]
@@ -1832,7 +1749,10 @@ theme_profile = "solarized"
         )
         .expect("write config");
 
-        let error = load_config(&cfg_path).expect_err("unknown theme profile should fail");
+        let error = ConfigSnapshot::read_existing(&cfg_path)
+            .unwrap()
+            .theme_profile
+            .expect_err("unknown theme profile should fail");
         let message = format!("{error:#}");
 
         assert!(
@@ -1857,9 +1777,8 @@ mpv_path = "/usr/bin/mpv"
             .to_vec(),
         )
         .expect("parse config snapshot")
-        .legacy_config()
-        .expect("valid config")
-        .playback;
+        .playback()
+        .expect("valid playback");
 
         assert_eq!(cfg.driver, PlaybackDriver::Mpv);
         assert_eq!(cfg.mpv_path, Some(PathBuf::from("/usr/bin/mpv")));
@@ -1881,7 +1800,10 @@ driver = "vlc"
         )
         .expect("write config");
 
-        let error = load_config(&cfg_path).expect_err("unknown driver should fail");
+        let error = ConfigSnapshot::read_existing(&cfg_path)
+            .unwrap()
+            .playback()
+            .expect_err("unknown driver should fail");
         let message = format!("{error:#}");
 
         assert!(
@@ -1975,8 +1897,9 @@ extra = "keep"
 
         let raw = fs::read_to_string(&cfg_path).expect("read config");
         let table = raw.parse::<toml::Table>().expect("parse TOML");
-        let cfg = load_config(&cfg_path).expect("load config");
-        let restored = WorkspaceLayout::from_config(cfg.workspace_layout.as_ref());
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
+        let restored =
+            WorkspaceLayout::from_config(cfg.workspace_layout.clone().unwrap_or_default().as_ref());
 
         assert_eq!(
             table.get("extra").and_then(toml::Value::as_str),
@@ -2038,9 +1961,9 @@ kind = "detail"
 
         let raw = fs::read_to_string(&cfg_path).expect("read config");
         let table = raw.parse::<toml::Table>().expect("parse TOML");
-        let cfg = load_config(&cfg_path).expect("load config");
-        let prefs = cfg
-            .workspace
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
+        let workspace = cfg.workspace_preferences();
+        let prefs = workspace
             .as_ref()
             .and_then(|workspace| workspace.layout.as_ref());
 
@@ -2057,7 +1980,7 @@ kind = "detail"
             "workspace prefs save should preserve existing workspace layout config"
         );
         assert!(
-            cfg.workspace_layout.is_some(),
+            cfg.workspace_layout.clone().unwrap_or_default().is_some(),
             "workspace prefs save should preserve the existing workspace layout data"
         );
         assert_eq!(
@@ -2145,9 +2068,9 @@ content_pane_width = 720.0
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
-        let prefs = cfg
-            .workspace
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
+        let workspace = cfg.workspace_preferences();
+        let prefs = workspace
             .as_ref()
             .and_then(|workspace| workspace.layout.as_ref())
             .expect("workspace layout prefs");
@@ -2175,9 +2098,9 @@ content_list_view_mode = "list"
         )
         .expect("write config");
 
-        let cfg = load_config(&cfg_path).expect("load config");
-        let prefs = cfg
-            .workspace
+        let cfg = ConfigSnapshot::read_existing(&cfg_path).expect("load config");
+        let workspace = cfg.workspace_preferences();
+        let prefs = workspace
             .as_ref()
             .and_then(|workspace| workspace.layout.as_ref())
             .expect("workspace layout prefs");
@@ -2246,7 +2169,7 @@ content_list_view_mode = "list"
                     .any(|issue| issue.field == field && issue.kind == kind),
                 "{raw}"
             );
-            assert!(snapshot.legacy_config().is_err());
+            assert!(!snapshot.issues().is_empty());
         }
     }
 
@@ -2391,7 +2314,10 @@ content_list_view_mode = "list"
             load_musicindex_endpoint(&path).unwrap(),
             "https://index.test"
         );
-        assert!(load_config(&path).is_err());
+        assert!(ConfigSnapshot::read_existing(&path)
+            .unwrap()
+            .music_dir
+            .is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), raw);
         fs::write(&path, format!("{SNAPSHOT_CORE}musicindex_endpoint = 23")).unwrap();
         assert!(load_musicindex_endpoint(&path).is_err());
@@ -2421,7 +2347,7 @@ content_list_view_mode = "list"
             "https://old.test"
         );
         assert_eq!(
-            snapshot.legacy_config().unwrap().music_dir,
+            snapshot.music_dir.as_ref().unwrap().clone(),
             PathBuf::from("/tmp/music")
         );
         assert!(!ConfigSnapshot::read_existing(&path)
@@ -2439,7 +2365,7 @@ content_list_view_mode = "list"
         let messages = format!(
             "{snapshot:?}\n{:#}\n{:#}",
             snapshot.require_saveable().unwrap_err(),
-            snapshot.legacy_config().unwrap_err()
+            snapshot.playback().unwrap_err()
         );
         assert!(!messages.contains(secret));
         assert!(messages.contains("musicindex_endpoint"));

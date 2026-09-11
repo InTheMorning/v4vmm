@@ -9,7 +9,7 @@ use anyhow::{anyhow, Context, Result};
 use crate::api::{SourceEnclosure, Track};
 use crate::audio_format::AudioFormat;
 use crate::audio_tags::AudioTags;
-use crate::config::Config;
+use crate::config::DownloadConfig;
 use crate::remote_media;
 
 const PUBLISHER_TAG_KEY: &str = "V4V_PUBLISHER";
@@ -106,7 +106,7 @@ pub fn select_audio_enclosure(track: &Track) -> Option<SelectedEnclosure> {
         .or_else(|| selected_track_enclosure(track))
 }
 
-pub fn local_track_path(cfg: &Config, track: &Track, extension: &str) -> PathBuf {
+pub fn local_track_path(cfg: &DownloadConfig, track: &Track, extension: &str) -> PathBuf {
     let artist_dir = sanitize_path_part(
         track
             .track_artist
@@ -148,11 +148,15 @@ pub fn local_track_path(cfg: &Config, track: &Track, extension: &str) -> PathBuf
 /// FLAC path. Otherwise return `path` unchanged. Used by subscribe flows
 /// that reuse a pre-existing local file so tag writes land on a taggable
 /// container.
-pub fn ensure_taggable_local_path(cfg: &Config, path: &Path) -> PathBuf {
+pub fn ensure_taggable_local_path(cfg: &DownloadConfig, path: &Path) -> PathBuf {
     if !matches!(AudioFormat::detect_from_file(path), Ok(AudioFormat::Wav)) {
         return path.to_path_buf();
     }
-    let flac_override = cfg.flac_path.as_deref();
+    let Ok(flac_path) = &cfg.flac_path else {
+        eprintln!("App retained WAV file {} because flac_path is invalid. Correct the converter setting before converting this file.", path.display());
+        return path.to_path_buf();
+    };
+    let flac_override = flac_path.as_deref();
     let resolved_override = if flac_override
         .is_some_and(|p| crate::audio_format::flac_cli_available(Some(p)))
     {
@@ -180,7 +184,7 @@ pub fn ensure_taggable_local_path(cfg: &Config, path: &Path) -> PathBuf {
     }
 }
 
-pub fn download_track(cfg: &Config, track: &Track) -> Result<DownloadedTrack> {
+pub fn download_track(cfg: &DownloadConfig, track: &Track) -> Result<DownloadedTrack> {
     let enclosure =
         select_audio_enclosure(track).ok_or_else(|| anyhow!("no supported audio enclosure"))?;
     let declared_format = enclosure.format;
@@ -257,23 +261,27 @@ pub fn download_track(cfg: &Config, track: &Track) -> Result<DownloadedTrack> {
 
     // WAV → FLAC silent upgrade (still inside the staging dir).
     if current_format == AudioFormat::Wav {
-        let flac_override = cfg.flac_path.as_deref();
-        let have_flac = crate::audio_format::flac_cli_available(flac_override);
-        let have_ffmpeg_fallback = !have_flac; // transcode_wav_to_flac probes ffmpeg internally
-        if have_flac || have_ffmpeg_fallback {
-            match crate::audio_format::transcode_wav_to_flac(&current_path, flac_override) {
-                Ok(flac_path) => {
-                    current_path = flac_path;
-                    current_format = AudioFormat::Flac;
-                    warnings.push("upgraded WAV to FLAC so tags can be written".to_string());
+        if let Ok(flac_path) = &cfg.flac_path {
+            let flac_override = flac_path.as_deref();
+            let have_flac = crate::audio_format::flac_cli_available(flac_override);
+            let have_ffmpeg_fallback = !have_flac; // transcode_wav_to_flac probes ffmpeg internally
+            if have_flac || have_ffmpeg_fallback {
+                match crate::audio_format::transcode_wav_to_flac(&current_path, flac_override) {
+                    Ok(flac_path) => {
+                        current_path = flac_path;
+                        current_format = AudioFormat::Flac;
+                        warnings.push("upgraded WAV to FLAC so tags can be written".to_string());
+                    }
+                    Err(err) => warnings.push(format!("WAV→FLAC transcode failed: {err:#}")),
                 }
-                Err(err) => warnings.push(format!("WAV→FLAC transcode failed: {err:#}")),
+            } else {
+                warnings.push(
+                    "install the `flac` CLI (or `ffmpeg`) to enable tagging of WAV downloads"
+                        .to_string(),
+                );
             }
         } else {
-            warnings.push(
-                "install the `flac` CLI (or `ffmpeg`) to enable tagging of WAV downloads"
-                    .to_string(),
-            );
+            warnings.push("App retained the downloaded WAV because flac_path is invalid. Correct the converter setting before converting this track.".to_owned());
         }
     }
 
@@ -297,7 +305,7 @@ pub fn download_track(cfg: &Config, track: &Track) -> Result<DownloadedTrack> {
     })
 }
 
-fn create_staging_dir(cfg: &Config) -> Result<PathBuf> {
+fn create_staging_dir(cfg: &DownloadConfig) -> Result<PathBuf> {
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -537,6 +545,64 @@ fn is_reserved_path_part(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn adr_0066_invalid_converter_preserves_downloads_and_retains_wav() {
+        use std::io::{Read, Write};
+        for (extension, body) in [
+            ("mp3", b"ID3\x04\x00\x00\x00\x00\x00\x00mp3data".as_slice()),
+            ("wav", b"RIFF\x24\x00\x00\x00WAVEfmt ".as_slice()),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!(
+                "http://{}/audio.{extension}",
+                listener.local_addr().unwrap()
+            );
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
+                stream.read(&mut [0; 2048]).unwrap();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                stream.write_all(body).unwrap();
+            });
+            let temp = tempfile::tempdir().unwrap();
+            let text = format!("music_dir = {:?}\nflac_path = false\n", temp.path());
+            let cfg = crate::config::ConfigSnapshot::from_bytes(
+                std::path::Path::new("fixture.toml"),
+                text.into_bytes(),
+            )
+            .unwrap()
+            .downloads()
+            .unwrap();
+            let mut item = track();
+            item.enclosure_url = Some(url);
+            item.enclosure_bytes = Some(i64::try_from(body.len()).unwrap());
+            let downloaded = download_track(&cfg, &item).unwrap();
+            assert_eq!(fs::read(&downloaded.path).unwrap(), body);
+            if extension == "wav" {
+                assert!(downloaded
+                    .format_warning
+                    .as_ref()
+                    .unwrap()
+                    .contains("flac_path is invalid"));
+            }
+            let final_path = downloaded.finalize().unwrap();
+            assert_eq!(
+                super::ensure_taggable_local_path(&cfg, &final_path),
+                final_path
+            );
+            assert_eq!(fs::read(&final_path).unwrap(), body);
+            server.join().unwrap();
+        }
+    }
+
     use std::collections::BTreeMap;
     use std::fs;
     use std::path::PathBuf;
@@ -548,8 +614,7 @@ mod tests {
     use crate::api::{SourceEnclosure, Track};
     use crate::audio_format::AudioFormat;
     use crate::audio_tags::AudioTags;
-    use crate::config::{BroadcastConfig, Config, PlaybackConfig};
-    use crate::theme_profile::ThemeProfile;
+    use crate::config::DownloadConfig;
 
     fn track() -> Track {
         Track {
@@ -628,16 +693,9 @@ mod tests {
 
     #[test]
     fn builds_deterministic_sanitized_local_path() {
-        let cfg = Config {
+        let cfg = DownloadConfig {
             music_dir: "/tmp/v4vmm-test".into(),
-            db_path: "/tmp/v4vmm-test.sqlite".into(),
-            flac_path: None,
-            playback: PlaybackConfig::default(),
-            broadcast: BroadcastConfig::default(),
-            ui_scale: Default::default(),
-            theme_profile: ThemeProfile::default(),
-            workspace: None,
-            workspace_layout: None,
+            flac_path: Ok(None),
         };
 
         assert_eq!(
@@ -652,16 +710,9 @@ mod tests {
 
     #[test]
     fn sanitizes_ntfs_reserved_names_and_trailing_dots() {
-        let cfg = Config {
+        let cfg = DownloadConfig {
             music_dir: "/tmp/v4vmm-test".into(),
-            db_path: "/tmp/v4vmm-test.sqlite".into(),
-            flac_path: None,
-            playback: PlaybackConfig::default(),
-            broadcast: BroadcastConfig::default(),
-            ui_scale: Default::default(),
-            theme_profile: ThemeProfile::default(),
-            workspace: None,
-            workspace_layout: None,
+            flac_path: Ok(None),
         };
         let mut track = track();
         track.track_artist = Some("CON".into());
@@ -680,16 +731,9 @@ mod tests {
 
     #[test]
     fn sanitizes_control_chars_and_caps_segment_length() {
-        let cfg = Config {
+        let cfg = DownloadConfig {
             music_dir: "/tmp/v4vmm-test".into(),
-            db_path: "/tmp/v4vmm-test.sqlite".into(),
-            flac_path: None,
-            playback: PlaybackConfig::default(),
-            broadcast: BroadcastConfig::default(),
-            ui_scale: Default::default(),
-            theme_profile: ThemeProfile::default(),
-            workspace: None,
-            workspace_layout: None,
+            flac_path: Ok(None),
         };
         let mut track = track();
         track.track_artist = Some("Artist\tName".into());
@@ -781,16 +825,9 @@ mod tests {
         });
 
         let temp = tempfile::tempdir().expect("tempdir");
-        let cfg = Config {
+        let cfg = DownloadConfig {
             music_dir: temp.path().join("music"),
-            db_path: temp.path().join("db.sqlite"),
-            flac_path: None,
-            playback: PlaybackConfig::default(),
-            broadcast: BroadcastConfig::default(),
-            ui_scale: Default::default(),
-            theme_profile: ThemeProfile::default(),
-            workspace: None,
-            workspace_layout: None,
+            flac_path: Ok(None),
         };
         let mut track = track();
         track.enclosure_url = Some(format!("http://{addr}/song.mp3"));
@@ -846,16 +883,9 @@ mod tests {
         });
 
         let temp = tempfile::tempdir().expect("tempdir");
-        let cfg = Config {
+        let cfg = DownloadConfig {
             music_dir: temp.path().join("music"),
-            db_path: temp.path().join("db.sqlite"),
-            flac_path: None,
-            playback: PlaybackConfig::default(),
-            broadcast: BroadcastConfig::default(),
-            ui_scale: Default::default(),
-            theme_profile: ThemeProfile::default(),
-            workspace: None,
-            workspace_layout: None,
+            flac_path: Ok(None),
         };
         let mut track = track();
         track.enclosure_url = Some(format!("http://{addr}/song.mp3"));
@@ -887,16 +917,9 @@ mod tests {
         });
 
         let temp = tempfile::tempdir().expect("tempdir");
-        let cfg = Config {
+        let cfg = DownloadConfig {
             music_dir: temp.path().join("music"),
-            db_path: temp.path().join("db.sqlite"),
-            flac_path: None,
-            playback: PlaybackConfig::default(),
-            broadcast: BroadcastConfig::default(),
-            ui_scale: Default::default(),
-            theme_profile: ThemeProfile::default(),
-            workspace: None,
-            workspace_layout: None,
+            flac_path: Ok(None),
         };
         let mut track = track();
         track.enclosure_url = Some(format!("http://{addr}/song.mp3"));
@@ -936,16 +959,9 @@ mod tests {
         });
 
         let temp = tempfile::tempdir().expect("tempdir");
-        let cfg = Config {
+        let cfg = DownloadConfig {
             music_dir: temp.path().join("music"),
-            db_path: temp.path().join("db.sqlite"),
-            flac_path: None,
-            playback: PlaybackConfig::default(),
-            broadcast: BroadcastConfig::default(),
-            ui_scale: Default::default(),
-            theme_profile: ThemeProfile::default(),
-            workspace: None,
-            workspace_layout: None,
+            flac_path: Ok(None),
         };
         let mut track = track();
         track.enclosure_url = Some(format!("http://{addr}/song.mp3"));

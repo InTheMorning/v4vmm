@@ -145,8 +145,10 @@ pub struct LibraryApp {
     application_services: Arc<ApplicationServices>,
     command_runner: AsyncCommandRunner,
     cache: Arc<ImageCache>,
-    musicindex_endpoint: String,
+    musicindex_endpoint: crate::config::MusicIndexEndpoint,
     music_dir: PathBuf,
+    pub(crate) playback_availability:
+        Result<(), crate::application::capability::ExecutionUnavailable>,
     /// Stateful screen view-model. Owns all pure UI state and loaded
     /// snapshots — tree, selection, expansion sets, sort orders,
     /// picker toggles, status, search query, playlists, MusicBrainz

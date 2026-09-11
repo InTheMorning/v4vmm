@@ -145,7 +145,7 @@ impl PaymentRouteRepairBatchResult {
 #[derive(Clone, Debug)]
 pub(crate) struct RepairPaymentRoutesForTrack {
     conn: SharedConnection,
-    musicindex_endpoint: String,
+    musicindex_endpoint: crate::config::MusicIndexEndpoint,
     music_dir: PathBuf,
     track_id: i64,
 }
@@ -155,7 +155,7 @@ impl RepairPaymentRoutesForTrack {
     #[must_use]
     pub(crate) fn new(
         conn: SharedConnection,
-        musicindex_endpoint: impl Into<String>,
+        musicindex_endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         music_dir: PathBuf,
         track_id: i64,
     ) -> Self {
@@ -197,7 +197,7 @@ impl ApplicationCommand for RepairPaymentRoutesForTrack {
 #[derive(Clone, Debug)]
 pub(crate) struct RepairMissingPaymentRouteTags {
     conn: SharedConnection,
-    musicindex_endpoint: String,
+    musicindex_endpoint: crate::config::MusicIndexEndpoint,
     music_dir: PathBuf,
 }
 
@@ -206,7 +206,7 @@ impl RepairMissingPaymentRouteTags {
     #[must_use]
     pub(crate) fn new(
         conn: SharedConnection,
-        musicindex_endpoint: impl Into<String>,
+        musicindex_endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         music_dir: PathBuf,
     ) -> Self {
         Self {

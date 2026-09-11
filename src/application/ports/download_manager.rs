@@ -289,13 +289,13 @@ mod tests {
                 feed: None,
             }),
             edits: Vec::new(),
-            musicindex_endpoint: "https://api.example.test".to_string(),
+            musicindex_endpoint: "https://api.example.test".into(),
             mark_feed_subscribed: false,
             return_tag_compare: false,
         };
         let feed_request = SubscribeFeedRequest {
             feed: Feed::default(),
-            musicindex_endpoint: "https://api.example.test".to_string(),
+            musicindex_endpoint: "https://api.example.test".into(),
         };
 
         assert!(matches!(

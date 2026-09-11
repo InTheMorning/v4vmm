@@ -7,8 +7,9 @@ ADR 0066 remains Accepted. Tasks 001–003 are complete, including operator
 acceptance, preservation inspection and fixture cleanup. The
 [ADR 0067 shortcut correction](../tasks/adr-0067-task-001-platform-shortcuts.md)
 is complete. Settings responsiveness and cached-file recovery passed; temporary
-diagnostics are removed. Task 004 is ready and has not started. Tasks 005–013
-remain unstarted.
+diagnostics are removed. Task 004 implementation and mechanical checks are complete; its operator visual
+gate, preservation inspection and fixture cleanup remain open. Tasks 005–013
+remain unstarted; task 005 waits for task 004 acceptance.
 
 This plan executes [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md).
 The [delivery order](broadcast-chain-delivery-order.md#current-delivery-order)
@@ -70,7 +71,7 @@ an unwalked visual gate into a claim that the next dependency is complete.
 | [001: Config Snapshot And Safe Persistence](../tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md) | Read configuration once, distinguish core errors from optional errors, and prevent ordinary saves from destroying a document that needs repair. | Accepted ADR | Complete - 2026-09-10; mechanical gate Green; no visual gate |
 | [002: Core Checks And Startup Reports](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md) | Show a useful recovery screen for broken core configuration, unusable music storage, or unusable SQLite, with safe checks and a single startup lifecycle. | 001 | Complete - 2026-09-10; mechanical gate Green; operator acceptance and fixture cleanup confirmed |
 | [003: Runtime Failure And Shell Availability](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md) | Keep navigation, reports and repair access working when the normal background runtime or optional thumbnail worker cannot start. | 002 | Complete - 2026-09-11; mechanical gate Green; operator acceptance, preservation and fixture cleanup confirmed |
-| [004: Optional Tool Isolation](../tasks/adr-0066-task-004-optional-tool-isolation.md) | Open the app with valid core resources even when optional configuration or tool preparation fails, and limit only the operations that actually depend on each failure. | 003 | Ready - 2026-09-11; prerequisite complete; implementation not started |
+| [004: Optional Tool Isolation](../tasks/adr-0066-task-004-optional-tool-isolation.md) | Open the app with valid core resources even when optional configuration or tool preparation fails, and limit only the operations that actually depend on each failure. | 003 | Implemented - 2026-09-11; mechanical gate Green; presentation case and preservation accepted - 2026-09-11; playback checks paused for missing Show cue/audition separation and observed mpv IPC error; remaining operator checks and final fixture cleanup open |
 | [005: Session Drain And Resumption](../tasks/adr-0066-task-005-session-drain-and-resumption.md) | Stop the app's own work, release every configured database handle, and resume one fresh session before any live core correction or database maintenance can use this transition. | 004 | Not started |
 | [006: Configuration Repair And Resumption](../tasks/adr-0066-task-006-configuration-repair-and-resumption.md) | Repair configuration inside recovery or Settings, preserve the original file, and return to a freshly verified app session. | 005 | Not started |
 | [007: Optional Tool Correction And Retry](../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md) | Turn optional-tool failures into a direct Settings correction route and an explicit, freshly checked retry of the original action. | 006 | Not started |
@@ -223,5 +224,5 @@ this plan specifies a future test. Preserve all inherited gates.
 
 Only all thirteen completed packets plus their actual operator acceptance permit
 ADR 0066 to become Implemented, deferred item 6 to close, and the config-format
-dependency to release. Tasks 001–003 are complete; task 004 is ready and has
-not started. The series remains partial.
+dependency to release. Tasks 001–003 are complete; task 004 is implemented with its operator gate open.
+Tasks 005–013 have not started. The series remains partial.

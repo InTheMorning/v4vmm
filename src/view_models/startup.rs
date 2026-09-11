@@ -4,9 +4,23 @@ use std::fmt::Write as _;
 use std::time::SystemTime;
 
 use crate::db::startup::DbStage;
-use crate::startup::{CoreCheckOutcome, IssueSeverity, StartupStage};
+use crate::startup::{CoreCheckOutcome, IssueSeverity, StartupIssue, StartupStage};
 
 pub(crate) mod capabilities;
+
+/// Project residual normal-startup notices (ADR 0066).
+/// Optional configuration issues already have a persistent capability report.
+#[must_use]
+pub(crate) fn normal_startup_status(notices: &[StartupIssue]) -> String {
+    notices
+        .iter()
+        .filter(|issue| {
+            !(issue.stage == StartupStage::ConfigField && issue.severity == IssueSeverity::Notice)
+        })
+        .map(|issue| issue.cause.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StartupAction {

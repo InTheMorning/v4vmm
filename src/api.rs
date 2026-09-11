@@ -382,21 +382,21 @@ pub enum EntityDetail {
 #[derive(Clone)]
 pub struct Client {
     pub client: ReqwestClient,
-    base_url: String,
+    base_url: crate::config::MusicIndexEndpoint,
 }
 
 impl Client {
     pub fn new() -> Self {
         Self {
             client: crate::http_client::document(),
-            base_url: DEFAULT_BASE_URL.to_string(),
+            base_url: DEFAULT_BASE_URL.into(),
         }
     }
 
-    pub fn new_with_base_url(base_url: String) -> Self {
+    pub fn new_with_base_url(base_url: impl Into<crate::config::MusicIndexEndpoint>) -> Self {
         Self {
             client: crate::http_client::document(),
-            base_url,
+            base_url: base_url.into(),
         }
     }
 
@@ -651,11 +651,12 @@ impl Client {
     }
 
     fn build_url(&self, path_segments: &[&str], query: &[(&str, String)]) -> Result<reqwest::Url> {
-        let mut url = reqwest::Url::parse(&format!("{}/", self.base_url.trim_end_matches('/')))?;
+        let base_url = self.base_url.require()?;
+        let mut url = reqwest::Url::parse(&format!("{}/", base_url.trim_end_matches('/')))?;
         {
             let mut segments = url
                 .path_segments_mut()
-                .map_err(|_| anyhow!("base URL cannot be a base: {}", self.base_url))?;
+                .map_err(|_| anyhow!("MusicIndex endpoint cannot be a base URL"))?;
             for segment in path_segments {
                 segments.push(&sanitize_api_path_segment(segment)?);
             }
@@ -746,6 +747,21 @@ fn response_text_with_status(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn adr_0066_invalid_endpoint_rejects_requests_before_transport() {
+        let client =
+            Client::new_with_base_url("https://secret:credential@invalid host/?token=hidden");
+        let error = client
+            .search("local", None, None, None, false)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("musicindex_endpoint"));
+        for secret in ["secret", "credential", "hidden"] {
+            assert!(!error.contains(secret));
+        }
+    }
+
     use super::{Client, Contributor, Feed, PaymentRoute, SourceEntityId, Track};
 
     #[test]

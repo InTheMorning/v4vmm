@@ -483,6 +483,8 @@ pub(crate) struct PlaylistSidebarRowVm {
 /// Static labels for the Library shell chrome.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LibraryChromeDisplay {
+    pub(crate) playback_availability:
+        Result<(), crate::application::capability::ExecutionUnavailable>,
     pub(crate) split_pane_id: &'static str,
     pub(crate) resize_handle_id: &'static str,
     pub(crate) search_button_id: &'static str,
@@ -499,7 +501,17 @@ pub(crate) struct LibraryChromeDisplay {
 }
 
 impl LibraryChromeDisplay {
+    #[must_use]
+    pub(crate) const fn with_playback_availability(
+        mut self,
+        availability: Result<(), crate::application::capability::ExecutionUnavailable>,
+    ) -> Self {
+        self.playback_availability = availability;
+        self
+    }
+
     const VALUE: Self = Self {
+        playback_availability: Ok(()),
         split_pane_id: "library-pane-container",
         resize_handle_id: "library-resize-handle",
         search_button_id: "lib-search-btn",
@@ -4115,6 +4127,18 @@ pub(crate) struct PlaylistDetailHeaderDisplay {
 }
 
 impl<'a> PlaylistTrackRowVm<'a> {
+    /// Apply the prepared player and runtime facts to the file's play action (ADR 0066).
+    #[must_use]
+    pub(crate) fn display_with_playback(
+        &self,
+        playlist_id: i64,
+        availability: Result<(), crate::application::capability::ExecutionUnavailable>,
+    ) -> PlaylistTrackRowDisplay {
+        let mut display = self.display(playlist_id);
+        display.controls.play_enabled &= availability.is_ok();
+        display
+    }
+
     /// Construct a row VM from a borrowed track and its position in
     /// the surrounding playlist.
     ///
@@ -5942,6 +5966,21 @@ mod tests {
         let rows = vm.track_rows();
         assert!(rows[0].can_play());
         assert!(!rows[1].can_play());
+        // Situational ADR 0066: player failure only limits Play, preserving row identity and reorder.
+        let ready = rows[0].display_with_playback(pl.id, Ok(()));
+        let unavailable = rows[0].display_with_playback(
+            pl.id,
+            Err(
+                crate::application::capability::ExecutionUnavailable::configured(
+                    crate::application::capability::Dependency::Playback,
+                ),
+            ),
+        );
+        assert!(ready.controls.play_enabled);
+        assert!(!unavailable.controls.play_enabled);
+        let mut restored = unavailable;
+        restored.controls.play_enabled = true;
+        assert_eq!(restored, ready);
     }
 
     #[test]
