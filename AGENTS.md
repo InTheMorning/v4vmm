@@ -28,7 +28,16 @@ its platform-shortcut packet is complete with all operator checks accepted.
 Settings responsiveness and cached-file recovery are accepted, and the
 temporary timing/profiling tools are removed.
 
-Current is [ADR 0066 task 004: Optional tool isolation](docs/tasks/adr-0066-task-004-optional-tool-isolation.md).
+Next is [ADR 0069 task 001: Grouped Settings foundation](docs/tasks/adr-0069-task-001-grouped-settings-foundation.md).
+[ADR 0069](docs/adr/0069-grouped-settings-and-selective-presets.md) is Accepted;
+implementation has not started. The first packet groups existing controls and
+reports without changing the configuration format. The
+[Settings phase plan](docs/plans/adr-0069-settings-presets-phase-plan.md)
+keeps guarded editing, live metadata selection and presets behind their named
+recovery prerequisites; audio integration remains deferred.
+
+[ADR 0066 task 004: Optional tool isolation](docs/tasks/adr-0066-task-004-optional-tool-isolation.md)
+still has an open acceptance gate.
 Implementation and mechanical checks are complete; presentation acceptance and
 producer preservation passed. Remaining operator checks and fixture cleanup
 are open. Task 005 waits for that gate. Tasks 005–013 remain in the

@@ -69,6 +69,10 @@ prioritized, and routed to the right governance artifact.
    - Route: execute the [thirteen ADR 0066 packets](adr-0066-startup-recovery-phase-plan.md),
      one per session. Task 005 waits for task 004's gate; independent pending
      work follows the delivery index while playback is deferred.
+     [ADR 0069 task 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md)
+     is now the next independent packet: group existing Settings without changing
+     their persisted format. Later editor/preset phases reuse this recovery work;
+     the [Settings plan](adr-0069-settings-presets-phase-plan.md) preserves its prerequisites.
      **Implement and verify this before any config
      format change**, since a format change puts more operators in this state.
 7. Workspace configuration section naming.

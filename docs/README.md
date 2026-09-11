@@ -71,9 +71,15 @@ Current governance:
 - [ADR 0068: Show cue and audition isolation](adr/0068-show-cue-and-audition-isolation.md):
   proposed playlist-to-cue preparation, explicit Show playback and independent
   audition audio/state; implementation and operator verification remain open
+- [ADR 0069: Grouped Settings and selective presets](adr/0069-grouped-settings-and-selective-presets.md):
+  accepted Settings groups, metadata resource selection, separate audio settings
+  and component-masked preset snapshots; implementation not started
 
 Current plans:
 
+- [ADR 0069 Settings and presets phase plan](plans/adr-0069-settings-presets-phase-plan.md):
+  existing-field foundation next; shared guarded editing, metadata selection,
+  selective presets and deferred audio integration have explicit prerequisites
 - [ADR 0066 startup recovery phase plan](plans/adr-0066-startup-recovery-phase-plan.md):
   thirteen bounded packets for configuration safety, core recovery, optional-tool
   repair, managed session resumption, converter retry, and database maintenance;
@@ -110,6 +116,9 @@ Current plans:
 
 Current implementation packets:
 
+- [ADR 0069 task 001: Grouped Settings foundation](tasks/adr-0069-task-001-grouped-settings-foundation.md):
+  next independent packet; General, Library and Diagnostics using current
+  fields and save behavior; implementation and visual verification not started
 - [ADR 0066 task 004: Optional tool isolation](tasks/adr-0066-task-004-optional-tool-isolation.md):
   implemented; operator visual acceptance, preservation inspection and fixture
   cleanup remain open. Tasks 001–003 are complete, including
@@ -124,6 +133,9 @@ Current implementation packets:
 
 Current reviews:
 
+- [ADR 0069 Settings and presets review checklist](reviews/adr-0069-settings-presets-review-checklist.md):
+  component recall, shared persistence, UI ownership and deferred audio proof;
+  no implementation acceptance claimed
 - [Pending-work reconciliation](reviews/2026-09-11-pending-work-reconciliation.md):
   ADR status-format guard, corrected startup backlog and operator shortcuts,
   and independent checks available while playback is deferred

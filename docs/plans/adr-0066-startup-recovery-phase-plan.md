@@ -18,6 +18,12 @@ still owns cross-repository priority. Finish and verify this series before
 changing the configuration format. Relay durability through adoption follows.
 The real-show scheduling trigger still moves publisher show-log task 001 first.
 
+The operator accepted [ADR 0069](../adr/0069-grouped-settings-and-selective-presets.md)
+on 2026-09-11. Its [existing-field Settings foundation](../tasks/adr-0069-task-001-grouped-settings-foundation.md)
+is the next independent packet while playback is deferred. It changes no
+configuration format or prerequisite in this series. Later Settings editing
+reuses tasks 005–007; new persisted formats remain behind this series' full gate.
+
 ## Goal
 
 A broken core requirement leads to an understandable recovery screen and repair

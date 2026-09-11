@@ -91,6 +91,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0064](0064-local-file-addressing.md) | Downloaded files live under music_dir and store a relative path | Accepted |
 | [0065](0065-payment-route-tag-repair.md) | A tag repair is gated on the file, not on feed staleness | Implemented |
 | [0067](0067-platform-shortcut-modifiers.md) | Ctrl app shortcuts on Linux; Command and native Hide actions on macOS | Implemented |
+| [0069](0069-grouped-settings-and-selective-presets.md) | Grouped Settings, live metadata resource selection, independent audio configuration and selective preset snapshots; [task 001 ready, implementation not started](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Accepted |
 
 ## UI Presentation
 

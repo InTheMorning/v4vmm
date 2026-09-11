@@ -10,6 +10,12 @@ buttons for a separate audition audio path. The storage, routing and lifecycle
 decisions below are proposed; implementation has not started. Writing this ADR
 does not accept task 004's paused playback checks or change the delivery order.
 
+Revised 2026-09-11: accepted [ADR 0069](0069-grouped-settings-and-selective-presets.md)
+owns grouped Settings, app-selected Show/audition outputs, selective presets
+and PulseAudio/JACK-first configuration. It resolves the app-versus-desktop-only
+output-selection choice; this playback proposal remains otherwise Proposed
+and its implementation remains deferred.
+
 ## Context
 
 [ADR 0060](0060-workflow-surface-structure.md) places the queue and transport in
@@ -134,7 +140,7 @@ mixing and audition playlists are outside this decision.
 
 ### Independent Audio Outputs And Driver Instances
 
-The proposed first implementation selects the monitor output in v4vmm. Show
+ADR 0069 selects the monitor output in v4vmm. Show
 and audition have independent output settings and separately identifiable
 audio streams. Keep the existing Show playback settings compatible; add scoped
 audition settings without rewriting an older configuration on startup.
@@ -148,8 +154,9 @@ requirement. The implementation must use device identities supported by the
 audio backend rather than unstable list positions. Changing one destination
 does not restart or reroute the other player.
 
-This proposes output selection, not a mixing console or an operating-system
-patchbay. App-level separation cannot prove that an external loopback or encoder
+ADR 0069 supplies the accepted output-selection contract, with PulseAudio and
+JACK first and native PipeWire later. It does not introduce a mixing console
+or operating-system patchbay. App-level separation cannot prove that an external loopback or encoder
 excludes the monitor signal. Operator verification must listen to and inspect
 the actual program capture path. A confirmation dialog is not evidence of
 audio isolation.
@@ -281,9 +288,9 @@ Direct remote audition remains deferred under ADR 0021.
   would interrupt program audio and entangle failure recovery.
 - **Run two players into the same implicit default output.** Reject: process
   isolation alone does not supply independently chosen program/monitor paths.
-- **Let desktop audio tools own routing.** Viable alternative to the proposed
-  app output selector. It still requires separately identified streams and a
-  documented operator routing check; it does not weaken state isolation.
+- **Let desktop audio tools alone own routing.** Not selected: ADR 0069 accepts
+  app-selected, recallable destinations. Desktop routing remains complementary
+  and still needs operator verification of the actual program capture path.
 - **Add a DJ mixer, remote preview and multiple-show scheduler together.** Reject:
   those features are not required to establish the two playback purposes.
 
