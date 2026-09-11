@@ -253,8 +253,9 @@ three tracks and three playlist entries; bindings remain `a.wav`, `b.wav` and
 The inspection output has no timestamp; none is inferred from the earlier report.
 
 The remaining first-case visual checks are unconfirmed: normal navigation,
-local search results, all three playlist rows, unavailable Play/Space, and
-retained reports after navigation. Those checks remain open alongside the producer,
+local search results, all three playlist rows, unavailable Play, rejected
+Ctrl+Alt+P on Show and retained reports after navigation. Those checks remain
+open alongside the producer,
 publisher and partial-path-repair cases. No first-case acceptance or operator
 fixture cleanup is recorded; presentation acceptance is recorded below.
 

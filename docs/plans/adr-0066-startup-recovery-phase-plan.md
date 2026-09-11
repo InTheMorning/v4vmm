@@ -7,8 +7,9 @@ ADR 0066 remains Accepted. Tasks 001–003 are complete, including operator
 acceptance, preservation inspection and fixture cleanup. The
 [ADR 0067 shortcut correction](../tasks/adr-0067-task-001-platform-shortcuts.md)
 is complete. Settings responsiveness and cached-file recovery passed; temporary
-diagnostics are removed. Task 004 implementation and mechanical checks are complete; its operator visual
-gate, preservation inspection and fixture cleanup remain open. Tasks 005–013
+diagnostics are removed. Task 004 implementation and mechanical checks are complete;
+its presentation case and producer preservation passed. Remaining operator checks
+and fixture cleanup are open; playback-dependent checks are deferred. Tasks 005–013
 remain unstarted; task 005 waits for task 004 acceptance.
 
 This plan executes [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md).
@@ -38,12 +39,12 @@ UTC corrections, narrow Show layout, and Clippy/decomposition debt stay separate
 
 - The operator accepted ADR 0066 on 2026-09-10. Tooling is optional; a current
   constructor's expectation is not a product requirement.
-- Configuration readers and savers are in config.rs. A strict compatibility
-  reader remains temporarily while scoped consumers are migrated.
-- The normal shell still assumes a configured player. Task 003 makes runner
-  availability explicit in TopApp and LibraryApp; neither constructs an
-  implicit runner when RuntimeHost is absent. Other optional constructors
-  remain assigned to task 004.
+- Configuration readers and savers are in config.rs. Task 004 removed the
+  strict compatibility reader and migrated its callers to scoped configuration.
+- The normal shell admits an absent player after task 004. Task 003 makes
+  runner availability explicit in TopApp and LibraryApp; neither constructs
+  an implicit runner when RuntimeHost is absent. Optional resource failures
+  reach their own reports and typed action availability.
 - Database connections include the main shared connection and the library
   paged actor's separately opened connection. Dropping command result receivers
   does not cancel blocking work.
@@ -53,9 +54,9 @@ UTC corrections, narrow Show layout, and Clippy/decomposition debt stay separate
 - Event reports already record UTC under ADR 0063. ADR 0066 extends that scoped
   precedent; this series does not choose cross-repo timestamp precision.
 - These are staged slices. Task 002 proves core recovery; task 003 adds
-  runtime/cache recovery with operator acceptance complete. Other optional
-  constructor failures remain assigned to 004. The temporary
-  coupling is a recorded incomplete implementation, never a new core rule.
+  runtime/cache recovery with operator acceptance complete. Task 004 implements
+  optional constructor isolation; its remaining operator evidence is still
+  required. Its mechanical completion does not accept the playback workflow.
 - New files/types/guard names in packets are proposed implementation targets.
   They must acquire a live caller in their owning packet, not be parked as
   scaffolding for an unnamed later phase.

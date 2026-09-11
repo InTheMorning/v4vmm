@@ -63,9 +63,10 @@ for the Index path.
    submit with Enter. Inspect the input, clear control, and Search action.
 2. Use frame navigation to return, then submit using the toolbar Search
    action. Results must open in Music's content area. There is no Search tab.
-3. Use the app's Find command and its keyboard shortcut to focus the same
-   input. The current source binding is `cmd-f` in `src/app/keyboard.rs`;
-   use the platform's mapping of that modifier, not an assumed Ctrl binding.
+3. Use the app's Find command and Ctrl+F on Linux to focus the same input.
+   ADR 0067 maps the shared binding to Command+F on macOS. Record actual key
+   delivery as well as the menu action; clicking the input alone does not
+   verify keyboard focus.
 4. Narrow the window to about 560 pixels, as in task 017's inspection. The input
    and the available compact Search action must remain identifiable and
    clickable, with no partial labels or overlapping controls. Open any

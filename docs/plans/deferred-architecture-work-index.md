@@ -2,8 +2,9 @@
 
 ## Status
 
-Active index - 2026-05-18. Reconciled 2026-09-10 for inherited human gates,
-configuration failure scope, and the operator's delivery priorities.
+Active index - 2026-05-18. Reconciled 2026-09-11 against completed startup work,
+the retained human gates, and the operator's playback deferral. See the
+[pending-work review](../reviews/2026-09-11-pending-work-reconciliation.md).
 
 Item numbers below are stable identifiers. The execution order is the
 [broadcast-chain delivery order](broadcast-chain-delivery-order.md#current-delivery-order).
@@ -47,12 +48,13 @@ prioritized, and routed to the right governance artifact.
      `docs/research/broadcast-recording-and-feed-publishing.md`.
 6. Configuration failure behavior.
    - Status: [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md)
-     Accepted - 2026-09-10. Implementation partial: task 001 protects configuration
-     reads and ordinary saves. Task 002 routes invalid core configuration,
-     unusable music storage and SQLite failures to recovery; its operator
-     checks and fixture cleanup are complete. Task 003 adds runtime/cache recovery
-     with operator acceptance open. In-app editors and other optional-tool
-     isolation remain later packets; configuration correction still needs an external editor.
+     Accepted - 2026-09-10. Tasks 001–003 are complete, including operator
+     acceptance, preservation inspection and fixture cleanup. Task 004 optional
+     tool isolation is implemented with mechanical checks Green; its presentation
+     case and producer preservation passed. Remaining operator checks and cleanup
+     are open; playback-dependent checks are deferred with proposed ADR 0068.
+     Tasks 005–013, including in-app correction/retry, have not started;
+     configuration correction still needs an external editor.
    - Note: a malformed layout *value* already falls back with a warning. This
      item is the level above that, where the file does not parse at all.
      Settings manages only a few keys, so operators hand-edit this file.
@@ -65,8 +67,8 @@ prioritized, and routed to the right governance artifact.
      share configuration and database maintenance tools; disabled controls
      alone are not the recovery workflow. ADR 0066 owns the detailed policy.
    - Route: execute the [thirteen ADR 0066 packets](adr-0066-startup-recovery-phase-plan.md),
-     one per session. Tasks 001–003 are complete; task 004 is ready;
-     tasks 004–013 have not started.
+     one per session. Task 005 waits for task 004's gate; independent pending
+     work follows the delivery index while playback is deferred.
      **Implement and verify this before any config
      format change**, since a format change puts more operators in this state.
 7. Workspace configuration section naming.
@@ -78,12 +80,11 @@ prioritized, and routed to the right governance artifact.
    - Decision: merge both into one `[workspace]` table, with frames as
      `[[workspace.frames]]` and pane width as a sibling key. One section owns
      workspace state persistence.
-   - Sequence: after item 6, and after ADR 0060 tasks 002 and 003. The frame
-     list changes anyway when the queue moves to `Show`, so one migration
-     covers both changes. Writing the ADR earlier means guessing at the final
-     frame set.
-   - Route: an ADR 0060 series packet with its own ADR, written when the layout
-     model has settled.
+   - Sequence: after item 6. ADR 0060 tasks 002 and 003 are complete, so their
+     frame changes are no longer a pending dependency. The configuration
+     recovery series must still finish before a configuration format migration.
+   - Route: a dedicated migration packet with its own ADR after item 6;
+     do not reopen the completed ADR 0060 surface packets.
 8. Visual-system polish and lower-priority product improvements.
    - Status: use bounded ADR 0025 tasks only when the change affects tokens,
      primitives, composites, or theme contracts.

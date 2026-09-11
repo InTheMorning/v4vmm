@@ -1,6 +1,7 @@
 # ADR 0002: Rust CLI With Local SQLite State
 
 ## Status
+
 Accepted - 2026-04-11.
 
 ## Context

@@ -401,9 +401,9 @@ python3 docs/runbooks/startup-recovery-fixture.py run "$optional_dir"
 Music must open normally. Open Background tools in Settings: the invalid
 MusicIndex setting and failed playback preparation must remain separate.
 Copy the report and paste into an editor; verify both subjects and their recorded
-UTC times. Search for `a.wav` using the toolbar and Ctrl+K: the local track must
+UTC times. Search for `a.wav` using the toolbar and Ctrl+F: the local track must
 remain visible, with an Index failure explanation. Open Startup fixture playlist;
-all three rows remain browsable. Play actions must be unavailable; Space on Show
+all three rows remain browsable. Play actions must be unavailable; Ctrl+Alt+P on Show
 must not start audio. Navigate back to Settings and confirm both reports remain.
 A recovery-only window, missing local results, substituted player or cleared
 report is wrong. Close the app.
@@ -432,8 +432,8 @@ is wrong.
 The 2026-09-11 screenshot exposed duplicate warnings in Show. With the rebuilt
 binary, each configuration warning must appear once in the shared top notice;
 the repeated red block below Idle must be absent. Open report must still expose
-the complete Settings report. Keep this check open until inspected at normal
-and narrow widths after navigation.
+the complete Settings report. The operator accepted this recheck on 2026-09-11;
+these instructions remain for regression and do not reopen the accepted case.
 
 ```bash
 python3 docs/runbooks/startup-recovery-fixture.py inspect "$optional_dir"

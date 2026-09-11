@@ -29,12 +29,15 @@ Settings responsiveness and cached-file recovery are accepted, and the
 temporary timing/profiling tools are removed.
 
 Current is [ADR 0066 task 004: Optional tool isolation](docs/tasks/adr-0066-task-004-optional-tool-isolation.md).
-Implementation and mechanical checks are complete; operator visual acceptance,
-preservation inspection and fixture cleanup remain open. Task 005 waits for
-that gate. Tasks 005–013 remain in the [phase plan](docs/plans/adr-0066-startup-recovery-phase-plan.md).
+Implementation and mechanical checks are complete; presentation acceptance and
+producer preservation passed. Remaining operator checks and fixture cleanup
+are open. Task 005 waits for that gate. Tasks 005–013 remain in the
+[phase plan](docs/plans/adr-0066-startup-recovery-phase-plan.md).
 [ADR 0068: Show cue and audition isolation](docs/adr/0068-show-cue-and-audition-isolation.md)
 is Proposed; its implementation has not started. Task 004's playback checks
 remain paused pending that separation and resolution of the observed mpv IPC error.
+Playback work is deferred; independent report/path-repair and Music checks
+remain available in the pending-human index.
 Relay durability through reserved-event adoption follows.
 The delivery order also schedules narrow Show layout,
 long-line inspection, per-log following, UTC timestamps, and steady-state work.

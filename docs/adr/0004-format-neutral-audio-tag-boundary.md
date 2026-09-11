@@ -1,6 +1,7 @@
 # ADR 0004: Format-Neutral Audio Tag Boundary
 
 ## Status
+
 Accepted - 2026-04-12.
 
 ## Context

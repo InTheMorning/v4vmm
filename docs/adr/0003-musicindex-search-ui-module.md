@@ -1,6 +1,7 @@
 # ADR 0003: MusicIndex Search UI Module
 
 ## Status
+
 Accepted - 2026-04-11.
 
 ## Context

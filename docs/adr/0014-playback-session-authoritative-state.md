@@ -1,6 +1,7 @@
 # ADR 0014: PlaybackSession Authoritative State
 
 ## Status
+
 Accepted - 2026-04-26.
 
 ## Context

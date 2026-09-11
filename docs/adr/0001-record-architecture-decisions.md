@@ -1,6 +1,7 @@
 # ADR 0001: Record Architecture Decisions
 
 ## Status
+
 Accepted - 2026-04-11.
 
 ## Context

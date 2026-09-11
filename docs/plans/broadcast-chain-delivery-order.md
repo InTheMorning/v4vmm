@@ -85,6 +85,12 @@ an unresolved mpv IPC read error. See [the correction and remaining gate](../tas
 This records a prerequisite to those checks, without starting another packet or
 changing the approved cross-repository order.
 
+The operator deferred playback work on 2026-09-11 and requested independent
+backlog closure. The [pending-work reconciliation](../reviews/2026-09-11-pending-work-reconciliation.md)
+records that bounded pass. Non-playback report/path-repair and inherited Music
+checks can proceed while audio/publication acceptance remains paused. Task 005
+still waits for task 004's gate; this does not waive its prerequisite.
+
 ## Progress
 
 Update this table when a packet lands.
@@ -92,6 +98,7 @@ Update this table when a packet lands.
 | Repository | Packet | State |
 |---|---|---|
 | `v4vmm` | [governance reconciliation](../reviews/2026-09-10-governance-reconciliation.md) | complete - 2026-09-10; documentation only; surviving gates indexed below |
+| `v4vmm` | [pending-work reconciliation](../reviews/2026-09-11-pending-work-reconciliation.md) | Complete - 2026-09-11; ADR header-format debt and corpus guard closed; stale startup backlog and shortcut instructions corrected; 235 architecture tests and required checks Green; human gates remain open |
 | `v4vmm` | [0066 configuration/startup failure recovery](adr-0066-startup-recovery-phase-plan.md) | ADR Accepted; tasks 001–003 complete, including [003 operator acceptance, preservation and fixture cleanup](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md#operator-evidence--2026-09-11) - 2026-09-11; task 004 implementation and mechanical gate Green; presentation case and preservation accepted - 2026-09-11; playback checks paused for cue/audition separation and observed mpv IPC error; remaining operator checks and final fixture cleanup open; task 005 waits; 005–013 not started |
 | `v4vmm` | [0067 platform shortcuts 001](../tasks/adr-0067-task-001-platform-shortcuts.md) | Complete - 2026-09-11; mechanical gate Green; all shortcut checks, preservation and fixture cleanup accepted; ADR Implemented |
 | `v4vmm` | [0068 Show cue and audition isolation](../adr/0068-show-cue-and-audition-isolation.md) | Proposed - 2026-09-11; requested ADR drafted; implementation and its visual/audio checks not started; does not close 0066 task 004's paused playback gate |

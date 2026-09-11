@@ -128,8 +128,10 @@ retired replaced requirements before restoring current human checks:
 - 0025 remains partially implemented; its recorded visual passes are not an
   open operator gate. Further theme work uses bounded packets.
 
-## Known Drift
+## Status Verification
 
-Seven ADRs place the status on the line directly below `## Status` while 53 use
-a blank line first. ADR 0061 requires one canonical format. Normalizing them is
-follow-up work, to land with the corpus guard.
+The situational ADR 0057 guard `adr_0057_status_headers_are_canonical` checks
+every current and archived numbered decision. The
+[2026-09-11 reconciliation](../reviews/2026-09-11-pending-work-reconciliation.md)
+closes the header-format drift. The guard verifies format, vocabulary and date;
+implementation and human acceptance still require their named evidence.

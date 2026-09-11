@@ -158,8 +158,9 @@ Open - implementation and mechanical checks recorded 2026-09-11.
 - Needs a Linux desktop, Python 3.11+, this checkout's debug binary, installed
   mpv and working desktop audio for the producer-failure case. The fixture
   supplies local tracks, broken paths and external-service stubs.
-- Remaining checks: confirm local search, playlist visibility, inactive Play/Space
-  and retained reports for paired Index/player failure; test producer failure
+- Remaining checks: confirm local search, playlist visibility, unavailable Play,
+  rejected Ctrl+Alt+P on Show and retained reports for paired Index/player
+  failure; test producer failure
   with audible playback, publisher failure with independent producer/encoder,
   and partially applied path repair. Check report copy, preservation for the
   publisher and path-repair cases, and final fixture cleanup. Producer-case

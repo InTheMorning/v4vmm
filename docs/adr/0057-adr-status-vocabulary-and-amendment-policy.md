@@ -7,6 +7,10 @@ the status vocabulary ADR 0001 left undefined. ADR 0001 remains in force for
 everything else: sequential numbering, Nygard structure, and the rule that
 reversing a decision requires a new ADR.
 
+Amended 2026-09-11: standardized the status heading and dated sentence, and
+added a situational corpus guard to close the seven inconsistent headers
+recorded in the ADR index. No decision's status or acceptance date changed.
+
 ## Context
 
 An audit on 2026-08-28 (`docs/reviews/documentation-and-architecture-audit.md`)
@@ -54,6 +58,13 @@ An ADR's status is exactly one of four values, followed by a date:
 `Accepted and implemented`, `Implemented for X scope`, and
 `Accepted - ... Implemented.` are retired. They encode a partial state that now
 has its own expression.
+
+The canonical header is `## Status`, one blank line, then a dated status
+sentence ending in a period. Explanatory prose may follow that sentence on
+the same line. Current and archived numbered ADRs follow this format.
+The situational guard `adr_0057_status_headers_are_canonical` in
+`tests/architecture_tests.rs` checks the header, vocabulary and calendar date.
+It does not infer implementation or operator acceptance from a status label.
 
 ### Partial Implementation
 

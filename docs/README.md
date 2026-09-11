@@ -124,6 +124,9 @@ Current implementation packets:
 
 Current reviews:
 
+- [Pending-work reconciliation](reviews/2026-09-11-pending-work-reconciliation.md):
+  ADR status-format guard, corrected startup backlog and operator shortcuts,
+  and independent checks available while playback is deferred
 - [ADR 0066 startup recovery review checklist](reviews/adr-0066-startup-recovery-review-checklist.md):
   tasks 001–003 complete with operator evidence; task 004 mechanical proof
   recorded and operator gate open; later coverage belongs to tasks 005–013

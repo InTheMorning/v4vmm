@@ -1,6 +1,7 @@
 # ADR 0006: MusicBrainz Release Detail Enrichment
 
 ## Status
+
 Accepted - 2026-04-13.
 
 ## Context

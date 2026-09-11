@@ -7496,8 +7496,8 @@ fn track_identity_links_use_shared_renderer() {
                 .to_string(),
         );
     }
-    if !(search.contains("render_track_page_identity_actions(&detail_page)")
-        && !search.contains("\"discover-track\""))
+    if !search.contains("render_track_page_identity_actions(&detail_page)")
+        || search.contains("\"discover-track\"")
     {
         violations.push(
             "src/ui/shells/discover/track_inspector.rs: ADR 0037 Discover track detail must call `render_track_page_identity_actions(&detail_page)` and leave the prefix in TrackDetailPageVm"
@@ -7506,8 +7506,8 @@ fn track_identity_links_use_shared_renderer() {
     }
 
     let library = read_source(&manifest_path("src/ui/shells/library/track_detail.rs"));
-    if !(library.contains("render_track_page_identity_actions(&detail_page)")
-        && !library.contains("\"library-track\""))
+    if !library.contains("render_track_page_identity_actions(&detail_page)")
+        || library.contains("\"library-track\"")
     {
         violations.push(
             "src/ui/shells/library/track_detail.rs: ADR 0037 Library track detail must call `render_track_page_identity_actions(&detail_page)` and leave the prefix in TrackDetailPageVm"
@@ -11034,6 +11034,107 @@ fn nearby_source_mentions(source: &str, line_number: usize, needles: &[&str]) ->
 
 fn read_source(path: &Path) -> String {
     fs::read_to_string(path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()))
+}
+
+/// Situational ADR 0057: current and archived decisions use one status format.
+#[test]
+fn adr_0057_status_headers_are_canonical() {
+    let mut paths = Vec::new();
+    for directory in ["docs/adr", "docs/adr/archive"] {
+        let entries = fs::read_dir(manifest_path(directory))
+            .unwrap_or_else(|error| panic!("read {directory}: {error}"));
+        for entry in entries {
+            let path = entry.expect("read ADR directory entry").path();
+            let numbered = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .and_then(|stem| stem.split_once('-'))
+                .is_some_and(|(number, _)| {
+                    number.len() == 4 && number.bytes().all(|byte| byte.is_ascii_digit())
+                });
+            if numbered && path.extension().is_some_and(|extension| extension == "md") {
+                paths.push(path);
+            }
+        }
+    }
+    assert!(!paths.is_empty(), "ADR 0057: no numbered decisions found");
+    paths.sort();
+    let violations: Vec<_> = paths
+        .iter()
+        .filter_map(|path| {
+            validate_adr_status_header(&read_source(path))
+                .err()
+                .map(|reason| format!("{}: {reason}", rel_path(path)))
+        })
+        .collect();
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0057 status header violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+fn validate_adr_status_header(source: &str) -> Result<(), &'static str> {
+    let mut lines = source.lines();
+    if !lines.any(|line| line == "## Status") {
+        return Err("missing ## Status heading");
+    }
+    if lines.next() != Some("") {
+        return Err("put one blank line after ## Status");
+    }
+    let (status, dated_sentence) = lines
+        .next()
+        .and_then(|line| line.split_once(" - "))
+        .ok_or("follow the blank line with a status and date separated by ' - '")?;
+    let superseded = status
+        .strip_prefix("Superseded by ADR ")
+        .is_some_and(|number| {
+            number.len() == 4 && number.bytes().all(|byte| byte.is_ascii_digit())
+        });
+    if !matches!(status, "Proposed" | "Accepted" | "Implemented") && !superseded {
+        return Err("use Proposed, Accepted, Implemented or Superseded by ADR NNNN");
+    }
+    let (date, explanation) = dated_sentence
+        .split_once('.')
+        .ok_or("end the dated status sentence with a period")?;
+    let parsed = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+        .map_err(|_| "use a valid calendar date in YYYY-MM-DD format")?;
+    if parsed.format("%Y-%m-%d").to_string() != date {
+        return Err("use a valid calendar date in YYYY-MM-DD format");
+    }
+    if !explanation.is_empty() && !explanation.starts_with(' ') {
+        return Err("separate any explanatory prose from the status sentence with a space");
+    }
+    Ok(())
+}
+
+/// Situational ADR 0057: the corpus validator rejects the known drift classes.
+#[test]
+fn adr_0057_status_header_validation_covers_vocabulary_and_dates() {
+    for sentence in [
+        "Proposed - 2026-09-11.",
+        "Accepted - 2026-09-11. Implementation partial: operator check open.",
+        "Implemented - 2024-02-29.",
+        "Superseded by ADR 0059 - 2026-09-06.",
+    ] {
+        let source = format!("# ADR\n\n## Status\n\n{sentence}\n\n## Context\n");
+        assert_eq!(validate_adr_status_header(&source), Ok(()), "{sentence}");
+    }
+    for source in [
+        "# ADR\n\n## Context\nAccepted - 2026-09-11.",
+        "## Status\nAccepted - 2026-09-11.",
+        "## Status\n\n\nAccepted - 2026-09-11.",
+        "## Status\n\nAccepted and implemented - 2026-09-11.",
+        "## Status\n\nImplemented for ADR 0047 scope - 2026-09-11.",
+        "## Status\n\nSuperseded - 2026-09-11.",
+        "## Status\n\nSuperseded by ADR 59 - 2026-09-11.",
+        "## Status\n\nAccepted - 2026-02-29.",
+        "## Status\n\nAccepted - 2026-9-11.",
+        "## Status\n\nAccepted - 2026-09-11",
+        "## Status\n\nAccepted - 2026-09-11.No space.",
+    ] {
+        assert!(validate_adr_status_header(source).is_err(), "{source}");
+    }
 }
 
 fn workspace_vm_source() -> String {
@@ -14947,7 +15048,7 @@ fn adr_0062_music_default_content_projects_recent_music_rows() {
         "#[cfg(test)]",
     );
     let no_selection_branch = source_between(
-        &library_render,
+        library_render,
         "let content = if matches!(self.detail, LibraryDetail::None) {",
         "} else {",
     );

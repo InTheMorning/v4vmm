@@ -1,7 +1,7 @@
 # ADR 0066 Task 003: Runtime Failure And Shell Availability
 
 Status: Complete - 2026-09-11; mechanical gate Green; all operator checks, final preservation inspection and fixture cleanup accepted.
-Mechanical gate Green. Task 004 has not started.
+Task 004 is implemented with its remaining operator gate open; see the phase plan.
 
 ## Goal
 

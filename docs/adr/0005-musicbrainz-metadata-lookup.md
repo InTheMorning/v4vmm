@@ -1,6 +1,7 @@
 # ADR 0005: MusicBrainz Metadata Lookup
 
 ## Status
+
 Accepted - 2026-04-12.
 
 ## Context
