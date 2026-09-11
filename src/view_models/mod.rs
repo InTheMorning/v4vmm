@@ -61,6 +61,7 @@
 #![warn(clippy::pedantic)]
 
 pub(crate) mod app_toolbar;
+pub(crate) mod cached_files;
 pub mod startup;
 
 pub mod artist;

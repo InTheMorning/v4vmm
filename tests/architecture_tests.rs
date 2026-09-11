@@ -1803,7 +1803,7 @@ fn adr_0066_missing_runtime_has_no_implicit_runner() {
         "self.toggle_playback_paused(cx)",
         "self.skip_playback_next(cx)",
         "self.focus_global_search(window, cx)",
-        "self.select_tab(AppTab::Settings, cx)",
+        "self.select_tab(AppTab::Settings, window, cx)",
     ] {
         assert!(keys.contains(route));
     }
@@ -4778,6 +4778,65 @@ fn top_level_keyboard_shortcuts_route_through_key_binding_taxonomy() {
         "top-level keyboard shortcut taxonomy violations:\n{}",
         violations.join("\n")
     );
+}
+
+#[test]
+fn adr_0067_keyboard_and_menu_share_platform_modifier_resolution() {
+    for file in ["src/app/keyboard.rs", "src/app/menu.rs"] {
+        let source = read_source(&manifest_path(file));
+        assert!(
+            source.contains("platform_keystroke(self.keystroke, is_macos)"),
+            "Situational ADR 0067: {file} must resolve its registry through the shared platform adapter"
+        );
+        assert!(
+            !source.contains("KeyBinding::new(self.keystroke,"),
+            "Situational ADR 0067: {file} must not bypass platform resolution"
+        );
+    }
+}
+
+#[test]
+fn adr_0067_mount_and_section_changes_establish_a_persistent_focus_path() {
+    let bootstrap = read_source(&manifest_path("src/app/bootstrap.rs"));
+    let app = read_source(&manifest_path("src/app.rs"));
+    let tabs = read_source(&manifest_path("src/app/tab_bar.rs"));
+    assert!(bootstrap.contains("app.focus_active_tab(window);"),
+        "Situational ADR 0067: normal mount must focus a control beneath the app action handlers before the first shortcut");
+    assert!(app.contains("self.tab = tab;\n        self.focus_active_tab(window);"),
+        "Situational ADR 0067: every section transition must replace focus from an input that may leave the mounted tree");
+    assert!(tabs.contains(".track_focus(focus_handle)")
+        && tabs.contains("focus_handle_for_key(key, self).focus(window);"),
+        "Situational ADR 0067: transition focus must use the persistent handles mounted by the shared tab bar");
+    let render = source_between(&app, "impl Render for TopApp", "fn render_ui_scale_picker");
+    assert!(
+        !render.contains("focus_active_tab("),
+        "Situational ADR 0067: rendering must not repeatedly steal focus from inputs"
+    );
+}
+
+#[test]
+fn adr_0040_settings_cache_reads_leave_the_render_thread() {
+    let app = read_source(&manifest_path("src/app.rs"));
+    let render = app
+        .split_once("fn render_settings(")
+        .expect("Settings renderer")
+        .1;
+    for forbidden in ["reload_cached(", ".lock()", "cached_tracks(", "build_tree("] {
+        assert!(
+            !render.contains(forbidden),
+            "Situational ADR 0040: Settings must paint cached observations without database work: {forbidden}"
+        );
+    }
+    let load = source_between(&app, "fn reload_cached(", "fn delete_cached_file(");
+    assert!(load.contains("present_command(") && load.contains("LoadCachedTracksTree::new("));
+    assert!(!load.contains(".lock()") && !load.contains("build_tree("));
+    assert!(render.contains("app.cached_files.status()"));
+    let select = source_between(&app, "fn select_tab(", "fn content_list_frame_id(");
+    assert!(select.contains("self.reload_cached(cx);"));
+    for path in ["src/app/events.rs", "src/app/capabilities.rs"] {
+        assert!(read_source(&manifest_path(path)).contains("self.reload_cached(cx);"),
+            "Situational ADR 0040: mutations and runtime recovery must refresh the mounted Settings observation");
+    }
 }
 
 #[test]
@@ -13226,7 +13285,7 @@ fn adr_0060_show_is_screen_mount_not_frame_kind() {
         "AppKeyCommand::SelectShowTab",
         "keystroke: \"cmd-2\"",
         "keystroke: \"cmd-3\"",
-        "self.select_tab(AppTab::Show, cx)",
+        "self.select_tab(AppTab::Show, window, cx)",
         "TopApp::handle_select_show_tab",
     ] {
         if !keyboard_source.contains(required) && !app_source.contains(required) {
@@ -13518,7 +13577,7 @@ fn adr_0060_music_surface_vocabulary_and_primary_filter_are_guarded() {
         "AppKeyCommand::SelectMusicTab",
         "keystroke: \"cmd-1\"",
         "label: \"Music\"",
-        "self.select_tab(AppTab::Music, cx)",
+        "self.select_tab(AppTab::Music, window, cx)",
         "TopApp::handle_select_music_tab",
     ] {
         if !keyboard_source.contains(required) && !app_source.contains(required) {
@@ -14058,7 +14117,7 @@ fn adr_0060_live_status_strip_contract_and_mount_are_guarded() {
         ".when_some(live_status_strip, gpui::ParentElement::child)",
         "WorkspaceScreenMount::Music | WorkspaceScreenMount::Settings",
         "LiveStatusDisplay::from_show_page(&app.show_page)",
-        "this.select_tab(AppTab::Show, cx);",
+        "this.select_tab(AppTab::Show, window, cx);",
     ] {
         if !app_render.contains(required) && !show_adapter_source.contains(required) {
             violations.push(format!(

@@ -15,6 +15,8 @@ When you need to look something up, consult this map first to find the right fil
 | Recovery state/actions/reports; shared geometry; screen wiring | `src/view_models/startup.rs`, `src/ui/composites/startup_report.rs`, `src/app/startup.rs` |
 | Scoped background issues and command remedies | `src/application/capability.rs`, `src/view_models/startup/capabilities.rs` |
 | Search failure explanation/disclosure; shared report URL redaction | `src/view_models/search_results/failure.rs`, `src/diagnostics.rs` |
+| Temporary Settings selection/draw timing (task 003 owns retirement) | `src/presentation/settings_timing.rs` |
+| Settings cached-file query and saved observation | `src/application/queries/library.rs`, `src/view_models/cached_files.rs`, `src/app.rs` |
 | Runtime/cache repair wiring in the existing shell | `src/app/capabilities.rs` |
 | Independent maintenance worker and GPUI completion | `src/presentation/maintenance_executor.rs`, `src/presentation/startup_presenter.rs` |
 | MusicIndex HTTP client | `src/api.rs` |
@@ -38,6 +40,7 @@ When you need to look something up, consult this map first to find the right fil
 | GPUI library view (view code only) | `src/library.rs` |
 | GPUI discover/search view (view code only) | `src/search.rs` |
 | Top-level GPUI window, tab switching | `src/app.rs` |
+| Platform shortcut modifier and typed keyboard/menu bindings | `src/app/keyboard.rs`, `src/app/menu.rs` (ADR 0067) |
 | GPUI view composition helpers | `src/views.rs` |
 | Artist inspector view | `src/ui_artist.rs` |
 | Feed inspector view | `src/ui_feed.rs` |

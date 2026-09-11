@@ -654,7 +654,7 @@ impl TopApp {
             cx,
             move |this, result, cx| {
                 this.settings_status = result.message().to_string();
-                this.reload_cached();
+                this.reload_cached(cx);
                 if let Some(feed_id) =
                     this.downloaded_index_feed_id(feed_guid.as_deref(), feed_url.as_deref())
                 {
@@ -725,7 +725,7 @@ impl TopApp {
             cx,
             |this, result, cx| {
                 this.settings_status = result.message().to_string();
-                this.reload_cached();
+                this.reload_cached(cx);
                 this.library.update(cx, LibraryApp::refresh);
             },
             |this, error, _cx| {
@@ -892,7 +892,7 @@ impl TopApp {
                     if result.appended() == 1 { "" } else { "s" },
                     result.downloaded()
                 );
-                this.reload_cached();
+                this.reload_cached(cx);
                 this.library.update(cx, LibraryApp::refresh);
             },
             |this, error, _cx| {

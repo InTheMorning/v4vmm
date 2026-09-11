@@ -1,4 +1,4 @@
-//! macOS menu bar bootstrap.
+//! Platform application shortcuts and macOS menu bar bootstrap (ADR 0067).
 //!
 //! GPUI exposes platform menus as action-backed menu items. This module keeps
 //! the app-menu contract centralized so standard macOS commands stay visible
@@ -7,7 +7,7 @@
 
 use gpui::{actions, App, Context, KeyBinding, Menu, MenuItem, SystemMenuType, Window};
 
-use super::{AppTab, TopApp};
+use super::{keyboard::platform_keystroke, AppTab, TopApp};
 
 const APP_NAME: &str = "Application";
 
@@ -62,17 +62,30 @@ pub(super) const APP_MENU_BINDING_SPECS: &[AppMenuBindingSpec] = &[
 
 pub(super) fn install_app_menu(cx: &mut App) {
     cx.bind_keys(app_menu_key_bindings());
-    cx.on_action(handle_hide_app);
-    cx.on_action(handle_hide_other_apps);
-    cx.on_action(handle_show_all_apps);
     cx.on_action(handle_quit_app);
-    cx.set_menus(app_menus());
+    if cfg!(target_os = "macos") {
+        cx.on_action(handle_hide_app);
+        cx.on_action(handle_hide_other_apps);
+        cx.on_action(handle_show_all_apps);
+        cx.set_menus(app_menus());
+    }
 }
 
 fn app_menu_key_bindings() -> Vec<KeyBinding> {
+    app_menu_key_bindings_for_platform(cfg!(target_os = "macos"))
+}
+
+pub(super) fn app_menu_key_bindings_for_platform(is_macos: bool) -> Vec<KeyBinding> {
     APP_MENU_BINDING_SPECS
         .iter()
-        .map(AppMenuBindingSpec::key_binding)
+        .filter(|spec| {
+            is_macos
+                || matches!(
+                    spec.command,
+                    AppMenuCommand::OpenPreferences | AppMenuCommand::QuitApp
+                )
+        })
+        .map(|spec| spec.key_binding(is_macos))
         .collect()
 }
 
@@ -94,14 +107,14 @@ fn app_menus() -> Vec<Menu> {
 }
 
 impl AppMenuBindingSpec {
-    fn key_binding(&self) -> KeyBinding {
+    fn key_binding(&self, is_macos: bool) -> KeyBinding {
+        let keystroke = platform_keystroke(self.keystroke, is_macos);
+        let keystroke = keystroke.as_ref();
         match self.command {
-            AppMenuCommand::OpenPreferences => {
-                KeyBinding::new(self.keystroke, OpenPreferences, None)
-            }
-            AppMenuCommand::HideApp => KeyBinding::new(self.keystroke, HideApp, None),
-            AppMenuCommand::HideOtherApps => KeyBinding::new(self.keystroke, HideOtherApps, None),
-            AppMenuCommand::QuitApp => KeyBinding::new(self.keystroke, QuitApp, None),
+            AppMenuCommand::OpenPreferences => KeyBinding::new(keystroke, OpenPreferences, None),
+            AppMenuCommand::HideApp => KeyBinding::new(keystroke, HideApp, None),
+            AppMenuCommand::HideOtherApps => KeyBinding::new(keystroke, HideOtherApps, None),
+            AppMenuCommand::QuitApp => KeyBinding::new(keystroke, QuitApp, None),
         }
     }
 }
@@ -110,10 +123,10 @@ impl TopApp {
     pub(super) fn handle_open_preferences(
         &mut self,
         _: &OpenPreferences,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.select_tab(AppTab::Settings, cx);
+        self.select_tab(AppTab::Settings, window, cx);
     }
 }
 
@@ -174,6 +187,28 @@ mod tests {
 
     #[test]
     fn app_menu_key_bindings_build_gpui_bindings() {
-        assert_eq!(app_menu_key_bindings().len(), APP_MENU_BINDING_SPECS.len());
+        let expected = if cfg!(target_os = "macos") { 4 } else { 2 };
+        assert_eq!(app_menu_key_bindings().len(), expected);
+    }
+
+    #[test]
+    fn adr_0067_hide_commands_remain_macos_only() {
+        for is_macos in [false, true] {
+            let bindings = app_menu_key_bindings_for_platform(is_macos);
+            assert_eq!(bindings.len(), if is_macos { 4 } else { 2 });
+            assert_eq!(
+                bindings
+                    .iter()
+                    .any(|binding| binding.action().as_any().is::<HideApp>()),
+                is_macos,
+                "ADR 0067: Hide must not claim Ctrl+H on Linux"
+            );
+            assert_eq!(
+                bindings
+                    .iter()
+                    .any(|binding| binding.action().as_any().is::<HideOtherApps>()),
+                is_macos
+            );
+        }
     }
 }

@@ -38,6 +38,8 @@ Core:
 
 Current governance:
 
+- [ADR 0067: Platform shortcut modifiers](adr/0067-platform-shortcut-modifiers.md):
+  standard Ctrl shortcuts on Linux; [implementation and operator check](tasks/adr-0067-task-001-platform-shortcuts.md)
 - [ADR 0031: Release detail presentation contract](adr/0031-release-detail-presentation-contract.md):
   Library and Discovery release detail composition
 - [ADR 0032: UI backend boundary and popover contracts](adr/0032-ui-backend-boundary-and-popover-contracts.md):

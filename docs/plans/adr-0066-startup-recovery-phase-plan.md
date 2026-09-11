@@ -7,7 +7,9 @@ ADR 0066 remains Accepted. Tasks 001 and 002 are complete. Task 002's
 [operator check](../runbooks/startup-recovery-check.md#task-002-core-checks-and-reports)
 passed and fixture cleanup is confirmed. Task 003 is implemented; its mechanical
 gate is Green and its [operator check](../runbooks/startup-recovery-check.md#task-003-background-tools)
-is open only for refresh/playback shortcuts intercepted by the window manager.
+is open for refresh/playback shortcuts and the Settings responsiveness correction. The operator-requested
+[ADR 0067 correction](../tasks/adr-0067-task-001-platform-shortcuts.md) supplies
+standard Ctrl bindings for that check after Super was intercepted.
 All other operator checks, including the search-error correction, preservation
 inspection and fixture cleanup, passed.
 Tasks 004–013 have not started.
@@ -69,7 +71,7 @@ an unwalked visual gate into a claim that the next dependency is complete.
 |---|---|---|---|
 | [001: Config Snapshot And Safe Persistence](../tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md) | Read configuration once, distinguish core errors from optional errors, and prevent ordinary saves from destroying a document that needs repair. | Accepted ADR | Complete - 2026-09-10; mechanical gate Green; no visual gate |
 | [002: Core Checks And Startup Reports](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md) | Show a useful recovery screen for broken core configuration, unusable music storage, or unusable SQLite, with safe checks and a single startup lifecycle. | 001 | Complete - 2026-09-10; mechanical gate Green; operator acceptance and fixture cleanup confirmed |
-| [003: Runtime Failure And Shell Availability](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md) | Keep navigation, reports and repair access working when the normal background runtime or optional thumbnail worker cannot start. | 002 | Implementation recorded - 2026-09-10; mechanical gate Green; only intercepted Super-key check open; other operator checks and fixture cleanup passed |
+| [003: Runtime Failure And Shell Availability](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md) | Keep navigation, reports and repair access working when the normal background runtime or optional thumbnail worker cannot start. | 002 | Implementation recorded - 2026-09-10; mechanical gate Green; keyboard check and Settings responsiveness recheck open, using ADR 0067 Ctrl bindings; other operator checks and fixture cleanup passed |
 | [004: Optional Tool Isolation](../tasks/adr-0066-task-004-optional-tool-isolation.md) | Open the app with valid core resources even when optional configuration or tool preparation fails, and limit only the operations that actually depend on each failure. | 003 | Not started |
 | [005: Session Drain And Resumption](../tasks/adr-0066-task-005-session-drain-and-resumption.md) | Stop the app's own work, release every configured database handle, and resume one fresh session before any live core correction or database maintenance can use this transition. | 004 | Not started |
 | [006: Configuration Repair And Resumption](../tasks/adr-0066-task-006-configuration-repair-and-resumption.md) | Repair configuration inside recovery or Settings, preserve the original file, and return to a freshly verified app session. | 005 | Not started |

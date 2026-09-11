@@ -4,7 +4,8 @@
 
 Tasks 001–003 mechanically reviewed - 2026-09-10; gate Green.
 Tasks 001 and 002 are complete, including task 002's operator acceptance and fixture cleanup.
-Task 003 is implemented; only the intercepted Super-key operator check remains open.
+Task 003 is implemented; refresh/playback keyboard acceptance and the Settings responsiveness correction remain open,
+using the Ctrl bindings from ADR 0067.
 Other operator checks and fixture cleanup passed.
 Implementation remains partial; tasks 004–013 have not started.
 
@@ -206,6 +207,10 @@ new-setup design question.
 
 ## Task 003 Review — 2026-09-10
 
+Implementation revision: `beb2ed4` contains task 003, including its scoped
+runtime/cache recovery and search-error reporting correction. Its commit subject
+names only the correction; this record identifies the full packet for traceability.
+
 Scope: [runtime failure and shell availability](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md#implementation-and-proof).
 Green: formatting, cargo check, strict production Clippy, build, 1,314 unit
 tests and 227 architecture tests, including the search-error correction. Ten existing documentation examples remain
@@ -293,6 +298,9 @@ config/music/migration records are preserved, only workspace preferences changed
 one playlist and migration versions 1–11 remain, and no probes remain.
 The operator confirmed fixture cleanup. Only the intercepted Super shortcuts
 remain unverified; other operator checks are accepted.
+The operator subsequently requested standard Linux Ctrl bindings; the focused
+[ADR 0067 check](../tasks/adr-0067-task-001-platform-shortcuts.md#operator-visual-check)
+owns actual refresh/playback key delivery and rejection acceptance.
 No operator approval is inferred from passing mechanical tests.
 
 ## Final Series Review

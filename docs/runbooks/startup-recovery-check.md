@@ -222,14 +222,15 @@ At normal and narrow widths, text must wrap and actions remain reachable.
 Use the toolbar to search for `example`, then repeat by pressing Enter in the
 search input. Local results may be empty. The Index result must explain that
 the runtime is unavailable, with **Check again** still available in the notice.
-Browse the existing **Startup fixture playlist**. Press Super+R in Music, and
-try the playback shortcut Super+Alt+P. Super is the Windows key; these are the
-app's current Linux bindings. Neither may panic or bypass the missing
+Browse the existing **Startup fixture playlist**. Press Ctrl+R in Music, and
+try the playback shortcut Ctrl+Alt+P (ADR 0067). Neither may panic or bypass the missing
 runtime. Navigation, report copy and the repair buttons must still work.
 
-If the window manager intercepts Super, record the affected shortcut checks as
+If the window manager intercepts a shortcut, record the affected check as
 unverified and continue the other checks. Do not count an intercepted key as an
-app rejection. These checks do not require changing window-manager bindings.
+app rejection. The earlier Super-key checks were intercepted; use the focused
+[Ctrl shortcut check](../tasks/adr-0067-task-001-platform-shortcuts.md#operator-visual-check)
+to complete the remaining keyboard acceptance without repeating accepted checks.
 
 In Settings, press the runtime's **Check again** twice, waiting for each to
 finish. The error should remain, but the completed check number must advance.
@@ -255,7 +256,7 @@ Changing the fixture mode only changes what the next attempt will return.
 Press the runtime's **Check again** in Settings. Its failure must clear;
 thumbnail maintenance must remain failed. Stay in the same app window.
 Return to Music. Runtime installation refreshes the library automatically; the
-existing playlist must appear once. If the desktop forwards Super+R, also check
+existing playlist must appear once. If the desktop forwards Ctrl+R, also check
 that explicit refresh works. Otherwise keep that shortcut check unverified.
 Online requests may report the fixture's connection
 failure. Double-clicking Check again must not create duplicate rows or windows.

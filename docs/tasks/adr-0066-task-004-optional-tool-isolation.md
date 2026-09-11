@@ -85,7 +85,7 @@ created a listed owner, extend that owner.
 
 6. Handle repair_local_file_paths errors after possible partial updates. Recheck core database/music usability. If either fails, enter recovery. Otherwise report uncertainty and let already valid relative bindings work; remaining absolute/unvalidated bindings cannot drive file operations. Retain LibraryRelativePath validation and ADR 0064 skip/binding contracts. Do not call repair again from Check again or create a repair history UI here.
 
-7. Update source assertions that assumed mandatory resources while keeping their rule. Existing driver-null/default/absent-producer, path-repair skip, task 017 configured-target and passive-check tests remain. Inventory production config/runner/playback callers with rg before marking this packet complete; do not leave one secondary reader turning an unrelated optional error back into a global failure.
+7. Update source assertions that assumed mandatory resources while keeping their rule. Existing driver-null/default/absent-producer, path-repair skip, task 017 configured-target and passive-check tests remain. Inventory production config/runner/playback callers with rg before marking this packet complete; do not leave one secondary reader turning an unrelated optional error back into a global failure. Apply C7 to ConfigSnapshot::legacy_config and the load_config wrapper; migrating most callers is not completion.
 
 ## Command And Query Dependency Inventory
 
@@ -119,6 +119,7 @@ be implemented by this packet.
 | C4 | failure-injected path repair tests | An error after an applied statement preserves that change and every remaining binding; valid independent files remain usable and unvalidated legacy paths cannot execute. Loss of core usability enters recovery. No rollback claim is emitted. |
 | C5 | existing regression tests | Explicit/default Null, lazy mpv, absent producer, both LocalPathRepairSkip results, LibraryRelativePath safety and task 017 selection/attachment/readiness remain correct. |
 | C6 | new situational guards adr_0066_optional_dependencies_are_scoped and adr_0066_repair_failure_preserves_bindings | No silent resource substitution, optional-to-core promotion or bypass around scoped validation; preserve ADR 0064 guard intent. |
+| C7 | caller inventory, startup failure tests and new situational guard adr_0066_whole_config_adapter_callers_are_explicit | After migration, ConfigSnapshot::legacy_config has no callers and is deleted with any unused wrapper, or every remaining caller (including indirect load_config callers) is named by symbol with its reason for requiring the whole configuration. The guard enforces that exact inventory and rejects additional callers; test-only uses cannot justify retaining a production adapter. In every case, prepare_normal stops using the strict adapter and its optional-configuration expect. Invalid optional fields produce scoped issues and do not panic during startup. |
 
 Documentation proof: remove this packet's duplicate mechanism prose as its guards
 land; record actual symbols and fixture/runbook anchors. Keep its Status,

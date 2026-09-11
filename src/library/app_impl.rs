@@ -67,7 +67,7 @@ use crate::view_models::library::{
     BroadcastRouteRepairCompletionStatus, ContentListRowActionKind, FeedCheckRouteRepairOutcome,
     FeedUpdateActionDisplay, FeedUpdateActionKind, FeedUpdateDisplay, FeedUpdatePhase,
     InspectorPanelKind, LibraryTrackActionVm, LibraryTrackInspectorState, LibraryTrackRowVm,
-    LibraryTree, LibraryViewModel, MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome,
+    LibraryViewModel, MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome,
     PlaylistDetailActionsDisplay, PlaylistSidebarRowVm, PlaylistSidebarVm,
     SavedSearchesSectionDisplay, TrackSubscribeOutcome,
 };
@@ -2533,10 +2533,6 @@ impl LibraryApp {
     }
 }
 
-pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree {
-    crate::application::queries::library::build_tree(tracks, conn)
-}
-
 fn album_has_feed_identity_actions(facts: &LocalIdentityFacts) -> bool {
     let identity = EntityIdentityLinks::from_source_facts(
         None,
@@ -3087,7 +3083,7 @@ mod tests {
             ..TrackRow::default()
         };
 
-        let tree = build_tree(&[track], &conn);
+        let tree = crate::application::queries::library::build_tree(&[track], &conn);
         let album = &tree.artists[0].albums[0];
 
         assert_eq!(album.feed_id, Some(feed_id));
@@ -3129,7 +3125,7 @@ mod tests {
             ..TrackRow::default()
         };
 
-        let tree = build_tree(&[track], &conn);
+        let tree = crate::application::queries::library::build_tree(&[track], &conn);
         let album = &tree.artists[0].albums[0];
 
         assert_eq!(

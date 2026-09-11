@@ -41,3 +41,15 @@ tempfile = "3"
 [[bin]]
 name = "v4vmm"
 path = "src/main.rs"
+
+# ADR 0066 task 003: font parsing/shaping stalls debug Settings layout.
+# Optimize the text stack, including its generic callers. Keep the app itself
+# unoptimized with debug assertions and symbols for operator recovery fixtures.
+[profile.dev.package.ttf-parser]
+opt-level = 3
+
+[profile.dev.package.rustybuzz]
+opt-level = 3
+
+[profile.dev.package.cosmic-text]
+opt-level = 3

@@ -13,14 +13,16 @@ use gpui_component::Size;
 use rusqlite::Connection;
 
 use crate::application::commands::download::RemoveCachedFiles;
+use crate::application::queries::library::LoadCachedTracksTree;
 use crate::application::{
     ApplicationEventSubscriber, ApplicationServices, AsyncCommandRunner, CommandContext,
 };
 use crate::config;
-use crate::library::{build_tree, LibraryApp, LibraryAppEvent};
+use crate::library::{LibraryApp, LibraryAppEvent};
 use crate::media::ImageCache;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::PlaybackOwner;
+use crate::presentation::settings_timing::SettingsTiming;
 use crate::presentation::{bridge_watch, present_command, GpuiEventBridge};
 use crate::runtime::playback_polling::{PlaybackPollingHandle, PlaybackTickOutcome};
 use crate::runtime::{
@@ -39,7 +41,8 @@ use crate::ui::shells::workspace::{render_workspace, WorkspaceSlots};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::app_toolbar::AppToolbarVm;
-use crate::view_models::library::{LibraryTrackRowVm, LibraryTree};
+use crate::view_models::cached_files::CachedFilesVm;
+use crate::view_models::library::LibraryTrackRowVm;
 use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchResultsTab};
 use crate::view_models::show::{EventSectionInput, ShowCommandState, ShowPageVm};
 use crate::view_models::workspace::{
@@ -146,6 +149,7 @@ pub struct TopApp {
     theme_profile: ThemeProfile,
     cfg_path: PathBuf,
     settings_status: String,
+    settings_timing: Option<SettingsTiming>,
     music_tab_focus: gpui::FocusHandle,
     show_tab_focus: gpui::FocusHandle,
     settings_tab_focus: gpui::FocusHandle,
@@ -164,7 +168,7 @@ pub struct TopApp {
     conn: Arc<Mutex<Connection>>,
     image_cache: Arc<ImageCache>,
     remote_detail_thumbnails: BTreeMap<String, RemoteDetailThumbnailState>,
-    cached_tree: LibraryTree,
+    cached_files: CachedFilesVm,
     application_services: Arc<ApplicationServices>,
     command_runner: AsyncCommandRunner,
     application_event_bridge: Arc<GpuiEventBridge>,
@@ -347,7 +351,8 @@ impl TopApp {
             conn,
             image_cache,
             remote_detail_thumbnails: BTreeMap::new(),
-            cached_tree: LibraryTree::default(),
+            cached_files: CachedFilesVm::default(),
+            settings_timing: None,
             application_services,
             command_runner,
             application_event_bridge,
@@ -415,8 +420,14 @@ impl TopApp {
         self.open_search_results_in_content_list(query, cx);
     }
 
-    fn select_tab(&mut self, tab: AppTab, cx: &mut Context<Self>) {
+    fn select_tab(&mut self, tab: AppTab, window: &mut Window, cx: &mut Context<Self>) {
+        self.settings_timing = if tab == AppTab::Settings {
+            SettingsTiming::begin()
+        } else {
+            None
+        };
         self.tab = tab;
+        self.focus_active_tab(window);
 
         if matches!(tab, AppTab::Show) {
             self.queue_text_filter = None;
@@ -433,6 +444,7 @@ impl TopApp {
 
         match tab {
             AppTab::Settings => {
+                self.reload_cached(cx);
                 if let Some(nav) = self.workspace_layout.frame_nav(content_list_id).cloned() {
                     if !matches!(nav.current(), FrameNavigationEntry::Settings) {
                         self.last_music_content_nav = Some(nav);
@@ -445,6 +457,9 @@ impl TopApp {
                     self.settings_status = format!("Error switching tabs: {error}");
                 }
                 self.sync_search_results_detail_with_nav(content_list_id);
+                if let Some(timing) = &self.settings_timing {
+                    timing.mark("App finished handling Settings selection");
+                }
             }
             AppTab::Music => {
                 let restoring_from_settings = self
@@ -838,20 +853,29 @@ impl TopApp {
         cx.notify();
     }
 
-    fn reload_cached(&mut self) {
-        let conn = self.conn.lock().expect("lock db");
-        match self
-            .application_services
-            .query_service()
-            .cached_tracks(&conn)
-        {
-            Ok(rows) => {
-                self.cached_tree = build_tree(&rows, &conn);
-            }
-            Err(err) => {
-                self.settings_status = format!("Error loading cached: {err:#}");
-            }
+    fn reload_cached(&mut self, cx: &mut Context<Self>) {
+        self.cached_files.invalidate();
+        self.start_cached_load(cx);
+    }
+
+    fn start_cached_load(&mut self, cx: &mut Context<Self>) {
+        if !self.cached_files.begin_load() {
+            return;
         }
+        present_command(
+            &self.command_runner,
+            LoadCachedTracksTree::new(Arc::clone(&self.conn)),
+            CommandContext::next(),
+            cx,
+            |this, result, cx| {
+                this.cached_files.complete(Ok((result.count, result.tree)));
+                this.start_cached_load(cx);
+            },
+            |this, error, cx| {
+                this.cached_files.complete(Err(error));
+                this.start_cached_load(cx);
+            },
+        );
     }
 
     fn delete_cached_file(&mut self, path: String, cx: &mut Context<Self>) {
@@ -860,7 +884,8 @@ impl TopApp {
 
     fn delete_all_cached(&mut self, cx: &mut Context<Self>) {
         let paths: Vec<String> = self
-            .cached_tree
+            .cached_files
+            .tree()
             .artists
             .iter()
             .flat_map(|a| &a.albums)
@@ -884,9 +909,9 @@ impl TopApp {
             command,
             CommandContext::next(),
             cx,
-            |this, result, _cx| {
+            |this, result, cx| {
                 this.settings_status = result.message().to_string();
-                this.reload_cached();
+                this.reload_cached(cx);
             },
             |this, error, _cx| {
                 this.settings_status = format!("Error: {error:#}");
@@ -1283,6 +1308,10 @@ impl Drop for TopApp {
 
 impl Render for TopApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let timing = self.settings_timing.take();
+        if let Some(timing) = &timing {
+            timing.mark("App began composing the Settings frame");
+        }
         self.defer_application_event_drain(window, cx);
         let mount = self.active_workspace_screen_mount();
         let filter_chip_width_class = filter_chip_strip_width_class(window.bounds().size.width);
@@ -1295,7 +1324,7 @@ impl Render for TopApp {
         };
         let bg_canvas = color(cx, SemanticColor::SystemBackground);
         let text_primary = color(cx, SemanticColor::Label);
-        div()
+        let frame = div()
             .size_full()
             .bg(bg_canvas)
             .text_color(text_primary)
@@ -1338,6 +1367,13 @@ impl Render for TopApp {
                     )),
             )
             .children(render_window_layers(window, cx))
+            .into_any_element();
+        if let Some(timing) = timing {
+            timing.mark("App finished composing the Settings frame");
+            timing.wrap(frame)
+        } else {
+            frame
+        }
     }
 }
 
@@ -1440,8 +1476,6 @@ fn render_settings_text_input(
     reason = "settings screen remains a single legacy render function during ADR 0023 migration"
 )]
 fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyElement {
-    app.reload_cached();
-
     let endpoint_input = app.endpoint_input.clone();
     let music_dir_input = app.music_dir_input.clone();
     let flac_path_input = app.flac_path_input.clone();
@@ -1453,14 +1487,8 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
     };
     let settings_column_width = layout::scaled_dimension(layout::SETTINGS_COLUMN_WIDTH, cx);
 
-    let cached_count = app
-        .cached_tree
-        .artists
-        .iter()
-        .flat_map(|a| &a.albums)
-        .flat_map(|a| &a.tracks)
-        .count();
-    let cached_is_empty = cached_count == 0;
+    let cached_has_files = app.cached_files.has_files();
+    let cached_status = app.cached_files.status();
 
     div()
         .id("settings-scroll")
@@ -1621,10 +1649,10 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         .text_size(FontSize::Caption.scaled(cx))
                         .font_weight(gpui::FontWeight::MEDIUM)
                         .text_color(color(cx, SemanticColor::TertiaryLabel))
-                        .child(format!("Cached files ({cached_count})")),
+                        .child(app.cached_files.title()),
                 )
-                .when(!cached_is_empty, |el| {
-                    let cached_tree = &app.cached_tree;
+                .when(cached_has_files, |el| {
+                    let cached_tree = app.cached_files.tree();
                     let mut cached_items = Vec::new();
                     for artist in &cached_tree.artists {
                         cached_items.push(
@@ -1680,7 +1708,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                             .children(cached_items)
                     )
                 })
-                .when(!cached_is_empty, |el| {
+                .when(cached_has_files, |el| {
                     el.child(
                         div().pt(Spacing::SM.scaled(cx)).child(
                             UiButton::styled("delete-all-cached-settings", ControlStyle::Destructive)
@@ -1691,12 +1719,12 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         )
                     )
                 })
-                .when(cached_is_empty, |el| {
+                .when_some(cached_status, |el, message| {
                     el.child(
                         div()
                             .text_xs()
                             .text_color(color(cx, SemanticColor::TertiaryLabel))
-                            .child("No cached files"),
+                            .child(message),
                     )
                 }),
         )

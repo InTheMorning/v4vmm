@@ -1,4 +1,6 @@
-//! Top-level keyboard shortcut taxonomy and routing.
+//! Top-level keyboard shortcut taxonomy and platform routing (ADR 0067).
+
+use std::borrow::Cow;
 
 use gpui::{actions, App, Context, KeyBinding, Window};
 
@@ -151,49 +153,57 @@ pub(super) fn install_key_bindings(cx: &mut App) {
 }
 
 fn app_key_bindings() -> Vec<KeyBinding> {
+    app_key_bindings_for_platform(cfg!(target_os = "macos"))
+}
+
+fn app_key_bindings_for_platform(is_macos: bool) -> Vec<KeyBinding> {
     APP_KEY_BINDING_SPECS
         .iter()
-        .map(AppKeyBindingSpec::key_binding)
+        .map(|spec| spec.key_binding(is_macos))
         .collect()
 }
 
+/// Resolve the registry's Command notation to the desktop's primary modifier.
+pub(super) fn platform_keystroke(keystroke: &str, is_macos: bool) -> Cow<'_, str> {
+    if !is_macos {
+        if let Some(key) = keystroke.strip_prefix("cmd-") {
+            return Cow::Owned(format!("ctrl-{key}"));
+        }
+    }
+    Cow::Borrowed(keystroke)
+}
+
 impl AppKeyBindingSpec {
-    fn key_binding(&self) -> KeyBinding {
+    fn key_binding(&self, is_macos: bool) -> KeyBinding {
         let context = self.binding_context();
+        let keystroke = platform_keystroke(self.keystroke, is_macos);
+        let keystroke = keystroke.as_ref();
 
         match self.command {
-            AppKeyCommand::TogglePlayback => {
-                KeyBinding::new(self.keystroke, TogglePlayback, context)
-            }
+            AppKeyCommand::TogglePlayback => KeyBinding::new(keystroke, TogglePlayback, context),
             AppKeyCommand::SkipPlaybackNext => {
-                KeyBinding::new(self.keystroke, SkipPlaybackNext, context)
+                KeyBinding::new(keystroke, SkipPlaybackNext, context)
             }
             AppKeyCommand::SkipPlaybackPrevious => {
-                KeyBinding::new(self.keystroke, SkipPlaybackPrevious, context)
+                KeyBinding::new(keystroke, SkipPlaybackPrevious, context)
             }
-            AppKeyCommand::FocusSearch => KeyBinding::new(self.keystroke, FocusSearch, context),
-            AppKeyCommand::NewPlaylist => KeyBinding::new(self.keystroke, NewPlaylist, context),
-            AppKeyCommand::SelectMusicTab => {
-                KeyBinding::new(self.keystroke, SelectMusicTab, context)
-            }
-            AppKeyCommand::SelectShowTab => KeyBinding::new(self.keystroke, SelectShowTab, context),
+            AppKeyCommand::FocusSearch => KeyBinding::new(keystroke, FocusSearch, context),
+            AppKeyCommand::NewPlaylist => KeyBinding::new(keystroke, NewPlaylist, context),
+            AppKeyCommand::SelectMusicTab => KeyBinding::new(keystroke, SelectMusicTab, context),
+            AppKeyCommand::SelectShowTab => KeyBinding::new(keystroke, SelectShowTab, context),
             AppKeyCommand::SelectSettingsTab => {
-                KeyBinding::new(self.keystroke, SelectSettingsTab, context)
+                KeyBinding::new(keystroke, SelectSettingsTab, context)
             }
-            AppKeyCommand::RefreshLibrary => {
-                KeyBinding::new(self.keystroke, RefreshLibrary, context)
-            }
+            AppKeyCommand::RefreshLibrary => KeyBinding::new(keystroke, RefreshLibrary, context),
             AppKeyCommand::CancelActivePane => {
-                KeyBinding::new(self.keystroke, CancelActivePane, context)
+                KeyBinding::new(keystroke, CancelActivePane, context)
             }
-            AppKeyCommand::MoveSelectionUp => {
-                KeyBinding::new(self.keystroke, MoveSelectionUp, context)
-            }
+            AppKeyCommand::MoveSelectionUp => KeyBinding::new(keystroke, MoveSelectionUp, context),
             AppKeyCommand::MoveSelectionDown => {
-                KeyBinding::new(self.keystroke, MoveSelectionDown, context)
+                KeyBinding::new(keystroke, MoveSelectionDown, context)
             }
             AppKeyCommand::ConfirmSelection => {
-                KeyBinding::new(self.keystroke, ConfirmSelection, context)
+                KeyBinding::new(keystroke, ConfirmSelection, context)
             }
         }
     }
@@ -249,7 +259,7 @@ impl TopApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.select_tab(AppTab::Music, cx);
+        self.select_tab(AppTab::Music, window, cx);
         self.library
             .update(cx, |library, cx| library.begin_new_playlist(window, cx));
     }
@@ -257,28 +267,28 @@ impl TopApp {
     pub(super) fn handle_select_music_tab(
         &mut self,
         _: &SelectMusicTab,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.select_tab(AppTab::Music, cx);
+        self.select_tab(AppTab::Music, window, cx);
     }
 
     pub(super) fn handle_select_settings_tab(
         &mut self,
         _: &SelectSettingsTab,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.select_tab(AppTab::Settings, cx);
+        self.select_tab(AppTab::Settings, window, cx);
     }
 
     pub(super) fn handle_select_show_tab(
         &mut self,
         _: &SelectShowTab,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.select_tab(AppTab::Show, cx);
+        self.select_tab(AppTab::Show, window, cx);
     }
 
     pub(super) fn handle_refresh_library(
@@ -347,9 +357,134 @@ impl TopApp {
 mod tests {
     use std::collections::BTreeSet;
 
-    use gpui::{KeyContext, Keymap, Keystroke};
+    use gpui::{Action, KeyContext, Keymap, Keystroke};
 
     use super::*;
+
+    fn assert_action<A: Action>(keymap: &Keymap, key: &str, contexts: &[KeyContext]) {
+        let (bindings, pending) =
+            keymap.bindings_for_input(&[Keystroke::parse(key).expect("test key parses")], contexts);
+        assert!(!pending, "{key} must be a complete shortcut");
+        assert!(
+            bindings
+                .first()
+                .is_some_and(|binding| binding.action().as_any().is::<A>()),
+            "ADR 0067: {key} must resolve first to {}",
+            std::any::type_name::<A>()
+        );
+    }
+
+    #[test]
+    fn adr_0067_platform_shortcuts_route_with_and_without_input_focus() {
+        use super::super::menu::{app_menu_key_bindings_for_platform, OpenPreferences, QuitApp};
+
+        for (is_macos, primary) in [(false, "ctrl"), (true, "cmd")] {
+            let mut keymap = Keymap::default();
+            // The input widget registers Find before app bootstrap. The app's
+            // toolbar search must still win with an input focused.
+            keymap.add_bindings([KeyBinding::new(
+                &format!("{primary}-f"),
+                gpui_component::input::Search,
+                Some("Input"),
+            )]);
+            keymap.add_bindings(app_key_bindings_for_platform(is_macos));
+            keymap.add_bindings(app_menu_key_bindings_for_platform(is_macos));
+            for contexts in [
+                vec![KeyContext::parse("ActivePane").unwrap()],
+                vec![
+                    KeyContext::parse("ActivePane").unwrap(),
+                    KeyContext::parse("Input").unwrap(),
+                ],
+            ] {
+                assert_action::<FocusSearch>(&keymap, &format!("{primary}-f"), &contexts);
+                assert_action::<FocusSearch>(&keymap, &format!("{primary}-alt-f"), &contexts);
+                assert_action::<RefreshLibrary>(&keymap, &format!("{primary}-r"), &contexts);
+                assert_action::<TogglePlayback>(&keymap, &format!("{primary}-alt-p"), &contexts);
+                assert_action::<SkipPlaybackNext>(
+                    &keymap,
+                    &format!("{primary}-alt-right"),
+                    &contexts,
+                );
+                assert_action::<SkipPlaybackPrevious>(
+                    &keymap,
+                    &format!("{primary}-alt-left"),
+                    &contexts,
+                );
+                assert_action::<NewPlaylist>(&keymap, &format!("{primary}-n"), &contexts);
+                assert_action::<SelectMusicTab>(&keymap, &format!("{primary}-1"), &contexts);
+                assert_action::<SelectShowTab>(&keymap, &format!("{primary}-2"), &contexts);
+                assert_action::<SelectSettingsTab>(&keymap, &format!("{primary}-3"), &contexts);
+                assert_action::<OpenPreferences>(&keymap, &format!("{primary}-,"), &contexts);
+                assert_action::<QuitApp>(&keymap, &format!("{primary}-q"), &contexts);
+            }
+        }
+    }
+
+    #[test]
+    fn adr_0067_linux_shortcuts_preserve_text_editing() {
+        use gpui_component::input::{
+            Backspace, Copy, Cut, Enter, Escape, MoveDown, MoveToNextWord, MoveToPreviousWord,
+            MoveUp, Paste, Redo, SelectAll, Undo,
+        };
+
+        let mut keymap = Keymap::default();
+        // Representative input-owned bindings; bootstrap installs app bindings
+        // later, so accidental collisions would override them in this test.
+        keymap.add_bindings([
+            KeyBinding::new("ctrl-a", SelectAll, Some("Input")),
+            KeyBinding::new("ctrl-c", Copy, Some("Input")),
+            KeyBinding::new("ctrl-x", Cut, Some("Input")),
+            KeyBinding::new("ctrl-v", Paste, Some("Input")),
+            KeyBinding::new("ctrl-z", Undo, Some("Input")),
+            KeyBinding::new("ctrl-y", Redo, Some("Input")),
+            KeyBinding::new("ctrl-left", MoveToPreviousWord, Some("Input")),
+            KeyBinding::new("ctrl-right", MoveToNextWord, Some("Input")),
+            KeyBinding::new("ctrl-h", Backspace, Some("Input")),
+            KeyBinding::new("enter", Enter { secondary: false }, Some("Input")),
+            KeyBinding::new("escape", Escape, Some("Input")),
+            KeyBinding::new("up", MoveUp, Some("Input")),
+            KeyBinding::new("down", MoveDown, Some("Input")),
+        ]);
+        keymap.add_bindings(app_key_bindings_for_platform(false));
+        keymap.add_bindings(super::super::menu::app_menu_key_bindings_for_platform(
+            false,
+        ));
+        let contexts = [
+            KeyContext::parse("ActivePane").unwrap(),
+            KeyContext::parse("Input").unwrap(),
+        ];
+        assert_action::<SelectAll>(&keymap, "ctrl-a", &contexts);
+        assert_action::<Copy>(&keymap, "ctrl-c", &contexts);
+        assert_action::<Cut>(&keymap, "ctrl-x", &contexts);
+        assert_action::<Paste>(&keymap, "ctrl-v", &contexts);
+        assert_action::<Undo>(&keymap, "ctrl-z", &contexts);
+        assert_action::<Redo>(&keymap, "ctrl-y", &contexts);
+        assert_action::<MoveToPreviousWord>(&keymap, "ctrl-left", &contexts);
+        assert_action::<MoveToNextWord>(&keymap, "ctrl-right", &contexts);
+        assert_action::<Backspace>(&keymap, "ctrl-h", &contexts);
+        assert_action::<Enter>(&keymap, "enter", &contexts);
+        assert_action::<Escape>(&keymap, "escape", &contexts);
+        assert_action::<MoveUp>(&keymap, "up", &contexts);
+        assert_action::<MoveDown>(&keymap, "down", &contexts);
+    }
+
+    #[test]
+    fn adr_0067_linux_has_no_super_or_duplicate_app_bindings() {
+        let mut keys = BTreeSet::new();
+        for binding in app_key_bindings_for_platform(false).into_iter().chain(
+            super::super::menu::app_menu_key_bindings_for_platform(false),
+        ) {
+            let strokes = binding.keystrokes();
+            assert!(
+                strokes.iter().all(|stroke| !stroke.modifiers().platform),
+                "ADR 0067: Linux app shortcuts must not use Super"
+            );
+            assert!(
+                keys.insert(format!("{strokes:?}")),
+                "ADR 0067: app and menu registries must not duplicate shortcuts"
+            );
+        }
+    }
 
     #[test]
     fn key_binding_taxonomy_covers_core_commands() {

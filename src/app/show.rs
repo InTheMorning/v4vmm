@@ -229,9 +229,9 @@ pub(super) fn build_live_status_strip(
     let entity = cx.entity();
     Some(live_status_strip(
         display,
-        LiveStatusStripSlots::new().on_open_show(move |_, _, cx| {
+        LiveStatusStripSlots::new().on_open_show(move |_, window, cx| {
             entity.update(cx, |this, cx| {
-                this.select_tab(AppTab::Show, cx);
+                this.select_tab(AppTab::Show, window, cx);
             });
         }),
     ))

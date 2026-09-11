@@ -84,6 +84,34 @@ impl ApplicationCommand for LoadLibraryTracksTree {
     }
 }
 
+/// ADR 0040: reads the Settings cache list away from the render thread.
+#[derive(Clone, Debug)]
+pub(crate) struct LoadCachedTracksTree {
+    conn: SharedConnection,
+}
+
+impl LoadCachedTracksTree {
+    pub(crate) const fn new(conn: SharedConnection) -> Self {
+        Self { conn }
+    }
+}
+
+impl ApplicationCommand for LoadCachedTracksTree {
+    type Output = LibraryTracksTree;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        let conn = self.conn.lock().map_err(|_| poisoned_lock())?;
+        let rows = library_service::cached_tracks(&conn).map_err(|error| query_error(&error))?;
+        Ok(CommandOutcome::without_events(LibraryTracksTree {
+            count: rows.len(),
+            tree: build_tree(&rows, &conn),
+        }))
+    }
+}
+
 /// Fetches remote track context with local hydrated metadata fallback.
 #[derive(Clone, Debug)]
 pub(crate) struct FetchLibraryTrackContext {
@@ -236,15 +264,6 @@ impl ApplicationCommand for CompareLibraryTrack {
 }
 
 impl ApplicationQueryService {
-    /// Lists cached local tracks that are not currently in the library.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when local cached-track state cannot be read.
-    pub fn cached_tracks(&self, conn: &Connection) -> Result<Vec<db::TrackRow>, CommandError> {
-        library_service::cached_tracks(conn).map_err(|error| query_error(&error))
-    }
-
     /// Counts playlists that currently reference a local track.
     ///
     /// # Errors
@@ -516,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn library_queries_return_cached_tracks() -> anyhow::Result<()> {
+    fn adr_0040_cached_tree_command_excludes_library_files() -> anyhow::Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn)?;
         let track_id = create_track(&conn, feed_id)?;
@@ -524,10 +543,19 @@ mod tests {
         library_service::mark_track_downloaded(&conn, track_id, &relative_path, None)?;
         library_service::set_track_in_library(&conn, track_id, false)?;
 
-        let rows = ApplicationQueryService::new().cached_tracks(&conn)?;
+        let conn = Arc::new(Mutex::new(conn));
+        let (result, _) = LoadCachedTracksTree::new(Arc::clone(&conn))
+            .execute(&CommandContext::next())?
+            .into_parts();
+        assert_eq!(result.count, 1);
+        assert_eq!(result.tree.artists[0].albums[0].tracks[0].id, track_id);
 
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].id, track_id);
+        library_service::set_track_in_library(&conn.lock().unwrap(), track_id, true)?;
+        let (result, _) = LoadCachedTracksTree::new(conn)
+            .execute(&CommandContext::next())?
+            .into_parts();
+        assert_eq!(result.count, 0);
+        assert!(result.tree.artists.is_empty());
 
         Ok(())
     }

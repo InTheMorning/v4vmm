@@ -70,7 +70,7 @@ impl TopApp {
             return;
         }
         match action {
-            CapabilityAction::Configure(_) => self.select_tab(AppTab::Settings, cx),
+            CapabilityAction::Configure(_) => self.select_tab(AppTab::Settings, window, cx),
             CapabilityAction::CopyReport => {
                 cx.write_to_clipboard(ClipboardItem::new_string(self.capability_vm.report()));
             }
@@ -174,5 +174,6 @@ impl TopApp {
         self.maybe_start_broadcast_readiness_watch(cx);
         self.maybe_start_broadcast_service_watch(cx);
         self.refresh_show_page(cx);
+        self.reload_cached(cx);
     }
 }

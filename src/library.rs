@@ -188,4 +188,4 @@ pub(crate) struct PlaylistActorState {
 
 mod app_impl;
 
-pub(crate) use app_impl::{build_tree, playlist_options};
+pub(crate) use app_impl::playlist_options;

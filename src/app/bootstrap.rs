@@ -245,6 +245,7 @@ pub(super) fn mount_normal<T: 'static>(
             window,
             cx,
         );
+        app.focus_active_tab(window);
         app.install_capability_controls(capability_observations, worker, cx);
         app.maybe_start_playback_polling(cx);
         app.maybe_start_broadcast_readiness_watch(cx);

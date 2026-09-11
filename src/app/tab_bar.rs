@@ -1,4 +1,4 @@
-//! Top-level app tab bar rendering.
+//! Top-level app tab bar rendering and stable section focus (ADRs 0060/0067).
 
 use std::sync::Arc;
 
@@ -186,8 +186,8 @@ fn render_app_tab(
         .id(display.id)
         .track_focus(focus_handle)
         .tooltip(move |window, cx| tooltip.build(window, cx))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.select_tab(tab, cx);
+        .on_click(cx.listener(move |this, _, window, cx| {
+            this.select_tab(tab, window, cx);
         }))
         .px(spacing_md)
         .min_h(hit_target_min)
@@ -226,5 +226,17 @@ fn focus_handle_for_key(key: AppToolbarTabKey, app: &TopApp) -> &gpui::FocusHand
         AppToolbarTabKey::Music => &app.music_tab_focus,
         AppToolbarTabKey::Show => &app.show_tab_focus,
         AppToolbarTabKey::Settings => &app.settings_tab_focus,
+    }
+}
+
+impl TopApp {
+    /// Give app actions a persistent dispatch path after mount or section changes.
+    pub(super) fn focus_active_tab(&self, window: &mut Window) {
+        let key = match self.tab {
+            AppTab::Music => AppToolbarTabKey::Music,
+            AppTab::Show => AppToolbarTabKey::Show,
+            AppTab::Settings => AppToolbarTabKey::Settings,
+        };
+        focus_handle_for_key(key, self).focus(window);
     }
 }

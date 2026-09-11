@@ -28,7 +28,7 @@ impl TopApp {
             return;
         }
         if events.iter().any(affects_library_surfaces) {
-            self.reload_cached();
+            self.reload_cached(cx);
             self.library.update(cx, LibraryApp::refresh);
         }
         if events.iter().any(affects_broadcast_readiness) {

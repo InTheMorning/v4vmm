@@ -82,22 +82,42 @@ plan are Accepted, with implementation recorded and visual acceptance open.
 The five inherited groups above use the runbook's private database/audio copy and cleanup.
 The numbers group checks; they do not change the approved delivery priority.
 
-## 6. Background Tools — ADR 0066 Task 003
+## 6. Platform Shortcuts And Background Tools — ADRs 0067/0066
 
-Open - 2026-09-10. Only refresh/playback keyboard rejection remains unverified:
-the operator's window manager intercepted Super+R and Super+Alt+P. Mechanical
-dispatch guards passed, but do not prove desktop key delivery. All other task 003
+Open - 2026-09-10. ADR 0067 replaces Linux Super shortcuts with Ctrl at the
+operator's request; mechanical verification and debug build are Green.
+The first operator attempt was unreliable: keys initially did nothing, then
+worked. The missing initial/section-transition focus path is corrected and the
+new build and guards are Green; first-attempt delivery remains unaccepted.
+The operator also reported a Settings stall. Its cached-file read now uses a
+background command; the focused [responsiveness recheck](tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md#operator-correction-settings-responsiveness)
+is open, including truthful unavailable and recovered list states. The operator
+still observed a delay after the cache correction. A temporary debug
+[timing capture](tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md#remaining-settings-delay-timing-capture)
+located 479–497 ms in layout computation on three visits. The operator's CPU
+profile then identified font parsing. Debug text dependencies are now optimized;
+the same local text sample shapes about 27 times faster with identical output.
+The [rebuilt-app recheck](tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md#debug-text-shaping-correction)
+now records four operator visits with 22–24 ms layout and 37–50 ms through the
+following frame callback. Confirmation of responsiveness and complete, readable
+text remains open; no further timing capture is needed.
+Verify those shortcuts and complete ADR 0066 task 003's
+remaining refresh/playback rejection check. The prior Super-key attempt was
+intercepted by the window manager. Mechanical dispatch guards passed, but do
+not prove desktop key delivery. All other task 003
 operator checks, including the search-error correction, final preservation
 inspection and fixture cleanup, passed. Those checks need no repeat; the packet
 records their [evidence](tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md#operator-evidence--2026-09-10).
 Task 002's accepted core checks remain closed.
 
-- Owner: [task 003](tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md).
-- Check: [Background tools](runbooks/startup-recovery-check.md#task-003-background-tools).
-- Needs a Linux desktop that forwards both shortcuts to the app, Python 3.11 or
+- Owners: [0067 task 001](tasks/adr-0067-task-001-platform-shortcuts.md) and
+  [0066 task 003](tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md).
+- Check: [Platform shortcuts](tasks/adr-0067-task-001-platform-shortcuts.md#operator-visual-check).
+- Needs a Linux desktop that forwards Ctrl shortcuts to the app, Python 3.11 or
   later and the debug binary. The fixture supplies unavailable-runtime mode;
   no real service is required.
-- Verify refresh and playback shortcuts report unavailable background tools,
+- Verify section navigation, toolbar search focus, Settings/Quit and preserved
+  text editing. Verify Ctrl+R and Ctrl+Alt+P report unavailable background tools,
   leave no permanent loading state, and preserve navigation and repair access.
   Use a fresh isolated fixture and remove it after this remaining check.
 - Record results in the packet, review checklist and delivery row. Task 004
