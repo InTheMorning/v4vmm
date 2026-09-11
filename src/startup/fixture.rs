@@ -10,6 +10,48 @@ use crate::db::startup::prepare_database;
 
 const FIXTURE_KIND: &str = "v4vmm-startup-recovery-v1";
 
+/// Explicit debug activation is limited to this verified fixture's config path.
+pub(crate) fn injected_failure(
+    config_path: &Path,
+    dependency: crate::application::capability::Dependency,
+) -> bool {
+    let Some(root) = std::env::var_os("V4VMM_STARTUP_FIXTURE") else {
+        return false;
+    };
+    fixture_failure(Path::new(&root), config_path, dependency).unwrap_or(false)
+}
+
+fn fixture_failure(
+    root: &Path,
+    config_path: &Path,
+    dependency: crate::application::capability::Dependency,
+) -> Result<bool> {
+    use crate::application::capability::Dependency;
+    let root = verified_root(&root.to_string_lossy())?;
+    ensure!(
+        config_path.canonicalize()? == root.join("config/v4vmm/config.toml").canonicalize()?,
+        "Fixture config mismatch"
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("fixture.json"))?)?;
+    ensure!(
+        Path::new(manifest["binary"].as_str().context("fixture binary")?).canonicalize()?
+            == std::env::current_exe()?.canonicalize()?,
+        "Fixture binary mismatch"
+    );
+    let state: serde_json::Value = serde_json::from_slice(&fs::read(root.join("case.json"))?)?;
+    Ok(matches!(
+        (state["case"].as_str(), dependency),
+        (
+            Some("runtime-unavailable" | "runtime-and-cache-unavailable"),
+            Dependency::BackgroundRuntime
+        ) | (
+            Some("cache-worker-unavailable" | "runtime-and-cache-unavailable"),
+            Dependency::ThumbnailMaintenance
+        )
+    ))
+}
+
 fn verified_root(path: &str) -> Result<PathBuf> {
     let root = Path::new(path)
         .canonicalize()
@@ -85,4 +127,49 @@ pub fn run_cli(args: &[String]) -> Result<()> {
         _ => anyhow::bail!("Unknown fixture command; use seed or inspect"),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::application::capability::Dependency;
+
+    #[test]
+    fn adr_0066_fixture_failures_require_identity_and_follow_fresh_case() {
+        let temp = tempfile::Builder::new()
+            .prefix("v4vmm-startup-")
+            .tempdir()
+            .unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let config = root.join("config/v4vmm/config.toml");
+        fs::create_dir_all(config.parent().unwrap()).unwrap();
+        fs::write(&config, "music_dir = 'fixture'\n").unwrap();
+        fs::write(
+            root.join("fixture.json"),
+            serde_json::to_vec(&json!({
+                "kind": FIXTURE_KIND, "root": root, "binary": std::env::current_exe().unwrap(),
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            root.join("case.json"),
+            br#"{"case":"runtime-and-cache-unavailable"}"#,
+        )
+        .unwrap();
+        assert!(fixture_failure(&root, &config, Dependency::BackgroundRuntime).unwrap());
+        assert!(fixture_failure(&root, &config, Dependency::ThumbnailMaintenance).unwrap());
+        fs::write(
+            root.join("case.json"),
+            br#"{"case":"cache-worker-unavailable"}"#,
+        )
+        .unwrap();
+        assert!(!fixture_failure(&root, &config, Dependency::BackgroundRuntime).unwrap());
+        assert!(fixture_failure(&root, &config, Dependency::ThumbnailMaintenance).unwrap());
+        let other = root.join("other.toml");
+        fs::write(&other, "").unwrap();
+        assert!(fixture_failure(&root, &other, Dependency::BackgroundRuntime).is_err());
+        fs::write(root.join("fixture.json"), b"{}").unwrap();
+        assert!(fixture_failure(&root, &config, Dependency::BackgroundRuntime).is_err());
+    }
 }

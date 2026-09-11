@@ -20,6 +20,7 @@ use crate::view_models::workspace::{
 };
 
 mod empty_state;
+mod failure;
 mod index_detail;
 mod paged_tab;
 mod results;
@@ -28,6 +29,7 @@ mod tabs;
 mod tests;
 
 pub(crate) use empty_state::EmptyStateDisplay;
+pub(crate) use failure::{SearchFailureAction, SearchFailureAvailability};
 pub(crate) use index_detail::{IndexDetailDisplay, IndexDetailKind, IndexSearchResultRows};
 pub(crate) use paged_tab::SearchResultsPagedTab;
 pub(crate) use results::{ArtistResultDisplay, FeedResultDisplay, TrackResultDisplay};
@@ -142,12 +144,35 @@ impl SearchResultsInspectorPageVm {
     /// Marks the async remote Index search as failed.
     pub(crate) fn set_index_error(
         &mut self,
-        title: impl Into<String>,
-        secondary: impl Into<String>,
+        error: &crate::application::CommandError,
+        endpoint: &str,
+        observed_at: std::time::SystemTime,
     ) {
         self.index_loading = false;
-        self.index_error = Some(EmptyStateDisplay::new(title, secondary, None));
+        let failure = failure::SearchFailureDisplay::new(error, endpoint, observed_at);
+        let mut empty = EmptyStateDisplay::new(
+            "MusicIndex search unavailable",
+            failure.summary.clone(),
+            None,
+        );
+        empty.failure = Some(failure);
+        self.index_error = Some(empty);
         self.refresh_empty_state();
+    }
+
+    /// Applies disclosure state or returns the exact report for clipboard delivery.
+    pub(crate) fn activate_failure_action(
+        &mut self,
+        action: SearchFailureAction,
+    ) -> Option<String> {
+        let report = self
+            .index_error
+            .as_mut()?
+            .failure
+            .as_mut()?
+            .activate(action);
+        self.refresh_empty_state();
+        report
     }
 
     /// Returns the query represented by this page.

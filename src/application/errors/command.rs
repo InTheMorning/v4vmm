@@ -5,6 +5,8 @@ use std::fmt;
 /// Error returned by command execution.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommandError {
+    /// An execution dependency is unavailable; the remedy remains callable.
+    Unavailable(crate::application::capability::ExecutionUnavailable),
     /// Playlist command failed.
     Playlist(String),
     /// Feed command failed.
@@ -26,6 +28,7 @@ pub enum CommandError {
 impl fmt::Display for CommandError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Unavailable(reason) => reason.fmt(f),
             Self::Playlist(message) => write!(f, "playlist command failed: {message}"),
             Self::Feed(message) => write!(f, "feed command failed: {message}"),
             Self::Download(message) => write!(f, "download command failed: {message}"),

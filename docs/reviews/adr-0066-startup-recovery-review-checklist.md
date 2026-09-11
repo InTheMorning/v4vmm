@@ -2,9 +2,11 @@
 
 ## Status And Scope
 
-Tasks 001/002 mechanically reviewed - 2026-09-10; gate Green.
+Tasks 001–003 mechanically reviewed - 2026-09-10; gate Green.
 Tasks 001 and 002 are complete, including task 002's operator acceptance and fixture cleanup.
-Implementation remains partial; tasks 003–013 have not started.
+Task 003 is implemented; only the intercepted Super-key operator check remains open.
+Other operator checks and fixture cleanup passed.
+Implementation remains partial; tasks 004–013 have not started.
 
 Read the [ADR](../adr/0066-configuration-and-startup-failure-recovery.md),
 [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md), active packet and
@@ -200,7 +202,98 @@ and nonzero Quit exit, and same-window resumption after releasing the database
 lock. All operator checks are accepted. The operator confirmed fixture cleanup
 on 2026-09-10; task 002 is complete. Task 006 retains
 direct path correction and records the separate
-new-setup design question; no successor implementation has started.
+new-setup design question.
+
+## Task 003 Review — 2026-09-10
+
+Scope: [runtime failure and shell availability](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md#implementation-and-proof).
+Green: formatting, cargo check, strict production Clippy, build, 1,314 unit
+tests and 227 architecture tests, including the search-error correction. Ten existing documentation examples remain
+ignored. The full suite used local socket fixtures outside the sandbox.
+
+- C1/C2/C6: failed runtime construction leaves an explicit unavailable runner.
+  Dispatch returns a typed error before execution or success events. The guard
+  inventories toolbar, keyboard and shared command paths; existing independent
+  library queries still work. No implicit runtime or UI-thread fallback was
+  added. The retained standalone search constructor has the same correction.
+- C3: the observation collection retains independent runtime/cache results.
+  The VM supplies recorded UTC reports and typed Configure/Check/Copy actions.
+  Music/Show notices and Settings use one shared composite. A restored runtime
+  does not claim that an external service answered.
+- C4: the independent maintenance worker creates a usable runtime without a
+  caller Tokio context. VM tests reject duplicate and stale completions; the
+  architecture guard checks generation admission before host installation and
+  the existing single-host/actor/bridge boundaries. Repeated identical failures
+  retain distinct numbered completion receipts.
+- C5: injected worker and actual prune failures preserve usable disk/hot-cache
+  behavior and capacity. Reports name the cache path. Thumbnail fetches that
+  cannot dispatch do not become stuck in Loading.
+- The Show VM now distinguishes an unavailable query from confirmed idle
+  playback. The ADR 0060 cached-projection guard replaces its old idle initializer
+  assertion with this typed projection; its cached projector and invalidation
+  assertions remain. All runtime/GPUI, startup and workspace guards remain Green.
+- Fixture setup, verification, runtime-only, cache-only and combined failure
+  modes, normal mode, inspection and cleanup are Green. Configuration, music
+  and migration records remained intact, with no residual probes. Injection is
+  debug-only and requires a matching fixture/configuration/running binary.
+  The agent did not launch the GUI.
+- Packet procedures and the coding prompt were retired for actual proof
+  references. ADR 0066 remains Accepted. Optional configuration, player/producer
+  isolation, secondary reads and path-repair policy remain task 004; no later
+  packet was started.
+
+Result: mechanical gate Green; [operator acceptance](../runbooks/startup-recovery-check.md#task-003-background-tools)
+open. Packet, phase plan, ADR/index, delivery/deferred indexes, docs index,
+AGENTS.md and pending checks agree. Task 002's accepted core checks and inherited
+gates remain unchanged. No deviation requiring a new architectural decision.
+
+Operator evidence - 2026-09-10: startup/navigation with simultaneous runtime and
+thumbnail failures passed. Both failures and their Check again controls were
+reachable in Settings. Repeated-check feedback also passed: counts increased and
+timestamps updated after immediate failures. Checking did not remain visible;
+this immediate fixture does not require an intermediate rendered frame. Full
+report copy passed: the supplied check-12 report records distinct runtime/cache
+failures, UTC times, affected work, recovery actions and the complete cache path
+for fixture `/tmp/v4vmm-startup-clzmrchl`. Narrow Settings report wrapping and
+reachable controls passed, as did Show's unavailable/Not checked wording.
+Search-button and Enter dispatch also passed, with a clear runtime failure and
+usable navigation/repair controls. The packet records this limited acceptance;
+local browsing subsequently passed. The window manager intercepted the Super
+refresh/playback shortcuts, so their operator check remains unverified. Mechanical
+dispatch coverage is separate from desktop key delivery. Independent runtime
+recovery passed in the same window while thumbnail cleanup remained failed.
+The subsequent screenshot proves post-repair remote dispatch but fails search
+error readability: the full technical line clips at both edges. Playlist
+uniqueness, thumbnail repair and preservation checks remain open; no window-manager
+reconfiguration is required to continue them.
+
+The focused search-error correction uses the existing shared search-results
+shell, `MultilineText` wrapping, a named NoticeWidth token, and VM-owned diagnostic
+disclosure/copy actions. `src/diagnostics.rs` shares the former startup URL
+redactor; the ADR 0056 guard caught URL parsing in the VM, and moving it to that
+helper preserves the guard unchanged. The packet links the three new behavioral
+tests and `adr_0066_search_failure_report_stays_readable_and_vm_owned`.
+The [focused visual recheck](../runbooks/startup-recovery-check.md#2a-recheck-search-failure-readability)
+has an initial layout pass: the operator confirmed explanation wrapping and
+reachable Show details/Copy report at normal and narrow widths after relaunch.
+Expanded diagnostics and copy also passed, including stable time/report after
+hide/show. The supplied 23:39:54 UTC report contains the endpoint and both
+feed/track errors. The subsequent screenshots verify Library-filter separation
+and exactly one Startup fixture playlist. The focused correction is fully
+operator-accepted. Thumbnail repair subsequently passed in the existing window:
+the screenshot records cleanup completion at 23:50:24 UTC, the cache path, and
+the retained runtime startup result at 23:39:34 UTC without an external-service
+health claim. The copied success report and `normal` preservation inspection
+also passed: only workspace preferences changed, config/music/migrations are
+preserved, one playlist remains and no probes remain. Fresh cache-only startup
+subsequently passed: only thumbnail maintenance failed, all three sections
+remained navigable, and the operator confirmed exit code 0 on shutdown.
+Final preservation inspection also passed in `cache-worker-unavailable` mode:
+config/music/migration records are preserved, only workspace preferences changed,
+one playlist and migration versions 1–11 remain, and no probes remain.
+The operator confirmed fixture cleanup. Only the intercepted Super shortcuts
+remain unverified; other operator checks are accepted.
+No operator approval is inferred from passing mechanical tests.
 
 ## Final Series Review
 

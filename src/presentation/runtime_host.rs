@@ -38,6 +38,20 @@ pub struct RuntimeHost {
 }
 
 impl RuntimeHost {
+    /// Desktop creation seam; fixture failures exist only in debug builds.
+    pub(crate) fn for_config(path: &std::path::Path) -> std::io::Result<Arc<Self>> {
+        #[cfg(debug_assertions)]
+        if crate::startup::fixture::injected_failure(
+            path,
+            crate::application::capability::Dependency::BackgroundRuntime,
+        ) {
+            return Err(std::io::Error::other("fixture runtime factory unavailable"));
+        }
+        #[cfg(not(debug_assertions))]
+        let _ = path;
+        Self::new()
+    }
+
     /// Build a host with a multi-thread tokio runtime.
     ///
     /// # Errors
@@ -45,10 +59,16 @@ impl RuntimeHost {
     /// Returns the underlying [`tokio::io::Error`] if the runtime cannot
     /// be created (e.g. exhausted file descriptors).
     pub fn new() -> std::io::Result<Arc<Self>> {
-        let runtime = Builder::new_multi_thread()
-            .enable_all()
-            .thread_name("v4vmm-runtime")
-            .build()?;
+        Self::new_with(|| {
+            Builder::new_multi_thread()
+                .enable_all()
+                .thread_name("v4vmm-runtime")
+                .build()
+        })
+    }
+
+    fn new_with(build: impl FnOnce() -> std::io::Result<Runtime>) -> std::io::Result<Arc<Self>> {
+        let runtime = build()?;
         Ok(Arc::new(Self {
             runtime,
             bus: VmBus::new(),
@@ -71,6 +91,54 @@ impl RuntimeHost {
 mod tests {
     use super::*;
     use crate::runtime::VmEvent;
+
+    #[test]
+    fn adr_0066_failed_runtime_factory_has_no_fallback() {
+        assert!(tokio::runtime::Handle::try_current().is_err());
+        let result = RuntimeHost::new_with(|| Err(std::io::Error::other("injected failure")));
+        assert_eq!(result.err().unwrap().kind(), std::io::ErrorKind::Other);
+        assert!(tokio::runtime::Handle::try_current().is_err());
+    }
+
+    #[test]
+    fn adr_0066_independent_worker_restores_an_explicit_usable_runner() {
+        use crate::application::{
+            ApplicationCommand, ApplicationEventBus, AsyncCommandRunner, CommandBus,
+            CommandContext, CommandOutcome, CommandResult,
+        };
+        use crate::presentation::maintenance_executor::MaintenanceWorker;
+        struct Probe;
+        impl ApplicationCommand for Probe {
+            type Output = bool;
+            fn execute(self, _: &CommandContext) -> CommandResult<bool> {
+                Ok(CommandOutcome::without_events(true))
+            }
+        }
+        assert!(tokio::runtime::Handle::try_current().is_err());
+        let worker = MaintenanceWorker::start().unwrap();
+        let host = worker
+            .client
+            .submit(RuntimeHost::new)
+            .unwrap()
+            .blocking_recv()
+            .unwrap()
+            .unwrap();
+        let runner = AsyncCommandRunner::with_vm_bus_on_handle(
+            Arc::new(CommandBus::new()),
+            Arc::new(ApplicationEventBus::new()),
+            host.bus().clone(),
+            host.handle().clone(),
+        );
+        assert!(runner.availability().is_ok());
+        assert!(*runner
+            .dispatch(Probe, CommandContext::next())
+            .blocking_recv()
+            .unwrap()
+            .unwrap()
+            .value());
+        worker.finish();
+        assert!(tokio::runtime::Handle::try_current().is_err());
+    }
 
     #[test]
     fn new_succeeds_and_returns_a_usable_handle() {

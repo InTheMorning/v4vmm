@@ -136,6 +136,7 @@ enum TrackSubscriptionAction {
 
 fn command_error_detail(error: CommandError) -> String {
     match error {
+        CommandError::Unavailable(reason) => reason.to_string(),
         CommandError::Playlist(message)
         | CommandError::Feed(message)
         | CommandError::Download(message)
@@ -582,24 +583,12 @@ impl LibraryApp {
                 host.bus().clone(),
                 host.handle().clone(),
             ),
-            None => AsyncCommandRunner::new(
+            None => AsyncCommandRunner::unavailable(
                 application_services.command_bus(),
                 application_services.event_bus(),
+                crate::application::capability::ExecutionUnavailable::RUNTIME,
             ),
         };
-        let musicbrainz_feed_saga = runtime_host.as_ref().map(|host| {
-            let _enter = host.handle().enter();
-            let handle =
-                crate::runtime::musicbrainz_feed_saga::spawn(application_services.command_bus());
-            bridge_watch(
-                handle.subscribe(),
-                |this: &mut Self, state, cx| {
-                    this.apply_musicbrainz_feed_saga_state(state, cx);
-                },
-                cx,
-            );
-            handle
-        });
         let mut vm = LibraryViewModel::new();
         vm.set_content_view_mode(content_view_mode);
         let mut app = Self {
@@ -618,13 +607,55 @@ impl LibraryApp {
             _rename_playlist_sub: rename_playlist_sub,
             runtime_host,
             playlist_actor: None,
-            musicbrainz_feed_saga,
+            musicbrainz_feed_saga: None,
             recent_music_page: RecentFeedsPageVm::loading(),
             recent_music_scroll: gpui::ScrollHandle::new(),
         };
+        app.maybe_start_musicbrainz_feed_saga(cx);
         app.start_async_reload(cx);
         app.start_recent_music_load(false, cx);
         app
+    }
+
+    /// Install the repaired runtime into the existing child, without new subscriptions.
+    pub(crate) fn install_runtime(
+        &mut self,
+        host: Arc<crate::presentation::RuntimeHost>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.runtime_host.is_some() {
+            return;
+        }
+        self.command_runner = AsyncCommandRunner::with_vm_bus_on_handle(
+            self.application_services.command_bus(),
+            self.application_services.event_bus(),
+            host.bus().clone(),
+            host.handle().clone(),
+        );
+        self.runtime_host = Some(host);
+        self.maybe_start_musicbrainz_feed_saga(cx);
+        self.start_async_reload_preserving_detail(cx);
+        self.start_recent_music_load(false, cx);
+    }
+
+    fn maybe_start_musicbrainz_feed_saga(&mut self, cx: &mut Context<Self>) {
+        if self.musicbrainz_feed_saga.is_some() {
+            return;
+        }
+        let Some(host) = self.runtime_host.as_ref() else {
+            return;
+        };
+        let _enter = host.handle().enter();
+        let handle =
+            crate::runtime::musicbrainz_feed_saga::spawn(self.application_services.command_bus());
+        bridge_watch(
+            handle.subscribe(),
+            |this: &mut Self, state, cx| {
+                this.apply_musicbrainz_feed_saga_state(state, cx);
+            },
+            cx,
+        );
+        self.musicbrainz_feed_saga = Some(handle);
     }
 
     fn on_rename_playlist_event(
@@ -1261,6 +1292,8 @@ impl LibraryApp {
         if let Some(img) = cached {
             return Some(img);
         }
+        // Hot-cache reads stay available; deferred fetches retry after repair.
+        self.command_runner.availability().ok()?;
         let key = (url.to_string(), animated);
         match self.thumbnails.get(&key) {
             Some(ThumbnailState::Loaded(image)) => return image.clone(),
@@ -2424,8 +2457,9 @@ impl LibraryApp {
         let feed_title = Some(album.name.clone());
         let request = StartFeedLookup::new(feed_id, feed_title, downloadable);
         let Some(saga) = self.musicbrainz_feed_saga.as_ref() else {
-            self.vm
-                .fail_musicbrainz_album_lookup_with_fallback("runtime unavailable");
+            self.vm.fail_musicbrainz_album_lookup_with_fallback(
+                crate::application::capability::ExecutionUnavailable::RUNTIME.to_string(),
+            );
             cx.notify();
             return;
         };

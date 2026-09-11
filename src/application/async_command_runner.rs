@@ -17,7 +17,7 @@
 //! * Only `src/presentation/` glue may map a [`CommandResult`] back to a
 //!   GPUI entity update.
 //!
-//! The async runtime is always available in the desktop build.
+//! Missing desktop runtimes are explicit, non-executing runners (ADR 0066).
 
 #![warn(clippy::pedantic)]
 
@@ -27,9 +27,11 @@ use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 
 use crate::application::application_event_bus::ApplicationEventBus;
+use crate::application::capability::ExecutionUnavailable;
 use crate::application::command_bus::{ApplicationCommand, CommandBus, CommandResult};
 use crate::application::command_context::CommandContext;
 use crate::application::events::ApplicationEvent;
+use crate::application::CommandError;
 use crate::runtime::{VmBus, VmEvent};
 
 /// Async wrapper that dispatches commands onto the tokio runtime.
@@ -39,10 +41,36 @@ pub struct AsyncCommandRunner {
     command_bus: Arc<CommandBus>,
     event_bus: Arc<ApplicationEventBus>,
     vm_bus: Option<VmBus>,
-    runtime_handle: Handle,
+    runtime_handle: Result<Handle, ExecutionUnavailable>,
 }
 
 impl AsyncCommandRunner {
+    /// Construct an unavailable runner without consulting any runtime context.
+    #[must_use]
+    pub fn unavailable(
+        command_bus: Arc<CommandBus>,
+        event_bus: Arc<ApplicationEventBus>,
+        reason: ExecutionUnavailable,
+    ) -> Self {
+        Self {
+            command_bus,
+            event_bus,
+            vm_bus: None,
+            runtime_handle: Err(reason),
+        }
+    }
+
+    /// Common availability for buttons, toolbar, keyboard and automatic queries.
+    ///
+    /// # Errors
+    /// Returns the typed dependency and remedy when the runtime is unavailable.
+    pub fn availability(&self) -> Result<(), ExecutionUnavailable> {
+        self.runtime_handle
+            .as_ref()
+            .map(|_| ())
+            .map_err(|reason| *reason)
+    }
+
     /// Creates a new runner without a `VmBus`.
     ///
     /// Callers that want command outcomes to invalidate VM caches should
@@ -72,7 +100,7 @@ impl AsyncCommandRunner {
             command_bus,
             event_bus,
             vm_bus: None,
-            runtime_handle,
+            runtime_handle: Ok(runtime_handle),
         }
     }
 
@@ -99,7 +127,7 @@ impl AsyncCommandRunner {
             command_bus,
             event_bus,
             vm_bus: Some(vm_bus),
-            runtime_handle,
+            runtime_handle: Ok(runtime_handle),
         }
     }
 
@@ -126,10 +154,16 @@ impl AsyncCommandRunner {
         C: ApplicationCommand,
     {
         let (tx, rx) = oneshot::channel();
+        let runtime_handle = match &self.runtime_handle {
+            Ok(handle) => handle.clone(),
+            Err(reason) => {
+                let _ = tx.send(Err(CommandError::Unavailable(*reason)));
+                return rx;
+            }
+        };
         let command_bus = Arc::clone(&self.command_bus);
         let event_bus = Arc::clone(&self.event_bus);
         let vm_bus = self.vm_bus.clone();
-        let runtime_handle = self.runtime_handle.clone();
 
         runtime_handle.spawn_blocking(move || {
             let result = command_bus.execute(command, &context);
@@ -224,6 +258,47 @@ mod tests {
         CommandContext::next()
     }
 
+    #[test]
+    fn adr_0066_unavailable_runner_rejects_commands_without_execution_or_events() {
+        use crate::application::capability::{CapabilityAction, Dependency};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        struct MustNotRun(Arc<AtomicBool>);
+        impl ApplicationCommand for MustNotRun {
+            type Output = ();
+            fn execute(self, _: &CommandContext) -> CommandResult<()> {
+                self.0.store(true, Ordering::Release);
+                Ok(CommandOutcome::new(
+                    (),
+                    vec![ApplicationEvent::Playlist(PlaylistEvent::Changed)],
+                ))
+            }
+        }
+        assert!(Handle::try_current().is_err());
+        let events = Arc::new(ApplicationEventBus::new());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        events.subscribe(Arc::new(CountingSubscriber { seen: seen.clone() }));
+        let runner = AsyncCommandRunner::unavailable(
+            Arc::new(CommandBus::new()),
+            events,
+            ExecutionUnavailable::RUNTIME,
+        );
+        let reason = runner.availability().unwrap_err();
+        assert_eq!(
+            reason.remedy,
+            CapabilityAction::CheckAgain(Dependency::BackgroundRuntime)
+        );
+        let executed = Arc::new(AtomicBool::new(false));
+        let error = runner
+            .dispatch(MustNotRun(executed.clone()), empty_context())
+            .try_recv()
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(error, CommandError::Unavailable(reason));
+        assert!(!executed.load(Ordering::Acquire));
+        assert!(seen.lock().unwrap().is_empty());
+        assert!(Handle::try_current().is_err());
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dispatch_returns_command_value() {
         let runner = AsyncCommandRunner::new(
@@ -239,6 +314,39 @@ mod tests {
         );
         let outcome = rx.await.expect("oneshot").expect("ok");
         assert_eq!(*outcome.value(), 42);
+    }
+
+    #[test]
+    fn adr_0066_blocked_mutation_keeps_existing_local_queries_usable() {
+        use crate::application::commands::playlist::CreatePlaylist;
+        use crate::application::ApplicationQueryService;
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::db::init_schema(&conn).unwrap();
+        crate::db::playlist_create(&conn, "Existing playlist").unwrap();
+        let conn = Arc::new(Mutex::new(conn));
+        let runner = AsyncCommandRunner::unavailable(
+            Arc::new(CommandBus::new()),
+            Arc::new(ApplicationEventBus::new()),
+            ExecutionUnavailable::RUNTIME,
+        );
+        let result = runner
+            .dispatch(
+                CreatePlaylist::new(conn.clone(), "Must not appear"),
+                empty_context(),
+            )
+            .try_recv()
+            .unwrap();
+        assert!(matches!(result, Err(CommandError::Unavailable(_))));
+        let query = ApplicationQueryService::new();
+        let conn = conn.lock().unwrap();
+        let playlists = query.playlists(&conn).unwrap();
+        assert_eq!(playlists.len(), 1);
+        assert_eq!(playlists[0].name, "Existing playlist");
+        assert!(query
+            .search_local_library_tracks(&conn, "example", None)
+            .unwrap()
+            .is_empty());
+        assert!(Handle::try_current().is_err());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

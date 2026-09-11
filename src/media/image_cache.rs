@@ -1,3 +1,5 @@
+//! Shared thumbnail cache and fallible scoped maintenance (ADR 0066).
+
 use std::fs;
 use std::io::Cursor;
 use std::num::NonZeroUsize;
@@ -11,8 +13,22 @@ use image::AnimationDecoder;
 use lru::LruCache;
 use sha2::{Digest, Sha256};
 
+use crate::application::capability::{
+    CapabilityFailure, CapabilityObservation, CapabilityObservations, Dependency,
+};
 use crate::media::image_type;
 use crate::remote_media;
+
+pub(crate) type CacheWorker =
+    fn(Box<dyn FnOnce() + Send>) -> std::io::Result<std::thread::JoinHandle<()>>;
+
+pub(crate) fn spawn_cache_worker(
+    job: Box<dyn FnOnce() + Send>,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
+    std::thread::Builder::new()
+        .name("v4vmm-thumbnail-maintenance".into())
+        .spawn(job)
+}
 
 const DEFAULT_HOT_CAPACITY: usize = 128;
 const DEFAULT_MAX_DIM: u32 = 512;
@@ -28,9 +44,26 @@ pub struct ImageCache {
     max_dimension: u32,
     max_disk_bytes: u64,
     writes_since_eviction: Mutex<u32>,
+    observations: CapabilityObservations,
+    maintenance_running: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl ImageCache {
+    pub(crate) fn new_observed(
+        cache_dir: PathBuf,
+        observations: CapabilityObservations,
+        spawn: CacheWorker,
+    ) -> Arc<Self> {
+        Self::with_observations(
+            cache_dir,
+            DEFAULT_HOT_CAPACITY,
+            DEFAULT_MAX_DIM,
+            DEFAULT_MAX_DISK_BYTES,
+            observations,
+            spawn,
+        )
+    }
+
     pub fn new(cache_dir: PathBuf) -> Arc<Self> {
         Self::with_capacity(
             cache_dir,
@@ -46,6 +79,24 @@ impl ImageCache {
         max_dimension: u32,
         max_disk_bytes: u64,
     ) -> Arc<Self> {
+        Self::with_observations(
+            cache_dir,
+            hot_capacity,
+            max_dimension,
+            max_disk_bytes,
+            CapabilityObservations::default(),
+            spawn_cache_worker,
+        )
+    }
+
+    fn with_observations(
+        cache_dir: PathBuf,
+        hot_capacity: usize,
+        max_dimension: u32,
+        max_disk_bytes: u64,
+        observations: CapabilityObservations,
+        spawn: CacheWorker,
+    ) -> Arc<Self> {
         let capacity = NonZeroUsize::new(hot_capacity.max(1)).unwrap();
         let cache = Arc::new(Self {
             cache_dir: cache_dir.clone(),
@@ -54,12 +105,73 @@ impl ImageCache {
             max_dimension,
             max_disk_bytes,
             writes_since_eviction: Mutex::new(0),
+            observations,
+            maintenance_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         });
-        // Prune on startup without blocking UI.
-        std::thread::spawn(move || {
-            let _ = evict_oldest(&cache_dir, max_disk_bytes);
-        });
+        cache.start_maintenance(spawn);
         cache
+    }
+
+    /// Worker-only retry. Joining here keeps the independent operation bounded
+    /// to one cache maintenance job and reports the actual pruning outcome.
+    pub(crate) fn check_maintenance(&self, spawn: CacheWorker) -> Result<(), CapabilityFailure> {
+        match self.start_maintenance(spawn) {
+            Some(handle) => {
+                if let Err(panic) = handle.join() {
+                    std::panic::resume_unwind(panic);
+                }
+                self.observations
+                    .snapshot()
+                    .get(&Dependency::ThumbnailMaintenance)
+                    .and_then(|observation| observation.failure)
+                    .map_or(Ok(()), Err)
+            }
+            None => Err(self
+                .observations
+                .snapshot()
+                .get(&Dependency::ThumbnailMaintenance)
+                .and_then(|observation| observation.failure)
+                .unwrap_or(CapabilityFailure::CacheWorker(
+                    std::io::ErrorKind::WouldBlock,
+                ))),
+        }
+    }
+
+    fn start_maintenance(&self, spawn: CacheWorker) -> Option<std::thread::JoinHandle<()>> {
+        use std::sync::atomic::Ordering;
+        if self.maintenance_running.swap(true, Ordering::AcqRel) {
+            return None;
+        }
+        let running = self.maintenance_running.clone();
+        let dir = self.cache_dir.clone();
+        let limit = self.max_disk_bytes;
+        let observations = self.observations.clone();
+        match spawn(Box::new(move || {
+            let failure = evict_oldest(&dir, limit).err().map(|error| {
+                CapabilityFailure::CachePrune(
+                    error
+                        .downcast_ref::<std::io::Error>()
+                        .map_or(std::io::ErrorKind::Other, std::io::Error::kind),
+                )
+            });
+            observations.record(
+                CapabilityObservation::new(Dependency::ThumbnailMaintenance, failure).at_path(&dir),
+            );
+            running.store(false, Ordering::Release);
+        })) {
+            Ok(handle) => Some(handle),
+            Err(error) => {
+                self.maintenance_running.store(false, Ordering::Release);
+                self.observations.record(
+                    CapabilityObservation::new(
+                        Dependency::ThumbnailMaintenance,
+                        Some(CapabilityFailure::CacheWorker(error.kind())),
+                    )
+                    .at_path(&self.cache_dir),
+                );
+                None
+            }
+        }
     }
 
     /// Fast path — hot in-memory hit for the animated variant. UI-thread safe.
@@ -178,11 +290,7 @@ impl ImageCache {
         }
         *count = 0;
         drop(count);
-        let dir = self.cache_dir.clone();
-        let max_bytes = self.max_disk_bytes;
-        std::thread::spawn(move || {
-            let _ = evict_oldest(&dir, max_bytes);
-        });
+        self.start_maintenance(spawn_cache_worker);
     }
 }
 
@@ -234,16 +342,21 @@ fn write_cache_entry(path: &Path, mime: &str, bytes: &[u8]) -> Result<()> {
 }
 
 /// Walk the cache directory; if total size exceeds `max_bytes`, delete oldest
-/// entries by mtime until under the limit. Best-effort — errors are swallowed.
+/// entries by mtime until under the limit. Report incomplete scans or removal.
 fn evict_oldest(dir: &Path, max_bytes: u64) -> Result<()> {
-    if max_bytes == 0 || !dir.exists() {
+    if max_bytes == 0 {
         return Ok(());
     }
     let mut entries: Vec<(PathBuf, std::time::SystemTime, u64)> = Vec::new();
     let mut total: u64 = 0;
-    for entry in fs::read_dir(dir)? {
-        let Ok(entry) = entry else { continue };
-        let Ok(meta) = entry.metadata() else { continue };
+    let directory = match fs::read_dir(dir) {
+        Ok(directory) => directory,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    for entry in directory {
+        let entry = entry?;
+        let meta = entry.metadata()?;
         if !meta.is_file() {
             continue;
         }
@@ -261,9 +374,8 @@ fn evict_oldest(dir: &Path, max_bytes: u64) -> Result<()> {
         if total <= max_bytes {
             break;
         }
-        if fs::remove_file(&path).is_ok() {
-            total = total.saturating_sub(size);
-        }
+        fs::remove_file(&path)?;
+        total = total.saturating_sub(size);
     }
     Ok(())
 }
@@ -309,6 +421,87 @@ mod tests {
     use std::net::TcpListener;
 
     const TEST_IMAGE_BYTES: &[u8] = include_bytes!("../assets/music_network_logo.png");
+
+    fn refuse_worker(_: Box<dyn FnOnce() + Send>) -> std::io::Result<std::thread::JoinHandle<()>> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "injected worker failure",
+        ))
+    }
+
+    #[test]
+    fn adr_0066_failed_cache_worker_preserves_disk_hot_and_capacity_behavior() {
+        let temp = tempfile::tempdir().unwrap();
+        let url = "https://example.test/cover.png";
+        write_cache_entry(
+            &temp.path().join(cache_key(url)),
+            "image/png",
+            TEST_IMAGE_BYTES,
+        )
+        .unwrap();
+        let observations = CapabilityObservations::default();
+        observations.record(CapabilityObservation::new(
+            Dependency::BackgroundRuntime,
+            Some(CapabilityFailure::RuntimeStart(std::io::ErrorKind::Other)),
+        ));
+        let cache = ImageCache::with_observations(
+            temp.path().to_path_buf(),
+            2,
+            512,
+            1024 * 1024,
+            observations.clone(),
+            refuse_worker,
+        );
+        assert_eq!(
+            observations.snapshot()[&Dependency::ThumbnailMaintenance].failure,
+            Some(CapabilityFailure::CacheWorker(
+                std::io::ErrorKind::PermissionDenied
+            ))
+        );
+        assert!(cache.fetch_blocking(url).is_some());
+        assert!(cache.peek_static(url).is_some());
+        assert_eq!(cache.hot.lock().unwrap().cap().get(), 2);
+        cache.check_maintenance(spawn_cache_worker).unwrap();
+        assert!(observations.snapshot()[&Dependency::ThumbnailMaintenance]
+            .failure
+            .is_none());
+        assert!(observations.snapshot()[&Dependency::BackgroundRuntime]
+            .failure
+            .is_some());
+        assert!(temp.path().join(cache_key(url)).is_file());
+    }
+
+    #[test]
+    fn adr_0066_cache_prune_failure_reports_the_path_and_keeps_cached_images() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("cache");
+        fs::create_dir(&dir).unwrap();
+        let url = "https://example.test/cached.png";
+        write_cache_entry(&dir.join(cache_key(url)), "image/png", TEST_IMAGE_BYTES).unwrap();
+        let observations = CapabilityObservations::default();
+        let cache = ImageCache::with_observations(
+            dir.clone(),
+            2,
+            512,
+            1024 * 1024,
+            observations.clone(),
+            refuse_worker,
+        );
+        let image = cache.fetch_blocking(url).unwrap();
+        fs::rename(&dir, temp.path().join("preserved-cache")).unwrap();
+        fs::write(&dir, b"not a directory").unwrap();
+        assert!(matches!(
+            cache.check_maintenance(spawn_cache_worker),
+            Err(CapabilityFailure::CachePrune(_))
+        ));
+        assert!(Arc::ptr_eq(&image, &cache.peek(url).unwrap()));
+        assert_eq!(
+            observations.snapshot()[&Dependency::ThumbnailMaintenance]
+                .resource
+                .as_ref(),
+            Some(&dir)
+        );
+    }
 
     fn serve_once(content_type: &'static str, body: &'static [u8]) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");

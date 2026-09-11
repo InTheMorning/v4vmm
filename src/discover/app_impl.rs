@@ -83,9 +83,10 @@ impl SearchApp {
                 host.bus().clone(),
                 host.handle().clone(),
             ),
-            None => AsyncCommandRunner::new(
+            None => AsyncCommandRunner::unavailable(
                 application_services.command_bus(),
                 application_services.event_bus(),
+                crate::application::capability::ExecutionUnavailable::RUNTIME,
             ),
         };
 

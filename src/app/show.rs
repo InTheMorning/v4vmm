@@ -243,7 +243,6 @@ impl TopApp {
             return;
         }
         let Some(host) = self.runtime_host.clone() else {
-            self.settings_status = "Broadcast readiness error: runtime unavailable".to_string();
             return;
         };
 
@@ -264,7 +263,6 @@ impl TopApp {
             return;
         }
         let Some(host) = self.runtime_host.clone() else {
-            self.settings_status = "Publisher status error: runtime unavailable".to_string();
             return;
         };
 
@@ -388,6 +386,7 @@ impl TopApp {
         )
         .with_command_state(&self.show_commands)
         .with_status_message(&self.settings_status)
+        .with_execution_availability(self.command_runner.availability())
         .with_panel_state(panel_mode, panel_open);
     }
 

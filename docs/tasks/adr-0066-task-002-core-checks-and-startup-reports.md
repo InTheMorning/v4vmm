@@ -2,8 +2,8 @@
 
 Status: Complete - 2026-09-10.
 Mechanical gate Green. All operator checks passed and fixture cleanup is
-confirmed; evidence is recorded below. Task 003 has not started and is next
-in a fresh session.
+confirmed; evidence is recorded below. [Task 003](adr-0066-task-003-runtime-failure-and-shell-availability.md)
+owns runtime/cache follow-through and its separate acceptance gate.
 
 ## Goal
 

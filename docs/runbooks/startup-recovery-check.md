@@ -184,3 +184,151 @@ python3 docs/runbooks/startup-recovery-fixture.py cleanup "$recovery_dir"
 Record results in task 002, its review checklist and the delivery row. Remove
 its pending-human-check entry only after all sections, including 3a and 4a, pass. Later packets
 own optional constructor isolation and the in-app correction editors.
+
+## Task 003: Background Tools
+
+Owner: [task 003](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md).
+Operator acceptance is open. These checks prove that failed background tools
+do not prevent startup, and that Check again repairs them in the same window.
+Task 002's accepted core checks need no repeat.
+
+Needs: a Linux desktop, Python 3.11 or later and the new debug binary. No real
+external service is needed. The fixture deliberately uses an unreachable
+MusicIndex endpoint and stubs control commands. An Index connection error after
+runtime repair is expected; it must not be described as a runtime failure.
+
+### 1. Open With Two Failed Tools
+
+This proves that optional failures leave navigation and local reads usable.
+
+In terminal A, from the repository root:
+
+```bash
+cargo build --quiet
+recovery_dir="$(python3 docs/runbooks/startup-recovery-fixture.py setup)"
+python3 docs/runbooks/startup-recovery-fixture.py verify "$recovery_dir"
+python3 docs/runbooks/startup-recovery-fixture.py mode "$recovery_dir" runtime-and-cache-unavailable
+python3 docs/runbooks/startup-recovery-fixture.py run "$recovery_dir"
+```
+
+Music must open. Visit Show, then Settings. The notice/report must identify
+two separate failures: the background runtime and thumbnail cleanup.
+Show must say **Show status unavailable** and **Not checked**; it must not claim
+that playback is idle or invent event/service observations.
+**Open report** leads to **Background tools** in Settings. **Copy report**
+must paste the complete report, with UTC times and the thumbnail-cache path.
+At normal and narrow widths, text must wrap and actions remain reachable.
+
+Use the toolbar to search for `example`, then repeat by pressing Enter in the
+search input. Local results may be empty. The Index result must explain that
+the runtime is unavailable, with **Check again** still available in the notice.
+Browse the existing **Startup fixture playlist**. Press Super+R in Music, and
+try the playback shortcut Super+Alt+P. Super is the Windows key; these are the
+app's current Linux bindings. Neither may panic or bypass the missing
+runtime. Navigation, report copy and the repair buttons must still work.
+
+If the window manager intercepts Super, record the affected shortcut checks as
+unverified and continue the other checks. Do not count an intercepted key as an
+app rejection. These checks do not require changing window-manager bindings.
+
+In Settings, press the runtime's **Check again** twice, waiting for each to
+finish. The error should remain, but the completed check number must advance.
+The thumbnail issue must remain. No permanent **Checking…** state is allowed.
+This fixture returns its failure immediately, so **Checking…** may finish before
+a frame renders. The increasing count and recorded completion time confirm the
+attempt; seeing the intermediate label is not required for this case.
+
+### 2. Repair Only The Runtime
+
+This proves that repairing one tool does not erase the other tool's failure.
+
+Leave the app open. In terminal B, recover and verify this fixture directory
+(or use the exact directory printed by terminal A if several fixtures exist):
+
+```bash
+recovery_dir="$(python3 docs/runbooks/startup-recovery-fixture.py locate)"
+python3 docs/runbooks/startup-recovery-fixture.py verify "$recovery_dir"
+python3 docs/runbooks/startup-recovery-fixture.py mode "$recovery_dir" cache-worker-unavailable
+```
+
+Changing the fixture mode only changes what the next attempt will return.
+Press the runtime's **Check again** in Settings. Its failure must clear;
+thumbnail maintenance must remain failed. Stay in the same app window.
+Return to Music. Runtime installation refreshes the library automatically; the
+existing playlist must appear once. If the desktop forwards Super+R, also check
+that explicit refresh works. Otherwise keep that shortcut check unverified.
+Online requests may report the fixture's connection
+failure. Double-clicking Check again must not create duplicate rows or windows.
+
+### 2a. Recheck Search Failure Readability
+
+The operator's post-repair screenshot proved remote dispatch but exposed a
+clipped technical error. This focused correction keeps the explanation readable
+and puts full diagnostics behind Show details and Copy report.
+
+Close the fixture app before relaunching the new debug binary. From the repository
+root, use the existing verified fixture; do not create another one:
+
+```bash
+cargo build --quiet
+python3 docs/runbooks/startup-recovery-fixture.py verify "$recovery_dir"
+python3 docs/runbooks/startup-recovery-fixture.py mode "$recovery_dir" cache-worker-unavailable
+python3 docs/runbooks/startup-recovery-fixture.py run "$recovery_dir"
+```
+
+Search for `runtime-retry`. At normal and narrow widths, the explanation must
+wrap inside the result pane with Show details and Copy report reachable. It must
+say that the app could not get MusicIndex results, explain that the local library
+remains available, and suggest checking the connection/endpoint before repeating
+the search. It must not blame an unavailable background runtime.
+
+Open Show details. The report must wrap and scroll vertically when needed, with
+no clipped edges. Copy report and paste into a text editor; it must include the
+recorded UTC time, configured endpoint, and both feed/track failure details.
+Hide/show must keep the same recorded time and copied report. Select the Library
+filter: an empty local result must not display the remote failure or its report
+buttons. Return to Music and confirm Startup fixture playlist appears once.
+
+Keep this fixture open for thumbnail repair below. Final inspection/cleanup
+remains in step 4. No real MusicIndex service is required.
+
+### 3. Repair Thumbnail Cleanup
+
+This proves that thumbnail maintenance can recover without replacing the app.
+
+In terminal B:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py mode "$recovery_dir" normal
+```
+
+Press thumbnail maintenance's **Check again**. Its failure must clear. The
+report must describe the completed cleanup scan. Copy the report again: its
+times must be recorded UTC times, and starting the runtime must not claim that
+an external service is reachable.
+
+### 4. Start With Only Thumbnail Cleanup Failed
+
+This checks the cache failure independently of runtime recovery.
+
+Close the fixture app. It must exit with code 0. In terminal A:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py inspect "$recovery_dir"
+python3 docs/runbooks/startup-recovery-fixture.py mode "$recovery_dir" cache-worker-unavailable
+python3 docs/runbooks/startup-recovery-fixture.py run "$recovery_dir"
+```
+
+Music must open with only the thumbnail maintenance issue. The runtime must
+be available. Navigate all three sections and open the report. Close the app;
+it must exit with code 0. Inspect preservation, then remove the fixture:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py inspect "$recovery_dir"
+python3 docs/runbooks/startup-recovery-fixture.py cleanup "$recovery_dir"
+```
+
+Both inspections must report preserved configuration, music and migration
+records, one playlist, and no leftover probes. Normal workspace preferences
+may have been saved. A crash, lost data, duplicate window, hidden repair action,
+or one repair clearing the other issue fails this gate.

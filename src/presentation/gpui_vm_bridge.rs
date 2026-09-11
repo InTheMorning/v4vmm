@@ -46,13 +46,8 @@ use tokio::sync::watch;
 /// The returned task is detached — the bridge lives as long as either
 /// side of the channel.
 ///
-/// # Panics
-///
-/// Panics if invoked outside a tokio runtime (the `apply` callback may
-/// be called on the GPUI foreground executor; the underlying watch
-/// loop runs through `cx.spawn` which lives on the GPUI executor — no
-/// tokio runtime is required for the loop itself, only when constructing
-/// the watch sender upstream).
+/// Neither the watch channel nor this GPUI foreground loop needs a Tokio
+/// runtime. ADR 0066 also uses it for independent maintenance observations.
 pub fn bridge_watch<T, S, F>(rx: watch::Receiver<S>, mut apply: F, cx: &mut Context<T>)
 where
     T: 'static,

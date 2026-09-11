@@ -1528,6 +1528,24 @@ pub(crate) struct ShowPageVm {
 }
 
 impl ShowPageVm {
+    /// ADR 0066: an unavailable query cannot establish that no show is active.
+    #[must_use]
+    pub(crate) fn with_execution_availability(
+        mut self,
+        availability: Result<(), crate::application::capability::ExecutionUnavailable>,
+    ) -> Self {
+        if let Err(reason) = availability {
+            self.state_label = "Not checked";
+            self.empty_state = Some(ShowEmptyStateDisplay {
+                id: "show-unavailable-state",
+                title: "Show status unavailable",
+                subtitle: "App needs its background runtime to read show status. Use Check again in Background tools.",
+            });
+            self.status_message = Some(reason.to_string());
+        }
+        self
+    }
+
     /// Creates an idle Show page with no active playback.
     #[must_use]
     pub(crate) fn idle() -> Self {
@@ -2752,6 +2770,30 @@ const fn transport_state_label(state: TransportState) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn adr_0066_unavailable_show_query_does_not_claim_idle_playback() {
+        use crate::application::capability::ExecutionUnavailable;
+        let unavailable = super::ShowPageVm::idle()
+            .with_execution_availability(Err(ExecutionUnavailable::RUNTIME));
+        assert_eq!(unavailable.state_label, "Not checked");
+        assert_eq!(
+            unavailable.empty_state.as_ref().unwrap().title,
+            "Show status unavailable"
+        );
+        assert!(unavailable
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("Check again"));
+        assert!(unavailable.publisher.is_none());
+        assert!(unavailable.source.is_none());
+        assert!(unavailable.stream.is_none());
+        assert!(unavailable.cards.is_empty());
+        assert_eq!(
+            super::ShowPageVm::idle().with_execution_availability(Ok(())),
+            super::ShowPageVm::idle()
+        );
+    }
     use crate::application::queries::broadcast::{
         BroadcastReadinessReport, BroadcastReadinessState, BroadcastReadinessSummary,
         BroadcastReadinessTrack,

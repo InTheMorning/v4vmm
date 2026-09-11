@@ -11,6 +11,10 @@ use crate::application::errors::command::CommandError;
 use crate::application::AsyncCommandRunner;
 
 /// Dispatches a command and presents its result back on the GPUI entity.
+/// ADR 0066: the runner's typed unavailable result uses this same error path
+/// for mouse, toolbar and keyboard commands. Its remedy is exposed by the
+/// persistent Background tools notice and Settings report, even if a caller's
+/// local error display is hidden. No success callback or command runs on rejection.
 pub fn present_command<T, C, OnSuccess, OnError>(
     runner: &AsyncCommandRunner,
     command: C,

@@ -62,7 +62,7 @@ impl StartupIssue {
             resource: path.map(Path::to_path_buf),
             observed_at: SystemTime::now(),
             severity: IssueSeverity::Blocked,
-            cause: redact_endpoint_details(&cause.into()),
+            cause: crate::diagnostics::redact_endpoint_details(&cause.into()),
             next_action,
         }
     }
@@ -87,33 +87,6 @@ impl StartupIssue {
             "Check the path, mounted storage and permissions, then choose Check again.",
         )
     }
-}
-
-// Redact before storing, so Debug, UI, clipboard and stderr share safe data.
-fn redact_endpoint_details(detail: &str) -> String {
-    detail
-        .split_inclusive(char::is_whitespace)
-        .map(|part| {
-            let Some(start) = part.find("https://").or_else(|| part.find("http://")) else {
-                return part.to_owned();
-            };
-            let raw = part[start..].trim_end_matches(|c: char| {
-                c.is_whitespace() || matches!(c, '\'' | '"' | ')' | ',' | ';')
-            });
-            let suffix = &part[start + raw.len()..];
-            let endpoint = match reqwest::Url::parse(raw) {
-                Ok(mut url) => {
-                    let _ = url.set_username("");
-                    let _ = url.set_password(None);
-                    url.set_query(None);
-                    url.set_fragment(None);
-                    url.to_string()
-                }
-                Err(_) => "[unreadable endpoint]".to_owned(),
-            };
-            format!("{}{endpoint}{suffix}", &part[..start])
-        })
-        .collect()
 }
 
 pub struct CoreCheckOutcome {

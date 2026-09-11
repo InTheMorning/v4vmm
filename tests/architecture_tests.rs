@@ -388,6 +388,7 @@ const SCREEN_FILES: &[&str] = &[
     "src/app.rs",
     "src/app/breadcrumb.rs",
     "src/app/startup.rs",
+    "src/app/capabilities.rs",
     "src/app/bootstrap.rs",
     "src/app/events.rs",
     "src/app/keyboard.rs",
@@ -1740,6 +1741,156 @@ fn workspace_split_pane_uses_fluid_resize_pattern() {
 }
 
 #[test]
+fn adr_0066_missing_runtime_has_no_implicit_runner() {
+    // Situational: ADR 0066 invariants 2, 5 and 9. Runner/worker tests prove
+    // rejection and recovery; this inventory keeps every GUI entry on that path.
+    for file in [
+        "src/app.rs",
+        "src/library/app_impl.rs",
+        "src/discover/app_impl.rs",
+    ] {
+        let source = read_source(&manifest_path(file));
+        let source = production_source(&source);
+        assert!(
+            source.contains("None => AsyncCommandRunner::unavailable("),
+            "{file}: missing explicit unavailable runner"
+        );
+        assert!(source.contains("ExecutionUnavailable::RUNTIME"));
+        for forbidden in [
+            "AsyncCommandRunner::new(",
+            "AsyncCommandRunner::with_vm_bus(",
+            "Handle::current(",
+            "Runtime::new(",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{file}: implicit runtime path {forbidden}"
+            );
+        }
+    }
+    let runner = read_source(&manifest_path("src/application/async_command_runner.rs"));
+    let dispatch = source_between(
+        &runner,
+        "pub fn dispatch<C>",
+        "fn publish_vm_invalidations(",
+    );
+    assert!(
+        dispatch.find("CommandError::Unavailable").unwrap()
+            < dispatch.find("command_bus.execute").unwrap()
+    );
+    assert!(dispatch.contains("return rx;"));
+    let presenter = read_source(&manifest_path(
+        "src/presentation/async_command_presenter.rs",
+    ));
+    assert!(presenter.contains("runner.dispatch(command, context)"));
+    for file in [
+        "src/app/playback_bar.rs",
+        "src/app/search_dispatch.rs",
+        "src/app/show.rs",
+        "src/library/app_impl.rs",
+        "src/discover/app_impl.rs",
+    ] {
+        let source = read_source(&manifest_path(file));
+        let source = production_source(&source);
+        assert!(
+            source.contains("present_command("),
+            "{file}: commands must use the rejecting presenter"
+        );
+        assert!(!source.contains("command_bus.execute("));
+    }
+    let keys = read_source(&manifest_path("src/app/keyboard.rs"));
+    for route in [
+        "self.toggle_playback_paused(cx)",
+        "self.skip_playback_next(cx)",
+        "self.focus_global_search(window, cx)",
+        "self.select_tab(AppTab::Settings, cx)",
+    ] {
+        assert!(keys.contains(route));
+    }
+    let search = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    assert!(search.contains("search_local_library_tracks(&conn, query, None)"));
+    assert!(search.contains("self.command_runner.availability().ok()?"));
+    let library = read_source(&manifest_path("src/library/app_impl.rs"));
+    assert!(library.contains("self.command_runner.availability().ok()?"));
+    assert!(library.contains("ExecutionUnavailable::RUNTIME.to_string()"));
+}
+
+#[test]
+fn adr_0066_runtime_retry_keeps_one_host_and_independent_reports() {
+    // Situational: ADR 0066 invariants 2, 5, 7 and 9. VM generations and
+    // maintenance-worker tests prove ordering; these are the actual UI callers.
+    let source = read_source(&manifest_path("src/app/capabilities.rs"));
+    for required in [
+        "worker.submit(",
+        "present_startup(",
+        "self.capability_vm.complete(dependency, generation)",
+        "self.runtime_host.is_some()",
+        "library.install_runtime(host, cx)",
+        "self.capability_vm.report()",
+        "bridge_watch(",
+    ] {
+        assert!(
+            source.contains(required),
+            "missing retry boundary {required}"
+        );
+    }
+    assert!(
+        source
+            .find("self.capability_vm.complete(dependency, generation)")
+            .unwrap()
+            < source.find("self.install_runtime(host, cx)").unwrap()
+    );
+    let install = source_between(&source, "fn install_runtime(", "\n}");
+    for call in [
+        "library.install_runtime(",
+        "self.maybe_start_playback_polling(",
+        "self.maybe_start_broadcast_readiness_watch(",
+        "self.maybe_start_broadcast_service_watch(",
+    ] {
+        assert_eq!(install.matches(call).count(), 1);
+    }
+    assert!(!install.contains("install_capability_controls("));
+    let app = read_source(&manifest_path("src/app.rs"));
+    assert!(app.contains("self.playback_polling.is_some()"));
+    assert!(app.contains("self.render_capabilities(false, cx)"));
+    assert!(app.contains("with_execution_availability(command_runner.availability())"));
+    assert!(app.contains("app.render_capabilities(true, cx)"));
+    let library = read_source(&manifest_path("src/library/app_impl.rs"));
+    for required in [
+        "self.runtime_host.is_some()",
+        "self.musicbrainz_feed_saga.is_some()",
+        "self.start_async_reload_preserving_detail(cx)",
+    ] {
+        assert!(library.contains(required));
+    }
+    let show = read_source(&manifest_path("src/app/show.rs"));
+    assert!(show.contains("self.broadcast_readiness_watch.is_some()"));
+    assert!(show.contains("self.publisher_service_watch.is_some()"));
+    assert!(show.contains("with_execution_availability(self.command_runner.availability())"));
+    let cache = read_source(&manifest_path("src/media/image_cache.rs"));
+    assert!(cache.contains("std::thread::Builder::new()"));
+    assert!(!production_source(&cache).contains("std::thread::spawn("));
+    assert!(cache.contains("CapabilityFailure::CacheWorker"));
+    assert!(cache.contains("CapabilityFailure::CachePrune"));
+    let bootstrap = read_source(&manifest_path("src/app/bootstrap.rs"));
+    assert!(bootstrap.contains("let runtime_host = runtime.ok()"));
+    assert!(bootstrap.contains("ImageCache::new_observed("));
+    let vm = read_source(&manifest_path("src/view_models/startup/capabilities.rs"));
+    assert!(!production_source(&vm).contains("SystemTime::now"));
+    assert!(!vm.contains("use gpui"));
+    let host = read_source(&manifest_path("src/presentation/runtime_host.rs"));
+    assert!(host.contains("#[cfg(debug_assertions)]"));
+    let fixture = read_source(&manifest_path("src/startup/fixture.rs"));
+    for required in [
+        "V4VMM_STARTUP_FIXTURE",
+        "Fixture config mismatch",
+        "Fixture binary mismatch",
+    ] {
+        assert!(fixture.contains(required));
+    }
+}
+
+#[test]
 fn adr_0066_core_recovery_ownership() {
     // Situational: ADR 0066 invariants 1, 5 and 8. Behavioral startup,
     // worker and presentation tests prove failures and generation admission.
@@ -1886,6 +2037,64 @@ fn adr_0066_recorded_report_context() {
     for forbidden in ["truncate()", "SystemTime::now", "std::fs", "rusqlite"] {
         assert!(!composite.contains(forbidden));
     }
+}
+
+#[test]
+fn adr_0066_search_failure_report_stays_readable_and_vm_owned() {
+    // Situational: ADR 0066 operator correction during task 003. The reported
+    // clipping crossed ADR 0063's column-text rule; keep root/scoped results
+    // on one wrapping owner with VM disclosure and exact clipboard delivery.
+    let shell = read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
+    let notice = source_between(
+        &shell,
+        "fn render_empty_state(",
+        "const fn entity_kind_for_index_detail",
+    );
+    for required in [
+        "Size::NoticeWidth",
+        "min_w_0()",
+        "wrap_lines()",
+        "overflow_y_scrollbar()",
+        "flex_wrap()",
+        "failure.action(intent)",
+        "failure.visible_report()",
+        "display.availability",
+        "display.a11y_label",
+    ] {
+        assert!(
+            notice.contains(required),
+            "search failure presentation missing {required}"
+        );
+    }
+    for forbidden in [
+        ".truncated()",
+        ".truncate()",
+        "SystemTime::now",
+        "error.to_string()",
+    ] {
+        assert!(
+            !notice.contains(forbidden),
+            "search failure presentation must not use {forbidden}"
+        );
+    }
+    let dispatch = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    assert!(dispatch
+        .contains("detail.set_index_error(&error, &error_endpoint, std::time::SystemTime::now())"));
+    assert!(dispatch.contains("detail.activate_failure_action(action)"));
+    assert!(dispatch.contains("ClipboardItem::new_string(report)"));
+    assert!(!dispatch.contains("fn command_error_detail("));
+    let app = read_source(&manifest_path("src/app.rs"));
+    assert_eq!(
+        app.matches(".on_failure_action(").count(),
+        2,
+        "root and scoped search must wire diagnostic actions"
+    );
+    let failure = read_source(&manifest_path("src/view_models/search_results/failure.rs"));
+    let failure = production_source(&failure);
+    assert!(failure.contains("redact_endpoint_details"));
+    assert!(!failure.contains("SystemTime::now"));
+    let startup = read_source(&manifest_path("src/startup.rs"));
+    assert!(startup.contains("crate::diagnostics::redact_endpoint_details"));
 }
 
 #[test]
@@ -13910,7 +14119,9 @@ fn adr_0060_live_status_and_show_share_cached_projection() {
 
     for required in [
         "show_page: ShowPageVm",
-        "show_page: ShowPageVm::idle()",
+        // ADR 0066 replaces assumed idle state when the first query cannot run.
+        // ADR 0060's single cached projector and invalidation rules still apply.
+        "ShowPageVm::idle().with_execution_availability(command_runner.availability())",
         "PlaybackTickOutcome::Advanced =>",
         "self.refresh_show_page(cx)",
     ] {

@@ -110,7 +110,7 @@ impl StartupScreen {
                     match result {
                         Ok(Ok(prepared)) => {
                             if let Some(normal) = mount_current(&mut this.vm, generation, || {
-                                bootstrap::mount_normal(prepared, window, cx)
+                                bootstrap::mount_normal(prepared, this.worker.clone(), window, cx)
                             }) {
                                 this.normal = Some(normal);
                                 this.opened.store(true, Ordering::Release);

@@ -8,7 +8,6 @@ use gpui::{prelude::*, AnyElement, Context, Image, SharedString};
 use crate::application::commands::download::{SubscribeThenAppendToPlaylist, SubscribeTrack};
 use crate::application::commands::feed::SubscribeFeed;
 use crate::application::commands::playlist::CreatePlaylist;
-use crate::application::errors::command::CommandError;
 use crate::application::queries::images::FetchThumbnail;
 use crate::application::queries::search::FetchIndexSearchResults;
 use crate::application::CommandContext;
@@ -100,6 +99,7 @@ impl TopApp {
         let request_query = query.to_string();
         let success_query = request_query.clone();
         let error_query = request_query.clone();
+        let error_endpoint = endpoint.clone();
         let command = FetchIndexSearchResults::new(endpoint, request_query);
         present_command(
             &self.command_runner,
@@ -140,11 +140,26 @@ impl TopApp {
                     .as_mut()
                     .filter(|detail| detail.query() == error_query)
                 {
-                    detail.set_index_error("Index search unavailable", command_error_detail(error));
+                    detail.set_index_error(&error, &error_endpoint, std::time::SystemTime::now());
                     cx.notify();
                 }
             },
         );
+    }
+
+    pub(super) fn handle_search_failure_action(
+        &mut self,
+        action: crate::view_models::search_results::SearchFailureAction,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(report) = self
+            .search_results_detail
+            .as_mut()
+            .and_then(|detail| detail.activate_failure_action(action))
+        {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(report));
+        }
+        cx.notify();
     }
 
     fn content_list_nav_matches_search(&self, query: &str) -> bool {
@@ -452,6 +467,8 @@ impl TopApp {
         if let Some(image) = self.image_cache.peek_static(url) {
             return Some(image);
         }
+        // Do not leave a thumbnail marked Loading when dispatch cannot start.
+        self.command_runner.availability().ok()?;
         if let Some(state) = self.remote_detail_thumbnails.get(url) {
             return match state {
                 RemoteDetailThumbnailState::Loading => None,
@@ -1089,19 +1106,6 @@ mod remote_detail_thumbnail_tests {
             index_track_row_artwork_url(&feed, &track),
             Some("https://example.test/track.jpg")
         );
-    }
-}
-
-fn command_error_detail(error: CommandError) -> String {
-    match error {
-        CommandError::Playlist(message)
-        | CommandError::Feed(message)
-        | CommandError::Download(message)
-        | CommandError::Metadata(message)
-        | CommandError::Playback(message)
-        | CommandError::Query(message)
-        | CommandError::Other(message) => message,
-        CommandError::Cancelled => "command cancelled".to_string(),
     }
 }
 

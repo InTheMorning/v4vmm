@@ -5,9 +5,11 @@
 Accepted - 2026-09-10.
 
 Implementation partial: tasks 001 and 002 complete - 2026-09-10, including
-task 002's operator acceptance and fixture cleanup. Tasks
-003–013 have not started in the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md).
-Optional-tool isolation and in-app correction tools remain unimplemented.
+task 002's operator acceptance and fixture cleanup. Task 003's runtime/cache
+recovery is implemented, with the mechanical gate Green. Only its intercepted
+Super-key operator check remains open; other operator checks and fixture cleanup passed. Tasks
+004–013 have not started in the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md).
+Other optional-tool isolation and in-app correction tools remain unimplemented.
 
 Revised 2026-09-10 after operator review: normal startup requires valid core
 configuration, usable storage for music files, and a working SQLite database.
@@ -300,7 +302,7 @@ not a core failure; `MusicFolderMissing` means required storage is unavailable.
 
 [Task 002's stage inventory](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md#startup-stage-inventory)
 assigns every current bootstrap boundary to its implementation packet, including
-the missing runtime and optional worker paths in 003/004. It owns the procedures
+the runtime/cache follow-through in 003 and other optional paths in 004. It owns the procedures
 and failure-injection checks; no constructor adds to the minimum requirements.
 
 Keep programmer-owned invariants explicit, including the resolved configuration
@@ -454,6 +456,21 @@ links the storage, SQLite, worker, generation and report tests.
 boundary and report ownership. Its [operator check](../runbooks/startup-recovery-check.md#task-002-core-checks-and-reports)
 passed on 2026-09-10; the packet records the operator evidence. Later packets
 open their own runnable checks when implemented.
+
+Task 003 adds `adr_0066_missing_runtime_has_no_implicit_runner` and
+`adr_0066_runtime_retry_keeps_one_host_and_independent_reports` in the same
+architecture suite. Its [proof inventory](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md#mechanical-evidence)
+links runner rejection, independent local queries, runtime retry, issue isolation
+and cache-failure tests. Its [operator check](../runbooks/startup-recovery-check.md#task-003-background-tools)
+remains open.
+
+Task 003's operator-reported search-error clipping correction is guarded by
+`adr_0066_search_failure_report_stays_readable_and_vm_owned`. The packet's
+[correction evidence](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md#operator-correction-readable-search-failures)
+links typed failure wording, shared wrapping/disclosure, recorded UTC and
+safe report-copy checks. The focused operator recheck passed, including
+Library-filter separation and playlist uniqueness. Task 003's remaining gate
+stays open.
 
 ## Non-Goals
 

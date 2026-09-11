@@ -50,8 +50,9 @@ prioritized, and routed to the right governance artifact.
      Accepted - 2026-09-10. Implementation partial: task 001 protects configuration
      reads and ordinary saves. Task 002 routes invalid core configuration,
      unusable music storage and SQLite failures to recovery; its operator
-     checks and fixture cleanup are complete. In-app editors and optional-tool isolation remain
-     later packets; configuration correction still needs an external editor.
+     checks and fixture cleanup are complete. Task 003 adds runtime/cache recovery
+     with operator acceptance open. In-app editors and other optional-tool
+     isolation remain later packets; configuration correction still needs an external editor.
    - Note: a malformed layout *value* already falls back with a warning. This
      item is the level above that, where the file does not parse at all.
      Settings manages only a few keys, so operators hand-edit this file.
@@ -64,8 +65,8 @@ prioritized, and routed to the right governance artifact.
      share configuration and database maintenance tools; disabled controls
      alone are not the recovery workflow. ADR 0066 owns the detailed policy.
    - Route: execute the [thirteen ADR 0066 packets](adr-0066-startup-recovery-phase-plan.md),
-     one per session. Tasks 001 and 002 are complete; task 003 is next;
-     tasks 003–013 have not started.
+     one per session. Tasks 001 and 002 are complete; task 003 awaits operator
+     acceptance; tasks 004–013 have not started.
      **Implement and verify this before any config
      format change**, since a format change puts more operators in this state.
 7. Workspace configuration section naming.

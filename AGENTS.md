@@ -24,8 +24,11 @@ Task 017's acceptance remains closed.
 
 ADR 0066 tasks 001 and 002 are complete, including task 002's operator
 acceptance and fixture cleanup.
-Next work is [task 003: Runtime failure and shell availability](docs/tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md)
-in a fresh session. Tasks 003–013 have not started in the
+Current work is operator acceptance of [task 003: Runtime failure and shell availability](docs/tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md).
+Its unavailable runner, scoped reports and explicit runtime/cache checks are implemented; the mechanical gate is Green.
+Task 003's operator checks and fixture cleanup passed except for refresh/playback
+shortcuts: the window manager intercepts Super, so that check remains unverified.
+Tasks 004–013 have not started in the
 [phase plan](docs/plans/adr-0066-startup-recovery-phase-plan.md).
 Relay durability through reserved-event adoption follows.
 The delivery order also schedules narrow Show layout,

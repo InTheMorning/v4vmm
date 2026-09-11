@@ -8,6 +8,7 @@ pub mod cli;
 pub mod config;
 pub mod db;
 pub mod debug_contracts;
+pub(crate) mod diagnostics;
 pub mod discover;
 pub mod feed_service;
 pub mod http_client;

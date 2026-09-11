@@ -14,6 +14,7 @@ use gpui::{
     div, AnyElement, App, ClickEvent, Image, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled, Window,
 };
+use gpui_component::scroll::ScrollableElement;
 
 use crate::runtime::paged_list_vm::{PagedListVm, RowSlot};
 use crate::ui::composites::{
@@ -21,7 +22,7 @@ use crate::ui::composites::{
     ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
-use crate::ui::primitives::{Button as UiButton, Label, LabelVariant};
+use crate::ui::primitives::{Button as UiButton, Label, LabelVariant, MultilineText};
 use crate::ui::shells::entity::{
     render_feed_identity_actions, render_release_detail_shell, ReleaseDetailBehaviorSlots,
 };
@@ -32,10 +33,11 @@ use crate::ui::shells::search_result_rows::{
 use crate::ui::shells::track::{
     build_track_detail_surface, render_track_page_identity_actions, TrackDetailBehaviorSlots,
 };
-use crate::ui::tokens::{FontSize, SemanticColor, Spacing};
+use crate::ui::tokens::{FontSize, SemanticColor, Size, Spacing};
 use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm};
 use crate::view_models::search_results::{
-    EmptyStateDisplay, IndexDetailDisplay, IndexDetailKind, SearchResultItemId, SearchResultOrigin,
+    EmptyStateDisplay, IndexDetailDisplay, IndexDetailKind, SearchFailureAction,
+    SearchFailureAvailability, SearchResultItemId, SearchResultOrigin,
     SearchResultsInspectorPageVm, SearchResultsTab,
 };
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
@@ -44,6 +46,7 @@ use crate::view_models::workspace::ContentFilter;
 type TabSelectHandler = Rc<dyn Fn(SearchResultsTab, &mut Window, &mut App) + 'static>;
 type ResultSelectHandler = SearchResultSelectHandler;
 type ClearFilterHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+type FailureHandler = Rc<dyn Fn(SearchFailureAction, &mut Window, &mut App) + 'static>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SearchResultsHeaderMode {
@@ -61,6 +64,7 @@ pub(crate) struct SearchResultsInspectorSlots {
     tab_select: Option<TabSelectHandler>,
     result_select: Option<ResultSelectHandler>,
     clear_filter: Option<ClearFilterHandler>,
+    failure_action: Option<FailureHandler>,
     thumbnails: BTreeMap<String, Option<Arc<Image>>>,
 }
 
@@ -68,6 +72,15 @@ impl SearchResultsInspectorSlots {
     /// Creates empty search-results inspector slots.
     pub(crate) fn new() -> Self {
         Self::default()
+    }
+
+    /// Supplies disclosure and clipboard wiring for the VM's failure actions.
+    pub(crate) fn on_failure_action(
+        mut self,
+        handler: impl Fn(SearchFailureAction, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.failure_action = Some(Rc::new(handler));
+        self
     }
 
     /// Supplies the tab-selection callback.
@@ -147,7 +160,12 @@ fn render_search_results_inspector_with_scope(
     let query = vm.query().to_string();
     let on_result_select = slots.result_select.as_ref();
     let body = if let Some(empty) = empty_state {
-        render_empty_state(empty, slots.clear_filter.as_ref(), cx)
+        render_empty_state(
+            empty,
+            slots.clear_filter.as_ref(),
+            slots.failure_action.as_ref(),
+            cx,
+        )
     } else {
         render_active_result_list(vm, tab, filter, slots, on_result_select, cx)
     };
@@ -476,19 +494,58 @@ const fn entity_kind_for_tab(tab: SearchResultsTab) -> EntityKind {
 fn render_empty_state(
     empty: &EmptyStateDisplay,
     on_clear_filter: Option<&ClearFilterHandler>,
+    on_failure: Option<&FailureHandler>,
     cx: &App,
 ) -> AnyElement {
     let mut content = div()
+        .w_full()
+        .max_w(Size::NoticeWidth.scaled(cx))
+        .min_w_0()
         .flex()
         .flex_col()
-        .items_center()
-        .gap(Spacing::XS.scaled(cx))
+        .flex_shrink_0()
+        .gap(Spacing::MD.scaled(cx))
         .child(Label::new(empty.title.clone()).variant(LabelVariant::Headline))
         .child(
-            Label::new(empty.secondary.clone())
-                .variant(LabelVariant::Caption)
-                .truncated(),
+            MultilineText::new(empty.secondary.clone())
+                .max_lines(usize::MAX)
+                .wrap_lines()
+                .size(FontSize::Body)
+                .color(SemanticColor::SecondaryLabel),
         );
+
+    if let Some(failure) = &empty.failure {
+        if let Some(handler) = on_failure {
+            let mut actions = div().flex().flex_wrap().gap(Spacing::SM.scaled(cx));
+            for intent in [
+                SearchFailureAction::ToggleDetails,
+                SearchFailureAction::CopyReport,
+            ] {
+                let display = failure.action(intent);
+                let handler = handler.clone();
+                actions = actions.child(
+                    UiButton::styled(
+                        SharedString::from(format!("search-failure-{intent:?}")),
+                        ControlStyle::Secondary,
+                    )
+                    .label(display.label)
+                    .a11y_label(display.a11y_label)
+                    .disabled(display.availability != SearchFailureAvailability::Available)
+                    .on_activate(move |window, cx| handler(display.action, window, cx)),
+                );
+            }
+            content = content.child(actions);
+        }
+        if let Some(report) = failure.visible_report() {
+            content = content.child(
+                MultilineText::new(report.to_owned())
+                    .max_lines(usize::MAX)
+                    .wrap_lines()
+                    .size(FontSize::Caption)
+                    .color(SemanticColor::SecondaryLabel),
+            );
+        }
+    }
 
     if let Some(action_id) = empty.clear_filter_action_id {
         let mut clear_button = UiButton::styled(SharedString::from(action_id), ControlStyle::Ghost)
@@ -505,12 +562,14 @@ fn render_empty_state(
     }
 
     div()
+        .id("search-results-notice")
         .flex()
+        .flex_col()
         .flex_1()
         .min_h_0()
         .min_w_0()
         .items_center()
-        .justify_center()
+        .overflow_y_scrollbar()
         .p(Spacing::MD.scaled(cx))
         .child(content)
         .into_any_element()

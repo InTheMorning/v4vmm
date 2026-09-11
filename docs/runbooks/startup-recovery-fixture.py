@@ -16,7 +16,8 @@ import tomllib
 
 KIND = "v4vmm-startup-recovery-v1"
 REPO = Path(__file__).resolve().parents[2]
-CASES = ("normal", "invalid-toml", "music-missing", "music-file", "db-locked", "long-path")
+CASES = ("normal", "invalid-toml", "music-missing", "music-file", "db-locked", "long-path",
+         "runtime-unavailable", "cache-worker-unavailable", "runtime-and-cache-unavailable")
 
 
 def digest(path):
@@ -48,7 +49,8 @@ def environment(root):
             del env[name]
     env.update(HOME=str(root / "home"), XDG_CONFIG_HOME=str(root / "config"),
                XDG_DATA_HOME=str(root / "data"), XDG_CACHE_HOME=str(root / "cache"),
-               PATH=str(root / "bin") + os.pathsep + os.defpath)
+               PATH=str(root / "bin") + os.pathsep + os.defpath,
+               V4VMM_STARTUP_FIXTURE=str(root))
     # Keep XDG_RUNTIME_DIR/DISPLAY for the operator's desktop connection.
     return env
 
@@ -162,8 +164,14 @@ def mode(root, case):
         text = text.replace(json.dumps(str(root / "music")), json.dumps(str(long_path)))
         cfg.write_text(text)
         purpose = "App must wrap and copy the full missing path. Launch the fixture; inspect narrow and normal widths."
+    elif case == "runtime-unavailable":
+        purpose = "App must open Music and offer a background-runtime report and Check again. Navigation and local search must work."
+    elif case == "cache-worker-unavailable":
+        purpose = "App must report thumbnail cleanup failure and keep normal operations available."
+    elif case == "runtime-and-cache-unavailable":
+        purpose = "App must retain separate runtime and thumbnail issues. Repairing one must leave the other visible."
     else:
-        purpose = "Fixture files are restored. If recovery is open, press Check again, then Open app. Otherwise launch the fixture."
+        purpose = "Fixture files are restored. Use Check again on the failed tool, or Check again and Open app in core recovery. Otherwise launch the fixture."
     (root / "case.json").write_text(json.dumps({"case": case, "config_sha256": digest(cfg)}))
     print(purpose)
 

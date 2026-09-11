@@ -48,6 +48,7 @@ use crate::view_models::workspace::{
     WorkspaceLayout, WorkspaceLayoutConfig,
 };
 
+mod capabilities;
 mod startup;
 
 mod bootstrap;
@@ -168,6 +169,9 @@ pub struct TopApp {
     command_runner: AsyncCommandRunner,
     application_event_bridge: Arc<GpuiEventBridge>,
     runtime_host: Option<Arc<crate::presentation::RuntimeHost>>,
+    capability_vm: crate::view_models::startup::capabilities::CapabilityReportVm,
+    capability_observations: crate::application::capability::CapabilityObservations,
+    maintenance_worker: Option<crate::presentation::maintenance_executor::MaintenanceClient>,
 }
 
 impl TopApp {
@@ -224,9 +228,10 @@ impl TopApp {
                 host.bus().clone(),
                 host.handle().clone(),
             ),
-            None => AsyncCommandRunner::new(
+            None => AsyncCommandRunner::unavailable(
                 application_services.command_bus(),
                 application_services.event_bus(),
+                crate::application::capability::ExecutionUnavailable::RUNTIME,
             ),
         };
         let library_services = Arc::clone(&application_services);
@@ -297,6 +302,8 @@ impl TopApp {
                 .placeholder("flac (from $PATH)")
                 .default_value(flac_path_default)
         });
+        let show_page =
+            ShowPageVm::idle().with_execution_availability(command_runner.availability());
 
         Self {
             tab: AppTab::Music,
@@ -312,7 +319,7 @@ impl TopApp {
             last_music_content_nav: None,
             search_results_detail: None,
             queue_text_filter: None,
-            show_page: ShowPageVm::idle(),
+            show_page,
             show_commands: ShowCommandState::default(),
             broadcast,
             music_dir,
@@ -345,6 +352,13 @@ impl TopApp {
             command_runner,
             application_event_bridge,
             runtime_host,
+            capability_vm: crate::view_models::startup::capabilities::CapabilityReportVm::new(
+                BTreeMap::new(),
+                false,
+            ),
+            capability_observations:
+                crate::application::capability::CapabilityObservations::default(),
+            maintenance_worker: None,
         }
     }
 
@@ -352,6 +366,9 @@ impl TopApp {
         if self.playback_polling.is_some() {
             return;
         }
+        let Some(host) = self.runtime_host.clone() else {
+            return;
+        };
         if !self
             .playback_owner
             .lock()
@@ -368,10 +385,6 @@ impl TopApp {
                 self.settings_status = format!("Playback error: {error:#}");
             }
         }
-        let Some(host) = self.runtime_host.clone() else {
-            self.settings_status = "Playback error: runtime unavailable".to_string();
-            return;
-        };
         let _enter = host.handle().enter();
         let handle = crate::runtime::playback_polling::spawn(
             Arc::clone(&self.playback_owner),
@@ -964,7 +977,13 @@ impl TopApp {
                 let tab_entity = entity.clone();
                 let clear_entity = entity.clone();
                 let select_entity = entity.clone();
+                let failure_entity = entity.clone();
                 let inspector_slots = SearchResultsInspectorSlots::new()
+                    .on_failure_action(move |action, _window, cx| {
+                        failure_entity.update(cx, |this, cx| {
+                            this.handle_search_failure_action(action, cx);
+                        });
+                    })
                     .on_tab_select(move |tab, _window, cx| {
                         tab_entity.update(cx, |this, cx| {
                             this.set_search_results_tab(content_frame_id, tab, cx);
@@ -1011,7 +1030,13 @@ impl TopApp {
                 let thumbnails = self.resolve_search_result_thumbnails(thumbnail_hrefs, cx);
                 let search_results = self.search_results_detail.as_ref().unwrap();
                 let select_entity = entity.clone();
+                let failure_entity = entity.clone();
                 let inspector_slots = SearchResultsInspectorSlots::new()
+                    .on_failure_action(move |action, _window, cx| {
+                        failure_entity.update(cx, |this, cx| {
+                            this.handle_search_failure_action(action, cx);
+                        });
+                    })
                     .on_result_select(move |tab, result_id, _window, cx| {
                         select_entity.update(cx, |this, cx| {
                             this.handle_search_result_selected(tab, &result_id, cx);
@@ -1263,6 +1288,11 @@ impl Render for TopApp {
         let filter_chip_width_class = filter_chip_strip_width_class(window.bounds().size.width);
         let show_window_width = f32::from(window.bounds().size.width);
         let live_status_strip = build_live_status_strip(self, mount, cx);
+        let capability_notice = if mount == WorkspaceScreenMount::Settings {
+            None
+        } else {
+            self.render_capabilities(false, cx)
+        };
         let bg_canvas = color(cx, SemanticColor::SystemBackground);
         let text_primary = color(cx, SemanticColor::Label);
         div()
@@ -1288,6 +1318,7 @@ impl Render for TopApp {
             .on_action(cx.listener(TopApp::handle_move_selection_down))
             .on_action(cx.listener(TopApp::handle_confirm_selection))
             .child(render_tab_bar(self, window, cx))
+            .when_some(capability_notice, gpui::ParentElement::child)
             .child(
                 div()
                     .key_context(keyboard::ACTIVE_PANE_KEY_CONTEXT)
@@ -1446,6 +1477,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                 .flex()
                 .flex_col()
                 .gap(Spacing::LG.scaled(cx))
+                .when_some(app.render_capabilities(true, cx), gpui::ParentElement::child)
                 .child(
                     div()
                         .text_size(FontSize::Title2.scaled(cx))

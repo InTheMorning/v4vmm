@@ -11,13 +11,19 @@ use gpui::{
 };
 use gpui_component::Root;
 
+use crate::application::capability::{
+    CapabilityFailure, CapabilityObservation, CapabilityObservations, Dependency,
+};
 use crate::media::ImageCache;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::PlaybackOwner;
 use crate::presentation::startup_presenter::{
     quit_after_window_close, window_disposition, WindowDisposition,
 };
-use crate::presentation::{maintenance_executor::MaintenanceWorker, RuntimeHost};
+use crate::presentation::{
+    maintenance_executor::{MaintenanceClient, MaintenanceWorker},
+    RuntimeHost,
+};
 use crate::startup::{CoreCheckOutcome, PreparedCore, StartupIssue, StartupStage};
 use crate::ui::layouts as layout;
 use crate::view_models::startup::format_report;
@@ -117,8 +123,9 @@ pub(super) struct NormalStartup {
     conn: Arc<Mutex<rusqlite::Connection>>,
     musicindex_endpoint: String,
     playback_owner: Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>,
-    runtime_host: Arc<RuntimeHost>,
+    runtime_host: Option<Arc<RuntimeHost>>,
     image_cache: Arc<ImageCache>,
+    capability_observations: CapabilityObservations,
     notices: Vec<StartupIssue>,
 }
 
@@ -161,12 +168,25 @@ pub(super) fn prepare_normal(core: PreparedCore) -> Result<NormalStartup, CoreCh
         )
         .with_drop_file_producer(drop_file_producer),
     ));
-    let runtime_host = RuntimeHost::new().expect("start ADR 0040 tokio runtime");
+    let capability_observations = CapabilityObservations::default();
+    let runtime = RuntimeHost::for_config(&cfg_path);
+    capability_observations.record(CapabilityObservation::new(
+        Dependency::BackgroundRuntime,
+        runtime
+            .as_ref()
+            .err()
+            .map(|error| CapabilityFailure::RuntimeStart(error.kind())),
+    ));
+    let runtime_host = runtime.ok();
     let thumbnail_cache_dir = cfg_path
         .parent()
         .expect("config path has parent")
         .join("thumbnail-cache");
-    let image_cache = ImageCache::new(thumbnail_cache_dir);
+    let image_cache = ImageCache::new_observed(
+        thumbnail_cache_dir,
+        capability_observations.clone(),
+        cache_worker_for_config(&cfg_path),
+    );
     Ok(NormalStartup {
         cfg,
         cfg_path,
@@ -175,12 +195,14 @@ pub(super) fn prepare_normal(core: PreparedCore) -> Result<NormalStartup, CoreCh
         playback_owner,
         runtime_host,
         image_cache,
+        capability_observations,
         notices,
     })
 }
 
 pub(super) fn mount_normal<T: 'static>(
     prepared: NormalStartup,
+    worker: Option<MaintenanceClient>,
     window: &mut Window,
     cx: &mut Context<T>,
 ) -> Entity<TopApp> {
@@ -192,6 +214,7 @@ pub(super) fn mount_normal<T: 'static>(
         playback_owner,
         runtime_host,
         image_cache,
+        capability_observations,
         notices,
     } = prepared;
     let workspace_layout_prefs = cfg
@@ -218,10 +241,11 @@ pub(super) fn mount_normal<T: 'static>(
             cfg.ui_scale,
             cfg.theme_profile,
             playback_owner,
-            Some(runtime_host),
+            runtime_host,
             window,
             cx,
         );
+        app.install_capability_controls(capability_observations, worker, cx);
         app.maybe_start_playback_polling(cx);
         app.maybe_start_broadcast_readiness_watch(cx);
         app.maybe_start_broadcast_service_watch(cx);
@@ -235,6 +259,19 @@ pub(super) fn mount_normal<T: 'static>(
         }
         app
     })
+}
+
+/// Called only during background preparation/retry, never by a renderer.
+pub(super) fn cache_worker_for_config(
+    path: &std::path::Path,
+) -> crate::media::image_cache::CacheWorker {
+    #[cfg(debug_assertions)]
+    if crate::startup::fixture::injected_failure(path, Dependency::ThumbnailMaintenance) {
+        return |_| Err(std::io::Error::other("fixture cache worker unavailable"));
+    }
+    #[cfg(not(debug_assertions))]
+    let _ = path;
+    crate::media::image_cache::spawn_cache_worker
 }
 
 fn nudge_window(window_handle: gpui::AnyWindowHandle, cx: &mut gpui::App) {

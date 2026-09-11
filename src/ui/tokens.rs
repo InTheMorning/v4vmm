@@ -486,6 +486,8 @@ pub enum Size {
     ContentTileWidth,
     /// 152 px — Music content tile artwork edge.
     ContentTileArtwork,
+    /// 600 px — readable measure for empty-state explanations and reports.
+    NoticeWidth,
 }
 
 impl Size {
@@ -505,6 +507,7 @@ impl Size {
             Self::MinHitTarget | Self::RowLg => px(44.0),
             Self::ContentTileWidth => px(176.0),
             Self::ContentTileArtwork => px(152.0),
+            Self::NoticeWidth => px(600.0),
         }
     }
 

@@ -6,6 +6,8 @@ use std::time::SystemTime;
 use crate::db::startup::DbStage;
 use crate::startup::{CoreCheckOutcome, IssueSeverity, StartupStage};
 
+pub(crate) mod capabilities;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StartupAction {
     CopyReport,

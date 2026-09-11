@@ -72,7 +72,7 @@ Current plans:
 - [ADR 0066 startup recovery phase plan](plans/adr-0066-startup-recovery-phase-plan.md):
   thirteen bounded packets for configuration safety, core recovery, optional-tool
   repair, managed session resumption, converter retry, and database maintenance;
-  tasks 001–002 complete; task 003 next
+  tasks 001–002 complete; task 003 implemented with operator acceptance open
 - [Show narrow-layout proposal](plans/show-narrow-layout-proposal.md):
   compact cards, full-width logs and an overlap alternative, readable log-body
   allocation, and hiding the playback bar only when every typed action is
@@ -105,10 +105,9 @@ Current plans:
 
 Current implementation packets:
 
-- [ADR 0066 task 002: Core checks and startup reports](tasks/adr-0066-task-002-core-checks-and-startup-reports.md):
-  mechanical gate Green; [operator check](runbooks/startup-recovery-check.md#task-002-core-checks-and-reports)
-  accepted and fixture cleanup confirmed. Tasks 001–002 are complete; task 003
-  is next. The [phase plan](plans/adr-0066-startup-recovery-phase-plan.md#sequence-and-stopping-points)
+- [ADR 0066 task 003: Runtime failure and shell availability](tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md):
+  implemented; [operator check](runbooks/startup-recovery-check.md#task-003-background-tools)
+  open. Tasks 001–002 are complete. The [phase plan](plans/adr-0066-startup-recovery-phase-plan.md#sequence-and-stopping-points)
   lists all thirteen packets and dependencies
 - [Show action feedback task 001](tasks/show-action-feedback-task-001-command-state-and-result.md):
   complete with operator acceptance on 2026-09-10; the
@@ -120,8 +119,8 @@ Current implementation packets:
 Current reviews:
 
 - [ADR 0066 startup recovery review checklist](reviews/adr-0066-startup-recovery-review-checklist.md):
-  task 001/002 mechanical evidence and remaining invariant coverage;
-  task 002 complete, including operator acceptance and fixture cleanup
+  tasks 001–002 complete; task 003 evidence and remaining invariant coverage;
+  task 003 operator acceptance open
 - [Staged Show packets review](reviews/staged-show-packets-review-2026-09-09.md):
   review of the 2026-09-09 staged revisions and follow-up on the packet
   corrections

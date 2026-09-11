@@ -4,6 +4,7 @@
 
 use crate::view_models::workspace::ContentFilter;
 
+use super::failure::SearchFailureDisplay;
 use super::SearchResultsTab;
 
 /// Display contract for a content-unavailable state.
@@ -15,6 +16,8 @@ pub(crate) struct EmptyStateDisplay {
     pub(crate) secondary: String,
     /// Optional command id that clears the active filter.
     pub(crate) clear_filter_action_id: Option<&'static str>,
+    /// Optional failure report; ordinary empty results have no diagnostic actions.
+    pub(crate) failure: Option<SearchFailureDisplay>,
 }
 
 impl EmptyStateDisplay {
@@ -29,6 +32,7 @@ impl EmptyStateDisplay {
             title: title.into(),
             secondary: secondary.into(),
             clear_filter_action_id,
+            failure: None,
         }
     }
 }

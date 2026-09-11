@@ -462,14 +462,81 @@ fn index_error_surfaces_for_index_when_no_index_rows_exist() {
 
     vm.mark_index_loading();
     vm.set_filter(ContentFilter::Index);
-    vm.set_index_error("Index unavailable", "Try again later.");
+    vm.set_index_error(
+        &crate::application::CommandError::Query("connection refused".into()),
+        "http://127.0.0.1:9",
+        std::time::SystemTime::UNIX_EPOCH,
+    );
 
     let empty = vm
         .empty_state()
         .expect("index error should surface as empty-state display");
-    assert_eq!(empty.title, "Index unavailable");
-    assert_eq!(empty.secondary, "Try again later.");
+    assert_eq!(empty.title, "MusicIndex search unavailable");
+    assert!(empty
+        .secondary
+        .contains("App could not get search results from MusicIndex."));
     assert_eq!(empty.clear_filter_action_id, None);
+}
+
+#[test]
+fn adr_0066_search_failure_disclosure_respects_scope_and_resets_on_retry() {
+    use super::SearchFailureAction;
+    let mut vm = SearchResultsInspectorPageVm::new("runtime-retry");
+    vm.set_index_error(
+        &crate::application::CommandError::Query("connection refused".into()),
+        "http://127.0.0.1:9",
+        std::time::SystemTime::UNIX_EPOCH,
+    );
+    let report = vm
+        .activate_failure_action(SearchFailureAction::CopyReport)
+        .unwrap();
+    vm.activate_failure_action(SearchFailureAction::ToggleDetails);
+    assert_eq!(
+        vm.empty_state()
+            .unwrap()
+            .failure
+            .as_ref()
+            .unwrap()
+            .visible_report(),
+        Some(report.as_str())
+    );
+    assert_eq!(
+        vm.empty_state_for_scope(SearchResultsTab::Feeds, ContentFilter::Index)
+            .unwrap()
+            .failure
+            .unwrap()
+            .visible_report(),
+        Some(report.as_str())
+    );
+    vm.set_filter(ContentFilter::Library);
+    assert!(
+        vm.empty_state().unwrap().failure.is_none(),
+        "remote failures must not replace local empty states"
+    );
+    vm.set_filter(ContentFilter::Index);
+    assert_eq!(
+        vm.activate_failure_action(SearchFailureAction::CopyReport),
+        Some(report)
+    );
+    vm.mark_index_loading();
+    assert!(vm.empty_state().is_none());
+    assert_eq!(
+        vm.activate_failure_action(SearchFailureAction::CopyReport),
+        None
+    );
+    vm.set_index_error(
+        &crate::application::CommandError::Query("another failure".into()),
+        "http://127.0.0.1:9",
+        std::time::SystemTime::UNIX_EPOCH,
+    );
+    assert!(vm
+        .empty_state()
+        .unwrap()
+        .failure
+        .as_ref()
+        .unwrap()
+        .visible_report()
+        .is_none());
 }
 
 #[test]

@@ -82,6 +82,27 @@ plan are Accepted, with implementation recorded and visual acceptance open.
 The five inherited groups above use the runbook's private database/audio copy and cleanup.
 The numbers group checks; they do not change the approved delivery priority.
 
+## 6. Background Tools — ADR 0066 Task 003
+
+Open - 2026-09-10. Only refresh/playback keyboard rejection remains unverified:
+the operator's window manager intercepted Super+R and Super+Alt+P. Mechanical
+dispatch guards passed, but do not prove desktop key delivery. All other task 003
+operator checks, including the search-error correction, final preservation
+inspection and fixture cleanup, passed. Those checks need no repeat; the packet
+records their [evidence](tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md#operator-evidence--2026-09-10).
+Task 002's accepted core checks remain closed.
+
+- Owner: [task 003](tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md).
+- Check: [Background tools](runbooks/startup-recovery-check.md#task-003-background-tools).
+- Needs a Linux desktop that forwards both shortcuts to the app, Python 3.11 or
+  later and the debug binary. The fixture supplies unavailable-runtime mode;
+  no real service is required.
+- Verify refresh and playback shortcuts report unavailable background tools,
+  leave no permanent loading state, and preserve navigation and repair access.
+  Use a fresh isolated fixture and remove it after this remaining check.
+- Record results in the packet, review checklist and delivery row. Task 004
+  waits for this gate; inherited checks above are unchanged.
+
 ## Method: Reach A Publisher Service State
 
 This section is not a check. It is the method that each publisher check needs.
