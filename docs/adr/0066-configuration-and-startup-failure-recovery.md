@@ -4,17 +4,18 @@
 
 Accepted - 2026-09-10.
 
-Implementation partial: tasks 001–003 and 005 are complete, including applicable
+Implementation partial: tasks 001–003 and 005–006 are complete, including applicable
 operator acceptance, preservation inspection and fixture cleanup. Task 004's
 implementation and mechanical checks are complete; its presentation case and
 producer preservation are accepted. Its remaining operator checks and fixture
 cleanup stay open; playback checks are deferred. Task 005 proceeded at the
-operator's explicit request without closing task 004. Task 006 is ready for a
-fresh session; tasks 006–013 have not started in
+operator's explicit request without closing task 004. Task 006 is complete on
+2026-09-13 with mechanical checks Green, operator V1–V6 and preservation accepted,
+and fixture cleanup confirmed. Tasks 007–013 have not started in
 the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md).
 Amended 2026-09-11: scoped optional-tool isolation and managed session draining
-and resumption are implemented; in-app correction/retry and the remaining
-maintenance tools are still pending.
+and resumption, plus shared guarded configuration correction, are implemented.
+Optional-tool reinitialization/retry and the remaining maintenance tools are pending.
 
 Amended 2026-09-10: [ADR 0067](0067-platform-shortcut-modifiers.md) changes Linux
 shortcuts to Ctrl at the operator's request. Task 003's keyboard checks
@@ -490,6 +491,13 @@ owned-child shutdown, fresh preparation and stale-result rejection. The
 passed on 2026-09-11, including preservation inspection and fixture cleanup.
 The packet records the accepted session 2 → 3 transition and the earlier
 expired fixture attempt separately.
+
+Task 006 adds `adr_0066_shared_guarded_config_repair`, a situational guard for
+invariants 3–6 and 9. Its [proof inventory](../tasks/adr-0066-task-006-configuration-repair-and-resumption.md#implementation-and-proof)
+links exact-byte backup, revision/symlink conflict, path validation, draft and
+managed resumption tests. [Operator V1–V6](../runbooks/startup-recovery-check.md#task-006-configuration-repair-and-resumption),
+preservation inspection and fixture cleanup are accepted; task 006 is complete
+on 2026-09-13. Task 007 has not started.
 
 Task 003's operator-reported search-error clipping correction is guarded by
 `adr_0066_search_failure_report_stays_readable_and_vm_owned`. The packet's

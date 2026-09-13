@@ -6,9 +6,13 @@ use std::sync::{
     Arc, Mutex,
 };
 
-use gpui::{ClipboardItem, Context, Entity, IntoElement, Render, Window};
+use gpui::{AppContext, ClipboardItem, Context, Entity, IntoElement, Render, Window};
 
+use crate::application::commands::maintenance::CorrectionAccess;
 use crate::application::session_lifecycle::MaintenanceSession;
+use crate::presentation::configuration_editor::{
+    ConfigurationEditor, CorrectionEvent, CorrectionEventCallback,
+};
 use crate::presentation::maintenance_executor::MaintenanceClient;
 use crate::presentation::session_transition::SessionTransition;
 use crate::presentation::startup_presenter::{mount_current, present_startup};
@@ -31,6 +35,8 @@ pub(super) struct StartupScreen {
     draining: Option<Arc<Mutex<SessionTransition>>>,
     session_vm: Option<SessionReportVm>,
     maintenance: Option<MaintenanceSession>,
+    editor: Option<Entity<ConfigurationEditor>>,
+    editor_subscription: Option<gpui::Subscription>,
 }
 impl StartupScreen {
     pub(super) fn new(worker: Option<MaintenanceClient>, opened: Arc<AtomicBool>) -> Self {
@@ -48,9 +54,38 @@ impl StartupScreen {
             draining: None,
             session_vm: None,
             maintenance: None,
+            editor: None,
+            editor_subscription: None,
         }
     }
     pub(super) fn begin(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let parent = cx.weak_entity();
+        let callback: CorrectionEventCallback = Rc::new(move |event, window, cx| {
+            let parent = parent.clone();
+            window.defer(cx, move |window, cx| {
+                let _ = parent.update(cx, |this, cx| match event {
+                    CorrectionEvent::EndSession => {
+                        this.session_action(SessionAction::EndSession, window, cx);
+                    }
+                    CorrectionEvent::Saved(snapshot) => {
+                        if let Some(normal) = &this.normal {
+                            normal.update(cx, |app, cx| {
+                                app.refresh_corrected_settings(&snapshot, window, cx);
+                            });
+                        } else {
+                            this.vm.return_to_recovery(this.vm.report());
+                            cx.notify();
+                        }
+                    }
+                });
+            });
+        });
+        self.editor =
+            Some(cx.new(|cx| ConfigurationEditor::new(self.worker.clone(), callback, window, cx)));
+        self.editor_subscription = self
+            .editor
+            .as_ref()
+            .map(|editor| cx.observe(editor, |_, _, cx| cx.notify()));
         if self.worker.is_none() {
             eprintln!("{}", self.vm.report());
         }
@@ -94,6 +129,10 @@ impl StartupScreen {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.vm.maintenance_busy = self
+            .editor
+            .as_ref()
+            .is_some_and(|editor| editor.read(cx).vm.is_working());
         let Some(generation) = self.vm.begin(action) else {
             return;
         };
@@ -108,6 +147,12 @@ impl StartupScreen {
             }
         }
         let backend = self.backend.clone();
+        if let Some(editor) = &self.editor {
+            editor.update(cx, |editor, cx| {
+                editor.vm.suspended = true;
+                cx.notify();
+            });
+        }
         let receiver = worker.submit(move || {
             match backend
                 .lock()
@@ -125,6 +170,12 @@ impl StartupScreen {
                 window,
                 cx,
                 move |this, result, window, cx| {
+                    if let Some(editor) = &this.editor {
+                        editor.update(cx, |editor, cx| {
+                            editor.vm.suspended = false;
+                            cx.notify();
+                        });
+                    }
                     if !this.vm.accepts(generation) {
                         if let Some(worker) = &this.worker {
                             worker.retire(result);
@@ -158,6 +209,12 @@ impl StartupScreen {
                 },
             );
         } else {
+            if let Some(editor) = &self.editor {
+                editor.update(cx, |editor, cx| {
+                    editor.vm.suspended = false;
+                    cx.notify();
+                });
+            }
             if let Some(maintenance) = &mut self.maintenance {
                 maintenance.resume_failed();
             }
@@ -169,6 +226,11 @@ impl StartupScreen {
     }
 
     fn install_normal_session(&mut self, normal: Entity<TopApp>, cx: &mut Context<Self>) {
+        if let Some(editor) = &self.editor {
+            editor.update(cx, |editor, cx| {
+                editor.set_access(CorrectionAccess::OptionalOnly, cx);
+            });
+        }
         let parent = cx.weak_entity();
         let callback: crate::ui::composites::maintenance_forms::SessionCallback =
             Rc::new(move |action, window, cx| {
@@ -181,7 +243,12 @@ impl StartupScreen {
             let fresh = normal.read(cx).command_runner.session().generation();
             report.resumed(fresh);
         }
-        normal.update(cx, |app, _| {
+        normal.update(cx, |app, cx| {
+            app.configuration_editor.clone_from(&self.editor);
+            app.configuration_editor_subscription = self
+                .editor
+                .as_ref()
+                .map(|editor| cx.observe(editor, |_, _, cx| cx.notify()));
             app.session_callback = Some(callback);
             app.previous_session_report = self
                 .session_vm
@@ -211,7 +278,12 @@ impl StartupScreen {
     ) {
         match action {
             SessionAction::EndSession => {
-                if self.draining.is_some() {
+                if self.draining.is_some()
+                    || self
+                        .editor
+                        .as_ref()
+                        .is_some_and(|editor| editor.read(cx).vm.is_working())
+                {
                     return;
                 }
                 let Some(normal) = self.normal.as_ref() else {
@@ -228,6 +300,12 @@ impl StartupScreen {
                 report.retain_previous(&previous);
                 self.session_vm = Some(report);
                 self.draining = Some(Arc::new(Mutex::new(resources)));
+                if let Some(editor) = &self.editor {
+                    editor.update(cx, |editor, cx| {
+                        editor.vm.suspended = true;
+                        cx.notify();
+                    });
+                }
                 self.run_drain(window, cx);
             }
             SessionAction::RetryDrain => {
@@ -314,6 +392,11 @@ impl StartupScreen {
                             this.vm.return_to_recovery(vm.report.clone());
                         }
                         this.maintenance = Some(maintenance);
+                        if let Some(editor) = &this.editor {
+                            editor.update(cx, |editor, cx| {
+                                editor.set_access(CorrectionAccess::CoreRecovery, cx);
+                            });
+                        }
                         this.request(StartupAction::CheckAgain, CheckIntent::Check, window, cx);
                     }
                     Ok(Err(pending)) => this.drain_failed(&pending),
@@ -359,11 +442,16 @@ impl Render for StartupScreen {
             return normal.clone().into_any_element();
         }
         let entity = cx.weak_entity();
+        self.vm.maintenance_busy = self
+            .editor
+            .as_ref()
+            .is_some_and(|editor| editor.read(cx).vm.is_working());
         startup_report(
             &self.vm,
             Rc::new(move |action, window, cx| {
                 let _ = entity.update(cx, |this, cx| this.action(action, window, cx));
             }),
+            self.editor.clone().map(IntoElement::into_any_element),
             cx,
         )
         .into_any_element()

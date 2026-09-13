@@ -10,7 +10,7 @@ use super::{IssueSeverity, StartupIssue, StartupStage};
 static PROBE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 const PROBE_BYTES: &[u8] = b"v4vmm music storage check\n";
 
-pub(super) fn check_music(
+pub(crate) fn check_music(
     path: &Path,
     first_run: bool,
     prepare: bool,

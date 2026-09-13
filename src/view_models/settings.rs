@@ -70,7 +70,7 @@ impl SettingsContent {
             Self::Scale => "Scales the interface. Applies immediately; click Save to persist.",
             Self::Theme => "Applies immediately. Click Save to persist.",
             Self::Endpoint => "Use api.musicindex.org or a full http/https URL.",
-            Self::MusicDirectory => "Downloads are organized under an artists subfolder.",
+            Self::MusicDirectory => "Current session folder. Use Configuration repair below to test and save a different existing folder after ending this session.",
             Self::FlacPath => "Used to silently upgrade WAV downloads to FLAC. Leave blank to resolve flac via $PATH.",
             Self::BackgroundReports | Self::CachedFiles | Self::SessionMaintenance => "",
         }
@@ -116,7 +116,14 @@ pub(crate) struct SettingsVm {
 impl SettingsVm {
     pub(crate) const TITLE: &'static str = "Settings";
     pub(crate) const SAVE_SCOPE: &'static str =
-        "Save applies General and Library together. Use Defaults resets and saves both groups.";
+        "Save applies General and Library controls together. Use Defaults resets and saves these controls; core paths use Configuration repair.";
+
+    pub(crate) const fn shows_configuration_repair(&self) -> bool {
+        matches!(
+            self.selected,
+            SettingsGroup::Library | SettingsGroup::Diagnostics
+        )
+    }
 
     pub(crate) const fn selected(&self) -> SettingsGroup {
         self.selected
@@ -169,7 +176,7 @@ impl SettingsVm {
             .collect()
     }
 
-    pub(crate) fn edit_actions(&self) -> Vec<SettingsActionDisplay> {
+    pub(crate) fn edit_actions(&self, correction_idle: bool) -> Vec<SettingsActionDisplay> {
         if !self.editable() {
             return Vec::new();
         }
@@ -193,7 +200,11 @@ impl SettingsVm {
             id: id.into(),
             label: label.into(),
             a11y_label: a11y_label.into(),
-            availability: StartupAvailability::Available,
+            availability: if correction_idle {
+                StartupAvailability::Available
+            } else {
+                StartupAvailability::Working
+            },
             selected: false,
         })
         .collect()
@@ -322,7 +333,11 @@ mod tests {
         let mut vm = SettingsVm::default();
         for group in [SettingsGroup::General, SettingsGroup::Library] {
             vm.dispatch(SettingsAction::SelectGroup(group));
-            let actions = vm.edit_actions();
+            let actions = vm.edit_actions(true);
+            assert!(vm
+                .edit_actions(false)
+                .iter()
+                .all(|action| action.availability == StartupAvailability::Working));
             assert_eq!(actions.len(), 2);
             assert_eq!(vm.dispatch(actions[0].action), SettingsEffect::Save);
             assert_eq!(vm.dispatch(actions[1].action), SettingsEffect::UseDefaults);
@@ -332,7 +347,7 @@ mod tests {
             assert_eq!(vm.selected(), group);
         }
         vm.dispatch(SettingsAction::OpenReport);
-        assert!(vm.edit_actions().is_empty());
+        assert!(vm.edit_actions(true).is_empty());
         for (choices, expected) in [
             (
                 SettingsVm::scale_choices(UiScale::Large),

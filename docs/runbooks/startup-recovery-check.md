@@ -671,3 +671,231 @@ unset session_fixture
 Close the scratch editor buffer and remove a separate scratch report only if
 you saved one. Cleanup removes only this fixture's config, database, music,
 markers and observation file; it changes no real service or desktop audio route.
+
+## Task 006: Configuration Repair And Resumption
+
+Operator acceptance is complete. V1–V3, preservation and fixture cleanup
+accepted - 2026-09-11; V4–V6, preservation and fixture cleanup accepted -
+2026-09-13. These procedures remain for regression checks; no repeat is requested.
+Run these checks as your ordinary desktop user on Linux with Python
+3.11+ and this checkout's debug binary. Permission cases require an unprivileged
+user. No audio hardware, running publisher or reachable server is needed.
+The fixture's endpoint is loopback port 9, its player is Null, and its service
+commands are isolated stubs. Agents must not run the GUI.
+
+Run commands from the repository root. Each case uses a fresh fixture. Keep a
+failed fixture and its backups for diagnosis; do not change its mode while the
+app is open. `repair-access` and `repair-conflict` are the named live changes.
+
+### V1 — Correct Malformed TOML In Recovery
+
+Create a broken document whose original bytes must survive its correction.
+
+```bash
+cargo build --quiet
+repair_fixture=$(python3 docs/runbooks/startup-recovery-fixture.py setup)
+python3 docs/runbooks/startup-recovery-fixture.py mode "$repair_fixture" repair-toml
+python3 docs/runbooks/startup-recovery-fixture.py verify "$repair_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py run "$repair_fixture"
+```
+
+1. Choose **Edit configuration** in recovery. The report must name the file,
+   resolved destination, and TOML line/column. The input must contain the actual
+   document in a full-width, multiline viewport. Scroll within the input to
+   reach its final lines. A tiny empty box, missing text or unreachable lines
+   fails this check; do not continue to Save. This is the situational ADR 0066
+   regression check for the collapsed editor observed on 2026-09-11.
+   Remove the final `invalid = [` line and its comment. Editing alone
+   must leave the recovery report and file unchanged.
+2. Choose **Test draft and paths**, then **Save correction**. Each action must
+   finish with a recorded UTC result. Save must name an owner-only backup.
+   Repeated Save must be unavailable after success. Save must not open Music.
+3. Choose **Check again**, then **Open app**. The same window must open Music
+   with one fixture playlist and three tracks. Settings → Diagnostics must retain
+   the correction report and backup path.
+4. Inspect the new editor/report at normal and narrow widths and in Light/Dark
+   using General's immediate theme choice without saving. Text, field actions
+   and Save/Reload must remain reachable. Copy repair report into a scratch
+   editor: paths and recorded times must match. **Copy draft (redacted)** copies
+   the whole proposed document after its syntax is valid, with credential fields
+   and URL credentials removed. A malformed draft stays in the editor and returns
+   an explanation instead of unsafe clipboard contents.
+5. Quit, then inspect and clean up using the final section below. Expect
+   `original_backed_up: true` and the report's backup path in `backups`.
+
+### V2 — Correct Both Core Paths And Change A Running Session's Folder
+
+The fixture retains its prepared database and music but starts with two invalid
+core values. It also creates `music-choice`, a copy of its fixture audio.
+
+```bash
+repair_fixture=$(python3 docs/runbooks/startup-recovery-fixture.py setup)
+python3 docs/runbooks/startup-recovery-fixture.py mode "$repair_fixture" repair-paths
+python3 docs/runbooks/startup-recovery-fixture.py verify "$repair_fixture"
+printf '%s\n' "$repair_fixture/music-choice"
+python3 docs/runbooks/startup-recovery-fixture.py run "$repair_fixture"
+```
+
+1. Choose **Edit configuration**. Select `music_dir` and enter the full Music
+   path printed by verify, without quotes or a trailing line break. Enter each
+   path as one line; a line break becomes part of the path.
+   Select `db_path`; the unsaved music
+   edit must remain in the draft. Enter a nonexistent file in the fixture's data
+   directory. Test and Save must reject it without creating a database or backup.
+2. Replace that draft value with the existing Database path printed by verify.
+   Test, Save, Check again and Open app must succeed as separate actions.
+3. In Settings → Library, the current music folder is a value with a repair
+   route. Choose **Reload file (discard draft)** in Configuration repair, select
+   `music_dir`, and enter the full `music-choice` path printed above. Choose
+   **End session to edit core paths**. The running app must drain before recovery
+   permits Save. The proposed folder must survive the transition in the editor.
+4. After the old-session check finishes, Test and Save. Music must remain closed
+   until you choose Check again and Open app. The Library group must then name
+   `music-choice`. Diagnostics must retain the session and repair reports, with
+   a larger session number. The playlist must still have three tracks once.
+5. Quit and inspect. Original and selected audio must be preserved, as must
+   database bindings, tracks, playlist memberships and migrations. Both saved
+   originals must appear in `backups`; no music was moved by the app.
+
+### V3 — Correct Two Independent Optional Fields
+
+The fixture opens normally with invalid endpoint and converter values.
+
+```bash
+repair_fixture=$(python3 docs/runbooks/startup-recovery-fixture.py setup)
+python3 docs/runbooks/startup-recovery-fixture.py mode "$repair_fixture" repair-optional
+python3 docs/runbooks/startup-recovery-fixture.py run "$repair_fixture"
+```
+
+1. Open Settings → Library → Edit configuration. The same multiline viewport
+   must show the selected field's value and remain usable at normal and narrow
+   widths; a collapsed or empty input fails this ADR 0066 regression check.
+   Correct only
+   `musicindex_endpoint` to `http://127.0.0.1:9` and Save correction. The saved
+   result must still name `flac_path`, and ordinary persistence must stay paused.
+   The second field's value must remain `false` in the file.
+2. Reload the file, select `flac_path`, clear its input, then Save correction.
+   This removes the invalid optional setting. The fresh-read result must permit
+   ordinary persistence. Both backup paths and the earlier result must remain.
+3. In General choose Medium and Dark, then use the ordinary **Save** control.
+   It must succeed. Return to Library: the endpoint control must retain the
+   corrected loopback URL and the converter input must be empty. Optional tool
+   reinitialization and original-operation retry belong to task 007; this check
+   must not require a request or claim a successful server observation.
+4. Quit and inspect. The only permitted non-layout changes are the corrected
+   endpoint, removed converter value, and explicitly saved Medium/Dark values.
+
+### V4 — Unreadable Configuration Has No Invented Editor
+
+Mode 000 denies access to this fixture's configuration file.
+
+```bash
+repair_fixture=$(python3 docs/runbooks/startup-recovery-fixture.py setup)
+python3 docs/runbooks/startup-recovery-fixture.py mode "$repair_fixture" repair-unreadable
+python3 docs/runbooks/startup-recovery-fixture.py run "$repair_fixture"
+```
+
+Choose Edit configuration. Expect a named read failure and a retry action,
+with no default-filled input or Save action. In a second terminal, locate and
+verify the newest fixture, then restore only its permissions:
+
+```bash
+repair_fixture=$(python3 docs/runbooks/startup-recovery-fixture.py locate)
+python3 docs/runbooks/startup-recovery-fixture.py verify "$repair_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py repair-access "$repair_fixture"
+```
+
+The verified path must match the fixture launched above. Edit configuration
+must now load its original values. Before Open app, inspection must show
+`original_preserved: true` and no backups; loading and checking in recovery must
+not rewrite the document. Then Check again and Open app must work without a
+configuration correction or Save.
+
+Quit and inspect. Normal workspace persistence may now add layout preferences,
+as in the earlier startup checks. In that case the inspector reports
+`normal_workspace_preferences_only: true` and `config_preserved: true`, while
+`original_preserved` and `config_bytes_unchanged` remain false. This allowance
+requires the matching successful-exit record, a verified original case copy,
+and unchanged values outside the workspace sections. Before normal resumption,
+any byte change fails. No backup is expected because no Save was requested.
+
+The situational ADR 0066 [fixture tests](test_startup_recovery_fixture.py) guard
+this distinction, failed/mismatched exits, changed settings and correction cases
+that still require original preservation. Run them with
+`python3 -B docs/runbooks/test_startup_recovery_fixture.py`.
+
+### V5 — Backup Failure Preserves Both Original And Draft
+
+This malformed document is readable, but its containing directory denies writes.
+
+```bash
+repair_fixture=$(python3 docs/runbooks/startup-recovery-fixture.py setup)
+python3 docs/runbooks/startup-recovery-fixture.py mode "$repair_fixture" repair-backup-failure
+python3 docs/runbooks/startup-recovery-fixture.py run "$repair_fixture"
+```
+
+Load and correct the syntax as in V1. Save must report that it could not create
+the backup, leave the draft editable, and preserve the malformed original.
+In a second terminal restore directory access without editing the file:
+
+```bash
+repair_fixture=$(python3 docs/runbooks/startup-recovery-fixture.py locate)
+python3 docs/runbooks/startup-recovery-fixture.py verify "$repair_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py repair-inspect "$repair_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py repair-access "$repair_fixture"
+```
+
+Verify the path matches. Save the retained draft again. It must now name a
+backup; Check again and Open app must work. Quit and inspect once more.
+
+### V6 — Concurrent Editor Conflict
+
+Keep an endpoint correction draft while a second editor changes the source.
+
+```bash
+repair_fixture=$(python3 docs/runbooks/startup-recovery-fixture.py setup)
+python3 docs/runbooks/startup-recovery-fixture.py mode "$repair_fixture" repair-conflict
+python3 docs/runbooks/startup-recovery-fixture.py run "$repair_fixture"
+```
+
+In Settings → Library, load the file and draft endpoint `http://127.0.0.1:9`.
+Do not save yet. In a second terminal:
+
+```bash
+repair_fixture=$(python3 docs/runbooks/startup-recovery-fixture.py locate)
+python3 docs/runbooks/startup-recovery-fixture.py verify "$repair_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py repair-conflict "$repair_fixture"
+```
+
+Confirm the fixture path matches. Save correction must report the conflict,
+retain the proposed endpoint, and leave the external value `99` unchanged.
+Copy draft must retain the proposed document; no automatic merge is allowed.
+Quit without reloading or saving again. Inspection must report
+`external_revision_preserved: true`; a conflict found before preservation need
+not create a backup.
+
+### Inspect And Clean Up Each Task 006 Fixture
+
+After quitting, use the same terminal variable for that case:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py repair-inspect "$repair_fixture"
+```
+
+Expect original/unedited-config/music/library/bindings/migration preservation,
+owner-only backups when saved, one playlist with three tracks, and no candidate,
+music-probe or database-probe leftovers. The inspector prints SHA-256 checksums
+for every backup. Record the case, visible results, copied report and inspection
+output. V4 alone can use the separately reported normal-workspace allowance
+after a successful app exit; its recovery phase still requires unchanged bytes.
+Preserve failed fixtures. After that case passes:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py cleanup "$repair_fixture"
+unset repair_fixture
+```
+
+Cleanup removes only that verified fixture, including its alternate audio,
+configuration backups and permission state. Close the scratch report buffer.
+V1–V6 are accepted with preservation and cleanup confirmed. Task 006's acceptance
+gate is closed; task 004 and inherited checks retain their separate gates.

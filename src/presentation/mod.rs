@@ -3,6 +3,7 @@
 //! Presentation code may depend on UI runtimes such as GPUI. The application
 //! layer must not depend on this module.
 
+pub(crate) mod configuration_editor;
 pub mod maintenance_executor;
 pub(crate) mod startup_presenter;
 

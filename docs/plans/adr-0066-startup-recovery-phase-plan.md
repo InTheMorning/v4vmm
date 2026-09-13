@@ -13,7 +13,9 @@ and fixture cleanup are open; playback-dependent checks are deferred. Task 005
 is complete with mechanical checks Green; operator V1–V3, preservation
 inspection and fixture cleanup are accepted. It proceeded at the
 operator's explicit request on 2026-09-11; task 004 keeps its remaining
-acceptance gate. Task 006 is ready for a fresh session. Tasks 006–013 remain unstarted.
+acceptance gate. Task 006 is complete on 2026-09-13 with mechanical checks Green,
+operator V1–V6 and preservation accepted, and fixture cleanup confirmed.
+Tasks 007–013 remain unstarted; task 007 follows in a fresh session.
 
 This plan executes [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md).
 The [delivery order](broadcast-chain-delivery-order.md#current-delivery-order)
@@ -85,7 +87,7 @@ an unwalked visual gate into a claim that the next dependency is complete.
 | [003: Runtime Failure And Shell Availability](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md) | Keep navigation, reports and repair access working when the normal background runtime or optional thumbnail worker cannot start. | 002 | Complete - 2026-09-11; mechanical gate Green; operator acceptance, preservation and fixture cleanup confirmed |
 | [004: Optional Tool Isolation](../tasks/adr-0066-task-004-optional-tool-isolation.md) | Open the app with valid core resources even when optional configuration or tool preparation fails, and limit only the operations that actually depend on each failure. | 003 | Implemented - 2026-09-11; mechanical gate Green; presentation case and preservation accepted - 2026-09-11; playback checks paused for missing Show cue/audition separation and observed mpv IPC error; remaining operator checks and final fixture cleanup open |
 | [005: Session Drain And Resumption](../tasks/adr-0066-task-005-session-drain-and-resumption.md) | Stop the app's own work, release every configured database handle, and resume one fresh session before any live core correction or database maintenance can use this transition. | 004 implementation; operator authorized starting 005 before its remaining acceptance on 2026-09-11 | Complete - 2026-09-11; mechanical gate Green; operator V1–V3, preservation inspection and fixture cleanup accepted |
-| [006: Configuration Repair And Resumption](../tasks/adr-0066-task-006-configuration-repair-and-resumption.md) | Repair configuration inside recovery or Settings, preserve the original file, and return to a freshly verified app session. | 005 | Ready for a fresh session - 2026-09-11; implementation not started |
+| [006: Configuration Repair And Resumption](../tasks/adr-0066-task-006-configuration-repair-and-resumption.md) | Repair configuration inside recovery or Settings, preserve the original file, and return to a freshly verified app session. | 005 | Complete - 2026-09-13; mechanical checks Green; operator V1–V6, preservation inspection and fixture cleanup accepted |
 | [007: Optional Tool Correction And Retry](../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md) | Turn optional-tool failures into a direct Settings correction route and an explicit, freshly checked retry of the original action. | 006 | Not started |
 | [008: Converter Verification And Setup](../tasks/adr-0066-task-008-converter-verification-and-setup.md) | Let the operator configure and freshly test FLAC/ffmpeg availability without restarting the app, while preserving the actual conversion fallback policy. | 007 | Not started |
 | [009: Conversion Retry And Retained Input](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md) | Return from converter setup to the same track, reuse valid downloaded input where possible, and avoid duplicate library materialization. | 008 | Not started |
@@ -238,5 +240,7 @@ Only all thirteen completed packets plus their actual operator acceptance permit
 ADR 0066 to become Implemented, deferred item 6 to close, and the config-format
 dependency to release. Tasks 001–003 are complete; task 004 is implemented with its operator gate open.
 Task 005 is complete, including operator acceptance, preservation inspection and
-fixture cleanup. Task 006 is ready for a fresh session; tasks 006–013 have not
-started. The series remains partial.
+fixture cleanup. Task 006 is complete on 2026-09-13 with mechanical checks Green;
+operator V1–V6 and preservation are accepted, and fixture cleanup is confirmed.
+Tasks 007–013 have not started.
+The series remains partial.

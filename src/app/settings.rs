@@ -47,23 +47,44 @@ impl TopApp {
         });
         self.set_ui_scale(config::UiScale::Medium, window, cx);
         self.set_theme_profile(ThemeProfile::default(), window, cx);
-        match config::default_music_dir() {
-            Ok(default_music_dir) => {
-                self.music_dir_input.update(cx, |input, cx| {
-                    input.set_value(default_music_dir.display().to_string(), window, cx);
-                });
-            }
-            Err(error) => {
-                self.settings_status = format!("Error: {error:#}");
-                cx.notify();
-                return;
-            }
-        }
         self.save_settings(window, cx);
+    }
+
+    pub(super) fn refresh_corrected_settings(
+        &mut self,
+        snapshot: &config::ConfigSnapshot,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // Refresh form values and the existing appearance preview. Tool adapter
+        // reinitialization and original-operation retry belong to task 007.
+        if let Ok(endpoint) = &snapshot.musicindex_endpoint {
+            self.endpoint_input.update(cx, |input, cx| {
+                input.set_value(endpoint.clone(), window, cx);
+            });
+        }
+        if let Ok(path) = &snapshot.flac_path {
+            let value = path
+                .as_ref()
+                .map_or_else(String::new, |path| path.display().to_string());
+            self.flac_path_input
+                .update(cx, |input, cx| input.set_value(value, window, cx));
+        }
+        if let Ok(scale) = snapshot.ui_scale {
+            self.set_ui_scale(scale, window, cx);
+        }
+        if let Ok(profile) = snapshot.theme_profile {
+            self.set_theme_profile(profile, window, cx);
+        }
+        cx.notify();
     }
 }
 
 pub(super) fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> AnyElement {
+    let correction_idle = !app
+        .configuration_editor
+        .as_ref()
+        .is_some_and(|editor| editor.read(cx).vm.is_working());
     let entity = cx.weak_entity();
     let callback: SettingsCallback = Rc::new(move |action, window, cx| {
         let _ = entity.update(cx, |this, cx| this.settings_action(action, window, cx));
@@ -74,8 +95,9 @@ pub(super) fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> Any
         let input = match field {
             SettingsContent::SessionMaintenance => {
                 if let Some(callback) = app.session_callback.clone() {
-                    let available =
-                        app.maintenance_worker.is_some() && !app.capability_vm.is_working();
+                    let available = app.maintenance_worker.is_some()
+                        && !app.capability_vm.is_working()
+                        && correction_idle;
                     content.push(crate::ui::composites::maintenance_forms::session_entry(
                         crate::view_models::startup::session::SessionReportVm::entry(available),
                         app.command_runner.session().generation(),
@@ -93,7 +115,9 @@ pub(super) fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> Any
                 settings_actions(SettingsVm::theme_choices(app.theme_profile), &callback, cx)
             }
             SettingsContent::Endpoint => settings_text_input(&app.endpoint_input, cx),
-            SettingsContent::MusicDirectory => settings_text_input(&app.music_dir_input, cx),
+            SettingsContent::MusicDirectory => {
+                settings_message(app.music_dir.display().to_string(), cx)
+            }
             SettingsContent::FlacPath => settings_text_input(&app.flac_path_input, cx),
             SettingsContent::BackgroundReports => {
                 content.extend(app.render_capabilities(true, cx));
@@ -108,7 +132,17 @@ pub(super) fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> Any
     }
     if app.settings.editable() {
         content.push(settings_message(SettingsVm::SAVE_SCOPE, cx));
-        content.push(settings_actions(app.settings.edit_actions(), &callback, cx));
+        content.push(settings_actions(
+            app.settings.edit_actions(correction_idle),
+            &callback,
+            cx,
+        ));
+    }
+    if app.settings.shows_configuration_repair() {
+        if let Some(editor) = &app.configuration_editor {
+            use gpui::IntoElement as _;
+            content.push(editor.clone().into_any_element());
+        }
     }
     if !app.settings_status.is_empty() {
         content.push(settings_message(app.settings_status.clone(), cx));

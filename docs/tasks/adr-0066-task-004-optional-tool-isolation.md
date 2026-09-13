@@ -154,8 +154,9 @@ These are necessary consumers of the removed strict adapter. Playlist shell
 wiring passes typed availability through its existing view-model display; the
 screen never rereads its own GPUI entity during rendering. No new service state,
 protocol, schema migration, configuration format or correction/retry workflow
-was added. Session draining and resumption are delivered separately by task 005;
-tasks 006–013 have not started.
+was added in this packet. Session draining and resumption are delivered separately
+by task 005; shared guarded configuration correction is delivered by task 006.
+Both are complete with operator acceptance and cleanup. Tasks 007–013 have not started.
 
 ## Command And Query Dependency Inventory
 

@@ -21,7 +21,8 @@ CASES = ("normal", "invalid-toml", "music-missing", "music-file", "db-locked", "
          "endpoint-and-player-unavailable", "presentation-invalid", "producer-unavailable",
          "publisher-invalid", "partial-path-repair")
 OPTIONAL_CASES = CASES[-5:]
-CASES += ("session-held-command",)
+REPAIR_CASES = ("repair-toml", "repair-paths", "repair-optional", "repair-unreadable", "repair-backup-failure", "repair-conflict")
+CASES += ("session-held-command",) + REPAIR_CASES
 
 
 def digest(path):
@@ -59,26 +60,39 @@ def environment(root):
     return env
 
 
-def inspect(root, manifest):
+def normal_workspace_preferences_only(root, expected, current):
+    """ADR 0066 permits existing workspace saves only after normal resumption."""
+    last_exit = root / "last-exit.json"
+    invalid_optional = expected["case"] in ("endpoint-and-player-unavailable", "presentation-invalid", "publisher-invalid")
+    if invalid_optional or not last_exit.exists():
+        return False
+    try:
+        record = json.loads(last_exit.read_text())
+        if record != {"code": 0, "config_sha256": expected["config_sha256"]}:
+            return False
+        original = (root / "case.config").read_bytes()
+        if hashlib.sha256(original).hexdigest() != expected["config_sha256"]:
+            return False
+        before = tomllib.loads(original.decode())
+        after = tomllib.loads(current.decode())
+    except (OSError, ValueError, UnicodeError):
+        return False
+    for key in ("workspace", "workspace_layout"):
+        before.pop(key, None)
+        after.pop(key, None)
+    return before == after
+
+
+def inspect(root, manifest, correction_preserved=False):
     cfg = root / "config/v4vmm/config.toml"
     expected = json.loads((root / "case.json").read_text())
     audio = root / ("music.saved" if (root / "music.saved").exists() else "music") / "unchanged-audio.bin"
-    unchanged = digest(cfg) == expected["config_sha256"]
-    normal_preferences_only = False
-    last_exit = root / "last-exit.json"
-    invalid_optional = expected["case"] in ("endpoint-and-player-unavailable", "presentation-invalid", "publisher-invalid")
-    if not unchanged and not invalid_optional and last_exit.exists():
-        record = json.loads(last_exit.read_text())
-        if record == {"code": 0, "config_sha256": expected["config_sha256"]}:
-            before = tomllib.loads((root / "case.config").read_text())
-            after = tomllib.loads(cfg.read_text())
-            for key in ("workspace", "workspace_layout"):
-                before.pop(key, None)
-                after.pop(key, None)
-            normal_preferences_only = before == after
+    raw = cfg.read_bytes()
+    unchanged = hashlib.sha256(raw).hexdigest() == expected["config_sha256"]
+    normal_preferences_only = not unchanged and normal_workspace_preferences_only(root, expected, raw)
     result = {"case": expected["case"], "config_bytes_unchanged": unchanged,
               "normal_workspace_preferences_only": normal_preferences_only,
-              "config_preserved": unchanged or normal_preferences_only,
+              "config_preserved": unchanged or normal_preferences_only or correction_preserved,
               "music_preserved": digest(audio) == manifest["audio_sha256"],
               "residual_music_probes": [str(p.relative_to(root)) for pattern in (".v4vmm-startup-probe-*", ".v4vmm-producer-probe-*") for p in root.rglob(pattern)]}
     music = audio.parent
@@ -152,7 +166,7 @@ def hold_lock(root):
 
 def mode(root, case):
     previous = json.loads((root / "case.json").read_text())["case"]
-    if (case in OPTIONAL_CASES or previous in OPTIONAL_CASES or "session-held-command" in (case, previous)) and owned_process(root, "app.pid"):
+    if (case in OPTIONAL_CASES + REPAIR_CASES or previous in OPTIONAL_CASES + REPAIR_CASES or "session-held-command" in (case, previous)) and owned_process(root, "app.pid"):
         raise SystemExit("Close the fixture app before changing optional-tool or session cases.")
     release_lock(root)
     if case != "session-held-command":
@@ -162,6 +176,9 @@ def mode(root, case):
             (root / "music").unlink()
         (root / "music.saved").rename(root / "music")
     cfg = root / "config/v4vmm/config.toml"
+    cfg.parent.chmod(0o700)
+    cfg.chmod(0o600)
+    (root / "repair.external").unlink(missing_ok=True)
     cfg.write_bytes((root / "config.baseline").read_bytes())
     if case in OPTIONAL_CASES:
         text = cfg.read_text()
@@ -188,6 +205,18 @@ def mode(root, case):
         else:
             purpose = "App must report incomplete path repair and retain all three library tracks. a.wav and c.wav remain playable; b.wav must not execute its unvalidated binding."
         cfg.write_text(text)
+    elif case in REPAIR_CASES:
+        text = cfg.read_text()
+        if case in ("repair-toml", "repair-backup-failure"):
+            text += '\ninvalid = [\n# remove these final two lines in the app editor\n'
+        elif case == "repair-paths":
+            shutil.copytree(root / "music", root / "music-choice", dirs_exist_ok=True)
+            text = text.replace(json.dumps(str(root / "music")), '\"\"')
+            text = text.replace(json.dumps(str(root / "data/library.sqlite")), '\"\"')
+        elif case in ("repair-optional", "repair-conflict"):
+            text = text.replace('musicindex_endpoint = "http://127.0.0.1:9"', 'musicindex_endpoint = 42\nflac_path = false')
+        cfg.write_text(text)
+        purpose = "Use Configuration repair in recovery or Settings. Editing must keep a draft; Save must name its original backup. Use repair-inspect before cleanup."
     elif case == "invalid-toml":
         with cfg.open("a") as stream:
             stream.write('\ninvalid = [\n# intentional fixture syntax error\n')
@@ -229,7 +258,65 @@ def mode(root, case):
     if case in OPTIONAL_CASES or previous in OPTIONAL_CASES:
         _, manifest = verify(root)
         subprocess.run([manifest["binary"], "startup-fixture", "paths", str(root)], env=environment(root), check=True)
+    if case == "repair-unreadable":
+        cfg.chmod(0)
+        purpose += " Config mode is 000; expect a report without an editor. Use repair-access to restore access."
+    elif case == "repair-backup-failure":
+        cfg.parent.chmod(0o500)
+        purpose += " Config directory is not writable; Save must fail to create a backup. Use repair-access, then Save again."
     print(purpose)
+
+
+def repair_inspect(root, manifest):
+    cfg = root / "config/v4vmm/config.toml"
+    expected = json.loads((root / "case.json").read_text())
+    if expected["case"] not in REPAIR_CASES:
+        raise SystemExit("repair-inspect requires a repair case.")
+    backups = sorted(cfg.parent.glob(".v4vmm-config-*.backup"))
+    copies = [{"path": str(p), "sha256": digest(p), "owner_only": p.stat().st_mode & 0o777 == 0o600} for p in backups]
+    raw = cfg.read_bytes()
+    unchanged = hashlib.sha256(raw).hexdigest() == expected["config_sha256"]
+    external = root / "repair.external"
+    conflict_preserved = external.exists() and external.read_bytes() == raw
+    before = tomllib.loads((root / "config.baseline").read_text())
+    changed_fields = []
+    try:
+        after = tomllib.loads(raw.decode())
+        for key in ("workspace", "workspace_layout"):
+            before.pop(key, None)
+            after.pop(key, None)
+        changed_fields = [key for key in set(before) | set(after) if before.get(key) != after.get(key)]
+        allowed = {"musicindex_endpoint", "flac_path"} if expected["case"] in ("repair-optional", "repair-conflict") else set()
+        if expected["case"] == "repair-paths" and after.get("music_dir") == str(root / "music-choice"):
+            allowed.add("music_dir")
+        if expected["case"] == "repair-optional" and after.get("musicindex_endpoint") == "http://127.0.0.1:9" and "flac_path" not in after:
+            if after.get("ui_scale") == "medium" and after.get("theme_profile") == "dark":
+                allowed.update(("ui_scale", "theme_profile"))
+        values_preserved = unchanged or set(changed_fields) <= allowed
+        if expected["case"] in ("repair-optional", "repair-conflict"):
+            values_preserved &= after.get("musicindex_endpoint") in (42, 99, "http://127.0.0.1:9") and after.get("flac_path") in (False, None)
+    except (ValueError, UnicodeError):
+        values_preserved = unchanged
+    original_backed_up = any(item["sha256"] == expected["config_sha256"] for item in copies)
+    original_preserved = unchanged or conflict_preserved or original_backed_up
+    normal_preferences_only = (
+        expected["case"] == "repair-unreadable" and not unchanged
+        and normal_workspace_preferences_only(root, expected, raw)
+    )
+    config_preserved = original_preserved or normal_preferences_only
+    selected_music_preserved = not (root / "music-choice").exists() or all(digest(root / "music-choice" / name) == expected_hash for name, expected_hash in manifest["track_sha256"].items())
+    report = {"case": expected["case"], "original_preserved": original_preserved,
+              "original_backed_up": original_backed_up, "external_revision_preserved": conflict_preserved,
+              "normal_workspace_preferences_only": normal_preferences_only, "config_preserved": config_preserved,
+              "selected_music_preserved": selected_music_preserved,
+              "unedited_config_values_preserved": values_preserved, "changed_fields": sorted(changed_fields),
+              "backups": copies, "residual_candidates": [str(p) for p in cfg.parent.glob(".v4vmm-config-*.candidate")]}
+    print(json.dumps(report, indent=2))
+    if not config_preserved or not values_preserved or not selected_music_preserved or not all(item["owner_only"] for item in copies) or report["residual_candidates"]:
+        raise SystemExit("Repair preservation failed. Keep the fixture for diagnosis.")
+    # Reuse correction evidence and the separately checked normal-workspace
+    # allowance; neither permits changes to unrelated settings.
+    inspect(root, manifest, correction_preserved=original_preserved)
 
 
 def setup():
@@ -262,7 +349,7 @@ def setup():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "session-status", "session-release"))
+    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "session-status", "session-release", "repair-access", "repair-conflict", "repair-inspect"))
     parser.add_argument("directory", nargs="?")
     parser.add_argument("case", nargs="?", choices=CASES)
     args = parser.parse_args()
@@ -297,6 +384,22 @@ def main():
     elif args.command == "session-release":
         (root / "session.hold").unlink(missing_ok=True)
         print("Released the fixture session command; use Retry drain in the app.")
+    elif args.command == "repair-access":
+        cfg = root / "config/v4vmm/config.toml"
+        cfg.parent.chmod(0o700)
+        if cfg.stat().st_mode & 0o777 != 0o600:
+            cfg.chmod(0o600)
+        print("Restored fixture configuration read/write access. App may reload or explicitly save its retained draft.")
+    elif args.command == "repair-conflict":
+        if json.loads((root / "case.json").read_text())["case"] != "repair-conflict":
+            raise SystemExit("Select the repair-conflict case before the external edit.")
+        cfg = root / "config/v4vmm/config.toml"
+        text = cfg.read_text().replace('musicindex_endpoint = 42', 'musicindex_endpoint = 99')
+        cfg.write_text(text)
+        (root / "repair.external").write_bytes(cfg.read_bytes())
+        print("External fixture editor changed configuration. Save in the app must retain this revision and its unsaved draft.")
+    elif args.command == "repair-inspect":
+        repair_inspect(root, manifest)
     elif args.command == "inspect":
         inspect(root, manifest)
     elif args.command == "hold-lock":
@@ -322,6 +425,7 @@ def main():
         if owned_process(root, "app.pid"):
             raise SystemExit("Close the fixture app before cleanup.")
         release_lock(root)
+        (root / "config/v4vmm").chmod(0o700)
         shutil.rmtree(root)
         print(f"Removed fixture: {root}")
 

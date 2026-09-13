@@ -3,6 +3,7 @@
 pub mod download;
 pub mod feed;
 pub mod library_removal;
+pub(crate) mod maintenance;
 pub mod metadata;
 pub mod payment_routes;
 pub mod playback;

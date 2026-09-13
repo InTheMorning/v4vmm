@@ -11,7 +11,9 @@ mechanical checks Green, operator V1–V3 and preservation accepted, and fixture
 cleanup confirmed. Task 004's implementation and mechanical checks are complete;
 its presentation case and producer preservation are accepted. Its remaining
 operator checks and fixture cleanup stay open; playback checks are deferred.
-Task 006 is ready for a fresh session; tasks 006–013 have not started.
+Task 006 is complete on 2026-09-13 with mechanical checks Green, operator
+V1–V6 and preservation accepted, and fixture cleanup confirmed. Task 007 follows
+in a fresh session; tasks 007–013 have not started.
 
 Read the [ADR](../adr/0066-configuration-and-startup-failure-recovery.md),
 [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md), active packet and
@@ -438,9 +440,9 @@ The [operator check](../runbooks/startup-recovery-check.md#task-005-session-drai
 passed V1–V3, final preservation inspection and fixture cleanup on 2026-09-11. The
 operator's explicit scheduling exception lets task 005 use task 004's delivered
 owners; it does not accept task 004's paused playback workflow or remaining
-checks. Task 006 is ready for a fresh session and has not started. No
-configuration editor, database installation or configuration-format change is
-included in task 005.
+checks. Task 006's separate configuration editor and acceptance are recorded
+below. No configuration editor, database installation or configuration-format
+change is included in task 005.
 
 The [operator evidence](../tasks/adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11)
 records fixture `/tmp/v4vmm-startup-oaq_8a7x`. Session 1 exceeded the fixture's
@@ -456,3 +458,59 @@ theme/width checks. Preservation inspection retained music, bindings, library
 and migrations 1–11 with no residual probes; only permitted workspace preferences
 changed in configuration. The operator confirmed the fixture's removal. This
 closes task 005's gate and removes its entry from the pending-human index.
+
+## Task 006 Review — 2026-09-11
+
+Mechanical review: Green. [Implementation and proof](../tasks/adr-0066-task-006-configuration-repair-and-resumption.md#implementation-and-proof)
+map C1–C5 to the live correction backend, commands, shared VM/composite/input
+entity and existing session lifecycle. Original-byte backups, source/link/target
+revision conflicts, invalid siblings, absent/unprepared path rejection and
+current-generation save/check admission have behavioral proof. The extended
+bootstrap test closes old handles, corrects both core paths, rejects stale Open
+consent and prepares a fresh session on the selected resources.
+
+`adr_0066_shared_guarded_config_repair` owns the call boundary under invariants
+3–6 and 9. The original persistence guard remains. Ordinary Settings saves reject
+music-root changes; the existing Settings width/default guards retain their
+optional-field rules and follow the new core maintenance route. No normal
+connection or player is retargeted to a newly saved core path.
+`ConfigWriteLease` excludes overlapping ordinary/correction writers for the same
+resolved destination without waiting for a writer; a cross-thread test proves
+rejection, independent destinations and release. Settings exposes typed busy
+state, and its existing appearance preview setters follow saved field values.
+
+Green: formatting, check, strict production Clippy, build, 1,361 unit tests and
+239 architecture tests. Ten existing documentation examples remain ignored.
+The six fixture modes, access restoration, conflict command, preservation
+inspection and owned cleanup passed without opening GPUI. The fixture's access
+restoration avoids changing the file revision when only directory permission
+repair is needed. Existing docs were updated; none were created or moved, and
+canonical root instruction files stayed in place. Changed-document relative
+links were checked.
+
+The packet's implementation recipe and coding prompt were replaced by actual
+proof references. Optional reinitialization and original-action retry remain
+task 007; complex focused fields use a TOML value assignment. Malformed draft
+copy returns an explanation until syntax allows credential redaction. These
+limits are stated in the packet and operator procedure.
+
+Task 006 acceptance is complete on 2026-09-13.
+[Operator V1–V6](../runbooks/startup-recovery-check.md#task-006-configuration-repair-and-resumption),
+preservation inspections and fixture cleanup are accepted. The operator's
+viewport correction is covered by the shared geometry owner and the runbook's
+normal/narrow-width regression check. The V4 fixture inspector correction has
+six situational ADR 0066 tests, including rejection of unrelated configuration
+changes and preservation failures in other cases. That new Python test file
+lives beside the existing fixture helper; no Markdown file or documentation
+folder was created or moved.
+
+The packet, phase plan, ADR, delivery/deferred indexes and AGENTS.md record
+completion. The closed task 006 section is removed from the pending-human index.
+Task 007 has not started and follows in a fresh session. No new architectural
+decision or cross-repository change was needed; task 004 and inherited checks
+retain their previous scope.
+
+Closure checks - 2026-09-13: Green. All 239 architecture tests and six fixture
+regression tests pass. The changed-document file links and whitespace checks
+are Green. The task 006 gate is closed in every current status reference;
+ADR 0066 remains Accepted for the remaining packets and task 004 acceptance.

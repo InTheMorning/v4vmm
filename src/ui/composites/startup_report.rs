@@ -100,7 +100,12 @@ fn capability_button(display: CapabilityActionDisplay, handler: CapabilityHandle
     .on_activate(move |window, cx| handler(action, window, cx))
 }
 
-pub(crate) fn startup_report(vm: &StartupReportVm, handler: Handler, cx: &App) -> impl IntoElement {
+pub(crate) fn startup_report(
+    vm: &StartupReportVm,
+    handler: Handler,
+    editor: Option<gpui::AnyElement>,
+    cx: &App,
+) -> impl IntoElement {
     let mut actions = div()
         .flex()
         .flex_wrap()
@@ -162,6 +167,9 @@ pub(crate) fn startup_report(vm: &StartupReportVm, handler: Handler, cx: &App) -
                 .text_size(FontSize::Body.scaled(cx))
                 .child(vm.report()),
         );
+    }
+    if let Some(editor) = editor {
+        body = body.child(editor);
     }
     let mut heading = div()
         .flex()

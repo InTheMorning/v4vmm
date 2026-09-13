@@ -44,6 +44,8 @@ pub const STATUS_MESSAGE_WIDTH: Pixels = px(220.0);
 pub const CONFLICT_MESSAGE_WIDTH: Pixels = px(190.0);
 pub const ACTION_MESSAGE_WIDTH: Pixels = px(180.0);
 pub const SETTINGS_COLUMN_WIDTH: Pixels = px(720.0);
+/// Scrollable viewport for configuration correction text (ADR 0066).
+pub(crate) const CONFIGURATION_EDITOR_HEIGHT: Pixels = px(160.0);
 pub const MENU_MIN_WIDTH: Pixels = px(320.0);
 pub const MENU_MAX_WIDTH: Pixels = px(520.0);
 pub const TRACK_NUMBER_WIDTH: Pixels = px(24.0);

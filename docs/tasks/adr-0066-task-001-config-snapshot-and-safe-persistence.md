@@ -127,6 +127,12 @@ guard lands, and keep its symbol plus the verification artifact in that packet.
 Task 001 can close after its own work and this handoff review; it does not wait
 for tasks 002–013.
 
+Task 006 handoff review - 2026-09-11: its implementation recipe and coding prompt
+are retired for `adr_0066_shared_guarded_config_repair` and the
+[actual backend/VM/lifecycle proof](adr-0066-task-006-configuration-repair-and-resumption.md#implementation-and-proof).
+Its operator V1–V6, preservation and fixture cleanup are accepted as of
+2026-09-13. ADR invariants and this table's later packet assignments remain binding.
+
 ## Acceptance Criteria
 
 Mechanical evidence lives in [config.rs tests](../../src/config.rs) unless

@@ -2153,6 +2153,7 @@ fn adr_0066_config_creation_and_save_ownership() {
             "ADR 0066 unguarded {start}"
         );
         assert!(save.contains("write_existing_config(cfg_path, &table)"));
+        assert!(save.contains("ConfigWriteLease::acquire(cfg_path)?"));
         for forbidden in [
             "default_config_toml",
             "load_config(",
@@ -5397,9 +5398,11 @@ fn settings_form_inputs_fill_scaled_frame_width() {
             "shared Settings form contract missing {required}"
         );
     }
-    for field in ["endpoint_input", "music_dir_input", "flac_path_input"] {
+    // ADR 0066 task 006 routes core paths through the shared maintenance editor.
+    for field in ["endpoint_input", "flac_path_input"] {
         assert!(screen.contains(&format!("settings_text_input(&app.{field}, cx)")));
     }
+    assert!(screen.contains("settings_message(app.music_dir.display().to_string(), cx)"));
     assert!(!form.contains(".max_w(layout::SETTINGS_COLUMN_WIDTH)"));
 }
 
@@ -16550,13 +16553,15 @@ fn adr_0069_settings_group_ownership() {
     );
     for required in [
         "self.endpoint_input.update",
-        "self.music_dir_input.update",
         "self.flac_path_input.update",
         "self.set_ui_scale(",
         "self.set_theme_profile(",
     ] {
         assert!(defaults.contains(required));
     }
+    // ADR 0066 task 006 moves core paths behind managed repair; defaults keep them.
+    assert!(!defaults.contains("self.music_dir_input.update"));
+    assert!(screen.contains("app.configuration_editor"));
     let save = source_between(&app, "fn save_settings(", "fn reload_cached(");
     assert_eq!(save.matches("config::save_app_settings(").count(), 1);
     for field in [
@@ -16714,4 +16719,93 @@ fn adr_0066_core_maintenance_drains_the_session() {
             );
         }
     }
+}
+
+#[test]
+fn adr_0066_shared_guarded_config_repair() {
+    // Situational: ADR 0066 invariants 3–6 and 9. Behavioral proof lives beside
+    // CorrectionSource, CorrectionCommand, CorrectionVm and the bootstrap lifecycle.
+    let settings = read_source(&manifest_path("src/app/settings.rs"));
+    let startup = read_source(&manifest_path("src/app/startup.rs"));
+    let presenter = read_source(&manifest_path("src/presentation/configuration_editor.rs"));
+    let commands = read_source(&manifest_path("src/application/commands/maintenance.rs"));
+    let backend = read_source(&manifest_path("src/config/correction.rs"));
+    let vm = read_source(&manifest_path("src/view_models/startup/correction.rs"));
+    let form = read_source(&manifest_path("src/ui/composites/maintenance_forms.rs"));
+    let config = read_source(&manifest_path("src/config.rs"));
+    assert!(settings.contains("app.configuration_editor"));
+    assert!(startup.contains("ConfigurationEditor::new("));
+    assert!(startup.contains("app.configuration_editor.clone_from(&self.editor)"));
+    assert_eq!(startup.matches("ConfigurationEditor::new(").count(), 1);
+    assert!(presenter.contains("configuration_correction(&self.vm"));
+    assert!(presenter.contains("worker.submit(move || command.execute())"));
+    assert!(presenter.contains("self.vm.begin(action, path)"));
+    assert!(presenter.contains("this.vm.complete(generation, result)"));
+    assert!(commands.contains("source.propose(&self.draft)?"));
+    assert!(commands.contains("self.access != CorrectionAccess::CoreRecovery"));
+    assert!(commands.contains("check_music(music, false, false)"));
+    assert!(commands.contains("check_database(database)"));
+    assert!(commands.contains("DatabaseReadiness::NeedsPreparation"));
+    assert!(startup.contains("this.session_action(SessionAction::EndSession, window, cx)"));
+    let release = startup
+        .find("this.maintenance = Some(maintenance)")
+        .unwrap();
+    let core_access = startup
+        .find("editor.set_access(CorrectionAccess::CoreRecovery")
+        .unwrap();
+    assert!(
+        release < core_access,
+        "core editing requires actual managed release"
+    );
+    let existing_save = source_between(
+        &config,
+        "pub fn save_app_settings(",
+        "pub(crate) fn save_workspace_layout(",
+    );
+    assert!(existing_save.contains("read_config_for_save(cfg_path)?"));
+    assert!(existing_save.contains("if existing != music_dir"));
+    assert!(backend.contains("super::ConfigWriteLease::acquire(&self.path)?"));
+    assert!(settings.contains("app.settings.edit_actions(correction_idle)"));
+    let refresh = source_between(
+        &settings,
+        "pub(super) fn refresh_corrected_settings(",
+        "pub(super) fn render_settings(",
+    );
+    assert!(refresh.contains("self.set_ui_scale(scale, window, cx)"));
+    assert!(refresh.contains("self.set_theme_profile(profile, window, cx)"));
+    for requirement in [
+        "self.check_revision()?",
+        "create_new(true)",
+        "options.mode(0o600)",
+        "backup_write(&mut backup_file, &self.bytes)",
+        "file.sync_all()",
+        "fs::rename(&candidate, self.destination())",
+    ] {
+        assert!(
+            backend.contains(requirement),
+            "ADR 0066 preservation requires {requirement}"
+        );
+    }
+    for source in [vm.as_str(), commands.as_str(), backend.as_str()] {
+        assert!(!source.contains("use gpui"));
+    }
+    for source in [form.as_str(), presenter.as_str(), settings.as_str()] {
+        for forbidden in [
+            "fs::write",
+            "fs::rename",
+            "Connection::open",
+            "source.save(",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "ADR 0066 storage belongs in the backend: {forbidden}"
+            );
+        }
+    }
+    assert!(vm.contains("generation != self.generation"));
+    assert!(vm.contains("CorrectionAction::Save | CorrectionAction::Validate"));
+    assert!(vm.contains("CorrectionAction::EndSession"));
+    assert!(form.contains(".a11y_label(display.a11y_label)"));
+    assert!(!form.contains("truncate()"));
+    assert!(!commands.contains("load_config_snapshot(") && !commands.contains("prepare_database("));
 }

@@ -6,6 +6,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
 use anyhow::{anyhow, Context, Result};
 use directories::{BaseDirs, ProjectDirs};
@@ -18,6 +19,42 @@ use crate::broadcast::producer::DropFileProducer;
 use crate::broadcast::transport::Transport;
 use crate::theme_profile::ThemeProfile;
 use crate::view_models::workspace::{ContentViewMode, WorkspaceLayoutConfig};
+
+pub(crate) mod correction;
+
+// Ordinary foreground saves and explicit worker corrections share one write
+// admission boundary per resolved destination (ADR 0066). Never wait on the UI.
+static CONFIGURATION_WRITES: Mutex<BTreeSet<PathBuf>> = Mutex::new(BTreeSet::new());
+
+struct ConfigWriteLease(PathBuf);
+
+impl ConfigWriteLease {
+    fn acquire(path: &Path) -> Result<Self> {
+        let destination = fs::canonicalize(path).with_context(|| {
+            format!(
+                "App could not resolve existing configuration {} for saving",
+                path.display()
+            )
+        })?;
+        let mut writes = CONFIGURATION_WRITES.lock().map_err(|_| {
+            anyhow!(
+                "App could not access configuration write admission. Configuration was not saved."
+            )
+        })?;
+        if !writes.insert(destination.clone()) {
+            return Err(anyhow!("App is already saving this configuration. The competing save did not change it; retry after the current save finishes."));
+        }
+        Ok(Self(destination))
+    }
+}
+
+impl Drop for ConfigWriteLease {
+    fn drop(&mut self) {
+        if let Ok(mut writes) = CONFIGURATION_WRITES.lock() {
+            writes.remove(&self.0);
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct WorkspaceConfig {
@@ -921,9 +958,14 @@ pub fn save_app_settings(
     ui_scale: UiScale,
     theme_profile: ThemeProfile,
 ) -> Result<(String, PathBuf, Option<PathBuf>, UiScale, ThemeProfile)> {
+    let _write = ConfigWriteLease::acquire(cfg_path)?;
     let mut table = read_config_for_save(cfg_path)?.document;
     let endpoint = normalize_musicindex_endpoint(endpoint)?;
     let music_dir = normalize_music_dir(music_dir)?;
+    let existing = required_path(&table, "music_dir")?;
+    if existing != music_dir {
+        return Err(anyhow!("App did not save a changed music folder. Use Configuration repair, end the app session, and test the existing folder before saving."));
+    }
     let flac_path = normalize_flac_path(flac_path)?;
     table.insert(
         "musicindex_endpoint".into(),
@@ -961,6 +1003,7 @@ pub(crate) fn save_workspace_layout(
     cfg_path: &Path,
     workspace_layout: &WorkspaceLayoutConfig,
 ) -> Result<()> {
+    let _write = ConfigWriteLease::acquire(cfg_path)?;
     let mut table = read_config_for_save(cfg_path)?.document;
     let layout_value =
         toml::Value::try_from(workspace_layout).context("serialize workspace layout config")?;
@@ -973,6 +1016,7 @@ pub(crate) fn save_workspace_layout_prefs(
     cfg_path: &Path,
     workspace_layout_prefs: &WorkspaceLayoutPrefs,
 ) -> Result<()> {
+    let _write = ConfigWriteLease::acquire(cfg_path)?;
     let mut table = read_config_for_save(cfg_path)?.document;
 
     if !table.get("workspace").is_some_and(toml::Value::is_table) {
@@ -1817,7 +1861,7 @@ driver = "vlc"
     }
 
     #[test]
-    fn save_app_settings_persists_music_dir_without_dropping_existing_values() {
+    fn adr_0066_ordinary_settings_preserve_core_paths_and_unedited_values() {
         let temp = tempfile::tempdir().expect("tempdir");
         let cfg_path = temp.path().join("config.toml");
         fs::write(
@@ -1834,7 +1878,7 @@ extra = "keep"
         let (endpoint, music_dir, flac_path, ui_scale, theme_profile) = save_app_settings(
             &cfg_path,
             "api.musicindex.org/",
-            "~/V4Vmusic",
+            "/tmp/old",
             "/usr/bin/flac",
             UiScale::Medium,
             ThemeProfile::Light,
@@ -1844,7 +1888,7 @@ extra = "keep"
         let table = raw.parse::<toml::Table>().expect("parse TOML");
 
         assert_eq!(endpoint, DEFAULT_BASE_URL);
-        assert_eq!(music_dir, default_music_dir().expect("default music dir"));
+        assert_eq!(music_dir, PathBuf::from("/tmp/old"));
         assert_eq!(flac_path, Some(PathBuf::from("/usr/bin/flac")));
         assert_eq!(ui_scale, UiScale::Medium);
         assert_eq!(theme_profile, ThemeProfile::Light);
@@ -1857,7 +1901,7 @@ extra = "keep"
                 .get("music_dir")
                 .and_then(toml::Value::as_str)
                 .map(PathBuf::from),
-            Some(default_music_dir().expect("default music dir"))
+            Some(PathBuf::from("/tmp/old"))
         );
         assert_eq!(
             table
@@ -2452,7 +2496,7 @@ content_list_view_mode = "list"
             save_app_settings(
                 path,
                 DEFAULT_BASE_URL,
-                "/tmp/changed",
+                "/tmp/music",
                 "",
                 UiScale::Large,
                 ThemeProfile::Dark,
@@ -2467,6 +2511,40 @@ content_list_view_mode = "list"
                 },
             ),
         ]
+    }
+
+    #[test]
+    fn adr_0066_ordinary_and_correction_writers_share_nonblocking_admission() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        fs::write(&path, SNAPSHOT_CORE).unwrap();
+        let source = correction::CorrectionSource::read(&path).unwrap();
+        let proposed = source
+            .propose(&correction::CorrectionDraft {
+                raw: None,
+                fields: vec![(
+                    correction::CorrectionField("musicindex_endpoint"),
+                    "https://example.test".into(),
+                )],
+            })
+            .unwrap();
+        let lease = ConfigWriteLease::acquire(&path).unwrap();
+        std::thread::scope(|scope| {
+            assert!(scope
+                .spawn(|| ordinary_saves(&path))
+                .join()
+                .unwrap()
+                .iter()
+                .all(Result::is_err));
+        });
+        assert!(source.save(&proposed).is_err());
+        assert_eq!(fs::read(&path).unwrap(), SNAPSHOT_CORE.as_bytes());
+        let independent = temp.path().join("other.toml");
+        fs::write(&independent, SNAPSHOT_CORE).unwrap();
+        assert!(ordinary_saves(&independent).iter().all(Result::is_ok));
+        drop(lease);
+        assert!(source.save(&proposed).is_ok());
+        assert!(ordinary_saves(&path).iter().all(Result::is_ok));
     }
 
     #[test]

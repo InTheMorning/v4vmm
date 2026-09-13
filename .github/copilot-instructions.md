@@ -11,6 +11,8 @@ When you need to look something up, consult this map first to find the right fil
 | SQLite schema, row types, all queries | `src/db.rs` |
 | Startup SQLite read/write/schema verification and preparation | `src/db/startup.rs` |
 | Config struct, TOML paths | `src/config.rs` |
+| Explicit configuration correction, drafts, backup and revision checks | `src/config/correction.rs`, `src/application/commands/maintenance.rs` (ADR 0066) |
+| Shared recovery/Settings editor, typed state and geometry | `src/view_models/startup/correction.rs`, `src/presentation/configuration_editor.rs`, `src/ui/composites/maintenance_forms.rs` |
 | Core startup admission and music storage probes | `src/startup.rs`, `src/startup/storage.rs` |
 | Recovery state/actions/reports; shared geometry; screen wiring | `src/view_models/startup.rs`, `src/ui/composites/startup_report.rs`, `src/app/startup.rs` |
 | Scoped background issues and command remedies | `src/application/capability.rs`, `src/view_models/startup/capabilities.rs` |

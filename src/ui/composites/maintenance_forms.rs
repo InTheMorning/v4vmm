@@ -6,10 +6,129 @@ use gpui::{div, prelude::*, AnyElement, App, Window};
 use gpui_component::scroll::ScrollableElement;
 
 use crate::ui::control_styles::ControlStyle;
+use crate::ui::layouts::{scaled_dimension, CONFIGURATION_EDITOR_HEIGHT};
 use crate::ui::primitives::Button;
+use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::startup::session::{SessionAction, SessionActionDisplay, SessionReportVm};
 use crate::view_models::startup::StartupAvailability;
+
+pub(crate) type CorrectionCallback =
+    Rc<dyn Fn(crate::view_models::startup::correction::CorrectionAction, &mut Window, &mut App)>;
+
+/// The same editor geometry is mounted in Settings and core recovery.
+pub(crate) fn configuration_correction(
+    vm: &crate::view_models::startup::correction::CorrectionVm,
+    input: &gpui::Entity<gpui_component::input::InputState>,
+    callback: &CorrectionCallback,
+    cx: &App,
+) -> AnyElement {
+    use crate::view_models::startup::correction::{CorrectionAction, CorrectionVm};
+    let mut body = div()
+        .flex()
+        .flex_col()
+        .flex_shrink_0()
+        .w_full()
+        .min_w_0()
+        .gap(Spacing::SM.scaled(cx))
+        .child(
+            div()
+                .text_size(FontSize::Title3.scaled(cx))
+                .child(CorrectionVm::TITLE),
+        )
+        .child(div().whitespace_normal().child(CorrectionVm::EXPLANATION));
+    if vm.source.is_none() {
+        body = body.child(correction_button(
+            vm.action(CorrectionAction::Load),
+            callback.clone(),
+        ));
+    } else {
+        let mut fields = div()
+            .flex()
+            .flex_wrap()
+            .min_w_0()
+            .gap(Spacing::XS.scaled(cx));
+        for field in vm.fields() {
+            fields = fields.child(correction_button(
+                vm.action(CorrectionAction::Select(field)),
+                callback.clone(),
+            ));
+        }
+        body = body
+            .child(fields)
+            .child(div().whitespace_normal().child(vm.input_help()))
+            .child(configuration_input_frame(vm, input, cx));
+        let mut actions = div().flex().flex_wrap().gap(Spacing::SM.scaled(cx));
+        for action in [
+            CorrectionAction::Validate,
+            CorrectionAction::Save,
+            CorrectionAction::CopyDraft,
+            CorrectionAction::Reload,
+        ] {
+            actions = actions.child(correction_button(vm.action(action), callback.clone()));
+        }
+        if vm.needs_maintenance() {
+            actions = actions.child(correction_button(
+                vm.action(CorrectionAction::EndSession),
+                callback.clone(),
+            ));
+        }
+        body = body.child(actions);
+    }
+    if let Some(message) = vm.work_message() {
+        body = body.child(div().whitespace_normal().child(message));
+    }
+    if !vm.report.is_empty() {
+        body = body
+            .child(div().whitespace_normal().min_w_0().child(vm.report.clone()))
+            .child(correction_button(
+                vm.action(CorrectionAction::CopyReport),
+                callback.clone(),
+            ));
+    }
+    body.into_any_element()
+}
+
+fn configuration_input_frame(
+    vm: &crate::view_models::startup::correction::CorrectionVm,
+    input: &gpui::Entity<gpui_component::input::InputState>,
+    cx: &App,
+) -> gpui::Div {
+    let widget = gpui_component::input::Input::new(input)
+        .disabled(!vm.input_enabled())
+        .scaled(gpui_component::Size::Small, cx)
+        .h_full()
+        .absolute()
+        .inset_0()
+        .w_auto()
+        .min_w_0();
+    // Percentage width resolved to zero here while auto-width siblings
+    // stretched correctly. Let the column allocate this viewport (ADR 0066 V1).
+    let mut frame = div()
+        .relative()
+        .w_auto()
+        .h(scaled_dimension(CONFIGURATION_EDITOR_HEIGHT, cx))
+        .flex_shrink_0()
+        .min_w_0()
+        .child(widget);
+    frame.style().align_self = Some(gpui::AlignItems::Stretch);
+    frame
+}
+
+fn correction_button(
+    display: crate::view_models::startup::correction::CorrectionActionDisplay,
+    callback: CorrectionCallback,
+) -> Button {
+    let action = display.action;
+    Button::styled(
+        gpui::SharedString::from(format!("correction-{action:?}")),
+        ControlStyle::Secondary,
+    )
+    .label(display.label)
+    .a11y_label(display.a11y_label)
+    .disabled(display.availability != StartupAvailability::Available)
+    .on_activate(move |window, cx| callback(action, window, cx))
+}
 
 pub(crate) type SessionCallback = Rc<dyn Fn(SessionAction, &mut Window, &mut App)>;
 

@@ -175,6 +175,9 @@ pub struct TopApp {
     maintenance_worker: Option<crate::presentation::maintenance_executor::MaintenanceClient>,
     session_callback: Option<crate::ui::composites::maintenance_forms::SessionCallback>,
     previous_session_report: String,
+    configuration_editor_subscription: Option<gpui::Subscription>,
+    configuration_editor:
+        Option<Entity<crate::presentation::configuration_editor::ConfigurationEditor>>,
 }
 
 impl TopApp {
@@ -380,6 +383,8 @@ impl TopApp {
             maintenance_worker: None,
             session_callback: None,
             previous_session_report: String::new(),
+            configuration_editor: None,
+            configuration_editor_subscription: None,
         }
     }
 

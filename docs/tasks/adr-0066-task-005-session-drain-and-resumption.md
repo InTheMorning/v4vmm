@@ -5,8 +5,9 @@ preservation inspection and fixture cleanup accepted.
 
 The operator explicitly requested task 005 after completing ADR 0069 task 001,
 using task 004's delivered owners before task 004's remaining acceptance.
-That scheduling exception closes none of task 004's checks. Task 006 is ready
-for a fresh session; its implementation has not started.
+That scheduling exception closes none of task 004's checks. Task 006 is complete
+with operator acceptance, preservation and fixture cleanup as of 2026-09-13;
+task 007 follows in a fresh session.
 
 ## Goal And Scope
 

@@ -7,6 +7,7 @@ use crate::db::startup::DbStage;
 use crate::startup::{CoreCheckOutcome, IssueSeverity, StartupIssue, StartupStage};
 
 pub(crate) mod capabilities;
+pub(crate) mod correction;
 pub(crate) mod session;
 
 /// Project residual normal-startup notices (ADR 0066).
@@ -67,6 +68,7 @@ pub struct StartupReportVm {
     pub generation: u64,
     phase: StartupPhase,
     pub worker_available: bool,
+    pub(crate) maintenance_busy: bool,
     pub details: bool,
     pub outcome: CoreCheckOutcome,
     pub(crate) session_report: String,
@@ -78,6 +80,7 @@ impl StartupReportVm {
             generation: 0,
             phase: StartupPhase::Idle,
             worker_available,
+            maintenance_busy: false,
             details: true,
             outcome: CoreCheckOutcome::pending(),
             session_report: String::new(),
@@ -250,6 +253,7 @@ impl StartupReportVm {
                     StartupAvailability::Unavailable
                 }
             } else if !self.worker_available
+                || self.maintenance_busy
                 || (action == StartupAction::OpenApp && !self.outcome.can_open())
             {
                 StartupAvailability::Unavailable

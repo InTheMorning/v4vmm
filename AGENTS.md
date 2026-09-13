@@ -46,10 +46,14 @@ producer preservation passed. Remaining operator checks and fixture cleanup
 are open.
 [Task 005: Session drain and resumption](docs/tasks/adr-0066-task-005-session-drain-and-resumption.md)
 is complete with mechanical checks Green, operator V1–V3 and preservation
-accepted, and fixture cleanup confirmed. Next is
-[task 006: Configuration repair and resumption](docs/tasks/adr-0066-task-006-configuration-repair-and-resumption.md)
-in a fresh session; implementation has not started. Task 004 retains its
-remaining checks under the recorded scheduling exception. Tasks 006–013 remain in the
+accepted, and fixture cleanup confirmed.
+[Task 006: Configuration repair and resumption](docs/tasks/adr-0066-task-006-configuration-repair-and-resumption.md)
+is complete with mechanical checks Green, operator V1–V6 and preservation
+accepted, and fixture cleanup confirmed on 2026-09-13. Its
+[procedure](docs/runbooks/startup-recovery-check.md#task-006-configuration-repair-and-resumption)
+remains a regression check. Task 007 follows in a fresh session; implementation
+has not started. Task 004 retains its remaining checks under the recorded scheduling
+exception. Tasks 007–013 remain in the
 [phase plan](docs/plans/adr-0066-startup-recovery-phase-plan.md).
 [ADR 0068: Show cue and audition isolation](docs/adr/0068-show-cue-and-audition-isolation.md)
 is Proposed; its implementation has not started. Task 004's playback checks

@@ -53,8 +53,10 @@ prioritized, and routed to the right governance artifact.
      tool isolation is implemented with mechanical checks Green; its presentation
      case and producer preservation passed. Remaining operator checks and cleanup
      are open; playback-dependent checks are deferred with proposed ADR 0068.
-     Tasks 005–013, including in-app correction/retry, have not started;
-     configuration correction still needs an external editor.
+     Task 005 is complete with operator acceptance and fixture cleanup. Task 006
+     is complete on 2026-09-13 with mechanical checks Green; operator V1–V6,
+     preservation and fixture cleanup are accepted. Tasks 007–013, including optional
+     reinitialization/retry and database maintenance, have not started.
    - Note: a malformed layout *value* already falls back with a warning. This
      item is the level above that, where the file does not parse at all.
      Settings manages only a few keys, so operators hand-edit this file.
@@ -67,11 +69,12 @@ prioritized, and routed to the right governance artifact.
      share configuration and database maintenance tools; disabled controls
      alone are not the recovery workflow. ADR 0066 owns the detailed policy.
    - Route: execute the [thirteen ADR 0066 packets](adr-0066-startup-recovery-phase-plan.md),
-     one per session. Task 005 waits for task 004's gate; independent pending
+     one per session. Task 005 used its recorded scheduling exception without
+     accepting task 004; task 007 follows task 006 acceptance. Independent pending
      work follows the delivery index while playback is deferred.
      [ADR 0069 task 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md)
-     is now the next independent packet: group existing Settings without changing
-     their persisted format. Later editor/preset phases reuse this recovery work;
+     is complete, including operator acceptance and cleanup; it grouped existing
+     Settings without changing their persisted format. Later editor/preset phases reuse this recovery work;
      the [Settings plan](adr-0069-settings-presets-phase-plan.md) preserves its prerequisites.
      **Implement and verify this before any config
      format change**, since a format change puts more operators in this state.

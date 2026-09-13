@@ -358,7 +358,50 @@ mod tests {
         authority.resume_failed();
         assert_eq!(old.phase(), SessionPhase::Maintenance);
         assert!(!old.accepts(old.generation()));
-        std::fs::rename(temp.path().join("music.saved"), &music).unwrap();
+        // Task 006: correct both paths only after the old owners have closed.
+        use crate::application::commands::maintenance::{
+            CorrectionAccess, CorrectionCommand, CorrectionOperation, CorrectionResult,
+        };
+        use crate::config::correction::{CorrectionDraft, CorrectionField, CorrectionSource};
+        let replacement_db = temp.path().join("selected-existing.sqlite");
+        drop(crate::db::open_db(&replacement_db).unwrap());
+        let command = CorrectionCommand {
+            path: cfg_path.clone(),
+            source: Some(Arc::new(CorrectionSource::read(&cfg_path).unwrap())),
+            access: CorrectionAccess::CoreRecovery,
+            operation: CorrectionOperation::Save,
+            draft: CorrectionDraft {
+                raw: None,
+                fields: vec![
+                    (
+                        CorrectionField("music_dir"),
+                        temp.path().join("music.saved").display().to_string(),
+                    ),
+                    (
+                        CorrectionField("db_path"),
+                        replacement_db.display().to_string(),
+                    ),
+                ],
+            },
+        };
+        let CorrectionResult::Saved(receipt) = command.execute() else {
+            panic!("correction must save after drain");
+        };
+        assert_eq!(std::fs::read_to_string(&receipt.backup).unwrap(), original);
+        assert_eq!(
+            old.phase(),
+            SessionPhase::Maintenance,
+            "Save cannot resume a session"
+        );
+        let CoreResult::Checked(stale) = backend.execute(CheckIntent::Open {
+            checked_bytes: original.as_bytes().to_vec(),
+        }) else {
+            panic!("old settings cannot reopen");
+        };
+        assert_eq!(
+            stale.checked_bytes().unwrap(),
+            receipt.fresh.original_bytes()
+        );
         let CoreResult::Checked(checked) = backend.execute(CheckIntent::Check) else {
             panic!("check-only cannot open");
         };
@@ -369,11 +412,19 @@ mod tests {
             panic!("fresh checked preparation");
         };
         let fresh = prepare_normal(*core).unwrap_or_else(|_| panic!("fresh preparation"));
+        assert_eq!(fresh.cfg.db_path.as_ref().unwrap(), &replacement_db);
+        assert_eq!(
+            fresh.cfg.music_dir.as_ref().unwrap(),
+            &temp.path().join("music.saved")
+        );
         assert!(fresh.session.generation() > old.generation());
         assert!(fresh.session.accepts(fresh.session.generation()));
         assert!(!fresh.session.accepts(old.generation()));
         let _ = drain(fresh);
-        assert_eq!(std::fs::read_to_string(cfg_path).unwrap(), original);
+        assert_eq!(
+            std::fs::read(cfg_path).unwrap(),
+            receipt.fresh.original_bytes()
+        );
     }
 
     #[test]

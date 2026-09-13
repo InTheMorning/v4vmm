@@ -24,12 +24,12 @@ sharing. Do not mix unrelated pending UI polish into the Settings foundation.
 
 - `src/config.rs` owns scoped configuration readers and ordinary persistence.
   `TopApp` owns Settings inputs, saving and existing runtime updates.
-- ADR 0066 tasks 001–003 and 005 are complete, including applicable operator
+- ADR 0066 tasks 001–003 and 005–006 are complete, including applicable operator
   acceptance and fixture cleanup. Task 004 is implemented with remaining
   operator checks; task 005 used the operator's explicit scheduling exception.
-  Task 006 is ready for a fresh session; tasks 006–013 have not started. The
-  shared Settings editor still needs tasks 006–007, and this plan changes no
-  configuration-format prerequisite.
+  Task 006's operator V1–V6, preservation and cleanup are accepted on 2026-09-13;
+  tasks 007–013 have not started. The shared Settings editor still needs task 007,
+  and this plan changes no configuration-format prerequisite.
 - ADR 0066 tasks 005–007 own session transitions, guarded shared correction and
   optional retry. Reuse those owners instead of constructing a Settings-only
   transaction engine.

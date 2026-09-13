@@ -11,7 +11,7 @@ use crate::db::startup::{self as database, DatabaseReadiness, DbStage};
 
 #[cfg(debug_assertions)]
 pub mod fixture;
-mod storage;
+pub(crate) mod storage;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StartupStage {

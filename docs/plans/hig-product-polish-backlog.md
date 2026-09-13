@@ -131,11 +131,23 @@ Review long-line readability and horizontal navigation across Event, Producer,
 and Publisher logs. Any display treatment must preserve the original text for
 selection and copying, including full paths, IDs, and feed tags.
 
+Operator extension - 2026-09-11, during ADR 0066 task 006 V3: Diagnostics logs
+are drawn directly on the surrounding chrome in large text. Use a consistent
+log frame and matching log text size wherever the app displays logs. Evaluate
+monospace type; the operator suggested it without fixing the font choice.
+Choose shared frame and typography tokens together with the long-line treatment.
+Audit Event, Producer, Publisher, Settings Diagnostics, background-tool,
+startup, configuration-repair and session reports. Reuse shared presentation
+owners across those surfaces and preserve their scoped report semantics under
+ADRs 0063 and 0066. Do not implement separate screen-specific restyling.
+
 Visual acceptance for a future fix: reach the start, middle, and end of a long
 error line at narrow and normal widths. Verify Ctrl+C and right-click Copy
 preserve exact text across the visible edge, with pane resizing and transport
-controls still usable. The presentation choice belongs in a future bounded
-packet; this deferred item does not add a gate to task 017.
+controls still usable. Compare log frames and text size across the audited
+surfaces in Light/Dark and at supported UI scales. The presentation choice
+belongs in a future bounded packet; this deferred item does not add a gate to
+task 017 or ADR 0066 task 006.
 
 #### A12 - Follow Latest Logs And Remember Each Reading Position
 
@@ -143,7 +155,10 @@ Open - 2026-09-10. Operator requirements captured during
 [task 017 visual inspection](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check).
 This is follow-up work; the existing log-source check passed. Record the
 viewport behavior in an ADR 0063 amendment and a bounded packet before
-implementation. It does not add an acceptance gate to task 017.
+implementation. The 2026-09-11 operator extension applies the same following
+behavior to logs throughout the app, including Diagnostics and recovery reports.
+Coordinate the shared presentation contract with ADR 0066's report owners.
+This work does not add an acceptance gate to task 017 or ADR 0066 task 006.
 
 Required behavior:
 
@@ -166,7 +181,9 @@ Required behavior:
 Owners to inspect: `ShowLogPaneDisplay` and the app adapter for source identity,
 follow state, and command intent; the shared `ShowLogPane`/selectable-text owner
 for scroll position and reserved control space; named tokens for the arrow and
-optional gradient. Renderer handles stay outside the view model.
+optional gradient. Include the startup-report and maintenance-form composites
+and their view models when defining the common log frame and following state.
+Renderer handles stay outside the view model.
 
 The packet must also define how visible logs receive fresh entries. Current
 `ServiceControl::logs` reads a finite journal snapshot. Event Logs remains a
@@ -179,7 +196,8 @@ Mechanical acceptance: source-keyed state tests cover initial following,
 manual pause, updates while paused, return to latest, independent source
 restoration, and replaced/trimmed content. Visual acceptance: use enough live
 entries to overflow the pane; inspect follow/pause/resume while switching logs,
-closing/reopening, and resizing. Confirm the arrow covers no text, the optional
+closing/reopening, and resizing, including appended Diagnostics and recovery
+reports in the shared frame. Confirm the arrow covers no text, the optional
 gradient preserves readability, and keyboard/right-click Copy still returns
 the selected text. See also the
 [UTC timestamp follow-up](broadcast-chain-delivery-order.md#consistent-utc-log-timestamps).
