@@ -102,6 +102,7 @@ pub(super) fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> Any
                         crate::view_models::startup::session::SessionReportVm::entry(available),
                         app.command_runner.session().generation(),
                         &app.previous_session_report,
+                        &app.log_frames,
                         callback,
                         cx,
                     ));

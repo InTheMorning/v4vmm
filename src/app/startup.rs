@@ -28,6 +28,7 @@ use super::{bootstrap, TopApp};
 
 pub(super) struct StartupScreen {
     vm: StartupReportVm,
+    log_frames: crate::ui::composites::log_frame::LogFrames,
     worker: Option<MaintenanceClient>,
     backend: Arc<Mutex<StartupBackend>>,
     normal: Option<Entity<TopApp>>,
@@ -47,6 +48,7 @@ impl StartupScreen {
         }
         Self {
             vm,
+            log_frames: crate::ui::composites::log_frame::LogFrames::default(),
             worker,
             backend: Arc::new(Mutex::new(StartupBackend::new(None))),
             normal: None,
@@ -80,8 +82,15 @@ impl StartupScreen {
                 });
             });
         });
-        self.editor =
-            Some(cx.new(|cx| ConfigurationEditor::new(self.worker.clone(), callback, window, cx)));
+        self.editor = Some(cx.new(|cx| {
+            ConfigurationEditor::new(
+                self.worker.clone(),
+                callback,
+                self.log_frames.clone(),
+                window,
+                cx,
+            )
+        }));
         self.editor_subscription = self
             .editor
             .as_ref()
@@ -244,6 +253,7 @@ impl StartupScreen {
             report.resumed(fresh);
         }
         normal.update(cx, |app, cx| {
+            app.log_frames.clone_from(&self.log_frames);
             app.configuration_editor.clone_from(&self.editor);
             app.configuration_editor_subscription = self
                 .editor
@@ -435,7 +445,7 @@ impl Render for StartupScreen {
                         let _ =
                             entity.update(cx, |this, cx| this.session_action(action, window, cx));
                     });
-                return session_drain(vm, &callback, cx);
+                return session_drain(vm, &callback, &self.log_frames, cx);
             }
         }
         if let Some(normal) = &self.normal {
@@ -452,6 +462,7 @@ impl Render for StartupScreen {
                 let _ = entity.update(cx, |this, cx| this.action(action, window, cx));
             }),
             self.editor.clone().map(IntoElement::into_any_element),
+            &self.log_frames,
             cx,
         )
         .into_any_element()

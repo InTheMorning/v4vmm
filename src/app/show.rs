@@ -65,7 +65,7 @@ pub(super) fn build_show_screen(
     let connect_stream_entity = entity.clone();
     let disconnect_stream_entity = entity.clone();
     let readiness_entity = entity.clone();
-    let slots = with_log_slots(ShowSlots::new(), &entity);
+    let slots = with_log_slots(ShowSlots::new().log_frames(app.log_frames.clone()), &entity);
     let slots = with_event_registry_slots(slots, &entity);
     render_show(
         app.show_page.clone().with_window_width(window_width),
@@ -326,6 +326,11 @@ impl TopApp {
         self.show_commands.observe(&snapshot);
         self.publisher_service_snapshot = Some(snapshot);
         self.reproject_show_page_from_current_queue();
+        if self.tab == AppTab::Show {
+            if let Some((role, request)) = self.show_page.log_pane.refresh_request() {
+                self.read_publisher_logs(role, request, cx);
+            }
+        }
         cx.notify();
     }
 
@@ -470,7 +475,15 @@ impl TopApp {
             return;
         };
         cx.notify();
+        self.read_publisher_logs(role, request_id, cx);
+    }
 
+    fn read_publisher_logs(
+        &mut self,
+        role: PublisherServiceRole,
+        request_id: ShowLogRequestId,
+        cx: &mut Context<Self>,
+    ) {
         let selected_host = match selected_broadcast_host(&self.broadcast) {
             Ok(host) => host,
             Err(error) => {
@@ -481,6 +494,7 @@ impl TopApp {
                 return;
             }
         };
+        self.show_page.log_pane.bind_service_source(&selected_host);
         let command = match ReadPublisherLogs::new(&selected_host, role, request_id) {
             Ok(command) => command,
             Err(error) => {

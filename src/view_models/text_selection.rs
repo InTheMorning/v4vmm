@@ -30,6 +30,13 @@ pub(crate) struct TextSelection {
 }
 
 impl TextSelection {
+    /// Appended log entries keep an existing exact selection; replacement clears it.
+    pub(crate) fn update_text(&mut self, previous: &str, next: &str) {
+        if !next.starts_with(previous) {
+            *self = Self::default();
+        }
+    }
+
     pub(crate) fn copy_action(&self, text: &str) -> TextCopyActionDisplay {
         TextCopyActionDisplay {
             id: "copy-selection",
@@ -76,6 +83,18 @@ fn char_boundary(text: &str, index: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adr_0063_log_append_keeps_selection_and_replacement_clears_it() {
+        let previous = "répété 🦀\n";
+        let mut selection = TextSelection::at(previous, 0);
+        selection.extend(previous, previous.len());
+        let next = format!("{previous}next\n");
+        selection.update_text(previous, &next);
+        assert_eq!(selection.selected_text(&next), Some(previous));
+        selection.update_text(&next, "replacement");
+        assert!(selection.selected_text("replacement").is_none());
+    }
 
     /// Situational ADR 0063: only an exact, nonempty selection enables Copy.
     #[test]

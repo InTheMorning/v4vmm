@@ -87,7 +87,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0055](0055-search-view-model-module-decomposition.md) | Search view-model module decomposition | Accepted |
 | [0060](0060-workflow-surface-structure.md) | Music, Show, Settings. Show is a screen mount | Accepted |
 | [0062](0062-music-content-surface.md) | Music opens on recent mixed entity rows | Accepted |
-| [0063](0063-show-dashboard-layout.md) | Show cards, compact item badges, detail panel, and shared diagnostics pane; operator acceptance complete | Implemented |
+| [0063](0063-show-dashboard-layout.md) | Show cards and diagnostics; earlier dashboard acceptance complete; [shared log frames and following](../tasks/adr-0063-task-005-shared-log-frames-and-following.md) implemented with operator gate open | Accepted |
 | [0064](0064-local-file-addressing.md) | Downloaded files live under music_dir and store a relative path | Accepted |
 | [0065](0065-payment-route-tag-repair.md) | A tag repair is gated on the file, not on feed staleness | Implemented |
 | [0067](0067-platform-shortcut-modifiers.md) | Ctrl app shortcuts on Linux; Command and native Hide actions on macOS | Implemented |

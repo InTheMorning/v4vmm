@@ -15828,9 +15828,7 @@ fn adr_0063_logs_use_an_independent_bottom_pane_and_current_request() {
         ".axis(SplitPaneAxis::Vertical)",
         ".leading_height(",
         ".leading_min_height(",
-        ".overflow_scroll()",
-        ".items_start()",
-        "SelectableText::new(\"show-log-text\", display.text)",
+        "LogFrame::new(frames, source, display.text)",
         "display.unit_name",
         "display.line_count_label",
         "display.close.a11y_label",
@@ -16808,4 +16806,65 @@ fn adr_0066_shared_guarded_config_repair() {
     assert!(form.contains(".a11y_label(display.a11y_label)"));
     assert!(!form.contains("truncate()"));
     assert!(!commands.contains("load_config_snapshot(") && !commands.contains("prepare_database("));
+}
+
+/// Situational ADR 0063: every log family shares the framed viewport and reading owner.
+#[test]
+fn adr_0063_logs_share_frame_following_and_renderer_free_state() {
+    let frame = read_source(&manifest_path("src/ui/composites/log_frame.rs"));
+    let reading = read_source(&manifest_path("src/view_models/log_view.rs"));
+    for required in [
+        "LogReadingVm",
+        "LogSource",
+        "ScrollHandle",
+        "SelectableText::new",
+        "LOG_TEXT_SIZE",
+        "log_font_family",
+        "ScrollbarShow::Always",
+        "FollowAvailability::Available",
+    ] {
+        assert!(
+            frame.contains(required),
+            "ADR 0063 shared log frame is missing {required}"
+        );
+    }
+    for forbidden in [
+        "gpui",
+        "ScrollHandle",
+        "chrono::",
+        "Utc::now",
+        "SystemTime",
+        "std::fs",
+    ] {
+        assert!(
+            !reading.contains(forbidden),
+            "ADR 0063 reading model contains renderer/I/O/clock dependency {forbidden}"
+        );
+    }
+    for (file, minimum) in [
+        ("src/ui/composites/show_log_pane.rs", 1),
+        ("src/ui/composites/startup_report.rs", 2),
+        ("src/ui/composites/maintenance_forms.rs", 3),
+    ] {
+        let source = read_source(&manifest_path(file));
+        assert!(
+            source.matches("LogFrame::new").count() >= minimum,
+            "ADR 0063: {file} bypasses the shared log viewport"
+        );
+        for forbidden in [".child(vm.report", ".child(previous_report"] {
+            assert!(
+                !source.contains(forbidden),
+                "ADR 0063: {file} renders a report on surrounding chrome"
+            );
+        }
+    }
+    let app = read_source(&manifest_path("src/app/show.rs"));
+    assert!(app.contains("self.tab == AppTab::Show"));
+    assert!(app.contains("refresh_request()"));
+    assert!(app.contains("bind_service_source(&selected_host)"));
+    let root = read_source(&manifest_path("src/app/startup.rs"));
+    assert!(
+        root.contains("app.log_frames.clone_from(&self.log_frames)"),
+        "ADR 0063: retain report reading positions through managed sessions"
+    );
 }

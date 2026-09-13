@@ -5,9 +5,11 @@ use std::rc::Rc;
 use gpui::{div, prelude::*, App, IntoElement, SharedString, Window};
 use gpui_component::scroll::ScrollableElement;
 
+use crate::ui::composites::log_frame::{LogFrame, LogFrames};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::Button;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
+use crate::view_models::log_view::LogSource;
 use crate::view_models::startup::capabilities::{
     CapabilityAction, CapabilityActionDisplay, CapabilityReportVm,
 };
@@ -20,6 +22,7 @@ pub(crate) type CapabilityHandler = Rc<dyn Fn(CapabilityAction, &mut Window, &mu
 pub(crate) fn capability_report(
     vm: &CapabilityReportVm,
     expanded: bool,
+    logs: &LogFrames,
     handler: CapabilityHandler,
     cx: &App,
 ) -> Option<gpui::AnyElement> {
@@ -43,14 +46,7 @@ pub(crate) fn capability_report(
                     .text_size(FontSize::Title3.scaled(cx))
                     .child(CapabilityReportVm::TITLE),
             )
-            .child(
-                div()
-                    .min_w_0()
-                    .w_full()
-                    .whitespace_normal()
-                    .text_size(FontSize::Body.scaled(cx))
-                    .child(vm.report()),
-            );
+            .child(LogFrame::new(logs, LogSource::Background, vm.report()));
     }
     for display in rows {
         let mut row = div()
@@ -104,6 +100,7 @@ pub(crate) fn startup_report(
     vm: &StartupReportVm,
     handler: Handler,
     editor: Option<gpui::AnyElement>,
+    logs: &LogFrames,
     cx: &App,
 ) -> impl IntoElement {
     let mut actions = div()
@@ -157,16 +154,7 @@ pub(crate) fn startup_report(
                 .on_activate(move |window, cx| handler(StartupAction::Details, window, cx)),
         );
     if vm.details {
-        // Normal text wrapping is deliberate. Full copy uses the same original
-        // report string, regardless of the viewport or disclosure state.
-        body = body.child(
-            div()
-                .w_full()
-                .min_w_0()
-                .whitespace_normal()
-                .text_size(FontSize::Body.scaled(cx))
-                .child(vm.report()),
-        );
+        body = body.child(LogFrame::new(logs, LogSource::Startup, vm.report()));
     }
     if let Some(editor) = editor {
         body = body.child(editor);

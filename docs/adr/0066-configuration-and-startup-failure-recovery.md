@@ -17,6 +17,11 @@ Amended 2026-09-11: scoped optional-tool isolation and managed session draining
 and resumption, plus shared guarded configuration correction, are implemented.
 Optional-tool reinitialization/retry and the remaining maintenance tools are pending.
 
+Amended 2026-09-13: [ADR 0063's shared log frame](0063-show-dashboard-layout.md#shared-log-frames-and-following)
+owns recovery and Settings report typography, scrolling and following. The
+operator prioritized its acceptance before task 007. Report contents, recorded
+times, redaction and task 006 acceptance remain unchanged.
+
 Amended 2026-09-10: [ADR 0067](0067-platform-shortcut-modifiers.md) changes Linux
 shortcuts to Ctrl at the operator's request. Task 003's keyboard checks
 use those bindings; its runtime-rejection requirement and recorded passes remain.

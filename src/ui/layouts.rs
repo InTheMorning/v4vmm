@@ -59,3 +59,8 @@ pub fn scaled_dimension(base: Pixels, cx: &App) -> Pixels {
 pub fn scaled_f32(base: f32, cx: &App) -> Pixels {
     px(base * ScaleFactor::current(cx).multiplier())
 }
+
+/// ADR 0063: shared embedded log allocation and scrollbar clearance.
+pub const LOG_FRAME_HEIGHT: Pixels = px(200.0);
+pub const LOG_FRAME_BORDER: Pixels = px(1.0);
+pub const LOG_SCROLLBAR_GUTTER: Pixels = px(16.0);

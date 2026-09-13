@@ -573,6 +573,7 @@ pub(crate) struct ShowLogRequestId(u64);
 /// Display-ready bottom pane and request state owned by Show (ADR 0063).
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ShowLogPaneDisplay {
+    pub(crate) source: crate::view_models::log_view::LogSource,
     pub(crate) open: bool,
     pub(crate) unit_name: String,
     pub(crate) text: String,
@@ -602,6 +603,10 @@ impl ShowLogPaneDisplay {
     #[must_use]
     pub(crate) fn closed() -> Self {
         Self {
+            source: crate::view_models::log_view::LogSource::Service {
+                host: String::new(),
+                unit: String::new(),
+            },
             open: false,
             unit_name: String::new(),
             text: String::new(),
@@ -632,6 +637,10 @@ impl ShowLogPaneDisplay {
     }
 
     fn begin_read(&mut self, role: PublisherServiceRole, unit_name: String) -> ShowLogRequestId {
+        self.source = crate::view_models::log_view::LogSource::Service {
+            host: String::new(),
+            unit: unit_name.clone(),
+        };
         self.next_request += 1;
         let request = ShowLogRequestId(self.next_request);
         self.request = Some(request);
@@ -655,6 +664,37 @@ impl ShowLogPaneDisplay {
         self.role = None;
         self.event_source = None;
         self.close.availability = PublisherActionAvailability::Unavailable;
+    }
+
+    /// Service reading identity uses transport and instance, never the display name.
+    pub(crate) fn bind_service_source(&mut self, host: &crate::config::BroadcastHostConfig) {
+        let transport = match &host.transport {
+            crate::broadcast::transport::Transport::Local => "local".to_owned(),
+            crate::broadcast::transport::Transport::Ssh { destination } => {
+                format!("ssh:{destination}")
+            }
+        };
+        self.source = crate::view_models::log_view::LogSource::Service {
+            host: format!("{transport}/{}", host.instance_name),
+            unit: self.unit_name.clone(),
+        };
+    }
+
+    /// Visible service snapshots refresh without replacing their reading state with loading text.
+    pub(crate) fn reading(&self) -> bool {
+        self.request.is_some()
+    }
+
+    /// Only one read for the visible service can be admitted at a time.
+    pub(crate) fn refresh_request(&mut self) -> Option<(PublisherServiceRole, ShowLogRequestId)> {
+        if !self.open || self.request.is_some() {
+            return None;
+        }
+        let role = self.role?;
+        self.next_request += 1;
+        let request = ShowLogRequestId(self.next_request);
+        self.request = Some(request);
+        Some((role, request))
     }
 
     /// Applies only the current read, including its failure, without reopening a pane.
@@ -5281,6 +5321,10 @@ mod tests {
             "producer.service".to_owned(),
         );
         pane.show_event(&input);
+        let event_source = pane.source.clone();
+        input.registry.revision += 1;
+        pane.show_event(&input);
+        assert_eq!(pane.source, event_source);
         assert!(!pane.close.disabled());
         assert!(!pane.apply_result(stale, Ok("old journal".to_owned())));
         let first_text = pane.text.clone();
@@ -5289,6 +5333,7 @@ mod tests {
         input.registry.revision += 1;
         pane.show_event(&input);
         assert!(pane.unit_name.contains("event-two"));
+        assert_ne!(pane.source, event_source);
         assert_ne!(pane.text, first_text);
         assert!(pane.text.contains("App selected event event-two."));
         let current = pane.begin_read(
@@ -5643,6 +5688,16 @@ impl ShowLogPaneDisplay {
 
     /// Source and text move together; old journal responses lose their request ownership.
     pub(crate) fn show_event(&mut self, input: &EventSectionInput) {
+        self.source = crate::view_models::log_view::LogSource::Event {
+            endpoint: input
+                .selected_event
+                .as_ref()
+                .map_or_else(String::new, |event| event.endpoint.clone()),
+            event: input
+                .selected_event
+                .as_ref()
+                .map_or_else(String::new, |event| event.event_id.clone()),
+        };
         self.open = true;
         self.close.availability = PublisherActionAvailability::Available;
         self.service_detail = None;
@@ -5734,5 +5789,54 @@ fn compact_event_label(label: &str) -> String {
         format!("{prefix}…")
     } else {
         prefix
+    }
+}
+
+#[cfg(test)]
+mod log_refresh_tests {
+    use super::*;
+
+    #[test]
+    fn adr_0063_journal_identity_uses_transport_instance_and_unit() {
+        let mut pane = ShowLogPaneDisplay::closed();
+        pane.begin_read(PublisherServiceRole::Producer, "producer.service".into());
+        let mut host = crate::config::BroadcastHostConfig::default_local();
+        pane.bind_service_source(&host);
+        let first = pane.source.clone();
+        host.name = "Renamed display title".into();
+        pane.bind_service_source(&host);
+        assert_eq!(pane.source, first);
+        host.instance_name = "another-instance".into();
+        pane.bind_service_source(&host);
+        assert_ne!(pane.source, first);
+        let second = pane.source.clone();
+        host.transport = crate::broadcast::transport::Transport::ssh("other-host").unwrap();
+        pane.bind_service_source(&host);
+        assert_ne!(pane.source, second);
+        let third = pane.source.clone();
+        pane.begin_read(PublisherServiceRole::Publisher, "publisher.service".into());
+        pane.bind_service_source(&host);
+        assert_ne!(pane.source, third);
+    }
+
+    /// Situational ADR 0063: polling keeps the visible snapshot and rejects stale/closed reads.
+    #[test]
+    fn adr_0063_visible_journal_refresh_is_single_flight_and_does_not_reopen() {
+        let mut pane = ShowLogPaneDisplay::closed();
+        assert!(pane.refresh_request().is_none());
+        let first = pane.begin_read(PublisherServiceRole::Producer, "producer.service".into());
+        assert!(pane.refresh_request().is_none());
+        assert!(pane.apply_result(first, Ok("old\n".into())));
+        let (role, refresh) = pane.refresh_request().unwrap();
+        assert_eq!(role, PublisherServiceRole::Producer);
+        assert_eq!(pane.text, "old\n");
+        assert!(pane.refresh_request().is_none());
+        pane.close();
+        assert!(!pane.apply_result(refresh, Ok("late\n".into())));
+        assert!(pane.refresh_request().is_none());
+        let second = pane.begin_read(PublisherServiceRole::Publisher, "publisher.service".into());
+        assert!(!pane.apply_result(first, Ok("wrong source\n".into())));
+        assert!(pane.apply_result(second, Ok("current\n".into())));
+        assert_eq!(pane.text, "current\n");
     }
 }

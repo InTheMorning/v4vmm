@@ -319,3 +319,5 @@ mod tests {
 }
 
 pub(crate) mod settings;
+
+pub(crate) mod log_view;

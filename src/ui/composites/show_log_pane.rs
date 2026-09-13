@@ -12,8 +12,8 @@ use gpui::{
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, RenderOnce, SharedString, Window,
 };
 
+use crate::ui::composites::log_frame::{LogFrame, LogFrames};
 use crate::ui::composites::split_pane::{SplitPane, SplitPaneAxis};
-use crate::ui::composites::SelectableText;
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::IconName;
 use crate::ui::layouts;
@@ -30,6 +30,7 @@ type LayoutHandler = Rc<dyn Fn(f32, f32, &mut Window, &mut App)>;
 /// Application callbacks for the independent log pane.
 #[derive(Default)]
 pub(crate) struct ShowLogPaneSlots {
+    pub(crate) frames: LogFrames,
     pub(crate) close: Option<CloseHandler>,
     pub(crate) resize_start: Option<ResizeStartHandler>,
     pub(crate) resize_move: Option<ResizeMoveHandler>,
@@ -91,7 +92,12 @@ impl RenderOnce for ShowLogPane {
             .leading_height(main_height)
             .leading_min_height(main_min_height)
             .leading(self.main)
-            .trailing(render_log_output(self.display, self.slots.close, cx));
+            .trailing(render_log_output(
+                self.display,
+                self.slots.close,
+                &self.slots.frames,
+                cx,
+            ));
 
         if let Some(handler) = self.slots.layout {
             split = split.on_layout(move |bounds, window, cx| {
@@ -121,8 +127,11 @@ impl RenderOnce for ShowLogPane {
 fn render_log_output(
     display: ShowLogPaneDisplay,
     close_handler: Option<CloseHandler>,
+    frames: &LogFrames,
     cx: &App,
 ) -> AnyElement {
+    let source = display.source.clone();
+    let pending = display.reading();
     let disabled = display.close.disabled() || close_handler.is_none();
     let mut close = Button::styled(
         SharedString::from(display.close.id),
@@ -200,19 +209,9 @@ fn render_log_output(
                 .child(close),
         )
         .child(
-            div()
-                .id("show-log-output")
-                .flex()
-                .flex_col()
-                .items_start()
-                .flex_1()
-                .min_h_0()
-                .min_w_0()
-                .overflow_scroll()
-                .p(Spacing::SM.scaled(cx))
-                .text_size(FontSize::Micro.scaled(cx))
-                .text_color(color(cx, SemanticColor::SecondaryLabel))
-                .child(SelectableText::new("show-log-text", display.text)),
+            LogFrame::new(frames, source, display.text)
+                .pending(pending)
+                .fill(),
         )
         .into_any_element()
 }

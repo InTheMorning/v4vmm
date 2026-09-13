@@ -8,10 +8,10 @@ Delivery reconciled 2026-09-10: the
 [approved order](broadcast-chain-delivery-order.md#current-delivery-order)
 puts A10 with narrow-layout work after relay adoption. Playback scope is
 resolved: hide the bar when every typed action is unavailable; retain working
-controls. Then settle A11's long-line treatment before A12's reading anchors.
-Design A12 with UTC timestamps, but deliver bounded packets so app following
-does not wait for corrections to external emitters. These decisions do not
-claim implementation or add a gate to the completed task 017.
+controls. Amended by the operator on 2026-09-13: deliver A11's shared frames,
+long-line scrolling and A12's following before ADR 0066 task 007. External UTC
+emitter changes keep their later, separate delivery slot. A11/A12 implementation
+and its open visual gate are recorded below; task 017 remains accepted.
 
 ## Purpose
 
@@ -120,87 +120,29 @@ does not add a gate to task 017.
 
 #### A11 - Long Log Lines Are Hard To Inspect
 
-Open - 2026-09-10. Deferred for future work at the operator's request during
-[task 017 visual inspection](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check).
-The Event Logs screenshot shows long token paths and HTTP error lines extending
-beyond the visible pane. Reading the full message needs a clearer interaction.
-The screenshot alone does not establish lost text or broken horizontal scrolling.
-
-Owner: ADR 0063's shared bottom log pane and selectable-text presentation.
-Review long-line readability and horizontal navigation across Event, Producer,
-and Publisher logs. Any display treatment must preserve the original text for
-selection and copying, including full paths, IDs, and feed tags.
-
-Operator extension - 2026-09-11, during ADR 0066 task 006 V3: Diagnostics logs
-are drawn directly on the surrounding chrome in large text. Use a consistent
-log frame and matching log text size wherever the app displays logs. Evaluate
-monospace type; the operator suggested it without fixing the font choice.
-Choose shared frame and typography tokens together with the long-line treatment.
-Audit Event, Producer, Publisher, Settings Diagnostics, background-tool,
-startup, configuration-repair and session reports. Reuse shared presentation
-owners across those surfaces and preserve their scoped report semantics under
-ADRs 0063 and 0066. Do not implement separate screen-specific restyling.
-
-Visual acceptance for a future fix: reach the start, middle, and end of a long
-error line at narrow and normal widths. Verify Ctrl+C and right-click Copy
-preserve exact text across the visible edge, with pane resizing and transport
-controls still usable. Compare log frames and text size across the audited
-surfaces in Light/Dark and at supported UI scales. The presentation choice
-belongs in a future bounded packet; this deferred item does not add a gate to
-task 017 or ADR 0066 task 006.
+In progress - 2026-09-13. The operator moved shared log framing, compact
+monospace typography and reachable long lines ahead of ADR 0066 task 007.
+[ADR 0063 task 005](../tasks/adr-0063-task-005-shared-log-frames-and-following.md)
+owns the common viewport across Show, Diagnostics and recovery. It retains
+unwrapped text, adds visible scrollbars, and keeps exact selection/copy.
+Its [operator procedure](../runbooks/log-frame-check.md) covers normal/narrow
+widths, supported scales, Light/Dark, and copying the end of long lines.
+The gate remains open; task 017 and ADR 0066 task 006 remain accepted.
 
 #### A12 - Follow Latest Logs And Remember Each Reading Position
 
-Open - 2026-09-10. Operator requirements captured during
-[task 017 visual inspection](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check).
-This is follow-up work; the existing log-source check passed. Record the
-viewport behavior in an ADR 0063 amendment and a bounded packet before
-implementation. The 2026-09-11 operator extension applies the same following
-behavior to logs throughout the app, including Diagnostics and recovery reports.
-Coordinate the shared presentation contract with ADR 0066's report owners.
-This work does not add an acceptance gate to task 017 or ADR 0066 task 006.
+In progress - 2026-09-13, in the same bounded
+[shared-log packet](../tasks/adr-0063-task-005-shared-log-frames-and-following.md).
+The [ADR amendment](../adr/0063-show-dashboard-layout.md#shared-log-frames-and-following)
+records following, manual pause, Go to latest outside the viewport, per-source
+state across closing/switching, and logical anchors when text changes. Reading
+state lasts for the app window and is not persisted in configuration.
 
-Required behavior:
-
-- First opening a log shows its latest entries at the bottom and follows new
-  entries. A log at the bottom keeps following until the operator scrolls up.
-- Scrolling up pauses following for that log. New entries must not pull the
-  operator away from the text being read. Scrolling back to the bottom resumes
-  following.
-- An obvious down-arrow control returns to the latest entry and resumes
-  following. Reserve space for it outside the text viewport; it must not cover
-  any log text. Give it a clear label such as Go to latest and keyboard access.
-- Remember each log's reading position and follow state independently when
-  switching sources or closing/reopening the pane. Scope identity to the event
-  and endpoint, or service unit and host/instance, rather than a shared role or
-  displayed title. Persistence across app restarts needs an explicit decision
-  in the future packet.
-- A subtle bottom gradient is an optional cue for content below the viewport.
-  It supplements the arrow and must preserve text readability and selection.
-
-Owners to inspect: `ShowLogPaneDisplay` and the app adapter for source identity,
-follow state, and command intent; the shared `ShowLogPane`/selectable-text owner
-for scroll position and reserved control space; named tokens for the arrow and
-optional gradient. Include the startup-report and maintenance-form composites
-and their view models when defining the common log frame and following state.
-Renderer handles stay outside the view model.
-
-The packet must also define how visible logs receive fresh entries. Current
-`ServiceControl::logs` reads a finite journal snapshot. Event Logs remains a
-configuration snapshot plus the latest result per action under ADR 0063;
-viewport following must not silently turn it into a persistent history. Define
-how to retain a reading anchor when rows change or history is trimmed, and how
-to report when that anchor is no longer available.
-
-Mechanical acceptance: source-keyed state tests cover initial following,
-manual pause, updates while paused, return to latest, independent source
-restoration, and replaced/trimmed content. Visual acceptance: use enough live
-entries to overflow the pane; inspect follow/pause/resume while switching logs,
-closing/reopening, and resizing, including appended Diagnostics and recovery
-reports in the shared frame. Confirm the arrow covers no text, the optional
-gradient preserves readability, and keyboard/right-click Copy still returns
-the selected text. See also the
-[UTC timestamp follow-up](broadcast-chain-delivery-order.md#consistent-utc-log-timestamps).
+Visible service journals refresh as finite snapshots through the existing
+service-observation cadence. Event and recovery report retention remain unchanged.
+Mechanical and operator proof belong to the packet; the operator gate is open.
+Cross-repository UTC corrections remain in the
+[separate timestamp follow-up](broadcast-chain-delivery-order.md#consistent-utc-log-timestamps).
 
 #### A13 - Narrow Show Layout Leaves No Visible Log Body
 

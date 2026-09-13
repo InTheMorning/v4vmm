@@ -175,6 +175,7 @@ pub struct TopApp {
     maintenance_worker: Option<crate::presentation::maintenance_executor::MaintenanceClient>,
     session_callback: Option<crate::ui::composites::maintenance_forms::SessionCallback>,
     previous_session_report: String,
+    log_frames: crate::ui::composites::log_frame::LogFrames,
     configuration_editor_subscription: Option<gpui::Subscription>,
     configuration_editor:
         Option<Entity<crate::presentation::configuration_editor::ConfigurationEditor>>,
@@ -383,6 +384,7 @@ impl TopApp {
             maintenance_worker: None,
             session_callback: None,
             previous_session_report: String::new(),
+            log_frames: crate::ui::composites::log_frame::LogFrames::default(),
             configuration_editor: None,
             configuration_editor_subscription: None,
         }

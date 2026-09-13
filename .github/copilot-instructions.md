@@ -15,6 +15,7 @@ When you need to look something up, consult this map first to find the right fil
 | Shared recovery/Settings editor, typed state and geometry | `src/view_models/startup/correction.rs`, `src/presentation/configuration_editor.rs`, `src/ui/composites/maintenance_forms.rs` |
 | Core startup admission and music storage probes | `src/startup.rs`, `src/startup/storage.rs` |
 | Recovery state/actions/reports; shared geometry; screen wiring | `src/view_models/startup.rs`, `src/ui/composites/startup_report.rs`, `src/app/startup.rs` |
+| Shared log frame, source identity, follow/pause and reading anchors | `src/ui/composites/log_frame.rs`, `src/view_models/log_view.rs`, `src/view_models/show.rs` (ADR 0063); app roots retain `LogFrames` |
 | Scoped background issues and command remedies | `src/application/capability.rs`, `src/view_models/startup/capabilities.rs` |
 | Search failure explanation/disclosure; shared report URL redaction | `src/view_models/search_results/failure.rs`, `src/diagnostics.rs` |
 | Settings groups and field/action contracts; shared form/navigation; screen wiring | `src/view_models/settings.rs`, `src/ui/composites/settings.rs`, `src/app/settings.rs` (ADR 0069) |

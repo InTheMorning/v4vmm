@@ -17,6 +17,11 @@ acceptance gate. Task 006 is complete on 2026-09-13 with mechanical checks Green
 operator V1–V6 and preservation accepted, and fixture cleanup confirmed.
 Tasks 007–013 remain unstarted; task 007 follows in a fresh session.
 
+Scheduling amendment - 2026-09-13: at the operator's request,
+[shared log frames and following](../tasks/adr-0063-task-005-shared-log-frames-and-following.md)
+now precedes task 007. Its mechanical checks are Green; operator acceptance,
+preservation and cleanup remain open. Finish that gate before resuming this plan.
+
 This plan executes [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md).
 The [delivery order](broadcast-chain-delivery-order.md#current-delivery-order)
 still owns cross-repository priority. Finish and verify this series before

@@ -773,3 +773,12 @@ mod tests {
         assert!((c.a - 1.0).abs() < f32::EPSILON);
     }
 }
+
+/// ADR 0063: all log bodies use the same compact, scaled monospace role.
+pub const LOG_TEXT_SIZE: FontSize = FontSize::Caption;
+pub const LOG_LINE_HEIGHT: f32 = 1.5;
+
+#[must_use]
+pub fn log_font_family(cx: &App) -> gpui::SharedString {
+    cx.theme().mono_font_family.clone()
+}

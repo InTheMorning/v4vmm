@@ -53,6 +53,14 @@ struct ShowCardSlots {
 }
 
 impl ShowSlots {
+    pub(crate) fn log_frames(
+        mut self,
+        frames: crate::ui::composites::log_frame::LogFrames,
+    ) -> Self {
+        self.log.frames = frames;
+        self
+    }
+
     pub(crate) fn on_select_event(
         mut self,
         handler: impl Fn(String, &mut Window, &mut App) + 'static,

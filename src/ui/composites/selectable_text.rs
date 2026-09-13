@@ -60,8 +60,8 @@ struct SelectableTextState {
 impl SelectableTextState {
     fn update_value(&mut self, value: SharedString) -> bool {
         if self.value != value {
+            self.selection.update_text(&self.value, &value);
             self.value = value;
-            self.selection = TextSelection::default();
             self.dragging = false;
             self.menu_position = None;
             return true;

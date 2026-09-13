@@ -53,6 +53,7 @@ impl TopApp {
         capability_report(
             &self.capability_vm,
             expanded,
+            &self.log_frames,
             Rc::new(move |action, window, cx| {
                 let _ = entity.update(cx, |this, cx| this.capability_action(action, window, cx));
             }),

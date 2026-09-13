@@ -3,13 +3,14 @@
 use std::rc::Rc;
 
 use gpui::{div, prelude::*, AnyElement, App, Window};
-use gpui_component::scroll::ScrollableElement;
 
+use crate::ui::composites::log_frame::{LogFrame, LogFrames};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts::{scaled_dimension, CONFIGURATION_EDITOR_HEIGHT};
 use crate::ui::primitives::Button;
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
+use crate::view_models::log_view::LogSource;
 use crate::view_models::startup::session::{SessionAction, SessionActionDisplay, SessionReportVm};
 use crate::view_models::startup::StartupAvailability;
 
@@ -21,6 +22,7 @@ pub(crate) fn configuration_correction(
     vm: &crate::view_models::startup::correction::CorrectionVm,
     input: &gpui::Entity<gpui_component::input::InputState>,
     callback: &CorrectionCallback,
+    logs: &LogFrames,
     cx: &App,
 ) -> AnyElement {
     use crate::view_models::startup::correction::{CorrectionAction, CorrectionVm};
@@ -80,7 +82,11 @@ pub(crate) fn configuration_correction(
     }
     if !vm.report.is_empty() {
         body = body
-            .child(div().whitespace_normal().min_w_0().child(vm.report.clone()))
+            .child(LogFrame::new(
+                logs,
+                LogSource::Configuration,
+                vm.report.clone(),
+            ))
             .child(correction_button(
                 vm.action(CorrectionAction::CopyReport),
                 callback.clone(),
@@ -136,6 +142,7 @@ pub(crate) fn session_entry(
     display: SessionActionDisplay,
     generation: u64,
     previous_report: &str,
+    logs: &LogFrames,
     callback: SessionCallback,
     cx: &App,
 ) -> AnyElement {
@@ -156,13 +163,16 @@ pub(crate) fn session_entry(
         )
         .child(div().child(SessionReportVm::generation_label(generation)))
         .child(session_button(display, callback))
-        .child(div().whitespace_normal().child(previous_report.to_owned()))
+        .when(!previous_report.is_empty(), |body| {
+            body.child(LogFrame::new(logs, LogSource::Session, previous_report))
+        })
         .into_any_element()
 }
 
 pub(crate) fn session_drain(
     vm: &SessionReportVm,
     callback: &SessionCallback,
+    logs: &LogFrames,
     cx: &App,
 ) -> AnyElement {
     let mut actions = div().flex().flex_wrap().gap(Spacing::SM.scaled(cx));
@@ -189,16 +199,7 @@ pub(crate) fn session_drain(
                 .child(SessionReportVm::TITLE),
         )
         .child(div().whitespace_normal().child(SessionReportVm::WAITING))
-        .child(
-            div()
-                .id("session-maintenance-report")
-                .flex_1()
-                .min_h_0()
-                .min_w_0()
-                .overflow_y_scrollbar()
-                .whitespace_normal()
-                .child(vm.report.clone()),
-        )
+        .child(LogFrame::new(logs, LogSource::Session, vm.report.clone()).fill())
         .child(actions)
         .into_any_element()
 }

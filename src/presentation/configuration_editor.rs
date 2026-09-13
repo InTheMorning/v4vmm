@@ -29,6 +29,7 @@ pub(crate) type CorrectionEventCallback = Rc<dyn Fn(CorrectionEvent, &mut Window
 pub(crate) struct ConfigurationEditor {
     pub(crate) vm: CorrectionVm,
     input: Entity<InputState>,
+    logs: crate::ui::composites::log_frame::LogFrames,
     worker: Option<MaintenanceClient>,
     callback: CorrectionEventCallback,
     _subscription: Subscription,
@@ -38,6 +39,7 @@ impl ConfigurationEditor {
     pub(crate) fn new(
         worker: Option<MaintenanceClient>,
         callback: CorrectionEventCallback,
+        logs: crate::ui::composites::log_frame::LogFrames,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -51,6 +53,7 @@ impl ConfigurationEditor {
         Self {
             vm: CorrectionVm::new(worker.is_some()),
             input,
+            logs,
             worker,
             callback,
             _subscription: subscription,
@@ -137,6 +140,6 @@ impl Render for ConfigurationEditor {
         let callback: CorrectionCallback = Rc::new(move |action, window, cx| {
             let _ = entity.update(cx, |this, cx| this.action(action, window, cx));
         });
-        configuration_correction(&self.vm, &self.input, &callback, cx)
+        configuration_correction(&self.vm, &self.input, &callback, &self.logs, cx)
     }
 }

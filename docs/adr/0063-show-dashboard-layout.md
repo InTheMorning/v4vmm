@@ -2,7 +2,13 @@
 
 ## Status
 
-Implemented - 2026-09-10.
+Accepted - 2026-09-13.
+
+Amended 2026-09-13 at the operator's request: shared framed log presentation,
+monospace typography, and per-source following now precede ADR 0066 task 007.
+[Task 005](../tasks/adr-0063-task-005-shared-log-frames-and-following.md) owns this
+bounded change and its open operator gate. Earlier dashboard and task 017
+acceptance remain closed for their shipped scope.
 
 Dashboard tasks 001-004 and ADR 0059 task 017 are complete, including compact
 per-item badges, Event diagnostics, operator acceptance, and fixture cleanup.
@@ -13,8 +19,8 @@ Reconciled 2026-09-10: the operator confirmed action feedback task 001 tested an
 passed. Its visual gate is closed. Task 017's operator acceptance also passed,
 with the narrow-window limitation recorded as deferred work in the packet.
 The operator confirmed fixture cleanup, closing task 017's final gate and
-returning this ADR to Implemented. No operator acceptance check for this ADR
-remains open.
+returning this ADR to Implemented for that scope. The new shared-log amendment
+has its own acceptance gate.
 
 Amended 2026-09-10: [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md)
 keeps Stream controls mounted through commands. ADR 0059 owns the command-state
@@ -174,6 +180,39 @@ remain operator checks in
 [task 004](../tasks/adr-0063-task-004-log-bottom-pane.md#operator-visual-check).
 The operator confirmed these checks and the added right-click Copy menu on
 2026-09-09. Task 004 has no remaining visual acceptance gate.
+
+### Shared Log Frames And Following
+
+Amended 2026-09-13. Show journals and Event diagnostics, Settings background and
+session reports, startup recovery, configuration repair, and session draining
+use one shared log viewport. It owns a bordered background, compact monospace
+text, scaled typography and spacing, visible horizontal and vertical scrollbars,
+selection, and a footer outside the text containing Go to latest. Long lines
+remain unwrapped and exact copying retains their complete text.
+
+A renderer-free reading model owns following, reading anchors, replacement
+behavior, labels and action availability. Renderer handles and retained log
+views belong to the shared composite. The window/session composition root keeps
+those views alive across disclosure, source changes, and Settings/recovery
+transitions. Source identity distinguishes event plus endpoint, and
+service unit plus configured host/instance; titles and transient status do not
+identify a source. No reading state is persisted in configuration.
+
+First opening follows the bottom. Appends and resizes keep a following view at
+the latest entry. Scrolling up pauses only that source; returning to the bottom
+or activating Go to latest resumes following. Paused updates retain the top
+logical line and its offset where that line survives. If replacement or trimming
+removes it, show the earliest available content and a visible explanation while
+remaining paused. Horizontal position is independent of vertical following.
+
+Report owners retain their current update and retention semantics. Event
+reports remain snapshots plus the latest result per operation; recovery reports
+append only actual recorded actions. Visible service journals refresh through
+the existing service observation cadence and command runner, with one read in
+flight and existing stale-result rejection. Closing the pane or leaving Show
+stops requesting new reads. No automatic service retry or process restart is
+introduced. UTC text and credential redaction remain source responsibilities;
+this presentation change never invents timestamps or rewrites source text.
 
 ### Event Diagnostics Reuses The Bottom Pane
 
@@ -345,8 +384,10 @@ their shipped scope.
 - The [narrow-layout proposal](../plans/show-narrow-layout-proposal.md) records
   compact cards, wider logs, and playback-bar scope. The
   [polish backlog](../plans/hig-product-polish-backlog.md) records long-line
-  readability and per-log following/reading positions. These remain future
-  work and do not reopen task 017's accepted scope.
+  readability and per-log following/reading positions. These now belong to
+  [task 005](../tasks/adr-0063-task-005-shared-log-frames-and-following.md), whose
+  operator gate is open. The narrow card/log allocation remains future work;
+  neither scope reopens task 017's accepted gate.
 
 - Find the root cause of the column truncation defect, and restore the
   ellipsis. `docs/troubleshooting/column-text-truncation.md` holds what is
