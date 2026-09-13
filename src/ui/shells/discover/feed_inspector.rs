@@ -100,7 +100,7 @@ pub(crate) fn render_inspector(
                     .track_scroll(&recents_handle)
                     .on_scroll_wheel(cx.listener(
                         move |this: &mut SearchApp, _event: &ScrollWheelEvent, _window, cx| {
-                            let max_y = f32::from(recents_for_listener.max_offset().height);
+                            let max_y = f32::from(recents_for_listener.max_offset().y);
                             let offset_y = f32::from(recents_for_listener.offset().y);
                             let remaining = max_y + offset_y;
                             if should_auto_load_more(

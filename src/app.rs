@@ -443,7 +443,7 @@ impl TopApp {
 
     fn select_tab(&mut self, tab: AppTab, window: &mut Window, cx: &mut Context<Self>) {
         self.tab = tab;
-        self.focus_active_tab(window);
+        self.focus_active_tab(window, cx);
 
         if matches!(tab, AppTab::Show) {
             self.queue_text_filter = None;

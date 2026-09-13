@@ -64,6 +64,6 @@ pub const LOG_FRAME_HEIGHT: Pixels = px(200.0);
 pub const LOG_FRAME_BORDER: Pixels = px(1.0);
 pub const LOG_SCROLLBAR_GUTTER: Pixels = px(16.0);
 
-/// GPUI component 0.5.1 overlay scrollbar hit width is fixed at 16 pixels.
+/// Default gpui-base overlay scrollbar track width.
 /// ADR 0063: reserve this width plus scaled separation for nested controls.
-pub(crate) const OVERLAY_SCROLLBAR_WIDTH: Pixels = px(16.0);
+pub(crate) const OVERLAY_SCROLLBAR_WIDTH: Pixels = gpui_base::Scrollbar::width();

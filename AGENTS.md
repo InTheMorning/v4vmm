@@ -64,6 +64,14 @@ and recovery share the frame and reading-state owner. The
 [operator procedure](docs/runbooks/log-frame-check.md) remains a regression
 check. ADR 0066 task 007 follows in a fresh session; implementation has not started.
 
+[ADR 0071 task 001: Shared text selection](docs/tasks/adr-0071-task-001-shared-text-selection.md)
+is implemented, with mechanical checks Green and operator V1–V3,
+preservation and fixture cleanup open. It owns double/triple-click selection
+and Linux primary paste across shared logs and inputs. The completed log packet
+stays closed. Its separate [operator procedure](docs/runbooks/text-selection-check.md)
+covers Unicode, paths, cross-application paste, Undo/Redo and accepted Escape.
+ADR 0066 task 007 remains unstarted and follows in a later session.
+
 [ADR 0068: Show cue and audition isolation](docs/adr/0068-show-cue-and-audition-isolation.md)
 is Proposed; its implementation has not started. Task 004's playback checks
 remain paused pending that separation and resolution of the observed mpv IPC error.

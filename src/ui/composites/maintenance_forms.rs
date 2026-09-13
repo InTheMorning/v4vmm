@@ -3,12 +3,13 @@
 use std::rc::Rc;
 
 use gpui::{div, prelude::*, AnyElement, App, Window};
+use gpui_component::StyleSized as _;
 
 use crate::ui::composites::log_frame::{LogFrame, LogFrames};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts::{scaled_dimension, CONFIGURATION_EDITOR_HEIGHT};
+use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
 use crate::ui::primitives::Button;
-use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::log_view::LogSource;
 use crate::view_models::startup::session::{SessionAction, SessionActionDisplay, SessionReportVm};
@@ -20,7 +21,7 @@ pub(crate) type CorrectionCallback =
 /// The same editor geometry is mounted in Settings and core recovery.
 pub(crate) fn configuration_correction(
     vm: &crate::view_models::startup::correction::CorrectionVm,
-    input: &gpui::Entity<gpui_component::input::InputState>,
+    input: &gpui::Entity<gpui_component::input::TextareaState>,
     callback: &CorrectionCallback,
     logs: &LogFrames,
     disclosure_focus: &gpui::FocusHandle,
@@ -40,7 +41,7 @@ pub(crate) fn configuration_correction(
             |body| {
                 body.on_action(move |_: &gpui_component::input::Escape, window, cx| {
                     cx.stop_propagation();
-                    close_focus.focus(window);
+                    close_focus.focus(window, cx);
                 })
             },
         )
@@ -136,17 +137,21 @@ fn configuration_header(
 
 fn configuration_input_frame(
     vm: &crate::view_models::startup::correction::CorrectionVm,
-    input: &gpui::Entity<gpui_component::input::InputState>,
+    input: &gpui::Entity<gpui_component::input::TextareaState>,
     cx: &App,
 ) -> gpui::Div {
-    let widget = gpui_component::input::Input::new(input)
+    let widget = gpui_component::input::Textarea::new(input)
         .disabled(!vm.input_enabled())
-        .scaled(gpui_component::Size::Small, cx)
+        .input_text_size(crate::ui::sizable_bridge::scaled(
+            gpui_component::Size::Small,
+            cx,
+        ))
         .h_full()
         .absolute()
         .inset_0()
         .w_auto()
-        .min_w_0();
+        .min_w_0()
+        .with_primary_selection(input);
     // Percentage width resolved to zero here while auto-width siblings
     // stretched correctly. Let the column allocate this viewport (ADR 0066 V1).
     let mut frame = div()

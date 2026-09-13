@@ -194,7 +194,7 @@ fn install_theme_for_appearance(
     theme.sidebar_primary_foreground = on_accent;
 
     // Lists.
-    theme.list = bg;
+    theme.colors.list = bg;
     theme.list_hover = bg2;
     theme.list_active = selected;
     theme.list_active_border = accent;
@@ -225,7 +225,6 @@ fn install_theme_for_appearance(
 
     // Misc surfaces that would otherwise show light defaults.
     theme.accordion = bg2;
-    theme.accordion_hover = bg3;
     theme.group_box = bg2;
     theme.group_box_foreground = label;
     theme.description_list_label = bg2;
@@ -242,6 +241,8 @@ fn install_theme_for_appearance(
     // Force every open window to re-render so the new scale + colors are
     // picked up immediately. Without this, the next user interaction (or a
     // background timer) would be needed before any visual change.
+    theme.tokens = theme.colors.into();
+    Theme::sync_base(cx);
     cx.refresh_windows();
 }
 
@@ -264,4 +265,26 @@ fn scrim() -> Hsla {
         a: 0.5,
     }
     .into()
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use super::*;
+
+    #[gpui::test]
+    fn adr_0071_migrated_base_and_component_palettes_follow_the_app(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            {
+                install_theme(ThemeProfile::Dark, ScaleFactor::Medium, cx);
+                let theme = Theme::global(cx);
+                assert_eq!(theme.tokens.background.color, theme.background);
+                assert_eq!(theme.tokens.scrollbar_thumb.color, theme.scrollbar_thumb);
+                assert_eq!(
+                    gpui_base::Theme::global(cx).tokens.colors.selection,
+                    theme.selection
+                );
+            }
+        });
+    }
 }

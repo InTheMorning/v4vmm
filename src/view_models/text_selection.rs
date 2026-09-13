@@ -1,4 +1,4 @@
-//! Renderer-free text selection and Copy action contract for ADR 0063.
+//! Renderer-free text selection and Copy contract for ADRs 0063 and 0071.
 
 #![warn(clippy::pedantic)]
 
@@ -50,18 +50,6 @@ impl TextSelection {
         }
     }
 
-    pub(crate) fn at(text: &str, index: usize) -> Self {
-        let index = char_boundary(text, index);
-        Self {
-            anchor: index,
-            head: index,
-        }
-    }
-
-    pub(crate) fn extend(&mut self, text: &str, index: usize) {
-        self.head = char_boundary(text, index);
-    }
-
     pub(crate) fn range(&self) -> Range<usize> {
         self.anchor.min(self.head)..self.anchor.max(self.head)
     }
@@ -72,23 +60,22 @@ impl TextSelection {
     }
 }
 
-fn char_boundary(text: &str, index: usize) -> usize {
-    let mut index = index.min(text.len());
-    while !text.is_char_boundary(index) {
-        index -= 1;
-    }
-    index
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn selected(text: &str, anchor: usize, head: usize) -> TextSelection {
+        let clip = |offset: usize| text.floor_char_boundary(offset.min(text.len()));
+        TextSelection {
+            anchor: clip(anchor),
+            head: clip(head),
+        }
+    }
+
     #[test]
     fn adr_0063_log_append_keeps_selection_and_replacement_clears_it() {
         let previous = "répété 🦀\n";
-        let mut selection = TextSelection::at(previous, 0);
-        selection.extend(previous, previous.len());
+        let mut selection = selected(previous, 0, previous.len());
         let next = format!("{previous}next\n");
         selection.update_text(previous, &next);
         assert_eq!(selection.selected_text(&next), Some(previous));
@@ -105,7 +92,7 @@ mod tests {
         assert!(action.availability.disabled());
         assert_eq!(action.label, "Copy");
         assert_eq!(action.a11y_label, "Copy selected text");
-        selection.extend(text, text.len());
+        selection = selected(text, selection.anchor, text.len());
         assert!(!selection.copy_action(text).availability.disabled());
         assert!(selection.copy_action("x").availability.disabled());
         assert_eq!(selection.selected_text(text), Some(text));
@@ -115,11 +102,9 @@ mod tests {
     #[test]
     fn selection_copies_exact_multiline_text_in_either_drag_direction() {
         let text = "  first <tag> & value\n\n  deuxième 🦀\t\n";
-        let mut forward = TextSelection::at(text, 0);
-        forward.extend(text, text.len());
+        let forward = selected(text, 0, text.len());
         assert_eq!(forward.selected_text(text), Some(text));
-        let mut backward = TextSelection::at(text, text.len());
-        backward.extend(text, 0);
+        let backward = selected(text, text.len(), 0);
         assert_eq!(backward.selected_text(text), Some(text));
     }
 
@@ -127,11 +112,10 @@ mod tests {
     #[test]
     fn selection_clamps_offsets_and_copies_partial_unicode_text() {
         let text = "a🦀éz";
-        let mut selection = TextSelection::at(text, 3);
-        selection.extend(text, 6);
+        let mut selection = selected(text, 3, 6);
         assert_eq!(selection.selected_text(text), Some("🦀"));
-        selection.extend(text, usize::MAX);
+        selection = selected(text, selection.anchor, usize::MAX);
         assert_eq!(selection.selected_text(text), Some("🦀éz"));
-        assert!(TextSelection::at(text, 0).selected_text(text).is_none());
+        assert!(selected(text, 0, 0).selected_text(text).is_none());
     }
 }

@@ -4817,12 +4817,12 @@ fn adr_0067_mount_and_section_changes_establish_a_persistent_focus_path() {
     let bootstrap = read_source(&manifest_path("src/app/bootstrap.rs"));
     let app = read_source(&manifest_path("src/app.rs"));
     let tabs = read_source(&manifest_path("src/app/tab_bar.rs"));
-    assert!(bootstrap.contains("app.focus_active_tab(window);"),
+    assert!(bootstrap.contains("app.focus_active_tab(window, cx);"),
         "Situational ADR 0067: normal mount must focus a control beneath the app action handlers before the first shortcut");
-    assert!(app.contains("self.tab = tab;\n        self.focus_active_tab(window);"),
+    assert!(app.contains("self.tab = tab;\n        self.focus_active_tab(window, cx);"),
         "Situational ADR 0067: every section transition must replace focus from an input that may leave the mounted tree");
     assert!(tabs.contains(".track_focus(focus_handle)")
-        && tabs.contains("focus_handle_for_key(key, self).focus(window);"),
+        && tabs.contains("focus_handle_for_key(key, self).focus(window, cx);"),
         "Situational ADR 0067: transition focus must use the persistent handles mounted by the shared tab bar");
     let render = app
         .split_once("impl Render for TopApp")
@@ -15972,7 +15972,7 @@ fn adr_0063_log_text_is_selectable_and_copied_without_rewriting() {
         ".whitespace_nowrap()",
         ".track_focus(&self.focus)",
         ".on_mouse_down(",
-        ".on_mouse_move(",
+        "TextSelectionRegistration::new(",
         ".on_key_down(",
         "self.selection.selected_text(&self.value)",
         "ClipboardItem::new_string(text.to_owned())",
@@ -15992,6 +15992,92 @@ fn adr_0063_log_text_is_selectable_and_copied_without_rewriting() {
     }
 }
 
+/// Situational ADR 0071: inputs and logs share selection policy and keep Linux buffers separate.
+#[test]
+fn adr_0071_selection_and_primary_stay_in_shared_owners() {
+    let manifest = read_source(&manifest_path("Cargo.toml"));
+    assert!(!manifest.contains("[patch.crates-io]"));
+    assert!(!manifest.contains("v4vmm-text-selection"));
+    assert!(manifest.contains("gpui-component = \"=0.6.1\""));
+    assert!(manifest.contains("gpui-base = \"=0.6.1\""));
+    assert!(!manifest_path("vendor").exists());
+    assert!(!manifest_path("crates/text-selection").exists());
+    let input = read_source(&manifest_path("src/ui/primitives/primary_selection.rs"));
+    let logs = read_source(&manifest_path("src/ui/composites/selectable_text.rs"));
+    for required in [
+        "observe_inputs::<InputMode>",
+        "observe_inputs::<TextareaMode>",
+        "previous_range",
+        "previous_text",
+        "is_masked()",
+        "character_index_for_point",
+        "range_to_bounds",
+        "primary_offset_at",
+        "if !input.is_editable()",
+        "input.insert(text, window, cx)",
+        "MouseButton::Middle",
+    ] {
+        assert!(
+            input.contains(required),
+            "ADR 0071: shared input integration requires {required}"
+        );
+    }
+    assert!(
+        !source_between(&input, "fn observe_inputs", "#[cfg(all(test")
+            .contains("read_from_clipboard")
+    );
+    let paste = source_between(&input, "fn paste_primary_at", "#[cfg(all(test");
+    assert!(paste.find("read_from_primary").unwrap() < paste.find("set_selected_range").unwrap());
+    assert!(!paste.contains("write_to_clipboard"));
+    for required in [
+        "TextSelectionHandle",
+        "TextSelectionRun::new",
+        "update_runs",
+        "projection.ranges()",
+    ] {
+        assert!(
+            compact_source(&logs).contains(&compact_source(required)),
+            "ADR 0071: logs must use upstream selection projection: {required}"
+        );
+    }
+    assert!(!logs.contains("SelectionGesture"));
+    for file in [
+        "src/app/tab_bar.rs",
+        "src/library/app_impl.rs",
+        "src/ui/shells/playlist.rs",
+        "src/ui/composites/settings.rs",
+        "src/ui/composites/playlist_popover.rs",
+        "src/ui/composites/maintenance_forms.rs",
+    ] {
+        let source = read_source(&manifest_path(file));
+        assert!(
+            source.contains(".with_primary_selection("),
+            "ADR 0071: {file} must compose shared PRIMARY integration"
+        );
+    }
+    for file in SCREEN_FILES {
+        let source = read_source(&manifest_path(file));
+        for forbidden in [
+            "read_from_primary",
+            "write_to_primary",
+            "MouseButton::Middle",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "ADR 0071: {file} must not own {forbidden}"
+            );
+        }
+    }
+    let bootstrap = read_source(&manifest_path("src/app/bootstrap.rs"));
+    assert!(bootstrap.contains("primary_selection::init(cx)"));
+    assert!(bootstrap.contains("gpui_platform::application()"));
+    let theme = read_source(&manifest_path("src/ui/theme_bridge.rs"));
+    assert!(theme.contains("Theme::sync_base(cx)"));
+    assert!(theme.contains("theme.tokens = theme.colors.into()"));
+    let editor = read_source(&manifest_path("src/presentation/configuration_editor.rs"));
+    assert!(editor.contains("TextareaState::new(window, cx)"));
+}
+
 /// Situational ADR 0063: mouse copying shares the exact selection path and menu owner.
 #[test]
 fn adr_0063_log_copy_menu_preserves_selection_and_uses_typed_actions() {
@@ -16008,7 +16094,7 @@ fn adr_0063_log_copy_menu_preserves_selection_and_uses_typed_actions() {
     ] {
         assert!(text.contains(required), "Situational ADR 0063: log menu needs {required}. Use the shared menu and exact clipboard path.");
     }
-    let right_click = source_between(&text, "MouseButton::Right,", "MouseButton::Left,");
+    let right_click = source_between(&text, "MouseButton::Right,", ".on_key_down(");
     assert!(
         !right_click.contains("this.selection"),
         "Situational ADR 0063: opening the menu must preserve the current selection."
@@ -16029,7 +16115,7 @@ fn adr_0063_log_copy_menu_preserves_selection_and_uses_typed_actions() {
         ".snap_to_window_with_margin(Spacing::SM.scaled(cx))",
         ".on_mouse_down_out(",
         "event.keystroke.key == \"escape\"",
-        "self.return_focus.focus(window)",
+        "self.return_focus.focus(window, cx)",
     ] {
         assert!(menu.contains(required), "Situational ADR 0063: pointer menu needs {required}. Keep chrome, anchoring, dismissal, and focus in the shared owner.");
     }
@@ -16921,7 +17007,7 @@ fn adr_0066_editor_escape_focuses_close_without_closing() {
     assert!(editor.contains("letclose_focus=disclosure_focus.clone()"));
     let escape = source_between(&editor, "body.on_action(", ".gap(");
     assert!(escape.contains("cx.stop_propagation()"));
-    assert!(escape.contains("close_focus.focus(window)"));
+    assert!(escape.contains("close_focus.focus(window,cx)"));
     for forbidden in [
         "callback(",
         ".close_editor(",
@@ -16954,7 +17040,7 @@ fn adr_0066_editor_escape_focuses_close_without_closing() {
         "CorrectionAction::ReopenEditor =>",
     );
     assert!(close.contains("self.vm.close_editor()"));
-    assert!(close.contains("self.disclosure_focus.focus(window)"));
+    assert!(close.contains("self.disclosure_focus.focus(window, cx)"));
     for forbidden in ["self.request", "self.sync_input", "self.input.update"] {
         assert!(!close.contains(forbidden), "ADR 0066: close only hides the retained draft and returns focus; it cannot call {forbidden}");
     }
@@ -16990,7 +17076,7 @@ fn adr_0063_logs_share_frame_following_and_renderer_free_state() {
         "SelectableText::new",
         "LOG_TEXT_SIZE",
         "log_font_family",
-        "ScrollbarShow::Always",
+        "ScrollbarMode::Always",
         "FollowAvailability::Available",
     ] {
         assert!(

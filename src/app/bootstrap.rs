@@ -6,9 +6,7 @@ use std::sync::{
 };
 use std::time::Duration;
 
-use gpui::{
-    size, AppContext, Application, Bounds, Context, Entity, Window, WindowBounds, WindowOptions,
-};
+use gpui::{size, AppContext, Bounds, Context, Entity, Window, WindowBounds, WindowOptions};
 use gpui_component::Root;
 
 use crate::application::capability::{
@@ -43,9 +41,10 @@ pub fn run_app() -> bool {
     let client = worker.as_ref().ok().map(|worker| worker.client.clone());
     let opened = Arc::new(AtomicBool::new(false));
     let session_opened = opened.clone();
-    let app = Application::new().with_assets(gpui_component_assets::Assets);
+    let app = gpui_platform::application().with_assets(gpui_kit_assets::Assets);
     app.run(move |cx| {
         gpui_component::init(cx);
+        crate::ui::primitives::primary_selection::init(cx);
         install_key_bindings(cx);
         install_app_menu(cx);
         // Pre-config: install with default scale; ADR 0066 recovery requires
@@ -241,7 +240,7 @@ pub(super) fn mount_normal<T: 'static>(
             window,
             cx,
         );
-        app.focus_active_tab(window);
+        app.focus_active_tab(window, cx);
         app.install_capability_controls(capability_observations, worker, cx);
         app.maybe_start_broadcast_readiness_watch(cx);
         app.maybe_start_broadcast_service_watch(cx);
@@ -282,7 +281,7 @@ fn nudge_window(window_handle: gpui::AnyWindowHandle, cx: &mut gpui::App) {
         cx.background_executor()
             .timer(Duration::from_millis(16))
             .await;
-        let _ = cx.update(|cx| {
+        cx.update(|cx| {
             let _ = window_handle.update(cx, |_, window, cx| {
                 window.activate_window();
                 window.refresh();
@@ -294,7 +293,7 @@ fn nudge_window(window_handle: gpui::AnyWindowHandle, cx: &mut gpui::App) {
         cx.background_executor()
             .timer(Duration::from_millis(100))
             .await;
-        let _ = cx.refresh();
+        cx.refresh();
     })
     .detach();
 }

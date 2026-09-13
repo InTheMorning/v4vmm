@@ -36,7 +36,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    canvas, div, point, prelude::*, AnyElement, App, Bounds, Corner, ElementId, IntoElement,
+    canvas, div, point, prelude::*, Anchor, AnyElement, App, Bounds, ElementId, IntoElement,
     PathBuilder, Pixels, RenderOnce, Window,
 };
 use gpui_component::{popover::Popover as ComponentPopover, Selectable};
@@ -60,9 +60,8 @@ pub enum PopoverPlacement {
 
 /// Where, along the trigger's edge, the popover anchors.
 ///
-/// `Center` is supported in newer gpui-component versions but the currently
-/// pinned `0.5.1` only exposes the four corners — `Center` therefore maps to
-/// `Start` for now.
+/// `Center` is supported in newer gpui-component versions but the application currently keeps the established four-corner
+/// placement contract; `Center` maps to `Start`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PopoverAlignment {
     /// Anchor at the trigger's leading edge (left in LTR).
@@ -76,12 +75,12 @@ pub enum PopoverAlignment {
 }
 
 impl PopoverPlacement {
-    fn corner(self, alignment: PopoverAlignment) -> Corner {
+    fn corner(self, alignment: PopoverAlignment) -> Anchor {
         match (self, alignment) {
-            (Self::Below, PopoverAlignment::Start | PopoverAlignment::Center) => Corner::TopLeft,
-            (Self::Below, PopoverAlignment::End) => Corner::TopRight,
-            (Self::Above, PopoverAlignment::Start | PopoverAlignment::Center) => Corner::BottomLeft,
-            (Self::Above, PopoverAlignment::End) => Corner::BottomRight,
+            (Self::Below, PopoverAlignment::Start | PopoverAlignment::Center) => Anchor::TopLeft,
+            (Self::Below, PopoverAlignment::End) => Anchor::TopRight,
+            (Self::Above, PopoverAlignment::Start | PopoverAlignment::Center) => Anchor::BottomLeft,
+            (Self::Above, PopoverAlignment::End) => Anchor::BottomRight,
         }
     }
 }

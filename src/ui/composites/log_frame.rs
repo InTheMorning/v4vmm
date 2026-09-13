@@ -11,7 +11,7 @@ use gpui::{
     canvas, div, prelude::*, App, AppContext, Context, Entity, IntoElement, Render, RenderOnce,
     ScrollHandle, Window,
 };
-use gpui_component::scroll::{Scrollbar, ScrollbarShow};
+use gpui_component::scroll::{Scrollbar, ScrollbarMode};
 
 use crate::ui::composites::SelectableText;
 use crate::ui::control_styles::ControlStyle;
@@ -173,11 +173,8 @@ impl LogFrameState {
         }
         let top = -f32::from(self.scroll.offset().y);
         if (top - self.last_top).abs() > f32::EPSILON {
-            self.vm.scroll(
-                top,
-                f32::from(self.scroll.max_offset().height),
-                self.line_height,
-            );
+            self.vm
+                .scroll(top, f32::from(self.scroll.max_offset().y), self.line_height);
             self.last_top = top;
         }
     }
@@ -257,9 +254,7 @@ impl Render for LogFrameState {
                             .left_0()
                             .right_0()
                             .bottom_0()
-                            .child(
-                                Scrollbar::new(&self.scroll).scrollbar_show(ScrollbarShow::Always),
-                            ),
+                            .child(Scrollbar::new(&self.scroll).mode(ScrollbarMode::Always)),
                     )
                     .child(
                         canvas(

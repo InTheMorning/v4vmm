@@ -92,6 +92,7 @@ pub(super) fn app_menu_key_bindings_for_platform(is_macos: bool) -> Vec<KeyBindi
 fn app_menus() -> Vec<Menu> {
     vec![Menu {
         name: APP_NAME.into(),
+        disabled: false,
         items: vec![
             MenuItem::action("Preferences...", OpenPreferences),
             MenuItem::separator(),

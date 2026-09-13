@@ -238,34 +238,20 @@ Acceptance direction:
 
 #### 11. Linux Text Selection and Primary Paste
 
-Reported during ADR 0069 task 001 acceptance - 2026-09-11: the operator could
-not select an entire Settings field with double/triple clicks or paste the
-Linux primary selection with the middle mouse button. This is a shared input
-follow-up, outside the grouped Settings foundation's structural scope.
+Requested behavior across shared logs, Settings, toolbar search and the
+configuration editor is owned by [ADR 0071](../adr/0071-shared-text-selection-and-linux-primary.md)
+and [task 001](../tasks/adr-0071-task-001-shared-text-selection.md), started in
+a fresh session on 2026-09-13. Double-click selects a Unicode word; triple-click
+selects a logical line or the full single-line value. Selection publishes Linux
+primary; middle-click inserts it in editable text while preserving Ctrl+C/V.
 
-Inspection of the pinned `gpui-component` 0.5.1 input shows a double-left-click
-word-selection handler and Ctrl+A for select-all. Triple-click select-all and
-middle-button paste are absent. The report does not establish a failure of
-double-click word selection. GPUI 0.2.2 exposes Linux primary-selection read
-and write APIs; the input component does not wire them to these interactions.
-
-Acceptance direction for a bounded follow-up packet:
-
-- Keep double-click word selection; add triple-click line selection, covering
-  the entire value in a single-line field. Verify URLs, paths and Unicode text.
-- Publish selected input text to the Linux primary selection and paste that
-  selection on middle-click. Preserve the ordinary clipboard and Ctrl+C/V.
-- Own the behavior in the shared text-input integration, with a declared
-  primitive/composite and platform boundary; avoid Settings-only handlers.
-- Add behavioral coverage for selection ranges and insertion/replacement,
-  plus desktop checks in Settings and toolbar search for keyboard focus,
-  cross-application primary selection and ordinary clipboard preservation.
-- Use a disposable Settings fixture and a separate text editor for the manual
-  check. Keep edits unsaved and clean up the fixture after recording results.
-
-No implementation or acceptance is claimed here. The active ADR 0069 Save
-investigation remains in its
-[task packet](../tasks/adr-0069-task-001-grouped-settings-foundation.md).
+The shared input already supported double-click before this packet; the earlier
+Settings report did not prove that handler failed. Logs gain word selection,
+and both owners use gpui-base 0.6.1 boundaries with shared PRIMARY integration.
+The packet owns focused Unicode/path/undo/cross-application/Escape checks.
+Implementation is complete; mechanical checks are Green and the
+[operator gate](../runbooks/text-selection-check.md) remains open, including
+preservation and cleanup. ADR 0063 task 005 and ADR 0069 task 001 remain closed.
 
 ## Non-Goals
 

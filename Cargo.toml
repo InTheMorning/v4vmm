@@ -2,6 +2,7 @@
 name = "v4vmm"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.97"
 
 [dependencies]
 toml  = "1.0"
@@ -21,9 +22,11 @@ directories = "6"
 anyhow = "1"
 
 # GPUI desktop UI
-gpui = "0.2"
-gpui-component = "0.5"
-gpui-component-assets = "0.5"
+gpui = { package = "gpui-pre", version = "=0.3.1" }
+gpui-component = "=0.6.1"
+gpui-base = "=0.6.1"
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.1", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
+gpui-kit-assets = "=0.6.1"
 open = "5"
 
 # media cache
@@ -36,6 +39,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"
 tokio-util = { version = "0.7", features = ["rt"] }
 
 [dev-dependencies]
+gpui = { package = "gpui-pre", version = "=0.3.1", features = ["test-support"] }
 tempfile = "3"
 
 [[bin]]

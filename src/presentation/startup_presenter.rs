@@ -9,7 +9,7 @@ pub(crate) fn quit_after_window_close(cx: &App) {
     // borrows that client again. App::defer is also too early: its effects flush
     // inside the callback's App update. A foreground task runs after dispatch.
     cx.spawn(async move |cx| {
-        let _ = cx.update(|cx| cx.quit());
+        cx.update(|cx| cx.quit());
     })
     .detach();
 }

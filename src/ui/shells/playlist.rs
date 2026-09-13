@@ -19,6 +19,7 @@ use crate::ui::composites::{
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::{Icon, IconName, IconSize};
+use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
 use crate::ui::primitives::{
     Button as UiButton, ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope,
 };
@@ -272,7 +273,8 @@ fn render_playlist_rename_editor(
                 .child(
                     Input::new(&rename_input)
                         .cleanable(false)
-                        .scaled(Size::Small, cx),
+                        .scaled(Size::Small, cx)
+                        .with_primary_selection(&rename_input),
                 )
                 .into_any_element()
         },

@@ -38,6 +38,11 @@ Core:
 
 Current governance:
 
+- [ADR 0071: Shared text selection](adr/0071-shared-text-selection-and-linux-primary.md):
+  shared Unicode word/line policy and Linux primary paste;
+  [task 001](tasks/adr-0071-task-001-shared-text-selection.md) implementation complete,
+  [operator checks](runbooks/text-selection-check.md) open
+
 - [ADR 0067: Platform shortcut modifiers](adr/0067-platform-shortcut-modifiers.md):
   implemented standard Ctrl shortcuts on Linux; [accepted implementation and checks](tasks/adr-0067-task-001-platform-shortcuts.md)
 - [ADR 0031: Release detail presentation contract](adr/0031-release-detail-presentation-contract.md):

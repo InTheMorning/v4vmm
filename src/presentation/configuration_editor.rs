@@ -9,7 +9,7 @@ use gpui::{
     App, AppContext, ClipboardItem, Context, Entity, FocusHandle, IntoElement, Render,
     Subscription, Window,
 };
-use gpui_component::input::{InputEvent, InputState};
+use gpui_component::input::{InputEvent, TextareaState};
 
 use crate::application::commands::maintenance::{CorrectionAccess, CorrectionResult};
 use crate::config::ConfigSnapshot;
@@ -29,7 +29,7 @@ pub(crate) type CorrectionEventCallback = Rc<dyn Fn(CorrectionEvent, &mut Window
 
 pub(crate) struct ConfigurationEditor {
     pub(crate) vm: CorrectionVm,
-    input: Entity<InputState>,
+    input: Entity<TextareaState>,
     disclosure_focus: FocusHandle,
     logs: crate::ui::composites::log_frame::LogFrames,
     worker: Option<MaintenanceClient>,
@@ -45,7 +45,7 @@ impl ConfigurationEditor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let input = cx.new(|cx| InputState::new(window, cx).multi_line(true));
+        let input = cx.new(|cx| TextareaState::new(window, cx));
         let subscription = cx.subscribe(&input, |this, input, event, cx| {
             if matches!(event, InputEvent::Change) {
                 this.vm.edit(input.read(cx).value().to_string());
@@ -76,7 +76,7 @@ impl ConfigurationEditor {
         match action {
             CorrectionAction::CloseEditor => {
                 self.vm.close_editor();
-                self.disclosure_focus.focus(window);
+                self.disclosure_focus.focus(window, cx);
             }
             CorrectionAction::ReopenEditor => self.vm.reopen_editor(),
             CorrectionAction::Select(field) => {

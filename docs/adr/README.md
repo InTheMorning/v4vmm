@@ -93,6 +93,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0067](0067-platform-shortcut-modifiers.md) | Ctrl app shortcuts on Linux; Command and native Hide actions on macOS | Implemented |
 | [0069](0069-grouped-settings-and-selective-presets.md) | Grouped Settings, live metadata resource selection, independent audio configuration and selective preset snapshots; [task 001 complete; later phases not started](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Accepted |
 | [0070](0070-show-log-space-priority.md) | Open Show logs take height before scrolling cards; sidebar actions remain reachable; ADR 0063 task 005 implementation, acceptance and cleanup complete | Implemented |
+| [0071](0071-shared-text-selection-and-linux-primary.md) | Shared Unicode word/line selection and Linux primary paste; [task 001 implementation complete, operator gate open](../tasks/adr-0071-task-001-shared-text-selection.md) | Accepted |
 
 ## UI Presentation
 

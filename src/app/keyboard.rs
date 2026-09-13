@@ -440,7 +440,14 @@ mod tests {
             KeyBinding::new("ctrl-left", MoveToPreviousWord, Some("Input")),
             KeyBinding::new("ctrl-right", MoveToNextWord, Some("Input")),
             KeyBinding::new("ctrl-h", Backspace, Some("Input")),
-            KeyBinding::new("enter", Enter { secondary: false }, Some("Input")),
+            KeyBinding::new(
+                "enter",
+                Enter {
+                    secondary: false,
+                    shift: false,
+                },
+                Some("Input"),
+            ),
             KeyBinding::new("escape", Escape, Some("Input")),
             KeyBinding::new("up", MoveUp, Some("Input")),
             KeyBinding::new("down", MoveDown, Some("Input")),

@@ -28,6 +28,7 @@ pub mod label;
 pub mod loading;
 pub mod multiline_text;
 pub mod popover;
+pub(crate) mod primary_selection;
 pub mod section_header;
 pub mod skeleton;
 pub mod stack;

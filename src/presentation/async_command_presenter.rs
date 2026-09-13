@@ -51,7 +51,7 @@ pub fn present_command<T, C, OnSuccess, OnError>(
             cx.notify();
         })
         .ok();
-        cx.refresh().ok();
+        cx.refresh();
     })
     .detach();
 }

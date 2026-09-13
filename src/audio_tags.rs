@@ -486,7 +486,7 @@ fn id3_field(frame: &Frame) -> Id3Field {
         Content::UniqueFileIdentifier(ufid) => Id3Field {
             frame_id: descriptor_frame_label("UFID", &ufid.owner_identifier),
             value: String::from_utf8(ufid.identifier.clone())
-                .unwrap_or_else(|_| format!("{:x?}", &ufid.identifier)),
+                .unwrap_or_else(|_| format!("{:x?}", ufid.identifier)),
         },
         Content::InvolvedPeopleList(list) => Id3Field {
             frame_id: frame.id().to_string(),

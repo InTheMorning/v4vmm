@@ -107,10 +107,10 @@ impl RenderOnce for PointerContextMenu {
         let focus = window.use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle());
         let focus = focus.read(cx).clone();
         if !focus.contains_focused(window, cx) {
-            focus.focus(window);
+            focus.focus(window, cx);
         }
         let dismiss: SelectHandler = Rc::new(move |window, cx| {
-            self.return_focus.focus(window);
+            self.return_focus.focus(window, cx);
             (self.on_dismiss)(window, cx);
         });
         let outside_dismiss = dismiss.clone();

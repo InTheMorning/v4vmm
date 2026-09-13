@@ -27,6 +27,7 @@ use gpui_component::{
 };
 
 use crate::ui::icons::IconName;
+use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
 use crate::ui::primitives::{
     Button, ButtonSize, Divider, Popover, PopoverAlignment, PopoverPlacement,
 };
@@ -375,7 +376,7 @@ fn build_create_mode(
         .child(
             div()
                 .px(Spacing::XS.scaled(cx))
-                .child(Input::new(&name_input)),
+                .child(Input::new(&name_input).with_primary_selection(&name_input)),
         )
         .child(div().px(Spacing::XS.scaled(cx)).child(create_btn))
 }

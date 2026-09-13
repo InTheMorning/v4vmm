@@ -15,6 +15,7 @@ When you need to look something up, consult this map first to find the right fil
 | Shared recovery/Settings editor, retained-draft Close/Reopen, input Escape and focus return, typed state and geometry | `src/view_models/startup/correction.rs`, `src/presentation/configuration_editor.rs`, `src/ui/composites/maintenance_forms.rs` |
 | Core startup admission and music storage probes | `src/startup.rs`, `src/startup/storage.rs` |
 | Recovery state/actions/reports; shared geometry; screen wiring | `src/view_models/startup.rs`, `src/ui/composites/startup_report.rs`, `src/app/startup.rs` |
+| Shared word/line selection and Linux primary paste | `src/view_models/text_selection.rs`, `src/ui/composites/selectable_text.rs`, `src/ui/primitives/primary_selection.rs`, published `gpui-base` 0.6.1 (ADR 0071); migration evidence in `docs/tasks/adr-0071-task-001-shared-text-selection.md` |
 | Shared log frame, source identity, follow/pause and reading anchors | `src/ui/composites/log_frame.rs`, `src/view_models/log_view.rs`, `src/view_models/show.rs` (ADR 0063); app roots retain `LogFrames` |
 | Show log height priority and scrolling cards, with independent sidebar | `src/view_models/show.rs`, `src/ui/composites/show_log_pane.rs`, `src/ui/composites/split_pane.rs`, `src/ui/shells/show.rs` (ADR 0070) |
 | Recovery/Settings page clearance for nested scrollbars | `src/ui/composites/page_scroll_content.rs`, `src/ui/layouts.rs` (ADR 0063) |

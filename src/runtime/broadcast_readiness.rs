@@ -17,7 +17,7 @@ use crate::application::queries::broadcast::{
     broadcast_readiness_report, BroadcastReadinessReport,
 };
 
-const BROADCAST_READINESS_POLL_INTERVAL: Duration = Duration::from_secs(300);
+const BROADCAST_READINESS_POLL_INTERVAL: Duration = Duration::from_mins(5);
 const INBOX_CAPACITY: usize = 4;
 
 /// Cached local broadcast-readiness snapshot.

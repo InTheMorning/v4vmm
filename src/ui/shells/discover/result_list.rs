@@ -118,7 +118,7 @@ pub(crate) fn render_discover_result_list(
                 if !has_more {
                     return;
                 }
-                let max_y = f32::from(scroll_for_listener.max_offset().height);
+                let max_y = f32::from(scroll_for_listener.max_offset().y);
                 // GPUI scroll offsets are non-positive when scrolled down.
                 let offset_y = f32::from(scroll_for_listener.offset().y);
                 let remaining = max_y + offset_y;

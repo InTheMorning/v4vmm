@@ -11,6 +11,7 @@ use gpui_component::{IconName as InputIconName, Size};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::IconName;
 use crate::ui::layouts as layout;
+use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
 use crate::ui::primitives::{Button as UiButton, Tooltip};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Size as TokenSize, Spacing};
@@ -118,7 +119,8 @@ fn render_global_search(
             Input::new(&app.global_search_input)
                 .prefix(InputIconName::Search)
                 .cleanable(true)
-                .scaled(Size::Small, cx),
+                .scaled(Size::Small, cx)
+                .with_primary_selection(&app.global_search_input),
         );
 
     let mut toolbar_search = div()
@@ -232,12 +234,12 @@ fn focus_handle_for_key(key: AppToolbarTabKey, app: &TopApp) -> &gpui::FocusHand
 
 impl TopApp {
     /// Give app actions a persistent dispatch path after mount or section changes.
-    pub(super) fn focus_active_tab(&self, window: &mut Window) {
+    pub(super) fn focus_active_tab(&self, window: &mut Window, cx: &mut gpui::App) {
         let key = match self.tab {
             AppTab::Music => AppToolbarTabKey::Music,
             AppTab::Show => AppToolbarTabKey::Show,
             AppTab::Settings => AppToolbarTabKey::Settings,
         };
-        focus_handle_for_key(key, self).focus(window);
+        focus_handle_for_key(key, self).focus(window, cx);
     }
 }

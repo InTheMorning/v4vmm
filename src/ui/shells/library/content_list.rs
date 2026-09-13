@@ -192,7 +192,7 @@ where
             return;
         }
 
-        let max_y = f32::from(scroll_for_listener.max_offset().height);
+        let max_y = f32::from(scroll_for_listener.max_offset().y);
         let offset_y = f32::from(scroll_for_listener.offset().y);
         let remaining = max_y + offset_y;
         if should_auto_load_more(remaining, AUTO_PAGINATE_THRESHOLD_PX, has_more, is_loading) {

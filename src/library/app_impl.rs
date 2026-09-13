@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -51,6 +52,7 @@ use crate::ui::composites::{
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
+use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
 use crate::ui::primitives::{Button as UiButton, Label};
 use crate::ui::shells::library::content_list::render_library_content_list;
 use crate::ui::shells::library::detail::render_library_detail;
@@ -2758,7 +2760,8 @@ impl Render for LibraryApp {
                         .child(
                             Input::new(&self.new_playlist_input)
                                 .cleanable(false)
-                                .scaled(Size::Small, cx),
+                                .scaled(Size::Small, cx)
+                                .with_primary_selection(&self.new_playlist_input),
                         )
                         .child(
                             UiButton::styled(new_playlist_add_button_id, ControlStyle::Primary)

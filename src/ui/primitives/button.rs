@@ -603,6 +603,7 @@ mod tests {
             let press = KeyDownEvent {
                 keystroke: gpui::Keystroke::parse(key).unwrap(),
                 is_held: false,
+                prefer_character_input: false,
             };
             let held = KeyDownEvent {
                 is_held: true,

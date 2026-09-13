@@ -12,6 +12,7 @@ use gpui_component::Size;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::IconName;
+use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
 use crate::ui::primitives::Button;
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
@@ -170,7 +171,8 @@ pub(crate) fn settings_text_input(input: &Entity<InputState>, cx: &App) -> AnyEl
                 .cleanable(true)
                 .scaled(Size::Small, cx)
                 .flex_1()
-                .min_w_0(),
+                .min_w_0()
+                .with_primary_selection(input),
         )
         .into_any_element()
 }
