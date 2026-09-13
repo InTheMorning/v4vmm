@@ -6,7 +6,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    App, AppContext, ClipboardItem, Context, Entity, IntoElement, Render, Subscription, Window,
+    App, AppContext, ClipboardItem, Context, Entity, FocusHandle, IntoElement, Render,
+    Subscription, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
 
@@ -29,6 +30,7 @@ pub(crate) type CorrectionEventCallback = Rc<dyn Fn(CorrectionEvent, &mut Window
 pub(crate) struct ConfigurationEditor {
     pub(crate) vm: CorrectionVm,
     input: Entity<InputState>,
+    disclosure_focus: FocusHandle,
     logs: crate::ui::composites::log_frame::LogFrames,
     worker: Option<MaintenanceClient>,
     callback: CorrectionEventCallback,
@@ -53,6 +55,7 @@ impl ConfigurationEditor {
         Self {
             vm: CorrectionVm::new(worker.is_some()),
             input,
+            disclosure_focus: cx.focus_handle(),
             logs,
             worker,
             callback,
@@ -71,6 +74,11 @@ impl ConfigurationEditor {
             return;
         }
         match action {
+            CorrectionAction::CloseEditor => {
+                self.vm.close_editor();
+                self.disclosure_focus.focus(window);
+            }
+            CorrectionAction::ReopenEditor => self.vm.reopen_editor(),
             CorrectionAction::Select(field) => {
                 if self.vm.select(field) {
                     self.sync_input(window, cx);
@@ -140,6 +148,13 @@ impl Render for ConfigurationEditor {
         let callback: CorrectionCallback = Rc::new(move |action, window, cx| {
             let _ = entity.update(cx, |this, cx| this.action(action, window, cx));
         });
-        configuration_correction(&self.vm, &self.input, &callback, &self.logs, cx)
+        configuration_correction(
+            &self.vm,
+            &self.input,
+            &callback,
+            &self.logs,
+            &self.disclosure_focus,
+            cx,
+        )
     }
 }

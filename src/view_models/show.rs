@@ -4,6 +4,7 @@
 //! module wraps the existing Queue/Now Playing projection with page-level
 //! show state while keeping renderer and playback handles out of the view
 //! model layer.
+//! ADR 0070 gives an open log priority over card height under space pressure.
 
 #![warn(clippy::pedantic)]
 
@@ -579,8 +580,9 @@ pub(crate) struct ShowLogPaneDisplay {
     pub(crate) text: String,
     pub(crate) line_count: usize,
     pub(crate) line_count_label: String,
-    /// Preferred pane height in unscaled layout units.
+    /// Allocated pane height in unscaled layout units.
     pub(crate) height: f32,
+    preferred_height: f32,
     /// Last allocated split height, excluding the transport.
     pub(crate) region_height: f32,
     available_height: f32,
@@ -588,6 +590,7 @@ pub(crate) struct ShowLogPaneDisplay {
     role: Option<PublisherServiceRole>,
     event_source: Option<String>,
     pub(crate) service_detail: Option<String>,
+    pub(crate) header_status: Option<&'static str>,
     pub(crate) feed_tag: Option<String>,
     pub(crate) copy_feed_tag: Option<EventActionDisplay>,
     request: Option<ShowLogRequestId>,
@@ -595,8 +598,11 @@ pub(crate) struct ShowLogPaneDisplay {
 }
 
 pub(crate) const SHOW_LOG_DEFAULT_HEIGHT: f32 = 200.0;
-pub(crate) const SHOW_LOG_MIN_HEIGHT: f32 = 96.0;
+/// ADR 0070: budget for the source header, log text and following controls.
+pub(crate) const SHOW_LOG_MIN_HEIGHT: f32 = 200.0;
 pub(crate) const SHOW_LOG_MAX_HEIGHT: f32 = 600.0;
+/// ADR 0070: keep a card viewport when it fits beside the minimum log budget.
+const SHOW_CARD_VIEWPORT_MIN_HEIGHT: f32 = 64.0;
 
 impl ShowLogPaneDisplay {
     /// Creates a closed pane with no outstanding read.
@@ -613,6 +619,7 @@ impl ShowLogPaneDisplay {
             line_count: 0,
             line_count_label: String::new(),
             height: SHOW_LOG_DEFAULT_HEIGHT,
+            preferred_height: SHOW_LOG_DEFAULT_HEIGHT,
             region_height: 0.0,
             available_height: SHOW_LOG_MAX_HEIGHT,
             close: PublisherActionDisplay {
@@ -624,6 +631,7 @@ impl ShowLogPaneDisplay {
             role: None,
             event_source: None,
             service_detail: None,
+            header_status: None,
             feed_tag: None,
             copy_feed_tag: None,
             request: None,
@@ -648,6 +656,7 @@ impl ShowLogPaneDisplay {
         self.feed_tag = None;
         self.copy_feed_tag = None;
         self.service_detail = None;
+        self.header_status = None;
         self.event_source = None;
         self.open = true;
         self.unit_name = unit_name;
@@ -726,24 +735,29 @@ impl ShowLogPaneDisplay {
         true
     }
 
-    /// Stores a bounded preferred height; the layout also reserves the card grid's height.
+    /// Stores the user's bounded preference and fits it to the current log allocation.
     pub(crate) fn resize(&mut self, height: f32) {
         if height.is_finite() {
-            let maximum = self.available_height.min(SHOW_LOG_MAX_HEIGHT);
-            self.height = height.clamp(SHOW_LOG_MIN_HEIGHT.min(maximum), maximum);
+            self.preferred_height = height.clamp(SHOW_LOG_MIN_HEIGHT, SHOW_LOG_MAX_HEIGHT);
+            self.height = self.preferred_height.min(self.available_height);
         }
     }
 
-    /// Reserves the measured grid and shared handle before bounding log height.
-    pub(crate) fn update_geometry(&mut self, region_height: f32, available_height: f32) -> bool {
-        if !region_height.is_finite() || !available_height.is_finite() {
+    /// ADR 0070: card space yields before log text; window resizing keeps the preference.
+    pub(crate) fn update_geometry(&mut self, region_height: f32, handle_height: f32) -> bool {
+        if !region_height.is_finite() || !handle_height.is_finite() {
             return false;
         }
+        let region_height = region_height.max(0.0);
+        let content_height = (region_height - handle_height.max(0.0)).max(0.0);
+        let card_height =
+            SHOW_CARD_VIEWPORT_MIN_HEIGHT.min((content_height - SHOW_LOG_MIN_HEIGHT).max(0.0));
+        let available_height = content_height - card_height;
         let changed = (self.region_height - region_height).abs() > f32::EPSILON
             || (self.available_height - available_height).abs() > f32::EPSILON;
         self.region_height = region_height;
-        self.available_height = available_height.max(0.0);
-        self.resize(self.height);
+        self.available_height = available_height;
+        self.height = self.preferred_height.min(available_height);
         changed
     }
 }
@@ -1797,6 +1811,7 @@ impl ShowPageVm {
             return None;
         }
         let request = self.log_pane.begin_read(role, service.unit_name.clone());
+        self.log_pane.header_status = Some(service.state.label());
         self.log_pane.service_detail = Some(format!(
             "{}: {}\n{}",
             service.label,
@@ -4443,6 +4458,8 @@ mod tests {
                 .find(|service| service.role == role)
                 .unwrap();
             assert_eq!(vm.log_pane.unit_name, service.unit_name);
+            // Situational ADR 0070: header state is separate from the complete identity.
+            assert_eq!(vm.log_pane.header_status, Some(service.state.label()));
             assert!(service.logs.open);
             assert!(!service.logs.action.a11y_label.is_empty());
             assert!(!vm.log_pane.close.disabled());
@@ -4576,15 +4593,15 @@ mod tests {
         assert_eq!(vm.log_pane.line_count_label, "0 log lines");
     }
 
-    /// Situational ADR 0063: dragging never consumes the space reserved for the grid.
+    /// Situational ADR 0070: bounded dragging and closing preserve the log preference.
     #[test]
-    fn show_log_height_reserves_cards_and_survives_close() {
+    fn adr_0070_log_height_is_bounded_and_survives_close() {
         let mut vm = show_with_log_services();
         vm.toggle_publisher_logs(PublisherServiceRole::Producer)
             .unwrap();
-        assert!(vm.log_pane.update_geometry(500.0, 140.0));
+        assert!(vm.log_pane.update_geometry(500.0, 4.0));
         vm.log_pane.resize(800.0);
-        assert!((vm.log_pane.height - 140.0).abs() < f32::EPSILON);
+        assert!((vm.log_pane.height - 432.0).abs() < f32::EPSILON);
         vm.log_pane.resize(-100.0);
         assert!((vm.log_pane.height - SHOW_LOG_MIN_HEIGHT).abs() < f32::EPSILON);
         vm.log_pane.resize(f32::NAN);
@@ -4594,7 +4611,32 @@ mod tests {
         vm.toggle_publisher_logs(PublisherServiceRole::Producer)
             .unwrap();
         assert!((vm.log_pane.height - height).abs() < f32::EPSILON);
-        assert!(!vm.log_pane.update_geometry(500.0, 140.0));
+        assert!(!vm.log_pane.update_geometry(500.0, 4.0));
+    }
+
+    /// Situational ADR 0070: short regions spend card space first and restore log height.
+    #[test]
+    fn adr_0070_log_space_precedes_cards_and_restores_after_resize() {
+        let mut pane = ShowLogPaneDisplay::closed();
+        pane.update_geometry(700.0, 4.0);
+        pane.resize(360.0);
+        for (region, expected_log) in [
+            (500.0, 360.0),
+            (270.0, 202.0),
+            (230.0, 200.0),
+            (180.0, 176.0),
+            (0.0, 0.0),
+            (-10.0, 0.0),
+            (700.0, 360.0),
+        ] {
+            pane.update_geometry(region, 4.0);
+            assert!((pane.height - expected_log).abs() < f32::EPSILON);
+            assert!(pane.height <= (region - 4.0).max(0.0));
+        }
+        let before = pane.clone();
+        assert!(!pane.update_geometry(f32::NAN, 4.0));
+        assert!(!pane.update_geometry(500.0, f32::INFINITY));
+        assert_eq!(pane, before);
     }
 
     fn publisher_snapshot<const N: usize>(
@@ -5320,7 +5362,10 @@ mod tests {
             PublisherServiceRole::Producer,
             "producer.service".to_owned(),
         );
+        // Situational ADR 0070: switching to Event must clear the service header state.
+        pane.header_status = Some("Active");
         pane.show_event(&input);
+        assert_eq!(pane.header_status, None);
         let event_source = pane.source.clone();
         input.registry.revision += 1;
         pane.show_event(&input);
@@ -5701,6 +5746,7 @@ impl ShowLogPaneDisplay {
         self.open = true;
         self.close.availability = PublisherActionAvailability::Available;
         self.service_detail = None;
+        self.header_status = None;
         self.role = None;
         self.request = None;
         self.event_source = Some(format!(

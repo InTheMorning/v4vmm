@@ -99,7 +99,7 @@ impl SplitPane {
     }
 
     fn pane_containers(&self) -> (gpui::Div, gpui::Div, gpui::Div) {
-        let root = div().flex().flex_1().min_h_0().overflow_hidden();
+        let root = div().relative().flex().flex_1().min_h_0().overflow_hidden();
         let leading = div().flex_shrink_0().flex().flex_col().overflow_hidden();
         let trailing = div().flex_1().min_w_0().flex().flex_col().overflow_hidden();
         match self.axis {
@@ -199,6 +199,8 @@ impl RenderOnce for SplitPane {
                     |_, (), _, _| {},
                 )
                 .absolute()
+                .top_0()
+                .left_0()
                 .size_full(),
             );
         }

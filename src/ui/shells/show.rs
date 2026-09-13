@@ -290,8 +290,6 @@ impl RenderOnce for ShowShell {
             status_message,
         } = self.vm;
         let transport = queue.transport.clone();
-        let grid_rows = u16::try_from(cards.len().div_ceil(usize::from(width_class.columns())))
-            .expect("Show card count fits in u16");
 
         div()
             .id("show-screen")
@@ -350,7 +348,6 @@ impl RenderOnce for ShowShell {
                                         cx,
                                     )
                                     .into_any_element(),
-                                    grid_rows,
                                 )
                                 .slots(self.slots.log),
                             )

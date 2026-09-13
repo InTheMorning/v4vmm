@@ -176,9 +176,13 @@ fn with_log_slots(slots: ShowSlots, entity: &Entity<TopApp>) -> ShowSlots {
                 this.close_publisher_logs(cx);
             });
         })
-        .on_log_layout(move |height, available, _, cx| {
+        .on_log_layout(move |height, handle_height, _, cx| {
             log_layout_entity.update(cx, |this, cx| {
-                if this.show_page.log_pane.update_geometry(height, available) {
+                if this
+                    .show_page
+                    .log_pane
+                    .update_geometry(height, handle_height)
+                {
                     cx.notify();
                 }
             });

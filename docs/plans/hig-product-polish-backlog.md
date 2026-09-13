@@ -10,8 +10,8 @@ puts A10 with narrow-layout work after relay adoption. Playback scope is
 resolved: hide the bar when every typed action is unavailable; retain working
 controls. Amended by the operator on 2026-09-13: deliver A11's shared frames,
 long-line scrolling and A12's following before ADR 0066 task 007. External UTC
-emitter changes keep their later, separate delivery slot. A11/A12 implementation
-and its open visual gate are recorded below; task 017 remains accepted.
+emitter changes keep their later, separate delivery slot. A11/A12 completion,
+operator acceptance and fixture cleanup are recorded below; task 017 remains accepted.
 
 ## Purpose
 
@@ -120,18 +120,19 @@ does not add a gate to task 017.
 
 #### A11 - Long Log Lines Are Hard To Inspect
 
-In progress - 2026-09-13. The operator moved shared log framing, compact
+Complete - 2026-09-13. The operator moved shared log framing, compact
 monospace typography and reachable long lines ahead of ADR 0066 task 007.
 [ADR 0063 task 005](../tasks/adr-0063-task-005-shared-log-frames-and-following.md)
 owns the common viewport across Show, Diagnostics and recovery. It retains
 unwrapped text, adds visible scrollbars, and keeps exact selection/copy.
 Its [operator procedure](../runbooks/log-frame-check.md) covers normal/narrow
 widths, supported scales, Light/Dark, and copying the end of long lines.
-The gate remains open; task 017 and ADR 0066 task 006 remain accepted.
+Mechanical checks, operator acceptance, final preservation and fixture cleanup
+are complete; task 017 and ADR 0066 task 006 remain accepted.
 
 #### A12 - Follow Latest Logs And Remember Each Reading Position
 
-In progress - 2026-09-13, in the same bounded
+Complete - 2026-09-13, in the same bounded
 [shared-log packet](../tasks/adr-0063-task-005-shared-log-frames-and-following.md).
 The [ADR amendment](../adr/0063-show-dashboard-layout.md#shared-log-frames-and-following)
 records following, manual pause, Go to latest outside the viewport, per-source
@@ -140,24 +141,23 @@ state lasts for the app window and is not persisted in configuration.
 
 Visible service journals refresh as finite snapshots through the existing
 service-observation cadence. Event and recovery report retention remain unchanged.
-Mechanical and operator proof belong to the packet; the operator gate is open.
+The packet records mechanical and operator proof, final preservation and
+confirmed fixture cleanup. Its acceptance gate is closed.
 Cross-repository UTC corrections remain in the
 [separate timestamp follow-up](broadcast-chain-delivery-order.md#consistent-utc-log-timestamps).
 
 #### A13 - Narrow Show Layout Leaves No Visible Log Body
 
-Open - 2026-09-10. The operator passed task 017's pane resize/navigation check
-and supplied a narrow screenshot where all three cards and detail controls
-remain visible, but only the log header fits. Disabled playback controls
-consume further space. This is a known limitation, not proof of narrow log
-readability.
+Partially addressed - 2026-09-13. [ADR 0070](../adr/0070-show-log-space-priority.md)
+and the completed shared-log packet give open logs space before a scrolling
+card viewport while preserving sidebar actions. The operator accepted narrow
+log readability, compact headers/footers, theme/scale checks and fixture cleanup.
 
-The [narrow-layout proposal](show-narrow-layout-proposal.md) owns the proposed
-automatic/manual compact cards, full-width log docking, overlap alternative,
-minimum log-body allocation, and requested playback-bar removal. The scope of
-playback removal awaits operator clarification. No fix is implemented or
-visually accepted. The proposal records the decision and verification work
-needed before implementation; it does not expand task 017's current gate.
+The [narrow-layout proposal](show-narrow-layout-proposal.md) retains compact
+cards, full-width log docking and inactive playback-bar removal as future work.
+The operator defined removal as hiding the bar when every typed action is
+unavailable; that implementation remains deferred. The proposal records the
+remaining decision and verification work without expanding task 017's accepted gate.
 
 ### Track B - HIG Product-Completeness Gaps
 

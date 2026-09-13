@@ -12,13 +12,15 @@ When you need to look something up, consult this map first to find the right fil
 | Startup SQLite read/write/schema verification and preparation | `src/db/startup.rs` |
 | Config struct, TOML paths | `src/config.rs` |
 | Explicit configuration correction, drafts, backup and revision checks | `src/config/correction.rs`, `src/application/commands/maintenance.rs` (ADR 0066) |
-| Shared recovery/Settings editor, typed state and geometry | `src/view_models/startup/correction.rs`, `src/presentation/configuration_editor.rs`, `src/ui/composites/maintenance_forms.rs` |
+| Shared recovery/Settings editor, retained-draft Close/Reopen, input Escape and focus return, typed state and geometry | `src/view_models/startup/correction.rs`, `src/presentation/configuration_editor.rs`, `src/ui/composites/maintenance_forms.rs` |
 | Core startup admission and music storage probes | `src/startup.rs`, `src/startup/storage.rs` |
 | Recovery state/actions/reports; shared geometry; screen wiring | `src/view_models/startup.rs`, `src/ui/composites/startup_report.rs`, `src/app/startup.rs` |
 | Shared log frame, source identity, follow/pause and reading anchors | `src/ui/composites/log_frame.rs`, `src/view_models/log_view.rs`, `src/view_models/show.rs` (ADR 0063); app roots retain `LogFrames` |
+| Show log height priority and scrolling cards, with independent sidebar | `src/view_models/show.rs`, `src/ui/composites/show_log_pane.rs`, `src/ui/composites/split_pane.rs`, `src/ui/shells/show.rs` (ADR 0070) |
+| Recovery/Settings page clearance for nested scrollbars | `src/ui/composites/page_scroll_content.rs`, `src/ui/layouts.rs` (ADR 0063) |
 | Scoped background issues and command remedies | `src/application/capability.rs`, `src/view_models/startup/capabilities.rs` |
 | Search failure explanation/disclosure; shared report URL redaction | `src/view_models/search_results/failure.rs`, `src/diagnostics.rs` |
-| Settings groups and field/action contracts; shared form/navigation; screen wiring | `src/view_models/settings.rs`, `src/ui/composites/settings.rs`, `src/app/settings.rs` (ADR 0069) |
+| Settings groups and field/action contracts; shared form/navigation and retained group scroll handles; screen wiring | `src/view_models/settings.rs`, `src/ui/composites/settings.rs`, `src/app/settings.rs` (ADR 0069) |
 | Settings cached-file query and saved observation | `src/application/queries/library.rs`, `src/view_models/cached_files.rs`, `src/app.rs` |
 | Runtime/cache repair wiring in the existing shell | `src/app/capabilities.rs` |
 | Independent maintenance worker and GPUI completion | `src/presentation/maintenance_executor.rs`, `src/presentation/startup_presenter.rs` |

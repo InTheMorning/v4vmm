@@ -6,6 +6,7 @@ use gpui::{div, prelude::*, App, IntoElement, SharedString, Window};
 use gpui_component::scroll::ScrollableElement;
 
 use crate::ui::composites::log_frame::{LogFrame, LogFrames};
+use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::Button;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
@@ -132,15 +133,8 @@ pub(crate) fn startup_report(
         );
     }
     let details = vm.action(StartupAction::Details);
-    let mut body = div()
-        .id("startup-report-body")
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h_0()
-        .min_w_0()
+    let mut content = page_scroll_content(cx)
         .gap(Spacing::MD.scaled(cx))
-        .overflow_y_scrollbar()
         .child(
             div()
                 .text_size(FontSize::Body.scaled(cx))
@@ -154,11 +148,20 @@ pub(crate) fn startup_report(
                 .on_activate(move |window, cx| handler(StartupAction::Details, window, cx)),
         );
     if vm.details {
-        body = body.child(LogFrame::new(logs, LogSource::Startup, vm.report()));
+        content = content.child(LogFrame::new(logs, LogSource::Startup, vm.report()));
     }
     if let Some(editor) = editor {
-        body = body.child(editor);
+        content = content.child(editor);
     }
+    let body = div()
+        .id("startup-report-body")
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
+        .overflow_y_scrollbar()
+        .child(content);
     let mut heading = div()
         .flex()
         .flex_col()

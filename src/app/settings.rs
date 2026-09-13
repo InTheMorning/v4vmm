@@ -148,7 +148,8 @@ pub(super) fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> Any
     if !app.settings_status.is_empty() {
         content.push(settings_message(app.settings_status.clone(), cx));
     }
-    settings_frame(navigation, content, cx)
+    let page_scroll = app.settings_scroll.handle(app.settings.selected());
+    settings_frame(navigation, content, page_scroll, cx)
 }
 
 fn render_cached_files(app: &TopApp, cx: &mut Context<TopApp>) -> Vec<AnyElement> {

@@ -17,12 +17,12 @@ use crate::ui::composites::SelectableText;
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::IconName;
 use crate::ui::layouts;
-use crate::ui::primitives::Button;
+use crate::ui::primitives::{Button, Tooltip};
 use crate::ui::tokens::{
-    color, log_font_family, FontSize, Radius, SemanticColor, Spacing, LOG_LINE_HEIGHT,
+    color, log_font_family, FontSize, Radius, ScaleFactor, SemanticColor, Spacing, LOG_LINE_HEIGHT,
     LOG_TEXT_SIZE,
 };
-use crate::view_models::log_view::{FollowAvailability, LogReadingVm, LogSource};
+use crate::view_models::log_view::{FollowAvailability, LogFooterLayout, LogReadingVm, LogSource};
 
 #[derive(Clone, Default)]
 pub(crate) struct LogFrames(Rc<RefCell<BTreeMap<LogSource, Entity<LogFrameState>>>>);
@@ -95,15 +95,41 @@ struct LogFrameState {
     last_top: f32,
     line_height: f32,
     restore: bool,
+    footer_layout: LogFooterLayout,
 }
 
 impl LogFrameState {
-    fn footer(&self, cx: &mut Context<Self>) -> gpui::Div {
+    fn footer(&self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
         let latest_owner = cx.weak_entity();
         let action = self.vm.action();
+        let description = self.vm.status();
+        let compact = self.footer_layout == LogFooterLayout::Compact;
+        let mut latest = Button::styled(
+            "log-go-latest",
+            if compact {
+                ControlStyle::ToolbarIcon
+            } else {
+                ControlStyle::RowAction
+            },
+        )
+        .a11y_label(action.a11y_label)
+        .tooltip(action.a11y_label)
+        .leading_icon(IconName::ChevronDown)
+        .disabled(action.availability != FollowAvailability::Available)
+        .on_activate(move |_, cx| {
+            let _ = latest_owner.update(cx, |this, cx| {
+                this.vm.latest();
+                cx.notify();
+            });
+        });
+        if !compact {
+            latest = latest.label(action.label);
+        }
         div()
+            .id("log-footer")
             .flex()
-            .flex_wrap()
+            .flex_row()
+            .min_w_0()
             .items_center()
             .flex_shrink_0()
             .gap(Spacing::SM.scaled(cx))
@@ -111,25 +137,34 @@ impl LogFrameState {
             .pb(Spacing::SM.scaled(cx))
             .child(
                 div()
+                    .id("log-follow-status")
                     .flex_1()
                     .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
                     .text_size(FontSize::Caption.scaled(cx))
                     .text_color(color(cx, SemanticColor::SecondaryLabel))
-                    .child(self.vm.status()),
+                    .tooltip(move |window, cx| Tooltip::new(description).build(window, cx))
+                    .child(self.vm.footer_status(self.footer_layout)),
             )
-            .child(
-                Button::styled("log-go-latest", ControlStyle::RowAction)
-                    .label(action.label)
-                    .a11y_label(action.a11y_label)
-                    .leading_icon(IconName::ChevronDown)
-                    .disabled(action.availability != FollowAvailability::Available)
-                    .on_activate(move |_, cx| {
-                        let _ = latest_owner.update(cx, |this, cx| {
-                            this.vm.latest();
-                            cx.notify();
-                        });
-                    }),
-            )
+            .child(div().flex_shrink_0().child(latest))
+    }
+
+    fn restore_reading_position(&mut self, cx: &App) {
+        self.observe_user_scroll();
+        let line_height = f32::from(LOG_TEXT_SIZE.scaled(cx)) * LOG_LINE_HEIGHT;
+        if (line_height - self.line_height).abs() > f32::EPSILON {
+            self.line_height = line_height;
+            self.restore = true;
+        }
+        if self.vm.following() {
+            self.scroll.scroll_to_bottom();
+        } else if self.restore {
+            let mut offset = self.scroll.offset();
+            offset.y = gpui::px(-self.vm.reading_top(line_height));
+            self.scroll.set_offset(offset);
+        }
+        self.restore = false;
     }
 
     fn observe_user_scroll(&mut self) {
@@ -150,21 +185,9 @@ impl LogFrameState {
 
 impl Render for LogFrameState {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.observe_user_scroll();
-        let line_height = f32::from(LOG_TEXT_SIZE.scaled(cx)) * LOG_LINE_HEIGHT;
-        if (line_height - self.line_height).abs() > f32::EPSILON {
-            self.line_height = line_height;
-            self.restore = true;
-        }
-        if self.vm.following() {
-            self.scroll.scroll_to_bottom();
-        } else if self.restore {
-            let mut offset = self.scroll.offset();
-            offset.y = gpui::px(-self.vm.reading_top(line_height));
-            self.scroll.set_offset(offset);
-        }
-        self.restore = false;
+        self.restore_reading_position(cx);
         let owner = cx.weak_entity();
+        let scale = ScaleFactor::current(cx).multiplier();
         div()
             .id("log-frame")
             .flex()
@@ -195,6 +218,13 @@ impl Render for LogFrameState {
                             .items_start()
                             .overflow_scroll()
                             .track_scroll(&self.scroll)
+                            // GPUI scrolls this viewport before this bubble
+                            // listener. Keep the wheel out of ancestor pages.
+                            .on_scroll_wheel(cx.listener(|this, _, _, cx| {
+                                this.observe_user_scroll();
+                                cx.stop_propagation();
+                                cx.notify();
+                            }))
                             .text_size(LOG_TEXT_SIZE.scaled(cx))
                             .font_family(log_font_family(cx))
                             .line_height(gpui::relative(LOG_LINE_HEIGHT))
@@ -218,17 +248,38 @@ impl Render for LogFrameState {
                                     )),
                             ),
                     )
-                    .child(Scrollbar::new(&self.scroll).scrollbar_show(ScrollbarShow::Always))
+                    .child(
+                        // Scrollbar supplies its size but no inset. Anchor its
+                        // layer to the viewport, independently of text layout.
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .child(
+                                Scrollbar::new(&self.scroll).scrollbar_show(ScrollbarShow::Always),
+                            ),
+                    )
                     .child(
                         canvas(
-                            move |_, _, cx| {
-                                let _ = owner.update(cx, |state, _| {
+                            move |bounds, _, cx| {
+                                let _ = owner.update(cx, |state, cx| {
                                     state.last_top = -f32::from(state.scroll.offset().y);
+                                    let layout = LogFooterLayout::for_width(
+                                        f32::from(bounds.size.width) / scale,
+                                    );
+                                    if state.footer_layout != layout {
+                                        state.footer_layout = layout;
+                                        cx.notify();
+                                    }
                                 });
                             },
                             |_, (), _, _| {},
                         )
                         .absolute()
+                        .top_0()
+                        .left_0()
                         .size_full(),
                     ),
             )

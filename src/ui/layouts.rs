@@ -43,7 +43,6 @@ pub const DETAIL_HEADER_TEXT_OFFSET: Pixels = px(96.0);
 pub const STATUS_MESSAGE_WIDTH: Pixels = px(220.0);
 pub const CONFLICT_MESSAGE_WIDTH: Pixels = px(190.0);
 pub const ACTION_MESSAGE_WIDTH: Pixels = px(180.0);
-pub const SETTINGS_COLUMN_WIDTH: Pixels = px(720.0);
 /// Scrollable viewport for configuration correction text (ADR 0066).
 pub(crate) const CONFIGURATION_EDITOR_HEIGHT: Pixels = px(160.0);
 pub const MENU_MIN_WIDTH: Pixels = px(320.0);
@@ -64,3 +63,7 @@ pub fn scaled_f32(base: f32, cx: &App) -> Pixels {
 pub const LOG_FRAME_HEIGHT: Pixels = px(200.0);
 pub const LOG_FRAME_BORDER: Pixels = px(1.0);
 pub const LOG_SCROLLBAR_GUTTER: Pixels = px(16.0);
+
+/// GPUI component 0.5.1 overlay scrollbar hit width is fixed at 16 pixels.
+/// ADR 0063: reserve this width plus scaled separation for nested controls.
+pub(crate) const OVERLAY_SCROLLBAR_WIDTH: Pixels = px(16.0);

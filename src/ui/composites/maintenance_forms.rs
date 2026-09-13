@@ -23,23 +23,35 @@ pub(crate) fn configuration_correction(
     input: &gpui::Entity<gpui_component::input::InputState>,
     callback: &CorrectionCallback,
     logs: &LogFrames,
+    disclosure_focus: &gpui::FocusHandle,
     cx: &App,
 ) -> AnyElement {
     use crate::view_models::startup::correction::{CorrectionAction, CorrectionVm};
+    let close = vm.action(CorrectionAction::CloseEditor);
+    let close_focus = disclosure_focus.clone();
     let mut body = div()
         .flex()
         .flex_col()
         .flex_shrink_0()
         .w_full()
         .min_w_0()
-        .gap(Spacing::SM.scaled(cx))
-        .child(
-            div()
-                .text_size(FontSize::Title3.scaled(cx))
-                .child(CorrectionVm::TITLE),
+        .when(
+            close.availability == StartupAvailability::Available,
+            |body| {
+                body.on_action(move |_: &gpui_component::input::Escape, window, cx| {
+                    cx.stop_propagation();
+                    close_focus.focus(window);
+                })
+            },
         )
+        .gap(Spacing::SM.scaled(cx))
+        .child(configuration_header(vm, callback, disclosure_focus, cx))
         .child(div().whitespace_normal().child(CorrectionVm::EXPLANATION));
-    if vm.source.is_none() {
+    if !vm.editor_open() {
+        body = body.child(
+            correction_button(vm.entry_action(), callback.clone()).track_focus(disclosure_focus),
+        );
+    } else if vm.source.is_none() {
         body = body.child(correction_button(
             vm.action(CorrectionAction::Load),
             callback.clone(),
@@ -58,6 +70,7 @@ pub(crate) fn configuration_correction(
         }
         body = body
             .child(fields)
+            .child(div().whitespace_normal().child(CorrectionVm::CLOSE_HELP))
             .child(div().whitespace_normal().child(vm.input_help()))
             .child(configuration_input_frame(vm, input, cx));
         let mut actions = div().flex().flex_wrap().gap(Spacing::SM.scaled(cx));
@@ -93,6 +106,32 @@ pub(crate) fn configuration_correction(
             ));
     }
     body.into_any_element()
+}
+
+fn configuration_header(
+    vm: &crate::view_models::startup::correction::CorrectionVm,
+    callback: &CorrectionCallback,
+    disclosure_focus: &gpui::FocusHandle,
+    cx: &App,
+) -> gpui::Div {
+    use crate::view_models::startup::correction::{CorrectionAction, CorrectionVm};
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .justify_between()
+        .gap(Spacing::SM.scaled(cx))
+        .child(
+            div()
+                .text_size(FontSize::Title3.scaled(cx))
+                .child(CorrectionVm::TITLE),
+        )
+        .when(vm.editor_open(), |header| {
+            header.child(
+                correction_button(vm.action(CorrectionAction::CloseEditor), callback.clone())
+                    .track_focus(disclosure_focus),
+            )
+        })
 }
 
 fn configuration_input_frame(

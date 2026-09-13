@@ -119,8 +119,8 @@ Current plans:
 Current implementation packets:
 
 - [ADR 0063 task 005: Shared log frames and following](tasks/adr-0063-task-005-shared-log-frames-and-following.md):
-  implemented with mechanical checks Green; [operator V1–V3](runbooks/log-frame-check.md),
-  preservation and cleanup open; prioritized before ADR 0066 task 007
+  complete on 2026-09-13 with mechanical checks Green; [operator V1–V3 and editor follow-ups](runbooks/log-frame-check.md),
+  final preservation and fixture cleanup accepted; ADR 0066 task 007 follows in a fresh session
 
 - [ADR 0066 task 005: Session drain and resumption](tasks/adr-0066-task-005-session-drain-and-resumption.md):
   complete with mechanical checks Green, [operator V1–V3 and preservation](tasks/adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11)

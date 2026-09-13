@@ -22,6 +22,11 @@ owns recovery and Settings report typography, scrolling and following. The
 operator prioritized its acceptance before task 007. Report contents, recorded
 times, redaction and task 006 acceptance remain unchanged.
 
+Amended 2026-09-13 during the shared-log packet's operator acceptance: the
+shared configuration editor gains explicit Close editor and Reopen editor
+disclosure. Its bounded implementation and visual checks belong to that packet;
+task 006's accepted repair behavior remains closed.
+
 Amended 2026-09-10: [ADR 0067](0067-platform-shortcut-modifiers.md) changes Linux
 shortcuts to Ctrl at the operator's request. Task 003's keyboard checks
 use those bindings; its runtime-rejection requirement and recorded passes remain.
@@ -301,6 +306,36 @@ owned by the presentation/application boundary, with file and SQL work in the
 backend owners. They must remain callable when the normal runtime cannot start;
 they never perform blocking repair work in a renderer. If that execution path
 also cannot start, retain the report and available non-I/O actions.
+
+### Configuration Editor Disclosure
+
+Settings and recovery expose the same Close editor action beside the repair
+heading. Closing hides the editing controls while retaining the draft, selected
+field, source revision, input entity and repair report for this app window.
+The report remains visible. Reopen editor restores that retained editor without
+reading the file again. Reload file remains the explicit action that discards
+the draft and reads a new revision; closing does not save or discard edits.
+
+Disclosure state and typed action availability belong to the correction view
+model; the shared correction composite places the controls. Closing and
+reopening remain available while work is running or core actions suspend the
+editor. They do not cancel, duplicate or invalidate admitted work, and its
+completion must not reopen a closed editor. Retained drafts are not persisted
+when the app quits.
+
+Amended 2026-09-13 after the operator clarified keyboard exit: an unhandled input
+Escape moves focus to Close editor. It leaves the editor open, with the draft,
+selected field and repair report unchanged. Enter or Space on the focused Close
+editor button performs the separate close action. The input retains first
+handling of its existing Escape action for menus and text composition; the
+editor handles that action when it bubbles. No global key binding replaces
+input editing or unrelated Escape behavior. Enter and Tab remain text-editing
+keys while the input is focused, and visible help explains the two steps.
+
+Close and Reopen are explicit typed intents. Repeated Close cannot reopen the
+editor. The shared presenter retains a focus handle for the disclosure control;
+the Button primitive accepts that handle, and closing returns focus to Reopen
+editor. Hiding the input must not leave keyboard focus on the hidden field.
 
 ### Failure Policy By Startup Stage
 

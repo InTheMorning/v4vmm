@@ -25,6 +25,27 @@ pub(crate) struct FollowAction {
     pub(crate) availability: FollowAvailability,
 }
 
+/// ADR 0070: the footer must not consume log height at narrow widths or large scales.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum LogFooterLayout {
+    #[default]
+    Compact,
+    Full,
+}
+
+const LOG_FOOTER_FULL_WIDTH: f32 = 280.0;
+
+impl LogFooterLayout {
+    /// Width is measured in unscaled layout units, independently of the window width.
+    pub(crate) fn for_width(width: f32) -> Self {
+        if width.is_finite() && width >= LOG_FOOTER_FULL_WIDTH {
+            Self::Full
+        } else {
+            Self::Compact
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct LogReadingVm {
     text: String,
@@ -61,6 +82,18 @@ impl LogReadingVm {
             "Following paused"
         } else {
             "Following latest entries"
+        }
+    }
+
+    pub(crate) fn footer_status(&self, layout: LogFooterLayout) -> &'static str {
+        if layout == LogFooterLayout::Full {
+            self.status()
+        } else if self.anchor_lost {
+            "History changed"
+        } else if self.paused {
+            "Paused"
+        } else {
+            "Following"
         }
     }
 
@@ -192,5 +225,36 @@ mod tests {
         let mut vm = LogReadingVm::default();
         vm.scroll(f32::NAN, 10.0, 1.0);
         assert!(vm.following());
+    }
+
+    /// Situational ADR 0070: compact presentation preserves state, explanation and action intent.
+    #[test]
+    fn adr_0070_compact_footer_keeps_follow_pause_and_anchor_loss_explicit() {
+        for width in [0.0, -1.0, 130.0, 279.0, f32::NAN, f32::INFINITY] {
+            assert_eq!(LogFooterLayout::for_width(width), LogFooterLayout::Compact);
+        }
+        for width in [280.0, 600.0] {
+            assert_eq!(LogFooterLayout::for_width(width), LogFooterLayout::Full);
+        }
+        let mut vm = LogReadingVm::default();
+        vm.replace("first\nsecond");
+        assert_eq!(vm.footer_status(LogFooterLayout::Compact), "Following");
+        assert_eq!(
+            vm.action().availability,
+            FollowAvailability::AlreadyFollowing
+        );
+        vm.scroll(0.0, 100.0, 10.0);
+        assert_eq!(vm.footer_status(LogFooterLayout::Compact), "Paused");
+        assert_eq!(vm.status(), "Following paused");
+        assert_eq!(vm.action().availability, FollowAvailability::Available);
+        vm.replace("replacement");
+        assert_eq!(
+            vm.footer_status(LogFooterLayout::Compact),
+            "History changed"
+        );
+        assert!(vm.status().contains("no longer available"));
+        assert_eq!(vm.footer_status(LogFooterLayout::Full), vm.status());
+        vm.latest();
+        assert_eq!(vm.footer_status(LogFooterLayout::Compact), "Following");
     }
 }

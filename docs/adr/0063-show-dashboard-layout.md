@@ -2,13 +2,24 @@
 
 ## Status
 
-Accepted - 2026-09-13.
+Implemented - 2026-09-13.
+
+Reconciled 2026-09-13: task 005 is complete with mechanical checks Green,
+operator V1–V3 and editor follow-ups accepted, final preservation accepted and
+all fixture cleanup confirmed. The shared-log amendment's gate is closed.
 
 Amended 2026-09-13 at the operator's request: shared framed log presentation,
 monospace typography, and per-source following now precede ADR 0066 task 007.
 [Task 005](../tasks/adr-0063-task-005-shared-log-frames-and-following.md) owns this
-bounded change and its open operator gate. Earlier dashboard and task 017
+bounded change and records its completed acceptance. Earlier dashboard and task 017
 acceptance remain closed for their shipped scope.
+
+Amended 2026-09-13: [ADR 0070](0070-show-log-space-priority.md) supersedes the
+simultaneous card-visibility requirement while a log is open, at the operator's
+request during task 005. It gives logs priority over a scrolling card viewport
+while retaining the sidebar's space and actions. Task 005 owns the retest.
+The XL narrow-width follow-up keeps shared footers to one row, using ADR 0070's
+compact state/action presentation and full hover descriptions where needed.
 
 Dashboard tasks 001-004 and ADR 0059 task 017 are complete, including compact
 per-item badges, Event diagnostics, operator acceptance, and fixture cleanup.
@@ -19,8 +30,8 @@ Reconciled 2026-09-10: the operator confirmed action feedback task 001 tested an
 passed. Its visual gate is closed. Task 017's operator acceptance also passed,
 with the narrow-window limitation recorded as deferred work in the packet.
 The operator confirmed fixture cleanup, closing task 017's final gate and
-returning this ADR to Implemented for that scope. The new shared-log amendment
-has its own acceptance gate.
+returning this ADR to Implemented for that scope. The subsequent shared-log
+amendment's acceptance is recorded in task 005.
 
 Amended 2026-09-10: [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md)
 keeps Stream controls mounted through commands. ADR 0059 owns the command-state
@@ -63,6 +74,7 @@ An operator screenshot on 2026-09-08 showed the result:
 A scroll region was added to the section stack on the same day and reverted on
 the same day. A scroll region moves status out of sight. A surface that an
 operator watches while a show is live must show its state without an action.
+ADR 0070 subsequently permits scrolling the card grid while a log is open.
 
 The section stack also changes height as service state changes. A card that
 grows and shrinks moves everything under it.
@@ -204,6 +216,24 @@ or activating Go to latest resumes following. Paused updates retain the top
 logical line and its offset where that line survives. If replacement or trimming
 removes it, show the earliest available content and a visible explanation while
 remaining paused. Horizontal position is independent of vertical following.
+Wheel events over the log viewport affect only that viewport, including at its
+scroll limits or when its text does not overflow. Scrolling outside the viewport
+continues to move the containing page.
+
+Recovery and Settings pages reserve a separate right gutter for their page
+scrollbar through one shared page-content composite. Nested editors and log
+frames fit inside that gutter, so their scrollbar tracks cannot coincide with
+the page's track. The gutter covers the component's scrollbar hit width plus
+scaled separation at every supported UI scale. Editor typography, caret
+scrolling and document-editing semantics remain with the existing input owner.
+Settings content fills the available width, and each Settings group retains its
+own page scroll position as specified by the ADR 0069 amendment. These page
+positions remain independent of the log reading positions inside them.
+
+ADR 0070 bounds this shared footer at narrow widths: the measured unscaled
+viewport selects either the full labels or compact state plus an icon-only
+Go to latest. State text clips on one line, with full hover text and unchanged
+action availability and keyboard activation.
 
 Report owners retain their current update and retention semantics. Event
 reports remain snapshots plus the latest result per operation; recovery reports
@@ -310,6 +340,8 @@ long, so every line wrapped and the operator read a failure one word at a time.
 Rejected, and reverted on the day it shipped. It hides the state of a live
 broadcast behind a scroll position. It also keeps the unused horizontal space,
 because a full-width row is still full width.
+ADR 0070 supersedes the scrolling restriction only for the card viewport above
+an open log; it does not restore the former full-width section strips.
 
 ### Cards Expand In Place
 
@@ -384,10 +416,12 @@ their shipped scope.
 - The [narrow-layout proposal](../plans/show-narrow-layout-proposal.md) records
   compact cards, wider logs, and playback-bar scope. The
   [polish backlog](../plans/hig-product-polish-backlog.md) records long-line
-  readability and per-log following/reading positions. These now belong to
-  [task 005](../tasks/adr-0063-task-005-shared-log-frames-and-following.md), whose
-  operator gate is open. The narrow card/log allocation remains future work;
-  neither scope reopens task 017's accepted gate.
+  readability and per-log following/reading positions. These are complete in
+  [task 005](../tasks/adr-0063-task-005-shared-log-frames-and-following.md), including
+  operator acceptance and cleanup. ADR 0070's log-height priority and scrolling
+  cards are also complete in task 005. Compact density, full-width docking, title readability
+  and inactive transport remain separate future work. Neither scope reopens
+  task 017's accepted gate.
 
 - Find the root cause of the column truncation defect, and restore the
   ellipsis. `docs/troubleshooting/column-text-truncation.md` holds what is

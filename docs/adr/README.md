@@ -87,11 +87,12 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0055](0055-search-view-model-module-decomposition.md) | Search view-model module decomposition | Accepted |
 | [0060](0060-workflow-surface-structure.md) | Music, Show, Settings. Show is a screen mount | Accepted |
 | [0062](0062-music-content-surface.md) | Music opens on recent mixed entity rows | Accepted |
-| [0063](0063-show-dashboard-layout.md) | Show cards and diagnostics; earlier dashboard acceptance complete; [shared log frames and following](../tasks/adr-0063-task-005-shared-log-frames-and-following.md) implemented with operator gate open | Accepted |
+| [0063](0063-show-dashboard-layout.md) | Show cards and diagnostics; [shared log frames and following](../tasks/adr-0063-task-005-shared-log-frames-and-following.md) complete with operator acceptance, preservation and cleanup | Implemented |
 | [0064](0064-local-file-addressing.md) | Downloaded files live under music_dir and store a relative path | Accepted |
 | [0065](0065-payment-route-tag-repair.md) | A tag repair is gated on the file, not on feed staleness | Implemented |
 | [0067](0067-platform-shortcut-modifiers.md) | Ctrl app shortcuts on Linux; Command and native Hide actions on macOS | Implemented |
 | [0069](0069-grouped-settings-and-selective-presets.md) | Grouped Settings, live metadata resource selection, independent audio configuration and selective preset snapshots; [task 001 complete; later phases not started](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Accepted |
+| [0070](0070-show-log-space-priority.md) | Open Show logs take height before scrolling cards; sidebar actions remain reachable; ADR 0063 task 005 implementation, acceptance and cleanup complete | Implemented |
 
 ## UI Presentation
 

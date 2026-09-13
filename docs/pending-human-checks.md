@@ -178,21 +178,3 @@ Open - implementation and mechanical checks recorded 2026-09-11.
 - Task 005's completion does not accept any of this packet's remaining checks.
   Its scheduling exception remains recorded in the phase plan. The inherited
   checks above are separate.
-
-## 7. Shared Log Frames And Following — ADR 0063 Task 005
-
-Open - implementation and mechanical checks Green, 2026-09-13. The operator
-prioritized this packet before ADR 0066 task 007; task 006 remains complete.
-
-- Owner: [task 005](tasks/adr-0063-task-005-shared-log-frames-and-following.md).
-- Check: [operator procedure](runbooks/log-frame-check.md), V1–V3.
-- Needs a Linux desktop, Python 3.11+, the debug binary and an ordinary account.
-  Fixtures isolate service commands and use a Null player; no audio hardware or
-  reachable external service is required.
-- Inspect common framing and monospace sizing, wheel/scrollbar pause and resume,
-  keyboard Go to latest, exact long-line copy, independent source restoration,
-  fresh journal snapshots, and trimmed/replaced anchors. Cover recovery,
-  correction, Diagnostics, Show and session drain/resumption, Light/Dark and
-  supported scales. Preserve the separate narrow Show layout gate.
-- Record preservation inspection and confirmed fixture cleanup. Mechanical
-  checks do not close this visual gate.

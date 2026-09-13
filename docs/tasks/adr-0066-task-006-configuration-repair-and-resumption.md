@@ -5,6 +5,12 @@ preservation inspections and fixture cleanup are accepted.
 Temporary viewport measurements are removed.
 Task 007 has not started; it follows in a fresh session.
 
+The operator's later Close/Reopen editor request is a bounded presentation
+follow-up under [ADR 0063 task 005](adr-0063-task-005-shared-log-frames-and-following.md#configuration-editor-close-and-reopen--adr-0066).
+That packet's Close/Reopen and Escape follow-ups, visual checks, preservation
+and cleanup are complete on 2026-09-13; this packet's accepted repair and
+preservation checks remain closed.
+
 ## Goal
 
 Repair configuration inside recovery or Settings, preserve the original file, and return to a freshly verified app session.

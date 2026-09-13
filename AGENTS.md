@@ -56,13 +56,13 @@ has not started. Task 004 retains its remaining checks under the recorded schedu
 exception. Tasks 007–013 remain in the
 [phase plan](docs/plans/adr-0066-startup-recovery-phase-plan.md).
 
-The operator moved shared log framing and following ahead of ADR 0066 task 007
-on 2026-09-13. [ADR 0063 task 005](docs/tasks/adr-0063-task-005-shared-log-frames-and-following.md)
-is implemented with mechanical checks Green. Its V1–V3 operator checks,
-preservation and fixture cleanup remain open in
-[pending human checks](docs/pending-human-checks.md). Show, Diagnostics and
-recovery share the frame and reading-state owner. Complete that acceptance
-before resuming recovery packets; task 007 has not started.
+[ADR 0063 task 005](docs/tasks/adr-0063-task-005-shared-log-frames-and-following.md)
+is complete on 2026-09-13 with mechanical checks Green, V1–V3 operator checks,
+configuration-editor disclosure and Escape follow-ups, final preservation and
+fixture cleanup accepted. ADRs 0063 and 0070 are Implemented. Show, Diagnostics
+and recovery share the frame and reading-state owner. The
+[operator procedure](docs/runbooks/log-frame-check.md) remains a regression
+check. ADR 0066 task 007 follows in a fresh session; implementation has not started.
 
 [ADR 0068: Show cue and audition isolation](docs/adr/0068-show-cue-and-audition-isolation.md)
 is Proposed; its implementation has not started. Task 004's playback checks
@@ -70,8 +70,8 @@ remain paused pending that separation and resolution of the observed mpv IPC err
 Playback work is deferred; independent report/path-repair and Music checks
 remain available in the pending-human index.
 Relay durability through reserved-event adoption follows.
-The delivery order also schedules narrow Show layout,
-long-line inspection, per-log following, UTC timestamps, and steady-state work.
+The delivery order also schedules remaining narrow Show layout,
+external UTC timestamp corrections, and steady-state work.
 When a real show is scheduled, publisher show-log task 001 takes priority.
 
 `docs/plans/broadcast-chain-delivery-order.md` is the only cross-repository

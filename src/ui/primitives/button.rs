@@ -98,6 +98,7 @@ pub struct Button {
     leading_icon: Option<IconName>,
     on_click: Option<ClickHandler>,
     on_activate: Option<ActivateHandler>,
+    focus_handle: Option<gpui::FocusHandle>,
     appearance: Option<Appearance>,
     radius: Option<Radius>,
     font_size: Option<FontSize>,
@@ -124,6 +125,7 @@ impl Button {
             leading_icon: None,
             on_click: None,
             on_activate: None,
+            focus_handle: None,
             appearance: None,
             radius: None,
             font_size: None,
@@ -246,6 +248,12 @@ impl Button {
         F: Fn(&mut Window, &mut App) + 'static,
     {
         self.on_activate = Some(Rc::new(handler));
+        self
+    }
+
+    /// Track a caller-owned focus handle for keyboard activation and focus restoration.
+    pub fn track_focus(mut self, focus_handle: &gpui::FocusHandle) -> Self {
+        self.focus_handle = Some(focus_handle.clone());
         self
     }
 }
@@ -372,6 +380,7 @@ impl RenderOnce for Button {
         let leading_icon = self.leading_icon;
         let on_click = self.on_click.clone();
         let on_activate = self.on_activate.clone();
+        let focus = self.focus_handle.clone();
         let disabled = self.disabled;
         let full_width = self.full_width;
         let content_alignment = self.content_alignment;
@@ -432,8 +441,11 @@ impl RenderOnce for Button {
             }
             if let Some(handler) = on_activate.clone() {
                 hit_target = hit_target.on_click(move |event, window, cx| {
-                    let _ = event;
-                    handler(window, cx);
+                    // GPUI also clicks on key-up. Key-down below already
+                    // owns keyboard activation (ADR 0069).
+                    if pointer_activation_click(event) {
+                        handler(window, cx);
+                    }
                 });
             } else if let Some(handler) = on_click {
                 hit_target = hit_target.on_click(move |event, window, cx| {
@@ -441,7 +453,7 @@ impl RenderOnce for Button {
                 });
             }
             if let Some(handler) = on_activate {
-                hit_target = keyboard_button_focus(hit_target, appearance, cx)
+                hit_target = keyboard_button_focus(hit_target, appearance, focus, cx)
                     .tab_index(0)
                     .rounded(radius)
                     .on_key_down(move |event, window, cx| {
@@ -471,6 +483,7 @@ impl RenderOnce for Button {
 fn keyboard_button_focus(
     target: gpui::Stateful<gpui::Div>,
     appearance: Option<Appearance>,
+    focus_handle: Option<gpui::FocusHandle>,
     cx: &App,
 ) -> gpui::Stateful<gpui::Div> {
     let focus_ring_width = layout::scaled_dimension(layout::CONTROL_FOCUS_RING_WIDTH, cx);
@@ -479,6 +492,10 @@ fn keyboard_button_focus(
         .border(focus_ring_width)
         .border_color(gpui::transparent_black())
         .focus(move |style| style.border_color(focus_color))
+        .when_some(focus_handle, |button, handle| {
+            // GPUI skips its automatic tab-stop setup for supplied handles.
+            button.track_focus(&handle.tab_index(0).tab_stop(true))
+        })
 }
 
 fn button_description(
@@ -498,6 +515,10 @@ fn button_description(
                 .font_weight(FontWeight::NORMAL)
                 .child(description),
         )
+}
+
+fn pointer_activation_click(event: &ClickEvent) -> bool {
+    matches!(event, ClickEvent::Mouse(_))
 }
 
 fn keyboard_activation_key(event: &KeyDownEvent) -> bool {
@@ -571,6 +592,37 @@ mod tests {
         let button = Button::plain("cycle-filter").on_activate(|_, _| {});
 
         assert!(button.on_activate.is_some());
+    }
+
+    #[test]
+    fn adr_0069_keyboard_press_and_synthesized_release_activate_once() {
+        for (key, button) in [
+            ("enter", gpui::KeyboardButton::Enter),
+            ("space", gpui::KeyboardButton::Space),
+        ] {
+            let press = KeyDownEvent {
+                keystroke: gpui::Keystroke::parse(key).unwrap(),
+                is_held: false,
+            };
+            let held = KeyDownEvent {
+                is_held: true,
+                ..press.clone()
+            };
+            let release_click = ClickEvent::Keyboard(gpui::KeyboardClickEvent {
+                button,
+                ..Default::default()
+            });
+            // One physical press, repeat events, then GPUI's key-up click.
+            let activations = [&press, &held, &held]
+                .into_iter()
+                .filter(|event| keyboard_activation_key(event))
+                .count()
+                + usize::from(pointer_activation_click(&release_click));
+            assert_eq!(activations, 1, "{key} must not toggle twice");
+            assert!(pointer_activation_click(&ClickEvent::Mouse(
+                Default::default()
+            )));
+        }
     }
 
     #[test]

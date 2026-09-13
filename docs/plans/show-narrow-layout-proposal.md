@@ -3,8 +3,18 @@
 ## Status
 
 Proposed - 2026-09-10. Requested during ADR 0059 task 017 visual inspection.
-No layout or playback behavior has changed. The operator accepted the pane
-resize/navigation walkthrough while identifying the narrow-window limitation.
+The remaining density, docking, title and playback changes are not implemented.
+The operator accepted the pane resize/navigation walkthrough while identifying
+the narrow-window limitation.
+
+Scope reconciled 2026-09-13: the operator requested that open logs take space
+before cards while sidebar Logs actions remain reachable.
+[ADR 0070](../adr/0070-show-log-space-priority.md) accepts a scrolling card
+viewport and log-height priority as a correction within
+[ADR 0063 task 005](../tasks/adr-0063-task-005-shared-log-frames-and-following.md).
+That supersedes this proposal's prohibition on scrolling cards with an open log.
+Its operator retest, preservation and cleanup are accepted on 2026-09-13.
+The remaining proposals are not implemented.
 
 Playback scope resolved by the operator on 2026-09-10: hide the entire bar and
 its spacing when every typed action is unavailable; retain working controls.
@@ -23,7 +33,7 @@ The operator's narrow-window screenshot shows three stacked cards beside Live
 Metadata detail. Only the Event log header fits below the cards; no log text
 is visible. A disabled playback bar consumes more height below it.
 
-The current owners explain this allocation:
+The owners at the time of that finding explained the allocation:
 
 - `ShowCard::render` in `src/ui/composites/show_card.rs` gives each card the
   fixed `Size::MenuCompact` height: 160 unscaled layout units.
@@ -50,8 +60,8 @@ Compact cards retain the three sections, their order, labeled badges, selection
 behavior, and the two summary lines. Remove excess vertical spacing and use a
 shared compact height appropriate for the width class. All cards in a resolved
 layout retain equal height; live status changes must not make them reflow.
-Do not solve the problem by shrinking text to unreadable sizes or putting the
-status cards in a scroll region.
+Do not shrink text to unreadable sizes. ADR 0070 permits scrolling cards while
+logs are open; compact density remains a separate possible improvement.
 
 ### Logs Can Span The Dashboard Width
 
@@ -113,9 +123,10 @@ with long labels, increased UI scale, and actual log updates.
 
 ## Ownership And Verification
 
-ADR 0063 already directs future space pressure toward compact cards. Correct
-the fit/allocation contract there while retaining three visible section badges
-and independent logs. ADR 0059 continues to own readiness and command intent.
+ADR 0070 now gives open logs priority over card height; not all card badges
+must be visible simultaneously in that state. Preserve its independent sidebar
+and log ownership when implementing density or docking. ADR 0059 continues to
+own readiness and command intent.
 Record any reversal separately according to ADR 0057; approval of this proposal
 is not operator acceptance of its eventual implementation.
 
@@ -131,7 +142,8 @@ still-binding rule they enforce:
 - `adr_0063_show_card_grid_shell_uses_vm_contract`
 - `adr_0063_show_detail_panel_owns_detail_and_transport_stays_on_show`
 - `adr_0063_logs_use_an_independent_bottom_pane_and_current_request`
-- `show_log_height_reserves_cards_and_survives_close`
+- `adr_0070_log_height_is_bounded_and_survives_close`
+- `adr_0070_log_space_precedes_cards_and_restores_after_resize`
 
 Mechanical checks must cover the layout resolver at narrow/wide and short/tall
 bounds, scaling, panel/log open states, manual preferences, minimum log-body
@@ -139,7 +151,7 @@ allocation, and the agreed typed transport visibility. Preserve
 the existing source, selection/Copy, and late-result guards.
 
 Visual checks must demonstrate readable log text at the screenshot's narrow
-size, all three section badges visible, reachable detail controls, no overlap,
+size, all three section badges reachable, reachable detail controls, no overlap,
 working resize and mode changes, and the agreed playback-bar behavior. The
 future packet owns setup, cleanup, and its new pending-human-checks entry.
 

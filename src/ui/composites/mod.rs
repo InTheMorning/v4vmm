@@ -34,6 +34,7 @@ pub mod library_filter_control;
 pub mod list_row;
 pub mod live_status_strip;
 pub mod musicbrainz_panel;
+pub(crate) mod page_scroll_content;
 pub mod playlist_popover;
 pub mod release_detail_surface;
 pub mod segmented_control;

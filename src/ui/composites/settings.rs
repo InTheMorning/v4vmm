@@ -4,30 +4,48 @@
 
 use std::rc::Rc;
 
-use gpui::{div, prelude::*, relative, AnyElement, App, Entity, SharedString, Window};
+use gpui::{div, prelude::*, AnyElement, App, Entity, ScrollHandle, SharedString, Window};
 use gpui_component::input::{Input, InputState};
 use gpui_component::scroll::ScrollableElement;
 use gpui_component::Size;
 
+use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::IconName;
-use crate::ui::layouts as layout;
 use crate::ui::primitives::Button;
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::settings::{
-    SettingsAction, SettingsActionDisplay, SettingsContent, SettingsVm,
+    SettingsAction, SettingsActionDisplay, SettingsContent, SettingsGroup, SettingsVm,
 };
 use crate::view_models::startup::StartupAvailability;
 
 pub(crate) type SettingsCallback = Rc<dyn Fn(SettingsAction, &mut Window, &mut App)>;
 
+/// The app root retains each group's page offset while that group is hidden.
+#[derive(Default)]
+pub(crate) struct SettingsScrollHandles {
+    general: ScrollHandle,
+    library: ScrollHandle,
+    diagnostics: ScrollHandle,
+}
+
+impl SettingsScrollHandles {
+    pub(crate) const fn handle(&self, group: SettingsGroup) -> &ScrollHandle {
+        match group {
+            SettingsGroup::General => &self.general,
+            SettingsGroup::Library => &self.library,
+            SettingsGroup::Diagnostics => &self.diagnostics,
+        }
+    }
+}
+
 pub(crate) fn settings_frame(
     navigation: AnyElement,
     content: Vec<AnyElement>,
+    scroll_handle: &ScrollHandle,
     cx: &App,
 ) -> AnyElement {
-    let settings_column_width = layout::scaled_dimension(layout::SETTINGS_COLUMN_WIDTH, cx);
     div()
         .id("settings")
         .flex()
@@ -48,20 +66,28 @@ pub(crate) fn settings_frame(
         .child(
             div()
                 .id("settings-scroll")
+                .relative()
                 .flex_1()
                 .min_h_0()
                 .min_w_0()
-                .overflow_y_scrollbar()
-                .p(Spacing::LG.scaled(cx))
                 .child(
                     div()
-                        .w(settings_column_width)
-                        .max_w(relative(1.0))
+                        .id("settings-page")
+                        .size_full()
+                        .min_w_0()
+                        .min_h_0()
                         .flex()
                         .flex_col()
-                        .gap(Spacing::LG.scaled(cx))
-                        .children(content),
-                ),
+                        .overflow_y_scroll()
+                        .track_scroll(scroll_handle)
+                        .p(Spacing::LG.scaled(cx))
+                        .child(
+                            page_scroll_content(cx)
+                                .gap(Spacing::LG.scaled(cx))
+                                .children(content),
+                        ),
+                )
+                .vertical_scrollbar(scroll_handle),
         )
         .into_any_element()
 }
@@ -165,4 +191,45 @@ pub(crate) fn settings_cached_row(title: String, action: Button, cx: &App) -> An
         )
         .child(action)
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adr_0069_settings_pages_retain_independent_scroll_offsets() {
+        let pages = SettingsScrollHandles::default();
+        for group in SettingsGroup::ALL {
+            assert_eq!(pages.handle(group).offset(), gpui::Point::default());
+        }
+        // Use the same shared handles as the viewport, without creating a window.
+        {
+            let visible = pages.handle(SettingsGroup::Diagnostics).clone();
+            visible.set_offset(gpui::point(gpui::px(0.0), gpui::px(-480.0)));
+        }
+        {
+            let visible = pages.handle(SettingsGroup::Library).clone();
+            visible.set_offset(gpui::point(gpui::px(0.0), gpui::px(-120.0)));
+        }
+        assert_eq!(
+            pages.handle(SettingsGroup::General).offset().y,
+            gpui::px(0.0)
+        );
+        assert_eq!(
+            pages.handle(SettingsGroup::Diagnostics).offset().y,
+            gpui::px(-480.0)
+        );
+        assert_eq!(
+            pages.handle(SettingsGroup::Library).offset().y,
+            gpui::px(-120.0)
+        );
+        pages
+            .handle(SettingsGroup::Library)
+            .set_offset(gpui::Point::default());
+        assert_eq!(
+            pages.handle(SettingsGroup::Diagnostics).offset().y,
+            gpui::px(-480.0)
+        );
+    }
 }

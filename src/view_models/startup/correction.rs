@@ -18,6 +18,8 @@ use super::StartupAvailability;
 pub(crate) enum CorrectionAction {
     Load,
     Reload,
+    CloseEditor,
+    ReopenEditor,
     Select(CorrectionField),
     Validate,
     Save,
@@ -34,6 +36,12 @@ pub(crate) struct CorrectionActionDisplay {
     pub(crate) availability: StartupAvailability,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EditorDisclosure {
+    Closed,
+    Open,
+}
+
 pub(crate) struct CorrectionVm {
     pub(crate) source: Option<Arc<CorrectionSource>>,
     pub(crate) selected: Option<CorrectionField>,
@@ -45,11 +53,14 @@ pub(crate) struct CorrectionVm {
     pub(crate) worker_available: bool,
     pub(crate) suspended: bool,
     saved: bool,
+    disclosure: EditorDisclosure,
 }
 
 impl CorrectionVm {
     pub(crate) const TITLE: &'static str = "Configuration repair";
     pub(crate) const EXPLANATION: &'static str = "Load the current file to correct it. Editing keeps a draft only. Save preserves the original in a separate backup; it does not retry an operation. Core changes require ending this app session, then Check again and Open app.";
+    pub(crate) const CLOSE_HELP: &'static str =
+        "Press Esc to focus Close editor. Enter or Space then closes it and keeps your draft until you quit the app.";
 
     pub(crate) fn new(worker_available: bool) -> Self {
         Self {
@@ -63,6 +74,31 @@ impl CorrectionVm {
             worker_available,
             suspended: false,
             saved: false,
+            disclosure: EditorDisclosure::Closed,
+        }
+    }
+
+    pub(crate) fn editor_open(&self) -> bool {
+        self.disclosure == EditorDisclosure::Open
+    }
+
+    pub(crate) fn entry_action(&self) -> CorrectionActionDisplay {
+        self.action(if self.source.is_some() || self.is_working() {
+            CorrectionAction::ReopenEditor
+        } else {
+            CorrectionAction::Load
+        })
+    }
+
+    pub(crate) fn close_editor(&mut self) {
+        self.disclosure = EditorDisclosure::Closed;
+    }
+
+    pub(crate) fn reopen_editor(&mut self) {
+        if self.action(CorrectionAction::ReopenEditor).availability
+            == StartupAvailability::Available
+        {
+            self.disclosure = EditorDisclosure::Open;
         }
     }
 
@@ -96,6 +132,8 @@ impl CorrectionVm {
         let label: String = match action {
             CorrectionAction::Load => "Edit configuration".into(),
             CorrectionAction::Reload => "Reload file (discard draft)".into(),
+            CorrectionAction::CloseEditor => "Close editor".into(),
+            CorrectionAction::ReopenEditor => "Reopen editor".into(),
             CorrectionAction::Select(field) => field.0.into(),
             CorrectionAction::Validate => "Test draft and paths".into(),
             CorrectionAction::Save => "Save correction".into(),
@@ -106,6 +144,10 @@ impl CorrectionVm {
         let allowed = match action {
             CorrectionAction::CopyReport => !self.report.is_empty(),
             CorrectionAction::CopyDraft => self.source.is_some(),
+            CorrectionAction::CloseEditor => self.editor_open(),
+            CorrectionAction::ReopenEditor => {
+                !self.editor_open() && (self.source.is_some() || self.is_working())
+            }
             CorrectionAction::Load | CorrectionAction::Reload => self.worker_available,
             CorrectionAction::Select(_) => {
                 self.source
@@ -124,7 +166,10 @@ impl CorrectionVm {
         };
         let independent = matches!(
             action,
-            CorrectionAction::CopyReport | CorrectionAction::CopyDraft
+            CorrectionAction::CopyReport
+                | CorrectionAction::CopyDraft
+                | CorrectionAction::CloseEditor
+                | CorrectionAction::ReopenEditor
         );
         let availability = if !independent && (self.is_working() || self.suspended) {
             StartupAvailability::Working
@@ -191,7 +236,8 @@ impl CorrectionVm {
     }
 
     pub(crate) fn edit(&mut self, value: String) {
-        if self.saved
+        if !self.editor_open()
+            || self.saved
             || self.suspended
             || self.working == Some(CorrectionOperation::Save)
             || self.working == Some(CorrectionOperation::Load)
@@ -217,7 +263,11 @@ impl CorrectionVm {
     }
 
     pub(crate) fn input_enabled(&self) -> bool {
-        self.source.is_some() && !self.saved && !self.suspended && !self.is_working()
+        self.editor_open()
+            && self.source.is_some()
+            && !self.saved
+            && !self.suspended
+            && !self.is_working()
     }
 
     pub(crate) fn copy_draft(&self) -> String {
@@ -248,6 +298,9 @@ impl CorrectionVm {
             CorrectionAction::Save => CorrectionOperation::Save,
             _ => return None,
         };
+        if action == CorrectionAction::Load {
+            self.disclosure = EditorDisclosure::Open;
+        }
         self.generation += 1;
         self.working = Some(operation);
         Some((
@@ -401,5 +454,149 @@ mod tests {
         assert!(vm.source.is_none());
         assert!(!vm.input_enabled());
         assert_eq!(vm.value(), "");
+    }
+
+    #[test]
+    fn adr_0066_closing_retains_raw_and_field_drafts_until_explicit_reload() {
+        for raw in [false, true] {
+            let (_temp, path, mut vm) = loaded();
+            if raw {
+                std::fs::write(&path, "invalid = [\n").unwrap();
+                let (generation, command) =
+                    vm.begin(CorrectionAction::Reload, path.clone()).unwrap();
+                vm.complete(generation, command.execute());
+                vm.edit("# café\ninvalid = [\n\n".into());
+            } else {
+                vm.select(CorrectionField("musicindex_endpoint"));
+                vm.edit("https://draft.test/café".into());
+                vm.select(CorrectionField("flac_path"));
+                vm.edit("/fixture/flac".into());
+            }
+            let source = vm.source.clone().unwrap();
+            let selected = vm.selected;
+            let value = vm.value();
+            let fields = vm.draft.fields.clone();
+            let raw_draft = vm.draft.raw.clone();
+            let report = vm.report.clone();
+            let generation = vm.generation;
+            let original = std::fs::read(&path).unwrap();
+            assert_eq!(
+                vm.action(CorrectionAction::CloseEditor).label,
+                "Close editor"
+            );
+            vm.close_editor();
+            vm.close_editor();
+            assert!(!vm.editor_open());
+            assert_eq!(
+                vm.action(CorrectionAction::CloseEditor).availability,
+                StartupAvailability::Unavailable
+            );
+            assert_eq!(vm.entry_action().action, CorrectionAction::ReopenEditor);
+            assert!(!vm.input_enabled());
+            assert_eq!(std::fs::read(&path).unwrap(), original);
+            // Reopening must not reread a concurrent external revision.
+            std::fs::write(&path, "external = 'keep'\n").unwrap();
+            assert_eq!(vm.entry_action().label, "Reopen editor");
+            vm.edit("hidden input callback".into());
+            vm.reopen_editor();
+            vm.reopen_editor();
+            assert!(vm.editor_open());
+            assert_eq!(
+                vm.action(CorrectionAction::ReopenEditor).availability,
+                StartupAvailability::Unavailable
+            );
+            assert!(vm.input_enabled());
+            assert!(Arc::ptr_eq(vm.source.as_ref().unwrap(), &source));
+            assert_eq!(vm.selected, selected);
+            assert_eq!(vm.value(), value);
+            assert_eq!(vm.draft.fields, fields);
+            assert_eq!(vm.draft.raw, raw_draft);
+            assert_eq!(vm.report, report);
+            assert_eq!(vm.generation, generation);
+            assert_eq!(
+                std::fs::read_to_string(&path).unwrap(),
+                "external = 'keep'\n"
+            );
+            assert_eq!(
+                std::fs::read_dir(path.parent().unwrap()).unwrap().count(),
+                1
+            );
+            let (generation, command) = vm.begin(CorrectionAction::Reload, path).unwrap();
+            vm.complete(generation, command.execute());
+            assert!(vm.draft.fields.is_empty());
+            assert!(vm.draft.raw.is_none());
+            assert_eq!(vm.source.as_ref().unwrap().raw(), "external = 'keep'\n");
+        }
+    }
+
+    #[test]
+    fn adr_0066_closed_editor_accepts_admitted_validation_and_save_without_reopening() {
+        for action in [CorrectionAction::Validate, CorrectionAction::Save] {
+            let (_temp, path, mut vm) = loaded();
+            vm.edit("https://draft.test".into());
+            let value = vm.value();
+            let (generation, command) = vm.begin(action, path.clone()).unwrap();
+            vm.worker_available = false;
+            vm.suspended = true;
+            assert_eq!(
+                vm.action(CorrectionAction::CloseEditor).availability,
+                StartupAvailability::Available
+            );
+            vm.close_editor();
+            assert!(!vm.editor_open());
+            assert!(vm.is_working());
+            assert_eq!(vm.generation, generation);
+            vm.edit("hidden input callback".into());
+            assert_eq!(vm.value(), value);
+            let fresh = vm.complete(generation, command.execute());
+            assert!(!vm.editor_open());
+            assert!(!vm.is_working());
+            assert_eq!(fresh.is_some(), action == CorrectionAction::Save);
+            assert!(vm.report.contains(if action == CorrectionAction::Save {
+                "App saved the configuration correction."
+            } else {
+                "App validated the draft"
+            }));
+            assert_eq!(
+                vm.entry_action().availability,
+                StartupAvailability::Available
+            );
+            vm.reopen_editor();
+            assert!(vm.editor_open());
+            assert_eq!(vm.value(), value);
+            assert!(!vm.input_enabled());
+        }
+    }
+
+    #[test]
+    fn adr_0066_load_completion_keeps_closed_editor_closed_on_success_or_failure() {
+        for readable in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("config.toml");
+            if readable {
+                std::fs::write(&path, "invalid = [\n").unwrap();
+            }
+            let mut vm = CorrectionVm::new(true);
+            vm.reopen_editor();
+            assert!(!vm.editor_open());
+            assert_eq!(vm.entry_action().action, CorrectionAction::Load);
+            let (generation, command) = vm.begin(CorrectionAction::Load, path).unwrap();
+            assert!(vm.editor_open());
+            vm.close_editor();
+            assert!(!vm.editor_open());
+            assert_eq!(vm.entry_action().action, CorrectionAction::ReopenEditor);
+            vm.complete(generation, command.execute());
+            assert!(!vm.editor_open());
+            assert!(!vm.report.is_empty());
+            assert_eq!(vm.source.is_some(), readable);
+            assert_eq!(
+                vm.entry_action().action,
+                if readable {
+                    CorrectionAction::ReopenEditor
+                } else {
+                    CorrectionAction::Load
+                }
+            );
+        }
     }
 }

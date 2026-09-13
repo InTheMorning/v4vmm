@@ -5381,13 +5381,10 @@ fn adr_0055_search_view_model_is_decomposed_under_module_tree() {
 
 #[test]
 fn settings_form_inputs_fill_scaled_frame_width() {
-    // Situational ADR 0069: shared form retains the existing scale/width contract.
+    // Situational ADR 0069: controls scale and fill the available Settings width.
     let form = read_source(&manifest_path("src/ui/composites/settings.rs"));
     let screen = read_source(&manifest_path("src/app/settings.rs"));
     for required in [
-        "layout::scaled_dimension(layout::SETTINGS_COLUMN_WIDTH, cx)",
-        ".w(settings_column_width)",
-        ".max_w(relative(1.0))",
         "pub(crate) fn settings_text_input(",
         "div()\n        .w_full()\n        .min_w_0()\n        .flex()\n        .flex_row()",
         "Input::new(input)",
@@ -5403,7 +5400,7 @@ fn settings_form_inputs_fill_scaled_frame_width() {
         assert!(screen.contains(&format!("settings_text_input(&app.{field}, cx)")));
     }
     assert!(screen.contains("settings_message(app.music_dir.display().to_string(), cx)"));
-    assert!(!form.contains(".max_w(layout::SETTINGS_COLUMN_WIDTH)"));
+    assert!(!form.contains("SETTINGS_COLUMN_WIDTH") && !form.contains("settings_column_width"));
 }
 
 #[test]
@@ -5772,11 +5769,12 @@ fn screens_do_not_reintroduce_raw_color_or_numeric_px_literals() {
 
 #[test]
 fn composites_do_not_reintroduce_raw_color_or_numeric_px_literals() {
+    // Situational ADR 0034: enforce rendered code; test coordinates are permitted.
     let mut violations = Vec::new();
     for path in rust_files_under("src/ui/composites") {
         let file = rel_path(&path);
         let source = read_source(&path);
-        for (line_number, line) in code_lines(&source) {
+        for (line_number, line) in code_lines(production_source(&source)) {
             if line.contains("rgb(") {
                 violations.push(format!(
                     "{file}:{line_number}: raw `rgb(...)` must live in tokens/theme, not composites: `{line}`"
@@ -15878,6 +15876,93 @@ fn adr_0063_logs_use_an_independent_bottom_pane_and_current_request() {
     );
 }
 
+/// Situational ADR 0070: cards yield space through the shared log split; the sidebar stays separate.
+#[test]
+fn adr_0070_show_log_budget_and_card_scroll_have_shared_owners() {
+    let pane = read_source(&manifest_path("src/ui/composites/show_log_pane.rs"));
+    let app = read_source(&manifest_path("src/app/show.rs"));
+    let shell = read_source(&manifest_path("src/ui/shells/show.rs"));
+    for required in [
+        ".id(\"show-card-scroll\")",
+        ".overflow_y_scrollbar()",
+        "page_scroll_content(cx).child(self.main)",
+        ".leading(cards.into_any_element())",
+        "f32::from(handle_height) / scale",
+    ] {
+        assert!(pane.contains(required), "Situational ADR 0070: missing {required}; the log composite must own the bounded card scroll region and measured handle.");
+    }
+    for forbidden in ["grid_rows", "Size::MenuCompact", "panel_open", "panel_mode"] {
+        assert!(!pane.contains(forbidden), "Situational ADR 0070: {forbidden} must not let card rows consume log space or change sidebar visibility.");
+    }
+    assert!(
+        compact_source(&app).contains("log_pane.update_geometry(height,handle_height)"),
+        "Situational ADR 0070: pass measured split bounds to the renderer-free log budget owner."
+    );
+    assert!(
+        shell.contains(".child(ShowDetailPanel::new("),
+        "Situational ADR 0070: keep the sidebar outside the main-column log split."
+    );
+}
+
+/// Situational ADR 0070: long identities cannot grow the header and remain available for exact copy.
+#[test]
+fn adr_0070_show_log_header_is_compact_and_preserves_identity() {
+    let pane = read_source(&manifest_path("src/ui/composites/show_log_pane.rs"));
+    let source = source_between(
+        &pane,
+        ".id(\"show-log-source\")",
+        ".id(\"show-log-metadata\")",
+    );
+    for required in [
+        ".overflow_hidden()",
+        ".whitespace_nowrap()",
+        "Tooltip::new(source_label.clone())",
+        "SelectableText::new(",
+        "display.unit_name",
+    ] {
+        assert!(source.contains(required), "Situational ADR 0070: source header needs {required}; keep one line with full identity available through shared hover and selection owners.");
+    }
+    assert!(pane.contains("display.header_status"), "Situational ADR 0070: render the view model's brief state rather than parsing the longer service explanation.");
+    let count = source_between(
+        &pane,
+        ".id(\"show-log-line-count\")",
+        ".children(display.header_status",
+    );
+    assert!(
+        count.contains("Tooltip::new(count_label.clone())"),
+        "Situational ADR 0070: a clipped count needs its own complete hover text."
+    );
+}
+
+/// Situational ADR 0070: a shared footer must never wrap status text into the log body.
+#[test]
+fn adr_0070_log_footer_bounds_text_and_retains_the_follow_action() {
+    let frame = read_source(&manifest_path("src/ui/composites/log_frame.rs"));
+    let footer = source_between(&frame, "fn footer(", "fn observe_user_scroll(");
+    for required in [
+        ".whitespace_nowrap()",
+        ".overflow_hidden()",
+        ".flex_shrink_0()",
+        "LogFooterLayout::Compact",
+        "self.vm.footer_status(self.footer_layout)",
+        "Tooltip::new(description)",
+        ".a11y_label(action.a11y_label)",
+        ".tooltip(action.a11y_label)",
+        ".on_activate(",
+    ] {
+        assert!(footer.contains(required), "Situational ADR 0070: shared footer is missing {required}; preserve bounded status and the accessible following control.");
+    }
+    assert!(
+        !footer.contains(".flex_wrap()"),
+        "Situational ADR 0070: use the compact width class instead of wrapping the footer."
+    );
+    assert!(
+        compact_source(&frame)
+            .contains("LogFooterLayout::for_width(f32::from(bounds.size.width)/scale"),
+        "Situational ADR 0070: classify the measured log viewport in unscaled units."
+    );
+}
+
 /// Situational ADR 0063: the log selection owner is plain text, read-only, and does not wrap.
 #[test]
 fn adr_0063_log_text_is_selectable_and_copied_without_rewriting() {
@@ -16402,12 +16487,21 @@ fn adr_0066_repair_failure_preserves_bindings() {
 fn adr_0069_keyboard_buttons_show_focus_without_layout_shift() {
     let button = read_source(&manifest_path("src/ui/primitives/button.rs"));
     let enabled = source_between(&button, "if disabled {", "if let Some(icon) = leading_icon");
+    let pointer = source_between(
+        enabled,
+        "if let Some(handler) = on_activate.clone() {",
+        "} else if let Some(handler) = on_click {",
+    );
+    assert!(
+        pointer.contains("if pointer_activation_click(event) {"),
+        "Situational ADR 0069: GPUI key-up clicks must not duplicate the key-down activation"
+    );
     let keyboard = enabled
         .rsplit_once("if let Some(handler) = on_activate {")
         .unwrap()
         .1;
     for required in [
-        "keyboard_button_focus(hit_target, appearance, cx)",
+        "keyboard_button_focus(hit_target, appearance, focus, cx)",
         ".tab_index(0)",
         ".rounded(radius)",
         "keyboard_activation_key(event)",
@@ -16457,7 +16551,7 @@ fn adr_0069_settings_group_ownership() {
     assert!(!app.contains("fn render_settings(") && !app.contains("fn render_ui_scale_picker("));
     assert_eq!(screen.matches("fn render_settings(").count(), 1);
     for required in [
-        "settings_frame(navigation, content, cx)",
+        "settings_frame(navigation, content, page_scroll, cx)",
         "settings_field(field, input, cx)",
         "app.render_capabilities(true, cx)",
         "app.cached_files.status()",
@@ -16497,7 +16591,11 @@ fn adr_0069_settings_group_ownership() {
     assert!(
         form.find(".child(navigation)").unwrap() < form.find(".id(\"settings-scroll\")").unwrap()
     );
-    assert!(form.contains(".min_h_0()") && form.contains(".overflow_y_scrollbar()"));
+    assert!(form.contains(".min_h_0()") && form.contains(".overflow_y_scroll()"));
+    assert!(form.contains(".track_scroll(scroll_handle)"));
+    assert!(form.contains(".vertical_scrollbar(scroll_handle)"));
+    assert!(app.contains("settings_scroll: crate::ui::composites::settings::SettingsScrollHandles"));
+    assert!(screen.contains("app.settings_scroll.handle(app.settings.selected())"));
     assert!(!form.contains("truncate()"));
     let select = source_between(&app, "fn select_tab(", "fn set_frame_filter(");
     let navigation = source_between(select, "AppTab::Settings => {", "AppTab::Music => {");
@@ -16735,7 +16833,7 @@ fn adr_0066_shared_guarded_config_repair() {
     assert!(startup.contains("ConfigurationEditor::new("));
     assert!(startup.contains("app.configuration_editor.clone_from(&self.editor)"));
     assert_eq!(startup.matches("ConfigurationEditor::new(").count(), 1);
-    assert!(presenter.contains("configuration_correction(&self.vm"));
+    assert!(compact_source(&presenter).contains("configuration_correction(&self.vm"));
     assert!(presenter.contains("worker.submit(move || command.execute())"));
     assert!(presenter.contains("self.vm.begin(action, path)"));
     assert!(presenter.contains("this.vm.complete(generation, result)"));
@@ -16808,6 +16906,78 @@ fn adr_0066_shared_guarded_config_repair() {
     assert!(!commands.contains("load_config_snapshot(") && !commands.contains("prepare_database("));
 }
 
+/// Situational ADR 0066: Escape leaves the input and focuses Close without activating it.
+#[test]
+fn adr_0066_editor_escape_focuses_close_without_closing() {
+    let form = read_source(&manifest_path("src/ui/composites/maintenance_forms.rs"));
+    let editor = source_between(
+        &form,
+        "pub(crate) fn configuration_correction(",
+        "fn configuration_input_frame(",
+    );
+    let editor = compact_source(editor);
+    assert!(editor.contains("letclose=vm.action(CorrectionAction::CloseEditor)"));
+    assert!(editor.contains("body.on_action(move|_:&gpui_component::input::Escape,window,cx|"));
+    assert!(editor.contains("letclose_focus=disclosure_focus.clone()"));
+    let escape = source_between(&editor, "body.on_action(", ".gap(");
+    assert!(escape.contains("cx.stop_propagation()"));
+    assert!(escape.contains("close_focus.focus(window)"));
+    for forbidden in [
+        "callback(",
+        ".close_editor(",
+        ".reopen_editor(",
+        ".edit(",
+        ".request(",
+        ".sync_input(",
+    ] {
+        assert!(
+            !escape.contains(forbidden),
+            "ADR 0066: Escape only moves focus to Close editor; it cannot call {forbidden}"
+        );
+    }
+    assert_eq!(editor.matches(".track_focus(disclosure_focus)").count(), 2);
+    for forbidden in [
+        ".capture_action",
+        ".on_key_down",
+        ".capture_key_down",
+        "KeyBinding::new",
+    ] {
+        assert!(!editor.contains(forbidden), "ADR 0066: editor exit must follow the input's existing action handling, not {forbidden}");
+    }
+
+    let presenter = read_source(&manifest_path("src/presentation/configuration_editor.rs"));
+    assert!(presenter.contains("disclosure_focus: FocusHandle"));
+    assert!(presenter.contains("disclosure_focus: cx.focus_handle()"));
+    let close = source_between(
+        &presenter,
+        "CorrectionAction::CloseEditor =>",
+        "CorrectionAction::ReopenEditor =>",
+    );
+    assert!(close.contains("self.vm.close_editor()"));
+    assert!(close.contains("self.disclosure_focus.focus(window)"));
+    for forbidden in ["self.request", "self.sync_input", "self.input.update"] {
+        assert!(!close.contains(forbidden), "ADR 0066: close only hides the retained draft and returns focus; it cannot call {forbidden}");
+    }
+
+    let button = read_source(&manifest_path("src/ui/primitives/button.rs"));
+    let keyboard = source_between(
+        &button,
+        "if let Some(handler) = on_activate {",
+        "if let Some(icon) = leading_icon",
+    );
+    assert!(keyboard.contains("keyboard_button_focus(hit_target, appearance, focus, cx)"));
+    let focus = source_between(
+        &button,
+        "fn keyboard_button_focus(",
+        "fn button_description(",
+    );
+    assert!(focus.contains(".when_some(focus_handle"));
+    assert!(
+        focus.contains("button.track_focus(&handle.tab_index(0).tab_stop(true))"),
+        "ADR 0066: supplied disclosure focus must remain a keyboard tab stop"
+    );
+}
+
 /// Situational ADR 0063: every log family shares the framed viewport and reading owner.
 #[test]
 fn adr_0063_logs_share_frame_following_and_renderer_free_state() {
@@ -16867,4 +17037,19 @@ fn adr_0063_logs_share_frame_following_and_renderer_free_state() {
         root.contains("app.log_frames.clone_from(&self.log_frames)"),
         "ADR 0063: retain report reading positions through managed sessions"
     );
+}
+
+/// Situational ADR 0063: pages containing nested scrollbars share clearance ownership.
+#[test]
+fn adr_0063_nested_scrollbars_share_page_content_owner() {
+    for file in [
+        "src/ui/composites/startup_report.rs",
+        "src/ui/composites/settings.rs",
+    ] {
+        let source = read_source(&manifest_path(file));
+        assert!(
+            source.contains("page_scroll_content(cx)"),
+            "ADR 0063: {file} must share the page scrollbar clearance owner"
+        );
+    }
 }

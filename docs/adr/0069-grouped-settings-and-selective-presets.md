@@ -44,6 +44,24 @@ labeled group tabs, a persistent indication of the selected group and a bounded
 scroll area for the group's content. Remember the selected group within the
 session. Changing groups or leaving Settings retains the working draft.
 
+Amended 2026-09-13 during ADR 0063 task 005 operator checks: retain an
+independent page scroll position for each group throughout the app session,
+including while Settings is hidden. A group's first visit starts at the top;
+returning restores its own position, clamped only to its current content bounds.
+The shared Settings composite owns renderer handles, retained by the app root;
+the view model owns the selected group. No scroll position is persisted in
+configuration. Group content uses the available page width with the shared
+scrollbar gutter; the former fixed form-column width does not constrain logs.
+This presentation correction does not reopen task 001's accepted behavior.
+
+Amended 2026-09-13 during the shared-log packet's recovery-editor check:
+the shared Button primitive dispatches an activation once per keyboard press.
+Its key-down route owns keyboard activation and ignores held-key repeats;
+its click route accepts mouse clicks only when an activation handler is present.
+GPUI's synthesized key-up click must not dispatch that handler again. Existing
+mouse focus transfer, focus chrome and typed action admission stay in place.
+This corrects duplicate dispatch without changing task 001's accepted workflow.
+
 | Group | Configuration or maintenance owned here |
 |---|---|
 | General | Operating mode, theme and interface scale |
