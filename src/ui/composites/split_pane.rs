@@ -181,9 +181,15 @@ impl RenderOnce for SplitPane {
             .bg(color::border_subtle())
             .hover(|s| s.bg(color::accent()))
             .flex_shrink_0();
+        #[cfg(test)]
+        {
+            handle = handle.debug_selector(|| "split-resize-handle".to_owned());
+        }
         if let Some(on_resize_start) = self.on_resize_start {
             handle = handle.on_mouse_down(MouseButton::Left, move |event, window, cx| {
                 on_resize_start(event, window, cx);
+                // ADR 0071: Root must not start text selection from a divider drag.
+                cx.stop_propagation();
             });
         }
 
@@ -223,7 +229,120 @@ impl RenderOnce for SplitPane {
 
 #[cfg(test)]
 mod tests {
+    use gpui::{Context, Entity, Modifiers, Pixels, Render, TestAppContext};
+
     use super::*;
+
+    struct ResizeTest {
+        axis: SplitPaneAxis,
+        extent: Pixels,
+        dragging: bool,
+    }
+
+    impl Render for ResizeTest {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let text = "alpha /tmp/café/music.flac ".repeat(40);
+            let text = format!("{text}\n").repeat(40);
+            SplitPane::new("resize-test")
+                .axis(self.axis)
+                .leading_width(self.extent)
+                .leading_min_width(Pixels::ZERO)
+                .leading_height(self.extent)
+                .leading_min_height(Pixels::ZERO)
+                .leading(
+                    crate::ui::composites::SelectableText::new("before", text.clone())
+                        .into_any_element(),
+                )
+                .trailing(
+                    crate::ui::composites::SelectableText::new("after", text).into_any_element(),
+                )
+                .on_resize_start(cx.listener(|this, _, _, _| this.dragging = true))
+                .on_resize_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+                    if this.dragging && event.dragging() {
+                        this.extent = match this.axis {
+                            SplitPaneAxis::Horizontal => event.position.x,
+                            SplitPaneAxis::Vertical => event.position.y,
+                        };
+                        cx.notify();
+                    }
+                }))
+                .on_resize_end(cx.listener(|this, _, _, _| this.dragging = false))
+        }
+    }
+
+    struct ResizeRoot(Entity<ResizeTest>, Entity<gpui_component::Root>);
+
+    impl Render for ResizeRoot {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().flex().flex_col().child(self.1.clone())
+        }
+    }
+
+    /// Situational ADR 0071: Root text selection must not claim a divider drag.
+    #[gpui::test]
+    fn adr_0071_split_resize_does_not_start_text_selection(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        for axis in [SplitPaneAxis::Horizontal, SplitPaneAxis::Vertical] {
+            let (root, cx) = cx.add_window_view(|window, cx| {
+                let state = cx.new(|_| ResizeTest {
+                    axis,
+                    extent: gpui::px(100.),
+                    dragging: false,
+                });
+                ResizeRoot(
+                    state.clone(),
+                    cx.new(|cx| gpui_component::Root::new(state, window, cx)),
+                )
+            });
+            cx.update(|window, cx| {
+                let _ = window.draw(cx);
+            });
+            let handle = cx.debug_bounds("split-resize-handle").unwrap().center();
+            let destination = handle + gpui::point(gpui::px(35.), gpui::px(35.));
+            cx.simulate_mouse_down(handle, MouseButton::Left, Modifiers::default());
+            cx.simulate_mouse_move(destination, MouseButton::Left, Modifiers::default());
+            cx.update(|window, cx| {
+                assert!(root.read(cx).0.read(cx).dragging);
+                assert!(root.read(cx).0.read(cx).extent > gpui::px(100.));
+                assert!(
+                    !gpui_base::TextSelection::has_selection(window, cx),
+                    "{axis:?}: divider drag also started text selection"
+                );
+            });
+            cx.simulate_mouse_up(destination, MouseButton::Left, Modifiers::default());
+            cx.update(|_, cx| assert!(!root.read(cx).0.read(cx).dragging));
+            let extent = cx.update(|_, cx| root.read(cx).0.read(cx).extent);
+            cx.simulate_mouse_move(
+                gpui::point(gpui::px(20.), gpui::px(20.)),
+                None,
+                Modifiers::default(),
+            );
+            cx.update(|window, cx| {
+                let _ = window.draw(cx);
+                assert_eq!(root.read(cx).0.read(cx).extent, extent);
+                assert!(!gpui_base::TextSelection::has_selection(window, cx));
+            });
+            cx.simulate_mouse_down(
+                gpui::point(gpui::px(5.), gpui::px(12.)),
+                MouseButton::Left,
+                Modifiers::default(),
+            );
+            cx.simulate_mouse_move(
+                gpui::point(gpui::px(40.), gpui::px(12.)),
+                MouseButton::Left,
+                Modifiers::default(),
+            );
+            cx.simulate_mouse_up(
+                gpui::point(gpui::px(40.), gpui::px(12.)),
+                MouseButton::Left,
+                Modifiers::default(),
+            );
+            cx.update(|window, cx| {
+                assert!(gpui_base::TextSelection::has_selection(window, cx));
+                assert_eq!(root.read(cx).0.read(cx).extent, extent);
+            });
+        }
+    }
 
     /// Situational ADR 0063: adding height resizing preserves existing width callers.
     #[test]

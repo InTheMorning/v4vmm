@@ -135,8 +135,9 @@ fn primary_offset_at<M: InputModeKind>(
     window: &mut Window,
     cx: &mut Context<InputBaseState<M>>,
 ) -> Option<usize> {
-    let bounds = input.text_bounds()?;
-    if !bounds.contains(&position) {
+    // Text bounds move with scrolling; the input viewport still accepts clicks
+    // on visible trailing rows (ADR 0071).
+    if !input.input_bounds().contains(&position) {
         return None;
     }
     if input.text().len() == 0 {
@@ -427,6 +428,71 @@ mod tests {
                     format!("{}P{}", &text[..offset], &text[offset..])
                 );
             });
+        }
+    }
+
+    #[gpui::test]
+    fn adr_0071_middle_click_reaches_trailing_blank_rows_after_scrolling(cx: &mut TestAppContext) {
+        use gpui::AppContext as _;
+
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            init(cx);
+        });
+        let (root, cx) = cx.add_window_view(|window, cx| {
+            TextareaTest(cx.new(|cx| TextareaState::new(window, cx)))
+        });
+        let primary = "PRIMARY-RECOVERY";
+        for lines in [1, 20] {
+            let prefix = "café 👩‍💻\n".repeat(lines);
+            let text = format!("{prefix}\n\n");
+            for offset in prefix.len()..=text.len() {
+                cx.update(|window, cx| {
+                    let input = root.read(cx).0.clone();
+                    input.update(cx, |input, cx| {
+                        input.set_value(&text, window, cx);
+                        input.focus(window, cx);
+                    });
+                    window.draw(cx).clear(cx);
+                });
+                cx.simulate_keystrokes("ctrl-end");
+                let position = cx.update(|window, cx| {
+                    window.draw(cx).clear(cx);
+                    let input = root.read(cx).0.read(cx);
+                    let caret = input.range_to_bounds(&(offset..offset)).unwrap();
+                    let position = gpui::point(caret.left() + gpui::px(40.), caret.center().y);
+                    assert!(input.input_bounds().contains(&position));
+                    cx.write_to_clipboard(ClipboardItem::new_string("RECOVERY-KEEP".into()));
+                    cx.write_to_primary(ClipboardItem::new_string(primary.into()));
+                    position
+                });
+                cx.simulate_mouse_down(position, MouseButton::Middle, gpui::Modifiers::default());
+                cx.simulate_mouse_up(position, MouseButton::Middle, gpui::Modifiers::default());
+                let expected = format!("{}{primary}{}", &text[..offset], &text[offset..]);
+                cx.update(|_, cx| {
+                    assert_eq!(
+                        root.read(cx).0.read(cx).value().as_ref(),
+                        expected,
+                        "middle-click on blank row at byte {offset}, after {lines} text lines"
+                    );
+                    assert_eq!(
+                        cx.read_from_clipboard().unwrap().text().as_deref(),
+                        Some("RECOVERY-KEEP")
+                    );
+                    assert_eq!(
+                        cx.read_from_primary().unwrap().text().as_deref(),
+                        Some(primary)
+                    );
+                });
+                for (key, value) in [
+                    ("ctrl-z", text.as_str()),
+                    ("ctrl-y", expected.as_str()),
+                    ("ctrl-z", text.as_str()),
+                ] {
+                    cx.simulate_keystrokes(key);
+                    cx.update(|_, cx| assert_eq!(root.read(cx).0.read(cx).value().as_ref(), value));
+                }
+            }
         }
     }
 

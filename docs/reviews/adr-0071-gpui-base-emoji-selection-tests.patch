@@ -1,0 +1,162 @@
+diff --git a/crates/base/src/input/base/state.rs b/crates/base/src/input/base/state.rs
+--- a/crates/base/src/input/base/state.rs
++++ b/crates/base/src/input/base/state.rs
+@@ -4351,6 +4372,99 @@
+     }
+ 
+     #[gpui::test]
++    fn word_selection_hits_complete_final_emoji(cx: &mut TestAppContext) {
++        cx.update(crate::init);
++        word_selection_emoji_pointer_cases(cx, crate::input::InputState::new);
++        word_selection_emoji_pointer_cases(cx, crate::input::TextareaState::new);
++    }
++
++    fn word_selection_emoji_pointer_cases<M: InputModeKind>(
++        cx: &mut TestAppContext,
++        make: fn(&mut Window, &mut Context<InputBaseState<M>>) -> InputBaseState<M>,
++    ) {
++        use gpui::{FontId, GlyphId, ShapedGlyph, ShapedRun};
++        use std::sync::Arc;
++
++        for suffix in ["", "."] {
++            let text = format!("中文 👩‍💻{suffix}");
++            let value = text.clone();
++            let view = InputView::<M>::build_with(cx, move |window, cx| {
++                make(window, cx).default_value(value)
++            });
++            let mut visual = VisualTestContext::from_window(view.window_handle.into(), cx);
++            visual.refresh().unwrap();
++            visual.update(|window, cx| {
++                view.input.update(cx, |state, cx| {
++                    let last = state.last_layout.as_mut().unwrap();
++                    let mut line = last.lines[0].wrapped_lines[0].clone();
++                    let mut glyphs: Vec<_> = [(0, 0.), (3, 10.), (6, 20.), (7, 30.)]
++                        .into_iter()
++                        .map(|(index, x)| ShapedGlyph {
++                            id: GlyphId(0),
++                            position: point(px(x), px(0.)),
++                            index,
++                            is_emoji: index == 7,
++                        })
++                        .collect();
++                    if !suffix.is_empty() {
++                        glyphs.push(ShapedGlyph {
++                            id: GlyphId(0),
++                            position: point(px(50.), px(0.)),
++                            index: 18,
++                            is_emoji: false,
++                        });
++                    }
++                    *line = Arc::new(gpui::LineLayout {
++                        font_size: line.font_size,
++                        ascent: line.ascent,
++                        descent: line.descent,
++                        width: px(if suffix.is_empty() { 50. } else { 60. }),
++                        len: text.len(),
++                        runs: vec![ShapedRun {
++                            font_id: FontId(0),
++                            glyphs,
++                        }],
++                    });
++                    last.lines = Rc::new(vec![
++                        super::super::display_map::LineLayout::new()
++                            .lines(smallvec::smallvec![line]),
++                    ]);
++                    let origin = state.last_bounds.unwrap().origin
++                        + point(last.line_number_width, last.line_height / 2.);
++                    for x in [31., 35., 40., 49.] {
++                        state.set_selected_range(0..0, cx);
++                        state.on_mouse_down(
++                            &MouseDownEvent {
++                                button: MouseButton::Left,
++                                position: origin + point(px(x), px(0.)),
++                                click_count: 2,
++                                ..Default::default()
++                            },
++                            window,
++                            cx,
++                        );
++                        assert_eq!(state.selected_text().to_string(), "👩‍💻", "{text:?} at {x}");
++                        assert_eq!(state.selected_range(), 7..18);
++                    }
++                    state.copy(&Copy, window, cx);
++                    assert_eq!(
++                        cx.read_from_clipboard().unwrap().text().as_deref(),
++                        Some("👩‍💻")
++                    );
++                    state.replace_text_in_range(None, ".", window, cx);
++                    assert_eq!(state.value().as_str(), format!("中文 .{suffix}"));
++                    state.undo(&Undo, window, cx);
++                    assert_eq!(state.value().as_str(), text);
++                    state.redo(&Redo, window, cx);
++                    assert_eq!(state.value().as_str(), format!("中文 .{suffix}"));
++                    state.undo(&Undo, window, cx);
++                    assert_eq!(state.value().as_str(), text);
++                });
++            });
++        }
++    }
++
++    #[gpui::test]
+     fn test_noop_scroll_notifies_diagnostic_dismissal(cx: &mut TestAppContext) {
+         use std::{cell::Cell, rc::Rc};
+ 
+diff --git a/crates/base/src/input/base/selection.rs b/crates/base/src/input/base/selection.rs
+--- a/crates/base/src/input/base/selection.rs
++++ b/crates/base/src/input/base/selection.rs
+@@ -144,6 +142,29 @@
+     }
+ 
+     #[test]
++    fn word_selection_preserves_graphemes_in_rope() {
++        let long_prefix = format!("{} ", "x".repeat(4096));
++        for prefix in ["", "previous row\n", "previous row\r\n", &long_prefix] {
++            for suffix in ["", ".", "\nnext row", "\r\nnext row"] {
++                for cluster in ["👩‍💻", "👩🏽‍💻", "🇨🇦", "1️⃣", "✈️"] {
++                    let text = format!("{prefix}中文 {cluster}{suffix}");
++                    let rope = Rope::from(text.as_str());
++                    for (local, _) in cluster.char_indices() {
++                        let range =
++                            TextSelector::word_range(&rope, prefix.len() + "中文 ".len() + local)
++                                .unwrap();
++                        assert_eq!(
++                            rope.slice(range).to_string(),
++                            cluster,
++                            "{text:?} at {local}"
++                        );
++                    }
++                }
++            }
++        }
++    }
++
++    #[test]
+     fn test_line_range() {
+         let rope = Rope::from("first line\nsecond line\nthird");
+         let tests = vec![
+diff --git a/crates/base/src/text_boundary.rs b/crates/base/src/text_boundary.rs
+--- a/crates/base/src/text_boundary.rs
++++ b/crates/base/src/text_boundary.rs
+@@ -80,3 +103,22 @@
+     }
+     offset
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn word_selection_preserves_graphemes() {
++        for cluster in ["👩‍💻", "👩🏽‍💻", "🇨🇦", "1️⃣", "✈️", "क्‍ष"]
++        {
++            for suffix in ["", "."] {
++                let text = format!("中文 {cluster}{suffix}");
++                for (local, _) in cluster.char_indices() {
++                    let range = word_range_at(&text, "中文 ".len() + local).unwrap();
++                    assert_eq!(&text[range], cluster, "{text:?} at {local}");
++                }
++            }
++        }
++    }
++}

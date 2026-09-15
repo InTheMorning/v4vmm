@@ -65,8 +65,10 @@ and recovery share the frame and reading-state owner. The
 check. ADR 0066 task 007 follows in a fresh session; implementation has not started.
 
 [ADR 0071 task 001: Shared text selection](docs/tasks/adr-0071-task-001-shared-text-selection.md)
-is implemented, with mechanical checks Green and operator V1–V3,
-preservation and fixture cleanup open. It owns double/triple-click selection
+is complete on 2026-09-15, with mechanical checks Green, available X11 operator
+checks, preservation and cleanup accepted. ADRs 0071 and 0072 are Implemented;
+the narrow gpui-base correction is commit-pinned. IME composition and Wayland
+remain untested coverage limits. The packet owns double/triple-click selection
 and Linux primary paste across shared logs and inputs. The completed log packet
 stays closed. Its separate [operator procedure](docs/runbooks/text-selection-check.md)
 covers Unicode, paths, cross-application paste, Undo/Redo and accepted Escape.

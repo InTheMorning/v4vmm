@@ -45,6 +45,7 @@ pub fn run_app() -> bool {
     app.run(move |cx| {
         gpui_component::init(cx);
         crate::ui::primitives::primary_selection::init(cx);
+        crate::ui::primitives::context_menu::init(cx);
         install_key_bindings(cx);
         install_app_menu(cx);
         // Pre-config: install with default scale; ADR 0066 recovery requires

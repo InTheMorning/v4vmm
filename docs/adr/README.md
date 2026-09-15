@@ -93,7 +93,8 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0067](0067-platform-shortcut-modifiers.md) | Ctrl app shortcuts on Linux; Command and native Hide actions on macOS | Implemented |
 | [0069](0069-grouped-settings-and-selective-presets.md) | Grouped Settings, live metadata resource selection, independent audio configuration and selective preset snapshots; [task 001 complete; later phases not started](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Accepted |
 | [0070](0070-show-log-space-priority.md) | Open Show logs take height before scrolling cards; sidebar actions remain reachable; ADR 0063 task 005 implementation, acceptance and cleanup complete | Implemented |
-| [0071](0071-shared-text-selection-and-linux-primary.md) | Shared Unicode word/line selection and Linux primary paste; [task 001 implementation complete, operator gate open](../tasks/adr-0071-task-001-shared-text-selection.md) | Accepted |
+| [0071](0071-shared-text-selection-and-linux-primary.md) | Shared Unicode word/line selection and Linux primary paste; [task 001 complete with available X11 checks, preservation and cleanup](../tasks/adr-0071-task-001-shared-text-selection.md); IME/Wayland untested | Implemented |
+| [0072](0072-pinned-gpui-base-selection-corrections.md) | Commit-pinned gpui-base correction for final-glyph and grapheme selection; mechanical and focused X11 checks, preservation and cleanup complete in ADR 0071 task 001 | Implemented |
 
 ## UI Presentation
 

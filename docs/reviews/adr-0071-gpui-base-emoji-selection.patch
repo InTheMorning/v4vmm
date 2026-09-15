@@ -1,0 +1,133 @@
+diff --git a/crates/base/src/input/base/state.rs b/crates/base/src/input/base/state.rs
+--- a/crates/base/src/input/base/state.rs
++++ b/crates/base/src/input/base/state.rs
+@@ -2234,8 +2234,9 @@
+         }
+ 
+         self.selecting = true;
++        let select_word = event.button == MouseButton::Left && event.click_count == 2;
+         let (offset, line_end_affinity, columns_past_line_end) =
+-            self.resolve_mouse_position(event.position);
++            self.resolve_mouse_position_with_glyph_hit(event.position, select_word);
+ 
+         if M::on_click(self, event, offset, window, cx) {
+             return;
+@@ -2846,6 +2847,14 @@
+     /// the end of a row means the end of that row, and
+     /// [`Self::index_for_mouse_position`] is the call to make.
+     fn resolve_mouse_position(&self, position: Point<Pixels>) -> (usize, bool, usize) {
++        self.resolve_mouse_position_with_glyph_hit(position, false)
++    }
++
++    fn resolve_mouse_position_with_glyph_hit(
++        &self,
++        position: Point<Pixels>,
++        prefer_glyph: bool,
++    ) -> (usize, bool, usize) {
+         // If the text is empty, always return 0
+         if self.text.len() == 0 {
+             return (0, false, 0);
+@@ -2889,6 +2898,18 @@
+             // Calculate line origin for this display row
+             let line_origin = point(px(0.), y_offset);
+             let pos = inner_position - line_origin;
++
++            // A word click targets the glyph under the pointer, not the
++            // nearest caret, which can lie after the final glyph or on punctuation.
++            if prefer_glyph {
++                if let Some(local_index) = line_layout.index_for_position(pos, last_layout) {
++                    return (
++                        self.resolve_index(line_start_offset + local_index),
++                        false,
++                        0,
++                    );
++                }
++            }
+ 
+             // Return offset by use closest_index_for_x if is single line mode.
+             if self.is_single_line() {
+diff --git a/crates/base/src/input/base/selection.rs b/crates/base/src/input/base/selection.rs
+--- a/crates/base/src/input/base/selection.rs
++++ b/crates/base/src/input/base/selection.rs
+@@ -1,12 +1,12 @@
+ use crate::input::InputModeKind;
+-use std::ops::Range;
++use std::{borrow::Cow, ops::Range};
+ 
+ use gpui::{Context, Window};
+ use ropey::Rope;
+ use sum_tree::Bias;
+ 
+ use super::{InputBaseState, RopeExt as _};
+-use crate::text_boundary::word_range_from_chars;
++use crate::text_boundary::word_range_at;
+ 
+ /// Unique identifier for a cursor/selection.
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
+@@ -78,14 +78,12 @@
+     /// Returns the start and end offsets of the selected word.
+     pub(crate) fn word_range(text: &Rope, offset: usize) -> Option<Range<usize>> {
+         let offset = text.clip_offset(offset, Bias::Left);
+-        let Some(char) = text.char_at(offset) else {
+-            return None;
+-        };
+-
+-        let end = offset + char.len_utf8();
+-        let prev_chars = text.chars_at(offset).reversed().take(128);
+-        let next_chars = text.chars_at(end).take(128);
+-        Some(word_range_from_chars(offset, char, prev_chars, next_chars))
++        let row = text.offset_to_point(offset).row;
++        let start = text.line_start_offset(row);
++        // Include the terminator so CRLF remains one grapheme. Borrow a
++        // contiguous rope slice; only a line spanning chunks needs a copy.
++        let line: Cow<'_, str> = text.slice(start..text.line_start_offset(row + 1)).into();
++        word_range_at(&line, offset - start).map(|range| start + range.start..start + range.end)
+     }
+ }
+ 
+diff --git a/crates/base/src/text_boundary.rs b/crates/base/src/text_boundary.rs
+--- a/crates/base/src/text_boundary.rs
++++ b/crates/base/src/text_boundary.rs
+@@ -1,4 +1,6 @@
+ use std::ops::Range;
++
++use unicode_segmentation::GraphemeCursor;
+ 
+ #[derive(Clone, Copy)]
+ enum CharacterKind {
+@@ -56,12 +58,33 @@
+     let offset = clip_offset_left(text, offset);
+     let character = text[offset..].chars().next()?;
+     let end = offset + character.len_utf8();
+-    Some(word_range_from_chars(
++    let range = word_range_from_chars(
+         offset,
+         character,
+         text[..offset].chars().rev(),
+         text[end..].chars(),
+-    ))
++    );
++    // Character classes define the word; its endpoints must not split a
++    // displayed character such as a ZWJ emoji, flag or combining sequence.
++    Some(grapheme_boundary(text, range.start, false)..grapheme_boundary(text, range.end, true))
++}
++
++fn grapheme_boundary(text: &str, offset: usize, forward: bool) -> usize {
++    let mut cursor = GraphemeCursor::new(offset, text.len(), true);
++    if cursor
++        .is_boundary(text, 0)
++        .expect("complete text supplies grapheme context")
++    {
++        return offset;
++    }
++    let boundary = if forward {
++        cursor.next_boundary(text, 0)
++    } else {
++        cursor.prev_boundary(text, 0)
++    };
++    boundary
++        .expect("complete text supplies grapheme context")
++        .expect("an interior grapheme position has both endpoints")
+ }
+ 
+ pub(crate) fn line_range_at(text: &str, offset: usize) -> Range<usize> {

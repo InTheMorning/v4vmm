@@ -11,8 +11,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    anchored, deferred, div, prelude::*, App, ElementId, Entity, FocusHandle, IntoElement,
-    MouseButton, Pixels, Point, RenderOnce, SharedString, Window,
+    actions, anchored, deferred, div, prelude::*, App, ElementId, Entity, FocusHandle, IntoElement,
+    KeyBinding, MouseButton, Pixels, Point, RenderOnce, SharedString, Window,
 };
 
 use crate::ui::control_styles::ControlStyle;
@@ -23,6 +23,19 @@ use crate::ui::primitives::{
 use crate::ui::tokens::{Size, Spacing};
 
 type SelectHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+
+const POINTER_MENU_KEY_CONTEXT: &str = "PointerContextMenu";
+
+actions!(pointer_context_menu, [Dismiss]);
+
+/// Install the pointer menu's Escape binding before opening windows (ADR 0071).
+pub(crate) fn init(cx: &mut App) {
+    cx.bind_keys([KeyBinding::new(
+        "escape",
+        Dismiss,
+        Some(POINTER_MENU_KEY_CONTEXT),
+    )]);
+}
 
 struct ContextMenuState {
     open: bool,
@@ -117,6 +130,7 @@ impl RenderOnce for PointerContextMenu {
         let escape_dismiss = dismiss.clone();
         let menu = div()
             .id(self.id)
+            .key_context(POINTER_MENU_KEY_CONTEXT)
             .track_focus(&focus)
             .occlude()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -124,11 +138,11 @@ impl RenderOnce for PointerContextMenu {
                 outside_dismiss(window, cx);
                 cx.stop_propagation();
             })
-            .on_key_down(move |event, window, cx| {
-                if event.keystroke.key == "escape" {
-                    escape_dismiss(window, cx);
-                    cx.stop_propagation();
-                }
+            // Bound app actions run before raw key handlers. Dismiss in the
+            // menu's own context so Escape cannot reach the pane (ADR 0071).
+            .on_action(move |_: &Dismiss, window, cx| {
+                escape_dismiss(window, cx);
+                cx.stop_propagation();
             })
             .child(
                 Surface::new(SurfaceElevation::Floating)
@@ -320,6 +334,9 @@ fn build_menu_content(
                 .child("No actions"),
         );
     }
+
+    #[cfg(test)]
+    let content = content.debug_selector(|| "context-menu-items".to_owned());
 
     content
 }

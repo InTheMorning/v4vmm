@@ -40,8 +40,14 @@ Current governance:
 
 - [ADR 0071: Shared text selection](adr/0071-shared-text-selection-and-linux-primary.md):
   shared Unicode word/line policy and Linux primary paste;
-  [task 001](tasks/adr-0071-task-001-shared-text-selection.md) implementation complete,
-  [operator checks](runbooks/text-selection-check.md) open
+  [task 001](tasks/adr-0071-task-001-shared-text-selection.md) complete with
+  [operator correction checks](runbooks/text-selection-check.md) accepted on X11;
+  final preservation and cleanup accepted. IME composition and Wayland remain
+  untested coverage limits. Two
+  [upstream selection defects](reviews/adr-0071-gpui-base-emoji-selection.md)
+  are documented with regression tests and a fix for a future PR;
+  [ADR 0072](adr/0072-pinned-gpui-base-selection-corrections.md) authorizes the
+  narrow fork, now published, pinned and accepted by the focused X11 checks
 
 - [ADR 0067: Platform shortcut modifiers](adr/0067-platform-shortcut-modifiers.md):
   implemented standard Ctrl shortcuts on Linux; [accepted implementation and checks](tasks/adr-0067-task-001-platform-shortcuts.md)

@@ -249,9 +249,12 @@ The shared input already supported double-click before this packet; the earlier
 Settings report did not prove that handler failed. Logs gain word selection,
 and both owners use gpui-base 0.6.1 boundaries with shared PRIMARY integration.
 The packet owns focused Unicode/path/undo/cross-application/Escape checks.
-Implementation is complete; mechanical checks are Green and the
-[operator gate](../runbooks/text-selection-check.md) remains open, including
-preservation and cleanup. ADR 0063 task 005 and ADR 0069 task 001 remain closed.
+Complete on 2026-09-15. Mechanical checks are Green; available X11 operator
+checks, preservation and cleanup are accepted, including the commit-pinned
+[ADR 0072 correction](../adr/0072-pinned-gpui-base-selection-corrections.md).
+IME composition and Wayland remain untested coverage limits. The
+[operator procedure](../runbooks/text-selection-check.md) remains a regression
+check. ADR 0063 task 005 and ADR 0069 task 001 remain closed.
 
 ## Non-Goals
 

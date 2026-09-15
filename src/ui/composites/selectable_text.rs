@@ -16,6 +16,7 @@ use gpui_base::{
     TextSelection as WindowSelection, TextSelectionEndpoint, TextSelectionEvent,
     TextSelectionHandle, TextSelectionRegistration, TextSelectionRun,
 };
+use gpui_component::input::Copy;
 
 use crate::ui::primitives::{ContextMenuItem, ContextMenuItemDisplay, PointerContextMenu};
 use crate::ui::tokens::{color, SemanticColor};
@@ -94,7 +95,14 @@ impl SelectableTextState {
                             this.pending_projection = endpoints.is_some();
                         }
                         if snapshot.is_none() && !this.handle.has_local_selection(cx) {
-                            this.selection = TextSelection::default();
+                            if this.menu_position.is_some() {
+                                // Root clears during mouse-down capture, before the menu's
+                                // Copy activates on release. Retain its exact range (ADR 0071).
+                                this.handle
+                                    .set_local_selection(!this.selection.range().is_empty(), cx);
+                            } else {
+                                this.selection = TextSelection::default();
+                            }
                         }
                         cx.notify();
                     }
@@ -150,29 +158,28 @@ impl SelectableTextState {
         }
     }
 
+    fn on_copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
+        // Handle Root's bound action before its whitespace-trimming fallback.
+        self.copy_selection(cx);
+        cx.stop_propagation();
+    }
+
     fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let modifiers = event.keystroke.modifiers;
         if !modifiers.control || modifiers.alt || modifiers.platform {
             return;
         }
-        match event.keystroke.key.as_str() {
-            "a" => {
-                WindowSelection::clear(window, cx);
-                self.handle.set_local_selection(true, cx);
-                self.pending_projection = false;
-                self.selection = TextSelection {
-                    anchor: 0,
-                    head: self.value.len(),
-                };
-                self.publish_primary(cx);
-                cx.stop_propagation();
-                cx.notify();
-            }
-            "c" => {
-                self.copy_selection(cx);
-                cx.stop_propagation();
-            }
-            _ => {}
+        if event.keystroke.key == "a" {
+            WindowSelection::clear(window, cx);
+            self.handle.set_local_selection(true, cx);
+            self.pending_projection = false;
+            self.selection = TextSelection {
+                anchor: 0,
+                head: self.value.len(),
+            };
+            self.publish_primary(cx);
+            cx.stop_propagation();
+            cx.notify();
         }
     }
 }
@@ -203,6 +210,7 @@ impl Render for SelectableTextState {
                 }),
             )
             .on_key_down(cx.listener(Self::key_down))
+            .on_action(cx.listener(Self::on_copy))
             .child(text)
             .when_some(self.menu_position, |content, position| {
                 let owner = cx.weak_entity();
@@ -452,6 +460,174 @@ mod tests {
                 assert!(state.selection.range().is_empty());
             });
         });
+    }
+
+    #[gpui::test]
+    fn adr_0071_log_pointer_copy_retains_selection_until_activation(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let expected = "  café /tmp/👩‍💻.flac  ";
+        let (root, cx) = cx.add_window_view(|window, cx| {
+            let state = cx.new(|cx| {
+                let mut state = SelectableTextState::new(cx);
+                state.value = format!("{expected}\nlast line").into();
+                state
+            });
+            LogTest(
+                state.clone(),
+                cx.new(|cx| gpui_component::Root::new(state, window, cx)),
+            )
+        });
+        cx.update(|window, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string("CLIPBOARD-KEEP".into()));
+            let _ = window.draw(cx);
+        });
+        let position = gpui::point(gpui::px(35.), gpui::px(12.));
+        cx.simulate_event(MouseDownEvent {
+            position,
+            modifiers: Modifiers::default(),
+            button: MouseButton::Left,
+            click_count: 3,
+            first_mouse: false,
+        });
+        cx.simulate_mouse_up(position, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_down(position, MouseButton::Right, Modifiers::default());
+        cx.simulate_mouse_up(position, MouseButton::Right, Modifiers::default());
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        let menu_position = cx.debug_bounds("context-menu-items").unwrap().center();
+        cx.simulate_mouse_down(menu_position, MouseButton::Left, Modifiers::default());
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        cx.update(|_, cx| {
+            let owner = root.read(cx).0.read(cx);
+            assert_eq!(owner.selection.selected_text(&owner.value), Some(expected));
+            assert!(owner.menu_position.is_some());
+            assert_eq!(
+                cx.read_from_clipboard().unwrap().text().as_deref(),
+                Some("CLIPBOARD-KEEP")
+            );
+        });
+        cx.simulate_mouse_up(menu_position, MouseButton::Left, Modifiers::default());
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        cx.update(|window, cx| {
+            let owner = root.read(cx).0.read(cx);
+            assert!(owner.menu_position.is_none());
+            assert!(owner.focus.is_focused(window));
+            assert_eq!(owner.selection.selected_text(&owner.value), Some(expected));
+            assert_eq!(
+                cx.read_from_clipboard().unwrap().text().as_deref(),
+                Some(expected)
+            );
+            #[cfg(target_os = "linux")]
+            assert_eq!(
+                cx.read_from_primary().unwrap().text().as_deref(),
+                Some(expected)
+            );
+        });
+        cx.simulate_click(
+            gpui::point(gpui::px(600.), gpui::px(100.)),
+            Modifiers::default(),
+        );
+        cx.update(|_, cx| {
+            let owner = root.read(cx).0.read(cx);
+            assert!(owner.selection.range().is_empty());
+            assert_eq!(
+                cx.read_from_clipboard().unwrap().text().as_deref(),
+                Some(expected)
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn adr_0071_log_menu_dismissal_and_replacement_do_not_copy(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        cx.update(crate::ui::primitives::context_menu::init);
+        let expected = "  café /tmp/👩‍💻.flac  ";
+        for dismissal in ["escape", "outside", "replacement"] {
+            let (root, cx) = cx.add_window_view(|window, cx| {
+                let state = cx.new(|cx| {
+                    let mut state = SelectableTextState::new(cx);
+                    state.value = expected.into();
+                    state
+                });
+                LogTest(
+                    state.clone(),
+                    cx.new(|cx| gpui_component::Root::new(state, window, cx)),
+                )
+            });
+            cx.update(|window, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string("CLIPBOARD-KEEP".into()));
+                root.read(cx).0.read(cx).focus.clone().focus(window, cx);
+                let _ = window.draw(cx);
+            });
+            cx.simulate_keystrokes("ctrl-a");
+            let position = gpui::point(gpui::px(35.), gpui::px(12.));
+            let outside = gpui::point(gpui::px(600.), gpui::px(100.));
+            cx.simulate_mouse_down(position, MouseButton::Right, Modifiers::default());
+            cx.simulate_mouse_up(position, MouseButton::Right, Modifiers::default());
+            cx.update(|window, cx| {
+                let _ = window.draw(cx);
+                let owner = root.read(cx).0.read(cx);
+                assert!(owner.menu_position.is_some());
+                assert_eq!(
+                    owner.selection.selected_text(&owner.value),
+                    Some(expected),
+                    "before {dismissal}"
+                );
+            });
+            match dismissal {
+                "escape" => cx.simulate_keystrokes("escape"),
+                "outside" => cx.simulate_click(outside, Modifiers::default()),
+                _ => {
+                    let menu_position = cx.debug_bounds("context-menu-items").unwrap().center();
+                    cx.simulate_mouse_down(menu_position, MouseButton::Left, Modifiers::default());
+                    cx.update(|window, cx| {
+                        let _ = window.draw(cx);
+                        root.read(cx).0.clone().update(cx, |state, cx| {
+                            state.update_value("replacement".into(), window, cx);
+                        });
+                        let _ = window.draw(cx);
+                    });
+                    cx.simulate_mouse_up(menu_position, MouseButton::Left, Modifiers::default());
+                }
+            }
+            cx.update(|window, cx| {
+                let _ = window.draw(cx);
+            });
+            cx.update(|window, cx| {
+                let owner = root.read(cx).0.read(cx);
+                assert!(owner.menu_position.is_none(), "{dismissal}");
+                if dismissal == "escape" {
+                    assert_eq!(
+                        owner.selection.selected_text(&owner.value),
+                        Some(expected),
+                        "after {dismissal}"
+                    );
+                } else {
+                    assert!(owner.selection.range().is_empty(), "{dismissal}");
+                }
+                if dismissal != "replacement" {
+                    assert!(owner.focus.is_focused(window));
+                }
+                assert_eq!(
+                    cx.read_from_clipboard().unwrap().text().as_deref(),
+                    Some("CLIPBOARD-KEEP")
+                );
+                #[cfg(target_os = "linux")]
+                assert_eq!(
+                    cx.read_from_primary().unwrap().text().as_deref(),
+                    Some(expected)
+                );
+            });
+            cx.simulate_click(outside, Modifiers::default());
+            cx.update(|_, cx| {
+                assert!(root.read(cx).0.read(cx).selection.range().is_empty());
+            });
+        }
     }
 
     #[gpui::test]

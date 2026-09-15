@@ -5,6 +5,7 @@
 //! radius resolves through [`crate::ui::tokens`]. Click handlers are plain
 //! callbacks — the primitive owns no state.
 //! Keyboard actions share visible focus chrome (ADRs 0033/0034/0069).
+//! Focused action buttons reserve Enter from pane shortcuts (ADR 0071).
 //!
 //! Size selection follows the HIG button rule: every variant ships with
 //! ≥ 14pt **semibold** label text so filled / tinted variants qualify as
@@ -82,6 +83,8 @@ impl ButtonLabelTreatment {
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 type ActivateHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+
+const BUTTON_KEY_CONTEXT: &str = "ActionButton";
 
 pub(crate) const TINTED_BUTTON_BG_ALPHA: f32 = 0.08;
 pub(crate) const TINTED_BUTTON_HOVER_BG_ALPHA: f32 = 0.12;
@@ -489,6 +492,7 @@ fn keyboard_button_focus(
     let focus_ring_width = layout::scaled_dimension(layout::CONTROL_FOCUS_RING_WIDTH, cx);
     let focus_color = resolve_color(cx, SemanticColor::Focus, appearance);
     target
+        .key_context(BUTTON_KEY_CONTEXT)
         .border(focus_ring_width)
         .border_color(gpui::transparent_black())
         .focus(move |style| style.border_color(focus_color))

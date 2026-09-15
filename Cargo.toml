@@ -42,6 +42,10 @@ tokio-util = { version = "0.7", features = ["rt"] }
 gpui = { package = "gpui-pre", version = "=0.3.1", features = ["test-support"] }
 tempfile = "3"
 
+# ADR 0072: final-glyph hit testing and complete grapheme word selection only.
+[patch.crates-io]
+gpui-base = { git = "https://github.com/InTheMorning/gpui-kit", rev = "5463fe4e72fd740b0db08da92003488b32661867" }
+
 [[bin]]
 name = "v4vmm"
 path = "src/main.rs"
@@ -56,4 +60,13 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.cosmic-text]
+opt-level = 3
+
+# ADR 0071: the native resize CPU capture identifies repeated layout work.
+# Taffy's generic layout algorithms are instantiated by GPUI; optimize both
+# dependencies while keeping application debugging and dependency pins intact.
+[profile.dev.package.gpui-pre]
+opt-level = 3
+
+[profile.dev.package.taffy]
 opt-level = 3

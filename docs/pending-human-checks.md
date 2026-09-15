@@ -178,22 +178,3 @@ Open - implementation and mechanical checks recorded 2026-09-11.
 - Task 005's completion does not accept any of this packet's remaining checks.
   Its scheduling exception remains recorded in the phase plan. The inherited
   checks above are separate.
-
-## 7. Shared Text Selection — ADR 0071 Task 001
-
-Open - implementation complete 2026-09-13; mechanical checks Green.
-
-- Owner: [task 001](tasks/adr-0071-task-001-shared-text-selection.md).
-- Check: [Shared text selection](runbooks/text-selection-check.md).
-- V1: Settings/search word and full-value selection, primary in both directions,
-  ordinary clipboard preservation, insertion/replacement, focus and Undo/Redo.
-- V2: Show/Diagnostics log selection, Unicode and complete paths, appended log
-  preservation, multiline editor selection, migrated theme/scale/chrome, and
-  accepted menu/Escape/Close/Reopen.
-- V3: recovery logs/editor, blank/final lines, CRLF and IME/Escape regression.
-- Needs a Linux desktop and primary-capable external editor, middle button,
-  Python 3.11+, this debug binary, and IME for the composition subcheck. Record
-  X11/Wayland/XWayland coverage; no real service or audio hardware is required.
-- Use fresh log and recovery fixtures, unsaved edits, separate preservation
-  inspections and confirmed cleanup. Existing ADR 0066 fixtures are unrelated.
-  ADR 0063 task 005 and ADR 0069 task 001 remain complete.

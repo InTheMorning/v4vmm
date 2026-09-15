@@ -5739,6 +5739,7 @@ fn screen_contributor_panels_use_shared_projection_facts() {
     );
 }
 
+/// Durable token discipline (ADR 0023): production screens use named geometry and colors.
 #[test]
 fn screens_do_not_reintroduce_raw_color_or_numeric_px_literals() {
     let mut violations = Vec::new();
@@ -5746,7 +5747,7 @@ fn screens_do_not_reintroduce_raw_color_or_numeric_px_literals() {
         let file = file_name.as_str();
         let path = manifest_path(file);
         let source = read_source(&path);
-        for (line_number, line) in code_lines(&source) {
+        for (line_number, line) in code_lines(production_source(&source)) {
             if line.contains("rgb(") {
                 violations.push(format!(
                     "{file}:{line_number}: raw `rgb(...)` must live in tokens/theme, not screens: `{line}`"
@@ -15992,11 +15993,104 @@ fn adr_0063_log_text_is_selectable_and_copied_without_rewriting() {
     }
 }
 
+/// Situational ADR 0071: debug layout retains the measured dependency optimization.
+#[test]
+fn adr_0071_debug_layout_dependencies_remain_optimized() {
+    let manifest = read_source(&manifest_path("Cargo.toml"))
+        .parse::<toml::Table>()
+        .expect("Cargo.toml must parse");
+    let dev = &manifest["profile"]["dev"];
+    for package in ["gpui-pre", "taffy"] {
+        assert_eq!(
+            dev["package"][package]["opt-level"].as_integer(),
+            Some(3),
+            "ADR 0071: retain the verified debug layout optimization for {package}"
+        );
+    }
+    assert_eq!(
+        dev.get("opt-level")
+            .and_then(toml::Value::as_integer)
+            .unwrap_or(0),
+        0
+    );
+    assert!(dev
+        .get("debug-assertions")
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(true));
+}
+
+/// Situational ADR 0072: only the reviewed gpui-base correction may override published packages.
+#[test]
+fn adr_0072_gpui_base_fork_is_the_only_pinned_source_override() {
+    let manifest = read_source(&manifest_path("Cargo.toml"))
+        .parse::<toml::Table>()
+        .expect("Cargo.toml must parse");
+    let patches = manifest["patch"].as_table().unwrap();
+    assert_eq!(patches.len(), 1, "ADR 0072: only crates.io may be patched");
+    let crates_io = patches["crates-io"].as_table().unwrap();
+    assert_eq!(
+        crates_io.len(),
+        1,
+        "ADR 0072: only gpui-base may be patched"
+    );
+    let base = crates_io["gpui-base"].as_table().unwrap();
+    assert_eq!(
+        base.len(),
+        2,
+        "ADR 0072: the override requires only git and rev"
+    );
+    assert_eq!(
+        base["git"].as_str(),
+        Some("https://github.com/InTheMorning/gpui-kit")
+    );
+    assert_eq!(
+        base["rev"].as_str(),
+        Some("5463fe4e72fd740b0db08da92003488b32661867")
+    );
+    assert!(!manifest.contains_key("replace"));
+
+    let dependencies = manifest["dependencies"].as_table().unwrap();
+    for name in ["gpui-base", "gpui-component", "gpui-kit-assets"] {
+        assert_eq!(dependencies[name].as_str(), Some("=0.6.1"));
+    }
+    for (name, package) in [("gpui", "gpui-pre"), ("gpui_platform", "gpui-pre-platform")] {
+        assert_eq!(dependencies[name]["package"].as_str(), Some(package));
+        assert_eq!(dependencies[name]["version"].as_str(), Some("=0.3.1"));
+        for forbidden in ["git", "path", "branch", "tag", "rev"] {
+            assert!(dependencies[name].get(forbidden).is_none());
+        }
+    }
+
+    let lock = read_source(&manifest_path("Cargo.lock"))
+        .parse::<toml::Table>()
+        .expect("Cargo.lock must parse");
+    let packages = lock["package"].as_array().unwrap();
+    for (name, version) in [
+        ("gpui-base", "0.6.1"),
+        ("gpui-component", "0.6.1"),
+        ("gpui-kit-assets", "0.6.1"),
+        ("gpui-pre", "0.3.1"),
+        ("gpui-pre-platform", "0.3.1"),
+    ] {
+        let matches: Vec<_> = packages
+            .iter()
+            .filter(|package| package["name"].as_str() == Some(name))
+            .collect();
+        assert_eq!(matches.len(), 1, "ADR 0072: require one version of {name}");
+        assert_eq!(matches[0]["version"].as_str(), Some(version));
+        let source = if name == "gpui-base" {
+            "git+https://github.com/InTheMorning/gpui-kit?rev=5463fe4e72fd740b0db08da92003488b32661867#5463fe4e72fd740b0db08da92003488b32661867"
+        } else {
+            "registry+https://github.com/rust-lang/crates.io-index"
+        };
+        assert_eq!(matches[0]["source"].as_str(), Some(source));
+    }
+}
+
 /// Situational ADR 0071: inputs and logs share selection policy and keep Linux buffers separate.
 #[test]
 fn adr_0071_selection_and_primary_stay_in_shared_owners() {
     let manifest = read_source(&manifest_path("Cargo.toml"));
-    assert!(!manifest.contains("[patch.crates-io]"));
     assert!(!manifest.contains("v4vmm-text-selection"));
     assert!(manifest.contains("gpui-component = \"=0.6.1\""));
     assert!(manifest.contains("gpui-base = \"=0.6.1\""));
@@ -16057,6 +16151,7 @@ fn adr_0071_selection_and_primary_stay_in_shared_owners() {
     }
     for file in SCREEN_FILES {
         let source = read_source(&manifest_path(file));
+        let source = production_source(&source);
         for forbidden in [
             "read_from_primary",
             "write_to_primary",
@@ -16070,6 +16165,7 @@ fn adr_0071_selection_and_primary_stay_in_shared_owners() {
     }
     let bootstrap = read_source(&manifest_path("src/app/bootstrap.rs"));
     assert!(bootstrap.contains("primary_selection::init(cx)"));
+    assert!(bootstrap.contains("context_menu::init(cx)"));
     assert!(bootstrap.contains("gpui_platform::application()"));
     let theme = read_source(&manifest_path("src/ui/theme_bridge.rs"));
     assert!(theme.contains("Theme::sync_base(cx)"));
@@ -16105,7 +16201,9 @@ fn adr_0063_log_copy_menu_preserves_selection_and_uses_typed_actions() {
         "Situational ADR 0063: replacing log text must dismiss its old menu."
     );
     assert_eq!(
-        text.matches("cx.write_to_clipboard(").count(),
+        production_source(&text)
+            .matches("cx.write_to_clipboard(")
+            .count(),
         1,
         "Situational ADR 0063: keyboard and mouse Copy must use one clipboard path."
     );
@@ -16114,7 +16212,8 @@ fn adr_0063_log_copy_menu_preserves_selection_and_uses_typed_actions() {
         "Surface::new(SurfaceElevation::Floating)",
         ".snap_to_window_with_margin(Spacing::SM.scaled(cx))",
         ".on_mouse_down_out(",
-        "event.keystroke.key == \"escape\"",
+        ".key_context(POINTER_MENU_KEY_CONTEXT)",
+        ".on_action(move |_: &Dismiss, window, cx|",
         "self.return_focus.focus(window, cx)",
     ] {
         assert!(menu.contains(required), "Situational ADR 0063: pointer menu needs {required}. Keep chrome, anchoring, dismissal, and focus in the shared owner.");

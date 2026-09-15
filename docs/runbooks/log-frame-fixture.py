@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Finite, editable service journals for ADR 0063 shared-log acceptance.
+"""Finite service journals for ADR 0063 logs and ADR 0071 selection checks.
 
 Reuses the prepared ADR 0066 library and isolation boundary. This helper never
 launches a GUI or contacts a service. Only its owned command stubs return logs.
@@ -38,6 +38,27 @@ def write_entries(root, count, replace=False):
         temporary.write_text(text)
         temporary.replace(path)
     counter_path.write_text(str(first + count))
+
+
+def write_selection_samples(root):
+    """Append ADR 0071 Unicode and final-glyph cases to both owned journals."""
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    path = "/tmp/café/cafe\u0301/music_dir/中文/\U0001f469\u200d\U0001f4bb.flac"
+    url = (
+        "https://example.invalid/café/cafe\u0301/music_dir/中文/\U0001f469\u200d\U0001f4bb/"
+        + "long_segment/" * 12 + "END.flac"
+    )
+    samples = (
+        f"[{stamp}] ADR 0071 selection samples\n"
+        f"Unicode path: {path}\n"
+        "Final emoji: 中文 \U0001f469\u200d\U0001f4bb\n"
+        f"Long value:   {url}  \n"
+    )
+    for unit in UNITS:
+        journal = root / "logs" / unit
+        temporary = journal.with_suffix(".next")
+        temporary.write_text(journal.read_text() + samples)
+        temporary.replace(journal)
 
 
 def setup():
@@ -79,7 +100,7 @@ def main():
         setup()
         return
     if len(sys.argv) < 3:
-        raise SystemExit("Usage: log-frame-fixture.py setup | verify|append|trim|replace DIRECTORY")
+        raise SystemExit("Usage: log-frame-fixture.py setup | verify|append|selection-sample|trim|replace DIRECTORY")
     command, directory, *args = sys.argv[1:]
     root, _ = verify(directory)
     if command == "verify" and not args:
@@ -87,6 +108,9 @@ def main():
     elif command in ("append", "replace") and not args:
         write_entries(root, 12 if command == "append" else 80, replace=command == "replace")
         print("Fixture journals updated. The visible service log should receive the next snapshot.")
+    elif command == "selection-sample" and not args:
+        write_selection_samples(root)
+        print("Appended ADR 0071 selection samples to both fixture journals.")
     elif command == "trim" and not args:
         for unit in UNITS:
             path = root / "logs" / unit

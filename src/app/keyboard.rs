@@ -1,4 +1,4 @@
-//! Top-level keyboard shortcut taxonomy and platform routing (ADR 0067).
+//! Top-level keyboard shortcuts and focused-control precedence (ADRs 0067/0071).
 
 use std::borrow::Cow;
 
@@ -10,6 +10,7 @@ use super::{AppTab, TopApp};
 
 pub(super) const ACTIVE_PANE_KEY_CONTEXT: &str = "ActivePane";
 const ACTIVE_PANE_KEY_BINDING_CONTEXT: &str = "ActivePane && !Input";
+const ACTIVE_PANE_CONFIRM_KEY_BINDING_CONTEXT: &str = "ActivePane && !Input && !ActionButton";
 
 actions!(
     v4vmm,
@@ -211,6 +212,9 @@ impl AppKeyBindingSpec {
     fn binding_context(&self) -> Option<&'static str> {
         match self.scope {
             AppKeyScope::Global => None,
+            AppKeyScope::ActivePane if self.command == AppKeyCommand::ConfirmSelection => {
+                Some(ACTIVE_PANE_CONFIRM_KEY_BINDING_CONTEXT)
+            }
             AppKeyScope::ActivePane => Some(ACTIVE_PANE_KEY_BINDING_CONTEXT),
         }
     }
@@ -360,6 +364,228 @@ mod tests {
     use gpui::{Action, KeyContext, Keymap, Keystroke};
 
     use super::*;
+
+    /// Situational ADR 0071: app shortcuts must yield Enter to focused buttons.
+    #[gpui::test]
+    fn adr_0071_button_enter_precedes_active_pane_shortcut(cx: &mut gpui::TestAppContext) {
+        use gpui::{div, prelude::*, Entity, FocusHandle, KeyDownEvent, KeyUpEvent, Render};
+        use gpui_component::input::{Escape, Textarea, TextareaState};
+
+        use crate::ui::primitives::Button;
+
+        struct ButtonPane {
+            input: Entity<TextareaState>,
+            button_focus: FocusHandle,
+            pane_focus: FocusHandle,
+            activations: usize,
+            confirmations: usize,
+        }
+
+        impl Render for ButtonPane {
+            fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+                let entity = cx.entity();
+                div()
+                    .key_context(ACTIVE_PANE_KEY_CONTEXT)
+                    .track_focus(&self.pane_focus)
+                    .on_action(cx.listener(|this, _: &ConfirmSelection, _, _| {
+                        this.confirmations += 1;
+                    }))
+                    .on_action(cx.listener(|this, _: &Escape, window, cx| {
+                        cx.stop_propagation();
+                        this.button_focus.focus(window, cx);
+                    }))
+                    .child(Textarea::new(&self.input))
+                    .child(
+                        Button::plain("editor-disclosure")
+                            .label(if self.activations.is_multiple_of(2) {
+                                "Close editor"
+                            } else {
+                                "Reopen editor"
+                            })
+                            .track_focus(&self.button_focus)
+                            .on_activate(move |_, cx| {
+                                entity.update(cx, |this, cx| {
+                                    this.activations += 1;
+                                    cx.notify();
+                                });
+                            }),
+                    )
+            }
+        }
+
+        cx.update(gpui_component::init);
+        cx.update(install_key_bindings);
+        let mut pane = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let content = cx.new(|cx| ButtonPane {
+                input: cx.new(|cx| TextareaState::new(window, cx)),
+                button_focus: cx.focus_handle(),
+                pane_focus: cx.focus_handle(),
+                activations: 0,
+                confirmations: 0,
+            });
+            pane = Some(content.clone());
+            gpui_component::Root::new(content, window, cx)
+        });
+        let pane = pane.unwrap();
+        for (index, key) in ["enter", "space"].into_iter().enumerate() {
+            cx.update(|window, cx| {
+                pane.read(cx).input.clone().update(cx, |input, cx| {
+                    input.set_value("draft", window, cx);
+                    input.focus(window, cx);
+                });
+                window.draw(cx).clear(cx);
+            });
+            cx.simulate_keystrokes("ctrl-end enter escape");
+            cx.update(|window, cx| {
+                window.draw(cx).clear(cx);
+                assert!(pane.read(cx).button_focus.is_focused(window));
+                assert_eq!(pane.read(cx).input.read(cx).value(), "draft\n");
+            });
+
+            let press = KeyDownEvent {
+                keystroke: Keystroke::parse(key).unwrap(),
+                is_held: false,
+                prefer_character_input: false,
+            };
+            cx.simulate_event(press.clone());
+            cx.update(|window, cx| {
+                window.draw(cx).clear(cx);
+                assert_eq!(pane.read(cx).activations, index * 2 + 1, "{key} press");
+                assert_eq!(pane.read(cx).confirmations, 0);
+            });
+            for _ in 0..2 {
+                cx.simulate_event(KeyDownEvent {
+                    is_held: true,
+                    ..press.clone()
+                });
+            }
+            cx.simulate_event(KeyUpEvent {
+                keystroke: press.keystroke.clone(),
+            });
+            cx.update(|window, cx| {
+                window.draw(cx).clear(cx);
+                assert_eq!(pane.read(cx).activations, index * 2 + 1, "{key} release");
+                assert_eq!(pane.read(cx).confirmations, 0);
+                assert_eq!(pane.read(cx).input.read(cx).value(), "draft\n");
+            });
+            cx.simulate_keystrokes(key);
+            cx.update(|window, cx| {
+                window.draw(cx).clear(cx);
+                assert_eq!(pane.read(cx).activations, index * 2 + 2, "next {key} press");
+                assert_eq!(pane.read(cx).confirmations, 0);
+            });
+        }
+        cx.update(|window, cx| {
+            pane.read(cx).pane_focus.clone().focus(window, cx);
+            window.draw(cx).clear(cx);
+        });
+        cx.simulate_keystrokes("enter");
+        cx.update(|_, cx| assert_eq!(pane.read(cx).confirmations, 1));
+    }
+
+    #[gpui::test]
+    fn adr_0071_log_menu_escape_precedes_active_pane_shortcut(cx: &mut gpui::TestAppContext) {
+        use gpui::{
+            div, point, prelude::*, px, ClipboardItem, Entity, Modifiers, MouseButton,
+            MouseDownEvent, Render,
+        };
+
+        use crate::ui::composites::selectable_text::SelectableText;
+
+        struct LogText;
+        impl Render for LogText {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                SelectableText::new("test-log", "  café /tmp/👩‍💻.flac  ")
+            }
+        }
+
+        struct PaneLogTest {
+            root: Entity<gpui_component::Root>,
+            pane_cancellations: usize,
+        }
+
+        impl Render for PaneLogTest {
+            fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+                div()
+                    .size_full()
+                    .on_action(cx.listener(|this, _: &CancelActivePane, _, _| {
+                        this.pane_cancellations += 1;
+                    }))
+                    .child(
+                        div()
+                            .key_context(ACTIVE_PANE_KEY_CONTEXT)
+                            .size_full()
+                            .child(self.root.clone()),
+                    )
+            }
+        }
+
+        cx.update(gpui_component::init);
+        cx.update(crate::ui::primitives::context_menu::init);
+        cx.update(install_key_bindings);
+        let expected = "  café /tmp/👩‍💻.flac  ";
+        let (pane, cx) = cx.add_window_view(|window, cx| PaneLogTest {
+            root: cx.new(|cx| gpui_component::Root::new(cx.new(|_| LogText), window, cx)),
+            pane_cancellations: 0,
+        });
+        cx.update(|window, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string("CLIPBOARD-KEEP".into()));
+            window.draw(cx).clear(cx);
+        });
+        let position = point(px(35.), px(12.));
+        cx.simulate_event(MouseDownEvent {
+            position,
+            modifiers: Modifiers::default(),
+            button: MouseButton::Left,
+            click_count: 3,
+            first_mouse: false,
+        });
+        cx.simulate_mouse_up(position, MouseButton::Left, Modifiers::default());
+        let log_focus = cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            window.focused(cx).expect("log selection focuses the log")
+        });
+        cx.simulate_mouse_down(position, MouseButton::Right, Modifiers::default());
+        cx.simulate_mouse_up(position, MouseButton::Right, Modifiers::default());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(cx.debug_bounds("context-menu-items").is_some());
+
+        cx.simulate_keystrokes("escape");
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            cx.debug_bounds("context-menu-items").is_none(),
+            "Escape must dismiss the log menu with app shortcuts installed"
+        );
+        cx.update(|window, cx| {
+            assert_eq!(pane.read(cx).pane_cancellations, 0);
+            assert!(log_focus.is_focused(window));
+            assert_eq!(
+                cx.read_from_clipboard().unwrap().text().as_deref(),
+                Some("CLIPBOARD-KEEP")
+            );
+            #[cfg(target_os = "linux")]
+            assert_eq!(
+                cx.read_from_primary().unwrap().text().as_deref(),
+                Some(expected)
+            );
+        });
+        cx.simulate_keystrokes("ctrl-c");
+        cx.update(|_, cx| {
+            assert_eq!(
+                cx.read_from_clipboard().unwrap().text().as_deref(),
+                Some(expected)
+            );
+        });
+        cx.simulate_keystrokes("escape");
+        cx.update(|_, cx| {
+            assert_eq!(
+                pane.read(cx).pane_cancellations,
+                1,
+                "closed menus must not intercept Escape"
+            );
+        });
+    }
 
     fn assert_action<A: Action>(keymap: &Keymap, key: &str, contexts: &[KeyContext]) {
         let (bindings, pending) =
@@ -556,6 +782,9 @@ mod tests {
         for spec in APP_KEY_BINDING_SPECS {
             let expected_context = match spec.scope {
                 AppKeyScope::Global => None,
+                AppKeyScope::ActivePane if spec.command == AppKeyCommand::ConfirmSelection => {
+                    Some(ACTIVE_PANE_CONFIRM_KEY_BINDING_CONTEXT)
+                }
                 AppKeyScope::ActivePane => Some(ACTIVE_PANE_KEY_BINDING_CONTEXT),
             };
 
