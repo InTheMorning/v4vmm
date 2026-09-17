@@ -178,6 +178,7 @@ pub(crate) fn startup_report(
     vm: &StartupReportVm,
     handler: Handler,
     editor: Option<gpui::AnyElement>,
+    database: Option<gpui::AnyElement>,
     logs: &LogFrames,
     cx: &App,
 ) -> impl IntoElement {
@@ -229,6 +230,9 @@ pub(crate) fn startup_report(
     }
     if let Some(editor) = editor {
         content = content.child(editor);
+    }
+    if let Some(database) = database {
+        content = content.child(database);
     }
     let body = div()
         .id("startup-report-body")

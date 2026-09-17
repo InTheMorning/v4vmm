@@ -10,6 +10,7 @@ use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts::{scaled_dimension, CONFIGURATION_EDITOR_HEIGHT};
 use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
 use crate::ui::primitives::Button;
+use crate::ui::sizable_bridge::SizableScaled as _;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::log_view::LogSource;
 use crate::view_models::startup::session::{SessionAction, SessionActionDisplay, SessionReportVm};
@@ -276,4 +277,84 @@ fn session_button(display: SessionActionDisplay, callback: SessionCallback) -> B
     .a11y_label(display.a11y_label)
     .disabled(display.availability != StartupAvailability::Available)
     .on_activate(move |window, cx| callback(action, window, cx))
+}
+
+pub(crate) type DatabaseCallback =
+    Rc<dyn Fn(crate::view_models::startup::database::DatabaseAction, &mut Window, &mut App)>;
+
+/// Database tools use the same geometry and log owner in Settings and core recovery.
+pub(crate) fn database_tools(
+    vm: &crate::view_models::startup::database::DatabaseVm,
+    inputs: [&gpui::Entity<gpui_component::input::InputState>; 2],
+    callback: &DatabaseCallback,
+    logs: &LogFrames,
+    cx: &App,
+) -> AnyElement {
+    use crate::view_models::startup::database::{DatabaseAction, DatabaseVm};
+    let mut body = div()
+        .flex()
+        .flex_col()
+        .flex_shrink_0()
+        .w_full()
+        .min_w_0()
+        .gap(Spacing::SM.scaled(cx))
+        .child(
+            div()
+                .text_size(FontSize::Title3.scaled(cx))
+                .child(DatabaseVm::TITLE),
+        )
+        .child(div().whitespace_normal().child(DatabaseVm::SCOPE))
+        .child(div().whitespace_normal().child(DatabaseVm::HELP));
+    for (label, input) in [DatabaseVm::SOURCE, DatabaseVm::DESTINATION]
+        .into_iter()
+        .zip(inputs)
+    {
+        body = body.child(div().whitespace_normal().child(label)).child(
+            div().w_full().min_w_0().flex().flex_row().child(
+                gpui_component::input::Input::new(input)
+                    .scaled(gpui_component::Size::Small, cx)
+                    .flex_1()
+                    .min_w_0()
+                    .disabled(!vm.input_enabled())
+                    .input_text_size(crate::ui::sizable_bridge::scaled(
+                        gpui_component::Size::Small,
+                        cx,
+                    ))
+                    .with_primary_selection(input),
+            ),
+        );
+    }
+    let mut actions = div()
+        .flex()
+        .flex_wrap()
+        .min_w_0()
+        .gap(Spacing::SM.scaled(cx));
+    for action in [
+        DatabaseAction::ConfiguredSource,
+        DatabaseAction::Check,
+        DatabaseAction::Backup,
+        DatabaseAction::Cancel,
+        DatabaseAction::CopyReport,
+    ] {
+        let display = vm.action(action);
+        let callback = callback.clone();
+        actions = actions.child(
+            Button::styled(
+                gpui::SharedString::from(format!("database-{:?}", display.action)),
+                ControlStyle::Secondary,
+            )
+            .label(display.label)
+            .a11y_label(display.a11y_label)
+            .disabled(display.availability != StartupAvailability::Available)
+            .on_activate(move |window, cx| callback(action, window, cx)),
+        );
+    }
+    body = body.child(actions);
+    if let Some(message) = vm.working_message() {
+        body = body.child(div().whitespace_normal().child(message));
+    }
+    if !vm.report.is_empty() {
+        body = body.child(LogFrame::new(logs, LogSource::Database, vm.report.clone()));
+    }
+    body.into_any_element()
 }

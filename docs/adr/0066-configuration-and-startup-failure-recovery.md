@@ -4,7 +4,7 @@
 
 Accepted - 2026-09-10.
 
-Implementation partial: tasks 001–003 and 005–009 are complete, including applicable
+Implementation partial: tasks 001–003 and 005–010 are complete, including applicable
 operator acceptance, preservation inspection and fixture cleanup. Task 004's
 implementation and mechanical checks are complete; its presentation case and
 producer preservation are accepted. Its remaining operator checks and fixture
@@ -21,19 +21,20 @@ Task 008 is complete on 2026-09-17 with operator V1–V3, Settings/core-recovery
 presentation, preservation and fixture cleanup accepted. Task 009 is complete
 on 2026-09-17 with mechanical checks Green; operator V1–V3, normal/narrow
 presentation, configuration restoration, preservation and fixture cleanup are
-accepted. Tasks 010–013 have not started in
+accepted. Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; tasks 011–013 have not started in
 the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md).
 Amended 2026-09-11: scoped optional-tool isolation and managed session draining
 and resumption, plus shared guarded configuration correction, are implemented.
 Optional-tool reinitialization/retry is implemented by task 007 on 2026-09-15,
 with operator acceptance complete on 2026-09-16. Converter setup is complete in
-task 008 with operator acceptance and cleanup on 2026-09-17. Database maintenance
-remains pending.
+task 008 with operator acceptance and cleanup on 2026-09-17. Database inspection and verified backup are complete in task 010 on 2026-09-17,
+including operator acceptance, preservation and cleanup. Exclusive maintenance
+and preservation copies, restore and upgrade repair remain pending.
 
 Amended 2026-09-17: task 009 conversion retry is complete after the operator's
 V1–V3 walkthrough, presentation acceptance, configuration restoration,
 preservation inspection and fixture cleanup. Its procedure remains a regression
-check; task 004 retains its separate gate and task 010 requires a fresh session.
+check; task 004 retains its separate gate and task 010 is also complete with operator acceptance and cleanup confirmed.
 
 Amended 2026-09-13: [ADR 0063's shared log frame](0063-show-dashboard-layout.md#shared-log-frames-and-following)
 owns recovery and Settings report typography, scrolling and following. The
@@ -569,7 +570,7 @@ covers immutable subjects, fresh explicit Retry, scoped setup and shared entry
 points. Mechanical checks are Green; operator V1–V3, preservation and fixture
 cleanup are accepted for task 007. Task 008 is complete with mechanical checks
 Green and operator acceptance/cleanup on 2026-09-17. Task 009 is complete with
-operator acceptance and cleanup on 2026-09-17; tasks 010–013 have not started.
+operator acceptance and cleanup on 2026-09-17; task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; tasks 011–013 have not started.
 
 Task 008 adds `adr_0066_converter_checks_are_refreshable`, a situational guard
 for invariants 2, 7 and 9. Its [proof inventory](../tasks/adr-0066-task-008-converter-verification-and-setup.md#implementation-and-proof)
@@ -588,7 +589,7 @@ Green. [Operator V1–V3](../runbooks/startup-recovery-check.md#task-009-convers
 normal/narrow presentation, configuration restoration, preservation and fixture
 cleanup are accepted on 2026-09-17. The
 [packet records the evidence](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md#final-operator-acceptance-and-cleanup--2026-09-17);
-task 010 has not started and requires a fresh session.
+task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; task 011 has not started.
 
 Task 003's operator-reported search-error clipping correction is guarded by
 `adr_0066_search_failure_report_stays_readable_and_vm_owned`. The packet's
@@ -687,3 +688,18 @@ packets; no unnamed final cleanup owns this obligation.
 - [ADR 0060: App sections](0060-workflow-surface-structure.md).
 - [ADR 0061: Governance and shared UI ownership](0061-executable-governance.md).
 - [ADR 0064: Local path repair](0064-local-file-addressing.md).
+
+
+Task 010 implements database inspection and verified snapshots through
+`db::maintenance`, with `db::inspect_schema` retaining the shared ADR 0016
+migration/read-contract authority. The situational
+`adr_0066_database_checks_and_snapshots_have_one_owner` guard protects invariant 6;
+[task evidence](../tasks/adr-0066-task-010-database-check-and-backup.md#implementation-and-proof)
+records behavioral WAL, preservation, cancellation and failure tests. Shared
+Settings/core-recovery database tools are complete on 2026-09-17 with
+[operator V1–V3](../runbooks/startup-recovery-check.md#task-010-database-check-and-backup),
+normal/narrow presentation, report copy, responsiveness, preservation in both
+fixture cases, normal-mode restoration and cleanup accepted. The final database
+inspection passed all 28 flags. The fixture lock correction has two real-process
+regressions; all 26 fixture tests are Green. The procedure remains a regression check.
+Tasks 011–013 remain unstarted; ADR 0066 remains Accepted and partial.

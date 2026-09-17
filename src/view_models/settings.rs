@@ -28,13 +28,18 @@ impl SettingsGroup {
 
     pub(crate) const fn contents(self) -> &'static [SettingsContent] {
         use SettingsContent::{
-            BackgroundReports, CachedFiles, Endpoint, FlacPath, MusicDirectory, Scale,
-            SessionMaintenance, Theme,
+            BackgroundReports, CachedFiles, DatabaseTools, Endpoint, FlacPath, MusicDirectory,
+            Scale, SessionMaintenance, Theme,
         };
         match self {
             Self::General => &[Scale, Theme],
             Self::Library => &[Endpoint, MusicDirectory, FlacPath],
-            Self::Diagnostics => &[SessionMaintenance, BackgroundReports, CachedFiles],
+            Self::Diagnostics => &[
+                SessionMaintenance,
+                DatabaseTools,
+                BackgroundReports,
+                CachedFiles,
+            ],
         }
     }
 }
@@ -49,6 +54,7 @@ pub(crate) enum SettingsContent {
     BackgroundReports,
     CachedFiles,
     SessionMaintenance,
+    DatabaseTools,
 }
 
 impl SettingsContent {
@@ -62,6 +68,7 @@ impl SettingsContent {
             Self::BackgroundReports => "Background tools",
             Self::CachedFiles => "Cached files",
             Self::SessionMaintenance => "App session",
+            Self::DatabaseTools => "Database tools",
         }
     }
 
@@ -72,7 +79,7 @@ impl SettingsContent {
             Self::Endpoint => "Use api.musicindex.org or a full http/https URL.",
             Self::MusicDirectory => "Current session folder. Use Configuration repair below to test and save a different existing folder after ending this session.",
             Self::FlacPath => "Test FLAC and ffmpeg availability, edit the FLAC executable path, and save it with an original-file backup in Converter setup.",
-            Self::BackgroundReports | Self::CachedFiles | Self::SessionMaintenance => "",
+            Self::BackgroundReports | Self::CachedFiles | Self::SessionMaintenance | Self::DatabaseTools => "",
         }
     }
 }
@@ -328,6 +335,7 @@ mod tests {
             SettingsGroup::Diagnostics.contents(),
             &[
                 SettingsContent::SessionMaintenance,
+                SettingsContent::DatabaseTools,
                 SettingsContent::BackgroundReports,
                 SettingsContent::CachedFiles
             ]

@@ -21,7 +21,7 @@ unsupported extra gate inferred from a port-only log. Task 008 is complete on
 presentation, preservation in both cases and fixture cleanup are accepted.
 Task 009 is complete on 2026-09-17 with mechanical checks Green; operator V1–V3,
 normal/narrow presentation, configuration restoration, preservation and fixture
-cleanup are accepted. Tasks 010–013 have not started.
+cleanup are accepted. Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; tasks 011–013 have not started.
 
 Read the [ADR](../adr/0066-configuration-and-startup-failure-recovery.md),
 [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md), active packet and
@@ -1302,4 +1302,81 @@ Cleanup returned `Removed fixture: /tmp/v4vmm-startup-4psemojh`, and the operato
 absence check returned `Fixture removed`. V1–V3, normal/narrow presentation,
 configuration restoration, preservation and cleanup are accepted. Task 009 is
 complete; its runbook remains a regression check. Task 004 and inherited checks
-retain their separate gates. Task 010 has not started and requires a fresh session.
+retain their separate gates. Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed. Task 011 has not started.
+
+
+## Task 010 Review — 2026-09-17
+
+Scope: [database check and backup](../tasks/adr-0066-task-010-database-check-and-backup.md#implementation-and-proof).
+Mechanical gate Green: full 1,445-unit run, final 9-test database selection
+including one subsequently added fixture-schema test (1,446 current unit tests),
+256 architecture guards, 26 Python fixture tests, format/check/strict production
+Clippy and normal desktop build. Ten existing documentation examples remain
+ignored. The mechanical runner did not launch the desktop app.
+
+- C1: explicit read-only, non-creating source connections report access,
+  integrity, foreign keys and schema separately. Byte/ledger tests cover current,
+  older, unknown and newer schemas. Startup delegates to the extracted db.rs
+  read contract and existing migration registry; no second registry is added.
+- C2/C3: a committed row absent from the main file appears in the snapshot while
+  the source remains open. Private candidate creation, bounded page batches,
+  cancellation/deadline, close/sync/validation and no-clobber publication are
+  one backend workflow. Tests cover read-only sources, aliases, journals,
+  existing/competing destinations, real SQLite contention, late cancellation,
+  I/O failure and retained cleanup failures.
+- The bundled SQLite omits CHECK expressions when loading a read-only schema.
+  Source inspection reports that limit; candidate validation uses query-only
+  mode on its own write-capable connection. A failing CHECK test proves such
+  a snapshot cannot be published as verified. `hooks` is enabled for SQL
+  progress cancellation alongside `backup`; Cargo.lock is unchanged.
+- C4/C5: commands run on the existing independent worker without TopApp or
+  RuntimeHost. VM tests cover recorded timestamps, source/destination, scope,
+  original-operation admission and cancellation. The same typed form and log
+  source mount in Settings Diagnostics and core recovery. Source assertions
+  name ADR 0066 invariant 6 and ADR 0016, without replacing behavioral proof.
+- Rust seeds fixture schemas through the registry; Python orchestrates WAL and
+  lock ownership and preservation evidence. Reentry cannot reseed or replace
+  a stopped helper's preservation baseline. Backend smoke checked both cases,
+  all four snapshots and original bytes/ledger/music; its private fixture and
+  helper were removed. The smoke did not open a desktop window.
+- Duplicated implementation procedure/prompt retired from the packet. Status,
+  phase plan, ADR partial line, current indexes, source map and AGENTS.md agree.
+  Operator V1–V3, Settings/recovery presentation, report copy, responsiveness,
+  preservation, normal-mode restoration and cleanup are accepted. Task 011 is
+  unstarted; task 004 and inherited gates remain separate.
+
+Operator acceptance is recorded in the packet's
+[timestamped evidence](../tasks/adr-0066-task-010-database-check-and-backup.md#operator-evidence--2026-09-17).
+Settings/current-library, WAL and read-only check/backup paths pass; occupied and
+completed destinations are refused. Core recovery handles a valid-source backup
+and distinguishes invalid-header access failure, integrity damage, foreign-key
+violations, newer/older schemas, real lock contention, timeout and cancellation.
+The operator accepts normal/narrow presentation, full-path report copy,
+navigation and responsiveness.
+
+The initial lock check at 19:03:48 UTC exposed a fixture bug: checksum reads
+released the helper's POSIX lock. It is not lock-failure evidence. The corrected
+fixture takes its lock after checksumming, status/inspection probe an external
+reader, and `database-lock` restores an existing fixture without restarting WAL
+or replacing its baseline. Two real-process regression tests cover lock
+retention/restoration, WAL/baseline preservation and owned-helper cleanup; all
+26 fixture tests and the normal build pass. Corrected operator lock evidence at
+19:10:40 UTC, bounded backup failure at 19:12:58 UTC and explicit cancellation at
+19:20:46 UTC are accepted. Additional timeouts did not establish an application
+cancellation defect. Application code did not change during this correction.
+
+The first preservation inspection passed all 22 database flags, with shared
+configuration changes limited to normal workspace preferences. Final recovery
+inspection passed all 28 database flags, including the actual lock probe, all
+four verified/private snapshots, WAL-row inclusion, unchanged sources/WAL and
+no incomplete or failed artifacts. Configuration bytes, music, migration records
+1–11, bindings and library counts were preserved, with no probes.
+
+The operator confirmed normal-mode restoration and cleanup of
+`/tmp/v4vmm-startup-h1c__y5h`, including the final `Fixture removed` check.
+Cleanup stops both owned helpers before removing the directory. The pending
+human-check entry is removed; the runbook remains a regression procedure.
+
+Result: task 010 complete on 2026-09-17; mechanical checks Green; operator gate
+closed. Task 011 remains unstarted for a fresh session. ADR 0066 remains Accepted
+and partial; task 004 and inherited gates are unchanged.

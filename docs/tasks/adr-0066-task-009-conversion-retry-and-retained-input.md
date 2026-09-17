@@ -84,7 +84,7 @@ backend child modules to keep artifact ownership and shared materialization out
 of screen adapters. Source identities and pending edits remain separate from
 presentation text. The phase plan, delivery order and pending-human index close
 this packet's operator gate. Task 004's separate gate and inherited checks stay
-unchanged; task 010 has not started.
+unchanged.
 
 ## Operator Visual Check
 

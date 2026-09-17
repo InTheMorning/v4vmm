@@ -207,3 +207,59 @@ mod tests {
         assert_eq!(std::fs::read_dir(&music).unwrap().count(), 1);
     }
 }
+
+#[derive(Clone, Debug)]
+pub(crate) enum DatabaseOperation {
+    ConfiguredSource(PathBuf),
+    Check,
+    Backup { destination: PathBuf },
+}
+
+#[derive(Debug)]
+pub(crate) struct DatabaseCommand {
+    pub(crate) source: PathBuf,
+    pub(crate) operation: DatabaseOperation,
+    pub(crate) cancelled: Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[derive(Debug)]
+pub(crate) enum DatabaseOutcome {
+    ConfiguredSource(Result<PathBuf, &'static str>),
+    Checked(crate::db::maintenance::Inspection),
+    BackedUp(Result<crate::db::maintenance::Snapshot, crate::db::maintenance::Failure>),
+}
+
+#[derive(Debug)]
+pub(crate) struct DatabaseResult {
+    pub(crate) source: PathBuf,
+    pub(crate) operation: DatabaseOperation,
+    pub(crate) recorded_at: std::time::SystemTime,
+    pub(crate) outcome: DatabaseOutcome,
+}
+
+impl DatabaseCommand {
+    pub(crate) fn execute(self) -> DatabaseResult {
+        use crate::db::maintenance::{self, Budget};
+        let budget = Budget::new(self.cancelled);
+        let outcome = match &self.operation {
+            DatabaseOperation::ConfiguredSource(path) => {
+                let result = crate::config::ConfigSnapshot::read_existing(path)
+                    .map_err(|_| "App could not read the configured database path. Enter an existing database path below or correct the configuration.")
+                    .and_then(|snapshot| snapshot.db_path.map_err(|_| "The configuration has no valid database path. Enter an existing database path below or correct the configuration."));
+                DatabaseOutcome::ConfiguredSource(result)
+            }
+            DatabaseOperation::Check => {
+                DatabaseOutcome::Checked(maintenance::inspect(&self.source, &budget))
+            }
+            DatabaseOperation::Backup { destination } => {
+                DatabaseOutcome::BackedUp(maintenance::backup(&self.source, destination, &budget))
+            }
+        };
+        DatabaseResult {
+            source: self.source,
+            operation: self.operation,
+            recorded_at: std::time::SystemTime::now(),
+            outcome,
+        }
+    }
+}

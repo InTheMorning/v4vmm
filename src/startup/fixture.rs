@@ -124,6 +124,43 @@ pub fn run_cli(args: &[String]) -> Result<()> {
             fs::write(root.join("config/v4vmm/config.toml"), config)?;
             println!("{}", json!({"seeded": root}));
         }
+        "database-seed" => seed_database_checks(&root)?,
+        "database-backup" => {
+            let budget = crate::db::maintenance::Budget::new(std::sync::Arc::new(
+                std::sync::atomic::AtomicBool::new(false),
+            ));
+            let state: serde_json::Value =
+                serde_json::from_slice(&fs::read(root.join("case.json"))?)?;
+            let sources = if state["case"] == "database-recovery" {
+                vec![("recovery", root.join("database/readonly.sqlite"))]
+            } else {
+                vec![
+                    ("normal", db_path.clone()),
+                    ("wal", root.join("database/wal.sqlite")),
+                    ("readonly", root.join("database/readonly.sqlite")),
+                ]
+            };
+            for (name, source) in sources {
+                let destination = root.join(format!("database/{name}-backup.sqlite"));
+                let snapshot = crate::db::maintenance::backup(&source, &destination, &budget)
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "{}: {:?}; remaining {:?}",
+                            e.operation,
+                            e.kind,
+                            e.remaining
+                        )
+                    })?;
+                ensure!(
+                    snapshot.cleanup_remaining.is_empty(),
+                    "fixture snapshot cleanup incomplete"
+                );
+            }
+            println!(
+                "{}",
+                json!({"backend_snapshots_created": true, "operator_acceptance": false})
+            );
+        }
         "inspect" => {
             let conn = rusqlite::Connection::open_with_flags(
                 &db_path,
@@ -188,6 +225,52 @@ pub fn run_cli(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Task 010 fixture schemas come from the application registry, never Python DDL.
+fn seed_database_checks(root: &Path) -> Result<()> {
+    let directory = root.join("database");
+    fs::create_dir(&directory).context("reserve database fixture directory")?;
+    for name in [
+        "wal",
+        "readonly",
+        "locked",
+        "integrity",
+        "newer",
+        "older",
+        "foreign-key",
+    ] {
+        let path = directory.join(format!("{name}.sqlite"));
+        let conn = prepare_database(&path).map_err(|e| anyhow::anyhow!("{}", e.reason))?;
+        conn.execute(
+            "INSERT INTO playlists(name) VALUES ('Preserved fixture row')",
+            [],
+        )?;
+        match name {
+
+            "newer" => { conn.execute("INSERT INTO schema_migrations(version,name) VALUES(999, 'fixture_future')", [])?; }
+            "older" => conn.execute_batch("DELETE FROM schema_migrations WHERE version=11; DROP TABLE broadcast_event_selection;")?,
+            "foreign-key" => conn.execute_batch("PRAGMA foreign_keys=OFF; INSERT INTO tracks(feed_id,item_guid) VALUES(999,'orphan');")?,
+            _ => {},
+        }
+        drop(conn);
+        if name == "integrity" {
+            let mut bytes = fs::read(&path)?;
+            bytes[32..36].copy_from_slice(&0x7fff_ffff_u32.to_be_bytes());
+            bytes[36..40].copy_from_slice(&1_u32.to_be_bytes());
+            fs::write(&path, bytes)?;
+        }
+    }
+    fs::write(
+        directory.join("invalid-header.sqlite"),
+        b"ADR 0066 invalid database header fixture\n",
+    )?;
+    fs::write(
+        directory.join("occupied.sqlite"),
+        b"ADR 0066 existing destination must remain unchanged\n",
+    )?;
+    println!("{}", json!({"database_fixtures": directory}));
+    Ok(())
+}
+
 fn seed_tracks(conn: &rusqlite::Connection, root: &Path) -> Result<()> {
     conn.execute("INSERT INTO feeds (id, feed_url, feed_guid, title) VALUES (1, 'fixture:rss', 'fixture-feed', 'Startup fixture')", [])?;
     // A quiet 30-second tone makes actual playback audible in a desktop session.
@@ -228,6 +311,42 @@ fn seed_tracks(conn: &rusqlite::Connection, root: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use crate::application::capability::Dependency;
+
+    #[test]
+    fn adr_0066_database_fixture_states_use_the_current_schema_authority() {
+        use crate::db::maintenance::{inspect, Budget, Integrity};
+        use crate::db::SchemaCompatibility;
+        let temp = tempfile::tempdir().unwrap();
+        seed_database_checks(temp.path()).unwrap();
+        let budget = Budget::new(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+            false,
+        )));
+        let check = |name| {
+            inspect(
+                &temp.path().join(format!("database/{name}.sqlite")),
+                &budget,
+            )
+        };
+        assert!(check("readonly").valid_snapshot());
+        assert_eq!(
+            check("newer").schema,
+            Some(Ok(SchemaCompatibility::Newer { version: 999 }))
+        );
+        assert!(matches!(
+            check("older").schema,
+            Some(Ok(SchemaCompatibility::UpgradeRequired { .. }))
+        ));
+        assert!(matches!(
+            check("integrity").integrity,
+            Some(Ok(Integrity::Errors(_)))
+        ));
+        assert_eq!(check("foreign-key").foreign_keys, Some(Ok(1)));
+        assert!(check("invalid-header").access.is_err());
+        assert!(
+            seed_database_checks(temp.path()).is_err(),
+            "fixture seeding cannot overwrite existing sources"
+        );
+    }
 
     #[test]
     fn adr_0066_fixture_failures_require_identity_and_follow_fresh_case() {

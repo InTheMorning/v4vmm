@@ -19,3 +19,5 @@ pub use event_bridge::PresentationEventBridge;
 pub use gpui_event_bridge::GpuiEventBridge;
 pub use gpui_vm_bridge::bridge_watch;
 pub use runtime_host::RuntimeHost;
+
+pub(crate) mod database_tools;

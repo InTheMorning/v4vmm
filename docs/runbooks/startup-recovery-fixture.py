@@ -30,8 +30,9 @@ RETRY_CASES = ("retry-actions",)
 CONVERTER_CASES = ("converter-setup", "converter-recovery")
 CONVERTER_MODES = ("missing", "working", "fallback", "nonzero", "timeout", "permission", "output-limit")
 CONVERSION_CASES = ("conversion-retry",)
+DATABASE_CASES = ("database-tools", "database-recovery")
 CONVERSION_MODES = ("encode-failure", "working", "fallback")
-CASES += ("session-held-command",) + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES
+CASES += ("session-held-command",) + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES
 
 
 def digest(path):
@@ -46,7 +47,7 @@ def verify(directory):
             raise ValueError("identity mismatch")
         if Path(manifest["binary"]).resolve() != REPO / "target/debug/v4vmm":
             raise ValueError("binary does not belong to this checkout")
-        for relative in ("config", "data", "music", "home", "bin", "music.saved"):
+        for relative in ("config", "data", "music", "home", "bin", "music.saved", "database"):
             if (root / relative).is_symlink():
                 raise ValueError(f"unexpected symlink: {relative}")
         if not Path(manifest["binary"]).is_file():
@@ -180,7 +181,7 @@ def hold_lock(root):
 
 def mode(root, case):
     previous = json.loads((root / "case.json").read_text())["case"]
-    if (case in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES or previous in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES or "session-held-command" in (case, previous)) and owned_process(root, "app.pid"):
+    if (case in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES or previous in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES or "session-held-command" in (case, previous)) and owned_process(root, "app.pid"):
         raise SystemExit("Close the fixture app before changing optional-tool or session cases.")
     if previous in CONVERTER_CASES + CONVERSION_CASES:
         for name in ("flac", "ffmpeg"):
@@ -203,7 +204,12 @@ def mode(root, case):
     cfg.chmod(0o600)
     (root / "repair.external").unlink(missing_ok=True)
     cfg.write_bytes((root / "config.baseline").read_bytes())
-    if case in CONVERSION_CASES:
+    if case in DATABASE_CASES:
+        database_setup(root)
+        if case == "database-recovery":
+            cfg.write_text(cfg.read_text().replace(json.dumps(str(root / "data/library.sqlite")), json.dumps(str(root / "database/invalid-header.sqlite"))))
+        purpose = "Use Database tools in Settings > Diagnostics or core recovery. database-status prints source and destination paths. Keep the owned WAL/lock helper running for these checks. No audio hardware or real service is needed."
+    elif case in CONVERSION_CASES:
         retry_tools(root)
         endpoint = (root / "retry-endpoint").read_text()
         cfg.write_text(cfg.read_text().replace('musicindex_endpoint = "http://127.0.0.1:9"', 'musicindex_endpoint = ' + json.dumps(endpoint)))
@@ -669,6 +675,161 @@ def converter_inspect(root, manifest):
     inspect(root, manifest, correction_preserved=True)
 
 
+
+def database_setup(root):
+    directory = root / "database"
+    if not directory.exists():
+        subprocess.run([str(REPO / "target/debug/v4vmm"), "startup-fixture", "database-seed", str(root)], env=environment(root), check=True)
+        (directory / "readonly.sqlite").chmod(0o400)
+    if not owned_process(root, "database.pid"):
+        if (root / "database-baseline.json").exists():
+            raise SystemExit("The previous WAL helper stopped. Keep its baseline for diagnosis and create a fresh fixture; do not rebaseline changed sources.")
+        (root / "database.ready").unlink(missing_ok=True)
+        with (root / "database.log").open("w") as output:
+            subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "database-hold", str(root)], stdout=output, stderr=output, start_new_session=True)
+        deadline = time.monotonic() + 5
+        while not (root / "database.ready").exists():
+            if time.monotonic() > deadline:
+                raise SystemExit("Database fixture helper did not start. Inspect database.log and retain the fixture.")
+            time.sleep(0.05)
+    database_status(root)
+
+
+def database_hold(root):
+    directory = root / "database"
+    wal = sqlite3.connect(directory / "wal.sqlite")
+    locked = sqlite3.connect(directory / "locked.sqlite")
+    wal.execute("PRAGMA journal_mode=WAL")
+    wal.execute("PRAGMA wal_autocheckpoint=0")
+    main_before = digest(directory / "wal.sqlite")
+    wal.execute("INSERT INTO playlists(name) VALUES ('Committed WAL-only fixture row')")
+    wal.commit()
+    if digest(directory / "wal.sqlite") != main_before:
+        raise SystemExit("WAL-only fixture row reached the main file unexpectedly.")
+    state = {"source_hashes": {p.name: digest(p) for p in directory.glob("*.sqlite") if not p.name.endswith("backup.sqlite")},
+             "wal_sha256": digest(directory / "wal.sqlite-wal")}
+    # ADR 0066: closing a raw descriptor in this process releases SQLite's
+    # POSIX locks on that file. Finish checksum reads before taking the lock.
+    locked.execute("BEGIN EXCLUSIVE")
+    (root / "database-baseline.json").write_text(json.dumps(state))
+    (root / "database.pid").write_text(str(os.getpid()))
+    (root / "database.ready").write_text("ready")
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    try:
+        while True:
+            time.sleep(1)
+    finally:
+        locked.rollback()
+        locked.close()
+        wal.close()
+        (root / "database.ready").unlink(missing_ok=True)
+        (root / "database.pid").unlink(missing_ok=True)
+
+
+def database_stop(root):
+    for name in ("database-lock", "database"):
+        pid = owned_process(root, name + ".pid")
+        if pid:
+            os.kill(pid, signal.SIGTERM)
+            deadline = time.monotonic() + 5
+            while (root / (name + ".ready")).exists():
+                if time.monotonic() > deadline:
+                    raise SystemExit("Database helper did not exit. Keep the fixture for diagnosis.")
+                time.sleep(0.05)
+
+
+def database_reader_blocked(root):
+    """ADR 0066: a live helper is insufficient evidence of a held SQLite lock."""
+    path = root / "database/locked.sqlite"
+    conn = None
+    try:
+        conn = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=0.05)
+        conn.execute("SELECT count(*) FROM sqlite_schema").fetchone()
+        return False
+    except sqlite3.DatabaseError as error:
+        return getattr(error, "sqlite_errorcode", 0) & 0xff in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def database_lock(root):
+    """Restore a pre-fix fixture's lock without restarting its WAL helper."""
+    if not owned_process(root, "database.pid") or not (root / "database.ready").exists():
+        raise SystemExit("Keep the original WAL helper running; its baseline must not be replaced.")
+    baseline = json.loads((root / "database-baseline.json").read_text())
+    path = root / "database/locked.sqlite"
+    if digest(path) != baseline["source_hashes"][path.name]:
+        raise SystemExit("The lock source changed. Keep the fixture for diagnosis.")
+    if database_reader_blocked(root):
+        print("The fixture database already blocks readers; continue the app check.")
+        return
+    conn = sqlite3.connect(path.as_uri() + "?mode=rw", uri=True, timeout=0.5)
+    registered = False
+    try:
+        conn.execute("BEGIN EXCLUSIVE")
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+        (root / "database-lock.pid").write_text(str(os.getpid()))
+        registered = True
+        (root / "database-lock.ready").write_text("ready")
+        print("Fixture database lock held. Leave this terminal running through the checks; fixture cleanup will stop it.", flush=True)
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        conn.rollback()
+        conn.close()
+        if registered:
+            (root / "database-lock.ready").unlink(missing_ok=True)
+            (root / "database-lock.pid").unlink(missing_ok=True)
+
+
+def database_status(root):
+    directory = root / "database"
+    print(json.dumps({"helper_running": bool(owned_process(root, "database.pid")),
+                      "exclusive_lock_blocks_reader": database_reader_blocked(root),
+                      "configured_normal_database": str(root / "data/library.sqlite"),
+                      "sources": {name: str(directory / (name + ".sqlite")) for name in ("wal", "readonly", "locked", "integrity", "newer", "older", "foreign-key", "invalid-header")},
+                      "normal_backup": str(directory / "normal-backup.sqlite"),
+                      "wal_backup": str(directory / "wal-backup.sqlite"),
+                      "readonly_backup": str(directory / "readonly-backup.sqlite"),
+                      "occupied_destination": str(directory / "occupied.sqlite")}, indent=2))
+
+
+def database_inspect(root, manifest):
+    directory = root / "database"
+    if not owned_process(root, "database.pid") or not (root / "database.ready").exists():
+        raise SystemExit("The WAL fixture helper must remain running through preservation inspection.")
+    state = json.loads((root / "database-baseline.json").read_text())
+    checks = {"exclusive_lock_blocks_reader": database_reader_blocked(root),
+              "database_sources_preserved": all(digest(directory / name) == value for name, value in state["source_hashes"].items()),
+              "wal_bytes_preserved": digest(directory / "wal.sqlite-wal") == state["wal_sha256"],
+              "no_incomplete_candidates": not list(directory.glob(".v4vmm-database-*")),
+              "readonly_permissions_preserved": (directory / "readonly.sqlite").stat().st_mode & 0o777 == 0o400}
+    names = ("normal", "wal", "readonly")
+    if json.loads((root / "case.json").read_text())["case"] == "database-recovery":
+        names += ("recovery",)
+    checks["no_failed_backup_published"] = not (directory / "locked-backup.sqlite").exists()
+    for name in names:
+        path = directory / (name + "-backup.sqlite")
+        checks[name + "_backup_exists"] = path.is_file() and not path.is_symlink()
+        if not checks[name + "_backup_exists"]:
+            continue
+        with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as conn:
+            checks[name + "_backup_integrity"] = conn.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+            checks[name + "_backup_foreign_keys"] = conn.execute("PRAGMA foreign_key_check").fetchall() == []
+            checks[name + "_backup_schema"] = [r[0] for r in conn.execute("SELECT version FROM schema_migrations ORDER BY version")] == manifest["migration_versions"]
+            if name == "wal":
+                checks["committed_wal_row_in_backup"] = conn.execute("SELECT count(*) FROM playlists WHERE name='Committed WAL-only fixture row'").fetchone()[0] == 1
+            if name == "normal":
+                checks["normal_backup_library"] = conn.execute("SELECT count(*) FROM tracks").fetchone()[0] == 3
+        checks[name + "_backup_private"] = path.stat().st_mode & 0o777 == 0o600
+    print(json.dumps(checks, indent=2))
+    if not all(checks.values()):
+        raise SystemExit("Database preservation inspection failed. Keep the fixture for diagnosis.")
+    inspect(root, manifest)
+
 def setup():
     binary = REPO / "target/debug/v4vmm"
     if not binary.is_file():
@@ -730,7 +891,7 @@ def run_app(root, manifest):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "session-status", "session-release", "repair-access", "repair-conflict", "repair-inspect", "retry-status", "retry-release", "retry-inspect", "retry-server", "converter-tools", "converter-status", "converter-inspect", "conversion-tools", "conversion-status", "conversion-remove-input", "conversion-inspect"))
+    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "session-status", "session-release", "repair-access", "repair-conflict", "repair-inspect", "retry-status", "retry-release", "retry-inspect", "retry-server", "converter-tools", "converter-status", "converter-inspect", "conversion-tools", "conversion-status", "conversion-remove-input", "conversion-inspect", "database-hold", "database-lock", "database-status", "database-inspect"))
     parser.add_argument("directory", nargs="?")
     parser.add_argument("case", nargs="?", choices=CASES + CONVERTER_MODES + CONVERSION_MODES)
     args = parser.parse_args()
@@ -758,6 +919,14 @@ def main():
         if args.case not in CASES:
             parser.error("mode requires a case")
         mode(root, args.case)
+    elif args.command == "database-hold":
+        database_hold(root)
+    elif args.command == "database-lock":
+        database_lock(root)
+    elif args.command == "database-status":
+        database_status(root)
+    elif args.command == "database-inspect":
+        database_inspect(root, manifest)
     elif args.command.startswith("conversion-"):
         if json.loads((root / "case.json").read_text())["case"] not in CONVERSION_CASES:
             raise SystemExit("Select conversion-retry first.")
@@ -826,6 +995,7 @@ def main():
         if owned_process(root, "app.pid"):
             raise SystemExit("Close the fixture app before cleanup.")
         release_lock(root)
+        database_stop(root)
         stop_retry_server(root)
         (root / "config/v4vmm").chmod(0o700)
         shutil.rmtree(root)

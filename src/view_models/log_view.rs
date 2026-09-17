@@ -8,6 +8,7 @@ pub(crate) enum LogSource {
     Startup,
     Session,
     Configuration,
+    Database,
     Background,
     Service { host: String, unit: String },
     Event { endpoint: String, event: String },

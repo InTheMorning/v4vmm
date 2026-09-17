@@ -9,7 +9,9 @@ When you need to look something up, consult this map first to find the right fil
 | What you need | File |
 |---------------|------|
 | SQLite schema, row types, all queries | `src/db.rs` |
-| Startup SQLite read/write/schema verification and preparation | `src/db/startup.rs` |
+| Startup SQLite read/write/schema verification and preparation | `src/db/startup.rs`; shared schema/read contract in `src/db.rs` |
+| Non-mutating database inspection, bounded verified SQLite backup, private candidate and cleanup | `src/db/maintenance.rs` (ADR 0066 task 010) |
+| Shared Settings/recovery database forms, typed reports and independent worker adapter | `src/view_models/startup/database.rs`, `src/presentation/database_tools.rs`, `src/ui/composites/maintenance_forms.rs` |
 | Config struct, TOML paths | `src/config.rs` |
 | Explicit configuration correction, drafts, backup and revision checks | `src/config/correction.rs`, `src/application/commands/maintenance.rs` (ADR 0066) |
 | Shared recovery/Settings editor, retained-draft Close/Reopen, input Escape and focus return, typed state and geometry | `src/view_models/startup/correction.rs`, `src/presentation/configuration_editor.rs`, `src/ui/composites/maintenance_forms.rs` |

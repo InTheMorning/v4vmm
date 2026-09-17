@@ -134,326 +134,25 @@ pub fn prepare_database(path: &Path) -> Result<Connection, DbCheckError> {
 }
 
 fn check_schema(conn: &Connection) -> Result<DatabaseReadiness, DbCheckError> {
-    let tables = conn
-        .prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-        .and_then(|mut s| {
-            s.query_map([], |r| r.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .map_err(|e| DbCheckError::sqlite(DbStage::Schema, &e))?;
-    if tables.is_empty() {
-        return Ok(DatabaseReadiness::NeedsPreparation);
-    }
-    // These queries describe read compatibility, not a second schema mutation registry.
-    for sql in BASE_READS {
-        conn.prepare(sql).map_err(|_| DbCheckError {
-            stage: DbStage::Schema,
-            reason: "The database does not have the expected library tables and columns.",
-        })?;
-    }
-    if !tables.iter().any(|t| t == "schema_migrations") {
-        return Ok(DatabaseReadiness::NeedsPreparation);
-    }
-    let versions = conn
-        .prepare("SELECT version, name FROM schema_migrations ORDER BY version")
-        .and_then(|mut s| {
-            s.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .map_err(|e| DbCheckError::sqlite(DbStage::Schema, &e))?;
-    if versions.len() > super::MIGRATIONS.len()
-        || versions
-            .iter()
-            .zip(super::MIGRATIONS)
-            .any(|((version, name), expected)| {
-                *version != expected.version || name != expected.name
+    use super::SchemaCompatibility;
+    match super::inspect_schema(conn).map_err(|e| DbCheckError::sqlite(DbStage::Schema, &e))? {
+        SchemaCompatibility::Current => {
+            conn.query_row("SELECT count(*) FROM local_files", [], |r| {
+                r.get::<_, i64>(0)
             })
-    {
-        return Err(DbCheckError { stage: DbStage::Schema, reason: "The migration record has an unsupported version, name, or gap. App did not change it." });
-    }
-    if versions.len() < super::MIGRATIONS.len() {
-        return Ok(DatabaseReadiness::NeedsPreparation);
-    }
-    for (table, columns) in CURRENT_COLUMNS {
-        let sql = format!("SELECT * FROM main.{table} LIMIT 0");
-        let statement = conn.prepare(&sql).map_err(|_| DbCheckError {
-            stage: DbStage::Schema,
-            reason: "The recorded database version does not match its tables.",
-        })?;
-        if !columns
-            .iter()
-            .all(|column| statement.column_names().contains(column))
-        {
-            return Err(DbCheckError {
-                stage: DbStage::Schema,
-                reason: "The recorded database version does not match its columns.",
-            });
+            .map_err(|e| DbCheckError::sqlite(DbStage::Read, &e))?;
+            Ok(DatabaseReadiness::Ready)
         }
+        SchemaCompatibility::Empty | SchemaCompatibility::UpgradeRequired { .. } => {
+            Ok(DatabaseReadiness::NeedsPreparation)
+        }
+        SchemaCompatibility::Newer { .. } | SchemaCompatibility::Unknown => Err(DbCheckError {
+            stage: DbStage::Schema,
+            reason:
+                "The database schema or migration record is unsupported. App did not change it.",
+        }),
     }
-    conn.query_row("SELECT count(*) FROM local_files", [], |r| {
-        r.get::<_, i64>(0)
-    })
-    .map_err(|e| DbCheckError::sqlite(DbStage::Read, &e))?;
-    Ok(DatabaseReadiness::Ready)
 }
-
-const BASE_READS: &[&str] = &[
-    "SELECT id, feed_url, feed_guid, title, extra_json FROM feeds LIMIT 0",
-    "SELECT id, feed_id, item_guid, track_title, is_in_library FROM tracks LIMIT 0",
-    "SELECT id, path, track_id, file_size_bytes FROM local_files LIMIT 0",
-    "SELECT id, name, description FROM playlists LIMIT 0",
-    "SELECT playlist_id, track_id, position FROM playlist_tracks LIMIT 0",
-    "SELECT session_id, local_track_id, sequence, state, position_ms FROM playback_sessions LIMIT 0",
-];
-const CURRENT_COLUMNS: &[(&str, &[&str])] = &[
-    ("schema_migrations", &["version", "name", "applied_at"]),
-    ("schema_version", &["version"]),
-    (
-        "feeds",
-        &[
-            "id",
-            "feed_url",
-            "feed_guid",
-            "title",
-            "link",
-            "language",
-            "description",
-            "podcast_medium",
-            "album_image_href",
-            "album_image_mime",
-            "people_json",
-            "podcast_value_json",
-            "is_subscribed",
-            "last_fetched_at",
-            "extra_json",
-            "musicindex_updated_at",
-        ],
-    ),
-    (
-        "tracks",
-        &[
-            "id",
-            "feed_id",
-            "item_guid",
-            "enclosure_url",
-            "enclosure_type",
-            "link",
-            "pub_date",
-            "track_title",
-            "artist_name",
-            "album_title",
-            "album_artist_name",
-            "disc_number",
-            "track_number",
-            "duration_seconds",
-            "itunes_duration_raw",
-            "itunes_explicit",
-            "track_image_href",
-            "track_image_mime",
-            "people_json",
-            "item_value_json",
-            "is_in_library",
-            "extra_json",
-        ],
-    ),
-    (
-        "local_files",
-        &[
-            "id",
-            "path",
-            "track_id",
-            "added_at",
-            "file_size_bytes",
-            "audio_duration_sec",
-            "checksum",
-            "extra_json",
-        ],
-    ),
-    (
-        "playlists",
-        &["id", "name", "description", "created_at", "updated_at"],
-    ),
-    ("playlist_tracks", &["playlist_id", "track_id", "position"]),
-    (
-        "playback_sessions",
-        &[
-            "session_id",
-            "sequence",
-            "local_track_id",
-            "playlist_id",
-            "playlist_position",
-            "started_at",
-            "position_ms",
-            "state",
-            "updated_at",
-        ],
-    ),
-    (
-        "entity_identity_links",
-        &[
-            "id",
-            "owner_kind",
-            "feed_id",
-            "track_id",
-            "contributor_position",
-            "entity_type",
-            "entity_id",
-            "position",
-            "link_type",
-            "url",
-            "source",
-            "extraction_path",
-            "observed_at",
-            "raw_json",
-            "updated_at",
-        ],
-    ),
-    (
-        "entity_identity_ids",
-        &[
-            "id",
-            "owner_kind",
-            "feed_id",
-            "track_id",
-            "contributor_position",
-            "entity_type",
-            "entity_id",
-            "position",
-            "scheme",
-            "value",
-            "source",
-            "extraction_path",
-            "observed_at",
-            "raw_json",
-            "updated_at",
-        ],
-    ),
-    (
-        "entity_contributors",
-        &[
-            "id",
-            "owner_kind",
-            "feed_id",
-            "track_id",
-            "position",
-            "name",
-            "role",
-            "group_name",
-            "href",
-            "image_url",
-            "nostr_npub",
-            "source",
-            "raw_json",
-            "observed_at",
-            "updated_at",
-        ],
-    ),
-    (
-        "entity_metadata_facts",
-        &[
-            "id",
-            "owner_kind",
-            "feed_id",
-            "track_id",
-            "fact_key",
-            "value_text",
-            "value_integer",
-            "value_boolean",
-            "source",
-            "extraction_path",
-            "observed_at",
-            "raw_json",
-            "updated_at",
-        ],
-    ),
-    (
-        "artist_source_facts",
-        &[
-            "id",
-            "source",
-            "source_artist_id",
-            "name",
-            "sort_name",
-            "image_url",
-            "website_url",
-            "aliases_json",
-            "tags_json",
-            "area",
-            "begin_year",
-            "end_year",
-            "observed_at",
-            "raw_json",
-            "updated_at",
-        ],
-    ),
-    (
-        "artist_source_links",
-        &[
-            "id",
-            "artist_source_fact_id",
-            "entity_type",
-            "entity_id",
-            "position",
-            "link_type",
-            "url",
-            "extraction_path",
-            "observed_at",
-            "raw_json",
-            "updated_at",
-        ],
-    ),
-    (
-        "artist_source_ids",
-        &[
-            "id",
-            "artist_source_fact_id",
-            "entity_type",
-            "entity_id",
-            "position",
-            "scheme",
-            "value",
-            "extraction_path",
-            "observed_at",
-            "raw_json",
-            "updated_at",
-        ],
-    ),
-    (
-        "track_artist_source_bindings",
-        &[
-            "id",
-            "track_id",
-            "role",
-            "source",
-            "source_artist_id",
-            "confidence",
-            "provenance",
-            "observed_at",
-            "updated_at",
-        ],
-    ),
-    (
-        "broadcast_events",
-        &[
-            "id",
-            "event_id",
-            "label",
-            "endpoint",
-            "token_path",
-            "created_at",
-            "last_checked_at",
-            "last_status",
-        ],
-    ),
-    (
-        "broadcast_event_selection",
-        &["singleton", "event_id", "revision"],
-    ),
-    (
-        "local_path_repairs",
-        &["id", "track_id", "old_path", "reason", "recorded_at"],
-    ),
-];
 
 fn probe_main_database(conn: &mut Connection) -> Result<(), DbCheckError> {
     probe_with(conn, |conn, name| {
@@ -524,8 +223,11 @@ mod tests {
         super::super::init_schema(&conn).unwrap();
         super::super::migrate_schema(&conn).unwrap();
         let count: i64 = conn.query_row("SELECT count(*) FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'", [], |r| r.get(0)).unwrap();
-        assert_eq!(CURRENT_COLUMNS.len(), usize::try_from(count).unwrap());
-        for (table, columns) in CURRENT_COLUMNS {
+        assert_eq!(
+            super::super::CURRENT_COLUMNS.len(),
+            usize::try_from(count).unwrap()
+        );
+        for (table, columns) in super::super::CURRENT_COLUMNS {
             let statement = conn.prepare(&format!("SELECT * FROM {table}")).unwrap();
             assert_eq!(
                 statement.column_names(),

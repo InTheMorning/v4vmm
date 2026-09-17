@@ -17645,3 +17645,77 @@ fn adr_0066_conversion_retry_uses_existing_materialization() {
         );
     }
 }
+
+#[test]
+fn adr_0066_database_checks_and_snapshots_have_one_owner() {
+    // Situational: ADR 0066 invariant 6 and ADR 0016's schema authority.
+    // Behavioral db::maintenance tests prove preservation, WAL data and contention.
+    let database = read_source(&manifest_path("src/db/maintenance.rs"));
+    let production = production_source(&database);
+    for required in [
+        "SQLITE_OPEN_READ_ONLY",
+        "Backup::new",
+        "backup.step(BACKUP_PAGE_BATCH)",
+        "MAINTENANCE_DEADLINE",
+        "progress_handler",
+        "create_new(true)",
+        "fs::hard_link",
+        "valid_snapshot()",
+        "candidate.cleanup()",
+    ] {
+        assert!(
+            compact_source(production).contains(&compact_source(required)),
+            "missing database maintenance protection: {required}"
+        );
+    }
+    for forbidden in [
+        "open_db(",
+        "init_schema(",
+        "migrate_schema(",
+        "run_to_completion(",
+        "fs::copy(",
+        "fs::rename(",
+        "RuntimeHost",
+        "TopApp",
+        "use gpui",
+    ] {
+        assert!(
+            !production.contains(forbidden),
+            "database maintenance bypass: {forbidden}"
+        );
+    }
+    let registry = read_source(&manifest_path("src/db.rs"));
+    assert!(registry.contains("fn inspect_schema("));
+    let inspection = source_between(&registry, "fn inspect_schema(", "const BASE_READS:");
+    assert!(inspection.contains("MIGRATIONS"));
+    for forbidden in [
+        "init_schema(",
+        "migrate_schema(",
+        "record_migration(",
+        ".execute(",
+    ] {
+        assert!(!inspection.contains(forbidden));
+    }
+    let startup = read_source(&manifest_path("src/db/startup.rs"));
+    assert!(startup.contains("super::inspect_schema(conn)"));
+    let command = read_source(&manifest_path("src/application/commands/maintenance.rs"));
+    assert!(command.contains("maintenance::inspect("));
+    assert!(command.contains("maintenance::backup("));
+    let presenter = read_source(&manifest_path("src/presentation/database_tools.rs"));
+    assert!(presenter.contains("worker.submit(move || command.execute())"));
+    for forbidden in ["RuntimeHost", "TopApp", "Connection::", "fs::"] {
+        assert!(!presenter.contains(forbidden));
+    }
+    for path in ["src/app/settings.rs", "src/app/startup.rs"] {
+        assert!(read_source(&manifest_path(path)).contains("database_tools"));
+    }
+    let form = read_source(&manifest_path("src/ui/composites/maintenance_forms.rs"));
+    assert!(form.contains("LogSource::Database"));
+    assert!(form.contains("DatabaseVm::SCOPE"));
+    let fixture = read_source(&manifest_path("docs/runbooks/startup-recovery-fixture.py"));
+    assert!(fixture.contains("database-seed"));
+    assert!(
+        !fixture.contains("CREATE TABLE"),
+        "Python fixture must not duplicate the schema registry"
+    );
+}

@@ -133,6 +133,13 @@ are retired for `adr_0066_shared_guarded_config_repair` and the
 Its operator V1–V6, preservation and fixture cleanup are accepted as of
 2026-09-13. ADR invariants and this table's later packet assignments remain binding.
 
+Task 010 handoff review - 2026-09-17: its implementation recipe and coding prompt
+are retired for `adr_0066_database_checks_and_snapshots_have_one_owner` and the
+[backend/VM/fixture proof](adr-0066-task-010-database-check-and-backup.md#implementation-and-proof).
+Mechanical verification is Green. Operator V1–V3, presentation, preservation,
+normal-mode restoration and fixture cleanup are accepted; task 010 is complete.
+Tasks 011–013 retain their assigned ownership and ADR invariants remain binding.
+
 ## Acceptance Criteria
 
 Mechanical evidence lives in [config.rs tests](../../src/config.rs) unless

@@ -4,9 +4,11 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import sqlite3
 import sys
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -434,3 +436,146 @@ class ConversionFixtureTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DatabaseLockTests(unittest.TestCase):
+    """Situational ADR 0066: real external readers must observe fixture locks."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix="v4vmm-database-lock-")
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        data = self.root / "database"
+        data.mkdir()
+        for name in ("wal", "locked"):
+            conn = sqlite3.connect(data / (name + ".sqlite"))
+            conn.execute("CREATE TABLE playlists (name TEXT)")
+            conn.commit()
+            conn.close()
+
+    def start_helper(self, operation, ready):
+        program = '''import importlib.util, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("fixture", sys.argv[1])
+fixture = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fixture)
+root = Path(sys.argv[2])
+if sys.argv[3] == "legacy":
+    sleep = fixture.time.sleep
+    def legacy_sleep(seconds):
+        (root / "database/locked.sqlite").read_bytes()
+        (root / "legacy.ready").write_text("ready")
+        sleep(seconds)
+    fixture.time.sleep = legacy_sleep
+    fixture.database_hold(root)
+else:
+    getattr(fixture, sys.argv[3])(root)
+'''
+        child = subprocess.Popen([sys.executable, "-B", "-c", program,
+                                  str(Path(fixture.__file__)), str(self.root), operation],
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        def stop():
+            if child.poll() is None:
+                child.terminate()
+            child.communicate(timeout=5)
+        self.addCleanup(stop)
+        deadline = time.monotonic() + 5
+        while not (self.root / ready).exists():
+            if child.poll() is not None or time.monotonic() > deadline:
+                stop()
+                self.fail(f"Database helper did not reach {ready}")
+            time.sleep(0.01)
+        return child
+
+    def test_adr_0066_checksums_do_not_release_the_exclusive_lock(self):
+        helper = self.start_helper("database_hold", "database.ready")
+        self.assertTrue(fixture.database_reader_blocked(self.root))
+        baseline = json.loads((self.root / "database-baseline.json").read_text())
+        self.assertEqual(fixture.digest(self.root / "database/locked.sqlite"),
+                         baseline["source_hashes"]["locked.sqlite"])
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            fixture.database_status(self.root)
+        self.assertTrue(json.loads(output.getvalue())["exclusive_lock_blocks_reader"])
+        self.assertTrue(fixture.database_reader_blocked(self.root))
+        fixture.database_stop(self.root)
+        self.assertEqual(helper.wait(timeout=5), 0)
+        self.assertFalse(fixture.database_reader_blocked(self.root))
+
+    def test_adr_0066_restore_lock_keeps_wal_and_existing_baseline(self):
+        original = self.start_helper("legacy", "legacy.ready")
+        self.assertFalse(fixture.database_reader_blocked(self.root))
+        baseline = (self.root / "database-baseline.json").read_bytes()
+        wal = (self.root / "database/wal.sqlite-wal").read_bytes()
+        lock = self.start_helper("database_lock", "database-lock.ready")
+        self.assertTrue(fixture.database_reader_blocked(self.root))
+        self.assertIsNone(original.poll())
+        self.assertEqual((self.root / "database-baseline.json").read_bytes(), baseline)
+        self.assertEqual((self.root / "database/wal.sqlite-wal").read_bytes(), wal)
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            fixture.database_lock(self.root)
+        self.assertIn("already blocks readers", output.getvalue())
+        self.assertTrue(fixture.database_reader_blocked(self.root))
+        fixture.database_stop(self.root)
+        self.assertEqual(original.wait(timeout=5), 0)
+        self.assertEqual(lock.wait(timeout=5), 0)
+        self.assertFalse((self.root / "database-lock.pid").exists())
+        self.assertFalse((self.root / "database.pid").exists())
+
+
+class DatabasePreservationTests(unittest.TestCase):
+    """Situational ADR 0066: snapshots and preservation require positive evidence."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix="v4vmm-database-inspect-")
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        data = self.root / "database"
+        data.mkdir()
+        (data / "readonly.sqlite").write_bytes(b"source")
+        (data / "readonly.sqlite").chmod(0o400)
+        (data / "wal.sqlite-wal").write_bytes(b"committed WAL")
+        (self.root / "case.json").write_text(json.dumps({"case": "database-tools"}))
+        (self.root / "database.ready").write_text("ready")
+        (self.root / "database-baseline.json").write_text(json.dumps({
+            "source_hashes": {"readonly.sqlite": fixture.digest(data / "readonly.sqlite")},
+            "wal_sha256": fixture.digest(data / "wal.sqlite-wal"),
+        }))
+
+    def test_missing_snapshots_cannot_pass_preservation(self):
+        output = io.StringIO()
+        with patch.object(fixture, "owned_process", return_value=123), \
+                patch.object(fixture, "inspect") as shared, contextlib.redirect_stdout(output):
+            with self.assertRaisesRegex(SystemExit, "preservation inspection failed"):
+                fixture.database_inspect(self.root, {"migration_versions": [1]})
+        result = json.loads(output.getvalue())
+        self.assertTrue(result["database_sources_preserved"])
+        self.assertFalse(result["normal_backup_exists"])
+        self.assertFalse(result["wal_backup_exists"])
+        self.assertFalse(result["readonly_backup_exists"])
+        shared.assert_not_called()
+
+    def test_stopped_wal_helper_cannot_pass_inspection(self):
+        with patch.object(fixture, "owned_process", return_value=None):
+            with self.assertRaisesRegex(SystemExit, "must remain running"):
+                fixture.database_inspect(self.root, {})
+
+    def test_reentering_case_does_not_reseed_or_replace_baseline(self):
+        baseline = (self.root / "database-baseline.json").read_bytes()
+        with patch.object(fixture, "owned_process", return_value=123), \
+                patch.object(fixture.subprocess, "run") as seed, \
+                patch.object(fixture.subprocess, "Popen") as spawn, \
+                patch.object(fixture, "database_status"):
+            fixture.database_setup(self.root)
+        seed.assert_not_called()
+        spawn.assert_not_called()
+        self.assertEqual((self.root / "database-baseline.json").read_bytes(), baseline)
+
+    def test_stopped_helper_cannot_replace_the_preservation_baseline(self):
+        baseline = (self.root / "database-baseline.json").read_bytes()
+        with patch.object(fixture, "owned_process", return_value=None), \
+                patch.object(fixture.subprocess, "Popen") as spawn:
+            with self.assertRaisesRegex(SystemExit, "do not rebaseline"):
+                fixture.database_setup(self.root)
+        spawn.assert_not_called()
+        self.assertEqual((self.root / "database-baseline.json").read_bytes(), baseline)

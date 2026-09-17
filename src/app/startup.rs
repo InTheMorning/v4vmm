@@ -13,6 +13,7 @@ use crate::application::session_lifecycle::MaintenanceSession;
 use crate::presentation::configuration_editor::{
     ConfigurationEditor, CorrectionEvent, CorrectionEventCallback,
 };
+use crate::presentation::database_tools::DatabaseTools;
 use crate::presentation::maintenance_executor::MaintenanceClient;
 use crate::presentation::session_transition::SessionTransition;
 use crate::presentation::startup_presenter::{mount_current, present_startup};
@@ -38,6 +39,8 @@ pub(super) struct StartupScreen {
     maintenance: Option<MaintenanceSession>,
     editor: Option<Entity<ConfigurationEditor>>,
     editor_subscription: Option<gpui::Subscription>,
+    database_tools: Option<Entity<DatabaseTools>>,
+    database_subscription: Option<gpui::Subscription>,
 }
 impl StartupScreen {
     pub(super) fn new(worker: Option<MaintenanceClient>, opened: Arc<AtomicBool>) -> Self {
@@ -58,6 +61,8 @@ impl StartupScreen {
             maintenance: None,
             editor: None,
             editor_subscription: None,
+            database_tools: None,
+            database_subscription: None,
         }
     }
     pub(super) fn begin(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -96,6 +101,13 @@ impl StartupScreen {
             .editor
             .as_ref()
             .map(|editor| cx.observe(editor, |_, _, cx| cx.notify()));
+        self.database_tools = Some(cx.new(|cx| {
+            DatabaseTools::new(self.worker.clone(), self.log_frames.clone(), window, cx)
+        }));
+        self.database_subscription = self
+            .database_tools
+            .as_ref()
+            .map(|tools| cx.observe(tools, |_, _, cx| cx.notify()));
         if self.worker.is_none() {
             eprintln!("{}", self.vm.report());
         }
@@ -142,13 +154,17 @@ impl StartupScreen {
         self.vm.maintenance_busy = self
             .editor
             .as_ref()
-            .is_some_and(|editor| editor.read(cx).vm.is_working());
+            .is_some_and(|editor| editor.read(cx).vm.is_working())
+            || self
+                .database_tools
+                .as_ref()
+                .is_some_and(|tools| tools.read(cx).vm.is_working());
         let Some(generation) = self.vm.begin(action) else {
             return;
         };
-        let Some(worker) = &self.worker else {
+        if self.worker.is_none() {
             return;
-        };
+        }
         if action == StartupAction::OpenApp {
             if let Some(maintenance) = &mut self.maintenance {
                 if !maintenance.begin_resume() {
@@ -156,13 +172,9 @@ impl StartupScreen {
                 }
             }
         }
+        self.suspend_maintenance_forms(true, cx);
         let backend = self.backend.clone();
-        if let Some(editor) = &self.editor {
-            editor.update(cx, |editor, cx| {
-                editor.vm.suspended = true;
-                cx.notify();
-            });
-        }
+        let worker = self.worker.as_ref().expect("worker availability checked");
         let receiver = worker.submit(move || {
             match backend
                 .lock()
@@ -180,12 +192,7 @@ impl StartupScreen {
                 window,
                 cx,
                 move |this, result, window, cx| {
-                    if let Some(editor) = &this.editor {
-                        editor.update(cx, |editor, cx| {
-                            editor.vm.suspended = false;
-                            cx.notify();
-                        });
-                    }
+                    this.suspend_maintenance_forms(false, cx);
                     if !this.vm.accepts(generation) {
                         if let Some(worker) = &this.worker {
                             worker.retire(result);
@@ -219,12 +226,7 @@ impl StartupScreen {
                 },
             );
         } else {
-            if let Some(editor) = &self.editor {
-                editor.update(cx, |editor, cx| {
-                    editor.vm.suspended = false;
-                    cx.notify();
-                });
-            }
+            self.suspend_maintenance_forms(false, cx);
             if let Some(maintenance) = &mut self.maintenance {
                 maintenance.resume_failed();
             }
@@ -233,6 +235,21 @@ impl StartupScreen {
         }
 
         cx.notify();
+    }
+
+    fn suspend_maintenance_forms(&self, suspended: bool, cx: &mut Context<Self>) {
+        if let Some(tools) = &self.database_tools {
+            tools.update(cx, |tools, cx| {
+                tools.vm.suspended = suspended;
+                cx.notify();
+            });
+        }
+        if let Some(editor) = &self.editor {
+            editor.update(cx, |editor, cx| {
+                editor.vm.suspended = suspended;
+                cx.notify();
+            });
+        }
     }
 
     fn install_normal_session(&mut self, normal: Entity<TopApp>, cx: &mut Context<Self>) {
@@ -255,6 +272,11 @@ impl StartupScreen {
         }
         normal.update(cx, |app, cx| {
             app.log_frames.clone_from(&self.log_frames);
+            app.database_tools.clone_from(&self.database_tools);
+            app.database_tools_subscription = self
+                .database_tools
+                .as_ref()
+                .map(|tools| cx.observe(tools, |_, _, cx| cx.notify()));
             app.configuration_editor.clone_from(&self.editor);
             app.configuration_editor_subscription = self
                 .editor
@@ -289,7 +311,11 @@ impl StartupScreen {
     ) {
         match action {
             SessionAction::EndSession => {
-                if self.draining.is_some()
+                if self
+                    .database_tools
+                    .as_ref()
+                    .is_some_and(|tools| tools.read(cx).vm.is_working())
+                    || self.draining.is_some()
                     || self
                         .editor
                         .as_ref()
@@ -456,13 +482,20 @@ impl Render for StartupScreen {
         self.vm.maintenance_busy = self
             .editor
             .as_ref()
-            .is_some_and(|editor| editor.read(cx).vm.is_working());
+            .is_some_and(|editor| editor.read(cx).vm.is_working())
+            || self
+                .database_tools
+                .as_ref()
+                .is_some_and(|tools| tools.read(cx).vm.is_working());
         startup_report(
             &self.vm,
             Rc::new(move |action, window, cx| {
                 let _ = entity.update(cx, |this, cx| this.action(action, window, cx));
             }),
             self.editor.clone().map(IntoElement::into_any_element),
+            self.database_tools
+                .clone()
+                .map(IntoElement::into_any_element),
             &self.log_frames,
             cx,
         )

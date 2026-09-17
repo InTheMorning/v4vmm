@@ -9,6 +9,7 @@ use crate::startup::{CoreCheckOutcome, IssueSeverity, StartupIssue, StartupStage
 pub(crate) mod capabilities;
 pub(crate) mod converter;
 pub(crate) mod correction;
+pub(crate) mod database;
 pub(crate) mod session;
 
 /// Project residual normal-startup notices (ADR 0066).

@@ -179,6 +179,8 @@ pub struct TopApp {
     previous_session_report: String,
     log_frames: crate::ui::composites::log_frame::LogFrames,
     configuration_editor_subscription: Option<gpui::Subscription>,
+    database_tools: Option<Entity<crate::presentation::database_tools::DatabaseTools>>,
+    database_tools_subscription: Option<gpui::Subscription>,
     configuration_editor:
         Option<Entity<crate::presentation::configuration_editor::ConfigurationEditor>>,
 }
@@ -394,6 +396,8 @@ impl TopApp {
             log_frames: crate::ui::composites::log_frame::LogFrames::default(),
             configuration_editor: None,
             configuration_editor_subscription: None,
+            database_tools: None,
+            database_tools_subscription: None,
         }
     }
 

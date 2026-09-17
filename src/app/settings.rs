@@ -134,7 +134,11 @@ pub(super) fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> Any
                 if let Some(callback) = app.session_callback.clone() {
                     let available = app.maintenance_worker.is_some()
                         && !app.capability_vm.is_working()
-                        && correction_idle;
+                        && correction_idle
+                        && !app
+                            .database_tools
+                            .as_ref()
+                            .is_some_and(|tools| tools.read(cx).vm.is_working());
                     content.push(crate::ui::composites::maintenance_forms::session_entry(
                         crate::view_models::startup::session::SessionReportVm::entry(available),
                         app.command_runner.session().generation(),
@@ -143,6 +147,13 @@ pub(super) fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> Any
                         callback,
                         cx,
                     ));
+                }
+                continue;
+            }
+            SettingsContent::DatabaseTools => {
+                use gpui::IntoElement as _;
+                if let Some(tools) = &app.database_tools {
+                    content.push(tools.clone().into_any_element());
                 }
                 continue;
             }

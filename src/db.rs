@@ -2849,6 +2849,7 @@ pub fn open_db(db_path: &Path) -> Result<Connection> {
     Ok(conn)
 }
 
+pub(crate) mod maintenance;
 pub mod startup;
 
 struct Migration {
@@ -2913,6 +2914,333 @@ const MIGRATIONS: &[Migration] = &[
         name: "broadcast_event_selection",
         apply: create_broadcast_event_selection_table,
     },
+];
+
+/// Read compatibility facts share the migration authority (ADRs 0016, 0066).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SchemaCompatibility {
+    Current,
+    UpgradeRequired { applied: usize, current: usize },
+    Newer { version: i64 },
+    Unknown,
+    Empty,
+}
+
+/// Inspect the existing ledger and read contract without executing a migration.
+pub(crate) fn inspect_schema(conn: &Connection) -> rusqlite::Result<SchemaCompatibility> {
+    let tables = conn
+        .prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'")?
+        .query_map([], |r| r.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if tables.is_empty() {
+        return Ok(SchemaCompatibility::Empty);
+    }
+    let versions = if tables.iter().any(|table| table == "schema_migrations") {
+        let mut statement =
+            conn.prepare("SELECT version, name FROM schema_migrations ORDER BY version")?;
+        let records = statement
+            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        records
+    } else {
+        Vec::new()
+    };
+    if let Some((version, _)) = versions.last() {
+        if *version
+            > MIGRATIONS
+                .last()
+                .expect("migration registry is nonempty")
+                .version
+        {
+            return Ok(SchemaCompatibility::Newer { version: *version });
+        }
+    }
+    if versions
+        .iter()
+        .zip(MIGRATIONS)
+        .any(|((version, name), expected)| *version != expected.version || name != expected.name)
+        || versions.len() > MIGRATIONS.len()
+        || BASE_READS.iter().any(|sql| conn.prepare(sql).is_err())
+    {
+        return Ok(SchemaCompatibility::Unknown);
+    }
+    if versions.len() < MIGRATIONS.len() {
+        return Ok(SchemaCompatibility::UpgradeRequired {
+            applied: versions.len(),
+            current: MIGRATIONS.len(),
+        });
+    }
+    for (table, columns) in CURRENT_COLUMNS {
+        let sql = format!("SELECT * FROM main.{table} LIMIT 0");
+        let Ok(statement) = conn.prepare(&sql) else {
+            return Ok(SchemaCompatibility::Unknown);
+        };
+        if !columns
+            .iter()
+            .all(|column| statement.column_names().contains(column))
+        {
+            return Ok(SchemaCompatibility::Unknown);
+        }
+    }
+    Ok(SchemaCompatibility::Current)
+}
+
+const BASE_READS: &[&str] = &[
+    "SELECT id, feed_url, feed_guid, title, extra_json FROM feeds LIMIT 0",
+    "SELECT id, feed_id, item_guid, track_title, is_in_library FROM tracks LIMIT 0",
+    "SELECT id, path, track_id, file_size_bytes FROM local_files LIMIT 0",
+    "SELECT id, name, description FROM playlists LIMIT 0",
+    "SELECT playlist_id, track_id, position FROM playlist_tracks LIMIT 0",
+    "SELECT session_id, local_track_id, sequence, state, position_ms FROM playback_sessions LIMIT 0",
+];
+const CURRENT_COLUMNS: &[(&str, &[&str])] = &[
+    ("schema_migrations", &["version", "name", "applied_at"]),
+    ("schema_version", &["version"]),
+    (
+        "feeds",
+        &[
+            "id",
+            "feed_url",
+            "feed_guid",
+            "title",
+            "link",
+            "language",
+            "description",
+            "podcast_medium",
+            "album_image_href",
+            "album_image_mime",
+            "people_json",
+            "podcast_value_json",
+            "is_subscribed",
+            "last_fetched_at",
+            "extra_json",
+            "musicindex_updated_at",
+        ],
+    ),
+    (
+        "tracks",
+        &[
+            "id",
+            "feed_id",
+            "item_guid",
+            "enclosure_url",
+            "enclosure_type",
+            "link",
+            "pub_date",
+            "track_title",
+            "artist_name",
+            "album_title",
+            "album_artist_name",
+            "disc_number",
+            "track_number",
+            "duration_seconds",
+            "itunes_duration_raw",
+            "itunes_explicit",
+            "track_image_href",
+            "track_image_mime",
+            "people_json",
+            "item_value_json",
+            "is_in_library",
+            "extra_json",
+        ],
+    ),
+    (
+        "local_files",
+        &[
+            "id",
+            "path",
+            "track_id",
+            "added_at",
+            "file_size_bytes",
+            "audio_duration_sec",
+            "checksum",
+            "extra_json",
+        ],
+    ),
+    (
+        "playlists",
+        &["id", "name", "description", "created_at", "updated_at"],
+    ),
+    ("playlist_tracks", &["playlist_id", "track_id", "position"]),
+    (
+        "playback_sessions",
+        &[
+            "session_id",
+            "sequence",
+            "local_track_id",
+            "playlist_id",
+            "playlist_position",
+            "started_at",
+            "position_ms",
+            "state",
+            "updated_at",
+        ],
+    ),
+    (
+        "entity_identity_links",
+        &[
+            "id",
+            "owner_kind",
+            "feed_id",
+            "track_id",
+            "contributor_position",
+            "entity_type",
+            "entity_id",
+            "position",
+            "link_type",
+            "url",
+            "source",
+            "extraction_path",
+            "observed_at",
+            "raw_json",
+            "updated_at",
+        ],
+    ),
+    (
+        "entity_identity_ids",
+        &[
+            "id",
+            "owner_kind",
+            "feed_id",
+            "track_id",
+            "contributor_position",
+            "entity_type",
+            "entity_id",
+            "position",
+            "scheme",
+            "value",
+            "source",
+            "extraction_path",
+            "observed_at",
+            "raw_json",
+            "updated_at",
+        ],
+    ),
+    (
+        "entity_contributors",
+        &[
+            "id",
+            "owner_kind",
+            "feed_id",
+            "track_id",
+            "position",
+            "name",
+            "role",
+            "group_name",
+            "href",
+            "image_url",
+            "nostr_npub",
+            "source",
+            "raw_json",
+            "observed_at",
+            "updated_at",
+        ],
+    ),
+    (
+        "entity_metadata_facts",
+        &[
+            "id",
+            "owner_kind",
+            "feed_id",
+            "track_id",
+            "fact_key",
+            "value_text",
+            "value_integer",
+            "value_boolean",
+            "source",
+            "extraction_path",
+            "observed_at",
+            "raw_json",
+            "updated_at",
+        ],
+    ),
+    (
+        "artist_source_facts",
+        &[
+            "id",
+            "source",
+            "source_artist_id",
+            "name",
+            "sort_name",
+            "image_url",
+            "website_url",
+            "aliases_json",
+            "tags_json",
+            "area",
+            "begin_year",
+            "end_year",
+            "observed_at",
+            "raw_json",
+            "updated_at",
+        ],
+    ),
+    (
+        "artist_source_links",
+        &[
+            "id",
+            "artist_source_fact_id",
+            "entity_type",
+            "entity_id",
+            "position",
+            "link_type",
+            "url",
+            "extraction_path",
+            "observed_at",
+            "raw_json",
+            "updated_at",
+        ],
+    ),
+    (
+        "artist_source_ids",
+        &[
+            "id",
+            "artist_source_fact_id",
+            "entity_type",
+            "entity_id",
+            "position",
+            "scheme",
+            "value",
+            "extraction_path",
+            "observed_at",
+            "raw_json",
+            "updated_at",
+        ],
+    ),
+    (
+        "track_artist_source_bindings",
+        &[
+            "id",
+            "track_id",
+            "role",
+            "source",
+            "source_artist_id",
+            "confidence",
+            "provenance",
+            "observed_at",
+            "updated_at",
+        ],
+    ),
+    (
+        "broadcast_events",
+        &[
+            "id",
+            "event_id",
+            "label",
+            "endpoint",
+            "token_path",
+            "created_at",
+            "last_checked_at",
+            "last_status",
+        ],
+    ),
+    (
+        "broadcast_event_selection",
+        &["singleton", "event_id", "revision"],
+    ),
+    (
+        "local_path_repairs",
+        &["id", "track_id", "old_path", "reason", "recorded_at"],
+    ),
 ];
 
 pub(crate) fn migrate_schema(conn: &Connection) -> Result<()> {

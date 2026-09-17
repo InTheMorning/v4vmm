@@ -21,7 +21,7 @@ operator V1–V3, Settings/core-recovery presentation, preservation in both case
 and fixture cleanup are accepted. Task 009 is complete on 2026-09-17 with
 mechanical checks Green; operator V1–V3, normal/narrow presentation,
 configuration restoration, preservation and fixture cleanup are accepted.
-Tasks 010–013 have not started; task 010 requires a fresh session.
+Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; tasks 011–013 have not started.
 
 Scheduling amendment - 2026-09-13: at the operator's request,
 [shared log frames and following](../tasks/adr-0063-task-005-shared-log-frames-and-following.md)
@@ -103,7 +103,7 @@ an unwalked visual gate into a claim that the next dependency is complete.
 | [007: Optional Tool Correction And Retry](../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md) | Turn optional-tool failures into a direct Settings correction route and an explicit, freshly checked retry of the original action. | 006 | Complete - 2026-09-16; mechanical checks Green; V1–V3 and preservation accepted; narrow Library and ADR 0073 Show card-overflow follow-ups accepted with preservation and cleanup; no startup fixtures remain in the checked temporary directories |
 | [008: Converter Verification And Setup](../tasks/adr-0066-task-008-converter-verification-and-setup.md) | Let the operator configure and freshly test FLAC/ffmpeg availability without restarting the app, while preserving the actual conversion fallback policy. | 007 | Complete - 2026-09-17; mechanical checks Green; operator V1–V3, Settings/core-recovery presentation and preservation in both cases accepted; normal-mode restoration and fixture cleanup confirmed |
 | [009: Conversion Retry And Retained Input](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md) | Return from converter setup to the same track, reuse valid downloaded input where possible, and avoid duplicate library materialization. | 008 | Complete - 2026-09-17; mechanical checks Green; operator V1–V3, normal/narrow presentation, configuration restoration and preservation accepted; fixture cleanup confirmed |
-| [010: Database Check And Backup](../tasks/adr-0066-task-010-database-check-and-backup.md) | Offer database inspection and a verified SQLite backup from both Settings and core recovery, without requiring the normal app runtime. | 009 | Not started |
+| [010: Database Check And Backup](../tasks/adr-0066-task-010-database-check-and-backup.md) | Offer database inspection and a verified SQLite backup from both Settings and core recovery, without requiring the normal app runtime. | 009 | Complete - 2026-09-17; mechanical checks Green; V1–V3, Settings/recovery presentation, report copy, responsiveness and preservation in both cases accepted; normal-mode restoration and fixture cleanup confirmed |
 | [011: Database Maintenance And Preservation](../tasks/adr-0066-task-011-database-maintenance-and-preservation.md) | Obtain exclusive database maintenance access after draining the app, and preserve original database files without claiming an unverified copy is a backup. | 010 | Not started |
 | [012: Database Restore](../tasks/adr-0066-task-012-database-restore.md) | Restore an explicitly chosen validated backup through the shared maintenance path, preserve the current database, and reopen only after verification. | 011 | Not started |
 | [013: Interrupted Upgrade Repair](../tasks/adr-0066-task-013-interrupted-upgrade-repair.md) | Repair one recognized interrupted schema upgrade using the existing migration authority, then complete ADR 0066's implementation evidence. | 012 | Not started |
@@ -146,7 +146,8 @@ anyhow context. Do not migrate unrelated code just because a new module exists.
 No new durable application table or config key is planned. The rolled-back
 startup probe leaves no schema. Session issues/retry state are not durable logs.
 
-Task 010 enables the existing rusqlite version's backup feature. Task 012 installs
+Task 010 enables the existing rusqlite version's backup and hooks features,
+using the latter for bounded SQL cancellation. Task 012 installs
 through SQLite's backup API into a maintenance-only connection, retaining the
 configured database pathname/inode. No main-file or journal rename occurs beneath
 unknown handles. Task 011 must prove exclusive access with real competing SQLite
@@ -262,5 +263,5 @@ Task 008 is complete on 2026-09-17 with mechanical checks Green, operator V1–V
 Settings/core-recovery presentation, preservation in both cases and fixture
 cleanup accepted. Task 009 is complete on 2026-09-17 with mechanical checks
 Green; operator V1–V3, normal/narrow presentation, configuration restoration,
-preservation and fixture cleanup are accepted. Tasks 010–013 have not started.
+preservation and fixture cleanup are accepted. Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; tasks 011–013 have not started.
 The series remains partial.

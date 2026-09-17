@@ -1482,3 +1482,157 @@ python3 docs/runbooks/startup-recovery-fixture.py conversion-inspect "$conversio
 python3 docs/runbooks/startup-recovery-fixture.py cleanup "$conversion_fixture"
 test ! -e "$conversion_fixture" && echo "Fixture removed"
 ```
+
+## Task 010: Database Check And Backup
+
+Status: accepted on 2026-09-17; V1–V3, Settings/recovery presentation, report copy,
+responsiveness, preservation in both cases, normal-mode restoration and cleanup
+are confirmed. Retained as a regression procedure; mechanical results alone do
+not accept an operator check.
+
+Purpose: inspect and back up disposable databases from Settings and core recovery.
+Use a Linux desktop terminal, Python 3.11+ and this checkout's debug binary.
+No audio hardware, installed converter or real external service is needed. The
+fixture uses Null playback and failing service stubs. Its owned helper keeps a
+committed row in WAL and a separate database exclusively locked. Keep that
+helper running until the preservation inspection finishes.
+
+### V1 — Settings And A New Backup
+
+1. Create the fixture and open its normal app. Only the operator runs `run`.
+
+```bash
+cd /home/citizen/build/v4vmm
+cargo build --locked --offline --quiet --bin v4vmm
+fixture=$(python3 -B docs/runbooks/startup-recovery-fixture.py setup)
+python3 -B docs/runbooks/startup-recovery-fixture.py mode "$fixture" database-tools
+python3 -B docs/runbooks/startup-recovery-fixture.py run "$fixture"
+```
+
+2. Open **Settings → Diagnostics → Database tools**. Choose **Use configured
+   database**, then **Check database**. Expect the configured fixture library
+   path, separate Access/Integrity/Foreign keys/Schema results and recorded UTC.
+   The check must say it did not initialize, migrate or repair the source.
+   The read-only integrity result explains SQLite's CHECK-constraint limit;
+   backup validation includes those constraints on its private candidate.
+3. Enter the printed `normal_backup` path as **New backup file path**, then
+   choose **Back up database**. Expect a verified snapshot at that exact path,
+   with no foreign-key violations and a compatible schema. The explanation must
+   exclude music and broadcaster token files. Navigation must remain usable.
+4. Copy the database report and paste into a text editor. Confirm full paths,
+   separate results and actual UTC times. At normal and narrow window widths,
+   both path fields, actions and report remain reachable without overlapping.
+   A success message before completion, truncated copied paths or an unexplained
+   disabled control counts as wrong. Keep the app open for V2.
+
+### V2 — WAL, Read-Only Source And No Overwrite
+
+1. In a second terminal, recover the same fixture path and list its test paths.
+
+```bash
+cd /home/citizen/build/v4vmm
+fixture=$(python3 -B docs/runbooks/startup-recovery-fixture.py locate)
+python3 -B docs/runbooks/startup-recovery-fixture.py database-status "$fixture"
+```
+
+   Confirm `helper_running` and `exclusive_lock_blocks_reader` are both true.
+   A helper process alone does not prove the exclusive lock is held.
+
+2. In Database tools, enter the printed `wal` source and `wal_backup`
+   destination. Check the source, then back it up while the helper remains
+   running. Repeat with the `readonly` source and `readonly_backup` destination.
+   Both backups must complete. A request to end the normal app session or make
+   the read-only source writable is wrong.
+3. Select the printed `occupied_destination` and attempt another backup.
+   Expect refusal and a new-filename instruction, with no completed-backup
+   claim for this attempt. Repeat with the already completed `wal_backup` path;
+   it must also be refused. The earlier successful report may remain in history.
+4. Close the app, then inspect the sources and completed snapshots.
+
+```bash
+python3 -B docs/runbooks/startup-recovery-fixture.py database-inspect "$fixture"
+```
+
+Every database preservation flag must be true, including
+`committed_wal_row_in_backup`, `wal_bytes_preserved`, private backup permissions,
+unchanged source files and no incomplete candidates. Shared library, music,
+configuration and migration checks must also pass. The raw main database did
+not contain the WAL marker when the helper committed it, so the snapshot row is
+proof of WAL inclusion. Keep the fixture and helper for V3.
+
+### V3 — Core Recovery And Distinct Failures
+
+If an existing fixture reports `exclusive_lock_blocks_reader: false`, keep its
+original WAL helper running. In a second terminal, restore only the lock:
+
+```bash
+cd /home/citizen/build/v4vmm
+fixture=$(python3 -B docs/runbooks/startup-recovery-fixture.py locate)
+python3 -B docs/runbooks/startup-recovery-fixture.py database-lock "$fixture"
+```
+
+Wait for **Fixture database lock held** and leave that terminal running. The
+command checks the existing source hash, does not replace the baseline or
+restart the WAL helper, and holds an exclusive transaction without writing data.
+Normal fixture cleanup stops this additional helper. This correction is for
+helpers started before the task 010 checksum/lock-order fix; accepted checks
+need not be repeated. Recheck the locked source before timeout/cancellation.
+
+1. Switch only after closing the normal fixture window. The new configured
+   database has an invalid header; recovery must expose the same Database tools.
+
+```bash
+python3 -B docs/runbooks/startup-recovery-fixture.py mode "$fixture" database-recovery
+python3 -B docs/runbooks/startup-recovery-fixture.py run "$fixture"
+```
+
+2. Choose **Use configured database**, then **Check database**. Expect the
+   invalid-header path, a database-read failure and later checks marked as not
+   checked. No empty replacement library may open. Select the `readonly` source
+   manually and check it to establish that these tools work without the normal
+   database or app runtime. Back up that source to the new absolute path
+   `$fixture/database/recovery-backup.sqlite` (expand the fixture variable when
+   entering it). Expect a verified backup from this same recovery window.
+3. Use the paths printed by `database-status` to check these sources separately:
+
+| Source | Expected report |
+|---|---|
+| `integrity` | Database access succeeds; integrity reports a damaged freelist. Source stays unchanged. |
+| `foreign-key` | Integrity returns ok; foreign-key violations are reported separately. |
+| `newer` | Integrity returns ok; migration 999 needs a compatible app, without calling unfamiliar schema corrupt. |
+| `older` | A supported older ledger needs an explicit upgrade; Check does not apply one. |
+| `locked` | A bounded Busy/Locked access result names the source and suggests closing the conflicting writer and checking again. |
+
+4. For `locked`, use a new destination such as
+   `$fixture/database/locked-backup.sqlite` (enter the expanded absolute path,
+   not the shell variable). Choose **Back up database** and wait for its
+   one-minute limit. Resize and interact with recovery while it runs. Expect a
+   Busy/Locked failure, no completed snapshot and usable controls afterward.
+   Repeat and choose **Cancel** while it runs. Expect a cancellation request,
+   then a completion report; cancellation must not claim a verified backup.
+5. Check normal/narrow recovery presentation and copy/paste its report. The
+   selected source, failure, consequence and next action must remain readable;
+   controls and the report must remain reachable. Close recovery using **Quit**.
+   A nonzero app exit is expected because this case never resumed normal startup.
+
+### Preservation And Cleanup
+
+Inspect after closing the recovery window and before stopping the WAL helper.
+Do not clean up a failed inspection; retain it for diagnosis.
+
+```bash
+python3 -B docs/runbooks/startup-recovery-fixture.py database-inspect "$fixture"
+```
+
+Record V1–V3, normal/narrow presentation, report-copy results and all preservation
+flags in task 010. After they pass, restore normal configuration and remove only
+this fixture. Cleanup terminates its owned WAL/lock helper and removes its
+private databases, backups, configuration and stubs.
+
+```bash
+python3 -B docs/runbooks/startup-recovery-fixture.py mode "$fixture" normal
+python3 -B docs/runbooks/startup-recovery-fixture.py cleanup "$fixture"
+test ! -e "$fixture" && echo "Fixture removed"
+```
+
+Task 011 stays unstarted. These checks do not accept task 004 or inherited UI gates.
