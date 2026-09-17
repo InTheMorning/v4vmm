@@ -100,7 +100,8 @@ Current plans:
   V1–V3 and preservation accepted, and no remaining startup fixtures in the
   checked temporary directories; narrow Library and
   [Show card overflow](adr/0073-show-card-overflow-scrolling.md) follow-ups accepted,
-  including preservation and cleanup; tasks 008–013 not started
+  including preservation and cleanup; task 008 complete on 2026-09-17 with
+  operator acceptance, preservation and cleanup; tasks 009–013 not started
 - [Show narrow-layout proposal](plans/show-narrow-layout-proposal.md):
   compact cards, full-width logs and an overlap alternative, readable log-body
   allocation, and hiding the playback bar only when every typed action is
@@ -135,8 +136,12 @@ Current implementation packets:
 
 - [ADR 0063 task 005: Shared log frames and following](tasks/adr-0063-task-005-shared-log-frames-and-following.md):
   complete on 2026-09-13 with mechanical checks Green; [operator V1–V3 and editor follow-ups](runbooks/log-frame-check.md),
-  final preservation and fixture cleanup accepted; ADR 0066 task 007 implementation and its open gate are recorded in its packet
+  final preservation and fixture cleanup accepted; ADR 0066 task 007 is complete with acceptance recorded in its packet
 
+- [ADR 0066 task 008: Converter verification and setup](tasks/adr-0066-task-008-converter-verification-and-setup.md):
+  complete on 2026-09-17 with shared Settings/recovery setup and fresh bounded probes;
+  mechanical checks Green; [operator V1–V3 and presentation](runbooks/startup-recovery-check.md#task-008-converter-verification-and-setup),
+  preservation in both cases and fixture cleanup accepted
 - [ADR 0066 task 005: Session drain and resumption](tasks/adr-0066-task-005-session-drain-and-resumption.md):
   complete with mechanical checks Green, [operator V1–V3 and preservation](tasks/adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11)
   accepted, and fixture cleanup confirmed
@@ -169,7 +174,8 @@ Current reviews:
   and independent checks available while playback is deferred
 - [ADR 0066 startup recovery review checklist](reviews/adr-0066-startup-recovery-review-checklist.md):
   tasks 001–003 and 005–006 complete with operator evidence; task 004 mechanical proof
-  recorded with its remaining operator gate open; task 007 implementation has its own open operator gate; later coverage belongs to tasks 008–013
+  recorded with its remaining operator gate open; tasks 007–008 are complete,
+  including operator acceptance and cleanup; later coverage belongs to tasks 009–013
 - [Staged Show packets review](reviews/staged-show-packets-review-2026-09-09.md):
   review of the 2026-09-09 staged revisions and follow-up on the packet
   corrections

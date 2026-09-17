@@ -1184,3 +1184,169 @@ test ! -e "$retry_fixture"
 Cleanup stops only the owned loopback server and removes its fixture directory. Record V1–V3,
 preservation and cleanup separately; a backend fixture smoke check does not
 close this operator gate.
+
+
+## Task 008: Converter Verification And Setup
+
+Accepted - 2026-09-17. V1–V3, Settings/core-recovery presentation, preservation
+in both cases and fixture cleanup are accepted in the
+[task packet](../tasks/adr-0066-task-008-converter-verification-and-setup.md#final-operator-acceptance-and-cleanup--2026-09-17).
+This procedure remains a regression check for converter setup and version
+verification; track conversion retry belongs to task 009.
+Needs a Linux desktop, Python 3.11+,
+`/bin/sh`, `/bin/sleep`, and this checkout's debug binary. No audio hardware,
+installed FLAC/ffmpeg, external host, or failed system service is required.
+The fixture supplies executable stubs, Null playback and service stubs. Its
+invalid MusicIndex setting keeps unrelated configuration persistence paused.
+
+### V1 — Missing Tools Become Available In The Same App
+
+1. Create the isolated fixture and start it from a desktop terminal.
+
+```bash
+cargo build --quiet --bin v4vmm
+converter_fixture=$(python3 docs/runbooks/startup-recovery-fixture.py setup)
+python3 docs/runbooks/startup-recovery-fixture.py mode "$converter_fixture" converter-setup
+python3 docs/runbooks/startup-recovery-fixture.py verify "$converter_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py run "$converter_fixture"
+```
+
+2. Open Settings → Library → Converter setup. This routes to the shared
+   configuration editor with Converter setup selected. Leave the FLAC draft
+   blank and press **Test converters**. Both executables must be reported
+   missing on PATH, with recorded UTC times. Music and navigation stay usable.
+   The installation guidance must name distribution package tools without an
+   invented installation command. No Retry download control belongs here.
+
+3. In a second desktop terminal, recover the exact directory printed above.
+   `locate` returns the newest verified fixture; compare it with that directory
+   before continuing if other fixtures exist.
+
+```bash
+converter_fixture=$(python3 docs/runbooks/startup-recovery-fixture.py locate)
+python3 docs/runbooks/startup-recovery-fixture.py verify "$converter_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py converter-tools "$converter_fixture" working
+python3 docs/runbooks/startup-recovery-fixture.py converter-status "$converter_fixture"
+```
+
+4. Without closing the app, press **Test converters** again. Both checks must
+   succeed with exit 0 and fresh timestamps. The report identifies FLAC first
+   and ffmpeg fallback. Old observations remain readable in the repair report.
+   Copy the report and paste it into an editor; both executable sources and
+   recorded times must be present. A stale missing result is wrong.
+
+### V2 — Explicit Path And Guarded Save
+
+1. Keep the same app open. Make only ffmpeg available; the status command prints
+   a `missing_test_path` and a `configured_test_path` for the next steps.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py converter-tools "$converter_fixture" fallback
+python3 docs/runbooks/startup-recovery-fixture.py converter-status "$converter_fixture"
+```
+
+2. Enter the printed `missing_test_path` in the FLAC draft. Editing alone must
+   not add a probe record or change the saved file. Press **Test converters**:
+   FLAC must fail at the configured path and ffmpeg must succeed on PATH.
+   The report must describe the existing WAV download fallback, never claim
+   all WAV downloads failed. **Save correction** must name the preserved
+   original-file backup and must not add converter invocations to
+   `converter-status`. The source path displayed above the input is explicitly
+   the setting at editor load time; the result names the tested draft.
+
+3. Choose **Reload file (discard draft)**, then select **Converter setup** if
+   the editor selects the remaining MusicIndex issue. Enter the printed
+   `configured_test_path`. Make the executables available and press Test again:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py converter-tools "$converter_fixture" working
+```
+
+4. FLAC must now succeed at the new configured path. Save correction must
+   preserve the preceding configuration. The report must remain visible in
+   place. Reload, select Converter setup, clear the FLAC draft, and save once
+   more to restore the original unset path. Leave the unrelated MusicIndex
+   issue unchanged. Select Converter setup again after any reload before the
+   next test. Saving never downloads or converts a track.
+
+### V3 — Bounded Failures And Shared Recovery Access
+
+1. Keep the app open and switch the stubs to timeout mode. Press Test converters.
+   Each probe has a five-second limit, so both checks together take about ten
+   seconds. During the wait, navigate to another Settings group and back, resize,
+   and close/reopen the editor. Completion must leave a closed editor closed.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py converter-tools "$converter_fixture" timeout
+```
+
+2. The report must name each timed-out executable and process cleanup. Test
+   each remaining mode using the corresponding command below. Require distinct
+   exit-7, permission-denied and output-limit reports. The failed executable's
+   printed secret must not appear in the report, copied text or app stderr.
+   Inspect the report and controls at normal and narrow window widths: clipped
+   subject text, overlapping actions, or unreachable Test/Save controls are wrong.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py converter-tools "$converter_fixture" nonzero
+```
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py converter-tools "$converter_fixture" permission
+```
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py converter-tools "$converter_fixture" output-limit
+```
+
+3. Restore working stubs and press Test once more, then quit the app. Verify
+   original bytes/backups, restored unset FLAC path, unchanged other settings,
+   music/library/migrations, version-only invocations, reaped children and no
+   candidates/probes. All eight converter checks and the shared preservation
+   checks must pass. `config_bytes_unchanged` may be false after a guarded Save
+   when the original bytes are preserved in a backup; this alone is not a failure.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py converter-tools "$converter_fixture" working
+python3 docs/runbooks/startup-recovery-fixture.py converter-inspect "$converter_fixture"
+```
+
+4. Only after that preservation check passes, switch to core recovery. The
+   fixture's empty music setting prevents core startup. Open Configuration
+   repair → Edit configuration → Converter setup. Test once with both tools
+   missing, then change to working in the second terminal and Test again.
+   Both observed results must update in this recovery window without a normal
+   app session. Do not save or correct the deliberately broken core setting.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py mode "$converter_fixture" converter-recovery
+python3 docs/runbooks/startup-recovery-fixture.py run "$converter_fixture"
+```
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py converter-tools "$converter_fixture" working
+```
+
+### Preservation And Cleanup
+
+Quit recovery (its failure exit is expected while the core setting is invalid).
+Inspect before resetting or deleting anything. If either inspection fails,
+retain the fixture and report its output; do not reset its case or evidence.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py converter-inspect "$converter_fixture"
+```
+
+After preservation passes, restore the fixture configuration and executable
+search environment, then remove the fixture:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py mode "$converter_fixture" normal
+python3 docs/runbooks/startup-recovery-fixture.py cleanup "$converter_fixture"
+test ! -e "$converter_fixture"
+```
+
+The launcher changes PATH only for its child process; the desktop shell PATH
+and real configuration are never changed. Record V1, V2, V3, Settings/recovery
+presentation, preservation and cleanup separately. Mechanical checks do not
+accept these observations.

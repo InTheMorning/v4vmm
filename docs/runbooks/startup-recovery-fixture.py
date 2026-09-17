@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import signal
 import sqlite3
@@ -25,7 +26,9 @@ CASES = ("normal", "invalid-toml", "music-missing", "music-file", "db-locked", "
 OPTIONAL_CASES = CASES[-5:]
 REPAIR_CASES = ("repair-toml", "repair-paths", "repair-optional", "repair-unreadable", "repair-backup-failure", "repair-conflict")
 RETRY_CASES = ("retry-actions",)
-CASES += ("session-held-command",) + REPAIR_CASES + RETRY_CASES
+CONVERTER_CASES = ("converter-setup", "converter-recovery")
+CONVERTER_MODES = ("missing", "working", "fallback", "nonzero", "timeout", "permission", "output-limit")
+CASES += ("session-held-command",) + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES
 
 
 def digest(path):
@@ -59,6 +62,11 @@ def environment(root):
                XDG_DATA_HOME=str(root / "data"), XDG_CACHE_HOME=str(root / "cache"),
                PATH=str(root / "bin") + os.pathsep + os.defpath,
                V4VMM_STARTUP_FIXTURE=str(root))
+    case_file = root / "case.json"
+    if case_file.exists() and json.loads(case_file.read_text()).get("case") in CONVERTER_CASES:
+        # No installed converter can leak into the missing-tools case. Stub
+        # interpreters and sleep use absolute paths; cargo builds before this env.
+        env["PATH"] = str(root / "bin")
     # Keep XDG_RUNTIME_DIR/DISPLAY for the operator's desktop connection.
     return env
 
@@ -169,8 +177,11 @@ def hold_lock(root):
 
 def mode(root, case):
     previous = json.loads((root / "case.json").read_text())["case"]
-    if (case in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES or previous in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES or "session-held-command" in (case, previous)) and owned_process(root, "app.pid"):
+    if (case in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES or previous in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES or "session-held-command" in (case, previous)) and owned_process(root, "app.pid"):
         raise SystemExit("Close the fixture app before changing optional-tool or session cases.")
+    if previous in CONVERTER_CASES:
+        for name in ("flac", "ffmpeg"):
+            (root / "bin" / name).unlink(missing_ok=True)
     if previous in RETRY_CASES:
         stop_retry_server(root)
         saved_stub = root / "systemctl.before-retry"
@@ -189,7 +200,15 @@ def mode(root, case):
     cfg.chmod(0o600)
     (root / "repair.external").unlink(missing_ok=True)
     cfg.write_bytes((root / "config.baseline").read_bytes())
-    if case in RETRY_CASES:
+    if case in CONVERTER_CASES:
+        text = cfg.read_text().replace('musicindex_endpoint = "http://127.0.0.1:9"', 'musicindex_endpoint = 42')
+        if case == "converter-recovery":
+            text = text.replace(json.dumps(str(root / "music")), '""')
+        cfg.write_text(text)
+        (root / "converter-calls.jsonl").write_text("")
+        converter_tools(root, "missing")
+        purpose = "Open Converter setup in Settings or Configuration repair in core recovery. Test converters uses a stub-only PATH; converter-tools changes executable modes while the app remains open. No audio hardware or installed converter is needed."
+    elif case in RETRY_CASES:
         text = cfg.read_text().replace('musicindex_endpoint = "http://127.0.0.1:9"', 'musicindex_endpoint = 42\nflac_path = false')
         text = text.replace('driver = "null"', 'driver = false')
         text += '\n[broadcast]\nselected_host = "Local"\n[[broadcast.hosts]]\nname = "Local"\ntransport = "local"\ninstance_name = "default"\n[[broadcast.hosts]]\nname = "Alternate"\ntransport = "local"\ninstance_name = "alternate"\n'
@@ -479,6 +498,70 @@ def retry_inspect(root, manifest):
     inspect(root, manifest, correction_preserved=True)
 
 
+def converter_tools(root, tool_mode):
+    """Only fixture executables change; the running app keeps its PATH/config."""
+    for name in ("flac", "ffmpeg"):
+        tool = root / "bin" / name
+        tool.unlink(missing_ok=True)
+        if tool_mode == "missing" or (tool_mode == "fallback" and name == "flac"):
+            continue
+        behavior = "exit 0"
+        if tool_mode == "nonzero":
+            behavior = "printf 'fixture secret must not enter report' >&2\nexit 7"
+        elif tool_mode == "timeout":
+            behavior = "exec /bin/sleep 30"
+        elif tool_mode == "output-limit":
+            behavior = "while :; do printf '012345678901234567890123456789'; done"
+        # Python's absolute interpreter is used only to record arguments safely.
+        # exec sleep retains the shell PID; the probe must reap it after timeout.
+        log_code = "import json,os,sys;from datetime import datetime,timezone;open(sys.argv[1],'a').write(json.dumps({'tool':sys.argv[2],'arguments':sys.argv[3:],'pid':os.getppid(),'at':datetime.now(timezone.utc).isoformat()})+'\\n')"
+        record = " ".join(shlex.quote(part) for part in (sys.executable, "-c", log_code, str(root / "converter-calls.jsonl"), name))
+        version_arg = "--version" if name == "flac" else "-version"
+        tool.write_text(f'#!/bin/sh\n{record} "$@"\n[ "$#" = 1 ] && [ "$1" = {version_arg} ] || exit 91\n{behavior}\n')
+        tool.chmod(0o600 if tool_mode == "permission" else 0o700)
+    (root / "converter-mode").write_text(tool_mode)
+    print(f"Converter fixture mode: {tool_mode}. Press Test converters in the open app.")
+
+
+def converter_status(root):
+    calls = root / "converter-calls.jsonl"
+    records = [json.loads(line) for line in calls.read_text().splitlines()]
+    print(json.dumps({"mode": (root / "converter-mode").read_text(),
+                      "path": environment(root)["PATH"],
+                      "configured_test_path": str(root / "bin/flac"),
+                      "missing_test_path": str(root / "missing-flac"),
+                      "observations": records}, indent=2))
+    return records
+
+
+def converter_inspect(root, manifest):
+    if owned_process(root, "app.pid"):
+        raise SystemExit("Close the fixture app before converter-inspect.")
+    cfg = root / "config/v4vmm/config.toml"
+    expected = json.loads((root / "case.json").read_text())
+    backups = list(cfg.parent.glob(".v4vmm-config-*.backup"))
+    original_preserved = digest(cfg) == expected["config_sha256"] or any(digest(path) == expected["config_sha256"] for path in backups)
+    before = tomllib.loads((root / "case.config").read_text())
+    after = tomllib.loads(cfg.read_text())
+    path = after.pop("flac_path", None)
+    before.pop("flac_path", None)
+    records = converter_status(root)
+    checks = {
+        "original_preserved": original_preserved,
+        "unedited_values_preserved": not changed_config_paths(before, after),
+        "configured_path_restored": path is None,
+        "only_version_probes": all(record["arguments"] == (["--version"] if record["tool"] == "flac" else ["-version"]) for record in records),
+        "probe_children_reaped": all(not Path(f'/proc/{record["pid"]}').exists() for record in records),
+        "owner_only_backups": all(path.stat().st_mode & 0o777 == 0o600 for path in backups),
+        "no_candidates": not list(cfg.parent.glob(".v4vmm-config-*.candidate")),
+        "case_copy_matches_original": digest(root / "case.config") == expected["config_sha256"],
+    }
+    print(json.dumps(checks, indent=2))
+    if not all(checks.values()):
+        raise SystemExit("Converter fixture preservation failed. Keep this fixture.")
+    inspect(root, manifest, correction_preserved=True)
+
+
 def setup():
     binary = REPO / "target/debug/v4vmm"
     if not binary.is_file():
@@ -540,9 +623,9 @@ def run_app(root, manifest):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "session-status", "session-release", "repair-access", "repair-conflict", "repair-inspect", "retry-status", "retry-release", "retry-inspect", "retry-server"))
+    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "session-status", "session-release", "repair-access", "repair-conflict", "repair-inspect", "retry-status", "retry-release", "retry-inspect", "retry-server", "converter-tools", "converter-status", "converter-inspect"))
     parser.add_argument("directory", nargs="?")
-    parser.add_argument("case", nargs="?", choices=CASES)
+    parser.add_argument("case", nargs="?", choices=CASES + CONVERTER_MODES)
     args = parser.parse_args()
     if args.command == "setup":
         setup()
@@ -565,9 +648,20 @@ def main():
     if args.command in ("verify", "validate"):
         print(f"Fixture verified: {root}\nConfig: {root / 'config/v4vmm/config.toml'}\nDatabase: {root / 'data/library.sqlite'}\nMusic: {root / 'music'}\nBinary: {manifest['binary']}")
     elif args.command == "mode":
-        if not args.case:
+        if args.case not in CASES:
             parser.error("mode requires a case")
         mode(root, args.case)
+    elif args.command in ("converter-tools", "converter-status", "converter-inspect"):
+        if json.loads((root / "case.json").read_text())["case"] not in CONVERTER_CASES:
+            raise SystemExit("Select converter-setup or converter-recovery first.")
+        if args.command == "converter-tools":
+            if args.case not in CONVERTER_MODES:
+                parser.error("converter-tools requires a converter mode")
+            converter_tools(root, args.case)
+        elif args.command == "converter-status":
+            converter_status(root)
+        else:
+            converter_inspect(root, manifest)
     elif args.command == "session-status":
         report = root / "session-observations.jsonl"
         observations = [json.loads(line) for line in report.read_text().splitlines()] if report.exists() else []

@@ -58,7 +58,7 @@ impl SettingsContent {
             Self::Theme => "Theme",
             Self::Endpoint => "MusicIndex endpoint",
             Self::MusicDirectory => "Music directory",
-            Self::FlacPath => "flac binary (optional)",
+            Self::FlacPath => "Audio converter (optional)",
             Self::BackgroundReports => "Background tools",
             Self::CachedFiles => "Cached files",
             Self::SessionMaintenance => "App session",
@@ -71,7 +71,7 @@ impl SettingsContent {
             Self::Theme => "Applies immediately. Click Save to persist.",
             Self::Endpoint => "Use api.musicindex.org or a full http/https URL.",
             Self::MusicDirectory => "Current session folder. Use Configuration repair below to test and save a different existing folder after ending this session.",
-            Self::FlacPath => "Used to silently upgrade WAV downloads to FLAC. Leave blank to resolve flac via $PATH.",
+            Self::FlacPath => "Test FLAC and ffmpeg availability, edit the FLAC executable path, and save it with an original-file backup in Converter setup.",
             Self::BackgroundReports | Self::CachedFiles | Self::SessionMaintenance => "",
         }
     }
@@ -82,6 +82,7 @@ pub(crate) enum SettingsAction {
     Open,
     OpenReport,
     OpenRepair,
+    OpenConverter,
     SelectGroup(SettingsGroup),
     Save,
     UseDefaults,
@@ -93,6 +94,7 @@ pub(crate) enum SettingsAction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SettingsEffect {
     Navigate,
+    ConfigureConverter,
     Save,
     UseDefaults,
     SetScale(UiScale),
@@ -145,6 +147,7 @@ impl SettingsVm {
     pub(crate) fn dispatch(&mut self, action: SettingsAction) -> SettingsEffect {
         match action {
             SettingsAction::Open => SettingsEffect::Navigate,
+            SettingsAction::OpenConverter => SettingsEffect::ConfigureConverter,
             SettingsAction::OpenRepair => {
                 self.selected = SettingsGroup::Diagnostics;
                 self.repair_first = true;
@@ -187,6 +190,17 @@ impl SettingsVm {
                 selected: self.selected == group,
             })
             .collect()
+    }
+
+    pub(crate) fn converter_setup() -> Vec<SettingsActionDisplay> {
+        vec![SettingsActionDisplay {
+            action: SettingsAction::OpenConverter,
+            id: "settings-converter".into(),
+            label: super::startup::converter::TITLE.into(),
+            a11y_label: "Open Converter setup to edit and test the FLAC executable path".into(),
+            availability: StartupAvailability::Available,
+            selected: false,
+        }]
     }
 
     pub(crate) fn edit_actions(&self, correction_idle: bool) -> Vec<SettingsActionDisplay> {

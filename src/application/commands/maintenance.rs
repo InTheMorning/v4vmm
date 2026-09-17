@@ -19,6 +19,7 @@ pub(crate) enum CorrectionAccess {
 pub(crate) enum CorrectionOperation {
     Load,
     Validate,
+    TestConverter,
     Save,
 }
 
@@ -34,6 +35,7 @@ pub(crate) struct CorrectionCommand {
 pub(crate) enum CorrectionResult {
     Loaded(Arc<CorrectionSource>),
     Validated,
+    ConverterTested(crate::audio_format::probe::ConverterObservation),
     Saved(Box<CorrectionReceipt>),
     Failed(String),
 }
@@ -57,6 +59,12 @@ impl CorrectionCommand {
         let source = self.source.as_ref().ok_or_else(|| {
             anyhow::anyhow!("Reload the configuration before validating or saving.")
         })?;
+        if self.operation == CorrectionOperation::TestConverter {
+            let path = source.converter_path(&self.draft)?;
+            return Ok(CorrectionResult::ConverterTested(
+                crate::audio_format::probe::ConverterObservation::refresh(path.as_deref()),
+            ));
+        }
         let proposed = source.propose(&self.draft)?;
         if source.core_changed(&proposed) {
             if self.access != CorrectionAccess::CoreRecovery {

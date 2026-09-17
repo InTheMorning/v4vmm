@@ -129,6 +129,7 @@ impl ConfigurationEditor {
             CorrectionAction::Load
             | CorrectionAction::Reload
             | CorrectionAction::Validate
+            | CorrectionAction::TestConverter
             | CorrectionAction::Save => self.request(action, window, cx),
         }
         cx.notify();

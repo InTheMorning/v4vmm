@@ -32,7 +32,8 @@ When you need to look something up, consult this map first to find the right fil
 | MusicIndex HTTP client | `src/api.rs` |
 | RSS fetch + Podcasting 2.0 parse | `src/rss/` |
 | ID3v2.4 read/write, `AudioTags`, `Id3v24Edit`, `apply_id3v24_edits` | `src/audio_tags.rs` |
-| File-byte format detection, `AudioFormat` | `src/audio_format.rs` |
+| File-byte format detection, `AudioFormat`, existing FLAC/ffmpeg fallback | `src/audio_format.rs` |
+| Fresh bounded converter probes and shared setup reports | `src/audio_format/probe.rs`, `src/view_models/startup/converter.rs`, shared correction command/editor (ADR 0066 task 008) |
 | RSS vs ID3 vs MusicBrainz diff, `TrackContext` compare | `src/track_compare.rs` |
 | `TrackContext`, `TagCompareResult`, `ImageBytes` — no GPUI | `src/metadata.rs` |
 | Pure metadata derivation, `id3_edits_for_track_context` | `src/metadata_service.rs` |

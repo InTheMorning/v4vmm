@@ -62,7 +62,13 @@ directories. ADR 0073 is Implemented. The
 [operator procedure](docs/runbooks/startup-recovery-check.md#task-007-optional-tool-correction-and-retry)
 remains a regression check with isolated Index/service stubs and Null playback.
 Task 004 retains its remaining checks under the recorded scheduling exception.
-Tasks 008–013 have not started in the
+[Task 008: Converter verification and setup](docs/tasks/adr-0066-task-008-converter-verification-and-setup.md)
+is complete on 2026-09-17 with mechanical checks Green; operator V1–V3,
+Settings/core-recovery presentation and preservation in both fixture cases are
+accepted. Normal-mode restoration and fixture cleanup are confirmed. The
+[operator procedure](docs/runbooks/startup-recovery-check.md#task-008-converter-verification-and-setup)
+remains a regression check.
+Tasks 009–013 have not started in the
 [phase plan](docs/plans/adr-0066-startup-recovery-phase-plan.md).
 
 [ADR 0063 task 005](docs/tasks/adr-0063-task-005-shared-log-frames-and-following.md)
@@ -81,8 +87,8 @@ remain untested coverage limits. The packet owns double/triple-click selection
 and Linux primary paste across shared logs and inputs. The completed log packet
 stays closed. Its separate [operator procedure](docs/runbooks/text-selection-check.md)
 covers Unicode, paths, cross-application paste, Undo/Redo and accepted Escape.
-ADR 0066 task 007 is implemented with its operator gate open. Task 008 follows
-its acceptance in a fresh session.
+ADR 0066 tasks 007–008 are complete. Task 009 is next in that series and has
+not started; it requires a fresh session.
 
 [ADR 0068: Show cue and audition isolation](docs/adr/0068-show-cue-and-audition-isolation.md)
 is Proposed; its implementation has not started. Task 004's playback checks

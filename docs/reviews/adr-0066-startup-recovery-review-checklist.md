@@ -16,7 +16,10 @@ V1–V6 and preservation accepted, and fixture cleanup confirmed. Task 007 is
 complete on 2026-09-16 with mechanical checks Green; V1–V3 and Library/Show
 follow-ups are accepted, preservation passed and no startup fixtures remain in
 the checked temporary directories. The final reconciliation below corrects an
-unsupported extra gate inferred from a port-only log. Tasks 008–013 have not started.
+unsupported extra gate inferred from a port-only log. Task 008 is complete on
+2026-09-17 with mechanical checks Green; operator V1–V3, Settings/core-recovery
+presentation, preservation in both cases and fixture cleanup are accepted.
+Tasks 009–013 have not started.
 
 Read the [ADR](../adr/0066-configuration-and-startup-failure-recovery.md),
 [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md), active packet and
@@ -998,3 +1001,221 @@ withdrawn. Historical identity and helper invocation details remain unknown;
 no missing inspection is marked passed. The actual V1–V3 and follow-up acceptance
 requirements are met, and no startup fixtures remain in the checked locations.
 Task 007 is complete. Task 004's separate checks stay open; task 008 has not started.
+
+
+## Task 008 Review — 2026-09-16
+
+Scope: [converter verification and setup](../tasks/adr-0066-task-008-converter-verification-and-setup.md#implementation-and-proof).
+Green: formatting, cargo check, 1,423 unit tests, 254 architecture guards,
+production Clippy, normal desktop build and 18 fixture tests. Ten existing
+documentation examples are ignored. The packet records the socket-restricted
+attempt, transient executable-busy test observation and superseded guard
+correction. No app was launched.
+
+- C1/C2: actual subprocess tests establish same-process PATH refresh, configured
+  path changes, FLAC-first encoding and permitted ffmpeg fallback. They cover
+  missing, permission, exit, timeout/reaping and bounded-output outcomes.
+  The version checker keeps no raw process output. Typed executable/source,
+  exit facts and recorded UTC reach the VM's safe report.
+- C3: the existing correction command, draft/revision owner and independent
+  worker now admit TestConverter separately from Save. Tests prove no edit/Test
+  writes, no Save probes, backup bytes, unchanged invalid siblings, stale result
+  rejection, conflict preservation and fresh testing after Save. The existing
+  task 007 entry route focuses this shared Settings/core-recovery editor.
+- C4: `adr_0066_converter_checks_are_refreshable` is situational to ADR 0066.
+  `settings_form_inputs_fill_scaled_frame_width` retains the ADR 0069 endpoint
+  width proof and moves its replaced converter assertion to the shared editor
+  under ADR 0066. Existing correction, runtime, token and presentation guards
+  remain Green. No new configuration key or renderer-side process probe exists.
+- The bounded process helper is a live audio-format child module. VM wording
+  is a live startup child module. Library's converter entry uses the existing
+  correction route, with geometry and tokens in the shared maintenance form.
+  The narrow reused-WAV correction removes automatic PATH FLAC substitution;
+  its existing FLAC prerequisite remains. No staging/download materialization,
+  package automation, retained-track Retry or successor implementation was added.
+- Backend fixture smoke passed both cases, seven controlled modes, strict
+  preservation, PATH restoration and cleanup. The fixture permits no installed
+  PATH converter to leak into missing-tool observations. Its inspector rejects
+  non-version invocations, unreaped recorded children, unrelated settings and
+  an un-restored configured FLAC path. This is mechanical evidence only.
+- Implemented mechanism steps and the coding prompt were retired from task 008;
+  the packet names actual tests/guards and runbook anchors. ADR decisions remain
+  binding. Task 007 remains complete. Task 008's runnable V1–V3,
+  Settings/core-recovery presentation, operator preservation and cleanup were
+  held open for the operator walkthrough; final acceptance is recorded below.
+
+Result: mechanical gate Green. Operator acceptance and cleanup completed on
+2026-09-17, as recorded below. Task 009 has not started; no phase is chained into
+this session. Dated operator notes record intermediate states; the final
+acceptance closes their temporary pending gates.
+
+
+### Task 008 Operator Follow-Up — 2026-09-17
+
+Fixture `/tmp/v4vmm-startup-2qpie3af`: the supplied repair report records both
+PATH converters missing at 10:49:27 and 10:55:46 UTC, then succeeding with exit 0
+at 10:57:12 UTC after working stubs were enabled in the same app. Earlier results
+remain readable; fallback wording and supplied copy content are correct.
+The operator's subsequent "pass" confirms Settings responsiveness, visible
+installation guidance and the requested unchanged configuration/probe-log hashes
+after editing the explicit missing FLAC path without Test or Save.
+
+V1 is accepted; V2's edit-only check passes. V2's remaining Test/Save/changed-path
+checks, V3, remaining Settings/core-recovery presentation, preservation and
+cleanup stay open. The packet, delivery row, phase plan and pending index retain
+those gates. Task 009 has not started.
+
+
+### Task 008 V2 Explicit Path And Fallback — 2026-09-17
+
+The operator's supplied report records FLAC missing at the configured fixture
+path `/tmp/v4vmm-startup-2qpie3af/missing-flac` and PATH ffmpeg succeeding with
+exit 0, both at 11:02:45 UTC. The report preserves the existing WAV download
+fallback and rejects silent PATH FLAC substitution. This V2 Test passes.
+Guarded Save/backup/no-probe verification, changed-path Test/Save and restoration
+remain open, along with V3, remaining presentation, preservation and cleanup.
+
+
+### Task 008 V2 Guarded Save — 2026-09-17
+
+The operator supplied the Save report recorded at 11:05:06 UTC and matching
+before/after hashes. The fixture's `.v4vmm-config-237986-0.backup` matches the
+configuration before Save, and the converter invocation log is unchanged.
+The packet records both full SHA-256 values. Save reports no operation retry,
+and the unrelated invalid MusicIndex setting and persistence pause remain.
+This accepts V2's original-byte backup and no-probe Save checks. Changed-path
+Test/Save and restoration, V3, remaining presentation and final fixture
+preservation/cleanup remain open.
+
+
+### Task 008 V2 Changed Configured Path — 2026-09-17
+
+The operator's supplied report records reload at 11:22:12 UTC and successful
+FLAC/ffmpeg checks at 11:22:55 UTC. FLAC uses the new configured executable
+`/tmp/v4vmm-startup-2qpie3af/bin/flac`; ffmpeg uses PATH. Both exited with code 0,
+with the earlier missing-path report retained. The changed-path Test passes.
+Saving/reloading the working path, its preceding-revision backup and restoration
+remain open, followed by V3, remaining presentation and preservation/cleanup.
+
+
+### Task 008 V2 Working Path Save/Reload — 2026-09-17
+
+The supplied repair report records Save at 11:24:50 UTC with backup
+`.v4vmm-config-237986-2.backup` in the same fixture, then reload at 11:25:06 UTC.
+The operator's "pass" confirms the requested preceding-configuration/backup hash
+match, retention of the earlier backup and display of the saved working FLAC
+path after Reload. Changed-path Save/reload and preceding-revision preservation
+pass. Unset-path restoration remains the final V2 step; V3, remaining
+presentation and final fixture preservation/cleanup stay open.
+
+
+### Task 008 V2 Restoration And Acceptance — 2026-09-17
+
+The operator's "pass" confirms clearing and saving the FLAC path, reloading,
+and seeing both the blank field and the unset/PATH description while leaving
+the unrelated MusicIndex setting unchanged. Unset-path restoration passes;
+V1–V2 are accepted. V3, remaining Settings/core-recovery presentation and final
+preservation/cleanup remain open. Continue in the same fixture for bounded
+failure checks. Task 009 has not started.
+
+
+### Task 008 V3 Timeout Report — 2026-09-17
+
+The supplied report records the unset-path restoration Save/reload at
+11:28:08/11:28:12 UTC, preserving `.v4vmm-config-237986-4.backup`. It then names
+PATH FLAC and ffmpeg timeout results at 11:31:15 and 11:31:20 UTC respectively,
+with a five-second limit and termination/reaping explanation. Timeout reporting
+and the supplied copy pass. Timeout interaction confirmation followed with the
+exit-7 check below. Child cleanup awaits fixture inspection.
+
+### Task 008 V3 Exit-7 Report And Interaction Confirmation — 2026-09-17
+
+The supplied report records PATH FLAC and ffmpeg version checks failing with
+exit 7 at 13:16:21 UTC. The scoped WAV warning and version-only explanation
+remain accurate, and the copy retains earlier observations without fixture
+process output. The operator confirmed timeout navigation/resize responsiveness
+and completion with the editor closed until manually reopened. The operator
+also confirmed the fixture sentinel was absent from the app report, copied
+report and terminal running the app. Those checks pass.
+
+Permission/output-limit cases, remaining Settings/core-recovery presentation,
+working-mode recovery and preservation/cleanup remain open. Task 009 has not
+started.
+
+### Task 008 V3 Permission-Denied Report — 2026-09-17
+
+The supplied report records permission to execute denied for PATH FLAC and
+ffmpeg at 13:22:50 UTC, distinct from the earlier missing-executable, timeout
+and exit-7 results. The scoped WAV warning and version-only explanation remain
+accurate. Permission-denied reporting passes. The output-limit case, remaining
+Settings/core-recovery presentation, working-mode recovery and
+preservation/cleanup remain open.
+
+### Task 008 V3 Output Limit And Settings Presentation — 2026-09-17
+
+The operator reported pass for both converters reaching the 16 KiB output limit,
+reporting process cleanup and finishing without hanging. The operator also
+accepted normal/narrow Settings presentation: readable report text, no action
+overlap and reachable Test/Save controls. No separate observation timestamp
+was supplied. Working-mode recovery after the failures, core-recovery
+access/presentation, preservation inspection in both cases and fixture cleanup
+remain open. Task 009 has not started.
+
+### Task 008 Converter-Setup Preservation — 2026-09-17
+
+The operator supplied the closed-app inspection for
+`/tmp/v4vmm-startup-2qpie3af`. All eight converter checks passed, including
+preserved original bytes and unedited values, restored unset FLAC path,
+version-only invocations, reaped children, owner-only backups, no candidates
+and an intact original case copy. Shared checks also passed for configuration,
+music, migration versions 1–11, the one-playlist/three-track library, unchanged
+bindings and absence of music/database probes. Changed configuration bytes are
+consistent with the accepted guarded Saves; preservation passed separately.
+
+Converter-setup preservation is accepted. Working-mode version invocations
+were recorded at 13:28:37 UTC, but this output does not record their exit
+results. Final success-report confirmation, core-recovery access/presentation,
+core-recovery preservation and fixture cleanup remain open.
+
+### Task 008 Core-Recovery Access And Missing Converters — 2026-09-17
+
+The supplied recovery report records configuration loading at 13:33:09 UTC,
+with the deliberate empty `music_dir` and invalid `musicindex_endpoint` issues.
+Both PATH converters report not found at 13:33:43 UTC, with the scoped WAV
+warning and version-only explanation. Core-recovery access and missing-converter
+reporting pass. Fresh working results in that same recovery window,
+normal/narrow recovery presentation, core-recovery preservation and fixture
+cleanup remain open. Final converter-setup working-result confirmation also
+remains pending.
+
+### Task 008 Fresh Working Results In Core Recovery — 2026-09-17
+
+The supplied recovery report retains earlier missing-converter observations
+and records both PATH FLAC and ffmpeg version checks succeeding with exit 0 at
+13:35:03 UTC. FLAC-first guidance, the existing ffmpeg fallback and the
+version-only explanation are accurate. Fresh working results in the same
+recovery window pass. Normal/narrow recovery presentation, core-recovery
+preservation, fixture cleanup and final converter-setup working-result
+confirmation remain open.
+
+### Task 008 Core-Recovery Preservation — 2026-09-17
+
+The operator supplied the closed-app `converter-recovery` inspection for
+`/tmp/v4vmm-startup-2qpie3af`. All eight converter checks passed. Shared checks
+confirm unchanged configuration bytes, preserved music and migration versions
+1–11, unchanged one-playlist/three-track library and bindings, and no residual
+music or database probes. Recorded converter children were reaped. Preservation
+is accepted in both fixture cases. Final converter-setup success-report and
+normal/narrow recovery presentation confirmations, and fixture cleanup remain
+open. Task 009 has not started.
+
+### Task 008 Final Acceptance And Cleanup — 2026-09-17
+
+The operator supplied normal-mode restoration and removal output for
+`/tmp/v4vmm-startup-2qpie3af`, then reported "all passed" for fixture removal,
+normal/narrow recovery presentation and the final Settings Test showing exit 0
+for both converters after the failure cases. This completes V3's remaining
+confirmations and cleanup. V1–V3, Settings/core-recovery presentation and
+preservation in both cases are accepted. Task 008 is complete; no acceptance
+checks remain for this packet. Task 004 and inherited gates remain separate.
+Task 009 has not started and requires a fresh session.

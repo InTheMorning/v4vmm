@@ -17,12 +17,15 @@ in the checked temporary directories. The narrow Library and ADR 0073 Show
 overflow follow-ups are accepted, including preservation and cleanup. ADR 0073
 is Implemented. The task's evidence reconciliation withdraws an unsupported
 extra gate inferred from a port-only request log.
-Tasks 008–013 have not started in
+Task 008 is complete on 2026-09-17 with operator V1–V3, Settings/core-recovery
+presentation, preservation and fixture cleanup accepted; tasks 009–013 have not started in
 the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md).
 Amended 2026-09-11: scoped optional-tool isolation and managed session draining
 and resumption, plus shared guarded configuration correction, are implemented.
 Optional-tool reinitialization/retry is implemented by task 007 on 2026-09-15,
-with operator acceptance complete on 2026-09-16. Converter and database maintenance packets remain pending.
+with operator acceptance complete on 2026-09-16. Converter setup is complete in
+task 008 with operator acceptance and cleanup on 2026-09-17. Conversion retry
+and database maintenance remain pending.
 
 Amended 2026-09-13: [ADR 0063's shared log frame](0063-show-dashboard-layout.md#shared-log-frames-and-following)
 owns recovery and Settings report typography, scrolling and following. The
@@ -251,9 +254,9 @@ supports ffmpeg fallback, and [`track_compare`](../../src/track_compare.rs) can
 record a conversion warning rather than fail the whole
 download. The report must reflect the actual outcome; it must not claim that
 every WAV download needs FLAC or that an existing usable fallback failed.
-`flac_cli_available` and `ffmpeg_cli_available` cache PATH results with
-`OnceLock`. Explicit verification/retry must make a fresh probe and refresh
-dependent availability instead of reusing a cached negative result.
+Explicit verification/retry makes a fresh probe and refreshes dependent
+availability. Task 008’s `adr_0066_converter_checks_are_refreshable` guard and
+process tests enforce this through the audio-format observation owner.
 
 Use the same correction-and-retry pattern for service configuration and
 connection errors. Existing service check/start actions remain available where
@@ -556,7 +559,16 @@ Task 007 adds `adr_0066_repair_routes_preserve_action_subject` and
 for invariant 9. Its [proof inventory](../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md#implementation-and-proof)
 covers immutable subjects, fresh explicit Retry, scoped setup and shared entry
 points. Mechanical checks are Green; operator V1–V3, preservation and fixture
-cleanup remain open. Tasks 008–013 have not started.
+cleanup are accepted for task 007. Task 008 is complete with mechanical checks
+Green and operator acceptance/cleanup on 2026-09-17. Tasks 009–013 have not started.
+
+Task 008 adds `adr_0066_converter_checks_are_refreshable`, a situational guard
+for invariants 2, 7 and 9. Its [proof inventory](../tasks/adr-0066-task-008-converter-verification-and-setup.md#implementation-and-proof)
+links fresh PATH/configured probes, bounded child execution, actual fallback,
+recorded safe reports and guarded correction. Its [operator check](../runbooks/startup-recovery-check.md#task-008-converter-verification-and-setup)
+is accepted on 2026-09-17, including V1–V3, Settings/core-recovery presentation,
+preservation in both cases and fixture cleanup. Mechanical checks are Green;
+the procedure remains a regression check.
 
 Task 003's operator-reported search-error clipping correction is guarded by
 `adr_0066_search_failure_report_stays_readable_and_vm_owned`. The packet's

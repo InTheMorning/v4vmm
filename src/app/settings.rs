@@ -30,6 +30,13 @@ impl TopApp {
         match self.settings.dispatch(action) {
             // Group buttons stay mounted and retain their own keyboard/mouse focus.
             SettingsEffect::Navigate => {}
+            SettingsEffect::ConfigureConverter => self.capability_action(
+                crate::view_models::startup::capabilities::CapabilityAction::Configure(
+                    crate::application::capability::Dependency::Converter,
+                ),
+                window,
+                cx,
+            ),
             SettingsEffect::Save => self.save_settings(window, cx),
             SettingsEffect::UseDefaults => self.use_default_settings(window, cx),
             SettingsEffect::SetScale(scale) => self.set_ui_scale(scale, window, cx),
@@ -149,7 +156,9 @@ pub(super) fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> Any
             SettingsContent::MusicDirectory => {
                 settings_message(app.music_dir.display().to_string(), cx)
             }
-            SettingsContent::FlacPath => settings_text_input(&app.flac_path_input, cx),
+            SettingsContent::FlacPath => {
+                settings_actions(SettingsVm::converter_setup(), &callback, cx)
+            }
             SettingsContent::BackgroundReports => {
                 content.extend(app.render_capabilities(true, cx));
                 continue;

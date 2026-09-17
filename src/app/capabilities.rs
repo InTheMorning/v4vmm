@@ -65,7 +65,7 @@ impl TopApp {
         )
     }
 
-    fn capability_action(
+    pub(super) fn capability_action(
         &mut self,
         action: CapabilityAction,
         window: &mut Window,

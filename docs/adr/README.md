@@ -30,7 +30,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0052](0052-library-index-data-parity-triage.md) | Triage of Library versus Index detail gaps | Implemented |
 | [0053](0053-local-detail-source-fact-parity.md) | Source-fact route for parity gaps not locally durable | Accepted |
 | [0054](0054-local-metadata-source-fact-persistence.md) | Feed and track metadata facts persist by source; hydration visual checks remain open | Accepted, partial |
-| [0066](0066-configuration-and-startup-failure-recovery.md) | Core startup requirements; in-app repair and optional-tool retry; [001–003 and 005–007 complete; 004 implemented, operator gate open; 008–013 not started](../plans/adr-0066-startup-recovery-phase-plan.md) | Accepted |
+| [0066](0066-configuration-and-startup-failure-recovery.md) | Core startup requirements; in-app repair and optional-tool retry; [001–003 and 005–008 complete; 004 implemented, operator gate open; 009–013 not started](../plans/adr-0066-startup-recovery-phase-plan.md) | Accepted |
 
 ## Metadata
 

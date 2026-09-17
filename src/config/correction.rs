@@ -190,6 +190,12 @@ impl CorrectionSource {
         self.validate_bytes(draft, bytes)
     }
 
+    /// Extract only converter settings; a version test does not require usable core resources.
+    pub(crate) fn converter_path(&self, draft: &CorrectionDraft) -> Result<Option<PathBuf>> {
+        let snapshot = ConfigSnapshot::from_bytes(&self.path, self.proposed_bytes(draft)?)?;
+        snapshot.flac_path.map_err(|issue| anyhow!("{issue}"))
+    }
+
     fn proposed_bytes(&self, draft: &CorrectionDraft) -> Result<Vec<u8>> {
         let bytes = if let Some(raw) = &draft.raw {
             raw.as_bytes().to_vec()

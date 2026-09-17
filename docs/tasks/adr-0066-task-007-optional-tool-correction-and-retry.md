@@ -7,7 +7,8 @@ and cleanup. V2/V3 fixture cleanup is confirmed. A read-only inventory found no
 remaining startup fixture directories in `/tmp` or `/var/tmp`, including the
 known first V1 path. The earlier port-only log does not establish a separate
 fixture or acceptance gate; see the evidence reconciliation below. ADR 0073 is
-Implemented. Task 004 retains its separate gate. Task 008 has not started.
+Implemented. Task 004 retains its separate gate. Successor status is tracked in
+the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md).
 
 ## Goal And Scope
 

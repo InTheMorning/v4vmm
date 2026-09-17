@@ -304,5 +304,83 @@ class RetryPreservationTests(unittest.TestCase):
         self.assertEqual((self.root / "systemctl.before-retry").read_text(), original)
 
 
+class ConverterFixtureTests(unittest.TestCase):
+    """Situational ADR 0066: controlled tools and strict preservation evidence."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix="v4vmm-converter-test-")
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        (self.root / "bin").mkdir()
+        self.config = self.root / "config/v4vmm/config.toml"
+        self.config.parent.mkdir(parents=True)
+        self.original = 'music_dir = "/music"\ndb_path = "/library.sqlite"\nmusicindex_endpoint = 42\n'
+        self.config.write_text(self.original)
+        (self.root / "case.config").write_text(self.original)
+        (self.root / "case.json").write_text(json.dumps({"case": "converter-setup", "config_sha256": fixture.digest(self.config)}))
+        (self.root / "converter-calls.jsonl").write_text("")
+
+    def tools(self, mode):
+        with contextlib.redirect_stdout(io.StringIO()):
+            fixture.converter_tools(self.root, mode)
+
+    def test_adr_0066_converter_path_is_isolated_and_modes_change_without_config_edits(self):
+        outer_path = fixture.os.environ.get("PATH")
+        env = fixture.environment(self.root)
+        self.assertEqual(env["PATH"], str(self.root / "bin"))
+        self.tools("missing")
+        with self.assertRaises(FileNotFoundError):
+            subprocess.run(["flac", "--version"], env=env, check=True)
+        self.tools("working")
+        for name, arg in [("flac", "--version"), ("ffmpeg", "-version")]:
+            self.assertEqual(subprocess.run([name, arg], env=env, capture_output=True, timeout=5).returncode, 0)
+        self.tools("fallback")
+        self.assertFalse((self.root / "bin/flac").exists())
+        self.assertEqual(subprocess.run(["ffmpeg", "-version"], env=env, capture_output=True, timeout=5).returncode, 0)
+        self.tools("nonzero")
+        self.assertEqual(subprocess.run(["flac", "--version"], env=env, capture_output=True, timeout=5).returncode, 7)
+        self.tools("permission")
+        with self.assertRaises(PermissionError):
+            subprocess.run(["flac", "--version"], env=env, check=True)
+        self.tools("timeout")
+        child = subprocess.Popen(["flac", "--version"], env=env)
+        try:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                child.wait(timeout=0.2)
+        finally:
+            child.kill()
+            child.wait()
+        self.assertEqual(self.config.read_text(), self.original)
+        self.assertEqual(fixture.os.environ.get("PATH"), outer_path)
+
+    def inspect(self, accepted):
+        with contextlib.redirect_stdout(io.StringIO()), patch.object(fixture, "inspect") as library:
+            if accepted:
+                fixture.converter_inspect(self.root, {})
+                library.assert_called_once()
+            else:
+                with self.assertRaisesRegex(SystemExit, "Converter fixture preservation failed"):
+                    fixture.converter_inspect(self.root, {})
+                library.assert_not_called()
+
+    def test_adr_0066_converter_inspection_requires_restoration_and_preserved_values(self):
+        self.tools("missing")
+        self.inspect(True)
+        backup = self.config.parent / ".v4vmm-config-original.backup"
+        backup.write_text(self.original)
+        backup.chmod(0o600)
+        self.config.write_text(self.original + 'flac_path = "/fixture/flac"\n')
+        self.inspect(False)
+        self.config.write_text(self.original.replace("endpoint = 42", "endpoint = 42.0"))
+        self.inspect(False)
+        self.config.write_text(self.original)
+        (self.root / "converter-calls.jsonl").write_text(json.dumps({"tool": "flac", "arguments": ["track.wav"], "pid": 999999999}) + "\n")
+        self.inspect(False)
+        (self.root / "converter-calls.jsonl").write_text("")
+        self.inspect(True)
+        backup.chmod(0o644)
+        self.inspect(False)
+
+
 if __name__ == "__main__":
     unittest.main()

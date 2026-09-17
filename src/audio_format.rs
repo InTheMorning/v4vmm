@@ -1,8 +1,11 @@
+//! Audio detection (ADR 0004) and converter verification/fallback (ADR 0066).
+
+pub(crate) mod probe;
+
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::process::Command;
-use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
 
@@ -128,24 +131,9 @@ fn flac_binary(override_path: Option<&Path>) -> std::ffi::OsString {
         .unwrap_or_else(|| std::ffi::OsString::from("flac"))
 }
 
-/// Returns true if the `flac` CLI is reachable. When `override_path` is
-/// `None`, the PATH lookup result is cached after the first probe.
+/// Freshly checks the selected FLAC executable with bounded process execution.
 pub fn flac_cli_available(override_path: Option<&Path>) -> bool {
-    if let Some(path) = override_path {
-        return Command::new(path)
-            .arg("--version")
-            .output()
-            .map(|out| out.status.success())
-            .unwrap_or(false);
-    }
-    static PROBE: OnceLock<bool> = OnceLock::new();
-    *PROBE.get_or_init(|| {
-        Command::new("flac")
-            .arg("--version")
-            .output()
-            .map(|out| out.status.success())
-            .unwrap_or(false)
-    })
+    probe::ConverterProbe::flac(override_path).available()
 }
 
 /// Re-encode a WAV file to FLAC in place. Tries the `flac` CLI first (reference
@@ -157,14 +145,20 @@ pub fn transcode_wav_to_flac(
     wav_path: &Path,
     binary_override: Option<&Path>,
 ) -> Result<std::path::PathBuf> {
-    if !flac_cli_available(binary_override) && !ffmpeg_cli_available() {
-        anyhow::bail!("neither `flac` nor `ffmpeg` CLI is available");
-    }
+    transcode_observed(
+        wav_path,
+        &probe::ConverterObservation::refresh(binary_override),
+    )
+}
 
+fn transcode_observed(
+    wav_path: &Path,
+    observation: &probe::ConverterObservation,
+) -> Result<std::path::PathBuf> {
     let flac_path = wav_path.with_extension("flac");
 
-    let flac_err = if flac_cli_available(binary_override) {
-        match run_flac_encode(wav_path, &flac_path, binary_override) {
+    let flac_err = if observation.flac.available() {
+        match run_flac_encode(wav_path, &flac_path, Some(&observation.flac.executable)) {
             Ok(()) => {
                 let _ = std::fs::remove_file(wav_path);
                 return Ok(flac_path);
@@ -175,8 +169,8 @@ pub fn transcode_wav_to_flac(
         None
     };
 
-    if ffmpeg_cli_available() {
-        match run_ffmpeg_encode(wav_path, &flac_path) {
+    if observation.ffmpeg.available() {
+        match run_ffmpeg_encode(wav_path, &flac_path, &observation.ffmpeg.executable) {
             Ok(()) => {
                 let _ = std::fs::remove_file(wav_path);
                 return Ok(flac_path);
@@ -192,7 +186,11 @@ pub fn transcode_wav_to_flac(
 
     match flac_err {
         Some(err) => Err(err),
-        None => anyhow::bail!("no transcoder available"),
+        None => anyhow::bail!(
+            "No converter passed its version check: FLAC {} ({:?}, {:?}); ffmpeg {} ({:?}). WAV input retained.",
+            observation.flac.executable.display(), observation.flac.source, observation.flac.outcome,
+            observation.ffmpeg.executable.display(), observation.ffmpeg.outcome
+        ),
     }
 }
 
@@ -223,19 +221,8 @@ fn run_flac_encode(
     Ok(())
 }
 
-fn ffmpeg_cli_available() -> bool {
-    static PROBE: OnceLock<bool> = OnceLock::new();
-    *PROBE.get_or_init(|| {
-        Command::new("ffmpeg")
-            .arg("-version")
-            .output()
-            .map(|out| out.status.success())
-            .unwrap_or(false)
-    })
-}
-
-fn run_ffmpeg_encode(wav_path: &Path, flac_path: &Path) -> Result<()> {
-    let output = Command::new("ffmpeg")
+fn run_ffmpeg_encode(wav_path: &Path, flac_path: &Path, binary: &Path) -> Result<()> {
+    let output = Command::new(binary)
         .arg("-y")
         .arg("-hide_banner")
         .arg("-loglevel")

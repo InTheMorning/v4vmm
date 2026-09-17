@@ -5464,9 +5464,27 @@ fn settings_form_inputs_fill_scaled_frame_width() {
             "shared Settings form contract missing {required}"
         );
     }
-    // ADR 0066 task 006 routes core paths through the shared maintenance editor.
-    for field in ["endpoint_input", "flac_path_input"] {
-        assert!(screen.contains(&format!("settings_text_input(&app.{field}, cx)")));
+    assert!(screen.contains("settings_text_input(&app.endpoint_input, cx)"));
+    // ADR 0066 tasks 006/008 route core/converter paths through the shared
+    // maintenance editor. Preserve width/scale proof at that active owner.
+    assert!(screen.contains("settings_actions(SettingsVm::converter_setup(), &callback, cx)"));
+    let maintenance = read_source(&manifest_path("src/ui/composites/maintenance_forms.rs"));
+    let input = source_between(
+        &maintenance,
+        "fn configuration_input_frame(",
+        "fn correction_button(",
+    );
+    for required in [
+        ".input_text_size(",
+        ".inset_0()",
+        ".w_auto()",
+        ".min_w_0()",
+        "gpui::AlignItems::Stretch",
+    ] {
+        assert!(
+            input.contains(required),
+            "ADR 0066 shared editor width/scale: {required}"
+        );
     }
     assert!(screen.contains("settings_message(app.music_dir.display().to_string(), cx)"));
     assert!(!form.contains("SETTINGS_COLUMN_WIDTH") && !form.contains("settings_column_width"));
@@ -17487,5 +17505,83 @@ fn adr_0060_search_uses_music_section_navigation() {
     assert!(
         !open.contains("self.tab ="),
         "Use the shared section transition, including history and focus"
+    );
+}
+
+/// Situational ADR 0066: converter repair owns fresh bounded probes outside UI code.
+#[test]
+fn adr_0066_converter_checks_are_refreshable() {
+    let audio = read_source(&manifest_path("src/audio_format.rs"));
+    let probe = read_source(&manifest_path("src/audio_format/probe.rs"));
+    let commands = read_source(&manifest_path("src/application/commands/maintenance.rs"));
+    let vm = read_source(&manifest_path("src/view_models/startup/correction.rs"));
+    let report = read_source(&manifest_path("src/view_models/startup/converter.rs"));
+    let presenter = read_source(&manifest_path("src/presentation/configuration_editor.rs"));
+    let form = read_source(&manifest_path("src/ui/composites/maintenance_forms.rs"));
+    for source in [&audio, &probe] {
+        assert!(!source.contains("OnceLock") && !source.contains("LazyLock"));
+    }
+    for requirement in [
+        "Duration::from_secs(5)",
+        "CONVERTER_PROBE_OUTPUT_CAP",
+        "reader.set_nonblocking(true)",
+        "child.kill()",
+        "child.wait()",
+        "child.try_wait()",
+        "recorded_at: chrono::Utc::now()",
+    ] {
+        assert!(
+            probe.contains(requirement),
+            "ADR 0066 bounded observation: {requirement}"
+        );
+    }
+    assert!(audio.contains("ConverterObservation::refresh(binary_override)"));
+    assert!(audio.contains("if observation.flac.available()"));
+    assert!(audio.contains("if observation.ffmpeg.available()"));
+    assert!(audio.contains("&observation.ffmpeg.executable"));
+    assert!(commands.contains("CorrectionOperation::TestConverter"));
+    assert!(commands.contains("ConverterObservation::refresh(path.as_deref())"));
+    assert!(commands.contains("source.converter_path(&self.draft)"));
+    assert!(commands.contains(".save(&proposed)"));
+    assert!(vm.contains("CorrectionAction::TestConverter"));
+    assert!(vm.contains("generation != self.generation"));
+    assert!(report.contains("probe.recorded_at.format("));
+    assert!(presenter.contains("worker.submit(move || command.execute())"));
+    assert!(form.contains("vm.action(CorrectionAction::TestConverter)"));
+    assert!(form.contains("converter::INSTALLATION"));
+    for path in [
+        "src/app.rs",
+        "src/app/settings.rs",
+        "src/app/startup.rs",
+        "src/presentation/configuration_editor.rs",
+        "src/ui/composites/maintenance_forms.rs",
+        "src/view_models/startup/correction.rs",
+        "src/view_models/startup/converter.rs",
+    ] {
+        let source = read_source(&manifest_path(path));
+        let source = source.split("#[cfg(test)]").next().unwrap();
+        for forbidden in [
+            "Command::",
+            "ConverterObservation::refresh(",
+            "ConverterProbe::flac(",
+            "ConverterProbe::ffmpeg(",
+            "flac_cli_available(",
+            "transcode_wav_to_flac(",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "ADR 0066: {path} must not execute {forbidden}"
+            );
+        }
+    }
+    let tracks = read_source(&manifest_path("src/track_compare.rs"));
+    let reuse = source_between(
+        &tracks,
+        "pub fn ensure_taggable_local_path(",
+        "pub fn download_track(",
+    );
+    assert!(
+        !reuse.contains("flac_cli_available(None)"),
+        "ADR 0066: preserve an explicit executable choice"
     );
 }

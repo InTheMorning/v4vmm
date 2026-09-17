@@ -144,7 +144,7 @@ pub fn local_track_path(cfg: &DownloadConfig, track: &Track, extension: &str) ->
 }
 
 /// If `path` is a WAV file and the `flac` CLI is reachable (configured
-/// override first, then `$PATH`), re-encode it in place and return the new
+/// executable, or `$PATH` when unset), re-encode it in place and return the new
 /// FLAC path. Otherwise return `path` unchanged. Used by subscribe flows
 /// that reuse a pre-existing local file so tag writes land on a taggable
 /// container.
@@ -157,21 +157,15 @@ pub fn ensure_taggable_local_path(cfg: &DownloadConfig, path: &Path) -> PathBuf 
         return path.to_path_buf();
     };
     let flac_override = flac_path.as_deref();
-    let resolved_override = if flac_override
-        .is_some_and(|p| crate::audio_format::flac_cli_available(Some(p)))
-    {
-        flac_override
-    } else if crate::audio_format::flac_cli_available(None) {
-        None
-    } else {
+    if !crate::audio_format::flac_cli_available(flac_override) {
         eprintln!(
             "ensure_taggable_local_path: flac CLI not reachable (override: {:?}); leaving {} as WAV",
             flac_override,
             path.display()
         );
         return path.to_path_buf();
-    };
-    match crate::audio_format::transcode_wav_to_flac(path, resolved_override) {
+    }
+    match crate::audio_format::transcode_wav_to_flac(path, flac_override) {
         Ok(flac_path) => flac_path,
         Err(err) => {
             eprintln!(

@@ -7,6 +7,7 @@ use crate::db::startup::DbStage;
 use crate::startup::{CoreCheckOutcome, IssueSeverity, StartupIssue, StartupStage};
 
 pub(crate) mod capabilities;
+pub(crate) mod converter;
 pub(crate) mod correction;
 pub(crate) mod session;
 

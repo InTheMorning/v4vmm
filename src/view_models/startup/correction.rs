@@ -22,6 +22,7 @@ pub(crate) enum CorrectionAction {
     ReopenEditor,
     Select(CorrectionField),
     Validate,
+    TestConverter,
     Save,
     EndSession,
     CopyDraft,
@@ -166,6 +167,9 @@ impl CorrectionVm {
             CorrectionOperation::Validate => {
                 "App is validating the draft and testing any changed music and database paths."
             }
+            CorrectionOperation::TestConverter => {
+                "App is testing the selected FLAC executable and PATH ffmpeg. Each version check may take up to five seconds."
+            }
             CorrectionOperation::Save => {
                 "App is validating the draft, preserving the original and saving the correction."
             }
@@ -186,8 +190,12 @@ impl CorrectionVm {
             CorrectionAction::Reload => "Reload file (discard draft)".into(),
             CorrectionAction::CloseEditor => "Close editor".into(),
             CorrectionAction::ReopenEditor => "Reopen editor".into(),
+            CorrectionAction::Select(CorrectionField("flac_path")) => {
+                super::converter::TITLE.into()
+            }
             CorrectionAction::Select(field) => field.0.into(),
             CorrectionAction::Validate => "Test draft and paths".into(),
+            CorrectionAction::TestConverter => "Test converters".into(),
             CorrectionAction::Save => "Save correction".into(),
             CorrectionAction::EndSession => "End session to edit core paths".into(),
             CorrectionAction::CopyDraft => "Copy draft (redacted)".into(),
@@ -208,6 +216,14 @@ impl CorrectionVm {
                     && !self.saved
             }
             CorrectionAction::EndSession => self.worker_available && self.needs_maintenance(),
+            CorrectionAction::TestConverter => {
+                self.worker_available
+                    && self.converter_selected()
+                    && self
+                        .source
+                        .as_ref()
+                        .is_some_and(|source| source.snapshot.is_some())
+            }
             CorrectionAction::Save | CorrectionAction::Validate => {
                 self.worker_available
                     && self.source.is_some()
@@ -256,6 +272,26 @@ impl CorrectionVm {
                 ) || snapshot.issues().iter().any(|issue| issue.field == field.0)
             })
             .collect()
+    }
+
+    pub(crate) fn converter_selected(&self) -> bool {
+        self.selected == Some(CorrectionField("flac_path"))
+    }
+
+    pub(crate) fn configured_converter(&self) -> String {
+        let setting = self
+            .source
+            .as_ref()
+            .and_then(|source| source.snapshot.as_ref())
+            .map(|snapshot| &snapshot.flac_path);
+        let value = match setting {
+            Some(Ok(Some(path))) => path.display().to_string(),
+            Some(Ok(None)) => "unset; use flac on PATH".into(),
+            _ => "invalid flac_path; correct the draft before testing".into(),
+        };
+        crate::diagnostics::redact_endpoint_details(&format!(
+            "FLAC setting when the editor loaded: {value}. Test converters uses the draft below."
+        ))
     }
 
     pub(crate) fn select(&mut self, field: CorrectionField) -> bool {
@@ -308,7 +344,10 @@ impl CorrectionVm {
         } else if let Some(source) = &self.source {
             self.draft.raw = (value != source.raw()).then_some(value);
         }
-        if self.working == Some(CorrectionOperation::Validate) {
+        if matches!(
+            self.working,
+            Some(CorrectionOperation::Validate | CorrectionOperation::TestConverter)
+        ) {
             self.generation += 1;
             self.working = None;
         }
@@ -347,6 +386,7 @@ impl CorrectionVm {
         let operation = match action {
             CorrectionAction::Load | CorrectionAction::Reload => CorrectionOperation::Load,
             CorrectionAction::Validate => CorrectionOperation::Validate,
+            CorrectionAction::TestConverter => CorrectionOperation::TestConverter,
             CorrectionAction::Save => CorrectionOperation::Save,
             _ => return None,
         };
@@ -391,6 +431,10 @@ impl CorrectionVm {
                 message
             }
             CorrectionResult::Validated => "App validated the draft and tested any changed core paths. No configuration was saved. Save correction performs validation again before preserving and replacing the file.".into(),
+            CorrectionResult::ConverterTested(observation) => {
+                self.report.push_str(&super::converter::report(&observation));
+                return None;
+            }
             CorrectionResult::Saved(receipt) => {
                 self.saved = true;
                 let mut message = format!("App saved the configuration correction. Original bytes are preserved in {}. Save did not retry an operation. Core changes need Check again, then Open app. Optional tools retain their current session state until reinitialized.", receipt.backup.display());
@@ -442,6 +486,81 @@ mod tests {
         let (generation, command) = vm.begin(CorrectionAction::Load, path.clone()).unwrap();
         vm.complete(generation, command.execute());
         (temp, path, vm)
+    }
+
+    #[test]
+    fn adr_0066_converter_edit_test_and_guarded_save_are_separate() {
+        use std::os::unix::fs::PermissionsExt;
+        let (temp, path, mut vm) = loaded();
+        let original = std::fs::read(&path).unwrap();
+        let tool = temp.path().join("flac");
+        let calls = temp.path().join("calls");
+        vm.focus_field(CorrectionField("flac_path"));
+        vm.edit(tool.display().to_string());
+        assert!(!calls.exists());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        let (generation, command) = vm
+            .begin(CorrectionAction::TestConverter, path.clone())
+            .unwrap();
+        assert!(vm
+            .begin(CorrectionAction::TestConverter, path.clone())
+            .is_none());
+        vm.complete(generation, command.execute());
+        assert!(vm.report.contains("executable was not found"));
+        std::fs::write(
+            &tool,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\nexit 0\n",
+                calls.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let (generation, command) = vm
+            .begin(CorrectionAction::TestConverter, path.clone())
+            .unwrap();
+        vm.complete(generation, command.execute());
+        assert!(vm.report.contains("version check succeeded"));
+        assert_eq!(std::fs::read_to_string(&calls).unwrap(), "--version\n");
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 3);
+        let (generation, command) = vm.begin(CorrectionAction::Save, path.clone()).unwrap();
+        let CorrectionResult::Saved(receipt) = command.execute() else {
+            panic!("save expected");
+        };
+        assert_eq!(std::fs::read(&receipt.backup).unwrap(), original);
+        assert_eq!(
+            receipt.fresh.flac_path.as_ref().unwrap().as_ref(),
+            Some(&tool)
+        );
+        assert!(receipt.fresh.musicindex_endpoint.is_err());
+        vm.complete(generation, CorrectionResult::Saved(receipt));
+        assert_eq!(std::fs::read_to_string(&calls).unwrap(), "--version\n");
+        assert_eq!(
+            vm.action(CorrectionAction::TestConverter).availability,
+            StartupAvailability::Available
+        );
+        assert!(vm.report.contains("Save did not retry an operation"));
+    }
+
+    #[test]
+    fn adr_0066_converter_rejects_stale_tests_and_conflicting_saves() {
+        let (temp, path, mut vm) = loaded();
+        vm.focus_field(CorrectionField("flac_path"));
+        vm.edit(temp.path().join("first-missing").display().to_string());
+        let (generation, command) = vm
+            .begin(CorrectionAction::TestConverter, path.clone())
+            .unwrap();
+        vm.edit(temp.path().join("second-missing").display().to_string());
+        let before = vm.report.clone();
+        vm.complete(generation, command.execute());
+        assert_eq!(vm.report, before);
+        let external = "music_dir = '/music'\ndb_path = '/library.sqlite'\nfuture = 'external'\n";
+        std::fs::write(&path, external).unwrap();
+        let (generation, command) = vm.begin(CorrectionAction::Save, path.clone()).unwrap();
+        vm.complete(generation, command.execute());
+        assert!(vm.report.contains("Configuration changed"));
+        assert_eq!(std::fs::read_to_string(path).unwrap(), external);
     }
 
     #[test]

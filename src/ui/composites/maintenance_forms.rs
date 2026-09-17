@@ -69,12 +69,30 @@ pub(crate) fn configuration_correction(
                 callback.clone(),
             ));
         }
+        body = body.child(fields);
+        if vm.converter_selected() {
+            use crate::view_models::startup::converter;
+            body = body
+                .child(
+                    div()
+                        .text_size(FontSize::Title3.scaled(cx))
+                        .child(converter::TITLE),
+                )
+                .child(div().whitespace_normal().child(vm.configured_converter()))
+                .child(div().whitespace_normal().child(converter::HELP))
+                .child(div().whitespace_normal().child(converter::INSTALLATION));
+        }
         body = body
-            .child(fields)
             .child(div().whitespace_normal().child(CorrectionVm::CLOSE_HELP))
             .child(div().whitespace_normal().child(vm.input_help()))
             .child(configuration_input_frame(vm, input, cx));
         let mut actions = div().flex().flex_wrap().gap(Spacing::SM.scaled(cx));
+        if vm.converter_selected() {
+            actions = actions.child(correction_button(
+                vm.action(CorrectionAction::TestConverter),
+                callback.clone(),
+            ));
+        }
         for action in [
             CorrectionAction::Validate,
             CorrectionAction::Save,
