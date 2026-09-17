@@ -27,6 +27,7 @@ impl TopApp {
         Some(SessionTransition {
             drain: SessionDrain::new(session, self.conn.clone(), self.playback_owner.take()),
             runtime: self.runtime_host.take(),
+            conversions: Some(self.application_services.conversion_recovery()),
             #[cfg(debug_assertions)]
             config_path: self.cfg_path.clone(),
         })

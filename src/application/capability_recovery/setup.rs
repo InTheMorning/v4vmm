@@ -118,9 +118,15 @@ pub(crate) fn check(
             PreparedCapability::Configuration
         }
         Dependency::Converter => {
-            snapshot.flac_path.as_ref().map_err(|_| {
+            let path = snapshot.flac_path.as_ref().map_err(|_| {
                 "App could not validate flac_path. Correct its value before using conversion."
             })?;
+            let checked =
+                crate::audio_format::probe::ConverterObservation::refresh(path.as_deref());
+            if !checked.flac.available() && !checked.ffmpeg.available() {
+                return Err("Neither converter passed its fresh version check. Open converter setup to test the executables and correct them before retrying this track.");
+            }
+            observation = "A converter passed its fresh version check. The original track has not been retried; Retry checks the input and performs conversion explicitly.";
             PreparedCapability::Configuration
         }
         _ => return Err("This resource uses its existing dedicated check."),

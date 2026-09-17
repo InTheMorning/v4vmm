@@ -9,7 +9,7 @@ use rusqlite::Connection;
 use crate::application::command_context::CommandContext;
 use crate::library_service::{self, AppendToPlaylistOutcome};
 use crate::subscribe_service::{
-    self, SubscribeFeedOutcome, SubscribeFeedRequest, SubscribeTrackOutcome, SubscribeTrackRequest,
+    SubscribeFeedOutcome, SubscribeFeedRequest, SubscribeTrackOutcome, SubscribeTrackRequest,
 };
 
 /// Request passed to a download manager implementation.
@@ -136,14 +136,22 @@ pub trait DownloadManager: fmt::Debug + Send + Sync + 'static {
 }
 
 /// Download adapter backed by today's service modules.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct ServiceDownloadManager;
+#[derive(Clone, Debug, Default)]
+pub struct ServiceDownloadManager {
+    recovery: Arc<crate::application::conversion_recovery::ConversionRecovery>,
+}
 
 impl ServiceDownloadManager {
     /// Creates a service-backed download manager.
     #[must_use]
-    pub const fn new() -> Self {
-        Self
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn with_recovery(
+        recovery: Arc<crate::application::conversion_recovery::ConversionRecovery>,
+    ) -> Self {
+        Self { recovery }
     }
 }
 
@@ -167,7 +175,9 @@ impl DownloadManager for ServiceDownloadManager {
         if context.cancellation().is_cancelled() {
             return Err(DownloadError::Cancelled);
         }
-        subscribe_service::subscribe_track(conn, request).map_err(|error| download_failed(&error))
+        self.recovery
+            .subscribe_track(conn, request)
+            .map_err(|error| download_failed(&error))
     }
 
     fn subscribe_feed(
@@ -179,7 +189,9 @@ impl DownloadManager for ServiceDownloadManager {
         if context.cancellation().is_cancelled() {
             return Err(DownloadError::Cancelled);
         }
-        subscribe_service::subscribe_feed(conn, request).map_err(|error| download_failed(&error))
+        self.recovery
+            .subscribe_feed(conn, request)
+            .map_err(|error| download_failed(&error))
     }
 
     fn subscribe_then_append_to_playlist(
@@ -192,8 +204,14 @@ impl DownloadManager for ServiceDownloadManager {
         if context.cancellation().is_cancelled() {
             return Err(DownloadError::Cancelled);
         }
-        library_service::subscribe_then_append_to_playlist(conn, playlist_id, track_ids)
-            .map_err(|error| download_failed(&error))
+        library_service::subscribe_then_append_with(
+            conn,
+            playlist_id,
+            track_ids,
+            |conn, request| self.recovery.subscribe_to(conn, request, Some(playlist_id)),
+            |track_id| self.recovery.playlist_appended(track_id, playlist_id),
+        )
+        .map_err(|error| download_failed(&error))
     }
 }
 

@@ -326,6 +326,7 @@ mod tests {
             let mut transition = SessionTransition {
                 drain: SessionDrain::new(session.clone(), conn, playback_owner),
                 runtime: runtime_host,
+                conversions: None,
                 #[cfg(debug_assertions)]
                 config_path: cfg_path,
             };

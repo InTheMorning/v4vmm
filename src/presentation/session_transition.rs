@@ -11,6 +11,8 @@ use crate::presentation::RuntimeHost;
 pub(crate) struct SessionTransition {
     pub(crate) drain: SessionDrain,
     pub(crate) runtime: Option<Arc<RuntimeHost>>,
+    pub(crate) conversions:
+        Option<Arc<crate::application::conversion_recovery::ConversionRecovery>>,
     #[cfg(debug_assertions)]
     pub(crate) config_path: std::path::PathBuf,
 }
@@ -34,6 +36,12 @@ impl SessionTransition {
 
     fn close_once(&mut self) -> Result<MaintenanceSession, Vec<String>> {
         self.drain.session.wait_for_work(Duration::ZERO)?;
+        if let Some(conversions) = &self.conversions {
+            conversions
+                .close()
+                .map_err(|error| vec![format!("{error:#}")])?;
+        }
+        self.conversions = None;
         if let Some(runtime) = self.runtime.take() {
             match Arc::try_unwrap(runtime) {
                 Ok(runtime) => drop(runtime),

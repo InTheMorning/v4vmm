@@ -156,6 +156,25 @@ pub fn subscribe_then_append_to_playlist(
     playlist_id: i64,
     track_ids: Vec<i64>,
 ) -> Result<AppendToPlaylistOutcome> {
+    subscribe_then_append_with(
+        conn,
+        playlist_id,
+        track_ids,
+        subscribe_service::subscribe_track,
+        |_| {},
+    )
+}
+
+pub(crate) fn subscribe_then_append_with(
+    conn: Arc<Mutex<Connection>>,
+    playlist_id: i64,
+    track_ids: Vec<i64>,
+    mut subscribe: impl FnMut(
+        Arc<Mutex<Connection>>,
+        subscribe_service::SubscribeTrackRequest,
+    ) -> Result<subscribe_service::SubscribeTrackOutcome>,
+    mut appended: impl FnMut(i64),
+) -> Result<AppendToPlaylistOutcome> {
     let cfg_path = config::config_path()?;
     let music_dir = config::ConfigSnapshot::read_existing(&cfg_path)?.music_dir?;
     let mut outcome = AppendToPlaylistOutcome::default();
@@ -183,7 +202,7 @@ pub fn subscribe_then_append_to_playlist(
                 .track_title
                 .clone()
                 .unwrap_or_else(|| track.item_guid.clone());
-            match subscribe_service::subscribe_track(
+            match subscribe(
                 Arc::clone(&conn),
                 subscribe_service::SubscribeTrackRequest::LibraryTrack {
                     track: Box::new(track.clone()),
@@ -199,7 +218,10 @@ pub fn subscribe_then_append_to_playlist(
 
         let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
         match playlist_service::append_track(&db, playlist_id, track.id) {
-            Ok(()) => outcome.appended += 1,
+            Ok(()) => {
+                outcome.appended += 1;
+                appended(track.id);
+            }
             Err(err) => outcome.failed.push(format!(
                 "append {}: {err:#}",
                 track

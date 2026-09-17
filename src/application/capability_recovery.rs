@@ -40,6 +40,12 @@ pub(crate) enum PlaybackOperation {
 /// Inputs identify the original operation, independently of the mounted view.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) enum RecoveryAction {
+    Conversion {
+        operation_id: u64,
+        track_id: i64,
+        title: String,
+        redownload: bool,
+    },
     IndexSearch {
         query: String,
     },
@@ -79,6 +85,7 @@ impl std::fmt::Debug for RecoveryAction {
 impl RecoveryAction {
     pub(crate) fn dependency(&self) -> Dependency {
         match self {
+            Self::Conversion { .. } => Dependency::Converter,
             Self::IndexSearch { .. } => Dependency::MusicIndex,
             Self::Playback { .. } => Dependency::Playback,
             Self::Publisher { .. } => Dependency::Publisher,
@@ -132,6 +139,14 @@ impl RecoveryAction {
         snapshot: &ConfigSnapshot,
     ) -> Result<(), RetryRejection> {
         match self {
+            Self::Conversion { track_id, .. } => {
+                if db::track_row_by_id(conn, *track_id)
+                    .map_err(|_| RetryRejection::SubjectChanged)?
+                    .is_none()
+                {
+                    return Err(RetryRejection::SubjectChanged);
+                }
+            }
             Self::IndexSearch { query } => {
                 if query.trim().is_empty() {
                     return Err(RetryRejection::SubjectChanged);
@@ -360,6 +375,7 @@ pub(crate) struct RecoveryIntent {
     pub(crate) config_generation: u64,
     checked_generation: Option<u64>,
     pub(crate) recorded_at: std::time::SystemTime,
+    conversion_report_at: Option<std::time::SystemTime>,
     pub(crate) result: Option<RecoveryResult>,
     pub(crate) checked: Option<CapabilityRevision>,
     pub(crate) running: bool,
@@ -379,6 +395,46 @@ pub(crate) struct RecoveryIntents {
 }
 
 impl RecoveryIntents {
+    pub(crate) fn sync_conversions(
+        &mut self,
+        reports: &[super::conversion_recovery::ConversionReport],
+        session: u64,
+    ) {
+        use super::conversion_recovery::ConversionState;
+        self.entries.retain(|entry| match entry.action {
+            RecoveryAction::Conversion { operation_id, .. } => {
+                reports.iter().any(|report| report.id == operation_id)
+            }
+            _ => true,
+        });
+        for report in reports {
+            let action = RecoveryAction::Conversion {
+                operation_id: report.id,
+                track_id: report.track_id,
+                title: report.title.clone(),
+                redownload: report.state == ConversionState::RedownloadRequired,
+            };
+            let id = self.entries.iter().find(|entry| matches!(entry.action, RecoveryAction::Conversion { operation_id, .. } if operation_id == report.id)).map(|entry| entry.id)
+                .unwrap_or_else(|| self.retain(action.clone(), Dependency::Converter, session));
+            if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) {
+                // Watch snapshots contain unchanged rows too; their check state must survive.
+                if entry.conversion_report_at == Some(report.recorded_at) {
+                    continue;
+                }
+                entry.conversion_report_at = Some(report.recorded_at);
+                entry.action = action;
+                entry.running = report.state == ConversionState::Running;
+                entry.recorded_at = report.recorded_at;
+                entry.checked = None;
+                entry.result = Some(if report.state == ConversionState::Completed {
+                    RecoveryResult::Completed(report.message.clone())
+                } else {
+                    RecoveryResult::Failed(report.message.clone())
+                });
+            }
+        }
+    }
+
     pub(crate) fn entries(&self) -> &[RecoveryIntent] {
         &self.entries
     }
@@ -410,6 +466,7 @@ impl RecoveryIntents {
             config_generation: self.config_generation,
             checked_generation: None,
             recorded_at: std::time::SystemTime::now(),
+            conversion_report_at: None,
             result: None,
             checked: None,
             running: false,

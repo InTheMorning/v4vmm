@@ -4,7 +4,7 @@
 
 Accepted - 2026-09-10.
 
-Implementation partial: tasks 001–003 and 005–007 are complete, including applicable
+Implementation partial: tasks 001–003 and 005–009 are complete, including applicable
 operator acceptance, preservation inspection and fixture cleanup. Task 004's
 implementation and mechanical checks are complete; its presentation case and
 producer preservation are accepted. Its remaining operator checks and fixture
@@ -18,14 +18,22 @@ overflow follow-ups are accepted, including preservation and cleanup. ADR 0073
 is Implemented. The task's evidence reconciliation withdraws an unsupported
 extra gate inferred from a port-only request log.
 Task 008 is complete on 2026-09-17 with operator V1–V3, Settings/core-recovery
-presentation, preservation and fixture cleanup accepted; tasks 009–013 have not started in
+presentation, preservation and fixture cleanup accepted. Task 009 is complete
+on 2026-09-17 with mechanical checks Green; operator V1–V3, normal/narrow
+presentation, configuration restoration, preservation and fixture cleanup are
+accepted. Tasks 010–013 have not started in
 the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md).
 Amended 2026-09-11: scoped optional-tool isolation and managed session draining
 and resumption, plus shared guarded configuration correction, are implemented.
 Optional-tool reinitialization/retry is implemented by task 007 on 2026-09-15,
 with operator acceptance complete on 2026-09-16. Converter setup is complete in
-task 008 with operator acceptance and cleanup on 2026-09-17. Conversion retry
-and database maintenance remain pending.
+task 008 with operator acceptance and cleanup on 2026-09-17. Database maintenance
+remains pending.
+
+Amended 2026-09-17: task 009 conversion retry is complete after the operator's
+V1–V3 walkthrough, presentation acceptance, configuration restoration,
+preservation inspection and fixture cleanup. Its procedure remains a regression
+check; task 004 retains its separate gate and task 010 requires a fresh session.
 
 Amended 2026-09-13: [ADR 0063's shared log frame](0063-show-dashboard-layout.md#shared-log-frames-and-following)
 owns recovery and Settings report typography, scrolling and following. The
@@ -560,7 +568,8 @@ for invariant 9. Its [proof inventory](../tasks/adr-0066-task-007-optional-tool-
 covers immutable subjects, fresh explicit Retry, scoped setup and shared entry
 points. Mechanical checks are Green; operator V1–V3, preservation and fixture
 cleanup are accepted for task 007. Task 008 is complete with mechanical checks
-Green and operator acceptance/cleanup on 2026-09-17. Tasks 009–013 have not started.
+Green and operator acceptance/cleanup on 2026-09-17. Task 009 is complete with
+operator acceptance and cleanup on 2026-09-17; tasks 010–013 have not started.
 
 Task 008 adds `adr_0066_converter_checks_are_refreshable`, a situational guard
 for invariants 2, 7 and 9. Its [proof inventory](../tasks/adr-0066-task-008-converter-verification-and-setup.md#implementation-and-proof)
@@ -569,6 +578,17 @@ recorded safe reports and guarded correction. Its [operator check](../runbooks/s
 is accepted on 2026-09-17, including V1–V3, Settings/core-recovery presentation,
 preservation in both cases and fixture cleanup. Mechanical checks are Green;
 the procedure remains a regression check.
+
+Task 009 adds `adr_0066_conversion_retry_uses_existing_materialization`, a
+situational guard for invariants 2, 6, 7 and 9. Its [proof inventory](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md#implementation-and-proof)
+links typed conversion outcomes, artifact identity/containment, shared
+materialization, transactional binding replacement, explicit redownload,
+original edits and single-flight/playlist/cleanup tests. Mechanical checks are
+Green. [Operator V1–V3](../runbooks/startup-recovery-check.md#task-009-conversion-retry-and-retained-input),
+normal/narrow presentation, configuration restoration, preservation and fixture
+cleanup are accepted on 2026-09-17. The
+[packet records the evidence](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md#final-operator-acceptance-and-cleanup--2026-09-17);
+task 010 has not started and requires a fresh session.
 
 Task 003's operator-reported search-error clipping correction is guarded by
 `adr_0066_search_failure_report_stays_readable_and_vm_owned`. The packet's

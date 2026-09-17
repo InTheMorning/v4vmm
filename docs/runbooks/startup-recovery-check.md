@@ -1350,3 +1350,135 @@ The launcher changes PATH only for its child process; the desktop shell PATH
 and real configuration are never changed. Record V1, V2, V3, Settings/recovery
 presentation, preservation and cleanup separately. Mechanical checks do not
 accept these observations.
+
+## Task 009: Conversion Retry And Retained Input
+
+Status: Accepted - 2026-09-17. V1–V3, normal/narrow presentation, configuration
+restoration and preservation passed; fixture cleanup is confirmed. Retain this
+procedure as a regression check. The
+[packet records the evidence](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md#final-operator-acceptance-and-cleanup--2026-09-17).
+Owner: [task 009](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md).
+
+This checks the new retained conversion controls and their results in the existing
+Music/Settings surfaces. Use a Linux desktop terminal, Python 3 and the normal
+debug binary. The fixture supplies a loopback audio server, two conversion tracks,
+private configuration/database/music and deterministic FLAC/ffmpeg executables.
+It explicitly selects Null playback. No audio hardware, installed converter,
+external service or real library is needed. Do not play these encoding stubs.
+The fixture changes no real settings or service units.
+
+### V1 — A Conversion Warning Keeps A Usable WAV
+
+1. Create a fresh isolated fixture and open it. Keep this terminal open.
+
+```bash
+cd /home/citizen/build/v4vmm
+cargo build --quiet --bin v4vmm
+conversion_fixture="$(python3 docs/runbooks/startup-recovery-fixture.py setup)"
+python3 docs/runbooks/startup-recovery-fixture.py mode "$conversion_fixture" conversion-retry
+python3 docs/runbooks/startup-recovery-fixture.py run "$conversion_fixture"
+```
+
+2. In Music, open **Startup fixture playlist**, then click the **Conversion
+   retry** title to open its details. Use **Download Track**. Both converters pass version checks but
+   reject encoding and create failed partial output. The result must name
+   **Conversion retry**, explain that the usable WAV is in the library, and offer
+   **Edit converter setting**. A failed-download claim, missing repair route,
+   or the fixture's secret sentinel in a report is wrong.
+3. In a second terminal, locate this fixture and inspect the original request.
+   Expect one `/conversion-4.wav` request, four file bindings and five playlist
+   rows. No failed FLAC output should remain in staging.
+
+```bash
+cd /home/citizen/build/v4vmm
+conversion_fixture="$(python3 docs/runbooks/startup-recovery-fixture.py locate)"
+python3 docs/runbooks/startup-recovery-fixture.py conversion-status "$conversion_fixture"
+```
+
+### V2 — Setup Returns To The Original Track
+
+1. Open **Edit converter setting** from that retained result. Change the fixture
+   executables while the same app stays open:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py conversion-tools "$conversion_fixture" working
+printf '%s/bin/flac\n' "$conversion_fixture"
+```
+
+2. Put the printed absolute path in the converter field. Use **Test converters**,
+   then **Save correction**. Expect successful fresh version checks and a named
+   configuration backup. Test and Save must not download or convert the track.
+   Use `conversion-status` again: the request count and WAV binding stay unchanged.
+3. Open **Background tools** in Settings. The retained **Conversion retry** result
+   must still be present. Select **Check converter setting**, then **Retry original
+   conversion**. Do not find the track again. While retry runs, repeated clicks
+   must not start another operation. Expect a FLAC success report naming the
+   original track and one updated binding. The Music row must update when it is
+   mounted. Choosing a different track before retry must not change its subject.
+4. Run the inspection command. Expect the same single `/conversion-4.wav` request,
+   a `.flac` binding for track 4, four bindings total, and five playlist rows.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py conversion-status "$conversion_fixture"
+```
+
+5. Inspect the new result/actions at normal and narrow widths. Text must remain
+   readable, actions reachable, and Copy report must include the original track,
+   actual outcome, path and recorded UTC time. The completed action must offer
+   Dismiss without another Retry. This checks the new conversion content only;
+   previously accepted general editor/log behavior does not need another pass.
+
+### V3 — Missing Input Requires Explicit Redownload; Fallback Is Successful
+
+1. Restore failed encoding, then download **Conversion redownload** from the same
+   playlist. Expect a usable-WAV warning for this second track.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py conversion-tools "$conversion_fixture" encode-failure
+```
+
+2. Move only that fixture track's retained WAV out of its expected location and
+   enable working ffmpeg fallback. The helper preserves the moved bytes.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py conversion-remove-input "$conversion_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py conversion-tools "$conversion_fixture" fallback
+```
+
+3. In Background tools, **Check converter setting**, then **Retry original
+   conversion** for **Conversion redownload**. The result must explain the missing
+   original input and offer **Redownload original track**. It must not fetch yet.
+   `conversion-status` must still show one `/conversion-5.wav` request.
+4. Check the converter setting again and explicitly select **Redownload original
+   track**. Expect ffmpeg fallback success, with FLAC rejection distinguished
+   from failure of the whole download. Expect exactly two `/conversion-5.wav`
+   requests, one `/conversion-4.wav` request, five bindings and five playlist rows.
+   No unrelated track may be downloaded or added to the playlist.
+5. Open **Settings → Library → Converter setup**. Use **Reload file (discard
+   draft)** to edit the saved configuration, clear the configured FLAC path and
+   **Save correction**, restoring the fixture's original unset/PATH setting.
+   Saving must not repeat
+   either conversion. Copy the report and confirm the secret sentinel is absent.
+   Close the fixture app normally.
+
+### Preservation And Cleanup
+
+1. Inspect after closing the app. Every preservation flag must be true. This
+   verifies original audio, configuration revisions/backups, migrations,
+   original bindings, one binding per track, unchanged playlist count, exact
+   enclosure requests, child cleanup and released staging. The original usable
+   track 4 WAV is preserved on disk; its sole active binding points to FLAC.
+   Retention belongs to one session and makes no crash/relaunch promise.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py conversion-inspect "$conversion_fixture"
+```
+
+2. Report V1–V3 and preservation results. Keep a failed fixture for diagnosis.
+   After a passing inspection, remove the fixture and its owned server, then
+   confirm the directory is absent. No real service or hardware cleanup is needed.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py cleanup "$conversion_fixture"
+test ! -e "$conversion_fixture" && echo "Fixture removed"
+```

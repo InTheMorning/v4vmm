@@ -46,6 +46,20 @@ impl TopApp {
             },
             cx,
         );
+        let conversion_updates = self.application_services.conversion_recovery().subscribe();
+        bridge_watch(
+            conversion_updates,
+            |this: &mut Self, reports, cx| {
+                this.capability_vm
+                    .pending
+                    .sync_conversions(&reports, this.command_runner.session().generation());
+                if !reports.is_empty() {
+                    this.reload_cached(cx);
+                    this.library.update(cx, crate::library::LibraryApp::refresh);
+                }
+            },
+            cx,
+        );
     }
 
     pub(super) fn render_capabilities(
@@ -108,7 +122,36 @@ impl TopApp {
                 }
             }
             CapabilityAction::Retry(id) => self.retry_retained_action(id, window, cx),
-            CapabilityAction::Dismiss(id) => self.capability_vm.pending.dismiss(id),
+            CapabilityAction::Dismiss(id) => {
+                let conversion = self
+                    .capability_vm
+                    .pending
+                    .entries()
+                    .iter()
+                    .find(|entry| entry.id == id)
+                    .and_then(|entry| match entry.action {
+                        RecoveryAction::Conversion { operation_id, .. } => Some(operation_id),
+                        _ => None,
+                    });
+                if let Some(operation_id) = conversion {
+                    let command = crate::application::commands::download::DiscardConversion {
+                        recovery: self.application_services.conversion_recovery(),
+                        id: operation_id,
+                    };
+                    crate::presentation::present_command(
+                        &self.command_runner,
+                        command,
+                        crate::application::CommandContext::next(),
+                        cx,
+                        move |this, (), _cx| this.capability_vm.pending.dismiss(id),
+                        move |this, error, _cx| {
+                            this.capability_vm.pending.finish(id, error.to_string());
+                        },
+                    );
+                } else {
+                    self.capability_vm.pending.dismiss(id);
+                }
+            }
             CapabilityAction::Configure(dependency) => {
                 let route = if correction_field(dependency).is_some() {
                     crate::view_models::settings::SettingsAction::OpenRepair
@@ -408,6 +451,45 @@ impl TopApp {
             }
         };
         match intent.action.clone() {
+            RecoveryAction::Conversion {
+                operation_id,
+                redownload,
+                ..
+            } => {
+                let command = crate::application::commands::download::RetryConversion {
+                    recovery: self.application_services.conversion_recovery(),
+                    conn: self.conn.clone(),
+                    config_path: self.cfg_path.clone(),
+                    id: operation_id,
+                    redownload,
+                };
+                let command = self.retry_command(command, intent);
+                crate::presentation::present_command(
+                    &self.command_runner,
+                    command,
+                    crate::application::CommandContext::next(),
+                    cx,
+                    |this, _result, cx| {
+                        this.reload_cached(cx);
+                        this.library.update(cx, crate::library::LibraryApp::refresh);
+                    },
+                    move |this, error, _cx| {
+                        // The recovery owner may have supplied an explicit redownload route.
+                        let reports = this
+                            .application_services
+                            .conversion_recovery()
+                            .subscribe()
+                            .borrow()
+                            .clone();
+                        this.capability_vm
+                            .pending
+                            .sync_conversions(&reports, this.command_runner.session().generation());
+                        if !reports.iter().any(|report| report.id == operation_id && report.state == crate::application::conversion_recovery::ConversionState::RedownloadRequired) {
+                            this.capability_vm.pending.finish(id, error.to_string());
+                        }
+                    },
+                );
+            }
             RecoveryAction::IndexSearch { query } => {
                 self.select_tab(AppTab::Music, window, cx);
                 self.retry_index_search(&query, intent, cx);

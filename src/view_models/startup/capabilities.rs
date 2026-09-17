@@ -443,6 +443,9 @@ pub(crate) fn correction_field(
 
 pub(crate) fn recovery_title(entry: &RecoveryIntent) -> String {
     match &entry.action {
+        RecoveryAction::Conversion {
+            title, track_id, ..
+        } => format!("Conversion: {title} (track {track_id})"),
         RecoveryAction::IndexSearch { query } => format!(
             "Index search: {}",
             crate::diagnostics::redact_endpoint_details(query)
@@ -591,7 +594,7 @@ fn check_help(dependency: Dependency) -> &'static str {
             "Check encoder reads encoder status without connecting or disconnecting the stream."
         }
         Dependency::Converter => {
-            "Check converter setting validates the saved path setting without converting a file."
+            "Check converter setting freshly tests the saved executables without converting a file."
         }
         Dependency::Presentation => {
             "Check display settings validates and applies the saved display configuration."
@@ -606,6 +609,7 @@ fn check_help(dependency: Dependency) -> &'static str {
 
 fn review_label(action: &RecoveryAction) -> &'static str {
     match action {
+        RecoveryAction::Conversion { .. } => "View conversion actions",
         RecoveryAction::IndexSearch { .. } => "View search actions",
         RecoveryAction::Playback { .. } => "View playback actions",
         RecoveryAction::Publisher { .. } => "View service actions",
@@ -621,6 +625,12 @@ fn run_label(action: &RecoveryAction) -> &'static str {
     use crate::runtime::BroadcastServiceRole;
     use crate::view_models::show::EventControlIntent;
     match action {
+        RecoveryAction::Conversion {
+            redownload: true, ..
+        } => "Redownload original track",
+        RecoveryAction::Conversion {
+            redownload: false, ..
+        } => "Retry original conversion",
         RecoveryAction::IndexSearch { .. } => "Run search again",
         RecoveryAction::Playback { operation, .. } => match operation {
             PlaybackOperation::Playlist { .. } => "Play original track",
@@ -664,6 +674,8 @@ fn run_label(action: &RecoveryAction) -> &'static str {
 
 fn run_help(action: &RecoveryAction) -> String {
     let effect = match action {
+        RecoveryAction::Conversion { redownload: true, .. } => "downloads the same original enclosure again because retained input could not be reused; it preserves the original edits and library entry",
+        RecoveryAction::Conversion { redownload: false, .. } => "validates and reuses the original track's input, preserves its edits, and updates its existing library entry",
         RecoveryAction::IndexSearch { .. } => "sends this original query",
         RecoveryAction::Playback { .. } => "runs the original playback command",
         RecoveryAction::Publisher { .. } => "sends the original service command",
@@ -681,6 +693,62 @@ mod tests {
     use super::*;
     use std::io;
     use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn adr_0066_conversion_controls_preserve_subject_and_explain_explicit_redownload() {
+        use crate::application::conversion_recovery::{ConversionReport, ConversionState};
+        let mut vm = CapabilityReportVm::new(Default::default(), true);
+        let mut report = ConversionReport {
+            id: 7,
+            track_id: 41,
+            title: "Original track".into(),
+            state: ConversionState::WavRetained,
+            message: "App kept usable WAV input in the library.".into(),
+            recorded_at: SystemTime::now(),
+        };
+        vm.pending.sync_conversions(&[report.clone()], 1);
+        let id = vm.pending.entries()[0].id;
+        assert!(vm.rows(true)[0].label.contains("Original track (track 41)"));
+        assert_eq!(
+            vm.action(CapabilityAction::Retry(id)).label,
+            "Retry original conversion"
+        );
+        assert_eq!(
+            vm.action(CapabilityAction::Retry(id)).availability,
+            StartupAvailability::Unavailable
+        );
+        let snapshot = crate::config::ConfigSnapshot::from_bytes(
+            std::path::Path::new("config.toml"),
+            Vec::new(),
+        )
+        .unwrap();
+        vm.pending.checked(Dependency::Converter, &snapshot);
+        vm.pending.sync_conversions(&[report.clone()], 1);
+        assert_eq!(
+            vm.action(CapabilityAction::Retry(id)).availability,
+            StartupAvailability::Available
+        );
+        vm.pending.saved();
+        assert_eq!(
+            vm.action(CapabilityAction::Retry(id)).availability,
+            StartupAvailability::Unavailable
+        );
+        report.state = ConversionState::RedownloadRequired;
+        report.message = "App could not find retained input /music/original.wav.".into();
+        report.recorded_at += Duration::from_secs(1);
+        vm.pending.sync_conversions(&[report], 1);
+        assert_eq!(vm.pending.entries().len(), 1);
+        assert_eq!(
+            vm.action(CapabilityAction::Retry(id)).label,
+            "Redownload original track"
+        );
+        assert!(vm.rows(true)[0]
+            .help
+            .as_ref()
+            .unwrap()
+            .contains("same original enclosure"));
+        assert!(vm.report().contains("/music/original.wav"));
+    }
 
     #[test]
     fn adr_0066_search_controls_explain_edit_check_and_execution() {

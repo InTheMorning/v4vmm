@@ -1,3 +1,7 @@
+//! Validated download staging and comparison (ADRs 0056, 0064 and 0066).
+
+pub(crate) mod retained;
+
 use std::fs::{self, File};
 use std::io::copy;
 use std::path::{Path, PathBuf};
@@ -7,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, Context, Result};
 
 use crate::api::{SourceEnclosure, Track};
-use crate::audio_format::AudioFormat;
+use crate::audio_format::{AudioFormat, ConversionOutcome};
 use crate::audio_tags::AudioTags;
 use crate::config::DownloadConfig;
 use crate::remote_media;
@@ -35,19 +39,44 @@ pub struct DownloadedTrack {
     pub enclosure: SelectedEnclosure,
     pub detected_format: AudioFormat,
     pub format_warning: Option<String>,
-    staging_dir: Option<PathBuf>,
+    pub conversion: ConversionOutcome,
+    source_warning: Option<String>,
+    input: Option<retained::RetainedArtifact>,
+    staging_dir: Option<retained::OwnedStaging>,
 }
 
 impl DownloadedTrack {
     /// Move the staged file to its final destination under `music_dir` and
     /// remove the staging directory. Returns the final path on success.
     pub fn finalize(mut self) -> Result<PathBuf> {
+        self.publish()
+    }
+
+    pub(crate) fn publish(&mut self) -> Result<PathBuf> {
+        self.promote()?;
+        self.cleanup()?;
+        Ok(self.final_path.clone())
+    }
+
+    pub(crate) fn promote(&mut self) -> Result<()> {
         if self.path != self.final_path {
+            if let Some(input) = &self.input {
+                retained::validate_destination(input.music_dir(), &self.final_path)?;
+            }
             if let Some(parent) = self.final_path.parent() {
                 fs::create_dir_all(parent)
                     .with_context(|| format!("create final directory {}", parent.display()))?;
             }
-            fs::rename(&self.path, &self.final_path).with_context(|| {
+            if let Some(input) = &self.input {
+                retained::validate_destination(input.music_dir(), &self.final_path)?;
+            }
+            anyhow::ensure!(
+                !self.final_path.exists(),
+                "App kept the existing destination file {}",
+                self.final_path.display()
+            );
+            // Both paths are on music storage. Link publication refuses an existing entry atomically.
+            fs::hard_link(&self.path, &self.final_path).with_context(|| {
                 format!(
                     "promote staged download {} -> {}",
                     self.path.display(),
@@ -56,24 +85,106 @@ impl DownloadedTrack {
             })?;
             self.path = self.final_path.clone();
         }
-        if let Some(dir) = self.staging_dir.take() {
-            let _ = fs::remove_dir_all(&dir);
-        }
-        Ok(self.final_path.clone())
+        Ok(())
+    }
+
+    pub(crate) fn undo_promotion(&mut self, staged: &Path) -> Result<()> {
+        fs::remove_file(&self.path).with_context(|| {
+            format!(
+                "restore uncommitted download to staging {}",
+                staged.display()
+            )
+        })?;
+        self.path = staged.to_path_buf();
+        Ok(())
     }
 
     /// Drop the staged download without promoting it to `music_dir`.
     pub fn discard(mut self) {
-        if let Some(dir) = self.staging_dir.take() {
-            let _ = fs::remove_dir_all(&dir);
+        if let Err(error) = self.cleanup() {
+            eprintln!(
+                "[{}] {error:#}",
+                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+            );
+        }
+    }
+
+    pub(crate) fn cleanup(&mut self) -> Result<()> {
+        if let Some(dir) = &self.staging_dir {
+            dir.cleanup()?;
+            self.staging_dir = None;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_input(&self) -> Result<()> {
+        self.input
+            .as_ref()
+            .ok_or_else(|| anyhow!("downloaded input was already released"))?
+            .validate()
+    }
+
+    pub(crate) fn retry_conversion(&mut self, cfg: &DownloadConfig) -> Result<()> {
+        self.validate_input()?;
+        let input = self.input.as_ref().expect("validated retained input");
+        if self.path != input.path() && self.path.exists() {
+            fs::remove_file(&self.path).with_context(|| {
+                format!("remove previous conversion output {}", self.path.display())
+            })?;
+        }
+        self.path = input.path().to_path_buf();
+        let partial = self.path.with_extension("flac");
+        if partial != self.path && partial.exists() {
+            fs::remove_file(&partial).with_context(|| {
+                format!("remove failed conversion output {}", partial.display())
+            })?;
+        }
+        self.detected_format = AudioFormat::detect_from_file(&self.path)?;
+        self.final_path
+            .set_extension(self.detected_format.canonical_extension());
+        self.convert(cfg);
+        Ok(())
+    }
+
+    fn convert(&mut self, cfg: &DownloadConfig) {
+        if self.detected_format != AudioFormat::Wav {
+            return;
+        }
+        let result = cfg
+            .flac_path
+            .as_ref()
+            .map_err(|_| anyhow!("flac_path is invalid; correct the converter setting"))
+            .and_then(|path| {
+                crate::audio_format::convert_retaining_input(&self.path, path.as_deref())
+            });
+        match result {
+            Ok((path, outcome)) => {
+                self.path = path;
+                self.final_path.set_extension("flac");
+                self.detected_format = AudioFormat::Flac;
+                self.conversion = outcome;
+                self.format_warning.clone_from(&self.source_warning);
+            }
+            Err(error) => {
+                self.conversion = ConversionOutcome::WavRetained;
+                let conversion =
+                    format!("App retained usable WAV input after conversion failed: {error:#}");
+                self.format_warning = Some(self.source_warning.as_ref().map_or_else(
+                    || conversion.clone(),
+                    |source| format!("{source}; {conversion}"),
+                ));
+            }
         }
     }
 }
 
 impl Drop for DownloadedTrack {
     fn drop(&mut self) {
-        if let Some(dir) = self.staging_dir.take() {
-            let _ = fs::remove_dir_all(&dir);
+        if let Err(error) = self.cleanup() {
+            eprintln!(
+                "[{}] {error:#}",
+                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+            );
         }
     }
 }
@@ -183,7 +294,8 @@ pub fn download_track(cfg: &DownloadConfig, track: &Track) -> Result<DownloadedT
         select_audio_enclosure(track).ok_or_else(|| anyhow!("no supported audio enclosure"))?;
     let declared_format = enclosure.format;
     let final_path_initial = local_track_path(cfg, track, declared_format.canonical_extension());
-    let staging_dir = create_staging_dir(cfg)?;
+    let staging = create_staging_dir(cfg)?;
+    let staging_dir = staging.path();
 
     let filename = final_path_initial
         .file_name()
@@ -196,7 +308,9 @@ pub fn download_track(cfg: &DownloadConfig, track: &Track) -> Result<DownloadedT
     // Helper that cleans the staging dir if we bail out before constructing
     // DownloadedTrack (which would otherwise own the cleanup).
     let cleanup_on_err = |err: anyhow::Error| -> anyhow::Error {
-        let _ = fs::remove_dir_all(&staging_dir);
+        if let Err(cleanup) = staging.cleanup() {
+            return err.context(format!("{cleanup:#}"));
+        }
         err
     };
 
@@ -231,7 +345,7 @@ pub fn download_track(cfg: &DownloadConfig, track: &Track) -> Result<DownloadedT
 
     // Rename within the staging dir so the extension matches the detected
     // container before we hand the file to the tagging pipeline.
-    let mut current_path = if detected_format != declared_format {
+    let current_path = if detected_format != declared_format {
         let stem = staged
             .file_stem()
             .map(|s| s.to_os_string())
@@ -251,37 +365,10 @@ pub fn download_track(cfg: &DownloadConfig, track: &Track) -> Result<DownloadedT
     } else {
         staged
     };
-    let mut current_format = detected_format;
-
-    // WAV → FLAC silent upgrade (still inside the staging dir).
-    if current_format == AudioFormat::Wav {
-        if let Ok(flac_path) = &cfg.flac_path {
-            let flac_override = flac_path.as_deref();
-            let have_flac = crate::audio_format::flac_cli_available(flac_override);
-            let have_ffmpeg_fallback = !have_flac; // transcode_wav_to_flac probes ffmpeg internally
-            if have_flac || have_ffmpeg_fallback {
-                match crate::audio_format::transcode_wav_to_flac(&current_path, flac_override) {
-                    Ok(flac_path) => {
-                        current_path = flac_path;
-                        current_format = AudioFormat::Flac;
-                        warnings.push("upgraded WAV to FLAC so tags can be written".to_string());
-                    }
-                    Err(err) => warnings.push(format!("WAV→FLAC transcode failed: {err:#}")),
-                }
-            } else {
-                warnings.push(
-                    "install the `flac` CLI (or `ffmpeg`) to enable tagging of WAV downloads"
-                        .to_string(),
-                );
-            }
-        } else {
-            warnings.push("App retained the downloaded WAV because flac_path is invalid. Correct the converter setting before converting this track.".to_owned());
-        }
-    }
 
     // Recompute the final path from the (possibly upgraded) format so the
     // caller can move the staged file into music_dir at finalize time.
-    let final_path = local_track_path(cfg, track, current_format.canonical_extension());
+    let final_path = local_track_path(cfg, track, detected_format.canonical_extension());
 
     let format_warning = if warnings.is_empty() {
         None
@@ -289,17 +376,24 @@ pub fn download_track(cfg: &DownloadConfig, track: &Track) -> Result<DownloadedT
         Some(warnings.join("; "))
     };
 
-    Ok(DownloadedTrack {
+    let input = retained::RetainedArtifact::capture(&cfg.music_dir, &current_path, enclosure.bytes)
+        .map_err(cleanup_on_err)?;
+    let mut downloaded = DownloadedTrack {
         path: current_path,
         final_path,
         enclosure,
-        detected_format: current_format,
+        detected_format,
+        source_warning: format_warning.clone(),
         format_warning,
-        staging_dir: Some(staging_dir),
-    })
+        conversion: ConversionOutcome::NotRequired,
+        input: Some(input),
+        staging_dir: Some(staging),
+    };
+    downloaded.convert(cfg);
+    Ok(downloaded)
 }
 
-fn create_staging_dir(cfg: &DownloadConfig) -> Result<PathBuf> {
+fn create_staging_dir(cfg: &DownloadConfig) -> Result<retained::OwnedStaging> {
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -307,11 +401,14 @@ fn create_staging_dir(cfg: &DownloadConfig) -> Result<PathBuf> {
         .unwrap_or(0);
     let seq = SEQ.fetch_add(1, Ordering::Relaxed);
     let pid = std::process::id();
+    fs::create_dir_all(&cfg.music_dir)
+        .with_context(|| format!("prepare download storage {}", cfg.music_dir.display()))?;
     let staging_root = cfg.music_dir.join(".v4vmm-staging");
+    retained::validate_destination(&cfg.music_dir, &staging_root.join("new"))?;
     let dir = staging_root.join(format!("{pid}-{nanos}-{seq}"));
     fs::create_dir_all(&dir)
         .with_context(|| format!("create staging directory {}", dir.display()))?;
-    Ok(dir)
+    retained::OwnedStaging::capture(&cfg.music_dir, dir)
 }
 
 pub fn download_enclosure(url: &str, path: &Path) -> Result<()> {

@@ -170,6 +170,19 @@ pub fn run_cli(args: &[String]) -> Result<()> {
                     WHEN OLD.track_id = 2 BEGIN SELECT RAISE(FAIL, 'fixture path repair failure'); END;")?;
             }
         }
+        "conversion-seed" => {
+            let conn = rusqlite::Connection::open(&db_path)?;
+            let endpoint = fs::read_to_string(root.join("retry-endpoint"))?;
+            ensure!(
+                endpoint.starts_with("http://127.0.0.1:"),
+                "conversion fixture requires its loopback server"
+            );
+            for (id, name) in [(4, "Conversion retry"), (5, "Conversion redownload")] {
+                conn.execute("INSERT INTO tracks (id, feed_id, item_guid, track_title, enclosure_url, enclosure_type, is_in_library) VALUES (?1, 1, ?2, ?2, ?3, 'audio/wav', 0)", rusqlite::params![id, name, format!("{endpoint}/conversion-{id}.wav")])?;
+                crate::db::playlist_append(&conn, 1, id)?;
+            }
+            println!("{}", json!({"conversion_tracks": [4, 5]}));
+        }
         _ => anyhow::bail!("Unknown fixture command; use seed or inspect"),
     }
     Ok(())

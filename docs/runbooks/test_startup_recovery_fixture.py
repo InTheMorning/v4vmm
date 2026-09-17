@@ -382,5 +382,55 @@ class ConverterFixtureTests(unittest.TestCase):
         self.inspect(False)
 
 
+class ConversionFixtureTests(unittest.TestCase):
+    """Situational ADR 0066: deterministic actual encoding and owned input removal."""
+
+    def test_adr_0066_conversion_modes_encode_without_installed_tools_or_config_edits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "bin").mkdir()
+            (root / "case.json").write_text(json.dumps({"case": "conversion-retry"}))
+            (root / "converter-calls.jsonl").write_text("")
+            original = root / "input.wav"
+            original.write_bytes(b"RIFFfixtureWAVE")
+            target = root / "output.flac"
+            for mode in fixture.CONVERSION_MODES:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    fixture.conversion_tools(root, mode)
+                self.assertEqual(fixture.environment(root)["PATH"], str(root / "bin"))
+                for name, version in (("flac", "--version"), ("ffmpeg", "-version")):
+                    binary = root / "bin" / name
+                    self.assertEqual(subprocess.run([str(binary), version], capture_output=True).returncode, 0)
+                    arguments = ["-o", str(target), str(original)] if name == "flac" else ["-i", str(original), str(target)]
+                    result = subprocess.run([str(binary), *arguments], capture_output=True)
+                    failed = mode == "encode-failure" or (mode == "fallback" and name == "flac")
+                    self.assertEqual(result.returncode, 7 if failed else 0)
+                    self.assertEqual(target.read_bytes()[:4], b"fail" if failed else b"fLaC")
+                    self.assertEqual(original.read_bytes(), b"RIFFfixtureWAVE")
+
+    def test_adr_0066_conversion_missing_input_command_preserves_only_named_fixture_subject(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "data").mkdir()
+            (root / "music").mkdir()
+            source = root / "music/original.wav"
+            source.write_bytes(b"preserved fixture input")
+            conn = sqlite3.connect(root / "data/library.sqlite")
+            conn.execute("CREATE TABLE local_files (track_id INTEGER, path TEXT)")
+            conn.execute("INSERT INTO local_files VALUES (5, 'original.wav')")
+            conn.commit()
+            with contextlib.redirect_stdout(io.StringIO()):
+                fixture.conversion_remove_input(root)
+            self.assertFalse(source.exists())
+            self.assertEqual((root / "removed-conversion-input.wav").read_bytes(), b"preserved fixture input")
+            self.assertEqual(conn.execute("SELECT path FROM local_files").fetchone(), ("original.wav",))
+            conn.execute("UPDATE local_files SET path = '../outside.wav'")
+            conn.commit()
+            with self.assertRaises(SystemExit):
+                fixture.conversion_remove_input(root)
+            conn.close()
+
+
 if __name__ == "__main__":
     unittest.main()

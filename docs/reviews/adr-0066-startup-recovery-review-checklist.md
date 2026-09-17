@@ -19,7 +19,9 @@ the checked temporary directories. The final reconciliation below corrects an
 unsupported extra gate inferred from a port-only log. Task 008 is complete on
 2026-09-17 with mechanical checks Green; operator V1–V3, Settings/core-recovery
 presentation, preservation in both cases and fixture cleanup are accepted.
-Tasks 009–013 have not started.
+Task 009 is complete on 2026-09-17 with mechanical checks Green; operator V1–V3,
+normal/narrow presentation, configuration restoration, preservation and fixture
+cleanup are accepted. Tasks 010–013 have not started.
 
 Read the [ADR](../adr/0066-configuration-and-startup-failure-recovery.md),
 [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md), active packet and
@@ -1219,3 +1221,85 @@ confirmations and cleanup. V1–V3, Settings/core-recovery presentation and
 preservation in both cases are accepted. Task 008 is complete; no acceptance
 checks remain for this packet. Task 004 and inherited gates remain separate.
 Task 009 has not started and requires a fresh session.
+
+
+## Task 009 Review — 2026-09-17
+
+Scope: [conversion retry and retained input](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md#implementation-and-proof).
+Green: 1,434 unit tests, 255 architecture guards, formatting, cargo check,
+production Clippy and 20 fixture tests. Ten existing documentation examples are
+ignored. The normal desktop binary is rebuilt after the tests. No app launch.
+
+- C1/C2: typed outcomes distinguish FLAC, actual ffmpeg fallback, usable WAV
+  retention and failed materialization. Reuse verifies bytes, original enclosure,
+  file identity, containment, original track/binding, core destination and the
+  task 007 checked configuration revision. Missing input requires a separately
+  admitted Redownload action; a loopback test proves no request before consent.
+- C3: original and retry call the same materialization owner. Existing WAVs are
+  copied into owned staging. Publication refuses an existing destination;
+  binding replacement is transactional, and a failed database write returns
+  the new output to staging. Tests verify original bytes/edits, one binding,
+  one running attempt and no replay of a completed playlist append.
+- C4: owned staging has no Clone owner. Cleanup checks its original directory
+  identity and reports the path on refusal/failure. Discard and drained session
+  teardown release staging; existing music is never a staging-cleanup target.
+  A successful replacement preserves the original WAV on disk and removes only
+  its old database binding. This is session retention, not crash durability.
+- C5: the situational guard names the shared service/materialization, explicit
+  request and cleanup owners, and forbids replay from configuration commands.
+  The existing startup-report controls, log frame and tokens render VM actions;
+  screens only adapt watch updates and commands. Repeated watch snapshots do not
+  invalidate an unrelated successful converter check. Mounted library views
+  refresh after conversion observations and normal download events.
+- Track, feed and playlist callers share the session recovery owner. Backend
+  child modules keep artifact and materialization ownership out of screens.
+  The fixture adds two named WAV tracks, controlled failed/working/fallback
+  encoding, request counts and an owned missing-input helper. Existing accepted
+  task 008 behavior remains closed; the new V1–V3 procedure covers task 009 only.
+- Implemented mechanism prose and the coding prompt are retired from the packet.
+  Status/indexes record the accepted operator gate. Task 004 and inherited gates are
+  unchanged. No successor phase or configuration-format change was started.
+
+Result: mechanical gate Green. Operator V1–V3, preservation and fixture cleanup
+are accepted on 2026-09-17, with the actual walkthrough recorded below.
+
+Backend fixture smoke: Green — fresh seed, loopback WAV response, isolated
+failed/working/fallback encoding, unchanged configuration, original audio,
+original bindings and migration records. The smoke fixture
+`/tmp/v4vmm-startup-rvo3fb5a` and its owned server were removed successfully.
+This was backend verification only and accepts none of V1–V3.
+
+Final ownership review retains cleanup failures after a committed conversion as
+successful conversion reports with the remaining staging path; completed entries
+cannot replay conversion. Retry resets the destination extension from validated
+input before encoding, so a later warning cannot publish WAV bytes as FLAC.
+Final focused checks are Green: 136 ADR 0066 unit tests and 18 architecture guards,
+plus cargo check, formatting and strict production Clippy. The normal desktop
+binary is rebuilt after that final test invocation. Operator acceptance is
+recorded below.
+
+### Task 009 Operator Acceptance — 2026-09-17
+
+The operator's `/tmp/v4vmm-startup-4psemojh` reports and inspections establish
+usable-WAV retention, freshly checked original-track FLAC retry without another
+fetch, missing-input refusal without an automatic request, and explicit
+redownload with ffmpeg fallback. Final observed request counts are one for track
+4 and two for track 5; both have one FLAC binding, with five total bindings and
+five unchanged playlist rows. Staging is empty. The operator accepted normal and
+narrow presentation, reachable controls and Dismiss without Retry. Recorded
+action times and intermediate counts are in the
+[task evidence](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md#operator-evidence--2026-09-17).
+
+The copied repair report confirms saves at 15:07:30 and 16:54:20 UTC, each naming
+its private backup and stating that Save did not retry an operation. The latter
+save restores the original unset FLAC path. Copied conversion reports preserve
+subjects, outcomes, paths and actual recorded UTC times without converter-output
+secrets. After closing the app, the operator supplied all fifteen preservation
+flags as true, including the separately pasted final
+`converter_children_reaped` result.
+
+Cleanup returned `Removed fixture: /tmp/v4vmm-startup-4psemojh`, and the operator's
+absence check returned `Fixture removed`. V1–V3, normal/narrow presentation,
+configuration restoration, preservation and cleanup are accepted. Task 009 is
+complete; its runbook remains a regression check. Task 004 and inherited checks
+retain their separate gates. Task 010 has not started and requires a fresh session.

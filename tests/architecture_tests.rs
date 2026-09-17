@@ -17585,3 +17585,63 @@ fn adr_0066_converter_checks_are_refreshable() {
         "ADR 0066: preserve an explicit executable choice"
     );
 }
+
+/// Situational guard: ADR 0066 conversion retry shares materialization and explicit subjects.
+#[test]
+fn adr_0066_conversion_retry_uses_existing_materialization() {
+    let recovery = read_source(&manifest_path("src/application/conversion_recovery.rs"));
+    let recovery = recovery.split("#[cfg(test)]").next().unwrap();
+    let subscription = read_source(&manifest_path("src/subscribe_service.rs"));
+    let materialization = read_source(&manifest_path("src/subscribe_service/materialization.rs"));
+    let context = read_source(&manifest_path("src/application/capability_recovery.rs"));
+    let commands = read_source(&manifest_path("src/application/commands/download.rs"));
+    let transition = read_source(&manifest_path("src/presentation/session_transition.rs"));
+    let artifacts = read_source(&manifest_path("src/track_compare/retained.rs"));
+    for required in [
+        "subscribe_track_retaining",
+        "subscribe_feed_retaining",
+        "validate_subject",
+        "validate_input",
+        "entry.operation.run(",
+        "ConversionState::RedownloadRequired",
+        "state.entries.remove(&id)",
+        "playlist_appended",
+        "request_key(&entry.original_request)",
+    ] {
+        assert!(
+            recovery.contains(required),
+            "ADR 0066: missing recovery contract {required}"
+        );
+    }
+    assert!(subscription.contains("materialization::Materialization::new("));
+    assert!(materialization.contains("super::prepare_track_for_subscription_internal("));
+    assert!(materialization.contains("download.promote()?"));
+    assert!(materialization.contains("download.undo_promotion(&working_path)?"));
+    assert!(materialization.contains("db::delete_local_file(&transaction, previous)?"));
+    assert!(context.contains("RecoveryAction::Conversion"));
+    assert!(commands.contains("struct RetryConversion"));
+    assert!(transition
+        .split_whitespace()
+        .collect::<String>()
+        .contains("conversions.close()"));
+    assert!(artifacts.contains("fingerprint(path)?"));
+    assert!(artifacts.contains("metadata.ino()"));
+    for forbidden in [
+        "gpui",
+        "cx.spawn",
+        "transcode_wav_to_flac(",
+        "format_warning.contains(",
+    ] {
+        assert!(
+            !recovery.contains(forbidden),
+            "ADR 0066: application recovery must not contain {forbidden}"
+        );
+    }
+    let maintenance = read_source(&manifest_path("src/application/commands/maintenance.rs"));
+    for forbidden in ["RetryConversion", "subscribe_track", "conversion_recovery"] {
+        assert!(
+            !maintenance.contains(forbidden),
+            "ADR 0066: configuration Save cannot replay conversion"
+        );
+    }
+}

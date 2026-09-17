@@ -1,3 +1,7 @@
+//! Subscription materialization and retained conversion input (ADR 0066).
+
+pub(crate) mod materialization;
+
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -10,7 +14,6 @@ use crate::config;
 use crate::db::{self, TrackRow};
 use crate::identity_ingest;
 use crate::library_path::LibraryRelativePath;
-use crate::library_service;
 use crate::metadata::{
     sanitize_feed_source_text, sanitize_track_context_source_text, sanitize_track_source_text,
     source_text_missing, MusicBrainzLookupResult, TagCompareResult, TrackContext,
@@ -23,6 +26,7 @@ use crate::track_compare::{download_track, local_track_path, select_audio_enclos
 const MUSICINDEX_TRACK_PERSISTENCE_INCLUDE: &str =
     "source_enclosures,source_links,source_ids,source_contributors,payment_routes";
 
+#[derive(Clone)]
 pub enum SubscribeTrackRequest {
     LibraryTrack {
         track: Box<TrackRow>,
@@ -40,6 +44,7 @@ pub struct SubscribeTrackOutcome {
     pub path: PathBuf,
     pub relative_path: Option<LibraryRelativePath>,
     pub format_warning: Option<String>,
+    pub conversion: crate::audio_format::ConversionOutcome,
     pub applied_edits: usize,
     pub marked_downloaded: bool,
     pub compare: Option<TagCompareResult>,
@@ -67,7 +72,7 @@ struct SearchTrackSubscription {
 
 pub(crate) enum PreparedTrack {
     Existing { path: PathBuf },
-    Downloaded(crate::track_compare::DownloadedTrack),
+    Downloaded(Box<crate::track_compare::DownloadedTrack>),
 }
 
 impl PreparedTrack {
@@ -75,13 +80,6 @@ impl PreparedTrack {
         match self {
             PreparedTrack::Existing { path } => path.as_path(),
             PreparedTrack::Downloaded(d) => d.path.as_path(),
-        }
-    }
-
-    fn finalize(self) -> Result<PathBuf> {
-        match self {
-            PreparedTrack::Existing { path } => Ok(path),
-            PreparedTrack::Downloaded(d) => d.finalize(),
         }
     }
 
@@ -108,9 +106,18 @@ pub(crate) fn subscribe_track_with_config(
     cfg: &config::DownloadConfig,
     request: SubscribeTrackRequest,
 ) -> Result<SubscribeTrackOutcome> {
+    subscribe_track_retaining(conn, cfg, request, &mut None)
+}
+
+pub(crate) fn subscribe_track_retaining(
+    conn: Arc<Mutex<Connection>>,
+    cfg: &config::DownloadConfig,
+    request: SubscribeTrackRequest,
+    retained: &mut Option<materialization::Materialization>,
+) -> Result<SubscribeTrackOutcome> {
     match request {
         SubscribeTrackRequest::LibraryTrack { track } => {
-            subscribe_library_track_internal(conn, cfg, *track)
+            subscribe_library_track_internal(conn, cfg, *track, retained)
         }
         SubscribeTrackRequest::SearchTrack {
             track_context,
@@ -129,6 +136,7 @@ pub(crate) fn subscribe_track_with_config(
                 mark_feed_subscribed,
                 return_tag_compare,
             },
+            retained,
         ),
     }
 }
@@ -147,6 +155,19 @@ pub(crate) fn subscribe_feed_with_config(
     conn: Arc<Mutex<Connection>>,
     cfg: &config::DownloadConfig,
     request: SubscribeFeedRequest,
+) -> Result<SubscribeFeedOutcome> {
+    subscribe_feed_retaining(conn, cfg, request, |_, _, _| Ok(()))
+}
+
+pub(crate) fn subscribe_feed_retaining(
+    conn: Arc<Mutex<Connection>>,
+    cfg: &config::DownloadConfig,
+    request: SubscribeFeedRequest,
+    mut retain: impl FnMut(
+        SubscribeTrackRequest,
+        Option<materialization::Materialization>,
+        &Result<SubscribeTrackOutcome>,
+    ) -> Result<()>,
 ) -> Result<SubscribeFeedOutcome> {
     let mut feed = request.feed;
     sanitize_feed_source_text(&mut feed);
@@ -217,7 +238,15 @@ pub(crate) fn subscribe_feed_with_config(
         sanitize_track_context_source_text(&mut track_context);
         let edits = id3_edits_for_track_context(&track_context);
 
-        match subscribe_track_from_search_internal(
+        let original_request = SubscribeTrackRequest::SearchTrack {
+            track_context: Box::new(track_context.clone()),
+            edits: edits.clone(),
+            musicindex_endpoint: musicindex_endpoint.clone(),
+            mark_feed_subscribed: true,
+            return_tag_compare: false,
+        };
+        let mut retained = None;
+        let result = subscribe_track_from_search_internal(
             Arc::clone(&conn),
             cfg,
             SearchTrackSubscription {
@@ -228,7 +257,10 @@ pub(crate) fn subscribe_feed_with_config(
                 mark_feed_subscribed: true,
                 return_tag_compare: false,
             },
-        ) {
+            &mut retained,
+        );
+        retain(original_request, retained, &result)?;
+        match result {
             Ok(outcome) => {
                 if outcome.marked_downloaded {
                     downloaded += 1;
@@ -344,47 +376,32 @@ fn subscribe_library_track_internal(
     conn: Arc<Mutex<Connection>>,
     cfg: &config::DownloadConfig,
     track: TrackRow,
+    retained: &mut Option<materialization::Materialization>,
 ) -> Result<SubscribeTrackOutcome> {
     let api_track = track_row_to_api_track(&track);
-
-    let existing_path = track
-        .local_path
-        .as_ref()
-        .map(|path| path.resolve(&cfg.music_dir));
-    let prepared =
-        prepare_track_for_subscription_internal(cfg, &api_track, existing_path.as_deref())?;
 
     let track_context = TrackContext {
         track: api_track,
         feed: None,
     };
     let edits = id3_edits_for_track_context(&track_context);
-    let format_warning = prepared.format_warning();
-    let working_path = prepared.working_path().to_path_buf();
-    let applied_edits = apply_id3_edits_nonfatal(&working_path, &edits);
-
-    let final_path = prepared.finalize()?;
-    let file_size = std::fs::metadata(&final_path)
-        .ok()
-        .and_then(|metadata| metadata.len().try_into().ok());
-    let relative_path = LibraryRelativePath::from_absolute(&cfg.music_dir, &final_path)?;
-    let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-    library_service::mark_track_downloaded(&db, track.id, &relative_path, file_size)?;
-
-    Ok(SubscribeTrackOutcome {
-        path: final_path,
-        relative_path: Some(relative_path),
-        format_warning,
-        applied_edits,
-        marked_downloaded: true,
-        compare: None,
-    })
+    *retained = Some(materialization::Materialization::new(
+        track,
+        track_context,
+        edits,
+        cfg.music_dir.clone(),
+    ));
+    retained
+        .as_mut()
+        .expect("created materialization")
+        .run(&conn, cfg, false, false)
 }
 
 fn subscribe_track_from_search_internal(
     conn: Arc<Mutex<Connection>>,
     cfg: &config::DownloadConfig,
     input: SearchTrackSubscription,
+    retained: &mut Option<materialization::Materialization>,
 ) -> Result<SubscribeTrackOutcome> {
     let SearchTrackSubscription {
         track_context,
@@ -440,54 +457,35 @@ fn subscribe_track_from_search_internal(
         }
     }
 
-    let prepared =
-        prepare_track_for_subscription_internal(cfg, &track, None).inspect_err(|_| {
+    let row = {
+        let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+        let id = db::find_track_id(
+            &db,
+            Some(&feed_url),
+            track.track_guid.as_deref(),
+            track.enclosure_url.as_deref(),
+        )?
+        .ok_or_else(|| {
+            anyhow!("RSS did not identify the requested track; no file was materialized")
+        })?;
+        db::track_row_by_id(&db, id)?.ok_or_else(|| anyhow!("original track no longer exists"))?
+    };
+    let mut operation =
+        materialization::Materialization::new(row, refreshed_context, edits, cfg.music_dir.clone());
+    operation.return_tag_compare = return_tag_compare;
+    operation.reconcile_feed = (!mark_feed_subscribed).then(|| feed_url.clone());
+    *retained = Some(operation);
+    retained
+        .as_mut()
+        .expect("created materialization")
+        .run(&conn, cfg, false, false)
+        .inspect_err(|_| {
             if mark_feed_subscribed && !prior_subscribed {
                 if let Ok(db) = conn.lock() {
                     let _ = db::set_feed_subscribed_by_url(&db, &feed_url, false);
                 }
             }
-        })?;
-
-    let working_path = prepared.working_path().to_path_buf();
-    let applied_edits = apply_id3_edits_nonfatal(&working_path, &edits);
-    let format_warning = prepared.format_warning();
-    let path = prepared.finalize()?;
-    let file_size = std::fs::metadata(&path)
-        .ok()
-        .and_then(|m| m.len().try_into().ok());
-    let relative_path = LibraryRelativePath::from_absolute(&cfg.music_dir, &path)?;
-
-    let marked_downloaded = {
-        let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-        let marked_downloaded = library_service::mark_track_downloaded_by_match(
-            &db,
-            Some(feed_url.as_str()),
-            track.track_guid.as_deref(),
-            track.enclosure_url.as_deref(),
-            &relative_path,
-            file_size,
-        )?;
-        if !mark_feed_subscribed {
-            db::reconcile_feed_subscription_by_url(&db, &feed_url)?;
-        }
-        marked_downloaded
-    };
-
-    let compare = if return_tag_compare {
-        Some(compare_downloaded_track_path(&path, &refreshed_context)?)
-    } else {
-        None
-    };
-
-    Ok(SubscribeTrackOutcome {
-        path,
-        relative_path: Some(relative_path),
-        format_warning,
-        applied_edits,
-        marked_downloaded,
-        compare,
-    })
+        })
 }
 
 fn apply_id3_edits_nonfatal(path: &Path, edits: &[Id3v24Edit]) -> usize {
@@ -572,20 +570,20 @@ pub(crate) fn prepare_track_for_subscription_internal(
     if let Some(path) = local_path {
         if path.exists() {
             return Ok(PreparedTrack::Existing {
-                path: crate::track_compare::ensure_taggable_local_path(cfg, path),
+                path: path.to_path_buf(),
             });
         }
     }
     if let Some(enclosure) = select_audio_enclosure(track) {
         let candidate = local_track_path(cfg, track, enclosure.format.canonical_extension());
         if candidate.exists() {
-            return Ok(PreparedTrack::Existing {
-                path: crate::track_compare::ensure_taggable_local_path(cfg, &candidate),
-            });
+            return Ok(PreparedTrack::Existing { path: candidate });
         }
     }
 
-    Ok(PreparedTrack::Downloaded(download_track(cfg, track)?))
+    Ok(PreparedTrack::Downloaded(Box::new(download_track(
+        cfg, track,
+    )?)))
 }
 
 pub fn download_and_compare_track(

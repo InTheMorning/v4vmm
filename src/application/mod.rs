@@ -12,6 +12,7 @@ pub(crate) mod capability_recovery;
 pub mod command_bus;
 pub mod command_context;
 pub mod commands;
+pub(crate) mod conversion_recovery;
 pub mod errors;
 pub mod events;
 pub mod library_removal;

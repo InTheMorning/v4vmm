@@ -68,7 +68,13 @@ Settings/core-recovery presentation and preservation in both fixture cases are
 accepted. Normal-mode restoration and fixture cleanup are confirmed. The
 [operator procedure](docs/runbooks/startup-recovery-check.md#task-008-converter-verification-and-setup)
 remains a regression check.
-Tasks 009–013 have not started in the
+[Task 009: Conversion retry and retained input](docs/tasks/adr-0066-task-009-conversion-retry-and-retained-input.md)
+is complete on 2026-09-17 with mechanical checks Green. Operator V1–V3,
+normal/narrow presentation, configuration restoration and preservation are
+accepted; fixture cleanup is confirmed. Its
+[procedure](docs/runbooks/startup-recovery-check.md#task-009-conversion-retry-and-retained-input)
+remains a regression check.
+Tasks 010–013 have not started in the
 [phase plan](docs/plans/adr-0066-startup-recovery-phase-plan.md).
 
 [ADR 0063 task 005](docs/tasks/adr-0063-task-005-shared-log-frames-and-following.md)
@@ -87,7 +93,7 @@ remain untested coverage limits. The packet owns double/triple-click selection
 and Linux primary paste across shared logs and inputs. The completed log packet
 stays closed. Its separate [operator procedure](docs/runbooks/text-selection-check.md)
 covers Unicode, paths, cross-application paste, Undo/Redo and accepted Escape.
-ADR 0066 tasks 007–008 are complete. Task 009 is next in that series and has
+ADR 0066 tasks 007–009 are complete. Task 010 is next in that series and has
 not started; it requires a fresh session.
 
 [ADR 0068: Show cue and audition isolation](docs/adr/0068-show-cue-and-audition-isolation.md)

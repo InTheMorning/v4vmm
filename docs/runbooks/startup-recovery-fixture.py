@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Isolated ADR 0066 fixture. Only run opens the GUI."""
 import argparse
+import base64
 import hashlib
 import http.server
 from datetime import datetime, timezone
@@ -28,7 +29,9 @@ REPAIR_CASES = ("repair-toml", "repair-paths", "repair-optional", "repair-unread
 RETRY_CASES = ("retry-actions",)
 CONVERTER_CASES = ("converter-setup", "converter-recovery")
 CONVERTER_MODES = ("missing", "working", "fallback", "nonzero", "timeout", "permission", "output-limit")
-CASES += ("session-held-command",) + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES
+CONVERSION_CASES = ("conversion-retry",)
+CONVERSION_MODES = ("encode-failure", "working", "fallback")
+CASES += ("session-held-command",) + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES
 
 
 def digest(path):
@@ -63,7 +66,7 @@ def environment(root):
                PATH=str(root / "bin") + os.pathsep + os.defpath,
                V4VMM_STARTUP_FIXTURE=str(root))
     case_file = root / "case.json"
-    if case_file.exists() and json.loads(case_file.read_text()).get("case") in CONVERTER_CASES:
+    if case_file.exists() and json.loads(case_file.read_text()).get("case") in CONVERTER_CASES + CONVERSION_CASES:
         # No installed converter can leak into the missing-tools case. Stub
         # interpreters and sleep use absolute paths; cargo builds before this env.
         env["PATH"] = str(root / "bin")
@@ -177,12 +180,12 @@ def hold_lock(root):
 
 def mode(root, case):
     previous = json.loads((root / "case.json").read_text())["case"]
-    if (case in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES or previous in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES or "session-held-command" in (case, previous)) and owned_process(root, "app.pid"):
+    if (case in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES or previous in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES or "session-held-command" in (case, previous)) and owned_process(root, "app.pid"):
         raise SystemExit("Close the fixture app before changing optional-tool or session cases.")
-    if previous in CONVERTER_CASES:
+    if previous in CONVERTER_CASES + CONVERSION_CASES:
         for name in ("flac", "ffmpeg"):
             (root / "bin" / name).unlink(missing_ok=True)
-    if previous in RETRY_CASES:
+    if previous in RETRY_CASES + CONVERSION_CASES:
         stop_retry_server(root)
         saved_stub = root / "systemctl.before-retry"
         if saved_stub.exists():
@@ -200,7 +203,15 @@ def mode(root, case):
     cfg.chmod(0o600)
     (root / "repair.external").unlink(missing_ok=True)
     cfg.write_bytes((root / "config.baseline").read_bytes())
-    if case in CONVERTER_CASES:
+    if case in CONVERSION_CASES:
+        retry_tools(root)
+        endpoint = (root / "retry-endpoint").read_text()
+        cfg.write_text(cfg.read_text().replace('musicindex_endpoint = "http://127.0.0.1:9"', 'musicindex_endpoint = ' + json.dumps(endpoint)))
+        subprocess.run([str(REPO / "target/debug/v4vmm"), "startup-fixture", "conversion-seed", str(root)], env=environment(root), check=True)
+        (root / "converter-calls.jsonl").write_text("")
+        conversion_tools(root, "encode-failure")
+        purpose = "Open Startup fixture playlist in Music. Download Conversion retry and Conversion redownload. The isolated converters pass version checks but fail encoding until conversion-tools changes them. No audio hardware, installed converter, or external service is needed."
+    elif case in CONVERTER_CASES:
         text = cfg.read_text().replace('musicindex_endpoint = "http://127.0.0.1:9"', 'musicindex_endpoint = 42')
         if case == "converter-recovery":
             text = text.replace(json.dumps(str(root / "music")), '""')
@@ -371,9 +382,10 @@ def retry_server(root):
         def do_GET(self):
             with (root / "retry-requests.jsonl").open("a") as output:
                 output.write(json.dumps({"at": datetime.now(timezone.utc).isoformat(), "request": self.path}) + "\n")
-            body = b'{"data":[],"pagination":{"has_more":false}}'
+            audio = self.path in ("/conversion-4.wav", "/conversion-5.wav")
+            body = (root / "music/a.wav").read_bytes() if audio else b'{"data":[],"pagination":{"has_more":false}}'
             self.send_response(200)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", "audio/wav" if audio else "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -534,6 +546,101 @@ def converter_status(root):
     return records
 
 
+def conversion_tools(root, tool_mode):
+    """Deterministic encoding stubs; existing WAV fixture remains untouched."""
+    # Real 80-sample silent FLAC, encoded once. Stubs need no installed encoder.
+    flac = (Path(__file__).parent / "fixtures/conversion.flac").read_bytes()
+    for name in ("flac", "ffmpeg"):
+        tool = root / "bin" / name
+        code = f'''#!{sys.executable}
+import base64, json, os, sys
+from pathlib import Path
+from datetime import datetime, timezone
+root = Path({str(root)!r})
+args = sys.argv[1:]
+with (root / 'converter-calls.jsonl').open('a') as log:
+    log.write(json.dumps({{'tool': {name!r}, 'arguments': args, 'pid': os.getpid(), 'at': datetime.now(timezone.utc).isoformat()}}) + '\\n')
+if args == [{'--version' if name == 'flac' else '-version'!r}]:
+    sys.exit(0)
+target = Path(args[args.index('-o') + 1] if {name!r} == 'flac' else args[-1])
+if {tool_mode!r} == 'encode-failure' or ({tool_mode!r} == 'fallback' and {name!r} == 'flac'):
+    target.write_bytes(b'failed partial conversion')
+    print('fixture secret must not enter report', file=sys.stderr)
+    sys.exit(7)
+target.write_bytes(base64.b64decode({base64.b64encode(flac).decode()!r}))
+'''
+        temporary = tool.with_suffix(".new")
+        temporary.write_text(code)
+        temporary.chmod(0o700)
+        temporary.replace(tool)
+    (root / "converter-mode").write_text(tool_mode)
+    print(f"Conversion fixture mode: {tool_mode}. Saving Settings does not retry a track; use its explicit action.")
+
+
+def conversion_status(root):
+    conn = sqlite3.connect(f"file:{root / 'data/library.sqlite'}?mode=ro", uri=True)
+    rows = conn.execute("SELECT t.id, t.track_title, t.is_in_library, lf.path FROM tracks t LEFT JOIN local_files lf ON lf.track_id=t.id ORDER BY t.id").fetchall()
+    counts = {table: conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] for table in ("tracks", "local_files", "playlist_tracks")}
+    conn.close()
+    requests = [json.loads(line) for line in (root / "retry-requests.jsonl").read_text().splitlines()]
+    report = {"tracks": rows, "counts": counts, "audio_requests": [record for record in requests if record["request"].startswith("/conversion-")], "staging": [str(path.relative_to(root)) for path in (root / "music/.v4vmm-staging").glob("*/*")]}
+    print(json.dumps(report, indent=2))
+    return report
+
+
+def conversion_remove_input(root):
+    conn = sqlite3.connect(f"file:{root / 'data/library.sqlite'}?mode=ro", uri=True)
+    rows = conn.execute("SELECT path FROM local_files WHERE track_id=5").fetchall()
+    conn.close()
+    if len(rows) != 1 or not rows[0][0].endswith(".wav"):
+        raise SystemExit("Download Conversion redownload with failed converters first.")
+    source = root / "music" / rows[0][0]
+    if not source.resolve().is_relative_to((root / "music").resolve()) or source.is_symlink():
+        raise SystemExit("Refusing input outside fixture music.")
+    preserved = root / "removed-conversion-input.wav"
+    if preserved.exists():
+        raise SystemExit("The removed input is already preserved; keep it for inspection.")
+    source.rename(preserved)
+    print(f"Preserved fixture input at {preserved}. Retry must explain redownload before requesting the enclosure again.")
+
+
+def conversion_inspect(root, manifest):
+    if owned_process(root, "app.pid"):
+        raise SystemExit("Close the fixture app before conversion-inspect.")
+    report = conversion_status(root)
+    checks = {
+        "one_binding_per_track": report["counts"] == {"tracks": 5, "local_files": 5, "playlist_tracks": 5},
+        "original_tracks_preserved": all(digest(root / "music" / name) == expected for name, expected in manifest["track_sha256"].items()),
+        "original_bindings_preserved": [row[3] for row in report["tracks"][:3]] == ["a.wav", "b.wav", "c.wav"],
+        "converted_bindings": all(row[2] == 1 and row[3].endswith(".flac") for row in report["tracks"][3:]),
+        "one_reuse_and_one_explicit_redownload": [row["request"] for row in report["audio_requests"]].count("/conversion-4.wav") == 1 and [row["request"] for row in report["audio_requests"]].count("/conversion-5.wav") == 2,
+        "staging_released": not report["staging"],
+        "removed_wav_preserved": digest(root / "removed-conversion-input.wav") == manifest["track_sha256"]["a.wav"],
+    }
+    before = tomllib.loads((root / "case.config").read_text())
+    after = tomllib.loads((root / "config/v4vmm/config.toml").read_text())
+    for value in (before, after):
+        value.pop("workspace", None)
+        value.pop("workspace_layout", None)
+    checks["configuration_preserved"] = before == after
+    cfg = root / "config/v4vmm/config.toml"
+    original_hash = json.loads((root / "case.json").read_text())["config_sha256"]
+    backups = list(cfg.parent.glob(".v4vmm-config-*.backup"))
+    checks["original_config_revision_preserved"] = digest(cfg) == original_hash or any(digest(path) == original_hash for path in backups)
+    checks["private_backups"] = all(path.stat().st_mode & 0o777 == 0o600 for path in backups)
+    checks["no_candidates_or_probes"] = not list(cfg.parent.glob(".v4vmm-config-*.candidate")) and not list((root / "music").rglob(".v4vmm-startup-probe-*"))
+    saved = json.loads(subprocess.check_output([manifest["binary"], "startup-fixture", "inspect", str(root)], env=environment(root), text=True))
+    checks["migrations_and_database_preserved"] = saved["migration_versions"] == manifest["migration_versions"] and saved["database_probes"] == 0 and saved["playlists"] == 1
+    checks["unrelated_audio_preserved"] = digest(root / "music/unchanged-audio.bin") == manifest["audio_sha256"]
+    retained_source = root / "music" / report["tracks"][3][3]
+    checks["original_usable_wav_preserved"] = digest(retained_source.with_suffix(".wav")) == manifest["track_sha256"]["a.wav"]
+    calls = [json.loads(line) for line in (root / "converter-calls.jsonl").read_text().splitlines()]
+    checks["converter_children_reaped"] = all(not Path(f'/proc/{record["pid"]}').exists() for record in calls)
+    print(json.dumps(checks, indent=2))
+    if not all(checks.values()):
+        raise SystemExit("Conversion preservation failed. Keep this fixture.")
+
+
 def converter_inspect(root, manifest):
     if owned_process(root, "app.pid"):
         raise SystemExit("Close the fixture app before converter-inspect.")
@@ -623,9 +730,9 @@ def run_app(root, manifest):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "session-status", "session-release", "repair-access", "repair-conflict", "repair-inspect", "retry-status", "retry-release", "retry-inspect", "retry-server", "converter-tools", "converter-status", "converter-inspect"))
+    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "session-status", "session-release", "repair-access", "repair-conflict", "repair-inspect", "retry-status", "retry-release", "retry-inspect", "retry-server", "converter-tools", "converter-status", "converter-inspect", "conversion-tools", "conversion-status", "conversion-remove-input", "conversion-inspect"))
     parser.add_argument("directory", nargs="?")
-    parser.add_argument("case", nargs="?", choices=CASES + CONVERTER_MODES)
+    parser.add_argument("case", nargs="?", choices=CASES + CONVERTER_MODES + CONVERSION_MODES)
     args = parser.parse_args()
     if args.command == "setup":
         setup()
@@ -651,6 +758,19 @@ def main():
         if args.case not in CASES:
             parser.error("mode requires a case")
         mode(root, args.case)
+    elif args.command.startswith("conversion-"):
+        if json.loads((root / "case.json").read_text())["case"] not in CONVERSION_CASES:
+            raise SystemExit("Select conversion-retry first.")
+        if args.command == "conversion-tools":
+            if args.case not in CONVERSION_MODES:
+                parser.error("conversion-tools requires encode-failure, working or fallback")
+            conversion_tools(root, args.case)
+        elif args.command == "conversion-status":
+            conversion_status(root)
+        elif args.command == "conversion-remove-input":
+            conversion_remove_input(root)
+        else:
+            conversion_inspect(root, manifest)
     elif args.command in ("converter-tools", "converter-status", "converter-inspect"):
         if json.loads((root / "case.json").read_text())["case"] not in CONVERTER_CASES:
             raise SystemExit("Select converter-setup or converter-recovery first.")

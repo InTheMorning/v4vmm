@@ -37,7 +37,9 @@ When you need to look something up, consult this map first to find the right fil
 | RSS vs ID3 vs MusicBrainz diff, `TrackContext` compare | `src/track_compare.rs` |
 | `TrackContext`, `TagCompareResult`, `ImageBytes` — no GPUI | `src/metadata.rs` |
 | Pure metadata derivation, `id3_edits_for_track_context` | `src/metadata_service.rs` |
-| Download + tag + library-membership pipeline | `src/subscribe_service.rs` |
+| Download + tag + library-membership pipeline, shared conversion replacement | `src/subscribe_service.rs`, `src/subscribe_service/materialization.rs` (ADR 0066) |
+| Session-owned conversion retry, original requests and explicit redownload | `src/application/conversion_recovery.rs`, existing download port/commands and capability recovery controls (ADR 0066) |
+| Retained artifact identity, contained staging and cleanup | `src/track_compare/retained.rs`, `src/track_compare.rs` (ADR 0066) |
 | `ensure_feed_in_db`, feed subscription glue | `src/feed_service.rs` |
 | Library membership, `subscribe_then_append_to_playlist` | `src/library_service.rs` |
 | Playlist CRUD and track append | `src/playlist_service.rs` |

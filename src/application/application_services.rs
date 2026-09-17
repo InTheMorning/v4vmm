@@ -15,6 +15,7 @@ pub struct ApplicationServices {
     query_service: Arc<ApplicationQueryService>,
     event_bus: Arc<ApplicationEventBus>,
     download_manager: Arc<dyn DownloadManager>,
+    conversion_recovery: Arc<super::conversion_recovery::ConversionRecovery>,
 }
 
 impl ApplicationServices {
@@ -24,12 +25,17 @@ impl ApplicationServices {
     ///
     /// Returns an error if the root service graph is incomplete.
     pub fn local_with_service_adapters() -> Result<Self, ApplicationServicesBuildError> {
-        Self::builder()
+        let recovery = Arc::new(super::conversion_recovery::ConversionRecovery::default());
+        let mut services = Self::builder()
             .command_bus(Arc::new(CommandBus::new()))
             .query_service(Arc::new(ApplicationQueryService::new()))
             .event_bus(Arc::new(ApplicationEventBus::new()))
-            .download_manager(Arc::new(ServiceDownloadManager::new()))
-            .build()
+            .download_manager(Arc::new(ServiceDownloadManager::with_recovery(Arc::clone(
+                &recovery,
+            ))))
+            .build()?;
+        services.conversion_recovery = recovery;
+        Ok(services)
     }
 
     /// Starts building application service wiring.
@@ -60,6 +66,12 @@ impl ApplicationServices {
     #[must_use]
     pub fn download_manager(&self) -> Arc<dyn DownloadManager> {
         Arc::clone(&self.download_manager)
+    }
+
+    pub(crate) fn conversion_recovery(
+        &self,
+    ) -> Arc<super::conversion_recovery::ConversionRecovery> {
+        Arc::clone(&self.conversion_recovery)
     }
 }
 
@@ -119,6 +131,7 @@ impl ApplicationServicesBuilder {
     /// Returns an error when a required dependency is missing.
     pub fn build(self) -> Result<ApplicationServices, ApplicationServicesBuildError> {
         Ok(ApplicationServices {
+            conversion_recovery: Arc::new(super::conversion_recovery::ConversionRecovery::default()),
             command_bus: self
                 .command_bus
                 .ok_or(ApplicationServicesBuildError::MissingCommandBus)?,

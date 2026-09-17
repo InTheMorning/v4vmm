@@ -28,6 +28,7 @@ pub struct SubscribeTrackResult {
     path: String,
     relative_path: Option<LibraryRelativePath>,
     format_warning: Option<String>,
+    conversion: crate::audio_format::ConversionOutcome,
     applied_edits: usize,
     marked_downloaded: bool,
     compare: Option<TagCompareResult>,
@@ -42,6 +43,7 @@ impl SubscribeTrackResult {
             path: outcome.path.display().to_string(),
             relative_path: outcome.relative_path,
             format_warning: outcome.format_warning,
+            conversion: outcome.conversion,
             applied_edits: outcome.applied_edits,
             marked_downloaded: outcome.marked_downloaded,
             compare: outcome.compare,
@@ -65,6 +67,10 @@ impl SubscribeTrackResult {
     #[must_use]
     pub fn format_warning(&self) -> Option<&str> {
         self.format_warning.as_deref()
+    }
+
+    pub fn conversion(&self) -> crate::audio_format::ConversionOutcome {
+        self.conversion
     }
 
     /// Returns how many ID3 edits were applied.
@@ -136,6 +142,51 @@ impl ApplicationCommand for SubscribeTrack {
             SubscribeTrackResult::from_outcome(outcome, self.success_message),
             download_changed_events(),
         ))
+    }
+}
+
+/// Explicit conversion retry; retains the original subject in the session owner (ADR 0066).
+pub(crate) struct RetryConversion {
+    pub(crate) recovery: Arc<crate::application::conversion_recovery::ConversionRecovery>,
+    pub(crate) conn: SharedConnection,
+    pub(crate) config_path: PathBuf,
+    pub(crate) id: u64,
+    pub(crate) redownload: bool,
+}
+
+impl ApplicationCommand for RetryConversion {
+    type Output = SubscribeTrackResult;
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        let outcome = self
+            .recovery
+            .retry(self.id, self.redownload, &self.conn, &self.config_path)
+            .map_err(|error| {
+                CommandError::Other(crate::diagnostics::redact_endpoint_details(&format!(
+                    "{error:#}"
+                )))
+            })?;
+        Ok(CommandOutcome::new(
+            SubscribeTrackResult::from_outcome(outcome, "Original track retry finished".into()),
+            download_changed_events(),
+        ))
+    }
+}
+
+pub(crate) struct DiscardConversion {
+    pub(crate) recovery: Arc<crate::application::conversion_recovery::ConversionRecovery>,
+    pub(crate) id: u64,
+}
+
+impl ApplicationCommand for DiscardConversion {
+    type Output = ();
+    fn execute(self, _context: &CommandContext) -> CommandResult<()> {
+        self.recovery
+            .discard(self.id)
+            .map_err(|error| CommandError::Other(format!("{error:#}")))?;
+        Ok(CommandOutcome::new((), Vec::new()))
     }
 }
 
@@ -593,6 +644,7 @@ mod tests {
             _context: &CommandContext,
         ) -> Result<SubscribeTrackOutcome, DownloadError> {
             Ok(SubscribeTrackOutcome {
+                conversion: crate::audio_format::ConversionOutcome::NotRequired,
                 path: PathBuf::from("/tmp/fake.mp3"),
                 relative_path: None,
                 format_warning: Some("format warning".to_string()),

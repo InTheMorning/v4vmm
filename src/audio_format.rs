@@ -151,19 +151,57 @@ pub fn transcode_wav_to_flac(
     )
 }
 
+/// Actual encoder outcome, separate from version-check availability (ADR 0066).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ConversionOutcome {
+    #[default]
+    NotRequired,
+    Flac,
+    FfmpegFallback,
+    WavRetained,
+}
+
+/// Converts an owned staging input without deleting it (ADR 0066).
+pub(crate) fn convert_retaining_input(
+    wav_path: &Path,
+    binary_override: Option<&Path>,
+) -> Result<(std::path::PathBuf, ConversionOutcome)> {
+    encode_observed(
+        wav_path,
+        &probe::ConverterObservation::refresh(binary_override),
+    )
+}
+
 fn transcode_observed(
     wav_path: &Path,
     observation: &probe::ConverterObservation,
 ) -> Result<std::path::PathBuf> {
+    let (path, _) = encode_observed(wav_path, observation)?;
+    std::fs::remove_file(wav_path)
+        .with_context(|| format!("remove converted WAV input {}", wav_path.display()))?;
+    Ok(path)
+}
+
+fn encode_observed(
+    wav_path: &Path,
+    observation: &probe::ConverterObservation,
+) -> Result<(std::path::PathBuf, ConversionOutcome)> {
     let flac_path = wav_path.with_extension("flac");
+    anyhow::ensure!(
+        !flac_path.exists(),
+        "conversion output already exists: {}",
+        flac_path.display()
+    );
 
     let flac_err = if observation.flac.available() {
         match run_flac_encode(wav_path, &flac_path, Some(&observation.flac.executable)) {
             Ok(()) => {
-                let _ = std::fs::remove_file(wav_path);
-                return Ok(flac_path);
+                return Ok((flac_path, ConversionOutcome::Flac));
             }
-            Err(err) => Some(err),
+            Err(err) => {
+                remove_failed_output(&flac_path)?;
+                Some(err)
+            }
         }
     } else {
         None
@@ -172,15 +210,17 @@ fn transcode_observed(
     if observation.ffmpeg.available() {
         match run_ffmpeg_encode(wav_path, &flac_path, &observation.ffmpeg.executable) {
             Ok(()) => {
-                let _ = std::fs::remove_file(wav_path);
-                return Ok(flac_path);
+                return Ok((flac_path, ConversionOutcome::FfmpegFallback));
             }
-            Err(ffmpeg_err) => match flac_err {
+            Err(ffmpeg_err) => {
+                remove_failed_output(&flac_path)?;
+                match flac_err {
                 Some(flac_err) => anyhow::bail!(
                     "flac encode failed ({flac_err:#}); ffmpeg fallback also failed ({ffmpeg_err:#})"
                 ),
                 None => return Err(ffmpeg_err),
-            },
+                }
+            }
         }
     }
 
@@ -191,6 +231,15 @@ fn transcode_observed(
             observation.flac.executable.display(), observation.flac.source, observation.flac.outcome,
             observation.ffmpeg.executable.display(), observation.ffmpeg.outcome
         ),
+    }
+}
+
+fn remove_failed_output(path: &Path) -> Result<()> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error)
+            .with_context(|| format!("remove failed conversion output {}", path.display())),
     }
 }
 
@@ -211,13 +260,17 @@ fn run_flac_encode(
         .output()
         .with_context(|| format!("invoke flac for {}", wav_path.display()))?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!(
-            "flac failed (status {:?}): {}",
+            "FLAC encoding failed (exit {:?}) for {}",
             output.status.code(),
-            stderr.trim()
+            wav_path.display()
         );
     }
+    anyhow::ensure!(
+        AudioFormat::detect_from_file(flac_path)? == AudioFormat::Flac,
+        "FLAC encoder did not produce a FLAC file: {}",
+        flac_path.display()
+    );
     Ok(())
 }
 
@@ -237,13 +290,17 @@ fn run_ffmpeg_encode(wav_path: &Path, flac_path: &Path, binary: &Path) -> Result
         .output()
         .with_context(|| format!("invoke ffmpeg for {}", wav_path.display()))?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!(
-            "ffmpeg failed (status {:?}): {}",
+            "ffmpeg encoding failed (exit {:?}) for {}",
             output.status.code(),
-            stderr.trim()
+            wav_path.display()
         );
     }
+    anyhow::ensure!(
+        AudioFormat::detect_from_file(flac_path)? == AudioFormat::Flac,
+        "ffmpeg did not produce a FLAC file: {}",
+        flac_path.display()
+    );
     Ok(())
 }
 
@@ -381,5 +438,36 @@ mod tests {
         assert!(!AudioFormat::Wav.supports_tagging());
         assert!(AudioFormat::Flac.supports_tagging());
         assert!(AudioFormat::Mp3.supports_tagging());
+    }
+
+    #[test]
+    fn adr_0066_conversion_actual_fallback_cleans_partial_output_and_keeps_input() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let wav = temp.path().join("input.wav");
+        let output = wav.with_extension("flac");
+        fs::write(&wav, b"RIFFfixtureWAVE").unwrap();
+        let flac = temp.path().join("flac");
+        let ffmpeg = temp.path().join("ffmpeg");
+        fs::write(&flac, "#!/bin/sh\n[ \"$1\" = --version ] && exit 0\nwhile [ \"$1\" != -o ]; do shift; done\nshift\nprintf partial > \"$1\"\nexit 7\n").unwrap();
+        fs::write(&ffmpeg, "#!/bin/sh\n[ \"$1\" = --version ] && exit 0\nfor last do :; done\n[ -e \"$last\" ] && exit 99\nprintf 'fLaC-fallback' > \"$last\"\n").unwrap();
+        for binary in [&flac, &ffmpeg] {
+            fs::set_permissions(binary, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let observation = probe::ConverterObservation {
+            flac: probe::ConverterProbe::flac(Some(&flac)),
+            ffmpeg: probe::ConverterProbe::flac(Some(&ffmpeg)),
+        };
+        let (path, outcome) = encode_observed(&wav, &observation).unwrap();
+        assert_eq!(path, output);
+        assert_eq!(outcome, ConversionOutcome::FfmpegFallback);
+        assert!(wav.exists());
+        fs::remove_file(&output).unwrap();
+        fs::write(&ffmpeg, "#!/bin/sh\nfor last do :; done\nprintf partial > \"$last\"\nprintf 'fixture secret' >&2\nexit 8\n").unwrap();
+        let error = encode_observed(&wav, &observation).unwrap_err().to_string();
+        assert!(!error.contains("fixture secret"));
+        assert!(!output.exists());
+        assert!(wav.exists());
     }
 }

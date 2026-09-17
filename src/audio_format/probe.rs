@@ -251,17 +251,20 @@ mod tests {
         assert_eq!(std::fs::read(&output).unwrap(), b"fLaC-reference");
         assert!(!wav.exists());
         // A valid configured FLAC rejecting the input still allows ffmpeg.
+        std::fs::remove_file(&output).unwrap();
         executable(&flac, "if [ \"$1\" = --version ]; then exit 0; fi\nexit 9");
         std::fs::write(&wav, b"RIFFfixtureWAVE").unwrap();
         super::super::transcode_observed(&wav, &check(&flac)).unwrap();
         assert_eq!(std::fs::read(&output).unwrap(), b"fLaC-fallback");
         // An explicit missing path stays missing, while ffmpeg remains usable.
+        std::fs::remove_file(&output).unwrap();
         std::fs::write(&wav, b"RIFFfixtureWAVE").unwrap();
         let missing = check(&temp.path().join("explicit-missing"));
         assert_eq!(missing.flac.outcome, ProbeOutcome::Missing);
         super::super::transcode_observed(&wav, &missing).unwrap();
         assert_eq!(std::fs::read(&output).unwrap(), b"fLaC-fallback");
         executable(&ffmpeg, "exit 8");
+        std::fs::remove_file(&output).unwrap();
         std::fs::write(&wav, b"RIFFfixtureWAVE").unwrap();
         assert!(super::super::transcode_observed(
             &wav,
