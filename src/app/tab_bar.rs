@@ -158,8 +158,8 @@ fn render_global_search_submit_button(
     .a11y_label(display.search_button_a11y_label)
     .disabled(display.availability != crate::view_models::startup::StartupAvailability::Available);
 
-    button = button.on_click(cx.listener(|this, _, _, cx| {
-        this.submit_global_search(cx);
+    button = button.on_click(cx.listener(|this, _, window, cx| {
+        this.submit_global_search(window, cx);
     }));
     button
 }

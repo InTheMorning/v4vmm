@@ -26,6 +26,12 @@ pub enum CapabilityAction {
     Configure(Dependency),
     CheckAgain(Dependency),
     CopyReport,
+    OpenReport,
+    Repair(u64),
+    Review(u64),
+    Verify(u64),
+    Retry(u64),
+    Dismiss(u64),
 }
 
 /// A blocked command carries its remedy through every dispatch entry point.
@@ -115,6 +121,7 @@ pub struct FeatureAvailability {
     publisher: bool,
     producer: bool,
     encoder: bool,
+    checking: Option<Dependency>,
 }
 
 impl FeatureAvailability {
@@ -131,6 +138,7 @@ impl FeatureAvailability {
             producer: matches!(&broadcast.drop_directory, Ok(Some(_)))
                 && broadcast.drop_file_target.is_ok(),
             encoder: matches!(&broadcast.encoder, Ok(Some(_))),
+            checking: None,
         }
     }
 
@@ -140,17 +148,33 @@ impl FeatureAvailability {
     }
 
     pub fn with_observations(mut self, observations: &CapabilitySnapshot) -> Self {
-        if observations
-            .get(&Dependency::Producer)
-            .is_some_and(|entry| entry.failure.is_some())
-        {
-            self.producer = false;
+        for (dependency, available) in [
+            (Dependency::MusicIndex, &mut self.musicindex),
+            (Dependency::Playback, &mut self.playback),
+            (Dependency::Publisher, &mut self.publisher),
+            (Dependency::Producer, &mut self.producer),
+            (Dependency::Encoder, &mut self.encoder),
+        ] {
+            if observations
+                .get(&dependency)
+                .is_some_and(|entry| entry.failure.is_some())
+            {
+                *available = false;
+            }
         }
+        self
+    }
+
+    pub(crate) fn with_checking(mut self, dependency: Option<Dependency>) -> Self {
+        self.checking = dependency;
         self
     }
 
     pub fn require(self, dependency: Dependency) -> Result<(), ExecutionUnavailable> {
         self.runtime?;
+        if self.checking == Some(dependency) {
+            return Err(ExecutionUnavailable::configured(dependency));
+        }
         let available = match dependency {
             Dependency::MusicIndex => self.musicindex,
             Dependency::Playback => self.playback,
@@ -191,6 +215,51 @@ impl CapabilityObservations {
     pub fn snapshot(&self) -> CapabilitySnapshot {
         self.0.borrow().clone()
     }
+
+    /// Only a fresh scoped check can retire the corresponding configuration issues.
+    pub(crate) fn checked_configuration(
+        &self,
+        snapshot: &crate::config::ConfigSnapshot,
+        dependency: Dependency,
+    ) {
+        let issues = snapshot.issues();
+        self.0.send_modify(|entries| {
+            for (key, observation) in entries.iter_mut() {
+                if let Dependency::Configuration(field) = key {
+                    if configuration_dependency(field) == dependency {
+                        observation.failure = issues
+                            .iter()
+                            .find(|issue| issue.field == *field)
+                            .copied()
+                            .map(CapabilityFailure::Configuration);
+                        observation.observed_at = SystemTime::now();
+                    }
+                }
+            }
+            for issue in issues
+                .iter()
+                .filter(|issue| configuration_dependency(issue.field) == dependency)
+            {
+                let key = Dependency::Configuration(issue.field);
+                entries.insert(
+                    key,
+                    CapabilityObservation::new(key, Some(CapabilityFailure::Configuration(*issue))),
+                );
+            }
+        });
+    }
+}
+
+pub(crate) fn configuration_dependency(field: &str) -> Dependency {
+    match field {
+        "musicindex_endpoint" => Dependency::MusicIndex,
+        "playback" | "playback.driver" | "playback.mpv_path" => Dependency::Playback,
+        "broadcast" | "broadcast.hosts" | "broadcast.selected_host" => Dependency::Publisher,
+        "broadcast.drop_directory" | "broadcast.drop_file_target" => Dependency::Producer,
+        "broadcast.encoder" => Dependency::Encoder,
+        "flac_path" => Dependency::Converter,
+        _ => Dependency::Presentation,
+    }
 }
 
 #[cfg(test)]
@@ -228,6 +297,34 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn adr_0066_failed_tool_check_disables_only_its_old_resource() {
+        let snapshot = crate::config::ConfigSnapshot::from_bytes(
+            std::path::Path::new("fixture.toml"),
+            Vec::new(),
+        )
+        .unwrap();
+        let features = FeatureAvailability::from_resources(
+            &"https://index.test".into(),
+            &snapshot.broadcast(),
+            true,
+        );
+        let observations = CapabilityObservations::default();
+        observations.record(CapabilityObservation::new(
+            Dependency::Playback,
+            Some(CapabilityFailure::Preparation),
+        ));
+        let failed = features.with_observations(&observations.snapshot());
+        assert!(failed.require(Dependency::Playback).is_err());
+        assert!(failed.require(Dependency::MusicIndex).is_ok());
+        assert!(failed.require(Dependency::Publisher).is_ok());
+        observations.record(CapabilityObservation::new(Dependency::Playback, None));
+        assert!(features
+            .with_observations(&observations.snapshot())
+            .require(Dependency::Playback)
+            .is_ok());
+    }
 
     #[test]
     fn adr_0066_observations_are_independent_without_a_runtime() {

@@ -26,10 +26,10 @@ pub(crate) mod correction;
 // admission boundary per resolved destination (ADR 0066). Never wait on the UI.
 static CONFIGURATION_WRITES: Mutex<BTreeSet<PathBuf>> = Mutex::new(BTreeSet::new());
 
-struct ConfigWriteLease(PathBuf);
+pub(crate) struct ConfigWriteLease(PathBuf);
 
 impl ConfigWriteLease {
-    fn acquire(path: &Path) -> Result<Self> {
+    pub(crate) fn acquire(path: &Path) -> Result<Self> {
         let destination = fs::canonicalize(path).with_context(|| {
             format!(
                 "App could not resolve existing configuration {} for saving",
@@ -42,7 +42,7 @@ impl ConfigWriteLease {
             )
         })?;
         if !writes.insert(destination.clone()) {
-            return Err(anyhow!("App is already saving this configuration. The competing save did not change it; retry after the current save finishes."));
+            return Err(anyhow!("App is already saving or checking this configuration. The competing save did not change it; retry after that operation finishes."));
         }
         Ok(Self(destination))
     }

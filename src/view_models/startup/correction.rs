@@ -57,6 +57,58 @@ pub(crate) struct CorrectionVm {
 }
 
 impl CorrectionVm {
+    pub(crate) fn saved(&self) -> bool {
+        self.saved
+    }
+
+    pub(crate) fn focus_field(&mut self, requested: CorrectionField) {
+        let field = self
+            .source
+            .as_ref()
+            .and_then(|source| source.snapshot.as_ref())
+            .and_then(|snapshot| {
+                snapshot
+                    .issues()
+                    .iter()
+                    .find(|issue| requested.0.starts_with(issue.field))
+                    .map(|issue| CorrectionField(issue.field))
+            })
+            .unwrap_or(requested);
+        self.select(field);
+    }
+
+    pub(crate) fn changed_dependencies(
+        &self,
+        result: &CorrectionResult,
+    ) -> Vec<crate::application::capability::Dependency> {
+        use crate::application::capability::Dependency;
+        use crate::application::capability_recovery::CapabilityRevision;
+        let CorrectionResult::Saved(receipt) = result else {
+            return Vec::new();
+        };
+        let Some(old) = self
+            .source
+            .as_ref()
+            .and_then(|source| source.snapshot.as_ref())
+        else {
+            return Vec::new();
+        };
+        [
+            Dependency::MusicIndex,
+            Dependency::Playback,
+            Dependency::Publisher,
+            Dependency::Producer,
+            Dependency::Encoder,
+            Dependency::Presentation,
+            Dependency::Converter,
+        ]
+        .into_iter()
+        .filter(|dependency| {
+            CapabilityRevision::of(old, *dependency)
+                != CapabilityRevision::of(&receipt.fresh, *dependency)
+        })
+        .collect()
+    }
     pub(crate) const TITLE: &'static str = "Configuration repair";
     pub(crate) const EXPLANATION: &'static str = "Load the current file to correct it. Editing keeps a draft only. Save preserves the original in a separate backup; it does not retry an operation. Core changes require ending this app session, then Check again and Open app.";
     pub(crate) const CLOSE_HELP: &'static str =
@@ -390,6 +442,26 @@ mod tests {
         let (generation, command) = vm.begin(CorrectionAction::Load, path.clone()).unwrap();
         vm.complete(generation, command.execute());
         (temp, path, vm)
+    }
+
+    #[test]
+    fn adr_0066_focused_repair_keeps_other_drafts_and_names_only_changed_tools() {
+        let (_temp, path, mut vm) = loaded();
+        vm.focus_field(CorrectionField("flac_path"));
+        vm.edit("/draft/flac".into());
+        vm.focus_field(CorrectionField("musicindex_endpoint"));
+        vm.edit("https://repaired.test".into());
+        vm.focus_field(CorrectionField("flac_path"));
+        assert_eq!(vm.value(), "/draft/flac");
+        let (_, command) = vm.begin(CorrectionAction::Save, path).unwrap();
+        let result = command.execute();
+        assert_eq!(
+            vm.changed_dependencies(&result),
+            vec![
+                crate::application::capability::Dependency::MusicIndex,
+                crate::application::capability::Dependency::Converter
+            ]
+        );
     }
 
     #[test]

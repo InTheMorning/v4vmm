@@ -84,8 +84,8 @@ use crate::view_models::workspace::{
 use crate::views::{EntityIdentityLinks, LocalIdentityFacts};
 use gpui::{
     div, prelude::*, px, AnyElement, ClickEvent, Context, Entity, FontWeight, Image,
-    InteractiveElement, IntoElement, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Render,
-    SharedString, Styled, Window,
+    InteractiveElement, IntoElement, MouseDownEvent, MouseUpEvent, Render, SharedString, Styled,
+    Window,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::Size;
@@ -618,6 +618,7 @@ impl LibraryApp {
             musicbrainz_feed_saga: None,
             recent_music_page: RecentFeedsPageVm::loading(),
             recent_music_scroll: gpui::ScrollHandle::new(),
+            split_pane_bounds: None,
         };
         app.maybe_start_musicbrainz_feed_saga(cx);
         app.start_async_reload(cx);
@@ -2951,6 +2952,14 @@ impl Render for LibraryApp {
             )
             .into_any_element();
 
+        let on_pane_layout = cx.listener(|this, bounds: &gpui::Bounds<gpui::Pixels>, _, cx| {
+            if this.split_pane_bounds != Some(*bounds) {
+                this.split_pane_bounds = Some(*bounds);
+                this.vm.end_resize();
+                cx.notify();
+            }
+        });
+
         let content = if matches!(self.detail, LibraryDetail::None) {
             let content_list_pane = render_library_content_list(
                 self.vm.content_list_page(),
@@ -2970,16 +2979,30 @@ impl Render for LibraryApp {
             SplitPane::new(chrome.split_pane_id)
                 .resize_handle_id(chrome.resize_handle_id)
                 .leading_width(px(self.vm.split_pane_width()))
-                .leading_min_width(layout::INSPECTOR_MIN_WIDTH)
+                .leading_min_width(layout::scaled_dimension(layout::INSPECTOR_MIN_WIDTH, cx))
+                .stacked_height(self.vm.split_pane_height().map(px))
+                .fit_to(
+                    self.split_pane_bounds,
+                    layout::scaled_dimension(layout::CONTENT_PANE_MIN_WIDTH, cx),
+                    layout::scaled_dimension(layout::SPLIT_STACKED_MIN_HEIGHT, cx),
+                )
+                .on_layout(move |bounds, window, cx| on_pane_layout(&bounds, window, cx))
                 .leading(leading_pane)
                 .trailing(trailing_pane)
-                .on_resize_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                .on_resize(cx.listener(|this, extent, _window, cx| {
                     if this.vm.is_resizing() {
-                        this.vm.resize_split_pane(
-                            f32::from(event.position.x),
-                            f32::from(layout::INSPECTOR_MIN_WIDTH),
-                            f32::from(layout::INSPECTOR_MAX_WIDTH),
-                        );
+                        match *extent {
+                            crate::ui::composites::split_pane::SplitPaneResize::Width(width) => {
+                                this.vm.resize_split_pane(
+                                    f32::from(width),
+                                    f32::from(layout::INSPECTOR_MIN_WIDTH),
+                                    f32::from(layout::INSPECTOR_MAX_WIDTH),
+                                );
+                            }
+                            crate::ui::composites::split_pane::SplitPaneResize::Height(height) => {
+                                this.vm.resize_split_pane_height(f32::from(height));
+                            }
+                        }
                         cx.notify();
                     }
                 }))
@@ -3021,16 +3044,30 @@ impl Render for LibraryApp {
             SplitPane::new(chrome.split_pane_id)
                 .resize_handle_id(chrome.resize_handle_id)
                 .leading_width(px(self.vm.split_pane_width()))
-                .leading_min_width(layout::INSPECTOR_MIN_WIDTH)
+                .leading_min_width(layout::scaled_dimension(layout::INSPECTOR_MIN_WIDTH, cx))
+                .stacked_height(self.vm.split_pane_height().map(px))
+                .fit_to(
+                    self.split_pane_bounds,
+                    layout::scaled_dimension(layout::CONTENT_PANE_MIN_WIDTH, cx),
+                    layout::scaled_dimension(layout::SPLIT_STACKED_MIN_HEIGHT, cx),
+                )
+                .on_layout(move |bounds, window, cx| on_pane_layout(&bounds, window, cx))
                 .leading(leading_pane)
                 .trailing(trailing_pane)
-                .on_resize_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                .on_resize(cx.listener(|this, extent, _window, cx| {
                     if this.vm.is_resizing() {
-                        this.vm.resize_split_pane(
-                            f32::from(event.position.x),
-                            f32::from(layout::INSPECTOR_MIN_WIDTH),
-                            f32::from(layout::INSPECTOR_MAX_WIDTH),
-                        );
+                        match *extent {
+                            crate::ui::composites::split_pane::SplitPaneResize::Width(width) => {
+                                this.vm.resize_split_pane(
+                                    f32::from(width),
+                                    f32::from(layout::INSPECTOR_MIN_WIDTH),
+                                    f32::from(layout::INSPECTOR_MAX_WIDTH),
+                                );
+                            }
+                            crate::ui::composites::split_pane::SplitPaneResize::Height(height) => {
+                                this.vm.resize_split_pane_height(f32::from(height));
+                            }
+                        }
                         cx.notify();
                     }
                 }))

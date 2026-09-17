@@ -156,7 +156,8 @@ screen never rereads its own GPUI entity during rendering. No new service state,
 protocol, schema migration, configuration format or correction/retry workflow
 was added in this packet. Session draining and resumption are delivered separately
 by task 005; shared guarded configuration correction is delivered by task 006.
-Both are complete with operator acceptance and cleanup. Tasks 007–013 have not started.
+Both are complete with operator acceptance and cleanup. Task 007 is implemented
+with its own operator gate open; tasks 008–013 have not started.
 
 ## Command And Query Dependency Inventory
 
@@ -257,8 +258,10 @@ three tracks and three playlist entries; bindings remain `a.wav`, `b.wav` and
 The inspection output has no timestamp; none is inferred from the earlier report.
 
 The remaining first-case visual checks are unconfirmed: normal navigation,
-local search results, all three playlist rows, unavailable Play, rejected
-Ctrl+Alt+P on Show and retained reports after navigation. Those checks remain
+local search results, all three playlist rows, rejected playback execution from
+Play/Ctrl+Alt+P on Show and retained reports after navigation. ADR 0066 task 007
+replaces disabled affordances with enabled repair routes; the execution
+restriction survives. Those checks remain
 open alongside the producer,
 publisher and partial-path-repair cases. No first-case acceptance or operator
 fixture cleanup is recorded; presentation acceptance is recorded below.

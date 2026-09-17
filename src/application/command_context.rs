@@ -72,6 +72,7 @@ pub struct CommandContext {
     operation_id: OperationId,
     cancellation: CancellationToken,
     trace_id: TraceId,
+    retry_subject: Option<Arc<super::capability_recovery::RetrySubject>>,
 }
 
 impl CommandContext {
@@ -97,6 +98,7 @@ impl CommandContext {
             operation_id,
             cancellation,
             trace_id,
+            retry_subject: None,
         }
     }
 
@@ -116,5 +118,43 @@ impl CommandContext {
     #[must_use]
     pub const fn trace_id(&self) -> TraceId {
         self.trace_id
+    }
+
+    pub(crate) fn with_retry_subject(
+        mut self,
+        subject: super::capability_recovery::RetrySubject,
+    ) -> Self {
+        self.retry_subject = Some(Arc::new(subject));
+        self
+    }
+
+    pub(crate) fn validate_retry_event_target(
+        &self,
+        event_id: &str,
+        target_name: &str,
+        transport: &crate::broadcast::transport::Transport,
+        instance_name: &str,
+    ) -> Result<(), super::CommandError> {
+        if let Some(subject) = &self.retry_subject {
+            subject
+                .action
+                .validate_event_target(event_id, target_name, transport, instance_name)
+                .map_err(|error| super::CommandError::Other(error.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Recheck under the command's existing database lock, before its side effect.
+    pub(crate) fn validate_retry_subject(
+        &self,
+        conn: &rusqlite::Connection,
+    ) -> Result<(), super::CommandError> {
+        if let Some(subject) = &self.retry_subject {
+            subject
+                .action
+                .validate_subject(conn, &subject.snapshot)
+                .map_err(|error| super::CommandError::Other(error.to_string()))?;
+        }
+        Ok(())
     }
 }

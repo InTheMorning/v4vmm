@@ -17,13 +17,14 @@ When you need to look something up, consult this map first to find the right fil
 | Recovery state/actions/reports; shared geometry; screen wiring | `src/view_models/startup.rs`, `src/ui/composites/startup_report.rs`, `src/app/startup.rs` |
 | Shared word/line selection and Linux primary paste | `src/view_models/text_selection.rs`, `src/ui/composites/selectable_text.rs`, `src/ui/primitives/primary_selection.rs`, commit-pinned `gpui-base` 0.6.1 (ADRs 0071/0072); migration and acceptance evidence in `docs/tasks/adr-0071-task-001-shared-text-selection.md` |
 | Shared log frame, source identity, follow/pause and reading anchors | `src/ui/composites/log_frame.rs`, `src/view_models/log_view.rs`, `src/view_models/show.rs` (ADR 0063); app roots retain `LogFrames` |
-| Show log height priority and scrolling cards, with independent sidebar | `src/view_models/show.rs`, `src/ui/composites/show_log_pane.rs`, `src/ui/composites/split_pane.rs`, `src/ui/shells/show.rs` (ADR 0070) |
+| Show log height priority and card overflow scrolling with logs closed or open, with independent sidebar | `src/view_models/show.rs`, `src/ui/composites/show_log_pane.rs`, `src/ui/composites/split_pane.rs`, `src/ui/shells/show.rs` (ADRs 0070/0073) |
 | Recovery/Settings page clearance for nested scrollbars | `src/ui/composites/page_scroll_content.rs`, `src/ui/layouts.rs` (ADR 0063) |
 | Scoped background issues and command remedies | `src/application/capability.rs`, `src/view_models/startup/capabilities.rs` |
 | Search failure explanation/disclosure; shared report URL redaction | `src/view_models/search_results/failure.rs`, `src/diagnostics.rs` |
 | Settings groups and field/action contracts; shared form/navigation and retained group scroll handles; screen wiring | `src/view_models/settings.rs`, `src/ui/composites/settings.rs`, `src/app/settings.rs` (ADR 0069) |
 | Settings cached-file query and saved observation | `src/application/queries/library.rs`, `src/view_models/cached_files.rs`, `src/app.rs` |
-| Runtime/cache repair wiring in the existing shell | `src/app/capabilities.rs` |
+| Retained original actions, explicit checked Retry and scoped tool setup | `src/application/capability_recovery.rs`, `src/application/capability_recovery/setup.rs` (ADR 0066) |
+| Runtime/cache/optional-tool repair and focused Settings routing in the existing shell | `src/app/capabilities.rs`, existing search/playback/Show adapters |
 | Independent maintenance worker and GPUI completion | `src/presentation/maintenance_executor.rs`, `src/presentation/startup_presenter.rs` |
 | Session admission, tracked work and maintenance authority | `src/application/session_lifecycle.rs`, `src/application/async_command_runner.rs` (ADR 0066) |
 | Session teardown and fresh-session wiring | `src/presentation/session_transition.rs`, `src/app/session.rs`, `src/app/startup.rs` |

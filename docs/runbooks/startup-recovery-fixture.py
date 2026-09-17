@@ -2,6 +2,8 @@
 """Isolated ADR 0066 fixture. Only run opens the GUI."""
 import argparse
 import hashlib
+import http.server
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -22,7 +24,8 @@ CASES = ("normal", "invalid-toml", "music-missing", "music-file", "db-locked", "
          "publisher-invalid", "partial-path-repair")
 OPTIONAL_CASES = CASES[-5:]
 REPAIR_CASES = ("repair-toml", "repair-paths", "repair-optional", "repair-unreadable", "repair-backup-failure", "repair-conflict")
-CASES += ("session-held-command",) + REPAIR_CASES
+RETRY_CASES = ("retry-actions",)
+CASES += ("session-held-command",) + REPAIR_CASES + RETRY_CASES
 
 
 def digest(path):
@@ -166,8 +169,14 @@ def hold_lock(root):
 
 def mode(root, case):
     previous = json.loads((root / "case.json").read_text())["case"]
-    if (case in OPTIONAL_CASES + REPAIR_CASES or previous in OPTIONAL_CASES + REPAIR_CASES or "session-held-command" in (case, previous)) and owned_process(root, "app.pid"):
+    if (case in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES or previous in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES or "session-held-command" in (case, previous)) and owned_process(root, "app.pid"):
         raise SystemExit("Close the fixture app before changing optional-tool or session cases.")
+    if previous in RETRY_CASES:
+        stop_retry_server(root)
+        saved_stub = root / "systemctl.before-retry"
+        if saved_stub.exists():
+            (root / "bin/systemctl").write_bytes(saved_stub.read_bytes())
+            saved_stub.unlink()
     release_lock(root)
     if case != "session-held-command":
         (root / "session.hold").unlink(missing_ok=True)
@@ -180,7 +189,14 @@ def mode(root, case):
     cfg.chmod(0o600)
     (root / "repair.external").unlink(missing_ok=True)
     cfg.write_bytes((root / "config.baseline").read_bytes())
-    if case in OPTIONAL_CASES:
+    if case in RETRY_CASES:
+        text = cfg.read_text().replace('musicindex_endpoint = "http://127.0.0.1:9"', 'musicindex_endpoint = 42\nflac_path = false')
+        text = text.replace('driver = "null"', 'driver = false')
+        text += '\n[broadcast]\nselected_host = "Local"\n[[broadcast.hosts]]\nname = "Local"\ntransport = "local"\ninstance_name = "default"\n[[broadcast.hosts]]\nname = "Alternate"\ntransport = "local"\ninstance_name = "alternate"\n'
+        cfg.write_text(text)
+        retry_tools(root)
+        purpose = "Use retained-action repair with the isolated Index server and service stubs. retry-status prints the endpoint and records; retry-release allows stub service commands. Playback uses the explicit Null driver after correction; no audio hardware is needed."
+    elif case in OPTIONAL_CASES:
         text = cfg.read_text()
         if case == "endpoint-and-player-unavailable":
             text = text.replace('musicindex_endpoint = "http://127.0.0.1:9"', 'musicindex_endpoint = "invalid endpoint"')
@@ -319,6 +335,150 @@ def repair_inspect(root, manifest):
     inspect(root, manifest, correction_preserved=original_preserved)
 
 
+def stop_retry_server(root):
+    pid = owned_process(root, "retry-server.pid")
+    if pid:
+        os.kill(pid, signal.SIGTERM)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and (root / "retry-endpoint").exists():
+            time.sleep(0.05)
+        if (root / "retry-endpoint").exists():
+            raise SystemExit("Fixture Index server did not exit. Keep its directory.")
+    (root / "retry-server.pid").unlink(missing_ok=True)
+
+
+def retry_server(root):
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            with (root / "retry-requests.jsonl").open("a") as output:
+                output.write(json.dumps({"at": datetime.now(timezone.utc).isoformat(), "request": self.path}) + "\n")
+            body = b'{"data":[],"pagination":{"has_more":false}}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    (root / "retry-server.pid").write_text(str(os.getpid()))
+    (root / "retry-endpoint").write_text(f"http://127.0.0.1:{server.server_port}")
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
+        (root / "retry-endpoint").unlink(missing_ok=True)
+        (root / "retry-server.pid").unlink(missing_ok=True)
+
+
+def retry_service_stub(root):
+    stub = root / "bin/systemctl"
+    saved = root / "systemctl.before-retry"
+    if not saved.exists():
+        saved.write_bytes(stub.read_bytes())
+    stub.write_text(f"#!{sys.executable}\n" + "import json, sys\nfrom pathlib import Path\n" + f"root = Path({str(root)!r})\n" +
+        "args = sys.argv[1:]\n"
+        "if 'show' in args:\n    print('LoadState=loaded\\nActiveState=inactive\\nSubState=dead\\nResult=success')\n    sys.exit(0)\n"
+        "with (root / 'retry-service-commands.jsonl').open('a') as output:\n    output.write(json.dumps(args) + '\\n')\n"
+        "if not (root / 'retry-services-ready').exists():\n    print('Fixture service command rejected; use retry-release.', file=sys.stderr)\n    sys.exit(1)\n")
+    stub.chmod(0o700)
+
+
+def retry_tools(root):
+    stop_retry_server(root)
+    (root / "retry-services-ready").unlink(missing_ok=True)
+    (root / "retry-requests.jsonl").write_text("")
+    (root / "retry-service-commands.jsonl").write_text("")
+    retry_service_stub(root)
+    with (root / "retry-server.log").open("w") as output:
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "retry-server", str(root)], stdout=output, stderr=output, start_new_session=True)
+    deadline = time.monotonic() + 5
+    while not (root / "retry-endpoint").exists():
+        if time.monotonic() > deadline:
+            raise SystemExit("Fixture Index server did not start. Inspect retry-server.log.")
+        time.sleep(0.05)
+
+
+def retry_status(root):
+    if json.loads((root / "case.json").read_text())["case"] not in RETRY_CASES:
+        raise SystemExit("retry-status requires retry-actions.")
+    report = {"endpoint": (root / "retry-endpoint").read_text(),
+              "service_commands_enabled": (root / "retry-services-ready").exists()}
+    for name, file in (("index_requests", "retry-requests.jsonl"), ("service_commands", "retry-service-commands.jsonl")):
+        report[name] = [json.loads(line) for line in (root / file).read_text().splitlines()]
+    print(json.dumps(report, indent=2))
+
+
+def changed_config_paths(before, after, path=""):
+    """Report changed TOML field paths without printing configuration values."""
+    if type(before) is not type(after):
+        return [path]
+    if isinstance(before, dict):
+        changes = []
+        for key in sorted(before.keys() | after.keys()):
+            child = f"{path}.{key}" if path else key
+            if key not in before or key not in after:
+                changes.append(child)
+            else:
+                changes.extend(changed_config_paths(before[key], after[key], child))
+        return changes
+    if isinstance(before, list):
+        if len(before) != len(after):
+            return [path]
+        return [change for index, (old, new) in enumerate(zip(before, after))
+                for change in changed_config_paths(old, new, f"{path}[{index}]")]
+    return [] if before == after else [path]
+
+
+def retry_inspect(root, manifest):
+    if json.loads((root / "case.json").read_text())["case"] not in RETRY_CASES:
+        raise SystemExit("retry-inspect requires retry-actions.")
+    cfg = root / "config/v4vmm/config.toml"
+    expected = json.loads((root / "case.json").read_text())
+    backups = list(cfg.parent.glob(".v4vmm-config-*.backup"))
+    original_preserved = digest(cfg) == expected["config_sha256"] or any(digest(path) == expected["config_sha256"] for path in backups)
+    before = tomllib.loads((root / "case.config").read_text())
+    after = tomllib.loads(cfg.read_text())
+    endpoint = (root / "retry-endpoint").read_text()
+    driver = after.get("playback", {}).get("driver")
+    saved_endpoint = after.get("musicindex_endpoint")
+    # ADR 0066: focused correction preserves the entered string; the app trims
+    # surrounding whitespace and trailing slashes when loading the endpoint.
+    # Accept only that spelling of this fixture's exact URL, not another target.
+    endpoint_matches = (isinstance(saved_endpoint, str)
+                        and saved_endpoint.strip().rstrip("/") == endpoint)
+    checks = {
+        "case_copy_matches_original": digest(root / "case.config") == expected["config_sha256"],
+        "endpoint_is_original_or_fixture": (type(saved_endpoint) is int and saved_endpoint == 42) or endpoint_matches,
+        "converter_is_unchanged": after.get("flac_path") is False,
+        "player_is_original_or_null": driver is False or driver == "null",
+        "publisher_is_fixture_host": after.get("broadcast", {}).get("selected_host") in ("Local", "Alternate"),
+    }
+    endpoint_format_only = endpoint_matches and saved_endpoint != endpoint
+    for document in (before, after):
+        for key in ("workspace", "workspace_layout", "musicindex_endpoint"):
+            document.pop(key, None)
+        document.get("playback", {}).pop("driver", None)
+        document.get("broadcast", {}).pop("selected_host", None)
+    changed_paths = changed_config_paths(before, after)
+    checks["other_values_unchanged"] = not changed_paths
+    allowed = all(checks.values())
+    modes = all(path.stat().st_mode & 0o777 == 0o600 for path in backups)
+    candidates = list(cfg.parent.glob(".v4vmm-config-*.candidate"))
+    print(json.dumps({"original_preserved": original_preserved, "unedited_values_preserved": allowed,
+                      "owner_only_backups": modes, "backups": [str(path) for path in backups],
+                      "configuration_checks": checks,
+                      "unexpected_setting_paths": changed_paths,
+                      "endpoint_differs_only_by_whitespace_or_trailing_slash": endpoint_format_only,
+                      "residual_candidates": [str(path) for path in candidates]}, indent=2))
+    if not original_preserved or not allowed or not modes or candidates:
+        raise SystemExit("Retry fixture preservation failed. Keep this fixture.")
+    inspect(root, manifest, correction_preserved=True)
+
+
 def setup():
     binary = REPO / "target/debug/v4vmm"
     if not binary.is_file():
@@ -347,9 +507,40 @@ def setup():
     print("Fixture created. Use verify, mode, run and inspect with this exact directory.", file=sys.stderr)
 
 
+def run_app(root, manifest):
+    if owned_process(root, "app.pid"):
+        raise SystemExit("This fixture app is already open.")
+    # ADR 0066 fixture guard: cargo test can replace target/debug/v4vmm with
+    # a binary linked to GPUI test-support. Its synchronous test drawing loop
+    # must not be used for desktop acceptance (ADR 0044 drag-pause capture).
+    # Build before applying the fixture's isolated HOME and stub-only PATH.
+    try:
+        subprocess.run(
+            ["cargo", "build", "--locked", "--offline", "--quiet", "--bin", "v4vmm",
+             "--target-dir", str(REPO / "target")],
+            cwd=REPO, check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise SystemExit(f"Desktop build failed; fixture app was not opened.\n{error}") from error
+    child = subprocess.Popen([manifest["binary"]], env=environment(root))
+    (root / "app.pid").write_text(str(child.pid))
+    try:
+        try:
+            code = child.wait()
+        except KeyboardInterrupt:
+            child.terminate()
+            code = child.wait()
+        expected = json.loads((root / "case.json").read_text())
+        (root / "last-exit.json").write_text(json.dumps({"code": code, "config_sha256": expected["config_sha256"]}))
+        print(f"Fixture app exit code: {code}")
+    finally:
+        if child.poll() is not None:
+            (root / "app.pid").unlink(missing_ok=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "session-status", "session-release", "repair-access", "repair-conflict", "repair-inspect"))
+    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "session-status", "session-release", "repair-access", "repair-conflict", "repair-inspect", "retry-status", "retry-release", "retry-inspect", "retry-server"))
     parser.add_argument("directory", nargs="?")
     parser.add_argument("case", nargs="?", choices=CASES)
     args = parser.parse_args()
@@ -398,6 +589,17 @@ def main():
         cfg.write_text(text)
         (root / "repair.external").write_bytes(cfg.read_bytes())
         print("External fixture editor changed configuration. Save in the app must retain this revision and its unsaved draft.")
+    elif args.command == "retry-server":
+        retry_server(root)
+    elif args.command == "retry-status":
+        retry_status(root)
+    elif args.command == "retry-release":
+        if json.loads((root / "case.json").read_text())["case"] not in RETRY_CASES:
+            raise SystemExit("Select retry-actions before changing its service stub.")
+        (root / "retry-services-ready").write_text("Only fixture service commands may now succeed.\n")
+        retry_status(root)
+    elif args.command == "retry-inspect":
+        retry_inspect(root, manifest)
     elif args.command == "repair-inspect":
         repair_inspect(root, manifest)
     elif args.command == "inspect":
@@ -405,26 +607,12 @@ def main():
     elif args.command == "hold-lock":
         hold_lock(root)
     elif args.command == "run":
-        if owned_process(root, "app.pid"):
-            raise SystemExit("This fixture app is already open.")
-        child = subprocess.Popen([manifest["binary"]], env=environment(root))
-        (root / "app.pid").write_text(str(child.pid))
-        try:
-            try:
-                code = child.wait()
-            except KeyboardInterrupt:
-                child.terminate()
-                code = child.wait()
-            expected = json.loads((root / "case.json").read_text())
-            (root / "last-exit.json").write_text(json.dumps({"code": code, "config_sha256": expected["config_sha256"]}))
-            print(f"Fixture app exit code: {code}")
-        finally:
-            if child.poll() is not None:
-                (root / "app.pid").unlink(missing_ok=True)
+        run_app(root, manifest)
     elif args.command == "cleanup":
         if owned_process(root, "app.pid"):
             raise SystemExit("Close the fixture app before cleanup.")
         release_lock(root)
+        stop_retry_server(root)
         (root / "config/v4vmm").chmod(0o700)
         shutil.rmtree(root)
         print(f"Removed fixture: {root}")

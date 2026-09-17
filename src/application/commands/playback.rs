@@ -93,6 +93,7 @@ where
             .conn
             .lock()
             .map_err(|_| playback_error("database lock poisoned"))?;
+        context.validate_retry_subject(&conn)?;
         let mut owner = self
             .playback_owner
             .lock()
@@ -145,6 +146,7 @@ where
             .conn
             .lock()
             .map_err(|_| playback_error("database lock poisoned"))?;
+        context.validate_retry_subject(&conn)?;
         let mut owner = self
             .playback_owner
             .lock()
@@ -188,6 +190,7 @@ where
             .conn
             .lock()
             .map_err(|_| playback_error("database lock poisoned"))?;
+        context.validate_retry_subject(&conn)?;
         let mut owner = self
             .playback_owner
             .lock()
@@ -229,6 +232,7 @@ where
             .conn
             .lock()
             .map_err(|_| playback_error("database lock poisoned"))?;
+        context.validate_retry_subject(&conn)?;
         let mut owner = self
             .playback_owner
             .lock()
@@ -332,6 +336,7 @@ where
             .conn
             .lock()
             .map_err(|_| playback_error("database lock poisoned"))?;
+        context.validate_retry_subject(&conn)?;
         let mut owner = self
             .playback_owner
             .lock()
@@ -375,6 +380,7 @@ where
             .conn
             .lock()
             .map_err(|_| playback_error("database lock poisoned"))?;
+        context.validate_retry_subject(&conn)?;
         let mut owner = self
             .playback_owner
             .lock()
@@ -400,6 +406,7 @@ where
     let conn = conn
         .lock()
         .map_err(|_| playback_error("database lock poisoned"))?;
+    context.validate_retry_subject(&conn)?;
     let mut owner = playback_owner
         .lock()
         .map_err(|_| playback_error("playback owner lock poisoned"))?;

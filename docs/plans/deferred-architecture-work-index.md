@@ -55,8 +55,12 @@ prioritized, and routed to the right governance artifact.
      are open; playback-dependent checks are deferred with proposed ADR 0068.
      Task 005 is complete with operator acceptance and fixture cleanup. Task 006
      is complete on 2026-09-13 with mechanical checks Green; operator V1–V6,
-     preservation and fixture cleanup are accepted. Tasks 007–013, including optional
-     reinitialization/retry and database maintenance, have not started.
+     preservation and fixture cleanup are accepted. Task 007 optional-tool correction
+     and retry is complete on 2026-09-16 with mechanical checks Green; V1–V3 and
+     preservation are accepted, with no startup fixtures remaining in the checked
+     temporary directories. The narrow Library and ADR 0073 Show card-overflow
+     follow-ups are accepted with preservation and cleanup. ADR 0073 is Implemented.
+     Tasks 008–013 have not started.
    - Note: a malformed layout *value* already falls back with a warning. This
      item is the level above that, where the file does not parse at all.
      Settings manages only a few keys, so operators hand-edit this file.
@@ -70,7 +74,7 @@ prioritized, and routed to the right governance artifact.
      alone are not the recovery workflow. ADR 0066 owns the detailed policy.
    - Route: execute the [thirteen ADR 0066 packets](adr-0066-startup-recovery-phase-plan.md),
      one per session. Task 005 used its recorded scheduling exception without
-     accepting task 004; task 007 follows task 006 acceptance. Independent pending
+     accepting task 004; task 007 now awaits its own operator acceptance. Independent pending
      work follows the delivery index while playback is deferred.
      [ADR 0069 task 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md)
      is complete, including operator acceptance and cleanup; it grouped existing

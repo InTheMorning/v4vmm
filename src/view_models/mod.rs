@@ -181,10 +181,11 @@ impl ActionStatusMessageDisplay {
 /// Pure resize state for a two-pane shell.
 ///
 /// Screens own GPUI event wiring and convert framework pixel types into
-/// `f32`; this state owns the clampable leading-pane width and drag lifecycle.
+/// `f32`; this state retains independent leading-pane extents and drag lifecycle.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct SplitPaneState {
     leading_width: f32,
+    leading_height: Option<f32>,
     resizing: bool,
 }
 
@@ -193,6 +194,7 @@ impl SplitPaneState {
     pub(crate) const fn new(leading_width: f32) -> Self {
         Self {
             leading_width,
+            leading_height: None,
             resizing: false,
         }
     }
@@ -200,6 +202,14 @@ impl SplitPaneState {
     #[must_use]
     pub(crate) fn leading_width(self) -> f32 {
         self.leading_width
+    }
+
+    pub(crate) fn leading_height(self) -> Option<f32> {
+        self.leading_height
+    }
+
+    pub(crate) fn resize_height_to(&mut self, height: f32) {
+        self.leading_height = Some(height);
     }
 
     #[must_use]

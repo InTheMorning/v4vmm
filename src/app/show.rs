@@ -14,6 +14,8 @@ use std::time::Instant;
 use gpui::{Context, Entity};
 use rusqlite::Connection;
 
+use crate::application::capability::Dependency;
+use crate::application::capability_recovery::{RecoveryAction, RecoveryIntent};
 use crate::application::{
     ApplicationCommand, ApplicationServices, CommandContext, CommandError, CommandOutcome,
 };
@@ -271,12 +273,19 @@ impl TopApp {
         };
 
         let (units, encoder) = broadcast_watch_inputs(&self.broadcast);
-        self.show_commands.clear();
+        if self.publisher_watch_generation == 0 {
+            self.show_commands.clear();
+        }
+        self.publisher_watch_generation += 1;
+        let generation = self.publisher_watch_generation;
         let handle = start_broadcast_service_watch(&host, units, encoder);
         self.publisher_service_snapshot = Some(handle.latest());
         bridge_watch(
             handle.subscribe(),
-            |this: &mut Self, snapshot, cx| {
+            move |this: &mut Self, snapshot, cx| {
+                if this.publisher_watch_generation != generation {
+                    return;
+                }
                 this.apply_publisher_service_snapshot(snapshot, cx);
             },
             cx,
@@ -384,6 +393,7 @@ impl TopApp {
     }
 
     pub(super) fn reproject_show_page_from_current_queue(&mut self) {
+        self.capability_vm.repair_blocked = self.show_commands.repair_blocked();
         self.reproject_show_page(self.show_page.queue.clone());
     }
 
@@ -413,6 +423,22 @@ impl TopApp {
         operation: PublisherServiceOperation,
         cx: &mut Context<Self>,
     ) {
+        let action = RecoveryAction::Publisher {
+            role,
+            operation,
+            host: self.broadcast.selected_host().ok().cloned(),
+            event_id: self.event_section_input.as_ref().and_then(|input| {
+                input
+                    .selected_event
+                    .as_ref()
+                    .map(|event| event.event_id.clone())
+            }),
+        };
+        if let Err(reason) = self.feature_availability().require(Dependency::Publisher) {
+            self.retain_failed_action(action, reason.dependency, cx);
+            self.settings_status = reason.to_string();
+            return;
+        }
         let selected_host = match selected_broadcast_host(&self.broadcast) {
             Ok(host) => host,
             Err(error) => {
@@ -429,25 +455,157 @@ impl TopApp {
                 return;
             }
         };
+        self.dispatch_service_command(role, operation, command, action, None, cx);
+    }
+
+    fn dispatch_service_command<C>(
+        &mut self,
+        role: PublisherServiceRole,
+        operation: PublisherServiceOperation,
+        command: C,
+        action: RecoveryAction,
+        retry_id: Option<u64>,
+        cx: &mut Context<Self>,
+    ) where
+        C: ApplicationCommand<Output = ShowCommandCompletion>,
+    {
         let Some(command_id) = self.show_commands.begin_service(role, operation) else {
+            if let Some(id) = retry_id {
+                self.capability_vm.pending.finish(id, "App is already running a command for this publisher. Check again when it finishes.".into());
+            }
             return;
         };
+        self.dispatch_show_command(command, command_id, action, retry_id, cx);
+    }
+
+    fn dispatch_show_command<C>(
+        &mut self,
+        command: C,
+        command_id: ShowCommandId,
+        action: RecoveryAction,
+        retry_id: Option<u64>,
+        cx: &mut Context<Self>,
+    ) where
+        C: ApplicationCommand<Output = ShowCommandCompletion>,
+    {
         self.settings_status.clear();
         self.reproject_show_page_from_current_queue();
-        cx.notify();
-
+        let error_action = action.clone();
         present_command(
             &self.command_runner,
             command,
             CommandContext::next(),
             cx,
             move |this, completion, cx| {
+                this.record_show_retry_result(action, retry_id, &completion.result, cx);
                 this.finish_show_command(command_id, completion, cx);
             },
             move |this, error, cx| {
-                this.finish_show_command(command_id, ShowCommandCompletion::new(Err(error)), cx);
+                let completion = ShowCommandCompletion::new(Err(error));
+                this.record_show_retry_result(error_action, retry_id, &completion.result, cx);
+                this.finish_show_command(command_id, completion, cx);
             },
         );
+    }
+
+    fn record_show_retry_result(
+        &mut self,
+        action: RecoveryAction,
+        retry_id: Option<u64>,
+        result: &Result<(), CommandError>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(id) = retry_id {
+            match result {
+                Ok(()) => self.capability_vm.pending.succeed(id, "App completed the original service command. Check the service report for its observed state.".into()),
+                Err(error) => self.capability_vm.pending.finish(id, crate::diagnostics::redact_endpoint_details(&format!("App could not complete the original service command: {error}"))),
+            }
+        } else if result.is_err() {
+            let dependency = action.dependency();
+            self.retain_failed_action(action, dependency, cx);
+        }
+    }
+
+    pub(super) fn retry_show_action(&mut self, intent: RecoveryIntent, cx: &mut Context<Self>) {
+        let id = intent.id;
+        match intent.action.clone() {
+            RecoveryAction::Publisher {
+                role, operation, ..
+            } => {
+                let command = self
+                    .broadcast
+                    .selected_host()
+                    .map_err(publisher_command_error)
+                    .and_then(|host| PublisherServiceCommand::new(host, role, operation));
+                match command {
+                    Ok(command) => {
+                        let action = intent.action.clone();
+                        self.dispatch_service_command(
+                            role,
+                            operation,
+                            self.retry_command(command, intent),
+                            action,
+                            Some(id),
+                            cx,
+                        );
+                    }
+                    Err(error) => self.capability_vm.pending.finish(id, error.to_string()),
+                }
+            }
+            RecoveryAction::Encoder { operation, .. } => {
+                match StreamEncoderCommand::new(&self.broadcast, operation) {
+                    Ok(command) => {
+                        let Some(command_id) = self.show_commands.begin_stream(operation) else {
+                            self.capability_vm
+                                .pending
+                                .finish(id, "App is already running an encoder command.".into());
+                            return;
+                        };
+                        let action = intent.action.clone();
+                        self.dispatch_show_command(
+                            self.retry_command(command, intent),
+                            command_id,
+                            action,
+                            Some(id),
+                            cx,
+                        );
+                    }
+                    Err(error) => self.capability_vm.pending.finish(id, error.to_string()),
+                }
+            }
+            RecoveryAction::Event { operation, .. } => match operation {
+                EventControlIntent::Create => self.dispatch_event_registry_command(
+                    EventRegistryAction::Create,
+                    Some(intent),
+                    cx,
+                ),
+                EventControlIntent::Replace => self.dispatch_event_registry_command(
+                    EventRegistryAction::Replace,
+                    Some(intent),
+                    cx,
+                ),
+                EventControlIntent::Check => self.dispatch_event_registry_command(
+                    EventRegistryAction::Check,
+                    Some(intent),
+                    cx,
+                ),
+                EventControlIntent::Attach => self.dispatch_event_target_command(
+                    EventTargetOperation::Attach,
+                    Some(intent),
+                    cx,
+                ),
+                EventControlIntent::Detach => self.dispatch_event_target_command(
+                    EventTargetOperation::Detach,
+                    Some(intent),
+                    cx,
+                ),
+                _ => self.capability_vm.pending.finish(
+                    id,
+                    "Use the current event's Check action to refresh its report.".into(),
+                ),
+            },
+            _ => {}
+        }
     }
 
     fn finish_show_command(
@@ -542,6 +700,61 @@ impl TopApp {
     }
 
     fn run_event_registry_command(&mut self, action: EventRegistryAction, cx: &mut Context<Self>) {
+        self.dispatch_event_registry_command(action, None, cx);
+    }
+
+    fn event_recovery_action(&self, operation: EventControlIntent) -> Option<RecoveryAction> {
+        let input = self.event_section_input.as_ref()?;
+        let target = match operation {
+            EventControlIntent::Attach => {
+                event_target_name_for_operation(EventTargetOperation::Attach, input).ok()
+            }
+            EventControlIntent::Detach => {
+                event_target_name_for_operation(EventTargetOperation::Detach, input).ok()
+            }
+            _ => None,
+        };
+        Some(RecoveryAction::Event {
+            operation,
+            event_id: input
+                .selected_event
+                .as_ref()
+                .map(|event| event.event_id.clone()),
+            selection_revision: input.registry.revision,
+            host: self.broadcast.selected_host().ok().cloned(),
+            target,
+        })
+    }
+
+    fn dispatch_event_registry_command(
+        &mut self,
+        action: EventRegistryAction,
+        retry: Option<RecoveryIntent>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(original) = retry
+            .as_ref()
+            .map(|intent| intent.action.clone())
+            .or_else(|| {
+                self.event_recovery_action(match action {
+                    EventRegistryAction::Create => EventControlIntent::Create,
+                    EventRegistryAction::Replace => EventControlIntent::Replace,
+                    EventRegistryAction::Check => EventControlIntent::Check,
+                })
+            })
+        else {
+            return;
+        };
+        let retry_id = retry.as_ref().map(|intent| intent.id);
+        if let Err(reason) = self.feature_availability().require(original.dependency()) {
+            if let Some(id) = retry_id {
+                self.capability_vm.pending.finish(id, reason.to_string());
+            } else {
+                self.retain_failed_action(original, reason.dependency, cx);
+            }
+            return;
+        }
+
         let available = self
             .show_page
             .publisher
@@ -549,6 +762,9 @@ impl TopApp {
             .and_then(|section| section.event.as_ref())
             .is_some_and(|event| !event.actions.registry_action(action).disabled());
         if !available {
+            if let Some(id) = retry_id {
+                self.capability_vm.pending.finish(id, "App did not retry this event action because its current readiness no longer permits it. Check the original event.".into());
+            }
             return;
         }
         let Some(input) = self.event_section_input.as_mut() else {
@@ -567,6 +783,7 @@ impl TopApp {
             selected_event: input.selected_event.clone(),
         };
         begin_event_registry_action(input, action);
+        let command = self.command_with_retry(command, retry);
         if action == EventRegistryAction::Check {
             self.read_event_targets(request, cx);
         }
@@ -578,6 +795,9 @@ impl TopApp {
             CommandContext::next(),
             cx,
             move |this, event, cx| {
+                if let Some(id) = retry_id {
+                    record_event_retry_result(&mut this.capability_vm.pending, id, &event);
+                }
                 if !this.event_request_is_current(request, &request_context) {
                     return;
                 }
@@ -592,6 +812,15 @@ impl TopApp {
                 }
             },
             move |this, error, cx| {
+                if let Some(id) = retry_id {
+                    this.capability_vm.pending.finish(
+                        id,
+                        crate::diagnostics::redact_endpoint_details(&error.to_string()),
+                    );
+                } else {
+                    let dependency = original.dependency();
+                    this.retain_failed_action(original, dependency, cx);
+                }
                 if !this.event_request_is_current(request, &error_context) {
                     return;
                 }
@@ -609,6 +838,41 @@ impl TopApp {
         operation: EventTargetOperation,
         cx: &mut Context<Self>,
     ) {
+        self.dispatch_event_target_command(operation, None, cx);
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one event-target adapter keeps existing readiness, command feedback and retry completion together"
+    )]
+    fn dispatch_event_target_command(
+        &mut self,
+        operation: EventTargetOperation,
+        retry: Option<RecoveryIntent>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(original) = retry
+            .as_ref()
+            .map(|intent| intent.action.clone())
+            .or_else(|| {
+                self.event_recovery_action(match operation {
+                    EventTargetOperation::Attach => EventControlIntent::Attach,
+                    EventTargetOperation::Detach => EventControlIntent::Detach,
+                })
+            })
+        else {
+            return;
+        };
+        let retry_id = retry.as_ref().map(|intent| intent.id);
+        if let Err(reason) = self.feature_availability().require(Dependency::Publisher) {
+            if let Some(id) = retry_id {
+                self.capability_vm.pending.finish(id, reason.to_string());
+            } else {
+                self.retain_failed_action(original, reason.dependency, cx);
+            }
+            return;
+        }
+
         let available = self
             .show_page
             .publisher
@@ -619,15 +883,24 @@ impl TopApp {
                 EventTargetOperation::Detach => !event.actions.detach.disabled(),
             });
         if !available {
+            if let Some(id) = retry_id {
+                self.capability_vm.pending.finish(id, "App did not retry this target mutation because current event readiness no longer permits it. Check the original event and target.".into());
+            }
             return;
         }
         let Some(input) = self.event_section_input.clone() else {
+            if let Some(id) = retry_id {
+                self.capability_vm.pending.finish(id, "App did not retry the event target because its event state is not loaded. Check the original event again.".into());
+            }
             "Event target command error: event state is not loaded"
                 .clone_into(&mut self.settings_status);
             cx.notify();
             return;
         };
         let Some(event) = input.selected_event.clone() else {
+            if let Some(id) = retry_id {
+                self.capability_vm.pending.finish(id, "App did not retry the event target because its original event is no longer selected.".into());
+            }
             "Event target command error: no broadcast event selected"
                 .clone_into(&mut self.settings_status);
             cx.notify();
@@ -636,14 +909,27 @@ impl TopApp {
         let selected_host = match selected_broadcast_host(&self.broadcast) {
             Ok(host) => host,
             Err(error) => {
+                if let Some(id) = retry_id {
+                    self.capability_vm.pending.finish(id, "App did not retry the event target because its original publisher or target is unavailable. Check it again.".into());
+                }
                 self.settings_status = format!("Event target command error: {error:#}");
                 cx.notify();
                 return;
             }
         };
-        let target_name = match event_target_name_for_operation(operation, &input) {
+        let requested_target = match &retry {
+            Some(intent) => intent
+                .action
+                .event_target_name()
+                .map_err(|error| event_registry_error(error.to_string())),
+            None => event_target_name_for_operation(operation, &input),
+        };
+        let target_name = match requested_target {
             Ok(name) => name,
             Err(error) => {
+                if let Some(id) = retry_id {
+                    self.capability_vm.pending.finish(id, "App did not retry the event target because its original publisher or target is unavailable. Check it again.".into());
+                }
                 self.settings_status = format!("Event target command error: {error}");
                 cx.notify();
                 return;
@@ -653,6 +939,13 @@ impl TopApp {
             PublisherServiceRole::Publisher,
             PublisherServiceOperation::Start,
         ) else {
+            if let Some(id) = retry_id {
+                self.capability_vm.pending.finish(
+                    id,
+                    "App is already running a publisher command. Check again after it finishes."
+                        .into(),
+                );
+            }
             return;
         };
         self.event_session.next_request += 1;
@@ -669,6 +962,8 @@ impl TopApp {
             event_id: event.event_id,
             token_path: event.token_path,
         };
+        let command = self.command_with_retry(command, retry);
+        let error_original = original.clone();
         if let Some(input) = &mut self.event_section_input {
             input.request = request;
             input.feedback.target_mutation = EventCommandState::Working;
@@ -687,9 +982,11 @@ impl TopApp {
             CommandContext::next(),
             cx,
             move |this, completion, cx| {
+                this.record_show_retry_result(original, retry_id, &completion.result, cx);
                 this.finish_event_target(request, &context, command_id, completion, cx);
             },
             move |this, error, cx| {
+                this.record_show_retry_result(error_original, retry_id, &Err(error.clone()), cx);
                 this.finish_event_target(
                     request,
                     &error_context,
@@ -706,6 +1003,15 @@ impl TopApp {
         operation: StreamEncoderOperation,
         cx: &mut Context<Self>,
     ) {
+        let action = RecoveryAction::Encoder {
+            operation,
+            target: self.broadcast.encoder.as_ref().ok().cloned().flatten(),
+        };
+        if let Err(reason) = self.feature_availability().require(Dependency::Encoder) {
+            self.retain_failed_action(action, reason.dependency, cx);
+            self.settings_status = reason.to_string();
+            return;
+        }
         let command = match StreamEncoderCommand::new(&self.broadcast, operation) {
             Ok(command) => command,
             Err(error) => {
@@ -717,22 +1023,7 @@ impl TopApp {
         let Some(command_id) = self.show_commands.begin_stream(operation) else {
             return;
         };
-        self.settings_status.clear();
-        self.reproject_show_page_from_current_queue();
-        cx.notify();
-
-        present_command(
-            &self.command_runner,
-            command,
-            CommandContext::next(),
-            cx,
-            move |this, completion, cx| {
-                this.finish_show_command(command_id, completion, cx);
-            },
-            move |this, error, cx| {
-                this.finish_show_command(command_id, ShowCommandCompletion::new(Err(error)), cx);
-            },
-        );
+        self.dispatch_show_command(command, command_id, action, None, cx);
     }
 
     fn invalidate_publisher_service_snapshot(&self) {
@@ -803,6 +1094,7 @@ impl ApplicationCommand for EventRegistryCommand {
             .lock()
             .map_err(|_| CommandError::Query("database lock poisoned".to_owned()))?;
         // Revalidate stored identity and liveness before any relay mutation.
+        context.validate_retry_subject(&conn)?;
         let selection = db::broadcast_event_selection(&conn).map_err(event_registry_error)?;
         let selected = selected_event_input(&conn).map_err(event_registry_error)?;
         if selection.revision != self.selection_revision
@@ -942,6 +1234,17 @@ enum EventRegistryResult {
         response: EventCheckResponse,
         detail: String,
     },
+}
+
+fn record_event_retry_result(
+    pending: &mut crate::application::capability_recovery::RecoveryIntents,
+    id: u64,
+    result: &EventRegistryResult,
+) {
+    match result {
+        EventRegistryResult::Complete(_) => pending.succeed(id, "App completed the original event command. See the Event report for the command and selection results.".into()),
+        EventRegistryResult::CheckFailed { detail, .. } => pending.finish(id, crate::diagnostics::redact_endpoint_details(&format!("App could not check the original event: {detail}"))),
+    }
 }
 
 struct EventRegistrySuccess {
@@ -1252,6 +1555,13 @@ impl ApplicationCommand for EventTargetCommand {
             .conn
             .lock()
             .map_err(|_| event_registry_error("database lock poisoned"))?;
+        context.validate_retry_subject(&conn)?;
+        context.validate_retry_event_target(
+            &self.event_id,
+            &self.target_name,
+            &self.transport,
+            &self.instance_name,
+        )?;
         let selection = db::broadcast_event_selection(&conn).map_err(event_registry_error)?;
         if selection.revision != self.selection_revision
             || selection.event_id.as_deref() != Some(&self.event_id)
@@ -1661,6 +1971,36 @@ const fn event_target_operation_label(operation: EventTargetOperation) -> &'stat
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn adr_0066_failed_event_check_keeps_its_recovery_controls() {
+        let mut pending = crate::application::capability_recovery::RecoveryIntents::default();
+        let id = pending.retain(
+            RecoveryAction::Event {
+                operation: EventControlIntent::Check,
+                event_id: Some("original-event".into()),
+                selection_revision: 1,
+                host: None,
+                target: None,
+            },
+            Dependency::MusicIndex,
+            1,
+        );
+        record_event_retry_result(
+            &mut pending,
+            id,
+            &EventRegistryResult::CheckFailed {
+                response: EventCheckResponse::NoResponse,
+                detail: "No relay response.".into(),
+            },
+        );
+        assert!(!pending.entries()[0].completed());
+        assert!(pending.entries()[0]
+            .result
+            .as_ref()
+            .unwrap()
+            .message()
+            .contains("could not check the original event"));
+    }
 
     #[test]
     fn adr_0066_broadcast_observers_and_commands_are_independent() {

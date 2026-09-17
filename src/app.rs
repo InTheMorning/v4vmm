@@ -159,6 +159,7 @@ pub struct TopApp {
     broadcast_readiness_watch: Option<BroadcastReadinessWatchHandle>,
     broadcast_readiness_snapshot: Option<BroadcastReadinessSnapshot>,
     publisher_service_watch: Option<BroadcastServiceWatchHandle>,
+    publisher_watch_generation: u64,
     publisher_service_snapshot: Option<BroadcastServiceWatchSnapshot>,
     show_log_resize: Option<(f32, f32)>,
     event_section_input: Option<EventSectionInput>,
@@ -250,7 +251,8 @@ impl TopApp {
         let global_search_input = cx.new(|cx: &mut Context<InputState>| {
             InputState::new(window, cx).placeholder(global_search_display.placeholder)
         });
-        let global_search_sub = cx.subscribe(&global_search_input, Self::on_global_search_event);
+        let global_search_sub =
+            cx.subscribe_in(&global_search_input, window, Self::on_global_search_event);
         let library = cx.new(|cx| {
             let mut library = LibraryApp::new_with_content_view_mode(
                 conn.clone(),
@@ -274,17 +276,19 @@ impl TopApp {
                 .require(crate::application::capability::Dependency::Playback);
             library
         });
-        let library_sub = cx.subscribe(
+        let library_sub = cx.subscribe_in(
             &library,
-            move |this: &mut Self, _library, event: &LibraryAppEvent, cx| match event {
+            window,
+            move |this: &mut Self, _library, event: &LibraryAppEvent, window, cx| match event {
                 LibraryAppEvent::PlayPlaylistAt {
+                    track_id,
                     playlist_id,
                     playlist_position,
-                } => this.play_playlist_at(*playlist_id, *playlist_position, cx),
+                } => this.play_playlist_at(*playlist_id, *playlist_position, *track_id, cx),
                 LibraryAppEvent::OpenSavedSearch {
                     saved_search_id,
                     query,
-                } => this.open_saved_search(*saved_search_id, query, cx),
+                } => this.open_saved_search(*saved_search_id, query, window, cx),
                 LibraryAppEvent::OpenIndexFeedDetail { feed_guid, label } => {
                     this.open_index_feed_detail_from_music(feed_guid, label.clone(), cx);
                 }
@@ -365,6 +369,7 @@ impl TopApp {
             broadcast_readiness_watch: None,
             broadcast_readiness_snapshot: None,
             publisher_service_watch: None,
+            publisher_watch_generation: 0,
             publisher_service_snapshot: None,
             show_log_resize: None,
             event_section_input: None,
@@ -428,17 +433,24 @@ impl TopApp {
 
     fn on_global_search_event(
         &mut self,
-        _entity: Entity<InputState>,
+        _entity: &Entity<InputState>,
         event: &InputEvent,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if let InputEvent::PressEnter { .. } = event {
-            self.submit_global_search(cx);
+            self.submit_global_search(window, cx);
         }
     }
 
-    fn open_saved_search(&mut self, _saved_search_id: i64, query: &str, cx: &mut Context<Self>) {
-        self.open_search_results_in_content_list(query, cx);
+    fn open_saved_search(
+        &mut self,
+        _saved_search_id: i64,
+        query: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_search_results_in_content_list(query, window, cx);
     }
 
     fn select_tab(&mut self, tab: AppTab, window: &mut Window, cx: &mut Context<Self>) {
@@ -812,6 +824,7 @@ impl TopApp {
                 saved_scale,
                 saved_profile,
             )) => {
+                self.capability_vm.pending.saved();
                 if let Err(error) = self.persist_workspace_layout() {
                     self.settings_status = format!("Error: {error:#}");
                     cx.notify();

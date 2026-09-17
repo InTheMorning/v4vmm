@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementation in progress - 2026-09-11.
+Implementation in progress - 2026-09-15.
 ADR 0066 remains Accepted. Tasks 001–003 are complete, including operator
 acceptance, preservation inspection and fixture cleanup. The
 [ADR 0067 shortcut correction](../tasks/adr-0067-task-001-platform-shortcuts.md)
@@ -15,13 +15,15 @@ inspection and fixture cleanup are accepted. It proceeded at the
 operator's explicit request on 2026-09-11; task 004 keeps its remaining
 acceptance gate. Task 006 is complete on 2026-09-13 with mechanical checks Green,
 operator V1–V6 and preservation accepted, and fixture cleanup confirmed.
-Tasks 007–013 remain unstarted; task 007 follows in a fresh session.
+Task 007 is implemented with mechanical checks Green on 2026-09-15; its V1–V3,
+operator preservation and fixture cleanup gate is open. Tasks 008–013 remain
+unstarted; task 008 follows task 007 acceptance in a fresh session.
 
 Scheduling amendment - 2026-09-13: at the operator's request,
 [shared log frames and following](../tasks/adr-0063-task-005-shared-log-frames-and-following.md)
 precedes task 007. The shared-log packet is complete on 2026-09-13: mechanical
 checks are Green; operator acceptance, preservation and cleanup are confirmed.
-That prerequisite is met. Task 007 follows in a fresh session.
+That prerequisite is met. Task 007 completion is recorded below.
 
 This plan executes [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md).
 The [delivery order](broadcast-chain-delivery-order.md#current-delivery-order)
@@ -94,7 +96,7 @@ an unwalked visual gate into a claim that the next dependency is complete.
 | [004: Optional Tool Isolation](../tasks/adr-0066-task-004-optional-tool-isolation.md) | Open the app with valid core resources even when optional configuration or tool preparation fails, and limit only the operations that actually depend on each failure. | 003 | Implemented - 2026-09-11; mechanical gate Green; presentation case and preservation accepted - 2026-09-11; playback checks paused for missing Show cue/audition separation and observed mpv IPC error; remaining operator checks and final fixture cleanup open |
 | [005: Session Drain And Resumption](../tasks/adr-0066-task-005-session-drain-and-resumption.md) | Stop the app's own work, release every configured database handle, and resume one fresh session before any live core correction or database maintenance can use this transition. | 004 implementation; operator authorized starting 005 before its remaining acceptance on 2026-09-11 | Complete - 2026-09-11; mechanical gate Green; operator V1–V3, preservation inspection and fixture cleanup accepted |
 | [006: Configuration Repair And Resumption](../tasks/adr-0066-task-006-configuration-repair-and-resumption.md) | Repair configuration inside recovery or Settings, preserve the original file, and return to a freshly verified app session. | 005 | Complete - 2026-09-13; mechanical checks Green; operator V1–V6, preservation inspection and fixture cleanup accepted |
-| [007: Optional Tool Correction And Retry](../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md) | Turn optional-tool failures into a direct Settings correction route and an explicit, freshly checked retry of the original action. | 006 | Not started |
+| [007: Optional Tool Correction And Retry](../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md) | Turn optional-tool failures into a direct Settings correction route and an explicit, freshly checked retry of the original action. | 006 | Complete - 2026-09-16; mechanical checks Green; V1–V3 and preservation accepted; narrow Library and ADR 0073 Show card-overflow follow-ups accepted with preservation and cleanup; no startup fixtures remain in the checked temporary directories |
 | [008: Converter Verification And Setup](../tasks/adr-0066-task-008-converter-verification-and-setup.md) | Let the operator configure and freshly test FLAC/ffmpeg availability without restarting the app, while preserving the actual conversion fallback policy. | 007 | Not started |
 | [009: Conversion Retry And Retained Input](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md) | Return from converter setup to the same track, reuse valid downloaded input where possible, and avoid duplicate library materialization. | 008 | Not started |
 | [010: Database Check And Backup](../tasks/adr-0066-task-010-database-check-and-backup.md) | Offer database inspection and a verified SQLite backup from both Settings and core recovery, without requiring the normal app runtime. | 009 | Not started |
@@ -248,5 +250,9 @@ dependency to release. Tasks 001–003 are complete; task 004 is implemented wit
 Task 005 is complete, including operator acceptance, preservation inspection and
 fixture cleanup. Task 006 is complete on 2026-09-13 with mechanical checks Green;
 operator V1–V6 and preservation are accepted, and fixture cleanup is confirmed.
-Tasks 007–013 have not started.
+Task 007 is complete on 2026-09-16 with mechanical checks Green. V1–V3 and
+preservation are accepted; no startup fixtures remain in the checked temporary
+directories. The narrow Library and ADR 0073 Show card-overflow follow-ups are
+accepted, including preservation and cleanup. ADR 0073 is Implemented.
+Tasks 008–013 have not started.
 The series remains partial.

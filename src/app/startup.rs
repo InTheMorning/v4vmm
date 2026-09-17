@@ -69,10 +69,11 @@ impl StartupScreen {
                     CorrectionEvent::EndSession => {
                         this.session_action(SessionAction::EndSession, window, cx);
                     }
-                    CorrectionEvent::Saved(snapshot) => {
+                    CorrectionEvent::Saved(snapshot, dependencies) => {
                         if let Some(normal) = &this.normal {
                             normal.update(cx, |app, cx| {
                                 app.refresh_corrected_settings(&snapshot, window, cx);
+                                app.check_saved_capabilities(dependencies, window, cx);
                             });
                         } else {
                             this.vm.return_to_recovery(this.vm.report());

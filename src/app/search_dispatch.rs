@@ -3,14 +3,16 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use gpui::{prelude::*, AnyElement, Context, Image, SharedString};
+use gpui::{prelude::*, AnyElement, Context, Image, SharedString, Window};
 
+use crate::application::capability::Dependency;
+use crate::application::capability_recovery::{RecoveryAction, RecoveryIntent};
 use crate::application::commands::download::{SubscribeThenAppendToPlaylist, SubscribeTrack};
 use crate::application::commands::feed::SubscribeFeed;
 use crate::application::commands::playlist::CreatePlaylist;
 use crate::application::queries::images::FetchThumbnail;
 use crate::application::queries::search::FetchIndexSearchResults;
-use crate::application::CommandContext;
+use crate::application::{ApplicationCommand, CommandContext};
 use crate::db;
 use crate::feed_service;
 use crate::library::{playlist_options, LibraryApp};
@@ -36,7 +38,7 @@ use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchRes
 use crate::view_models::workspace::{FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId};
 use crate::views::{FeedRef, FeedView, TrackRef, TrackView};
 
-use super::TopApp;
+use super::{AppTab, TopApp};
 
 #[derive(Clone)]
 pub(super) enum RemoteDetailThumbnailState {
@@ -45,14 +47,15 @@ pub(super) enum RemoteDetailThumbnailState {
 }
 
 impl TopApp {
-    pub(super) fn submit_global_search(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn submit_global_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let query = self.global_search_input.read(cx).value().to_string();
-        self.open_search_results_in_content_list(&query, cx);
+        self.open_search_results_in_content_list(&query, window, cx);
     }
 
     pub(super) fn open_search_results_in_content_list(
         &mut self,
         query: &str,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let query = query.trim().to_string();
@@ -60,6 +63,9 @@ impl TopApp {
             return;
         }
 
+        if self.tab != AppTab::Music {
+            self.select_tab(AppTab::Music, window, cx);
+        }
         match self
             .workspace_layout
             .open_search_results_in_content_list(query.clone())
@@ -107,6 +113,13 @@ impl TopApp {
                     std::time::SystemTime::now(),
                 );
             }
+            self.retain_failed_action(
+                RecoveryAction::IndexSearch {
+                    query: query.into(),
+                },
+                reason.dependency,
+                cx,
+            );
             cx.notify();
             return;
         }
@@ -116,21 +129,67 @@ impl TopApp {
             }
         }
 
-        let endpoint = self.musicindex_endpoint.clone();
-        let request_query = query.to_string();
-        let success_query = request_query.clone();
-        let error_query = request_query.clone();
-        let error_endpoint = endpoint
+        let command =
+            FetchIndexSearchResults::new(self.musicindex_endpoint.clone(), query.to_owned());
+        self.dispatch_index_search(query, command, None, cx);
+    }
+
+    pub(super) fn retry_index_search(
+        &mut self,
+        query: &str,
+        intent: RecoveryIntent,
+        cx: &mut Context<Self>,
+    ) {
+        if self
+            .workspace_layout
+            .open_search_results_in_content_list(query)
+            .is_err()
+        {
+            self.capability_vm.pending.finish(
+                intent.id,
+                "App could not reopen the original search.".into(),
+            );
+            return;
+        }
+        self.search_results_detail = Some(self.search_results_detail_for_query(query));
+        if let Some(detail) = &mut self.search_results_detail {
+            detail.mark_index_loading();
+        }
+        let id = intent.id;
+        let command = self.retry_command(
+            FetchIndexSearchResults::new(self.musicindex_endpoint.clone(), query.to_owned()),
+            intent,
+        );
+        self.dispatch_index_search(query, command, Some(id), cx);
+    }
+
+    fn dispatch_index_search<C>(
+        &self,
+        query: &str,
+        command: C,
+        retry_id: Option<u64>,
+        cx: &mut Context<Self>,
+    ) where
+        C: ApplicationCommand<Output = crate::view_models::search_results::IndexSearchResultRows>,
+    {
+        let success_query = query.to_owned();
+        let error_query = query.to_owned();
+        let error_endpoint = self
+            .musicindex_endpoint
             .require()
             .unwrap_or("Invalid musicindex_endpoint setting")
             .to_owned();
-        let command = FetchIndexSearchResults::new(endpoint, request_query);
         present_command(
             &self.command_runner,
             command,
             CommandContext::next(),
             cx,
             move |this, rows, cx| {
+                if let Some(id) = retry_id {
+                    this.capability_vm
+                        .pending
+                        .succeed(id, "App completed the original Index search.".into());
+                }
                 if !this.content_list_nav_matches_search(&success_query) {
                     return;
                 }
@@ -150,6 +209,26 @@ impl TopApp {
                 }
             },
             move |this, error, cx| {
+                if let Some(id) = retry_id {
+                    this.capability_vm.pending.finish(
+                        id,
+                        crate::diagnostics::redact_endpoint_details(&format!(
+                            "App could not complete the original Index search: {error}"
+                        )),
+                    );
+                } else {
+                    let dependency = match error {
+                        crate::application::CommandError::Unavailable(reason) => reason.dependency,
+                        _ => Dependency::MusicIndex,
+                    };
+                    this.retain_failed_action(
+                        RecoveryAction::IndexSearch {
+                            query: error_query.clone(),
+                        },
+                        dependency,
+                        cx,
+                    );
+                }
                 if !this.content_list_nav_matches_search(&error_query) {
                     return;
                 }

@@ -51,9 +51,18 @@ accepted, and fixture cleanup confirmed.
 is complete with mechanical checks Green, operator V1–V6 and preservation
 accepted, and fixture cleanup confirmed on 2026-09-13. Its
 [procedure](docs/runbooks/startup-recovery-check.md#task-006-configuration-repair-and-resumption)
-remains a regression check. Task 007 follows in a fresh session; implementation
-has not started. Task 004 retains its remaining checks under the recorded scheduling
-exception. Tasks 007–013 remain in the
+remains a regression check.
+[Task 007: Optional tool correction and retry](docs/tasks/adr-0066-task-007-optional-tool-correction-and-retry.md)
+is complete on 2026-09-16 with mechanical checks Green, operator V1–V3 and
+preservation accepted. The narrow Library and
+[ADR 0073 Show card overflow](docs/adr/0073-show-card-overflow-scrolling.md)
+follow-ups are accepted, including preservation and cleanup. V2/V3 cleanup is
+confirmed; no earlier startup fixtures remain in the checked temporary
+directories. ADR 0073 is Implemented. The
+[operator procedure](docs/runbooks/startup-recovery-check.md#task-007-optional-tool-correction-and-retry)
+remains a regression check with isolated Index/service stubs and Null playback.
+Task 004 retains its remaining checks under the recorded scheduling exception.
+Tasks 008–013 have not started in the
 [phase plan](docs/plans/adr-0066-startup-recovery-phase-plan.md).
 
 [ADR 0063 task 005](docs/tasks/adr-0063-task-005-shared-log-frames-and-following.md)
@@ -62,7 +71,7 @@ configuration-editor disclosure and Escape follow-ups, final preservation and
 fixture cleanup accepted. ADRs 0063 and 0070 are Implemented. Show, Diagnostics
 and recovery share the frame and reading-state owner. The
 [operator procedure](docs/runbooks/log-frame-check.md) remains a regression
-check. ADR 0066 task 007 follows in a fresh session; implementation has not started.
+check. ADR 0066 task 007 completion is recorded above.
 
 [ADR 0071 task 001: Shared text selection](docs/tasks/adr-0071-task-001-shared-text-selection.md)
 is complete on 2026-09-15, with mechanical checks Green, available X11 operator
@@ -72,7 +81,8 @@ remain untested coverage limits. The packet owns double/triple-click selection
 and Linux primary paste across shared logs and inputs. The completed log packet
 stays closed. Its separate [operator procedure](docs/runbooks/text-selection-check.md)
 covers Unicode, paths, cross-application paste, Undo/Redo and accepted Escape.
-ADR 0066 task 007 remains unstarted and follows in a later session.
+ADR 0066 task 007 is implemented with its operator gate open. Task 008 follows
+its acceptance in a fresh session.
 
 [ADR 0068: Show cue and audition isolation](docs/adr/0068-show-cue-and-audition-isolation.md)
 is Proposed; its implementation has not started. Task 004's playback checks
@@ -243,6 +253,11 @@ criterion that is neither passes by omission.
 you style stacked text.
 
 ## Build, Test, Lint
+
+After running tests, run `cargo build --bin v4vmm` before handing a desktop
+binary to the operator. `cargo test` can replace `target/debug/v4vmm` with a
+binary linked to GPUI test-support and its synchronous drawing loop. The startup
+fixture's `run` command rebuilds the normal binary before opening it.
 
 ```bash
 cargo build                          # Debug build

@@ -4,18 +4,25 @@
 
 Accepted - 2026-09-10.
 
-Implementation partial: tasks 001–003 and 005–006 are complete, including applicable
+Implementation partial: tasks 001–003 and 005–007 are complete, including applicable
 operator acceptance, preservation inspection and fixture cleanup. Task 004's
 implementation and mechanical checks are complete; its presentation case and
 producer preservation are accepted. Its remaining operator checks and fixture
 cleanup stay open; playback checks are deferred. Task 005 proceeded at the
 operator's explicit request without closing task 004. Task 006 is complete on
 2026-09-13 with mechanical checks Green, operator V1–V6 and preservation accepted,
-and fixture cleanup confirmed. Tasks 007–013 have not started in
+and fixture cleanup confirmed. Task 007 is complete on 2026-09-16 with mechanical
+checks Green, V1–V3 and preservation accepted, and no remaining startup fixtures
+in the checked temporary directories. The narrow Library and ADR 0073 Show
+overflow follow-ups are accepted, including preservation and cleanup. ADR 0073
+is Implemented. The task's evidence reconciliation withdraws an unsupported
+extra gate inferred from a port-only request log.
+Tasks 008–013 have not started in
 the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md).
 Amended 2026-09-11: scoped optional-tool isolation and managed session draining
 and resumption, plus shared guarded configuration correction, are implemented.
-Optional-tool reinitialization/retry and the remaining maintenance tools are pending.
+Optional-tool reinitialization/retry is implemented by task 007 on 2026-09-15,
+with operator acceptance complete on 2026-09-16. Converter and database maintenance packets remain pending.
 
 Amended 2026-09-13: [ADR 0063's shared log frame](0063-show-dashboard-layout.md#shared-log-frames-and-following)
 owns recovery and Settings report typography, scrolling and following. The
@@ -205,6 +212,11 @@ item's status. The list names the tool, what failed, the resulting limitation,
 and the recovery action. Issues remain visible until corrected or superseded
 by an actual successful observation; they are not confined to stderr or a
 transient toast. Multiple failures must not overwrite one shared status string.
+
+The normal-shell notice uses a bounded scrolling viewport, a count summary and
+an explicit route to Background tools in Settings. Repeated issue explanations
+must not consume the content area's height. Full subjects, repair actions and
+retained original actions remain reachable within the notice and in Settings.
 
 ### Offer A Fix And Return To The Intended Action
 
@@ -537,7 +549,14 @@ invariants 3–6 and 9. Its [proof inventory](../tasks/adr-0066-task-006-configu
 links exact-byte backup, revision/symlink conflict, path validation, draft and
 managed resumption tests. [Operator V1–V6](../runbooks/startup-recovery-check.md#task-006-configuration-repair-and-resumption),
 preservation inspection and fixture cleanup are accepted; task 006 is complete
-on 2026-09-13. Task 007 has not started.
+on 2026-09-13.
+
+Task 007 adds `adr_0066_repair_routes_preserve_action_subject` and
+`adr_0066_recovery_controls_explain_effect_and_completion`, situational guards
+for invariant 9. Its [proof inventory](../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md#implementation-and-proof)
+covers immutable subjects, fresh explicit Retry, scoped setup and shared entry
+points. Mechanical checks are Green; operator V1–V3, preservation and fixture
+cleanup remain open. Tasks 008–013 have not started.
 
 Task 003's operator-reported search-error clipping correction is guarded by
 `adr_0066_search_failure_report_stays_readable_and_vm_owned`. The packet's

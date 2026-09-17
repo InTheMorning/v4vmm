@@ -66,6 +66,11 @@ holds both index results and the tracks the curator has taken in. The existing
 `ContentFilter` of ADR 0047 becomes its scope control, promoted from a chrome
 detail to a primary affordance.
 
+The situational guard `adr_0060_search_uses_music_section_navigation` enforces
+the shared Music navigation route for toolbar and saved searches. It prevents
+search content from leaving Settings or Show selected (ADR 0066 task 007
+operator follow-up).
+
 `Show` is new. Broadcasting is a different task from curating, with a different
 layout, a different reading distance, and a different set of things that
 matter. It does not belong inside a browsing surface.

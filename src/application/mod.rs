@@ -8,6 +8,7 @@ pub mod application_query_service;
 pub mod application_services;
 pub mod async_command_runner;
 pub mod capability;
+pub(crate) mod capability_recovery;
 pub mod command_bus;
 pub mod command_context;
 pub mod commands;

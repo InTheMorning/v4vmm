@@ -4,10 +4,12 @@ use std::fmt::Write as _;
 use std::time::SystemTime;
 
 use super::StartupAvailability;
+pub(crate) use crate::application::capability::configuration_dependency;
 pub(crate) use crate::application::capability::CapabilityAction;
 use crate::application::capability::{
     CapabilityFailure, CapabilityObservation, CapabilitySnapshot, Dependency,
 };
+use crate::application::capability_recovery::{RecoveryAction, RecoveryIntent, RecoveryIntents};
 
 #[derive(Clone, Debug)]
 pub struct CapabilityActionDisplay {
@@ -19,11 +21,16 @@ pub struct CapabilityActionDisplay {
 
 pub struct CapabilityRowDisplay {
     pub label: String,
+    pub help: Option<String>,
     pub actions: Vec<CapabilityActionDisplay>,
 }
 
 #[derive(Clone, Debug)]
 pub struct CapabilityReportVm {
+    pub(crate) pending: RecoveryIntents,
+    pub(crate) queued: std::collections::VecDeque<Dependency>,
+    pub(crate) check_message: Option<String>,
+    pub(crate) repair_blocked: Vec<Dependency>,
     pub observations: CapabilitySnapshot,
     pub worker_available: bool,
     generation: u64,
@@ -32,6 +39,29 @@ pub struct CapabilityReportVm {
 }
 
 impl CapabilityReportVm {
+    /// Display-ready fixture for shared-report geometry tests (ADR 0066).
+    #[cfg(test)]
+    pub(crate) fn setup_failures_fixture() -> Self {
+        let observations = [
+            Dependency::MusicIndex,
+            Dependency::Playback,
+            Dependency::Converter,
+        ]
+        .map(|dependency| {
+            (
+                dependency,
+                CapabilityObservation::new(dependency, Some(CapabilityFailure::Preparation)),
+            )
+        })
+        .into_iter()
+        .collect();
+        Self::new(observations, true)
+    }
+
+    pub(crate) fn running_dependency(&self) -> Option<Dependency> {
+        self.running.map(|(dependency, _)| dependency)
+    }
+
     pub(crate) fn is_working(&self) -> bool {
         self.running.is_some()
     }
@@ -39,8 +69,32 @@ impl CapabilityReportVm {
     pub const TITLE: &'static str = "Background tools";
 
     #[must_use]
+    pub fn notice_summary(&self) -> String {
+        let issues = self.issues().count();
+        let actions = self.pending.entries().len();
+        let mut parts = Vec::new();
+        if issues > 0 {
+            parts.push(format!(
+                "{issues} setup {}",
+                if issues == 1 { "issue" } else { "issues" }
+            ));
+        }
+        if actions > 0 {
+            parts.push(format!(
+                "{actions} retained {}",
+                if actions == 1 { "action" } else { "actions" }
+            ));
+        }
+        parts.join("; ")
+    }
+
+    #[must_use]
     pub fn new(observations: CapabilitySnapshot, worker_available: bool) -> Self {
         Self {
+            pending: RecoveryIntents::default(),
+            queued: std::collections::VecDeque::new(),
+            check_message: None,
+            repair_blocked: Vec::new(),
             observations,
             worker_available,
             generation: 0,
@@ -57,49 +111,129 @@ impl CapabilityReportVm {
 
     #[must_use]
     pub fn rows(&self, expanded: bool) -> Vec<CapabilityRowDisplay> {
-        self.issues()
+        let mut rows: Vec<_> = self
+            .issues()
             .map(|issue| {
-                let can_check = matches!(
-                    issue.dependency,
-                    Dependency::BackgroundRuntime | Dependency::ThumbnailMaintenance
-                );
-                let intents = if !can_check {
-                    if expanded {
-                        Vec::new()
-                    } else {
-                        vec![CapabilityAction::Configure(issue.dependency)]
-                    }
-                } else if expanded {
-                    vec![CapabilityAction::CheckAgain(issue.dependency)]
-                } else {
-                    vec![
-                        CapabilityAction::Configure(issue.dependency),
-                        CapabilityAction::CheckAgain(issue.dependency),
-                    ]
-                };
+                let dependency = canonical_dependency(issue.dependency);
+                let mut intents = vec![CapabilityAction::Configure(issue.dependency)];
+                if dependency != Dependency::LibraryPaths {
+                    intents.push(CapabilityAction::CheckAgain(dependency));
+                }
                 CapabilityRowDisplay {
                     label: if expanded {
                         dependency_title(issue.dependency).to_owned()
                     } else {
                         observation_text(issue)
                     },
+                    help: Some(if expanded {
+                        format!("{} {}", edit_help(issue.dependency), check_help(dependency))
+                    } else {
+                        edit_help(issue.dependency).into()
+                    }),
                     actions: intents
                         .into_iter()
                         .map(|intent| self.action(intent))
                         .collect(),
                 }
             })
-            .collect()
+            .collect();
+        rows.extend(self.pending.entries().iter().map(|entry| {
+            CapabilityRowDisplay {
+                label: recovery_summary(entry),
+                help: if entry.completed() {
+                    None
+                } else if expanded {
+                    Some(format!("{} {} {}", edit_help(entry.dependency), check_help(entry.dependency), run_help(&entry.action)))
+                } else if entry.checked.is_some() {
+                    Some("This button opens the original action's controls in Settings. It does not run the action.".into())
+                } else {
+                    Some(format!("{} It does not run the original action.", edit_help(entry.dependency)))
+                },
+                actions: if entry.completed() {
+                    vec![CapabilityAction::Dismiss(entry.id)]
+                } else if expanded {
+                    vec![
+                        CapabilityAction::Repair(entry.id),
+                        CapabilityAction::Verify(entry.id),
+                        CapabilityAction::Retry(entry.id),
+                        CapabilityAction::Dismiss(entry.id),
+                    ]
+                } else if entry.checked.is_some() {
+                    vec![CapabilityAction::Review(entry.id)]
+                } else {
+                    vec![CapabilityAction::Repair(entry.id)]
+                }
+                .into_iter()
+                .map(|action| self.action(action))
+                .collect(),
+            }
+        }));
+        rows
     }
 
     #[must_use]
     pub fn action(&self, action: CapabilityAction) -> CapabilityActionDisplay {
         let (label, a11y_label, availability) = match action {
-            CapabilityAction::Configure(dependency) => (
-                "Open report",
-                format!("Open {} report in Settings", dependency_title(dependency)),
+            CapabilityAction::OpenReport => (
+                "View tools in Settings",
+                "Open Background tools in Settings without checking or retrying an action".into(),
                 StartupAvailability::Available,
             ),
+            CapabilityAction::Configure(dependency) => (
+                edit_label(dependency),
+                edit_help(dependency).into(),
+                StartupAvailability::Available,
+            ),
+            CapabilityAction::Repair(id)
+            | CapabilityAction::Review(id)
+            | CapabilityAction::Verify(id)
+            | CapabilityAction::Retry(id)
+            | CapabilityAction::Dismiss(id) => {
+                let entry = self.pending.entries().iter().find(|entry| entry.id == id);
+                let label = match action {
+                    CapabilityAction::Repair(_) => {
+                        entry.map_or("Open Settings", |entry| edit_label(entry.dependency))
+                    }
+                    CapabilityAction::Review(_) => entry
+                        .map_or("View action in Settings", |entry| {
+                            review_label(&entry.action)
+                        }),
+                    CapabilityAction::Verify(_) => {
+                        entry.map_or("Check setup", |entry| check_label(entry.dependency))
+                    }
+                    CapabilityAction::Retry(_) => {
+                        entry.map_or("Run original action", |entry| run_label(&entry.action))
+                    }
+                    _ => "Dismiss",
+                };
+                let allowed = entry.is_some_and(|entry| {
+                    !entry.running
+                        && (!entry.completed() || matches!(action, CapabilityAction::Dismiss(_)))
+                        && match action {
+                            CapabilityAction::Verify(_) => {
+                                self.worker_available
+                                    && self.running.is_none()
+                                    && !self.repair_blocked.contains(&entry.dependency)
+                            }
+                            CapabilityAction::Retry(_) => {
+                                entry.checked.is_some() && self.running.is_none()
+                            }
+                            _ => true,
+                        }
+                });
+                (
+                    label,
+                    format!(
+                        "{label}: {}",
+                        entry.map_or_else(|| "Unavailable original action".into(), recovery_title)
+                    ),
+                    if allowed {
+                        StartupAvailability::Available
+                    } else {
+                        StartupAvailability::Unavailable
+                    },
+                )
+            }
             CapabilityAction::CopyReport => (
                 "Copy report",
                 "Copy the complete background tools report".into(),
@@ -108,15 +242,10 @@ impl CapabilityReportVm {
             CapabilityAction::CheckAgain(dependency) => {
                 let availability = if self.running.is_some_and(|(active, _)| active == dependency) {
                     StartupAvailability::Working
-                } else if matches!(
-                    dependency,
-                    Dependency::BackgroundRuntime | Dependency::ThumbnailMaintenance
-                ) && self.running.is_none()
+                } else if !self.repair_blocked.contains(&dependency)
+                    && dependency != Dependency::LibraryPaths
+                    && self.running.is_none()
                     && self.worker_available
-                    && self
-                        .observations
-                        .get(&dependency)
-                        .is_some_and(|observation| observation.failure.is_some())
                 {
                     StartupAvailability::Available
                 } else {
@@ -126,9 +255,9 @@ impl CapabilityReportVm {
                     if availability == StartupAvailability::Working {
                         "Checking…"
                     } else {
-                        "Check again"
+                        check_label(dependency)
                     },
-                    format!("Check {} again", dependency_title(dependency)),
+                    check_help(dependency).into(),
                     availability,
                 )
             }
@@ -149,6 +278,7 @@ impl CapabilityReportVm {
         {
             return None;
         }
+        self.pending.checking(dependency);
         self.generation += 1;
         self.running = Some((dependency, self.generation));
         Some(self.generation)
@@ -183,6 +313,12 @@ impl CapabilityReportVm {
         let mut text = format!("{}\n", Self::TITLE);
         if let Some(feedback) = self.feedback() {
             let _ = writeln!(text, "{feedback}");
+        }
+        if let Some(message) = &self.check_message {
+            let _ = writeln!(text, "{message}");
+        }
+        for entry in self.pending.entries() {
+            let _ = writeln!(text, "\n{}", recovery_summary(entry));
         }
         for observation in self.observations.values() {
             let at: chrono::DateTime<chrono::Utc> = observation.observed_at.into();
@@ -260,7 +396,9 @@ pub fn observation_text(observation: &CapabilityObservation) -> String {
         None => return match observation.dependency {
             Dependency::BackgroundRuntime => "App started its background runtime. This does not confirm that any external service is reachable.".into(),
             Dependency::ThumbnailMaintenance => "App completed its thumbnail cleanup scan.".into(),
-            _ => "App prepared this local dependency. No external service response was checked.".into(),
+            Dependency::Publisher => "App read the configured publisher service state and refreshed its setup. App sent no service command.".into(),
+            Dependency::Encoder => "App read the configured encoder status and refreshed its setup. App sent no connect or disconnect command.".into(),
+            _ => format!("App verified {} configuration and local setup. No external service response was checked.", dependency_title(observation.dependency)),
         },
     };
     match kind {
@@ -272,23 +410,270 @@ pub fn observation_text(observation: &CapabilityObservation) -> String {
 fn recovery(observation: &CapabilityObservation) -> &'static str {
     match observation.failure {
         Some(CapabilityFailure::CachePrune(_)) => "Check thumbnail-cache permissions and available storage, then choose Check again.",
-        Some(CapabilityFailure::Configuration(_)) => "Correct the named setting in the configuration file. The app keeps this observation until a fresh startup checks the correction.",
-        Some(CapabilityFailure::Preparation) => "Check the configured path, permissions and tool settings. Correct the resource before reopening the app.",
+        Some(CapabilityFailure::Configuration(_)) => "Use Edit to open the named setting in Settings. Save the correction. Use Check to test the saved setup.",
+        Some(CapabilityFailure::Preparation) => "Check the configured path, permissions and tool settings. Use Edit to open Settings. Use Check to test the saved setup. Other tools stay available.",
         Some(CapabilityFailure::PathRepair) => "Inspect the music folder and preserved bindings before explicitly running local path repair. App has not rolled back completed statements.",
         _ => "Free system resources if necessary, then choose Check again. App will make a fresh attempt.",
     }
 }
 
-pub(crate) fn configuration_dependency(field: &str) -> Dependency {
-    match field {
-        "musicindex_endpoint" => Dependency::MusicIndex,
-        "playback" | "playback.driver" | "playback.mpv_path" => Dependency::Playback,
-        "broadcast" | "broadcast.hosts" | "broadcast.selected_host" => Dependency::Publisher,
-        "broadcast.drop_directory" | "broadcast.drop_file_target" => Dependency::Producer,
-        "broadcast.encoder" => Dependency::Encoder,
-        "flac_path" => Dependency::Converter,
-        _ => Dependency::Presentation,
+pub(crate) fn canonical_dependency(dependency: Dependency) -> Dependency {
+    match dependency {
+        Dependency::Configuration(field) => configuration_dependency(field),
+        dependency => dependency,
     }
+}
+
+pub(crate) fn correction_field(
+    dependency: Dependency,
+) -> Option<crate::config::correction::CorrectionField> {
+    use crate::config::correction::CorrectionField;
+    Some(CorrectionField(match dependency {
+        Dependency::Configuration(field) => field,
+        Dependency::MusicIndex => "musicindex_endpoint",
+        Dependency::Playback => "playback.driver",
+        Dependency::Publisher => "broadcast.hosts",
+        Dependency::Producer => "broadcast.drop_directory",
+        Dependency::Encoder => "broadcast.encoder",
+        Dependency::Converter => "flac_path",
+        Dependency::Presentation => "ui_scale",
+        _ => return None,
+    }))
+}
+
+pub(crate) fn recovery_title(entry: &RecoveryIntent) -> String {
+    match &entry.action {
+        RecoveryAction::IndexSearch { query } => format!(
+            "Index search: {}",
+            crate::diagnostics::redact_endpoint_details(query)
+        ),
+        RecoveryAction::Playback {
+            operation,
+            track_id,
+            ..
+        } => format!(
+            "Playback {operation:?}, original track {}",
+            track_id.map_or_else(|| "unavailable".into(), |id| id.to_string())
+        ),
+        RecoveryAction::Publisher {
+            role,
+            operation,
+            host,
+            event_id,
+        } => format!(
+            "{operation:?} {role:?} on {}, original event {}",
+            recovery_host(host.as_ref()),
+            event_id.as_deref().unwrap_or("none")
+        ),
+        RecoveryAction::Event {
+            operation,
+            event_id,
+            host,
+            target,
+            ..
+        } => format!(
+            "{operation:?} original event {}, publisher {}, target {}",
+            event_id.as_deref().unwrap_or("new event"),
+            recovery_host(host.as_ref()),
+            target.as_deref().map_or_else(
+                || "not applicable".into(),
+                crate::diagnostics::redact_endpoint_details
+            )
+        ),
+        RecoveryAction::Encoder { operation, target } => format!(
+            "{operation:?} stream encoder, original server {}",
+            target
+                .as_ref()
+                .and_then(|target| target.default_server_name.as_deref())
+                .map_or_else(
+                    || "encoder's selected server".into(),
+                    crate::diagnostics::redact_endpoint_details
+                )
+        ),
+    }
+}
+
+fn recovery_host(host: Option<&crate::config::BroadcastHostConfig>) -> String {
+    host.map_or_else(
+        || "unavailable original host".into(),
+        |host| {
+            crate::diagnostics::redact_endpoint_details(&format!(
+                "{} ({})",
+                host.name, host.instance_name
+            ))
+        },
+    )
+}
+
+fn recovery_summary(entry: &RecoveryIntent) -> String {
+    let at: chrono::DateTime<chrono::Utc> = entry.recorded_at.into();
+    let state;
+    let result = if let Some(result) = &entry.result {
+        result.message()
+    } else if entry.running {
+        "App is running the original action."
+    } else if entry.checked.is_some() {
+        state = format!(
+            "Setup check passed. {} is available in Settings.",
+            run_label(&entry.action)
+        );
+        &state
+    } else {
+        "App retained the original action. Its setup needs a successful check before it can run."
+    };
+    format!(
+        "[{}] {}. {result}",
+        at.format("%Y-%m-%d %H:%M:%S UTC"),
+        recovery_title(entry)
+    )
+}
+
+pub(crate) fn edit_label(dependency: Dependency) -> &'static str {
+    match canonical_dependency(dependency) {
+        Dependency::MusicIndex => "Edit endpoint",
+        Dependency::Playback => "Edit player settings",
+        Dependency::Publisher => "Edit publisher settings",
+        Dependency::Producer => "Edit publication settings",
+        Dependency::Encoder => "Edit encoder settings",
+        Dependency::Converter => "Edit converter setting",
+        Dependency::Presentation => "Edit display settings",
+        _ => "Open report in Settings",
+    }
+}
+
+fn edit_help(dependency: Dependency) -> &'static str {
+    match canonical_dependency(dependency) {
+        Dependency::MusicIndex => "Edit endpoint opens musicindex_endpoint in Settings.",
+        Dependency::Playback => "Edit player settings opens the player configuration in Settings.",
+        Dependency::Publisher => {
+            "Edit publisher settings opens the host configuration in Settings."
+        }
+        Dependency::Producer => {
+            "Edit publication settings opens the drop-file configuration in Settings."
+        }
+        Dependency::Encoder => "Edit encoder settings opens the encoder configuration in Settings.",
+        Dependency::Converter => "Edit converter setting opens flac_path in Settings.",
+        Dependency::Presentation => {
+            "Edit display settings opens the configuration editor in Settings."
+        }
+        _ => "Open report in Settings shows the problem and its available checks.",
+    }
+}
+
+pub(crate) fn check_label(dependency: Dependency) -> &'static str {
+    match canonical_dependency(dependency) {
+        Dependency::MusicIndex => "Check endpoint",
+        Dependency::Playback => "Check player",
+        Dependency::Publisher => "Check publisher",
+        Dependency::Producer => "Check publication folder",
+        Dependency::Encoder => "Check encoder",
+        Dependency::Converter => "Check converter setting",
+        Dependency::Presentation => "Check display settings",
+        _ => "Check again",
+    }
+}
+
+fn check_help(dependency: Dependency) -> &'static str {
+    match canonical_dependency(dependency) {
+        Dependency::MusicIndex => {
+            "Check endpoint validates the saved URL without sending a search."
+        }
+        Dependency::Playback => {
+            "Check player prepares the saved player setup without playing a track."
+        }
+        Dependency::Publisher => {
+            "Check publisher reads service state without starting or stopping a service."
+        }
+        Dependency::Producer => {
+            "Check publication folder tests directory access without publishing metadata."
+        }
+        Dependency::Encoder => {
+            "Check encoder reads encoder status without connecting or disconnecting the stream."
+        }
+        Dependency::Converter => {
+            "Check converter setting validates the saved path setting without converting a file."
+        }
+        Dependency::Presentation => {
+            "Check display settings validates and applies the saved display configuration."
+        }
+        Dependency::BackgroundRuntime => {
+            "Check again starts the app's background runtime without repeating a previous action."
+        }
+        Dependency::ThumbnailMaintenance => "Check again retries the thumbnail cleanup scan.",
+        _ => "The report explains which resource needs a check.",
+    }
+}
+
+fn review_label(action: &RecoveryAction) -> &'static str {
+    match action {
+        RecoveryAction::IndexSearch { .. } => "View search actions",
+        RecoveryAction::Playback { .. } => "View playback actions",
+        RecoveryAction::Publisher { .. } => "View service actions",
+        RecoveryAction::Event { .. } => "View event actions",
+        RecoveryAction::Encoder { .. } => "View stream actions",
+    }
+}
+
+fn run_label(action: &RecoveryAction) -> &'static str {
+    use crate::application::capability_recovery::{
+        PlaybackOperation, PublisherServiceOperation, StreamEncoderOperation,
+    };
+    use crate::runtime::BroadcastServiceRole;
+    use crate::view_models::show::EventControlIntent;
+    match action {
+        RecoveryAction::IndexSearch { .. } => "Run search again",
+        RecoveryAction::Playback { operation, .. } => match operation {
+            PlaybackOperation::Playlist { .. } => "Play original track",
+            PlaybackOperation::Pause => "Pause original track",
+            PlaybackOperation::Resume => "Resume original track",
+            PlaybackOperation::Next => "Play next track",
+            PlaybackOperation::Previous => "Play previous track",
+        },
+        RecoveryAction::Publisher {
+            operation, role, ..
+        } => match (operation, role) {
+            (PublisherServiceOperation::Start, BroadcastServiceRole::Publisher) => {
+                "Start publisher"
+            }
+            (PublisherServiceOperation::Stop, BroadcastServiceRole::Publisher) => "Stop publisher",
+            (PublisherServiceOperation::Reset, BroadcastServiceRole::Publisher) => {
+                "Clear publisher failure"
+            }
+            (PublisherServiceOperation::Start, BroadcastServiceRole::Producer) => "Start producer",
+            (PublisherServiceOperation::Stop, BroadcastServiceRole::Producer) => "Stop producer",
+            (PublisherServiceOperation::Reset, BroadcastServiceRole::Producer) => {
+                "Clear producer failure"
+            }
+        },
+        RecoveryAction::Event { operation, .. } => match operation {
+            EventControlIntent::Create => "Create event",
+            EventControlIntent::Replace => "Replace event",
+            EventControlIntent::Attach => "Attach event",
+            EventControlIntent::Detach => "Detach event",
+            EventControlIntent::Check => "Check event",
+            EventControlIntent::ReadTargets => "Read event targets",
+            EventControlIntent::Refresh => "Refresh event",
+            EventControlIntent::CopyFeedTag => "Copy feed tag",
+        },
+        RecoveryAction::Encoder { operation, .. } => match operation {
+            StreamEncoderOperation::Connect => "Connect stream",
+            StreamEncoderOperation::Disconnect => "Disconnect stream",
+        },
+    }
+}
+
+fn run_help(action: &RecoveryAction) -> String {
+    let effect = match action {
+        RecoveryAction::IndexSearch { .. } => "sends this original query",
+        RecoveryAction::Playback { .. } => "runs the original playback command",
+        RecoveryAction::Publisher { .. } => "sends the original service command",
+        RecoveryAction::Event { .. } => "runs the original event command",
+        RecoveryAction::Encoder { .. } => "sends the original stream command",
+    };
+    format!(
+        "{} {effect} after a successful setup check.",
+        run_label(action)
+    )
 }
 
 #[cfg(test)]
@@ -296,6 +681,191 @@ mod tests {
     use super::*;
     use std::io;
     use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn adr_0066_search_controls_explain_edit_check_and_execution() {
+        let mut vm = CapabilityReportVm::new(Default::default(), true);
+        let id = vm.pending.retain(
+            RecoveryAction::IndexSearch {
+                query: "original query".into(),
+            },
+            Dependency::MusicIndex,
+            1,
+        );
+        assert_eq!(
+            vm.action(CapabilityAction::Repair(id)).label,
+            "Edit endpoint"
+        );
+        assert_eq!(
+            vm.action(CapabilityAction::Verify(id)).label,
+            "Check endpoint"
+        );
+        assert_eq!(
+            vm.action(CapabilityAction::Retry(id)).label,
+            "Run search again"
+        );
+        assert!(vm.rows(false)[0]
+            .help
+            .as_ref()
+            .unwrap()
+            .contains("opens musicindex_endpoint in Settings"));
+        let help = vm.rows(true)[0].help.clone().unwrap();
+        assert!(help.contains("without sending a search"));
+        assert!(help.contains("Run search again sends this original query"));
+        let snapshot = crate::config::ConfigSnapshot::from_bytes(
+            std::path::Path::new("config.toml"),
+            Vec::new(),
+        )
+        .unwrap();
+        vm.pending.checked(Dependency::MusicIndex, &snapshot);
+        let ready = vm.rows(false);
+        assert_eq!(ready[0].actions[0].action, CapabilityAction::Review(id));
+        assert_eq!(ready[0].actions[0].label, "View search actions");
+        assert!(ready[0]
+            .help
+            .as_ref()
+            .unwrap()
+            .contains("does not run the action"));
+        assert_eq!(
+            vm.action(CapabilityAction::Retry(id)).availability,
+            StartupAvailability::Available
+        );
+        vm.pending
+            .succeed(id, "App completed the original search.".into());
+        for expanded in [false, true] {
+            let rows = vm.rows(expanded);
+            assert_eq!(rows[0].actions.len(), 1);
+            assert_eq!(rows[0].actions[0].action, CapabilityAction::Dismiss(id));
+            assert!(rows[0].label.contains("completed the original search"));
+            assert!(!rows[0].label.contains("needs a successful check"));
+        }
+        for action in [
+            CapabilityAction::Repair(id),
+            CapabilityAction::Review(id),
+            CapabilityAction::Verify(id),
+            CapabilityAction::Retry(id),
+        ] {
+            assert_eq!(
+                vm.action(action).availability,
+                StartupAvailability::Unavailable
+            );
+        }
+    }
+
+    #[test]
+    fn adr_0066_service_controls_distinguish_observation_from_mutation() {
+        let mut vm = CapabilityReportVm::new(Default::default(), true);
+        let id = vm.pending.retain(
+            RecoveryAction::Publisher {
+                role: crate::runtime::BroadcastServiceRole::Publisher,
+                operation:
+                    crate::application::capability_recovery::PublisherServiceOperation::Start,
+                host: Some(crate::config::BroadcastHostConfig::default_local()),
+                event_id: None,
+            },
+            Dependency::Publisher,
+            1,
+        );
+        assert_eq!(
+            vm.action(CapabilityAction::Repair(id)).label,
+            "Edit publisher settings"
+        );
+        assert_eq!(
+            vm.action(CapabilityAction::Verify(id)).label,
+            "Check publisher"
+        );
+        assert_eq!(
+            vm.action(CapabilityAction::Retry(id)).label,
+            "Start publisher"
+        );
+        let rows = vm.rows(true);
+        let help = rows[0].help.as_ref().unwrap();
+        assert!(help.contains("without starting or stopping a service"));
+        assert!(help.contains("Start publisher sends the original service command"));
+        vm.pending
+            .finish(id, "App could not start the original publisher.".into());
+        assert_eq!(vm.rows(true)[0].actions.len(), 4);
+        assert_eq!(
+            vm.action(CapabilityAction::Repair(id)).availability,
+            StartupAvailability::Available
+        );
+        assert_eq!(
+            vm.action(CapabilityAction::Retry(id)).availability,
+            StartupAvailability::Unavailable
+        );
+    }
+
+    #[test]
+    fn adr_0066_repair_routes_keep_subjects_actions_and_failed_checks_separate() {
+        let mut vm = CapabilityReportVm::new(Default::default(), true);
+        let first = vm.pending.retain(
+            RecoveryAction::IndexSearch {
+                query: "original search".into(),
+            },
+            Dependency::MusicIndex,
+            7,
+        );
+        let second = vm.pending.retain(
+            RecoveryAction::Playback {
+                operation: crate::application::capability_recovery::PlaybackOperation::Pause,
+                track_id: Some(44),
+                queue: vec![44],
+            },
+            Dependency::Playback,
+            7,
+        );
+        for id in [first, second] {
+            assert_eq!(
+                vm.action(CapabilityAction::Repair(id)).availability,
+                StartupAvailability::Available
+            );
+            assert_eq!(
+                vm.action(CapabilityAction::Verify(id)).availability,
+                StartupAvailability::Available
+            );
+            assert_eq!(
+                vm.action(CapabilityAction::Retry(id)).availability,
+                StartupAvailability::Unavailable
+            );
+        }
+        let snapshot = crate::config::ConfigSnapshot::from_bytes(
+            std::path::Path::new("config.toml"),
+            Vec::new(),
+        )
+        .unwrap();
+        vm.pending.checked(Dependency::MusicIndex, &snapshot);
+        assert_eq!(
+            vm.action(CapabilityAction::Retry(first)).availability,
+            StartupAvailability::Available
+        );
+        let generation = vm.begin(Dependency::MusicIndex).unwrap();
+        assert!(vm.complete(Dependency::MusicIndex, generation));
+        // A failed check supplies no new verified revision.
+        assert_eq!(
+            vm.action(CapabilityAction::Retry(first)).availability,
+            StartupAvailability::Unavailable
+        );
+        assert_eq!(vm.rows(true).len(), 2);
+        assert!(vm.report().contains("original search"));
+        assert!(vm.report().contains("original track 44"));
+        for dependency in [
+            Dependency::MusicIndex,
+            Dependency::Playback,
+            Dependency::Publisher,
+            Dependency::Producer,
+            Dependency::Encoder,
+            Dependency::Presentation,
+            Dependency::Converter,
+        ] {
+            assert!(correction_field(dependency).is_some());
+            assert_eq!(
+                vm.action(CapabilityAction::Configure(dependency))
+                    .availability,
+                StartupAvailability::Available
+            );
+        }
+        assert!(correction_field(Dependency::BackgroundRuntime).is_none());
+    }
 
     fn vm() -> CapabilityReportVm {
         let entries = [
@@ -323,6 +893,26 @@ mod tests {
     }
 
     #[test]
+    fn adr_0066_notice_summary_counts_issues_and_retained_actions_without_running_them() {
+        let mut vm = vm();
+        assert_eq!(vm.notice_summary(), "2 setup issues");
+        vm.pending.retain(
+            RecoveryAction::IndexSearch {
+                query: "original query".into(),
+            },
+            Dependency::MusicIndex,
+            1,
+        );
+        assert_eq!(vm.notice_summary(), "2 setup issues; 1 retained action");
+        let display = vm.action(CapabilityAction::OpenReport);
+        assert_eq!(display.availability, StartupAvailability::Available);
+        assert_eq!(display.label, "View tools in Settings");
+        assert!(display.a11y_label.contains("without checking or retrying"));
+        assert_eq!(vm.pending.entries().len(), 1);
+        assert!(vm.running_dependency().is_none());
+    }
+
+    #[test]
     fn adr_0066_independent_issues_keep_typed_remedies_and_recorded_times() {
         let mut vm = vm();
         assert_eq!(vm.issues().count(), 2);
@@ -333,7 +923,7 @@ mod tests {
                 == StartupAvailability::Available
                 && !action.a11y_label.is_empty()));
         }
-        assert!(vm.rows(true).iter().all(|row| row.actions.len() == 1));
+        assert!(vm.rows(true).iter().all(|row| row.actions.len() == 2));
         let report = vm.report();
         assert!(report.contains("1970-01-01 00:00:10 UTC"));
         assert!(report.contains("App could not start its background runtime"));

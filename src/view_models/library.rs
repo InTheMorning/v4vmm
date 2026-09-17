@@ -2932,6 +2932,14 @@ impl LibraryViewModel {
         self.split_pane.leading_width()
     }
 
+    pub(crate) fn split_pane_height(&self) -> Option<f32> {
+        self.split_pane.leading_height()
+    }
+
+    pub(crate) fn resize_split_pane_height(&mut self, height: f32) {
+        self.split_pane.resize_height_to(height);
+    }
+
     pub(crate) fn begin_resize(&mut self) {
         self.split_pane.begin_resize();
     }
@@ -4080,6 +4088,7 @@ pub(crate) struct PlaylistTrackControlsDisplay {
     pub(crate) actions_menu_a11y_label: &'static str,
     pub(crate) play_button_id: String,
     pub(crate) play_label: &'static str,
+    pub(crate) play_a11y_label: &'static str,
     pub(crate) play_enabled: bool,
     pub(crate) move_up_menu_item: PlaylistTrackMenuItemDisplay,
     pub(crate) move_down_menu_item: PlaylistTrackMenuItemDisplay,
@@ -4097,6 +4106,30 @@ pub(crate) struct PlaylistTrackRowDisplay {
     pub(crate) duration_label: String,
     pub(crate) thumb_url: Option<String>,
     pub(crate) controls: PlaylistTrackControlsDisplay,
+}
+
+#[cfg(test)]
+impl PlaylistTrackRowDisplay {
+    /// Display-ready fixture for shared-shell geometry tests (ADR 0044).
+    pub(crate) fn playback_repair_fixture() -> Self {
+        let track = TrackRow {
+            id: 1,
+            track_title: Some("A long playlist track title".repeat(5)),
+            is_in_library: true,
+            artist_name: Some("Artist".into()),
+            duration_seconds: Some(30),
+            local_path: Some(crate::library_path::LibraryRelativePath::for_test("a.wav")),
+            ..Default::default()
+        };
+        PlaylistTrackRowVm::new(&track, 0, 2).display_with_playback(
+            1,
+            Err(
+                crate::application::capability::ExecutionUnavailable::configured(
+                    crate::application::capability::Dependency::Playback,
+                ),
+            ),
+        )
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -4135,7 +4168,10 @@ impl<'a> PlaylistTrackRowVm<'a> {
         availability: Result<(), crate::application::capability::ExecutionUnavailable>,
     ) -> PlaylistTrackRowDisplay {
         let mut display = self.display(playlist_id);
-        display.controls.play_enabled &= availability.is_ok();
+        if display.controls.play_enabled && availability.is_err() {
+            display.controls.play_label = "Repair playback";
+            display.controls.play_a11y_label = "Repair playback for this playlist track";
+        }
         display
     }
 
@@ -4248,6 +4284,7 @@ impl<'a> PlaylistTrackRowVm<'a> {
             actions_menu_a11y_label: "Playlist track actions",
             play_button_id: format!("playlist-play-{playlist_id}-{position}"),
             play_label: "▶",
+            play_a11y_label: "Play this playlist track",
             play_enabled: self.can_play(),
             move_up_menu_item: PlaylistTrackMenuItemDisplay {
                 id: format!("playlist-move-up-{playlist_id}-{position}"),
@@ -5977,9 +6014,11 @@ mod tests {
             ),
         );
         assert!(ready.controls.play_enabled);
-        assert!(!unavailable.controls.play_enabled);
+        assert!(unavailable.controls.play_enabled);
+        assert_eq!(unavailable.controls.play_label, "Repair playback");
         let mut restored = unavailable;
-        restored.controls.play_enabled = true;
+        restored.controls.play_label = ready.controls.play_label;
+        restored.controls.play_a11y_label = ready.controls.play_a11y_label;
         assert_eq!(restored, ready);
     }
 
@@ -6041,6 +6080,7 @@ mod tests {
                 actions_menu_a11y_label: "Playlist track actions",
                 play_button_id: "playlist-play-7-0".into(),
                 play_label: "▶",
+                play_a11y_label: "Play this playlist track",
                 play_enabled: true,
                 move_up_menu_item: PlaylistTrackMenuItemDisplay {
                     id: "playlist-move-up-7-0".into(),
@@ -6108,6 +6148,7 @@ mod tests {
                     actions_menu_a11y_label: "Playlist track actions",
                     play_button_id: "playlist-play-7-0".into(),
                     play_label: "▶",
+                    play_a11y_label: "Play this playlist track",
                     play_enabled: true,
                     move_up_menu_item: PlaylistTrackMenuItemDisplay {
                         id: "playlist-move-up-7-0".into(),
@@ -6426,6 +6467,19 @@ mod tests {
 
         vm.end_resize();
         assert!(!vm.is_resizing());
+    }
+
+    /// Situational ADR 0046: switching pane orientation retains independent preferred extents.
+    #[test]
+    fn adr_0046_library_keeps_width_and_height_preferences_separate() {
+        let mut vm = LibraryViewModel::new();
+        assert_eq!(vm.split_pane_height(), None);
+        vm.resize_split_pane(420.0, 200.0, 800.0);
+        vm.resize_split_pane_height(180.0);
+        assert_width_eq(vm.split_pane_width(), 420.0);
+        assert_width_eq(vm.split_pane_height().unwrap(), 180.0);
+        vm.resize_split_pane(360.0, 200.0, 800.0);
+        assert_width_eq(vm.split_pane_height().unwrap(), 180.0);
     }
 
     #[test]

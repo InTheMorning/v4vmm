@@ -1742,6 +1742,75 @@ fn workspace_split_pane_uses_fluid_resize_pattern() {
     );
 }
 
+/// Situational ADR 0046: every Library pane uses the measured shared fitting owner.
+#[test]
+fn adr_0046_library_split_uses_measured_shared_geometry() {
+    let source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let render = source_between(&source, "impl Render for LibraryApp", "#[cfg(test)]");
+    let splits = render.split("SplitPane::new(chrome.split_pane_id)").skip(1);
+    let mut count = 0;
+    for split in splits {
+        let wiring = split.split(".into_any_element()").next().unwrap();
+        for required in [
+            ".leading_width(px(self.vm.split_pane_width()))",
+            ".fit_to(",
+            "self.split_pane_bounds",
+            ".stacked_height(self.vm.split_pane_height().map(px))",
+            ".on_resize(",
+            "layout::scaled_dimension(layout::CONTENT_PANE_MIN_WIDTH, cx)",
+            ".on_layout(",
+        ] {
+            assert!(
+                wiring.contains(required),
+                "Library split missing {required}"
+            );
+        }
+        count += 1;
+    }
+    assert_eq!(count, 2, "Cover recent content and selected details");
+    assert!(render.contains("this.split_pane_bounds != Some(*bounds)"));
+    assert!(render.contains("this.split_pane_bounds = Some(*bounds)"));
+    assert!(!render.contains("SPLIT_STACKED_LEADING_FRACTION"));
+    assert!(!render.contains("SplitPaneAxis::Vertical"));
+}
+
+/// Situational ADR 0066: normal notices preserve content height and open Settings passively.
+#[test]
+fn adr_0066_normal_notice_uses_bounded_viewport_and_passive_settings_route() {
+    let report = read_source(&manifest_path("src/ui/composites/startup_report.rs"));
+    for required in [
+        "CAPABILITY_NOTICE_MAX_HEIGHT",
+        "capability-notice-scroll",
+        ".overflow_y_scrollbar()",
+        "vm.notice_summary()",
+        "CapabilityAction::OpenReport",
+    ] {
+        assert!(
+            report.contains(required),
+            "Normal notice missing {required}"
+        );
+    }
+    let adapter = read_source(&manifest_path("src/app/capabilities.rs"));
+    let route = source_between(
+        &adapter,
+        "CapabilityAction::OpenReport | CapabilityAction::Review(_) =>",
+        "CapabilityAction::Repair(id) =>",
+    );
+    assert!(route.contains("SettingsAction::OpenReport"));
+    assert!(route.contains("select_tab(AppTab::Settings"));
+    for forbidden in [
+        "check_capability",
+        "retry_intent",
+        "present_command",
+        "SaveCorrection",
+    ] {
+        assert!(
+            !route.contains(forbidden),
+            "Report navigation must not execute {forbidden}"
+        );
+    }
+}
+
 #[test]
 fn adr_0066_missing_runtime_has_no_implicit_runner() {
     // Situational: ADR 0066 invariants 2, 5 and 9. Runner/worker tests prove
@@ -16345,8 +16414,14 @@ fn adr_0059_show_command_feedback_survives_all_reprojections() {
     ] {
         let command = source_between(&app, start, end);
         assert!(command.contains("let Some(command_id) = self.show_commands.begin_"));
-        assert!(command.contains("this.finish_show_command(command_id, completion, cx)"));
-        assert!(command.contains("ShowCommandCompletion::new(Err(error))"));
+        assert!(command.contains("self.dispatch_show_command("));
+        let dispatch = source_between(
+            &app,
+            "fn dispatch_show_command<C>(",
+            "fn record_show_retry_result(",
+        );
+        assert!(dispatch.contains("this.finish_show_command(command_id, completion, cx)"));
+        assert!(dispatch.contains("ShowCommandCompletion::new(Err(error))"));
     }
     for (start, end) in [
         (
@@ -16604,7 +16679,7 @@ fn adr_0066_optional_dependencies_are_scoped() {
     let playback = read_source(&manifest_path("src/app/playback_bar.rs"));
     assert_eq!(
         playback
-            .matches("let Some(owner) = self.available_playback_owner(cx)")
+            .matches("let Some(owner) = self.available_playback_owner(&action, cx)")
             .count(),
         4
     );
@@ -16856,7 +16931,7 @@ fn adr_0069_settings_group_ownership() {
     }
     let report = source_between(
         &capabilities,
-        "CapabilityAction::Configure(_) =>",
+        "CapabilityAction::Configure(dependency) =>",
         "CapabilityAction::CopyReport =>",
     );
     assert!(
@@ -17237,4 +17312,180 @@ fn adr_0063_nested_scrollbars_share_page_content_owner() {
             "ADR 0063: {file} must share the page scrollbar clearance owner"
         );
     }
+}
+
+/// Situational ADR 0066 invariant 9: repair preserves subject identity across all entry points.
+#[test]
+fn adr_0066_repair_routes_preserve_action_subject() {
+    let owner = read_source(&manifest_path("src/application/capability_recovery.rs"));
+    let setup = read_source(&manifest_path(
+        "src/application/capability_recovery/setup.rs",
+    ));
+    let context = read_source(&manifest_path("src/application/command_context.rs"));
+    let playback = read_source(&manifest_path("src/application/commands/playback.rs"));
+    let adapter = read_source(&manifest_path("src/app/capabilities.rs"));
+    let search = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let show = read_source(&manifest_path("src/app/show.rs"));
+    let keyboard = read_source(&manifest_path("src/app/keyboard.rs"));
+    for required in [
+        "enum RecoveryAction",
+        "struct RecoveryIntent",
+        "config_generation",
+        "CapabilityRevision::of",
+        "self.session.accepts(self.intent.session)",
+        "validate_subject",
+        "SubjectChanged",
+        "PublisherChanged",
+    ] {
+        assert!(
+            owner.contains(required),
+            "Missing recovery contract: {required}"
+        );
+    }
+    for source in [&owner, &setup] {
+        for forbidden in [
+            "use gpui",
+            "cx.spawn",
+            "Box<dyn Fn",
+            "Rc<dyn Fn",
+            "load_config_snapshot(",
+            "prepare_database(",
+        ] {
+            assert!(!production_source(source).contains(forbidden));
+        }
+    }
+    assert!(
+        context.contains("subject.action.validate_subject")
+            || compact_source(&context).contains("subject.action.validate_subject")
+    );
+    assert_eq!(
+        playback
+            .matches("context.validate_retry_subject(&conn)?")
+            .count(),
+        7
+    );
+    assert!(
+        show.matches("context.validate_retry_subject(&conn)?")
+            .count()
+            >= 2
+    );
+    for required in [
+        "this.retain_failed_action",
+        "self.retry_command(",
+        "self.command_with_retry(",
+    ] {
+        assert!(
+            show.contains(required),
+            "Show adapters must preserve {required}"
+        );
+    }
+    assert!(
+        show.contains("intent.action.event_target_name()")
+            || compact_source(&show).contains("intent.action.event_target_name()")
+    );
+    assert!(show.contains("context.validate_retry_event_target("));
+    assert!(search.contains("AppToolbarVm::index_search_availability("));
+    assert!(search.contains("self.dispatch_index_search("));
+    assert!(
+        read_source(&manifest_path("src/app.rs")).contains("self.submit_global_search(window, cx)")
+    );
+    assert!(read_source(&manifest_path("src/app/tab_bar.rs"))
+        .contains("this.submit_global_search(window, cx)"));
+    assert!(keyboard.contains("self.toggle_playback_paused(cx)"));
+    assert!(adapter.contains("editor.open_for(field, window, cx)"));
+    assert!(compact_source(&adapter).contains("self.capability_vm.pending.begin_retry("));
+    let saved = source_between(
+        &adapter,
+        "fn check_saved_capabilities(",
+        "fn install_checked_capability(",
+    );
+    assert!(!saved.contains("retry_retained_action") && !saved.contains("present_command"));
+    for path in [
+        "src/ui/composites/startup_report.rs",
+        "src/ui/composites/maintenance_forms.rs",
+        "src/ui/composites/settings.rs",
+    ] {
+        let source = read_source(&manifest_path(path));
+        assert!(
+            !source.contains("RetryCommand")
+                && !source.contains(".execute(")
+                && !source.contains("ConfigSnapshot::read_existing")
+        );
+    }
+}
+
+/// Situational ADR 0066: recovery controls distinguish navigation, checks and execution.
+#[test]
+fn adr_0066_recovery_controls_explain_effect_and_completion() {
+    let vm = read_source(&manifest_path("src/view_models/startup/capabilities.rs"));
+    let ui = read_source(&manifest_path("src/ui/composites/startup_report.rs"));
+    let adapter = read_source(&manifest_path("src/app/capabilities.rs"));
+    assert!(vm.contains("entry.completed()"));
+    assert!(vm.contains("run_help(&entry.action)"));
+    assert!(ui.contains("display.help"));
+    assert!(ui.contains("SemanticColor::SecondaryLabel"));
+    for forbidden in ["entry.completed()", "Repair action", "Run search again"] {
+        assert!(
+            !ui.contains(forbidden),
+            "Recovery facts and labels belong to the VM: {forbidden}"
+        );
+    }
+    let review = source_between(
+        &adapter,
+        "CapabilityAction::OpenReport | CapabilityAction::Review(_) =>",
+        "CapabilityAction::Repair(id) =>",
+    );
+    assert!(review.contains("SettingsAction::OpenReport"));
+    assert!(!review.contains("retry_retained_action") && !review.contains("check_capability"));
+    for path in [
+        "src/app/search_dispatch.rs",
+        "src/app/playback_bar.rs",
+        "src/app/show.rs",
+    ] {
+        assert!(
+            read_source(&manifest_path(path)).contains(".succeed("),
+            "{path} must record successful recovery separately"
+        );
+    }
+}
+
+/// Situational ADR 0060: search content and the selected section share navigation.
+#[test]
+fn adr_0060_search_uses_music_section_navigation() {
+    let app = read_source(&manifest_path("src/app.rs"));
+    let toolbar = read_source(&manifest_path("src/app/tab_bar.rs"));
+    let search = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let submit = source_between(
+        &search,
+        "pub(super) fn submit_global_search(",
+        "pub(super) fn open_search_results_in_content_list(",
+    );
+    assert!(submit.contains("self.open_search_results_in_content_list(&query, window, cx)"));
+    assert!(
+        app.contains("cx.subscribe_in(&global_search_input, window, Self::on_global_search_event)")
+    );
+    assert!(app.contains("self.submit_global_search(window, cx)"));
+    assert!(toolbar.contains("this.submit_global_search(window, cx)"));
+    let saved = source_between(&app, "fn open_saved_search(", "fn select_tab(");
+    assert!(saved.contains("self.open_search_results_in_content_list(query, window, cx)"));
+    let open = source_between(
+        &search,
+        "pub(super) fn open_search_results_in_content_list(",
+        "fn search_results_detail_for_query(",
+    );
+    let empty = open.find("if query.is_empty()").unwrap();
+    let select = open
+        .find("self.select_tab(AppTab::Music, window, cx)")
+        .unwrap();
+    let push = open
+        .find(".open_search_results_in_content_list(query.clone())")
+        .unwrap();
+    assert!(
+        empty < select && select < push,
+        "Ignore empty input, restore Music navigation, then open the query"
+    );
+    assert!(
+        !open.contains("self.tab ="),
+        "Use the shared section transition, including history and focus"
+    );
 }

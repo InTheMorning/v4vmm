@@ -52,6 +52,26 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
         &self.driver
     }
 
+    /// Replace idle optional resources without loading audio or publishing metadata (ADR 0066).
+    pub(crate) fn replace_idle_driver(&mut self, driver: D) -> Result<()> {
+        if self.loaded_track_id.is_some() {
+            anyhow::bail!("Playback still owns a loaded track. End the app session before changing its driver.");
+        }
+        self.driver = driver;
+        Ok(())
+    }
+
+    pub(crate) fn replace_idle_producer(
+        &mut self,
+        producer: Option<DropFileProducer>,
+    ) -> Result<()> {
+        if self.loaded_track_id.is_some() {
+            anyhow::bail!("Playback still owns a loaded track. End the app session before changing its publication target.");
+        }
+        self.drop_file_producer = producer;
+        Ok(())
+    }
+
     pub fn set_music_dir(&mut self, music_dir: impl Into<PathBuf>) {
         self.music_dir = music_dir.into();
     }

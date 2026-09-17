@@ -22,7 +22,10 @@ use super::startup_presenter::present_startup;
 
 pub(crate) enum CorrectionEvent {
     EndSession,
-    Saved(Arc<ConfigSnapshot>),
+    Saved(
+        Arc<ConfigSnapshot>,
+        Vec<crate::application::capability::Dependency>,
+    ),
 }
 
 pub(crate) type CorrectionEventCallback = Rc<dyn Fn(CorrectionEvent, &mut Window, &mut App)>;
@@ -34,6 +37,7 @@ pub(crate) struct ConfigurationEditor {
     logs: crate::ui::composites::log_frame::LogFrames,
     worker: Option<MaintenanceClient>,
     callback: CorrectionEventCallback,
+    requested_field: Option<crate::config::correction::CorrectionField>,
     _subscription: Subscription,
 }
 
@@ -59,6 +63,7 @@ impl ConfigurationEditor {
             logs,
             worker,
             callback,
+            requested_field: None,
             _subscription: subscription,
         }
     }
@@ -67,6 +72,34 @@ impl ConfigurationEditor {
         self.vm.access = access;
         self.vm.suspended = false;
         cx.notify();
+    }
+
+    pub(crate) fn open_for(
+        &mut self,
+        field: crate::config::correction::CorrectionField,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.requested_field = Some(field);
+        self.vm.reopen_editor();
+        if self.vm.source.is_none() {
+            self.request(CorrectionAction::Load, window, cx);
+        } else if self.vm.saved() {
+            self.request(CorrectionAction::Reload, window, cx);
+        } else {
+            self.focus_requested_field(window, cx);
+        }
+        cx.notify();
+    }
+
+    fn focus_requested_field(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.vm.is_working() {
+            return;
+        }
+        if let Some(field) = self.requested_field.take() {
+            self.vm.focus_field(field);
+            self.sync_input(window, cx);
+        }
     }
 
     fn action(&mut self, action: CorrectionAction, window: &mut Window, cx: &mut Context<Self>) {
@@ -127,11 +160,13 @@ impl ConfigurationEditor {
                 cx,
                 move |this, result, window, cx| {
                     let result = result.unwrap_or_else(|_| CorrectionResult::Failed("The independent maintenance worker did not return a result. Reload the file before retrying.".into()));
+                    let changed = this.vm.changed_dependencies(&result);
                     if let Some(snapshot) = this.vm.complete(generation, result) {
-                        (this.callback)(CorrectionEvent::Saved(snapshot), window, cx);
+                        (this.callback)(CorrectionEvent::Saved(snapshot, changed), window, cx);
                     }
                     if matches!(action, CorrectionAction::Load | CorrectionAction::Reload) {
                         this.sync_input(window, cx);
+                        this.focus_requested_field(window, cx);
                     }
                 },
             ),

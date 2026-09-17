@@ -88,11 +88,13 @@ fn render_eager_playlist_detail(
                 .cloned()
                 .flatten();
             let display = row.display_with_playback(playlist_id, chrome.playback_availability);
+            let original_track_id = row.track().id;
             let on_play = display.controls.play_enabled.then(|| {
                 click_slot(cx.listener(move |_this, _, _, cx| {
                     cx.emit(LibraryAppEvent::PlayPlaylistAt {
                         playlist_id,
                         playlist_position: position,
+                        track_id: original_track_id,
                     });
                 }))
             });
@@ -278,11 +280,13 @@ fn render_ready_paged_playlist_row(
         last_position,
     )
     .display_with_playback(playlist_id, playback_availability);
+    let original_track_id = track.id;
     let on_play = display.controls.play_enabled.then(|| {
         click_slot(cx.listener(move |_this, _, _, cx| {
             cx.emit(LibraryAppEvent::PlayPlaylistAt {
                 playlist_id,
                 playlist_position: position_i64,
+                track_id: original_track_id,
             });
         }))
     });

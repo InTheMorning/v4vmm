@@ -64,6 +64,29 @@ InspectorOrigin are retired by ADRs 0046/0047; use frame navigation.
 - Needs populated and unavailable rows in the disposable library. Check
   upward/downward moves, no-op drops, menus, and immediate updates in both
   themes. Record results in the [checklist](reviews/adr-0044-review-checklist.md).
+- On 2026-09-16, the ADR 0066 V2 fixture `/tmp/v4vmm-startup-4yqtadz3`
+  exposed a brief drag-handle pause; Move Up/Down menus did not pause. The shared
+  handle's press now stops propagation to Root text selection. An interaction
+  test reproduced selection continuing after drop and passes with the correction.
+  Theme-specific insertion, cancellation and normal text-selection checks remain
+  in the broader playlist gate. An initial desktop recheck still failed: the
+  handle press stalled for 4–5 seconds with a hand cursor before the move occurred.
+  Supplied native stacks show
+  main-thread Taffy layout work, with the caller beyond the 40-frame cutoff.
+  A populated mock probe did not reproduce the pause and was removed. The supplied
+  CPU report contains 846 samples with none lost and confirms heavy layout
+  computation; most caller chains are absent after a debug-file analysis error.
+  Horizontal out-of-bounds dragging also hung longer. Offline recovery of the
+  supplied raw recording identifies GPUI's synchronous test drawing loop in the
+  desktop binary. Architecture tests reproduce the capture's exact build ID by
+  replacing the desktop executable; a normal build excludes that loop. The
+  fixture launcher now rebuilds before opening the app, with 16 fixture tests
+  and 251 architecture guards Green. The subsequent operator restart, reordering
+  and horizontal out-of-bounds drag check passes, as does the repeated fixture
+  preservation inspection. The reported pause correction is accepted on
+  2026-09-16. Separate Light/Dark and remaining inherited playlist requirements
+  remain open. Task 007's ordinary Null-player Play check is also accepted;
+  its final preservation inspection passes and fixture cleanup is confirmed.
 
 ## 5. Stored Metadata In Details — ADR 0054 Tasks 004 And 005
 
@@ -158,9 +181,10 @@ Open - implementation and mechanical checks recorded 2026-09-11.
 - Needs a Linux desktop, Python 3.11+, this checkout's debug binary, installed
   mpv and working desktop audio for the producer-failure case. The fixture
   supplies local tracks, broken paths and external-service stubs.
-- Remaining checks: confirm local search, playlist visibility, unavailable Play,
-  rejected Ctrl+Alt+P on Show and retained reports for paired Index/player
-  failure; test producer failure
+- Remaining checks: confirm local search, playlist visibility, no playback
+  execution from Play/Ctrl+Alt+P on Show and retained reports for paired
+  Index/player failure. ADR 0066 task 007 replaces disabled affordances with
+  enabled repair routes while keeping the execution restriction; test producer failure
   with audible playback, publisher failure with independent producer/encoder,
   and partially applied path repair. Check report copy, preservation for the
   publisher and path-repair cases, and final fixture cleanup. Producer-case

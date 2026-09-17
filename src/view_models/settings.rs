@@ -81,6 +81,7 @@ impl SettingsContent {
 pub(crate) enum SettingsAction {
     Open,
     OpenReport,
+    OpenRepair,
     SelectGroup(SettingsGroup),
     Save,
     UseDefaults,
@@ -111,6 +112,7 @@ pub(crate) struct SettingsActionDisplay {
 #[derive(Debug, Default)]
 pub(crate) struct SettingsVm {
     selected: SettingsGroup,
+    repair_first: bool,
 }
 
 impl SettingsVm {
@@ -123,6 +125,10 @@ impl SettingsVm {
             self.selected,
             SettingsGroup::Library | SettingsGroup::Diagnostics
         )
+    }
+
+    pub(crate) const fn repair_first(&self) -> bool {
+        self.repair_first
     }
 
     pub(crate) const fn selected(&self) -> SettingsGroup {
@@ -139,11 +145,18 @@ impl SettingsVm {
     pub(crate) fn dispatch(&mut self, action: SettingsAction) -> SettingsEffect {
         match action {
             SettingsAction::Open => SettingsEffect::Navigate,
+            SettingsAction::OpenRepair => {
+                self.selected = SettingsGroup::Diagnostics;
+                self.repair_first = true;
+                SettingsEffect::Navigate
+            }
             SettingsAction::OpenReport => {
+                self.repair_first = false;
                 self.selected = SettingsGroup::Diagnostics;
                 SettingsEffect::Navigate
             }
             SettingsAction::SelectGroup(group) => {
+                self.repair_first = false;
                 self.selected = group;
                 SettingsEffect::Navigate
             }

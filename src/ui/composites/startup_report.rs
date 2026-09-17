@@ -8,8 +8,9 @@ use gpui_component::scroll::ScrollableElement;
 use crate::ui::composites::log_frame::{LogFrame, LogFrames};
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::control_styles::ControlStyle;
+use crate::ui::layouts;
 use crate::ui::primitives::Button;
-use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
+use crate::ui::tokens::{color, FontSize, SemanticColor, Size, Spacing};
 use crate::view_models::log_view::LogSource;
 use crate::view_models::startup::capabilities::{
     CapabilityAction, CapabilityActionDisplay, CapabilityReportVm,
@@ -50,28 +51,52 @@ pub(crate) fn capability_report(
             .child(LogFrame::new(logs, LogSource::Background, vm.report()));
     }
     for display in rows {
-        let mut row = div()
+        let mut text = div()
             .min_w_0()
+            .flex_auto()
+            .flex_basis(Size::ColumnRegular.scaled(cx))
+            .flex()
+            .flex_col()
+            .gap(Spacing::XS.scaled(cx))
+            .whitespace_normal()
+            .child(display.label);
+        if let Some(help) = display.help {
+            text = text.child(
+                div()
+                    .min_w_0()
+                    .whitespace_normal()
+                    .text_size(FontSize::Caption.scaled(cx))
+                    .text_color(color(cx, SemanticColor::SecondaryLabel))
+                    .child(help),
+            );
+        }
+        // Keep the report's reading width when actions share a line. If the
+        // group no longer fits, move it below the text and wrap its buttons.
+        let mut actions = div()
+            .min_w_0()
+            .max_w_full()
             .flex()
             .flex_wrap()
             .items_center()
-            .gap(Spacing::SM.scaled(cx))
-            .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .whitespace_normal()
-                    .child(display.label),
-            );
+            .gap(Spacing::SM.scaled(cx));
         for action in display.actions {
-            row = row.child(capability_button(action, handler.clone()));
+            actions = actions.child(capability_button(action, handler.clone()));
         }
-        body = body.child(row);
+        body = body.child(
+            div()
+                .min_w_0()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(Spacing::SM.scaled(cx))
+                .child(text)
+                .child(actions),
+        );
     }
     if expanded {
         body = body.child(capability_button(
             vm.action(CapabilityAction::CopyReport),
-            handler,
+            handler.clone(),
         ));
     } else if let Some(feedback) = vm.feedback() {
         body = body.child(
@@ -82,7 +107,59 @@ pub(crate) fn capability_report(
                 .child(feedback),
         );
     }
-    Some(body.into_any_element())
+    if expanded {
+        return Some(body.into_any_element());
+    }
+    Some(capability_notice(body, vm, handler, cx))
+}
+
+fn capability_notice(
+    body: gpui::Div,
+    vm: &CapabilityReportVm,
+    handler: CapabilityHandler,
+    cx: &App,
+) -> gpui::AnyElement {
+    div()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .flex_shrink_0()
+        .bg(color(cx, SemanticColor::SecondarySystemBackground))
+        .child(
+            div()
+                .min_w_0()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .justify_between()
+                .gap(Spacing::SM.scaled(cx))
+                .px(Spacing::MD.scaled(cx))
+                .py(Spacing::XS.scaled(cx))
+                .child(
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .child(vm.notice_summary()),
+                )
+                .child(capability_button(
+                    vm.action(CapabilityAction::OpenReport),
+                    handler,
+                )),
+        )
+        .child({
+            let viewport = div()
+                .id("capability-notice-scroll")
+                .min_w_0()
+                .max_h(layouts::scaled_dimension(
+                    layouts::CAPABILITY_NOTICE_MAX_HEIGHT,
+                    cx,
+                ))
+                .overflow_y_scrollbar()
+                .child(body);
+            #[cfg(test)]
+            let viewport = viewport.debug_selector(|| "capability-notice-viewport".to_owned());
+            viewport
+        })
+        .into_any_element()
 }
 
 fn capability_button(display: CapabilityActionDisplay, handler: CapabilityHandler) -> Button {
@@ -197,4 +274,54 @@ pub(crate) fn startup_report(
         .child(heading)
         .child(body)
         .child(actions)
+}
+
+#[cfg(test)]
+mod notice_tests {
+    use gpui::{Context, Render, TestAppContext};
+
+    use super::*;
+
+    struct NoticeTest(CapabilityReportVm);
+
+    impl Render for NoticeTest {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .w(gpui::px(438.))
+                .h(gpui::px(700.))
+                .flex()
+                .flex_col()
+                .child(
+                    capability_report(
+                        &self.0,
+                        false,
+                        &LogFrames::default(),
+                        Rc::new(|_, _, _| {}),
+                        cx,
+                    )
+                    .unwrap(),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .debug_selector(|| "notice-workspace".to_owned()),
+                )
+        }
+    }
+
+    /// Situational ADR 0066: multiple failures retain a bounded notice and usable workspace.
+    #[gpui::test]
+    fn adr_0066_normal_notice_preserves_workspace_height(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let (_, cx) =
+            cx.add_window_view(|_, _| NoticeTest(CapabilityReportVm::setup_failures_fixture()));
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        let notice = cx.debug_bounds("capability-notice-viewport").unwrap();
+        let workspace = cx.debug_bounds("notice-workspace").unwrap();
+        assert!(notice.size.height <= layouts::CAPABILITY_NOTICE_MAX_HEIGHT);
+        assert!(workspace.size.height >= gpui::px(450.));
+    }
 }

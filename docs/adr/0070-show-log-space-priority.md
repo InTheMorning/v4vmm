@@ -7,6 +7,12 @@ Implemented - 2026-09-13.
 Reconciled 2026-09-13: the shared-log packet records mechanical checks Green,
 completed operator acceptance, final preservation and confirmed fixture cleanup.
 
+Reconciled 2026-09-16: [ADR 0073](0073-show-card-overflow-scrolling.md) supersedes
+the restriction of card scrolling to an open log. This ADR's log-height priority
+and completed acceptance remain binding. ADR 0066 task 007 owns the separate
+closed-log overflow correction: its visual check, fixture preservation and cleanup
+are accepted, and ADR 0073 is Implemented.
+
 The operator requested this correction during ADR 0063 task 005 acceptance:
 an open log must remain readable when the cards form one column, at the
 expense of card space, while the sidebar's Logs buttons remain reachable.
@@ -47,11 +53,11 @@ An open log receives its preferred height before the card viewport is sized.
 The minimum log budget is 200 unscaled layout units for the source header,
 shared log frame, text and following controls. A small card viewport retains
 64 units when both budgets fit. If the region is shorter, card space yields
-first; the log is bounded by the physical region. Closing the log restores
-the existing dashboard allocation.
+first; the log is bounded by the physical region. Closing the log returns that
+space to the card viewport, which remains scrollable under ADR 0073.
 
-The card grid scrolls vertically inside its allocated viewport while a log
-is open. Card order, equal card heights, labels, badges, selection, and
+The card grid scrolls vertically inside its allocated viewport. ADR 0073 extends
+that viewport to the closed-log state. Card order, equal card heights, labels, badges, selection, and
 view-model column count stay unchanged. The existing shared scrollbar gutter
 keeps cards clear of the scroll track.
 

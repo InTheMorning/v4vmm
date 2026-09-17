@@ -63,6 +63,7 @@ pub(crate) struct PlaylistDetail {
 #[derive(Clone, Debug)]
 pub enum LibraryAppEvent {
     PlayPlaylistAt {
+        track_id: i64,
         playlist_id: i64,
         playlist_position: i64,
     },
@@ -179,6 +180,8 @@ pub struct LibraryApp {
     recent_music_page: RecentFeedsPageVm,
     /// Scroll state for default Music recency pagination.
     recent_music_scroll: ScrollHandle,
+    /// Allocated viewport supplied to the shared split geometry owner (ADR 0046).
+    split_pane_bounds: Option<gpui::Bounds<gpui::Pixels>>,
 }
 
 pub(crate) struct PlaylistActorState {

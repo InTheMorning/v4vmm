@@ -15,6 +15,13 @@ service is needed. Agents may verify the backend fixture but must not use `run`.
 Use these steps one at a time. Commands are unindented and need no heredoc.
 Run them from the repository root.
 
+The fixture's `run` command first builds the normal desktop binary with Cargo,
+using the developer environment and cached dependencies. It then launches with
+the isolated fixture environment. This prevents a preceding `cargo test` from
+leaving GPUI's synchronous test drawing loop in the desktop binary. A build
+failure stops launch and preserves the fixture. Cargo and cached dependencies
+must be available in the desktop terminal.
+
 ### 1. Create And Verify The Fixture
 
 This keeps the check away from your actual configuration and library.
@@ -403,8 +410,9 @@ MusicIndex setting and failed playback preparation must remain separate.
 Copy the report and paste into an editor; verify both subjects and their recorded
 UTC times. Search for `a.wav` using the toolbar and Ctrl+F: the local track must
 remain visible, with an Index failure explanation. Open Startup fixture playlist;
-all three rows remain browsable. Play actions must be unavailable; Ctrl+Alt+P on Show
-must not start audio. Navigate back to Settings and confirm both reports remain.
+all three rows remain browsable. Play/Ctrl+Alt+P on Show must not start audio.
+ADR 0066 task 007 now keeps meaningful actions enabled as repair routes; a
+retained action and focused repair access replace the disabled-affordance check. Navigate back to Settings and confirm both reports remain.
 A recovery-only window, missing local results, substituted player or cleared
 report is wrong. Close the app.
 
@@ -899,3 +907,280 @@ Cleanup removes only that verified fixture, including its alternate audio,
 configuration backups and permission state. Close the scratch report buffer.
 V1–V6 are accepted with preservation and cleanup confirmed. Task 006's acceptance
 gate is closed; task 004 and inherited checks retain their separate gates.
+
+
+## Task 007: Optional Tool Correction And Retry
+
+Accepted — task 007 is complete. V1–V3 and preservation are accepted; the narrow
+Library and Show card-overflow follow-ups are accepted with preservation and
+cleanup. No startup fixtures remain in the checked temporary directories. The
+packet records the correction of an unsupported extra gate inferred from a
+port-only log. This procedure remains a regression check. It does not repeat
+task 006's accepted editor checks or accept task 004's paused audio/publication
+workflow.
+
+Needs a Linux desktop, Python 3.11+, and this checkout's debug binary. No audio
+hardware, installed mpv, reachable Index or real publisher is required. The
+fixture runs a loopback Index server, rejects service mutations through local
+stubs until explicitly released, and uses the Null player after correction.
+Do not run the GUI as an agent. Use a fresh fixture for each V case. Run commands
+from the repository root. Keep failed fixtures and their backups for diagnosis.
+
+### Prepare Each Case
+
+```bash
+cargo build --quiet
+retry_fixture=$(python3 docs/runbooks/startup-recovery-fixture.py setup)
+python3 docs/runbooks/startup-recovery-fixture.py mode "$retry_fixture" retry-actions
+python3 docs/runbooks/startup-recovery-fixture.py verify "$retry_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py retry-status "$retry_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py run "$retry_fixture"
+```
+
+Keep the printed directory and endpoint. While the app runs, use a second
+terminal with the exact directory (replace the example):
+
+```bash
+retry_fixture=/tmp/v4vmm-startup-REPLACE_WITH_PRINTED_DIRECTORY
+python3 docs/runbooks/startup-recovery-fixture.py retry-status "$retry_fixture"
+```
+
+The initial configuration has invalid `musicindex_endpoint`, `playback.driver`
+and `flac_path` values, plus valid Local/default and Alternate/alternate
+publisher hosts. The separate `flac_path` issue must survive these corrections.
+The fixture records only HTTP GET requests and explicit service mutations;
+passive service reads are not mutations. Empty Index results are intentional.
+
+### V1 — Retry The Original Search
+
+1. From Settings → Diagnostics, submit `first retained query` with the toolbar
+   Search button. Music must become selected and show its search results. Return
+   to Settings → Diagnostics, then use Ctrl+F, enter `second retained query`, and
+   press Enter. Music must again become selected. Its breadcrumb must follow
+   Music's navigation history, with no Settings ancestor. This is the visual
+   regression check for the ADR 0060 search navigation correction. Both Index
+   requests must fail locally. The shared tools notice must retain both queries;
+   local library browsing must remain available.
+   The search explanation must identify endpoint configuration/setup and direct
+   the operator to Edit endpoint and `musicindex_endpoint`. It must not blame
+   the background runtime. This is the regression check for the V1 screenshot's
+   incorrect dependency explanation; the copied report must agree.
+2. Choose **Edit endpoint** for the first query. Settings → Diagnostics must
+   open the existing configuration editor at `musicindex_endpoint`. Set it to
+   the endpoint printed by `retry-status`, as plain text without quotes.
+   Choose **Test draft and paths**, then **Save correction**. The original
+   backup path must remain in the editor report. Wait for the scoped tool check.
+3. Run `retry-status` in the second terminal. `index_requests` and
+   `service_commands` must still be empty. Save must not submit either query.
+   The player and converter issues must remain. Returning to Music and browsing
+   the fixture playlist must work while the editor draft/report is open.
+4. In Settings → Diagnostics, scroll below the focused editor to **Background
+   tools**. **Edit endpoint** opens the editor. **Check endpoint** validates the
+   saved URL without sending a search. **Run search again** sends the retained
+   query and requires a successful check. These effects must be visible beside
+   the controls. In Music, **View search actions** opens these Settings controls
+   without running a search. Choose **Run search again** for `first retained query`. Music must show that original query's empty
+   Index result, even though the second query was the most recent selection.
+   `retry-status` must contain search requests for the first query and none for
+   the second. The search command may use more than one Index endpoint; inspect
+   each request's query parameter. The completed query must offer only **Dismiss**
+   in Music and Settings. Choose **Check endpoint** for the second pending query.
+   The check must add no requests and must not restore repair/run controls for
+   the completed first query.
+5. Inspect the focused editor and retained-action report at normal/narrow widths
+   and in Light/Dark using the immediate theme preview without saving. Actions,
+   original subjects, inline explanations and result text must remain readable
+   and reachable. A completed action must not look like a repair is needed. Copy
+   the report: its subjects and recorded UTC times must match the app.
+   Blocking manual guard (situational, ADR 0066): at about 560 pixels wide,
+   inspect the converter row with two actions and the pending query with four.
+   Buttons must move below the text when they cannot fit beside a readable text
+   column, then wrap within the available width. One-character text columns,
+   clipped explanations or unreachable buttons fail this check. Widen the window
+   again; text and actions may share a line when they fit. Check the shared Music
+   notices too. This guards the operator's narrow pending-row failure.
+
+### V2 — Reject A Changed Playlist Subject
+
+1. Prepare a fresh case and use a normal-width or maximized window. In Music,
+   open the fixture playlist. Note the first track and choose **Repair playback**
+   on that track's row below the playlist heading. The global Edit player settings
+   notice does not retain a track action. The retained-action notice must name its
+   track ID, playlist and original position. Choose **Edit player settings**; the
+   editor must focus `playback.driver`.
+2. Replace the entire focused `playback.driver` input with the four lowercase
+   characters `null`, without quotes, a `value =` prefix or a newline. Before
+   saving, return to Music and move the
+   original first track down one position using the playlist's existing menu.
+   Return to Settings; the unsaved player correction must remain. Choose Test
+   draft and paths and require successful validation before Save correction.
+   Require the editor report to say it saved the configuration correction
+   and name the preserved backup. A validation-only result did not save the file;
+   a failed Save leaves the correction unaccepted. The player check must finish
+   without loading a track or creating a show session. The Index and converter
+   issues must remain.
+   The retained playback row must report a successful setup check and enable
+   **Play original track**. If it stays disabled, choose **Check player** on that
+   row and wait for its result. If still disabled, copy the Background tools
+   report and keep the fixture: the changed-position rejection has not yet run.
+3. Choose **Play original track** for the original playlist action. The report
+   must reject the changed original position. Neither the new first track nor the old first
+   track may start. A playback session or a silently substituted track fails
+   this check. Restore the original playlist order before preservation inspection.
+4. Click the original track's now-available Play action. This is a separate new
+   action and may load the explicit Null player. It proves local command
+   availability after repair; it proves nothing about audible playback or cue/
+   audition separation. Quit before inspection and cleanup.
+
+### V3 — Reject A Changed Publisher, Then Retry The Original
+
+1. Prepare a fresh case. Open Show and choose **Start** on the publisher service
+   for Local/default. The stub rejects it. The retained action must name Start,
+   Local/default and the original event context. Its report must distinguish the
+   command failure from the independent service observation.
+2. Choose **Edit publisher settings** for that retained action. The shared editor
+   must focus `broadcast.hosts`.
+   Select the `broadcast.selected_host` field and change it to `Alternate`
+   without quotes. Test and Save. The scoped check may read service state; it
+   must not start a service. Run `retry-status`: the only mutation must still be
+   the original failed Start for the default instance.
+3. Choose **Start publisher** for the retained original action. It must reject the changed
+   publisher context and add no service command. A Start for the alternate
+   instance fails this check. Music/local browsing and independent setup tools
+   must remain usable.
+4. Choose **Edit publisher settings** for the original action again. Restore
+   `broadcast.selected_host` to `Local`, then Test and Save. Permit the fixture's
+   stub service commands from the second terminal:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py retry-release "$retry_fixture"
+```
+
+5. Choose **Check publisher**, then **Start publisher** on that original action.
+   Check publisher must explain that it only reads service state. Only Start
+   publisher may append another Start for the default instance. No command may
+   target the alternate instance. The stub remains observably inactive; the app
+   must report the successful command return separately from observed state.
+   Repeated Save/check alone must never add service mutations. The unrelated
+   Index/player/converter issues must remain.
+
+### Narrow Library Follow-Up — ADR 0046
+
+This is the remaining Library layout check from task 007, separate from accepted
+V1–V3 behavior. Keep an existing follow-up fixture across correction builds; no
+audio hardware or real service is needed. Quit and rerun it with the helper to
+load a rebuilt normal binary. Use setup only if no follow-up fixture exists.
+
+```bash
+narrow_library_fixture=$(python3 docs/runbooks/startup-recovery-fixture.py setup)
+python3 docs/runbooks/startup-recovery-fixture.py mode "$narrow_library_fixture" retry-actions
+python3 docs/runbooks/startup-recovery-fixture.py run "$narrow_library_fixture"
+```
+
+1. In Music, open **Startup fixture playlist**. Resize the window to about
+   463 pixels wide. The navigation pane must stack above the playlist detail;
+   both must scroll independently. Scroll the detail to its title, playlist
+   actions and all three track rows. Text must remain readable and row actions
+   reachable. A one-character title column or content cut off to the right fails.
+2. Drag the horizontal divider down to give navigation more height, then back
+   up. Both panes must retain usable scrolling space; dragging must not select
+   nearby text. Select an artist or album, then return to the playlist.
+3. Widen the window. Drag the restored vertical divider to a comfortable sidebar
+   width, narrow again, then widen. The preferred sidebar width must return when
+   space permits; the stacked height preference must also survive the transition.
+   At intermediate widths (about 570 pixels), track title/artist/duration must
+   stay clear of Repair playback and the menu; actions wrap below when needed.
+4. The recovery notice must use a bounded scroll area and leave room for the
+   Library even with all three errors. Scroll to each issue and its repair/check
+   controls. **View tools in Settings** must open Diagnostics without saving,
+   checking or retrying; return to Music and retain the selected playlist.
+   Repeat narrow/wide transitions in Light and Dark, and with a larger UI scale
+   using preview only. The recovery notices must remain readable. Restore the
+   original preview settings and playlist selection, then quit.
+5. Inspect preservation:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py retry-inspect "$narrow_library_fixture"
+```
+
+Keep the fixture on any failure. After both visual checks and inspection pass:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py cleanup "$narrow_library_fixture"
+test ! -e "$narrow_library_fixture"
+```
+
+Record visual acceptance, preservation and cleanup separately. This manual check
+blocks task 007 closure until the operator inspects the correction.
+
+### Show Card Overflow Follow-Up — ADR 0073
+
+The Library and Show visual rechecks, follow-up preservation and cleanup are
+accepted; directory absence is confirmed. ADR 0073 is Implemented. This section
+remains a regression procedure. For a future regression, use a fixture from the
+preceding Library procedure and leave its three configuration issues present. No audio hardware
+or real service is required. Quit the app and relaunch from its existing terminal:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py run "$narrow_library_fixture"
+```
+
+1. Open Show with logs closed. Use a narrow, short window like the reported
+   screenshot. Scroll over the cards to reach Source, Live Metadata and Stream,
+   then back to Source. All three cards must remain selectable. A lower card
+   clipped behind the transport or unreachable by scrolling fails.
+2. Widen enough to open Live Metadata's Event Logs, then collapse the side panel
+   and return to the narrow window. The log must retain its existing height
+   priority; scroll the cards above it. Close the log and
+   scroll all three cards again. Sidebar controls must remain independently
+   reachable, and scrolling cards must not move the transport.
+3. Widen and shorten the window, then repeat in Light/Dark and a larger UI
+   scale preview. Restore the original theme/scale preview and Music selection.
+   Quit the app and inspect the existing fixture:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py retry-inspect "$narrow_library_fixture"
+```
+
+Keep the fixture if any check fails. After visual acceptance and preservation
+pass, clean it up and confirm absence:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py cleanup "$narrow_library_fixture"
+test ! -e "$narrow_library_fixture"
+```
+
+This closes only the focused card-overflow gate. The completed shared-log packet
+stays closed. Task 007 acceptance and fixture reconciliation are recorded in its packet.
+
+### Preservation And Cleanup For Each Case
+
+Quit the fixture app. Use its exact directory in the terminal that owns the
+`retry_fixture` variable:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py retry-inspect "$retry_fixture"
+```
+
+Require original bytes preserved in the current document or an owner-only backup,
+only the named endpoint/player/host edits and ordinary workspace preferences,
+unchanged music/bindings/library/migrations, and no residual probe/candidate.
+The inspector rejects unrelated configuration changes. On failure, keep the
+fixture and paste the report. `configuration_checks` identifies each condition;
+`unexpected_setting_paths` names changed fields without printing their values.
+The endpoint check accepts surrounding whitespace and trailing slashes for the
+exact fixture URL, matching the app's endpoint normalization. The separate format
+flag can be true on a passing report. Changes to the scheme, host, port, path,
+credentials, query or fragment still fail.
+Do not reset the case, edit the evidence or run cleanup after a failed inspection.
+
+Only after preservation passes, run cleanup:
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py cleanup "$retry_fixture"
+test ! -e "$retry_fixture"
+```
+
+Cleanup stops only the owned loopback server and removes its fixture directory. Record V1–V3,
+preservation and cleanup separately; a backend fixture smoke check does not
+close this operator gate.

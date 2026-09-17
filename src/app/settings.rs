@@ -50,14 +50,38 @@ impl TopApp {
         self.save_settings(window, cx);
     }
 
+    pub(super) fn apply_corrected_presentation(
+        &mut self,
+        snapshot: &config::ConfigSnapshot,
+        cx: &mut Context<Self>,
+    ) {
+        let preferences = snapshot.workspace_preferences();
+        let preferences = preferences
+            .as_ref()
+            .and_then(|config| config.layout.as_ref());
+        self.content_pane_width = Self::initial_content_pane_width(preferences);
+        self.library.update(cx, |library, cx| {
+            library.set_content_view_mode(Self::initial_content_list_view_mode(preferences), cx);
+        });
+        self.workspace_layout = Self::initial_workspace_layout(
+            snapshot
+                .workspace_layout
+                .as_ref()
+                .ok()
+                .and_then(Option::as_ref),
+            super::WorkspaceScreenMount::Music,
+        );
+        cx.notify();
+    }
+
     pub(super) fn refresh_corrected_settings(
         &mut self,
         snapshot: &config::ConfigSnapshot,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Refresh form values and the existing appearance preview. Tool adapter
-        // reinitialization and original-operation retry belong to task 007.
+        // Form values and appearance share the accepted task 006 owner.
+        // Scoped capability checks are queued separately; Save never retries an action.
         if let Ok(endpoint) = &snapshot.musicindex_endpoint {
             self.endpoint_input.update(cx, |input, cx| {
                 input.set_value(endpoint.clone(), window, cx);
@@ -91,6 +115,12 @@ pub(super) fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> Any
     });
     let navigation = settings_actions(app.settings.navigation(), &callback, cx);
     let mut content = vec![settings_heading(app.settings.selected().label(), cx)];
+    if app.settings.repair_first() {
+        if let Some(editor) = &app.configuration_editor {
+            use gpui::IntoElement as _;
+            content.push(editor.clone().into_any_element());
+        }
+    }
     for &field in app.settings.selected().contents() {
         let input = match field {
             SettingsContent::SessionMaintenance => {
@@ -139,7 +169,7 @@ pub(super) fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> Any
             cx,
         ));
     }
-    if app.settings.shows_configuration_repair() {
+    if app.settings.shows_configuration_repair() && !app.settings.repair_first() {
         if let Some(editor) = &app.configuration_editor {
             use gpui::IntoElement as _;
             content.push(editor.clone().into_any_element());

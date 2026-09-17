@@ -32,6 +32,10 @@ pub(crate) struct SettingsScrollHandles {
 }
 
 impl SettingsScrollHandles {
+    pub(crate) fn show_start(&self, group: SettingsGroup) {
+        self.handle(group).set_offset(gpui::Point::default());
+    }
+
     pub(crate) const fn handle(&self, group: SettingsGroup) -> &ScrollHandle {
         match group {
             SettingsGroup::General => &self.general,

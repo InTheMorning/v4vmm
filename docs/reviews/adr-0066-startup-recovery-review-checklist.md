@@ -12,8 +12,11 @@ cleanup confirmed. Task 004's implementation and mechanical checks are complete;
 its presentation case and producer preservation are accepted. Its remaining
 operator checks and fixture cleanup stay open; playback checks are deferred.
 Task 006 is complete on 2026-09-13 with mechanical checks Green, operator
-V1–V6 and preservation accepted, and fixture cleanup confirmed. Task 007 follows
-in a fresh session; tasks 007–013 have not started.
+V1–V6 and preservation accepted, and fixture cleanup confirmed. Task 007 is
+complete on 2026-09-16 with mechanical checks Green; V1–V3 and Library/Show
+follow-ups are accepted, preservation passed and no startup fixtures remain in
+the checked temporary directories. The final reconciliation below corrects an
+unsupported extra gate inferred from a port-only log. Tasks 008–013 have not started.
 
 Read the [ADR](../adr/0066-configuration-and-startup-failure-recovery.md),
 [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md), active packet and
@@ -506,7 +509,7 @@ folder was created or moved.
 
 The packet, phase plan, ADR, delivery/deferred indexes and AGENTS.md record
 completion. The closed task 006 section is removed from the pending-human index.
-Task 007 has not started and follows in a fresh session. No new architectural
+Task 007 implementation and acceptance are recorded below. No new architectural
 decision or cross-repository change was needed; task 004 and inherited checks
 retain their previous scope.
 
@@ -514,3 +517,484 @@ Closure checks - 2026-09-13: Green. All 239 architecture tests and six fixture
 regression tests pass. The changed-document file links and whitespace checks
 are Green. The task 006 gate is closed in every current status reference;
 ADR 0066 remains Accepted for the remaining packets and task 004 acceptance.
+
+
+## Task 007 Review — 2026-09-15
+
+Mechanical review: Green. The [proof inventory](../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md#implementation-and-proof)
+maps C1–C5 to live owners and actual tests. Retained actions keep their original
+queries, track/playlist/queue, event selection and publisher/encoder context.
+Save invalidates prior verification and queues only changed-tool setup. Retry
+requires fresh verification and checks the current configuration, app session
+and original subject at command execution; playback/event checks repeat under
+the command's existing database lock. Attach/Detach payloads must match the
+retained event, target, transport and publisher instance before external I/O;
+`adr_0066_target_retry_rejects_a_new_target_before_transport` guards changed
+subjects. Changed/removed subjects are rejected.
+
+The situational invariant 9 guard
+`adr_0066_repair_routes_preserve_action_subject` replaces the packet's duplicated
+recipe. Entry-point guards trace actual toolbar, Enter, playback and Show wiring
+to the shared owners; behavior tests exercise those owners. Renderers do not
+replay actions or derive availability. The shared Settings/editor, report frame,
+control styles and tokens own the new presentation path. Its desktop proof is
+V1–V3 and remains open.
+
+Targeted preparation preserves unrelated resource handles and observations.
+Configuration admission excludes competing in-app saves through setup/install
+and Retry. A missing player does not prevent checking the independent producer
+configuration. Loaded players refuse replacement; busy Show tools report a
+pending manual check, and failed setup cannot leave an old tool marked ready.
+The existing runtime is reused. Publisher/encoder changes restart only their
+existing shared observation watch, with stale callback rejection. No service is
+started by Save or Check, and no core database is replaced.
+
+Green: repository formatting, check, strict production Clippy, build, 1,409 unit
+tests, 251 architecture guards, and fourteen Python fixture regression tests. Existing
+HTTP tests require local socket access and passed with it. The fixture's CLI
+smoke verified its loopback request records, passive service reads, explicit
+stub mutations, preservation, case restoration and owned cleanup without GPUI.
+The operator still needs to inspect their own running fixtures and accept
+preservation/cleanup. Ten existing documentation examples remain ignored.
+
+No new architectural decision or cross-repository change. Converter execution,
+retained-download retry and database maintenance remain in 008–013. Unknown
+original publisher/encoder context requires a new action after repair; Retry
+never guesses it. Task 004's paused playback and inherited checks stay open.
+Current status references, the delivery order and pending-human index agree.
+Existing documentation was updated in place; no Markdown file was created or
+moved. The canonical root instructions remain in place.
+
+
+### V1 Dependency Explanation Follow-Up
+
+The operator screenshot records both original queries separately, with the
+second query selected. Its search explanation exposed a dependency mismatch:
+all unavailable errors were presented as background-runtime failures. The
+search failure VM now distinguishes endpoint setup and runtime failure;
+`adr_0066_search_endpoint_failure_does_not_blame_the_runtime` covers visible and
+copied text plus the retained runtime explanation. Mechanical checks are Green.
+The [packet follow-up](../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md#v1-screenshot-follow-up)
+records the evidence and scoped recheck. V1 Save/Retry and the remaining operator
+gate stay open.
+
+
+### V1 Control Clarity And Completion Follow-Up
+
+The operator's next screenshots show the first query completed at 2026-09-16
+01:00:33 UTC and the second query still pending. The copied correction report
+records Save at 00:58:27 UTC with an original-byte backup and only the unrelated
+converter/player issues remaining. The operator reported unclear Repair action,
+Check again and Retry controls across Music and Settings.
+
+The shared VM now supplies tool/operation names and visible effect descriptions.
+The shared composite renders those descriptions with named caption/color/spacing
+tokens. A ready Music entry opens its action controls in Settings. Successful
+completion has a typed result and offers only Dismiss on both surfaces. Later
+checks preserve completion and its recorded time. A failed event check remains
+unsuccessful even when its command transport returns a typed result.
+
+New behavioral tests cover edit/check/run meanings, service observation versus
+mutation, completed-action admission, and failed-event completion. The new
+situational ADR 0066 guard
+`adr_0066_recovery_controls_explain_effect_and_completion` checks shared ownership,
+non-executing Settings navigation and completion recording in the existing
+adapters. Formatting, check, Clippy, build, 1,409 unit tests and 250 architecture
+guards are Green. The GUI was not run. Subsequent wording/help, width/theme and
+report-copy, Music ready-action navigation and completion acceptance is recorded
+below. The operator's request history confirms
+only the first query's two requests after Save and no service mutations.
+Remaining preservation, cleanup and V2–V3 need acceptance. Earlier screenshot
+evidence is retained.
+
+The operator's expanded V1 preservation report isolates the failure to endpoint
+whitespace/trailing slashes. Original bytes, private backup permissions and all
+other configuration checks pass, with no unexpected field paths or candidates.
+The inspector now accepts this spelling of the exact fixture URL, matching
+`normalize_musicindex_endpoint`. It still rejects different schemes, hosts,
+ports, paths, credentials, queries and fragments. It reports checks, field paths
+and candidates without printing configuration values or changing evidence.
+Type-aware comparisons also reject boolean/integer substitutions in unedited
+values. Fourteen Python regression tests are Green. The full operator rerun for
+`/tmp/v4vmm-startup-o77im_r8` is Green: private original backup, unedited settings,
+music, library, bindings and migrations are preserved, with no residual probes
+or candidates. This fixture's preservation is accepted. Cleanup is unconfirmed.
+V1 presentation is accepted below; V2–V3 remain open. The
+runbook separates inspection from cleanup so a failed inspection does not lead
+directly to fixture deletion.
+
+### V1 Narrow-Width Follow-Up — 2026-09-16
+
+The operator's narrow Settings screenshot confirms the completed query's
+Dismiss-only state but fails the pending-row layout. Four action buttons leave
+the query timestamp one character wide; two converter buttons also crowd their
+explanation. The shared `capability_report` owner now gives text an existing
+`Size::ColumnRegular` preferred basis and puts actions in a bounded wrapping
+group. The same owner renders Music and Settings. VM state, labels, controls
+and token roles remain shared. V1 step 5 is the blocking situational ADR 0066
+manual guard for two-/four-button rows at about 560 pixels, normal widths and
+both themes. Formatting, compilation, strict Clippy, build, 1,409 unit tests and
+250 architecture guards are Green. Existing HTTP/IPC tests passed with local
+socket access; the stalled sandboxed attempt was stopped. The operator accepted
+the corrected narrow Background tools converter and pending-query rows on
+2026-09-16. The operator subsequently reported pass for Settings Diagnostics and
+Music notices at normal/narrow widths in Light/Dark, readable text, reachable
+buttons and report-copy matching of query names and UTC times. No copied report
+artifact accompanied the confirmation. These V1 presentation checks are accepted;
+Music's ready-action navigation and completed-state acceptance follows below.
+
+### V1 Search Navigation Follow-Up — 2026-09-16
+
+The operator showed search results with Settings still selected and present in
+the breadcrumb. The shared search helper now selects Music through the existing
+section transition before changing the frame's search history. Button, Enter
+and saved searches reuse that helper with a window context. Empty input leaves
+the section unchanged. Settings draft ownership is unchanged. The situational
+ADR 0060 guard `adr_0060_search_uses_music_section_navigation` protects that route
+and ordering. V1 now checks button and Enter submissions from Settings; Music
+selection and breadcrumb history must agree with the content. The operator
+accepted this navigation check on 2026-09-16 and subsequently accepted the narrow
+Background tools row recheck.
+Formatting, compilation, strict Clippy, build, 1,409 unit tests and 251
+architecture guards are Green. Existing HTTP/IPC tests ran with local socket
+access. No GUI was run by the agent.
+
+### V1 Behavior And Presentation Acceptance — 2026-09-16
+
+The operator accepted View search actions opening Settings without running a
+search, explicit retry of the first query, and Music's completed notice retaining
+only Dismiss after checking the second query. The checkpoint included requests
+only for the first query and no service mutations. This is operator confirmation;
+no new request-log artifact was supplied. Earlier supplied request logs remain
+recorded above. V1 behavior and presentation are accepted. The operator then
+reported pass for the current `layout_fixture` preservation inspection. This
+accepts original configuration preservation, private backups, unchanged
+music/library/bindings and no residual probes by operator confirmation; no new
+JSON or absolute fixture path was supplied. Cleanup and V2–V3 remained open at
+this checkpoint. The final reconciliation below corrects the inferred extra
+V1 fixture gate.
+
+### V2 Entry Observation — 2026-09-16
+
+The operator reached the fixture playlist at 463 pixels wide. The recovery
+notices wrap, but Library's sidebar leaves the playlist heading one character
+wide and hides track actions from the supplied viewport. The Library split and
+playlist detail layout need correction and visual recheck; the accepted V1
+notice layout does not cover this surface. No source correction is claimed.
+After maximizing, the operator accepted the first track's Repair playback
+action, then Edit player settings focusing `playback.driver`. This accepts V2's
+entry route on 2026-09-16. The top-level Edit player settings notice does not
+create that retained track action. Changed-position rejection, the narrow Library
+layout correction and prior fixture cleanup remain open.
+
+### V2 Draft Retention And Passive Correction — 2026-09-16
+
+The operator accepted the focused `null` player draft surviving navigation to
+Music, moving the original first track down one position and returning to
+Settings. Validation, Save correction and the player check passed without loading
+a track or starting playback. Endpoint and converter issues remained. This
+accepts draft retention and passive player correction. Rejection of the retained
+action's changed position, subsequent explicit Null-player action, preservation
+and cleanup remain open.
+
+### V2 Disabled Retry Observation — 2026-09-16
+
+The operator reported Play original track greyed out after the correction
+checkpoint. No changed-position rejection is accepted. Source inspection shows
+Retry availability depends on a checked, idle retained action and no active tool
+check; the playlist subject is validated at command execution. The disabled
+button alone does not establish the cause. The next diagnostic is the retained
+row's message and explicit Check player, followed by its report if readiness
+does not recover. No source correction or verified root cause is claimed.
+
+### V2 Saved Player Validation Failure — 2026-09-16
+
+The operator supplied check 1's report for `/tmp/v4vmm-startup-4yqtadz3`:
+at 16:54:21 UTC, playback setup rejected the saved playback settings. The action
+retained at 16:27:46 UTC still names playlist 1, position 0, track 1 and requires
+a successful setup check. This reopens the earlier player-correction acceptance;
+focused editing and draft retention remain accepted. Retry has not executed.
+The subsequent repair report confirms the same configuration loaded at 16:28:09
+UTC, then Save at 16:46:41 UTC and Validate at 16:46:44 UTC rejected the proposed
+driver. That attempt did not save a correction. The exact draft text remains
+unknown; no source defect or fix is inferred. Require successful validation and
+a Save report naming the backup, then successful player setup, before testing
+the changed position. The fixture is not visible in the agent filesystem. Keep
+it and the moved track.
+
+### V2 Player Setup And Retry Readiness — 2026-09-16
+
+The supplied check 3 report at 21:13:38 UTC confirms that Built-in playback
+configuration and local setup passed and the tool was refreshed without retry.
+The retained action still names playlist 1, position 0 and track 1; Play original
+track is available in Settings. The driver issue is cleared, while endpoint and
+converter issues remain. This accepts saved player setup, isolation and retry
+readiness and resolves the disabled-retry checkpoint. The replacement Save
+report/backup path was not supplied; fixture preservation remains open.
+The subsequent changed-position rejection is accepted below; a new explicit
+Null-player action still needs operator evidence.
+
+### V2 Changed-Position Rejection — 2026-09-16
+
+The supplied report and matching Settings screenshot record rejection at
+21:16:07 UTC for playlist 1, original position 0 and track 1 after the track was
+moved down. The command refused the changed subject without substituting the new
+first track. Play original track is disabled after the failed attempt; Edit,
+Check player and Dismiss remain available. Endpoint and converter issues remain.
+This accepts the changed-position rejection. Restoring order, testing a new
+ordinary Play with the Null player, preservation and cleanup remain open, as
+does the separately recorded narrow Library layout defect.
+
+### V2 Preservation And Drag Observation — 2026-09-16
+
+The supplied fixture inspection accepts preservation for
+`/tmp/v4vmm-startup-4yqtadz3`: original bytes in private backup
+`.v4vmm-config-4147752-0.backup`, unedited values, all named configuration checks,
+music, library, bindings, tool blockers and migrations 1–11 pass. Counts remain
+one playlist, three tracks and three playlist tracks; bindings remain
+a.wav/b.wav/c.wav. No unexpected settings, residual candidates, music probes or
+database probes remain. Explicit Null-player Play confirmation and cleanup are
+still open.
+
+The operator reports a brief pause for drag-handle reordering while menu moves
+work. The shared gesture conflict, correction and operator recheck belong to
+[ADR 0044's review](adr-0044-review-checklist.md). Neither this preservation pass
+nor the interaction test closes that inherited visual gate.
+
+### V2 Drag Follow-Up Acceptance — 2026-09-16
+
+The operator accepts the normal-build restart, playlist reordering and horizontal
+out-of-bounds drag recheck after the fixture launcher correction. The accompanying
+inspection repeats the preservation pass for `/tmp/v4vmm-startup-4yqtadz3`:
+original and unedited configuration, private backup, every named configuration
+check, music, library, bindings, tool blockers and migrations 1–11 pass. Counts
+remain one playlist, three tracks and three playlist tracks; no candidates or
+probes remain. This accepts the reported drag pause correction and post-check
+preservation. Ordinary Null-player Play, fixture cleanup, the narrow Library
+layout defect and V3 remain open. ADR 0044's separate theme-specific checks are
+not inferred from this responsiveness pass.
+
+### V2 Ordinary Play Acceptance — 2026-09-16
+
+The operator accepts the separate new Play action on the original first track's
+playlist row in `/tmp/v4vmm-startup-4yqtadz3`, after restoring playlist order.
+The intended track loads without setup failure or substitution under the silent
+Null player; endpoint and converter notices remain. V2 behavior is accepted.
+The subsequently supplied preservation inspection after this final action passes;
+fixture cleanup is subsequently confirmed below.
+V3 and the narrow Library layout correction stay open. This check supplies no
+audible-playback evidence for task 004 or cue/audition acceptance under ADR 0068.
+
+### V2 Final Preservation Acceptance — 2026-09-16
+
+The final inspection for `/tmp/v4vmm-startup-4yqtadz3` accepts original and
+unedited configuration preservation, owner-only backup permissions and every
+named configuration check. Backup `.v4vmm-config-4147752-0.backup` remains.
+Music, library, bindings, tool blockers and migration records 1–11 pass. Counts
+remain one playlist, three tracks and three playlist tracks; a.wav/b.wav/c.wav
+bindings remain. No unexpected setting paths, residual candidates or probes
+remain. Cleanup is subsequently confirmed below; no V3 acceptance is inferred.
+
+### V2 Fixture Cleanup — 2026-09-16
+
+The operator accepts the cleanup command's removal result and directory-absence
+check for `/tmp/v4vmm-startup-4yqtadz3`. V2 behavior, final preservation and
+cleanup are complete. Earlier V1 fixture cleanup is not covered by this pass.
+V3, the narrow Library layout defect and the separate inherited gates remain open.
+
+### V3 Failed Publisher Start — 2026-09-16
+
+The supplied Show screenshot accepts the initial failed Start presentation:
+at 23:05:03 UTC the retained action names Publisher, Local/default and original
+event none. Its Edit publisher settings explanation states that the action is
+not run by opening Settings. The fixture's systemctl exit-1 rejection appears
+separately from the Publisher's Inactive observation for
+`musicindex-live-publisher@default.service`. No show is active; endpoint,
+converter and player issues remain visible. The subsequent report identifies
+the fresh fixture below; the command-log baseline is still missing. Passive Save, changed-host
+rejection, original-host retry, preservation and cleanup remain open.
+
+### V3 Configuration Save — 2026-09-16
+
+The configuration report identifies fixture `/tmp/v4vmm-startup-x1nt5sbv` and
+records load at 23:11:08 UTC, successful draft validation at 23:12:09 UTC and
+Save at 23:12:13 UTC. Save reports original backup
+`.v4vmm-config-77402-0.backup` in the fixture configuration directory. Endpoint,
+converter and player issues remain, with ordinary persistence paused. This
+accepts validation and reported Save. The selected-host value, publisher setup
+result and command log were not supplied, so passive Save and retry readiness
+still need evidence. Backup-permission/preservation inspection and cleanup remain open.
+
+### V3 Passive Setup And Retry Readiness — 2026-09-16
+
+Publisher host check 2 at 23:18:47 UTC accepts saved setup and reports that only
+service state was read. Start Publisher on Local/default, original event none,
+remains retained and ready in Settings. The supplied fixture record contains
+exactly the original `--user start musicindex-live-publisher@default.service`,
+no Index requests, and `service_commands_enabled: false`. Save and Check
+therefore added no service mutation. Passive setup and retry readiness are
+accepted. Endpoint, converter and player issues remain. The subsequent
+changed-host rejection is recorded below.
+
+### V3 Changed Publisher Rejection — 2026-09-16
+
+The supplied report at 23:21:50 UTC rejects the retained Start Publisher on
+Local/default, original event none, because its original target is unavailable
+or changed. The fixture record still contains only the initial
+`--user start musicindex-live-publisher@default.service`, no Index requests, and
+`service_commands_enabled: false`. No additional service command was sent and
+none targeted the alternate instance. Changed-host rejection is accepted.
+Unrelated endpoint, converter and player issues remain. Original-host retry,
+unrelated-control availability, final preservation and cleanup remain open.
+
+### V3 Original Publisher Setup — 2026-09-16
+
+Publisher host check 4 at 23:29:02 UTC reports a service-state read, tool refresh
+and no original-action retry following the instruction to restore Local. The
+retained Start Publisher on Local/default, original event none, reports setup
+passed and Start available. Endpoint, converter and player issues remain.
+Two subsequent identical fixture records show service commands enabled, no Index
+requests and only the initial default Start. Passive setup and readiness after
+restoration are accepted. Subsequent original Start acceptance is recorded below.
+
+### V3 Original Publisher Retry Acceptance — 2026-09-16
+
+The operator reports pass for the retained Local/default original Start check:
+exactly two default-instance Start records, no alternate-instance command or
+Index request, successful command completion separate from the fixture's
+Inactive observation, usable local Music browsing and retained unrelated
+configuration issues. Acceptance is by operator confirmation; no new report,
+command-log artifact or retry timestamp accompanied it. Subsequent independent
+setup-tool access and preservation acceptance are recorded below.
+
+### V3 Final Preservation And Independent Tool Access — 2026-09-16
+
+The operator confirms that Edit converter setting opens the focused `flac_path`
+editor and closes without changes. V3 behavior is accepted. The final inspection
+for `/tmp/v4vmm-startup-x1nt5sbv` passes original and unedited configuration
+preservation, every named configuration check, and owner-only backups
+`.v4vmm-config-77402-0.backup` and `.v4vmm-config-77402-2.backup`. Only ordinary
+workspace preferences differ in the final configuration. Music, library,
+bindings, tool blockers and migration records 1–11 remain preserved, with one
+playlist, three tracks, three playlist tracks and a.wav/b.wav/c.wav bindings.
+No unexpected setting paths, residual candidates or music/database probes remain.
+Final V3 preservation is accepted; cleanup is confirmed below. Earlier V1 gaps and the
+narrow Library layout correction are not closed by this inspection.
+
+### V3 Fixture Cleanup — 2026-09-16
+
+The operator confirms the cleanup command and directory-absence check for
+`/tmp/v4vmm-startup-x1nt5sbv`. V3 behavior, preservation and cleanup are complete.
+Earlier V1 preservation/cleanup gaps and the narrow Library layout defect remain
+open.
+
+### Narrow Library Viewport Correction — 2026-09-16
+
+ADR 0046 records the shared split-pane correction: reserve content width when
+panes fit side by side, otherwise stack navigation above content with independent
+scrolling and a resizable divider. Library supplies its allocated bounds and retains
+width and height preferences independently in its view model. Named layout tokens own geometry.
+The shared renderer test checks viewport/scale transitions, both pane bounds,
+width restoration and divider behavior; the architecture guard covers the recent
+content and selected-detail call sites. The dedicated task 007 runbook check
+keeps visual acceptance and fresh-fixture preservation/cleanup open. Earlier
+V1 fixture gaps remain; accepted V1–V3 behavior stays closed.
+
+Verification is Green for five shared split-pane tests, all 252 architecture
+guards, `cargo check`, formatting, required `cargo clippy -- -D warnings` and
+normal desktop build. Extra all-target Clippy finds 41 pre-existing test-target
+lints outside this correction (including float comparisons and test-module
+ordering); that broader check is not Green. The normal binary was rebuilt after
+architecture tests. No GUI was launched by the agent.
+
+The next operator screenshot confirms stacked panes and a readable playlist
+title at narrow width. It does not yet prove usable navigation or track actions:
+the navigation viewport is very short, and the required rows/actions are outside
+the shown scroll positions. Independent scrolling, readable/selectable rows,
+width restoration, theme/scale checks and preservation/cleanup remain open.
+
+The next screenshots and operator report accept independent scrolling and show
+all three repair actions at narrow width. They reject usability of the fixed
+stacked divider and show track text/actions overlapping at intermediate width.
+The follow-up makes vertical resizing use measured viewport coordinates with a
+separate VM height preference, wraps playlist controls at the shared shell, and
+bounds normal-shell recovery notices while retaining all rows and a typed passive
+Settings route. The visual recheck and fixture preservation/cleanup remain open.
+
+Follow-up verification: Green — 1,415 unit tests, 253 architecture guards,
+`cargo check`, formatting and required strict Clippy. The shared geometry tests
+cover offset divider coordinates, narrow/intermediate playlist row bounds and
+workspace height beneath multiple failures. View-model tests cover independent
+pane preferences and issue/action counts; the Settings navigation guard forbids
+checks, saves and retries in that route. The previously recorded extra all-target
+lint limitation is unchanged. Operator visual acceptance remains open.
+Normal desktop rebuild after the final regression run: Green. The operator
+recheck reuses the existing narrow Library fixture.
+
+### Library Pass And Show Overflow Follow-Up
+
+The operator confirms pass for the requested Library recheck, including divider
+resizing, readable rows at intermediate widths, bounded notices and Settings
+navigation. The requested theme/scale and preference checks are accepted by that
+confirmation; no additional screenshots or preservation results were supplied
+for those steps. The follow-up fixture stays open.
+
+The accompanying Show screenshot shows lower cards clipped with logs closed.
+The shared log composite only created its scrolling card viewport in the
+open-log branch. ADR 0073 records the narrow correction before implementation:
+mount the shared viewport in both branches and keep log priority, sidebar,
+transport, card geometry and command semantics unchanged. The focused
+[Show check](../runbooks/startup-recovery-check.md#show-card-overflow-follow-up--adr-0073)
+and follow-up fixture preservation/cleanup remain open. Prior V1–V3 and shared-log
+acceptance stay closed for their accepted scope.
+
+Show overflow mechanical verification: Green — 1,416 unit tests, 253 architecture
+guards, `cargo check`, formatting and required strict Clippy. The new ADR 0073
+renderer test reaches the last card with logs closed and open at two available
+heights and confirms the transport stays fixed. Documentation links and
+whitespace checks are Green. The focused operator gate remains open.
+The normal desktop binary was rebuilt after the final tests: Green.
+
+### Show Overflow Visual Acceptance
+
+The operator confirms pass for the requested Show recheck: all three cards are
+reachable/selectable with the fixture errors present, logs closed/open/closed
+again, and the transport fixed while cards scroll. The requested theme/scale
+checks are accepted by that confirmation. No additional screenshots,
+preservation outputs or cleanup confirmation were supplied. Show and Library
+visual gates are closed. Follow-up fixture preservation/cleanup and the earlier
+V1 preservation/cleanup gaps remain open.
+
+### Library And Show Follow-Up Preservation Accepted
+
+The operator supplied passing `retry-inspect` output. Original configuration
+bytes and unedited values are unchanged; no backup was created or needed.
+All configuration checks pass. Music, optional-tool blockers, library records,
+bindings and migrations 1–11 are preserved: one playlist, three tracks and
+three playlist tracks with `a.wav`, `b.wav`, `c.wav`. No unexpected setting
+paths, candidates, music probes or database probes remain. The false
+workspace-preferences-only flag is immaterial because configuration bytes are
+unchanged. Cleanup and directory absence are still unconfirmed. Earlier V1
+preservation/cleanup gaps remain independently open.
+
+### Library And Show Follow-Up Cleanup Confirmed
+
+The operator confirms successful cleanup and directory absence for
+`narrow_library_fixture`. The Library/Show follow-up is complete, including
+visual acceptance and preservation. ADR 0073 is Implemented. Earlier V1 evidence
+is reconciled below; task 008 has not started.
+
+### Earlier V1 Evidence Reconciliation
+
+The operator cannot reconstruct the earlier fixture history. Read-only enumeration
+found no startup fixture directories in `/tmp` or `/var/tmp`; the known first
+V1 directory `/tmp/v4vmm-startup-o77im_r8` is absent. This inventory performed
+no cleanup. The first V1 and later layout preservation passes remain accepted.
+
+The request log using port 44601 does not identify a fixture directory or prove
+that it was separate from the later accepted layout fixture. The agent's
+additional preservation gate relied on that unsupported inference and is
+withdrawn. Historical identity and helper invocation details remain unknown;
+no missing inspection is marked passed. The actual V1–V3 and follow-up acceptance
+requirements are met, and no startup fixtures remain in the checked locations.
+Task 007 is complete. Task 004's separate checks stay open; task 008 has not started.

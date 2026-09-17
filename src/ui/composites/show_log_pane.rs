@@ -1,6 +1,6 @@
-//! Show bottom log pane and its shared split geometry (ADRs 0063 and 0070).
+//! Show cards and bottom log pane (ADRs 0063, 0070 and 0073).
 //!
-//! The cards scroll above the logs when their allocated viewport is too small;
+//! The cards scroll whenever their allocated viewport is too small, with or without logs;
 //! display text, request state, and pane height belong to the Show view model.
 
 #![warn(clippy::pedantic)]
@@ -66,23 +66,6 @@ impl ShowLogPane {
 
 impl RenderOnce for ShowLogPane {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        if !self.display.open {
-            return div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_h_0()
-                .min_w_0()
-                .child(self.main)
-                .into_any_element();
-        }
-
-        let handle_height = layouts::SPLIT_HANDLE_WIDTH;
-        let main_height =
-            (layouts::scaled_f32(self.display.region_height - self.display.height, cx)
-                - handle_height)
-                .max(gpui::Pixels::ZERO);
-        let scale = ScaleFactor::current(cx).multiplier();
         let cards = div()
             .id("show-card-scroll")
             .size_full()
@@ -92,6 +75,25 @@ impl RenderOnce for ShowLogPane {
             .flex_col()
             .overflow_y_scrollbar()
             .child(page_scroll_content(cx).child(self.main));
+        if !self.display.open {
+            let main = div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h_0()
+                .min_w_0()
+                .child(cards);
+            #[cfg(test)]
+            let main = main.debug_selector(|| "show-card-viewport".to_owned());
+            return main.into_any_element();
+        }
+
+        let handle_height = layouts::SPLIT_HANDLE_WIDTH;
+        let main_height =
+            (layouts::scaled_f32(self.display.region_height - self.display.height, cx)
+                - handle_height)
+                .max(gpui::Pixels::ZERO);
+        let scale = ScaleFactor::current(cx).multiplier();
         let mut split = SplitPane::new("show-log-split")
             .axis(SplitPaneAxis::Vertical)
             .resize_handle_id("show-log-resize-handle")
@@ -253,4 +255,95 @@ fn render_header_text(display: &ShowLogPaneDisplay, cx: &App) -> gpui::Div {
                         .tooltip(move |window, cx| Tooltip::new(detail.clone()).build(window, cx))
                 }),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::{Context, Render, ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase};
+
+    use super::*;
+
+    struct CardOverflowTest {
+        height: f32,
+        log_open: bool,
+    }
+
+    impl Render for CardOverflowTest {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let mut display = ShowLogPaneDisplay::closed();
+            display.open = self.log_open;
+            display.update_geometry(self.height - 40., f32::from(layouts::SPLIT_HANDLE_WIDTH));
+            let grid = div().flex().flex_col().children(
+                [
+                    ("overflow-card-0", "Source"),
+                    ("overflow-card-1", "Live Metadata"),
+                    ("overflow-card-2", "Stream"),
+                ]
+                .into_iter()
+                .map(|(id, label)| {
+                    div()
+                        .h(gpui::px(180.))
+                        .flex_shrink_0()
+                        .debug_selector(move || id.to_owned())
+                        .child(label)
+                }),
+            );
+            div()
+                .w(gpui::px(320.))
+                .h(gpui::px(self.height))
+                .flex()
+                .flex_col()
+                .overflow_hidden()
+                .child(ShowLogPane::new(display, grid.into_any_element()))
+                .child(
+                    div()
+                        .h(gpui::px(40.))
+                        .flex_shrink_0()
+                        .debug_selector(|| "overflow-transport".to_owned())
+                        .child("Transport"),
+                )
+        }
+    }
+
+    /// Situational ADR 0073: all cards remain reachable without opening a log.
+    #[gpui::test]
+    fn adr_0073_cards_scroll_with_logs_closed_and_open(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        for (height, log_open) in [(340., false), (500., false), (340., true), (500., true)] {
+            let (_, cx) = cx.add_window_view(|_, _| CardOverflowTest { height, log_open });
+            cx.update(|window, cx| {
+                let _ = window.draw(cx);
+            });
+            let viewport = cx
+                .debug_bounds(if log_open {
+                    "split-leading-pane"
+                } else {
+                    "show-card-viewport"
+                })
+                .unwrap();
+            let transport = cx.debug_bounds("overflow-transport").unwrap();
+            assert!(viewport.size.height > gpui::Pixels::ZERO);
+            assert!(
+                viewport.bottom() <= transport.top(),
+                "height {height}, log open {log_open}: viewport {viewport:?}, transport {transport:?}"
+            );
+            assert_eq!(transport.bottom(), gpui::px(height));
+            if !log_open {
+                assert_eq!(viewport.bottom(), transport.top());
+            }
+            cx.simulate_event(ScrollWheelEvent {
+                position: viewport.center(),
+                delta: ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(-1000.))),
+                modifiers: Default::default(),
+                touch_phase: TouchPhase::Moved,
+            });
+            cx.update(|window, cx| {
+                let _ = window.draw(cx);
+            });
+            let last = cx.debug_bounds("overflow-card-2").unwrap();
+            assert!(last.top() < viewport.bottom());
+            assert!(last.bottom() <= viewport.bottom());
+            assert_eq!(cx.debug_bounds("overflow-transport").unwrap(), transport);
+        }
+    }
 }

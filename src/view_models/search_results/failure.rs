@@ -4,6 +4,7 @@
 
 use std::time::SystemTime;
 
+use crate::application::capability::Dependency;
 use crate::application::CommandError;
 use crate::diagnostics::{endpoint_for_report, redact_endpoint_details};
 
@@ -37,9 +38,17 @@ pub(crate) struct SearchFailureDisplay {
 impl SearchFailureDisplay {
     pub(super) fn new(error: &CommandError, endpoint: &str, observed_at: SystemTime) -> Self {
         let (summary, next) = match error {
-            CommandError::Unavailable(_) => (
+            CommandError::Unavailable(reason) if reason.dependency == Dependency::BackgroundRuntime => (
                 "App could not start the MusicIndex search because its background runtime is unavailable. No search request was sent.",
                 "Open Background tools in Settings and choose Check again, then repeat your search.",
+            ),
+            CommandError::Unavailable(reason) if matches!(reason.dependency, Dependency::MusicIndex | Dependency::Configuration("musicindex_endpoint")) => (
+                "App could not start the MusicIndex search because its endpoint configuration or setup is unavailable. No search request was sent.",
+                "Choose Edit endpoint to open musicindex_endpoint in Settings. Save the correction. Check endpoint validates the saved URL. Run search again sends the original query.",
+            ),
+            CommandError::Unavailable(_) => (
+                "App could not start the MusicIndex search because a required tool is unavailable. No search request was sent.",
+                "Open Background tools in Settings, resolve the reported dependency and check it again before Retry.",
             ),
             CommandError::Cancelled => (
                 "App cancelled the MusicIndex search before it completed.",
@@ -114,6 +123,41 @@ impl SearchFailureDisplay {
 mod tests {
     use super::*;
     use crate::application::capability::ExecutionUnavailable;
+
+    #[test]
+    fn adr_0066_search_endpoint_failure_does_not_blame_the_runtime() {
+        for dependency in [
+            Dependency::MusicIndex,
+            Dependency::Configuration("musicindex_endpoint"),
+        ] {
+            let mut failure = SearchFailureDisplay::new(
+                &CommandError::Unavailable(ExecutionUnavailable::configured(dependency)),
+                "Invalid musicindex_endpoint setting",
+                SystemTime::UNIX_EPOCH,
+            );
+            assert!(failure
+                .summary
+                .contains("endpoint configuration or setup is unavailable"));
+            assert!(failure.summary.contains("No search request was sent."));
+            assert!(failure.summary.contains("Edit endpoint"));
+            assert!(failure.summary.contains("musicindex_endpoint in Settings"));
+            let report = failure.activate(SearchFailureAction::CopyReport).unwrap();
+            assert!(report.contains(&failure.summary));
+            assert!(!report.contains("background runtime"));
+            assert!(!report.contains("unreachable"));
+        }
+        let runtime = SearchFailureDisplay::new(
+            &CommandError::Unavailable(ExecutionUnavailable::RUNTIME),
+            "https://index.test",
+            SystemTime::UNIX_EPOCH,
+        );
+        assert!(runtime
+            .summary
+            .contains("background runtime is unavailable"));
+        assert!(!runtime
+            .summary
+            .contains("endpoint configuration or setup is unavailable"));
+    }
 
     #[test]
     fn adr_0066_search_failure_reports_the_dependency_without_inventing_a_network_answer() {

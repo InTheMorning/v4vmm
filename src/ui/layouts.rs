@@ -25,6 +25,12 @@ pub const INSPECTOR_WIDTH: Pixels = px(360.0);
 pub const INSPECTOR_MIN_WIDTH: Pixels = px(200.0);
 pub const INSPECTOR_MAX_WIDTH: Pixels = px(800.0);
 pub const SPLIT_HANDLE_WIDTH: Pixels = px(5.0);
+/// ADR 0046: stacked source navigation leaves two thirds for the current content.
+pub(crate) const SPLIT_STACKED_LEADING_FRACTION: f32 = 1.0 / 3.0;
+/// ADR 0046: leave usable navigation and detail viewports during vertical resizing.
+pub(crate) const SPLIT_STACKED_MIN_HEIGHT: Pixels = px(120.0);
+/// ADR 0066: keep normal-shell recovery notices from consuming the workspace.
+pub(crate) const CAPABILITY_NOTICE_MAX_HEIGHT: Pixels = px(160.0);
 pub const CONTENT_PANE_DEFAULT_WIDTH: Pixels = px(1024.0);
 pub const CONTENT_PANE_MIN_WIDTH: Pixels = px(320.0);
 pub const CONTENT_PANE_MAX_WIDTH: Pixels = px(1600.0);

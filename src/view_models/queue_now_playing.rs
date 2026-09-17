@@ -87,6 +87,7 @@ pub(crate) struct QueueTrackInput {
 /// duration values. Unavailable or now-playing state is already named here.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct QueueRowDisplay {
+    pub(crate) track_id: i64,
     /// Stable row element identifier.
     pub(crate) id: String,
     /// Primary row title.
@@ -118,6 +119,7 @@ impl QueueRowDisplay {
         );
 
         Self {
+            track_id: input.id,
             id: format!("queue-row-{}", input.id),
             title,
             artist: input.artist,
@@ -196,14 +198,27 @@ pub(crate) struct QueueNowPlayingPageVm {
 }
 
 impl QueueNowPlayingPageVm {
+    pub(crate) fn track_ids(&self) -> Vec<i64> {
+        self.all_rows.iter().map(|row| row.track_id).collect()
+    }
+
+    pub(crate) fn current_track_id(&self) -> Option<i64> {
+        self.all_rows
+            .iter()
+            .find(|row| row.now_playing)
+            .map(|row| row.track_id)
+    }
     pub(crate) fn apply_playback_availability(
         &mut self,
         availability: Result<(), crate::application::capability::ExecutionUnavailable>,
     ) {
         if availability.is_err() {
-            self.transport.disabled = true;
-            self.transport.skip_previous.disabled = true;
-            self.transport.skip_next.disabled = true;
+            self.transport.play_pause_label = "Repair playback";
+            self.transport.play_pause_a11y_label = "Repair playback for the original track";
+            self.transport.skip_previous.a11y_label =
+                "Repair playback before the original previous-track action";
+            self.transport.skip_next.a11y_label =
+                "Repair playback before the original next-track action";
         }
     }
     /// Creates a queue page builder.

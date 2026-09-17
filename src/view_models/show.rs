@@ -25,20 +25,9 @@ use crate::view_models::queue_now_playing::{
 
 pub(crate) const PUBLISHER_LOG_LINE_COUNT: usize = 50;
 
-/// Service command intent owned by Show (ADR 0059).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum PublisherServiceOperation {
-    Start,
-    Stop,
-    Reset,
-}
-
-/// Stream command intent owned by Show (ADR 0059).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum StreamEncoderOperation {
-    Connect,
-    Disconnect,
-}
+pub(crate) use crate::application::capability_recovery::{
+    PublisherServiceOperation, StreamEncoderOperation,
+};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum ShowCommandTarget {
@@ -114,6 +103,22 @@ pub(crate) struct ShowCommandState {
 }
 
 impl ShowCommandState {
+    pub(crate) fn repair_blocked(&self) -> Vec<crate::application::capability::Dependency> {
+        use crate::application::capability::Dependency;
+        let mut blocked = Vec::new();
+        if self
+            .progress
+            .keys()
+            .any(|target| matches!(target, ShowCommandTarget::Service(_)))
+        {
+            blocked.push(Dependency::Publisher);
+        }
+        if self.progress.contains_key(&ShowCommandTarget::Stream) {
+            blocked.push(Dependency::Encoder);
+        }
+        blocked
+    }
+
     /// Begin one service operation, rejecting another operation on the same role.
     pub(crate) fn begin_service(
         &mut self,
@@ -1599,9 +1604,10 @@ impl ShowPageVm {
                         &mut service.actions.start,
                         &mut service.actions.stop,
                         &mut service.actions.reset,
-                        &mut service.logs.action,
                     ] {
-                        action.availability = PublisherActionAvailability::Unavailable;
+                        action.availability = PublisherActionAvailability::Available;
+                        action.label = "Repair tool";
+                        action.a11y_label = "Repair the original publisher operation".into();
                     }
                 }
             }
@@ -1629,8 +1635,10 @@ impl ShowPageVm {
                         EventControlIntent::CopyFeedTag => continue,
                         _ => Dependency::BackgroundRuntime,
                     };
-                    if features.require(dependency).is_err() {
-                        control.action.availability = EventActionAvailability::Unavailable;
+                    if features.require(dependency).is_err() && !control.action.disabled() {
+                        control.action.label = "Repair action";
+                        control.action.a11y_label =
+                            format!("Repair before {}", control.action.a11y_label);
                     }
                 }
             }
@@ -1641,8 +1649,12 @@ impl ShowPageVm {
                 .as_mut()
                 .and_then(|stream| stream.actions.as_mut())
             {
-                actions.connect.availability = StreamActionAvailability::Unavailable;
-                actions.disconnect.availability = StreamActionAvailability::Unavailable;
+                actions.connect.availability = StreamActionAvailability::Available;
+                actions.connect.label = "Repair encoder";
+                actions.connect.a11y_label = "Repair the original encoder connection".into();
+                actions.disconnect.availability = StreamActionAvailability::Available;
+                actions.disconnect.label = "Repair encoder";
+                actions.disconnect.a11y_label = "Repair the original encoder disconnection".into();
             }
         }
         for observation in observations
@@ -2962,7 +2974,7 @@ mod tests {
             .with_panel_state(ShowPanelMode::Detail(ShowCardKind::Source), true)
         };
         let page = make_page(configured);
-        assert!(command_service(&page, PublisherServiceRole::Publisher)
+        assert!(!command_service(&page, PublisherServiceRole::Publisher)
             .actions
             .stop
             .disabled());
@@ -2983,7 +2995,11 @@ mod tests {
             &valid.broadcast(),
             false,
         ));
-        assert!(no_player.queue.transport.disabled);
+        assert!(!no_player.queue.transport.disabled);
+        assert_eq!(
+            no_player.queue.transport.play_pause_label,
+            "Repair playback"
+        );
         assert!(
             !command_service(&no_player, PublisherServiceRole::Publisher)
                 .actions

@@ -451,6 +451,7 @@ fn render_playlist_track_row(
         .id(SharedString::from(controls.row_id.clone()))
         .flex()
         .flex_row()
+        .flex_wrap()
         .items_center()
         .gap(row_gap)
         .px(row_pad_x)
@@ -462,9 +463,11 @@ fn render_playlist_track_row(
                 .border_color(color::border_strong())
         })
         .hover(|el| el.bg(color::bg_surface_hi()))
-        .child(render_playlist_drag_handle(&controls, drag_payload, cx))
-        .child(render_playlist_track_body(
-            display, thumbnail, on_select, cx,
+        .child(render_playlist_row_identity(
+            &controls,
+            drag_payload,
+            render_playlist_track_body(display, thumbnail, on_select, cx),
+            cx,
         ))
         .child(render_playlist_track_controls(
             controls,
@@ -524,6 +527,23 @@ fn render_playlist_track_row(
     row.into_any_element()
 }
 
+fn render_playlist_row_identity(
+    controls: &PlaylistTrackControlsDisplay,
+    drag_payload: PlaylistTrackDragPayload,
+    body: AnyElement,
+    cx: &App,
+) -> impl IntoElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(Spacing::SM.scaled(cx))
+        .flex_auto()
+        .flex_basis(TokenSize::ColumnRegular.scaled(cx))
+        .min_w_0()
+        .child(render_playlist_drag_handle(controls, drag_payload, cx))
+        .child(body)
+}
+
 struct PlaylistTrackControlSlots {
     play: Option<PlaylistClickHandler>,
     move_up: Option<PlaylistCommandHandler>,
@@ -536,7 +556,7 @@ fn render_playlist_drag_handle(
     payload: PlaylistTrackDragPayload,
     cx: &App,
 ) -> AnyElement {
-    div()
+    let handle = div()
         .id(SharedString::from(controls.drag_handle_id.clone()))
         .min_w(TokenSize::MinHitTarget.scaled(cx))
         .min_h(TokenSize::MinHitTarget.scaled(cx))
@@ -550,6 +570,10 @@ fn render_playlist_drag_handle(
         .tooltip({
             let label = SharedString::from(controls.drag_handle_a11y_label);
             move |window, cx| crate::ui::primitives::Tooltip::new(label.clone()).build(window, cx)
+        })
+        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+            // ADR 0044: the handle owns this gesture; Root must not start text selection.
+            cx.stop_propagation();
         })
         .on_drag(
             payload,
@@ -566,8 +590,10 @@ fn render_playlist_drag_handle(
             Icon::new(IconName::DragHandle)
                 .size(IconSize::Action)
                 .color(color::text_muted()),
-        )
-        .into_any_element()
+        );
+    #[cfg(test)]
+    let handle = handle.debug_selector(|| "playlist-drag-handle".to_owned());
+    handle.into_any_element()
 }
 
 fn render_playlist_track_controls(
@@ -580,6 +606,7 @@ fn render_playlist_track_controls(
         actions_menu_a11y_label,
         play_button_id,
         play_label,
+        play_a11y_label,
         play_enabled,
         move_up_menu_item,
         move_down_menu_item,
@@ -596,6 +623,7 @@ fn render_playlist_track_controls(
     let play_btn = apply_click_handler(
         UiButton::styled(SharedString::from(play_button_id), ControlStyle::RowAction)
             .label(play_label)
+            .a11y_label(play_a11y_label)
             .disabled(!play_enabled),
         play,
     );
@@ -609,14 +637,20 @@ fn render_playlist_track_controls(
         ],
     );
 
-    div()
+    let controls = div()
         .flex()
         .flex_row()
+        .flex_wrap()
+        .flex_shrink_0()
+        .max_w_full()
+        .ml_auto()
         .items_center()
         .gap(Spacing::XS.scaled(cx))
         .child(play_btn)
-        .child(actions_menu)
-        .into_any_element()
+        .child(actions_menu);
+    #[cfg(test)]
+    let controls = controls.debug_selector(|| "playlist-row-controls".to_owned());
+    controls.into_any_element()
 }
 
 fn render_playlist_track_actions_menu(
@@ -693,6 +727,8 @@ fn render_playlist_track_body(
         row_body = row_body.on_click(move |event, window, cx| on_select(event, window, cx));
     }
 
+    #[cfg(test)]
+    let row_body = row_body.debug_selector(|| "playlist-row-body".to_owned());
     row_body
         .child(
             div()
@@ -711,10 +747,12 @@ fn render_playlist_track_body(
             div()
                 .flex_1()
                 .min_w_0()
+                .overflow_hidden()
                 .child(
                     div()
                         .min_w_0()
-                        .truncate()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
                         .text_size(row_text)
                         .text_color(title_color)
                         .when(!is_available, Styled::line_through)
@@ -723,7 +761,8 @@ fn render_playlist_track_body(
                 .child(
                     div()
                         .min_w_0()
-                        .truncate()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
                         .text_size(row_text)
                         .text_color(color::text_muted())
                         .child(SharedString::from(artist)),
@@ -780,10 +819,179 @@ fn apply_click_handler(button: UiButton, handler: Option<PlaylistClickHandler>) 
 
 #[cfg(test)]
 mod tests {
+    use gpui::{prelude::*, AppContext, Modifiers, MouseButton, TestAppContext};
+
     use super::{
         playlist_reorder_target, playlist_row_drop_index, playlist_row_insertion_edge,
         PlaylistInsertionEdge,
     };
+
+    struct DragTest {
+        drops: Vec<(i64, i64)>,
+    }
+
+    struct RowFitTest {
+        width: gpui::Pixels,
+    }
+
+    impl gpui::Render for RowFitTest {
+        fn render(
+            &mut self,
+            _: &mut gpui::Window,
+            cx: &mut gpui::Context<Self>,
+        ) -> impl gpui::IntoElement {
+            let display = super::PlaylistTrackRowDisplay::playback_repair_fixture();
+            assert_eq!(display.controls.play_label, "Repair playback");
+            gpui::div()
+                .w(self.width)
+                .child(super::render_playlist_track_row(
+                    1,
+                    display,
+                    super::PlaylistTrackRowSlot::default(),
+                    None,
+                    cx,
+                ))
+        }
+    }
+
+    /// Situational ADR 0044: repair controls must not overlap playlist identity at narrow widths.
+    #[gpui::test]
+    fn adr_0044_playlist_row_wraps_controls_without_overlap(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let (view, cx) = cx.add_window_view(|_, _| RowFitTest {
+            width: gpui::px(280.),
+        });
+        for width in [240., 280., 320., 438., 570., 900.] {
+            view.update(cx, |this, cx| {
+                this.width = gpui::px(width);
+                cx.notify();
+            });
+            cx.update(|window, cx| {
+                let _ = window.draw(cx);
+            });
+            let body = cx.debug_bounds("playlist-row-body").unwrap();
+            let controls = cx.debug_bounds("playlist-row-controls").unwrap();
+            assert!(body.size.width > gpui::px(100.));
+            assert!(controls.right() <= gpui::px(width));
+            assert!(
+                body.bottom() <= controls.top() || body.right() <= controls.left(),
+                "track identity overlaps controls at {width}: {body:?} / {controls:?}"
+            );
+        }
+    }
+
+    impl gpui::Render for DragTest {
+        fn render(
+            &mut self,
+            _: &mut gpui::Window,
+            cx: &mut gpui::Context<Self>,
+        ) -> impl gpui::IntoElement {
+            let track = crate::db::TrackRow {
+                id: 1,
+                track_title: Some("Original track".into()),
+                ..Default::default()
+            };
+            let controls = crate::view_models::library::PlaylistTrackRowVm::new(&track, 0, 1)
+                .display(1)
+                .controls;
+            gpui::div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .child(crate::ui::composites::SelectableText::new(
+                    "drag-before",
+                    "Text before the playlist handle",
+                ))
+                .child(super::render_playlist_drag_handle(
+                    &controls,
+                    super::PlaylistTrackDragPayload {
+                        playlist_id: 1,
+                        from_position: 0,
+                        title: "Original track".into(),
+                    },
+                    cx,
+                ))
+                .child(
+                    gpui::div()
+                        .id("drag-test-target")
+                        .debug_selector(|| "playlist-drag-target".to_owned())
+                        .h(gpui::px(60.))
+                        .w_full()
+                        .on_drop(cx.listener(
+                            |this, payload: &super::PlaylistTrackDragPayload, _, _| {
+                                this.drops
+                                    .push((payload.playlist_id, payload.from_position));
+                            },
+                        )),
+                )
+                .child(
+                    gpui::div()
+                        .debug_selector(|| "playlist-drag-after".to_owned())
+                        .child(crate::ui::composites::SelectableText::new(
+                            "drag-after",
+                            "Text after the playlist handle",
+                        )),
+                )
+        }
+    }
+
+    struct DragRoot(gpui::Entity<DragTest>, gpui::Entity<gpui_component::Root>);
+
+    impl gpui::Render for DragRoot {
+        fn render(
+            &mut self,
+            _: &mut gpui::Window,
+            _: &mut gpui::Context<Self>,
+        ) -> impl gpui::IntoElement {
+            gpui::div().size_full().child(self.1.clone())
+        }
+    }
+
+    /// Situational ADR 0044: a handle drag must not also select surrounding text.
+    #[gpui::test]
+    fn adr_0044_playlist_drag_does_not_start_text_selection(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let (root, cx) = cx.add_window_view(|window, cx| {
+            let state = cx.new(|_| DragTest { drops: Vec::new() });
+            DragRoot(
+                state.clone(),
+                cx.new(|cx| gpui_component::Root::new(state, window, cx)),
+            )
+        });
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        let handle = cx.debug_bounds("playlist-drag-handle").unwrap().center();
+        let target = cx.debug_bounds("playlist-drag-target").unwrap().center();
+        let text_bounds = cx.debug_bounds("playlist-drag-after").unwrap();
+        let text = text_bounds.center();
+        cx.simulate_mouse_down(handle, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(target, MouseButton::Left, Modifiers::default());
+        cx.update(|_, cx| assert!(cx.has_active_drag()));
+        cx.simulate_mouse_up(target, MouseButton::Left, Modifiers::default());
+        cx.update(|_, cx| {
+            assert_eq!(root.read(cx).0.read(cx).drops, vec![(1, 0)]);
+            assert!(!cx.has_active_drag());
+        });
+        cx.simulate_mouse_move(text, None, Modifiers::default());
+        cx.update(|window, cx| {
+            assert!(
+                !gpui_base::TextSelection::has_selection(window, cx),
+                "playlist drag left Root selecting text after the drop"
+            );
+        });
+        let start = text_bounds.origin + gpui::point(gpui::px(2.), gpui::px(8.));
+        let end = start + gpui::point(gpui::px(70.), gpui::px(0.));
+        cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(end, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_up(end, MouseButton::Left, Modifiers::default());
+        cx.update(|window, cx| {
+            assert!(
+                gpui_base::TextSelection::has_selection(window, cx),
+                "ordinary text selection must still work after a playlist drag"
+            );
+        });
+    }
 
     #[test]
     fn playlist_reorder_target_ignores_original_and_adjacent_slots() {

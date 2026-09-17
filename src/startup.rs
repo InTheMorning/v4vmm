@@ -324,16 +324,23 @@ pub(crate) fn prepare_playback(
 ) -> Option<crate::playback_owner::PlaybackOwner<crate::playback_driver::ConfiguredPlaybackDriver>>
 {
     prepare_playback_with(snapshot, config_path, observations, |config| {
-        #[cfg(all(debug_assertions, unix))]
-        if config.driver == config::PlaybackDriver::Mpv {
-            if let Some(directory) = fixture::playback_runtime_directory(config_path) {
-                return crate::playback_driver::ConfiguredPlaybackDriver::from_config_in_directory(
-                    config, directory,
-                );
-            }
-        }
-        crate::playback_driver::ConfiguredPlaybackDriver::from_config(config)
+        prepare_playback_driver(config, config_path)
     })
+}
+
+pub(crate) fn prepare_playback_driver(
+    config: &config::PlaybackConfig,
+    _config_path: &Path,
+) -> anyhow::Result<crate::playback_driver::ConfiguredPlaybackDriver> {
+    #[cfg(all(debug_assertions, unix))]
+    if config.driver == config::PlaybackDriver::Mpv {
+        if let Some(directory) = fixture::playback_runtime_directory(_config_path) {
+            return crate::playback_driver::ConfiguredPlaybackDriver::from_config_in_directory(
+                config, directory,
+            );
+        }
+    }
+    crate::playback_driver::ConfiguredPlaybackDriver::from_config(config)
 }
 
 fn prepare_playback_with(

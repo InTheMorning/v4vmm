@@ -21,6 +21,11 @@ while retaining the sidebar's space and actions. Task 005 owns the retest.
 The XL narrow-width follow-up keeps shared footers to one row, using ADR 0070's
 compact state/action presentation and full hover descriptions where needed.
 
+Reconciled 2026-09-16: [ADR 0073](0073-show-card-overflow-scrolling.md) supersedes
+the remaining prohibition on card scrolling with logs closed. ADR 0066 task 007
+records that completed overflow correction, including preservation and cleanup;
+the completed dashboard and shared-log packets stay closed.
+
 Dashboard tasks 001-004 and ADR 0059 task 017 are complete, including compact
 per-item badges, Event diagnostics, operator acceptance, and fixture cleanup.
 Show action feedback task 001 is complete, including operator acceptance of
@@ -74,7 +79,8 @@ An operator screenshot on 2026-09-08 showed the result:
 A scroll region was added to the section stack on the same day and reverted on
 the same day. A scroll region moves status out of sight. A surface that an
 operator watches while a show is live must show its state without an action.
-ADR 0070 subsequently permits scrolling the card grid while a log is open.
+ADRs 0070 and 0073 subsequently permit scrolling the bounded card viewport
+whenever its content does not fit, with or without a log.
 
 The section stack also changes height as service state changes. A card that
 grows and shrinks moves everything under it.
@@ -273,13 +279,11 @@ below the card grid, and they are visible when the panel is closed.
 A closed panel must never remove play, pause, or skip from an operator during a
 live show.
 
-### Status Does Not Scroll
+### Card Viewport Reachability
 
-The card grid does not scroll. Every card is visible at once at every supported
-window size. The panel scrolls its own content.
-
-If a future section makes the grid taller than the window, the answer is a more
-compact card, not a scroll region.
+[ADR 0073](0073-show-card-overflow-scrolling.md) owns bounded card scrolling
+with logs closed or open. ADR 0070 retains log-height priority. The panel
+scrolls its own content independently.
 
 ### Column Text Does Not Truncate
 
@@ -301,7 +305,7 @@ is still unknown. That document explains. This record decides.
 
 - A card shows a summary. Detail lives in the panel.
 - Every card in the grid has the same height, whatever its state.
-- The card grid does not scroll.
+- Card overflow uses the shared viewport under ADR 0073.
 - Text stacked in a column does not call `truncate()`.
 - The view model owns the column count. The shell reads it.
 - The panel shows the cuelist or one card detail, never both.
@@ -340,8 +344,8 @@ long, so every line wrapped and the operator read a failure one word at a time.
 Rejected, and reverted on the day it shipped. It hides the state of a live
 broadcast behind a scroll position. It also keeps the unused horizontal space,
 because a full-width row is still full width.
-ADR 0070 supersedes the scrolling restriction only for the card viewport above
-an open log; it does not restore the former full-width section strips.
+ADRs 0070 and 0073 supersede the scrolling restriction for the bounded card
+viewport, with or without a log; they do not restore full-width section strips.
 
 ### Cards Expand In Place
 
