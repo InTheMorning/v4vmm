@@ -304,7 +304,8 @@ pub(crate) fn database_tools(
                 .child(DatabaseVm::TITLE),
         )
         .child(div().whitespace_normal().child(DatabaseVm::SCOPE))
-        .child(div().whitespace_normal().child(DatabaseVm::HELP));
+        .child(div().whitespace_normal().child(DatabaseVm::HELP))
+        .child(div().whitespace_normal().child(DatabaseVm::PRESERVATION));
     for (label, input) in [DatabaseVm::SOURCE, DatabaseVm::DESTINATION]
         .into_iter()
         .zip(inputs)
@@ -333,6 +334,8 @@ pub(crate) fn database_tools(
         DatabaseAction::ConfiguredSource,
         DatabaseAction::Check,
         DatabaseAction::Backup,
+        DatabaseAction::EndSession,
+        DatabaseAction::Preserve,
         DatabaseAction::Cancel,
         DatabaseAction::CopyReport,
     ] {

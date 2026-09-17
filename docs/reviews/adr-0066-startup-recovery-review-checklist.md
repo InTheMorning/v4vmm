@@ -21,7 +21,9 @@ unsupported extra gate inferred from a port-only log. Task 008 is complete on
 presentation, preservation in both cases and fixture cleanup are accepted.
 Task 009 is complete on 2026-09-17 with mechanical checks Green; operator V1–V3,
 normal/narrow presentation, configuration restoration, preservation and fixture
-cleanup are accepted. Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; tasks 011–013 have not started.
+cleanup are accepted. Tasks 010–011 are complete on 2026-09-17 with mechanical
+checks Green, operator acceptance, preservation and cleanup confirmed;
+tasks 012–013 have not started.
 
 Read the [ADR](../adr/0066-configuration-and-startup-failure-recovery.md),
 [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md), active packet and
@@ -1302,7 +1304,7 @@ Cleanup returned `Removed fixture: /tmp/v4vmm-startup-4psemojh`, and the operato
 absence check returned `Fixture removed`. V1–V3, normal/narrow presentation,
 configuration restoration, preservation and cleanup are accepted. Task 009 is
 complete; its runbook remains a regression check. Task 004 and inherited checks
-retain their separate gates. Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed. Task 011 has not started.
+retain their separate gates. Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed. Task 011's later completion is recorded below.
 
 
 ## Task 010 Review — 2026-09-17
@@ -1342,8 +1344,9 @@ ignored. The mechanical runner did not launch the desktop app.
 - Duplicated implementation procedure/prompt retired from the packet. Status,
   phase plan, ADR partial line, current indexes, source map and AGENTS.md agree.
   Operator V1–V3, Settings/recovery presentation, report copy, responsiveness,
-  preservation, normal-mode restoration and cleanup are accepted. Task 011 is
-  unstarted; task 004 and inherited gates remain separate.
+  preservation, normal-mode restoration and cleanup are accepted. Task 011 had
+  not started at this review; its later completion is recorded below. Task 004
+  and inherited gates remain separate.
 
 Operator acceptance is recorded in the packet's
 [timestamped evidence](../tasks/adr-0066-task-010-database-check-and-backup.md#operator-evidence--2026-09-17).
@@ -1378,5 +1381,93 @@ Cleanup stops both owned helpers before removing the directory. The pending
 human-check entry is removed; the runbook remains a regression procedure.
 
 Result: task 010 complete on 2026-09-17; mechanical checks Green; operator gate
-closed. Task 011 remains unstarted for a fresh session. ADR 0066 remains Accepted
-and partial; task 004 and inherited gates are unchanged.
+closed. Task 011 had not started at this review; its later completion is recorded
+below. ADR 0066 remains Accepted and partial; task 004 and inherited gates are
+unchanged.
+
+
+## Task 011 Review — 2026-09-17
+
+Scope: [database maintenance and preservation](../tasks/adr-0066-task-011-database-maintenance-and-preservation.md#implementation-and-proof).
+Mechanical gate **Green**. Operator gate **closed** on 2026-09-17; task 012 has
+not started and requires a fresh session.
+
+- C1/C2: actual bundled-SQLite subprocess readers/writers contend with rollback
+  and WAL acquisition. Probes run after each source copy and manifest, proving
+  that raw descriptor handling does not release the retained exclusive lock.
+  Guard release permits normal access again; no mutex-only fixture substitutes
+  for process contention. WAL copied bytes retain the committed journal row.
+- C3: exact source paths, copied names, lengths and SHA-256 hashes are verified,
+  including owner-only permissions, no overwrite, cancellation, partial-copy
+  artifacts and unchanged originals. A real hot rollback journal is recovered
+  by SQLite during acquisition; recorded observations and copied bytes describe
+  that later state, without a pre-access identity claim.
+- C4: the command consumes the proven `MaintenanceSession` and returns it only
+  after access closes. Ordinary dispatch refuses preservation. Settings first
+  uses the existing explicit session-drain action; recovery reuses its retained
+  inputs and report. The empty cold-start drain is confined to the startup root
+  after failed preparation releases its resources. Cancellation stays working
+  until completion; stale generations cannot replace the current report.
+  Fresh core checks and explicit Open app are required for a new session.
+- C5: `adr_0066_database_maintenance_requires_exclusive_access` guards the new
+  ownership contract. Existing drain/snapshot guards remain unchanged. No new
+  schema, migration recipe, file replacement or unsafe raw-copy path landed.
+- UI ownership: DatabaseVm supplies wording, typed actions and accessibility;
+  the existing shared maintenance composite supplies wrapping, controls and
+  token geometry. Settings and recovery compose that same owner.
+- Fixture: new maintenance cases reuse Rust's database seed authority. Python
+  verifies actual writer/release behavior and rejects missing/incorrect copies,
+  changed sources and replaced baselines. The operator procedure covers the
+  new workflow, both inspections, normal restoration and cleanup.
+- Validation: 1,455 unit tests, 257 architecture guards, 31 Python fixture tests;
+  ten existing documentation examples ignored. Check/format/production Clippy
+  and normal desktop build Green. The sandbox socket-fixture failures were
+  followed by a Green unrestricted full test run.
+
+No required fix or architectural drift remains in this review. The mechanical
+suite and the actual operator evidence below accept task 011. Task 012 stays
+unstarted for a fresh session; task 004 and inherited gates remain separate.
+
+Both new fixture cases passed a backend-only command smoke: setup, mode,
+writer contention, writer release, shared inspection, normal restoration and
+owned cleanup. No desktop was launched; these temporary smoke directories were
+removed. Operator acceptance of the separate desktop fixtures is recorded below.
+Local links in the changed documentation resolve, including heading anchors.
+
+### Task 011 Operator Acceptance And Cleanup — 2026-09-17
+
+The [packet's operator evidence](../tasks/adr-0066-task-011-database-maintenance-and-preservation.md#operator-evidence--2026-09-17)
+records the supplied reports, manifest, confirmations and inspections. V1's
+Busy refusal at 20:39:30 UTC and cancellation at 20:43:45 UTC retained the
+inputs/report and kept normal work stopped. The operator accepted responsiveness.
+No independent elapsed-time measurement is claimed.
+
+V2 released the fixture writer, preserved the locked source at 20:45:47 UTC,
+reported integrity damage at 20:48:25 UTC and preserved that damaged source at
+20:48:29 UTC. Manifest contents include exact paths, lengths, hashes, SQLite
+mode/version and recorded UTC times. The configured library was preserved at
+20:50:27 UTC. The operator confirmed fresh Check again and explicit Open app,
+Music/Settings in the same window, complete report retention and normal/narrow
+presentation. The first inspection passed all 25 maintenance flags, plus shared
+preservation; configuration differences were normal workspace preferences only.
+
+V3 refused the configured invalid header at 20:56:51 UTC without claiming a copy
+or repair. Open app stayed unavailable and normal/narrow recovery presentation
+passed. Copies of the other sources succeeded at 20:59:04 and 20:59:39 UTC while
+the earlier refusal remained in the report. The operator confirmed recovery
+preservation inspection, normal restoration and subsequent shared inspection
+passed; raw output for those inspections was not supplied. The first fixture's
+final supplied inspection confirms normal mode, unchanged configuration bytes,
+preserved music/migrations/bindings/library and no probes.
+
+The operator **confirmed** removal of `/tmp/v4vmm-startup-f_7zad8y` and
+`/tmp/v4vmm-startup-ar_glv2s` after closing both apps and passing preservation and
+restoration. This final acceptance closes the interim task 011 gate: V1–V3,
+presentation, report retention, both inspections, normal restoration and cleanup
+are complete. The pending-human entry is removed; the runbook remains a
+regression procedure. Artifact evidence comes from the operator; the agent did
+not launch a desktop or independently inspect these desktop fixtures.
+
+Result: task 011 complete on 2026-09-17. Mechanical checks **Green**; operator
+gate **closed**. ADR 0066 remains Accepted and partial. Task 004 and inherited
+gates are unchanged. Task 012 requires a fresh session.

@@ -1635,4 +1635,148 @@ python3 -B docs/runbooks/startup-recovery-fixture.py cleanup "$fixture"
 test ! -e "$fixture" && echo "Fixture removed"
 ```
 
-Task 011 stays unstarted. These checks do not accept task 004 or inherited UI gates.
+Task 011 is complete with separate evidence below. These checks do not accept
+task 004 or inherited UI gates.
+
+## Task 011: Database Maintenance And Preservation
+
+Task 011 is complete on 2026-09-17 with operator V1–V3, presentation, preservation,
+normal-mode restoration and cleanup accepted. This procedure remains a regression
+check. Use a Linux desktop, Python 3 with SQLite, and the debug binary.
+No audio hardware, installed player, external service, or
+real library is needed. The fixture owns its writer process. Only `run` opens
+the app; agents may exercise the other commands. Keep each fixture until its
+inspection passes. Use a fresh fixture for each case below.
+
+### V1 — Drain The App And Refuse A Busy Source
+
+1. Build and create the isolated normal-session case. Keep this terminal's
+   `maintenance_fixture` value for all V1/V2 commands.
+
+```bash
+cd /home/citizen/build/v4vmm
+cargo build --locked --offline --quiet --bin v4vmm
+maintenance_fixture=$(python3 docs/runbooks/startup-recovery-fixture.py setup)
+python3 docs/runbooks/startup-recovery-fixture.py mode "$maintenance_fixture" database-maintenance
+python3 docs/runbooks/startup-recovery-fixture.py maintenance-status "$maintenance_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py run "$maintenance_fixture"
+```
+
+2. Open **Settings → Diagnostics → Database tools**. Use the status output's
+   `sources.locked` as the existing database and `destinations.busy` as the
+   destination. Choose **End app session for preservation**. It must transition
+   through draining to recovery in the same window, retaining the entered paths
+   and database report. Normal Music/Show work must stop. This does not copy files.
+3. Choose **Preserve database files**. During the five-second external-lock wait,
+   scroll and select report text. The UI must respond. The result must name the
+   source/destination and explain the busy SQLite reader/writer, no completed
+   preservation copy, and the retry route. It must not say normal work resumed.
+4. Repeat preservation while the writer is held, then choose **Cancel** promptly.
+   The app must wait for the operation's result, report cancellation, and allow a
+   later retry. A momentarily disabled Cancel after completion is expected. It
+   must not show a successful copy or resume the old session.
+
+Wrong: copying while the source is busy, a frozen window, lost source/destination,
+duplicate operations, automatic normal-session reopening, or calling this a
+verified backup.
+
+### V2 — Release, Preserve, Inspect, And Reopen
+
+1. In a second desktop terminal, locate the same fixture, then release only its
+   writer. Confirm `writer_running` and `exclusive_access_blocked` are false.
+
+```bash
+cd /home/citizen/build/v4vmm
+maintenance_fixture=$(python3 docs/runbooks/startup-recovery-fixture.py locate)
+python3 docs/runbooks/startup-recovery-fixture.py verify "$maintenance_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py maintenance-release "$maintenance_fixture"
+```
+
+2. In Database tools, retain `sources.locked`, change destination to
+   `destinations.locked`, and choose **Preserve database files**. The result must
+   say **preservation copy**, **not a verified restorable backup**, and name its
+   manifest, recorded UTC access time, observed SQLite mode, and copied-file count.
+   The explanation distinguishes the files after SQLite acquired access from any
+   earlier bytes or automatic journal handling. **Copy database report** must
+   paste the full report, including the earlier busy/cancel attempts.
+3. Check the generated manifest without opening the copy with SQLite. It lists
+   exact source names, copied filenames, lengths, SHA-256 checksums and UTC times.
+
+```bash
+python3 -m json.tool "$maintenance_fixture/database/locked-copy/manifest.json"
+```
+
+4. Set source to `sources.integrity` and destination to `destinations.damaged`.
+   **Check database** reports integrity damage. **Preserve database files** may
+   still succeed because exclusive access is supported. Its report must not claim
+   integrity is repaired or that the copy is a validated restore source.
+5. Choose **Use configured database**, set destination to `destinations.normal`,
+   and preserve the fixture's normal library. Once fresh core checks finish,
+   choose **Open app**. Music and Settings must be available in the same window.
+   Reopen Database tools: the complete preservation report must still be there.
+   Check the new controls, wrapped paths and report at normal and narrow widths.
+6. Close the app, then inspect. Every named flag must be true. The inspector
+   verifies private modes (directory `0700`, files `0600`), all file checksums,
+   unchanged source bytes, absence of the refused copies, and shared
+   configuration/music/library/migration preservation. It reads copied bytes
+   directly; it does not ask SQLite to recover copied journals.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py maintenance-inspect "$maintenance_fixture"
+```
+
+Wrong: a missing/incorrect manifest or checksum, changed source, overwrite of an
+existing destination, missing report after reopening, unreachable narrow-width
+controls, or an inspector failure. Retain the fixture on failure.
+
+### V3 — Core Recovery And An Invalid Header
+
+1. Create a separate fixture whose configured database has an invalid header.
+   Release the owned writer so the other source remains usable for the check.
+
+```bash
+cd /home/citizen/build/v4vmm
+recovery_fixture=$(python3 docs/runbooks/startup-recovery-fixture.py setup)
+python3 docs/runbooks/startup-recovery-fixture.py mode "$recovery_fixture" database-maintenance-recovery
+python3 docs/runbooks/startup-recovery-fixture.py maintenance-release "$recovery_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py run "$recovery_fixture"
+```
+
+2. Recovery must expose the same Database tools. Choose **Use configured
+   database**, enter `destinations.invalid`, and choose **Preserve database files**.
+   The result must explain that safe access could not be established, that no
+   preservation copy completed, and that the originals and a known backup should
+   be retained for recovery. It must offer checks without pretending restore or
+   repair succeeded. **Open app** remains unavailable while this core failure
+   remains. Inspect the report/control layout at normal and narrow widths.
+3. Without leaving recovery, preserve `sources.locked` to `destinations.locked`
+   and `sources.integrity` to `destinations.damaged`. Both must use the same
+   preservation wording and manifest contract as V2. The configured database
+   stays unchanged. Close recovery, retaining its expected unsuccessful exit.
+4. Inspect this fixture, restore its normal configuration through the fixture
+   command, and inspect the restored state. No application configuration edit is
+   part of this packet.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py maintenance-inspect "$recovery_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py mode "$recovery_fixture" normal
+python3 docs/runbooks/startup-recovery-fixture.py inspect "$recovery_fixture"
+```
+
+Wrong: a created `invalid-copy` directory, changed invalid-header bytes, a claim
+of completed repair/backup, normal work starting with the invalid configuration,
+or a preservation failure being hidden by the separate core-check report.
+
+### Preservation And Cleanup
+
+Only after V1–V3 and both preservation inspections pass, restore the normal case
+and remove the two fixtures. These commands stop only owned fixture processes
+and remove only their isolated files. Record operator results and cleanup before
+closing task 011's gate. Task 012 requires a fresh session after acceptance.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py mode "$maintenance_fixture" normal
+python3 docs/runbooks/startup-recovery-fixture.py inspect "$maintenance_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py cleanup "$maintenance_fixture"
+python3 docs/runbooks/startup-recovery-fixture.py cleanup "$recovery_fixture"
+```

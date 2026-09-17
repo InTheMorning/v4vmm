@@ -31,8 +31,9 @@ CONVERTER_CASES = ("converter-setup", "converter-recovery")
 CONVERTER_MODES = ("missing", "working", "fallback", "nonzero", "timeout", "permission", "output-limit")
 CONVERSION_CASES = ("conversion-retry",)
 DATABASE_CASES = ("database-tools", "database-recovery")
+MAINTENANCE_CASES = ("database-maintenance", "database-maintenance-recovery")
 CONVERSION_MODES = ("encode-failure", "working", "fallback")
-CASES += ("session-held-command",) + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES
+CASES += ("session-held-command",) + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES + MAINTENANCE_CASES
 
 
 def digest(path):
@@ -181,7 +182,7 @@ def hold_lock(root):
 
 def mode(root, case):
     previous = json.loads((root / "case.json").read_text())["case"]
-    if (case in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES or previous in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES or "session-held-command" in (case, previous)) and owned_process(root, "app.pid"):
+    if (case in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES + MAINTENANCE_CASES or previous in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES + MAINTENANCE_CASES or "session-held-command" in (case, previous)) and owned_process(root, "app.pid"):
         raise SystemExit("Close the fixture app before changing optional-tool or session cases.")
     if previous in CONVERTER_CASES + CONVERSION_CASES:
         for name in ("flac", "ffmpeg"):
@@ -204,7 +205,12 @@ def mode(root, case):
     cfg.chmod(0o600)
     (root / "repair.external").unlink(missing_ok=True)
     cfg.write_bytes((root / "config.baseline").read_bytes())
-    if case in DATABASE_CASES:
+    if case in MAINTENANCE_CASES:
+        maintenance_setup(root)
+        if case == "database-maintenance-recovery":
+            cfg.write_text(cfg.read_text().replace(json.dumps(str(root / "data/library.sqlite")), json.dumps(str(root / "database/invalid-header.sqlite"))))
+        purpose = "Use Database tools for explicit session drain and file preservation. maintenance-status prints paths; maintenance-release stops only this fixture's writer. No audio hardware or external service is needed."
+    elif case in DATABASE_CASES:
         database_setup(root)
         if case == "database-recovery":
             cfg.write_text(cfg.read_text().replace(json.dumps(str(root / "data/library.sqlite")), json.dumps(str(root / "database/invalid-header.sqlite"))))
@@ -727,6 +733,7 @@ def database_hold(root):
 
 
 def database_stop(root):
+    maintenance_release(root)
     for name in ("database-lock", "database"):
         pid = owned_process(root, name + ".pid")
         if pid:
@@ -830,6 +837,120 @@ def database_inspect(root, manifest):
         raise SystemExit("Database preservation inspection failed. Keep the fixture for diagnosis.")
     inspect(root, manifest)
 
+
+def maintenance_setup(root):
+    if (root / "maintenance-baseline.json").exists():
+        raise SystemExit("Maintenance fixture already has a baseline. Keep its evidence; create a fresh fixture instead of reseeding.")
+    directory = root / "database"
+    if directory.exists():
+        raise SystemExit("Use a fresh fixture for database maintenance; existing database evidence must not be replaced.")
+    subprocess.run([str(REPO / "target/debug/v4vmm"), "startup-fixture", "database-seed", str(root)], env=environment(root), check=True)
+    state = {"source_hashes": {p.name: digest(p) for p in directory.glob("*.sqlite")}}
+    (root / "maintenance-baseline.json").write_text(json.dumps(state, indent=2))
+    with (root / "maintenance.log").open("w") as output:
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "maintenance-hold", str(root)], stdout=output, stderr=output, start_new_session=True)
+    deadline = time.monotonic() + 5
+    while not (root / "maintenance.ready").exists():
+        if time.monotonic() > deadline:
+            raise SystemExit("Maintenance writer did not start. Retain the fixture and inspect maintenance.log.")
+        time.sleep(0.05)
+    maintenance_status(root)
+
+
+def maintenance_hold(root):
+    """A real external writer; checksum work belongs to the parent before this lock."""
+    path = root / "database/locked.sqlite"
+    conn = sqlite3.connect(path.as_uri() + "?mode=rw", uri=True, timeout=0.5)
+    conn.execute("BEGIN IMMEDIATE")
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    (root / "maintenance.pid").write_text(str(os.getpid()))
+    (root / "maintenance.ready").write_text("ready")
+    try:
+        while True:
+            time.sleep(1)
+    finally:
+        conn.rollback()
+        conn.close()
+        (root / "maintenance.ready").unlink(missing_ok=True)
+        (root / "maintenance.pid").unlink(missing_ok=True)
+
+
+def maintenance_release(root):
+    pid = owned_process(root, "maintenance.pid")
+    if pid:
+        os.kill(pid, signal.SIGTERM)
+        deadline = time.monotonic() + 5
+        while (root / "maintenance.ready").exists():
+            if time.monotonic() > deadline:
+                raise SystemExit("Fixture writer did not release. Retain the fixture for diagnosis.")
+            time.sleep(0.05)
+
+
+def maintenance_writer_blocked(root):
+    conn = None
+    try:
+        path = root / "database/locked.sqlite"
+        conn = sqlite3.connect(path.as_uri() + "?mode=rw", uri=True, timeout=0.05)
+        conn.execute("BEGIN EXCLUSIVE")
+        return False
+    except sqlite3.DatabaseError as error:
+        return getattr(error, "sqlite_errorcode", 0) & 0xff in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+    finally:
+        if conn is not None:
+            conn.rollback()
+            conn.close()
+
+
+def maintenance_status(root):
+    directory = root / "database"
+    print(json.dumps({"writer_running": bool(owned_process(root, "maintenance.pid")),
+                      "exclusive_access_blocked": maintenance_writer_blocked(root),
+                      "sources": {name: str(directory / (name + ".sqlite")) for name in ("locked", "integrity", "invalid-header")},
+                      "configured_normal_database": str(root / "data/library.sqlite"),
+                      "destinations": {name: str(directory / (name + "-copy")) for name in ("busy", "locked", "damaged", "invalid", "normal")}}, indent=2))
+
+
+def maintenance_inspect(root, manifest):
+    """Validate copied evidence without opening any copy with SQLite (which could recover journals)."""
+    directory = root / "database"
+    state = json.loads((root / "maintenance-baseline.json").read_text())
+    checks = {"writer_released": not owned_process(root, "maintenance.pid"),
+              "original_database_files_preserved": all(digest(directory / name) == value for name, value in state["source_hashes"].items()),
+              "busy_attempt_created_no_copy": not (directory / "busy-copy").exists(),
+              "invalid_header_created_no_copy": not (directory / "invalid-copy").exists()}
+    copies = {"locked": directory / "locked.sqlite", "damaged": directory / "integrity.sqlite"}
+    if json.loads((root / "case.json").read_text())["case"] == "database-maintenance":
+        copies["normal"] = root / "data/library.sqlite"
+    for name, source in copies.items():
+        destination = directory / (name + "-copy")
+        try:
+            receipt_path = destination / "manifest.json"
+            receipt = json.loads(receipt_path.read_text())
+            records = receipt["files"]
+            expected_sources = {str(source)} | {str(Path(str(source) + suffix)) for suffix in ("-wal", "-shm", "-journal") if Path(str(source) + suffix).exists()}
+            checks[name + "_preservation_manifest"] = (receipt["kind"] == "database_file_preservation_not_verified_backup"
+                and receipt["source"] == str(source) and receipt["journal_mode"] == "delete"
+                and bool(receipt["sqlite_version"]) and bool(receipt["sqlite_access"])
+                and datetime.fromisoformat(receipt["acquired_at_utc"]).utcoffset().total_seconds() == 0
+                and datetime.fromisoformat(receipt["copied_at_utc"]).utcoffset().total_seconds() == 0
+                and {entry["source"] for entry in records} == expected_sources)
+            checks[name + "_private_directory"] = not destination.is_symlink() and destination.stat().st_mode & 0o777 == 0o700
+            checks[name + "_private_manifest"] = not receipt_path.is_symlink() and receipt_path.stat().st_mode & 0o777 == 0o600
+            checks[name + "_exact_files"] = {p.name for p in destination.iterdir()} == {"manifest.json"} | {entry["copied_name"] for entry in records}
+            for index, entry in enumerate(records):
+                copied = destination / entry["copied_name"]
+                if Path(entry["copied_name"]).name != entry["copied_name"] or copied.is_symlink() or entry["source"] not in expected_sources:
+                    raise ValueError("Manifest path escaped its source or destination")
+                checks[f"{name}_file_{index}_private"] = copied.stat().st_mode & 0o777 == 0o600
+                checks[f"{name}_file_{index}_length"] = copied.stat().st_size == entry["length"]
+                checks[f"{name}_file_{index}_checksum"] = digest(copied) == entry["sha256"] == digest(Path(entry["source"]))
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            checks[name + "_preservation_manifest"] = False
+    print(json.dumps(checks, indent=2))
+    if not all(checks.values()):
+        raise SystemExit("Maintenance preservation inspection failed. Keep the fixture for diagnosis.")
+    inspect(root, manifest)
+
 def setup():
     binary = REPO / "target/debug/v4vmm"
     if not binary.is_file():
@@ -891,7 +1012,7 @@ def run_app(root, manifest):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "session-status", "session-release", "repair-access", "repair-conflict", "repair-inspect", "retry-status", "retry-release", "retry-inspect", "retry-server", "converter-tools", "converter-status", "converter-inspect", "conversion-tools", "conversion-status", "conversion-remove-input", "conversion-inspect", "database-hold", "database-lock", "database-status", "database-inspect"))
+    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "session-status", "session-release", "repair-access", "repair-conflict", "repair-inspect", "retry-status", "retry-release", "retry-inspect", "retry-server", "converter-tools", "converter-status", "converter-inspect", "conversion-tools", "conversion-status", "conversion-remove-input", "conversion-inspect", "database-hold", "database-lock", "database-status", "database-inspect", "maintenance-hold", "maintenance-release", "maintenance-status", "maintenance-inspect"))
     parser.add_argument("directory", nargs="?")
     parser.add_argument("case", nargs="?", choices=CASES + CONVERTER_MODES + CONVERSION_MODES)
     args = parser.parse_args()
@@ -927,6 +1048,15 @@ def main():
         database_status(root)
     elif args.command == "database-inspect":
         database_inspect(root, manifest)
+    elif args.command == "maintenance-hold":
+        maintenance_hold(root)
+    elif args.command == "maintenance-release":
+        maintenance_release(root)
+        maintenance_status(root)
+    elif args.command == "maintenance-status":
+        maintenance_status(root)
+    elif args.command == "maintenance-inspect":
+        maintenance_inspect(root, manifest)
     elif args.command.startswith("conversion-"):
         if json.loads((root / "case.json").read_text())["case"] not in CONVERSION_CASES:
             raise SystemExit("Select conversion-retry first.")

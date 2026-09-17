@@ -217,6 +217,18 @@ pub(crate) struct SessionDrain {
 }
 
 impl SessionDrain {
+    /// Empty startup recovery has no normal session resources to release.
+    pub(crate) fn core_recovery() -> Self {
+        let session = SessionLifecycle::new();
+        session.begin_drain();
+        Self {
+            session,
+            connection: None,
+            closing: None,
+            playback: None,
+        }
+    }
+
     pub(crate) fn new(
         session: SessionLifecycle,
         connection: Arc<Mutex<Connection>>,
@@ -323,6 +335,10 @@ pub(crate) struct MaintenanceSession {
 }
 
 impl MaintenanceSession {
+    pub(crate) fn is_ready(&self) -> bool {
+        self.session.phase() == SessionPhase::Maintenance
+    }
+
     pub(crate) fn generation(&self) -> u64 {
         self.session.generation()
     }

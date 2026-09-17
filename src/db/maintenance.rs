@@ -17,6 +17,9 @@ use rusqlite::{
 
 use super::SchemaCompatibility;
 
+mod preservation;
+pub(crate) use preservation::{ExclusiveDatabase, Preservation};
+
 pub(crate) const MAINTENANCE_DEADLINE: Duration = Duration::from_mins(1);
 const LOCK_WAIT: Duration = Duration::from_millis(50);
 const BACKUP_PAGE_BATCH: i32 = 64;
@@ -35,6 +38,8 @@ pub(crate) enum FailureKind {
     Destination,
     Validation,
     Sql,
+    Unsupported,
+    UnstableFiles,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

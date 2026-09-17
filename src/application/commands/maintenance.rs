@@ -213,6 +213,7 @@ pub(crate) enum DatabaseOperation {
     ConfiguredSource(PathBuf),
     Check,
     Backup { destination: PathBuf },
+    Preserve { destination: PathBuf },
 }
 
 #[derive(Debug)]
@@ -227,6 +228,7 @@ pub(crate) enum DatabaseOutcome {
     ConfiguredSource(Result<PathBuf, &'static str>),
     Checked(crate::db::maintenance::Inspection),
     BackedUp(Result<crate::db::maintenance::Snapshot, crate::db::maintenance::Failure>),
+    Preserved(Result<crate::db::maintenance::Preservation, crate::db::maintenance::Failure>),
 }
 
 #[derive(Debug)]
@@ -238,6 +240,46 @@ pub(crate) struct DatabaseResult {
 }
 
 impl DatabaseCommand {
+    /// Keep unique drained-session authority until the exclusive connection and
+    /// all copying have finished, including failures and cancellation.
+    pub(crate) fn execute_preservation(
+        self,
+        session: crate::application::session_lifecycle::MaintenanceSession,
+    ) -> (
+        crate::application::session_lifecycle::MaintenanceSession,
+        DatabaseResult,
+    ) {
+        use crate::db::maintenance::{Budget, ExclusiveDatabase, Failure, FailureKind};
+        let budget = Budget::new(self.cancelled);
+        let outcome = if let DatabaseOperation::Preserve { destination } = &self.operation {
+            if session.is_ready() {
+                ExclusiveDatabase::acquire(&self.source, &budget)
+                    .and_then(|mut access| access.preserve(destination, &budget))
+            } else {
+                Err(Failure {
+                    operation: "Require a completed app-session drain",
+                    kind: FailureKind::Unsupported,
+                    remaining: Vec::new(),
+                })
+            }
+        } else {
+            Err(Failure {
+                operation: "Require an explicit preservation request",
+                kind: FailureKind::Unsupported,
+                remaining: Vec::new(),
+            })
+        };
+        (
+            session,
+            DatabaseResult {
+                source: self.source,
+                operation: self.operation,
+                recorded_at: std::time::SystemTime::now(),
+                outcome: DatabaseOutcome::Preserved(outcome),
+            },
+        )
+    }
+
     pub(crate) fn execute(self) -> DatabaseResult {
         use crate::db::maintenance::{self, Budget};
         let budget = Budget::new(self.cancelled);
@@ -253,6 +295,13 @@ impl DatabaseCommand {
             }
             DatabaseOperation::Backup { destination } => {
                 DatabaseOutcome::BackedUp(maintenance::backup(&self.source, destination, &budget))
+            }
+            DatabaseOperation::Preserve { .. } => {
+                DatabaseOutcome::Preserved(Err(maintenance::Failure {
+                    operation: "Require a completed app-session drain",
+                    kind: maintenance::FailureKind::Unsupported,
+                    remaining: Vec::new(),
+                }))
             }
         };
         DatabaseResult {

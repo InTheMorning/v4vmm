@@ -24,6 +24,8 @@ pub(crate) enum DatabaseAction {
     ConfiguredSource,
     Check,
     Backup,
+    EndSession,
+    Preserve,
     Cancel,
     CopyReport,
 }
@@ -41,6 +43,7 @@ pub(crate) struct DatabaseVm {
     pub(crate) report: String,
     pub(crate) worker_available: bool,
     pub(crate) suspended: bool,
+    pub(crate) maintenance_ready: bool,
     running: Option<Arc<AtomicBool>>,
     generation: u64,
 }
@@ -49,8 +52,9 @@ impl DatabaseVm {
     pub(crate) const TITLE: &'static str = "Database tools";
     pub(crate) const SCOPE: &'static str = "A database backup covers database records, including committed WAL data. It does not include music files or broadcaster token files. Checking and backing up do not change the selected database or switch the app's library.";
     pub(crate) const SOURCE: &'static str = "Existing database path";
-    pub(crate) const DESTINATION: &'static str = "New backup file path";
-    pub(crate) const HELP: &'static str = "Use configured database fills the source path, or enter another existing database's absolute path. Enter a new backup filename in an existing folder. Existing files are never overwritten. Each operation has a 60-second limit; Cancel stops it before publication when possible.";
+    pub(crate) const DESTINATION: &'static str = "New backup file or preservation directory path";
+    pub(crate) const HELP: &'static str = "Use configured database fills the source path, or enter another existing database's absolute path. For backup, enter a new filename in an existing folder. For preservation, enter a new directory name. Existing paths are never overwritten. Each operation has a 60-second limit; Cancel waits for a known result before releasing database access.";
+    pub(crate) const PRESERVATION: &'static str = "If a verified backup cannot be made, end the app session, then choose Preserve database files. App waits up to five seconds for exclusive SQLite access and copies the database and journals to the new private directory. SQLite may recover journals while acquiring access and clean up or checkpoint them on close. The copy records files after access was acquired; it is not a verified restorable backup. Afterward, Check again and Open app use fresh core verification. Restore is not available yet; retain the originals and validate a known backup for recovery.";
 
     pub(crate) fn new(worker_available: bool) -> Self {
         Self {
@@ -59,6 +63,7 @@ impl DatabaseVm {
             report: String::new(),
             worker_available,
             suspended: false,
+            maintenance_ready: false,
             running: None,
             generation: 0,
         }
@@ -83,6 +88,14 @@ impl DatabaseVm {
                 "Back up database",
                 "Save a verified database snapshot at the new backup path",
             ),
+            DatabaseAction::EndSession => (
+                "End app session for preservation",
+                "Stop app work and close database connections before preserving files",
+            ),
+            DatabaseAction::Preserve => (
+                "Preserve database files",
+                "Preserve database and journal files under exclusive access; this is not a verified backup",
+            ),
             DatabaseAction::Cancel => (
                 "Cancel",
                 "Request cancellation of the running database operation",
@@ -104,9 +117,13 @@ impl DatabaseVm {
                     && self.worker_available
                     && PathBuf::from(&self.source).is_absolute()
             }
-            DatabaseAction::Backup => {
+            DatabaseAction::EndSession => {
+                self.input_enabled() && self.worker_available && !self.maintenance_ready
+            }
+            DatabaseAction::Backup | DatabaseAction::Preserve => {
                 self.input_enabled()
                     && self.worker_available
+                    && (action != DatabaseAction::Preserve || self.maintenance_ready)
                     && PathBuf::from(&self.source).is_absolute()
                     && PathBuf::from(&self.destination).is_absolute()
             }
@@ -136,7 +153,12 @@ impl DatabaseVm {
             DatabaseAction::Backup => DatabaseOperation::Backup {
                 destination: self.destination.clone().into(),
             },
-            DatabaseAction::Cancel | DatabaseAction::CopyReport => return None,
+            DatabaseAction::Preserve => DatabaseOperation::Preserve {
+                destination: self.destination.clone().into(),
+            },
+            DatabaseAction::EndSession | DatabaseAction::Cancel | DatabaseAction::CopyReport => {
+                return None
+            }
         };
         let cancelled = Arc::new(AtomicBool::new(false));
         self.running = Some(cancelled.clone());
@@ -226,6 +248,31 @@ impl DatabaseVm {
                 text.push_str(Self::SCOPE);
                 false
             }
+            DatabaseOutcome::Preserved(result_copy) => {
+                let requested = match result.operation {
+                    DatabaseOperation::Preserve { destination } => destination,
+                    _ => PathBuf::new(),
+                };
+                let _ = writeln!(
+                    text,
+                    "App attempted file preservation from {} to {}.",
+                    result.source.display(),
+                    requested.display()
+                );
+                match result_copy {
+                    Ok(copy) => {
+                        let _ = writeln!(text, "App saved a preservation copy of {} database/journal file(s) in {}. This is not a verified restorable backup. Manifest: {}.\nSQLite acquired exclusive access at {} with journal mode {}. Files were copied after SQLite acquired access and before it closed the connection. SQLite may perform automatic journal recovery during access and cleanup/checkpoint on close. No pre-access byte identity is claimed. Keep the manifest and copied files together.", copy.file_count, copy.directory.display(), copy.manifest.display(), time(copy.acquired_at), copy.journal_mode);
+                        for path in copy.changed_during_access {
+                            let _ = writeln!(text, "App observed a file identity, size, modification time or presence change while SQLite acquired access: {}. The preservation copy reflects the state after that access, including any SQLite journal recovery.", path.display());
+                        }
+                    }
+                    Err(failure) => {
+                        let _ = writeln!(text, "App did not complete a preservation copy. {}\nIn-app preservation cannot proceed without safe exclusive access and a completed copy. App did not install or replace a database. Retain original files and inspect a known backup for recovery.", failure_report(&failure));
+                    }
+                }
+                text.push_str("The preservation operation has finished and released its database access. Normal work has not resumed. Choose Check again, then Open app only when fresh core checks pass.");
+                false
+            }
         };
         self.report
             .push_str(&crate::diagnostics::redact_endpoint_details(&text));
@@ -249,18 +296,20 @@ fn failure_report(failure: &Failure) -> String {
         FailureKind::Missing => "The file or its parent folder does not exist. Check the path and mounted storage, then check again.",
         FailureKind::Access => "Access was denied. Check file and folder permissions, then check again.",
         FailureKind::InvalidFile => "The selected path is not a regular database file. Select an existing SQLite database.",
-        FailureKind::Busy => "SQLite reported a busy or locked database within the bounded wait. Close the conflicting writer, then check again.",
+        FailureKind::Busy => "SQLite reported a busy or locked database within the bounded wait. Close the conflicting SQLite reader or writer, then check again.",
         FailureKind::Corrupt => "SQLite could not read valid database contents. Retain the original files; check a known backup before planning recovery.",
         FailureKind::Io => "Storage could not complete the operation. Check free space, the mounted drive and permissions before retrying.",
         FailureKind::Cancelled => "The operator cancelled the operation before completion. Choose Check database or Back up database to start a new attempt.",
         FailureKind::Deadline => "The operation exceeded its 60-second limit. Check storage and competing database activity before retrying.",
-        FailureKind::Destination => "The destination is occupied, aliases the source or its journals, or the private candidate changed. Choose a different new backup filename; existing files were not overwritten.",
+        FailureKind::Destination => "The destination is occupied, aliases the source or its journals, or the private candidate changed. Choose a new backup filename or preservation directory; existing files were not overwritten.",
         FailureKind::Validation => "The candidate did not pass integrity, foreign-key and supported-schema validation. Check the source database report; retain the original files for recovery.",
         FailureKind::Sql => "SQLite could not complete this check. Check the selected database and its schema before retrying.",
+        FailureKind::Unsupported => "App cannot establish the supported maintenance protocol for this source or session. Retain the original files, use Check again, and validate a known backup before planning recovery. No raw-copy bypass is available.",
+        FailureKind::UnstableFiles => "A source file changed or its copied bytes did not match. App cannot confirm a complete preservation copy. Retain the original and partial artifacts; check storage before retrying.",
     };
     let mut text = format!("{}: {reason}", failure.operation);
     for path in &failure.remaining {
-        let _ = write!(text, "\nApp could not confirm artifact cleanup or publication durability at {}. Retain and inspect this path; it is not a confirmed completed backup.", path.display());
+        let _ = write!(text, "\nA partial or unsynced artifact remains at {}. Retain and inspect this path; no completed result is confirmed there.", path.display());
     }
     text
 }
@@ -302,6 +351,112 @@ fn snapshot_report(snapshot: &Snapshot) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adr_0066_preservation_requires_drained_authority_and_keeps_report_through_resumption() {
+        use crate::application::session_lifecycle::{SessionDrain, SessionLifecycle, SessionPhase};
+        use std::sync::Mutex;
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("library.sqlite");
+        let connection = Arc::new(Mutex::new(crate::db::open_db(&source).unwrap()));
+        let held = connection.clone();
+        let session = SessionLifecycle::new();
+        let mut drain = SessionDrain::new(session.clone(), connection, None);
+        let mut vm = DatabaseVm::new(true);
+        vm.source = source.display().to_string();
+        vm.destination = temp.path().join("preserved").display().to_string();
+        assert!(vm.begin(DatabaseAction::Preserve, PathBuf::new()).is_none());
+        assert_eq!(
+            vm.action(DatabaseAction::EndSession).availability,
+            StartupAvailability::Available
+        );
+        session.begin_drain();
+        assert!(drain.finish().is_err());
+        drop(held);
+        let maintenance = drain.finish().unwrap();
+        vm.maintenance_ready = maintenance.is_ready();
+        let (generation, command) = vm.begin(DatabaseAction::Preserve, PathBuf::new()).unwrap();
+        // The ordinary worker path cannot accidentally bypass the drained token.
+        let bypass = DatabaseCommand {
+            source: source.clone(),
+            operation: command.operation.clone(),
+            cancelled: command.cancelled.clone(),
+        }
+        .execute();
+        assert!(matches!(
+            bypass.outcome,
+            DatabaseOutcome::Preserved(Err(Failure {
+                kind: FailureKind::Unsupported,
+                ..
+            }))
+        ));
+        assert!(!PathBuf::from(&vm.destination).exists());
+        let worker = crate::presentation::maintenance_executor::MaintenanceWorker::start().unwrap();
+        let (mut maintenance, result) = worker
+            .client
+            .submit(move || command.execute_preservation(maintenance))
+            .unwrap()
+            .blocking_recv()
+            .unwrap();
+        assert_eq!(session.phase(), SessionPhase::Maintenance);
+        assert!(!session.accepts(session.generation()));
+        vm.complete(generation, result);
+        assert!(vm.report.contains("preservation copy"));
+        assert!(vm.report.contains("not a verified restorable backup"));
+        assert!(vm.report.contains("Normal work has not resumed"));
+        let report = vm.report.clone();
+        assert!(maintenance.begin_resume());
+        assert!(!maintenance.begin_resume());
+        assert!(matches!(
+            crate::db::startup::check_database(&source),
+            Ok(crate::db::startup::DatabaseReadiness::Ready)
+        ));
+        let fresh = SessionLifecycle::new();
+        assert!(!fresh.accepts(session.generation()));
+        assert_eq!(vm.report, report);
+        worker.finish();
+    }
+
+    #[test]
+    fn adr_0066_preservation_cancel_and_invalid_source_keep_reports_and_reject_stale_results() {
+        use crate::application::session_lifecycle::SessionDrain;
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("invalid.sqlite");
+        std::fs::write(&source, b"invalid header").unwrap();
+        let mut vm = DatabaseVm::new(true);
+        vm.source = source.display().to_string();
+        vm.destination = temp.path().join("copy").display().to_string();
+        vm.maintenance_ready = true;
+        vm.report = "Earlier database report\n".into();
+        let (generation, command) = vm.begin(DatabaseAction::Preserve, PathBuf::new()).unwrap();
+        vm.cancel();
+        assert!(vm.is_working());
+        assert_eq!(
+            vm.action(DatabaseAction::Preserve).availability,
+            StartupAvailability::Unavailable
+        );
+        let authority = SessionDrain::core_recovery().finish().unwrap();
+        let (authority, result) = command.execute_preservation(authority);
+        vm.complete(generation, result);
+        assert!(vm.report.starts_with("Earlier database report\n"));
+        assert!(vm.report.contains("cancelled"));
+        assert!(!PathBuf::from(&vm.destination).exists());
+        let (generation, command) = vm.begin(DatabaseAction::Preserve, PathBuf::new()).unwrap();
+        let (authority, result) = command.execute_preservation(authority);
+        let earlier = vm.report.clone();
+        assert!(!vm.complete(generation - 1, result));
+        assert!(vm.is_working());
+        assert_eq!(vm.report, earlier);
+        vm.unavailable(generation, std::time::SystemTime::now());
+        let (generation, command) = vm.begin(DatabaseAction::Preserve, PathBuf::new()).unwrap();
+        let (authority, result) = command.execute_preservation(authority);
+        vm.complete(generation, result);
+        assert!(authority.is_ready());
+        assert!(vm.report.contains("In-app preservation cannot proceed"));
+        assert!(vm.report.contains("Check again"));
+        assert_eq!(std::fs::read(source).unwrap(), b"invalid header");
+        assert!(!PathBuf::from(&vm.destination).exists());
+    }
 
     #[test]
     fn adr_0066_database_actions_use_worker_without_normal_runtime_and_report_recorded_paths() {

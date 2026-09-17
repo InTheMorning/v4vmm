@@ -103,7 +103,8 @@ Current plans:
   including preservation and cleanup; task 008 complete on 2026-09-17 with
   operator acceptance, preservation and cleanup; task 009 complete on 2026-09-17
   with operator V1–V3, presentation, configuration restoration, preservation
-  and cleanup accepted; task 010 complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; tasks 011–013 not started
+  and cleanup accepted; tasks 010–011 complete on 2026-09-17 with operator
+  acceptance, preservation and cleanup confirmed; tasks 012–013 not started
 - [Show narrow-layout proposal](plans/show-narrow-layout-proposal.md):
   compact cards, full-width logs and an overlap alternative, readable log-body
   allocation, and hiding the playback bar only when every typed action is

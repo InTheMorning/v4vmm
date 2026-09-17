@@ -17719,3 +17719,109 @@ fn adr_0066_database_checks_and_snapshots_have_one_owner() {
         "Python fixture must not duplicate the schema registry"
     );
 }
+
+/// Situational ADR 0066 invariant 6: drain authority and SQLite exclusion precede file copying.
+#[test]
+fn adr_0066_database_maintenance_requires_exclusive_access() {
+    let path = "src/db/maintenance/preservation.rs";
+    let source = read_source(&manifest_path(path));
+    let backend = production_source(&source);
+    for required in [
+        "struct ExclusiveDatabase",
+        "connection: Connection",
+        "files: Vec<SourceFile>",
+        "EXCLUSIVE_ACCESS_DEADLINE: Duration = Duration::from_secs(5)",
+        "SQLITE_OPEN_READ_WRITE",
+        "SQLITE_OPEN_NOFOLLOW",
+        "PRAGMA main.locking_mode=EXCLUSIVE",
+        "BEGIN EXCLUSIVE",
+        "ROLLBACK",
+        "PRAGMA main.journal_mode",
+        "mode(0o700)",
+        "mode(0o600)",
+        "create_new(true)",
+        "copy_and_hash",
+        "source.file",
+        "sync_all()",
+        "sha256",
+        "database_file_preservation_not_verified_backup",
+        "failure.remaining.push(destination)",
+    ] {
+        assert!(
+            compact_source(backend).contains(&compact_source(required)),
+            "ADR 0066 preservation missing: {required}"
+        );
+    }
+    assert!(
+        backend.find("connection: Connection").unwrap()
+            < backend.find("files: Vec<SourceFile>").unwrap(),
+        "SQLite must close before raw descriptors release POSIX inode locks"
+    );
+    assert!(backend.contains("pub(crate) fn preserve(\n        &mut self,"));
+    for forbidden in [
+        "SQLITE_OPEN_CREATE",
+        "fs::copy(",
+        "fs::rename(",
+        "fs::remove_file(",
+        "fs::remove_dir(",
+        "open_db(",
+        "migrate_schema(",
+        "fs::read(",
+        "File::open(&self.source)",
+    ] {
+        assert!(
+            !backend.contains(forbidden),
+            "ADR 0066 preservation bypass: {forbidden}"
+        );
+    }
+    let command = read_source(&manifest_path("src/application/commands/maintenance.rs"));
+    let entry = source_between(
+        &command,
+        "pub(crate) fn execute_preservation(",
+        "pub(crate) fn execute(self) -> DatabaseResult",
+    );
+    for required in [
+        "MaintenanceSession",
+        "session.is_ready()",
+        "ExclusiveDatabase::acquire",
+        "access.preserve",
+        "DatabaseOutcome::Preserved",
+    ] {
+        assert!(entry.contains(required));
+    }
+    for file in rust_files_under("src") {
+        let contents = read_source(&file);
+        let production = production_source(&contents);
+        if production.contains("ExclusiveDatabase::acquire(") {
+            assert!(
+                file.ends_with("application/commands/maintenance.rs"),
+                "exclusive entry bypassed the drained-session command: {}",
+                file.display()
+            );
+        }
+        if production.contains("SessionDrain::core_recovery()") {
+            assert!(
+                file.ends_with("app/startup.rs"),
+                "empty recovery authority escaped startup: {}",
+                file.display()
+            );
+        }
+    }
+    let screen = read_source(&manifest_path("src/app/startup.rs"));
+    for required in [
+        "self.maintenance.take()",
+        "command.execute_preservation(session)",
+        "this.maintenance = Some(session)",
+        "this.request(StartupAction::CheckAgain, CheckIntent::Check",
+        "this.normal.is_none()",
+    ] {
+        assert!(screen.contains(required));
+    }
+    for test in [
+        "adr_0066_exclusive_modes_exclude_processes_through_each_copy_and_release",
+        "adr_0066_real_readers_and_writers_bound_acquisition_without_copying",
+        "adr_0066_sqlite_journal_recovery_is_observed_before_preservation",
+    ] {
+        assert!(source.contains(test));
+    }
+}

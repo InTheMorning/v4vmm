@@ -4,7 +4,9 @@
 
 use std::rc::Rc;
 
-use gpui::{AppContext, ClipboardItem, Context, Entity, IntoElement, Render, Subscription, Window};
+use gpui::{
+    App, AppContext, ClipboardItem, Context, Entity, IntoElement, Render, Subscription, Window,
+};
 use gpui_component::input::{InputEvent, InputState};
 
 use crate::ui::composites::log_frame::LogFrames;
@@ -15,18 +17,29 @@ use crate::view_models::startup::StartupAvailability;
 use super::maintenance_executor::MaintenanceClient;
 use super::startup_presenter::present_startup;
 
+pub(crate) enum DatabaseEvent {
+    EndSession,
+    Preserve(
+        u64,
+        crate::application::commands::maintenance::DatabaseCommand,
+    ),
+}
+pub(crate) type DatabaseEventCallback = Rc<dyn Fn(DatabaseEvent, &mut Window, &mut App)>;
+
 pub(crate) struct DatabaseTools {
     pub(crate) vm: DatabaseVm,
     source: Entity<InputState>,
     destination: Entity<InputState>,
     worker: Option<MaintenanceClient>,
     logs: LogFrames,
+    callback: DatabaseEventCallback,
     _subscriptions: Vec<Subscription>,
 }
 impl DatabaseTools {
     pub(crate) fn new(
         worker: Option<MaintenanceClient>,
         logs: LogFrames,
+        callback: DatabaseEventCallback,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -52,6 +65,7 @@ impl DatabaseTools {
             destination,
             worker,
             logs,
+            callback,
             _subscriptions: subscriptions,
         }
     }
@@ -60,6 +74,14 @@ impl DatabaseTools {
             return;
         }
         match action {
+            DatabaseAction::EndSession => (self.callback)(DatabaseEvent::EndSession, window, cx),
+            DatabaseAction::Preserve => {
+                if let Some((generation, command)) =
+                    self.vm.begin(action, std::path::PathBuf::new())
+                {
+                    (self.callback)(DatabaseEvent::Preserve(generation, command), window, cx);
+                }
+            }
             DatabaseAction::Cancel => self.vm.cancel(),
             DatabaseAction::CopyReport => {
                 cx.write_to_clipboard(ClipboardItem::new_string(self.vm.report.clone()));
@@ -80,15 +102,7 @@ impl DatabaseTools {
                         cx,
                         move |this, result, window, cx| match result {
                             Ok(result) => {
-                                let prior_length = this.vm.report.len();
-                                if this.vm.complete(generation, result) {
-                                    this.source.update(cx, |input, cx| {
-                                        input.set_value(this.vm.source.clone(), window, cx);
-                                    });
-                                }
-                                if this.vm.report.len() > prior_length {
-                                    eprintln!("{}", &this.vm.report[prior_length..]);
-                                }
+                                this.complete(generation, result, window, cx);
                             }
                             Err(_) => this
                                 .vm
@@ -100,6 +114,25 @@ impl DatabaseTools {
                         .unavailable(generation, std::time::SystemTime::now()),
                 }
             }
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn complete(
+        &mut self,
+        generation: u64,
+        result: crate::application::commands::maintenance::DatabaseResult,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let prior_length = self.vm.report.len();
+        if self.vm.complete(generation, result) {
+            self.source.update(cx, |input, cx| {
+                input.set_value(self.vm.source.clone(), window, cx);
+            });
+        }
+        if self.vm.report.len() > prior_length {
+            eprintln!("{}", &self.vm.report[prior_length..]);
         }
         cx.notify();
     }

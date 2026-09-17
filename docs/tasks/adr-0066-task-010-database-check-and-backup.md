@@ -3,7 +3,8 @@
 Status: Complete - 2026-09-17; mechanical checks Green; operator gate closed.
 Operator V1–V3, Settings/recovery presentation, report copy, responsiveness and
 preservation in both fixture cases are accepted. Normal-mode restoration and
-fixture cleanup are confirmed. Task 011 remains unstarted for a fresh session.
+fixture cleanup are confirmed. Task 011 completion and acceptance are recorded in
+[its packet](adr-0066-task-011-database-maintenance-and-preservation.md).
 
 ## Goal
 
@@ -259,7 +260,8 @@ Fixture removed
 
 Cleanup stops both owned helpers before removing the fixture. Normal-mode
 restoration and fixture removal are confirmed. Task 010's gate is closed;
-task 004 and inherited checks remain separate. Task 011 has not started.
+task 004 and inherited checks remain separate. Task 011 had not started at this
+acceptance; its later completion is recorded in its own packet.
 
 ## Operator Visual Check
 

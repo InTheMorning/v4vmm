@@ -9,11 +9,11 @@ use std::sync::{
 use gpui::{AppContext, ClipboardItem, Context, Entity, IntoElement, Render, Window};
 
 use crate::application::commands::maintenance::CorrectionAccess;
-use crate::application::session_lifecycle::MaintenanceSession;
+use crate::application::session_lifecycle::{MaintenanceSession, SessionDrain};
 use crate::presentation::configuration_editor::{
     ConfigurationEditor, CorrectionEvent, CorrectionEventCallback,
 };
-use crate::presentation::database_tools::DatabaseTools;
+use crate::presentation::database_tools::{DatabaseEvent, DatabaseEventCallback, DatabaseTools};
 use crate::presentation::maintenance_executor::MaintenanceClient;
 use crate::presentation::session_transition::SessionTransition;
 use crate::presentation::startup_presenter::{mount_current, present_startup};
@@ -101,8 +101,28 @@ impl StartupScreen {
             .editor
             .as_ref()
             .map(|editor| cx.observe(editor, |_, _, cx| cx.notify()));
+        let parent = cx.weak_entity();
+        let database_callback: DatabaseEventCallback = Rc::new(move |event, window, cx| {
+            let parent = parent.clone();
+            window.defer(cx, move |window, cx| {
+                let _ = parent.update(cx, |this, cx| match event {
+                    DatabaseEvent::EndSession => {
+                        this.session_action(SessionAction::EndSession, window, cx);
+                    }
+                    DatabaseEvent::Preserve(generation, command) => {
+                        this.preserve_database(generation, command, window, cx);
+                    }
+                });
+            });
+        });
         self.database_tools = Some(cx.new(|cx| {
-            DatabaseTools::new(self.worker.clone(), self.log_frames.clone(), window, cx)
+            DatabaseTools::new(
+                self.worker.clone(),
+                self.log_frames.clone(),
+                database_callback,
+                window,
+                cx,
+            )
         }));
         self.database_subscription = self
             .database_tools
@@ -208,9 +228,18 @@ impl StartupScreen {
                             }
                         }
                         Ok(Err(outcome)) => {
+                            if this.maintenance.is_none()
+                                && this.draining.is_none()
+                                && this.normal.is_none()
+                            {
+                                // No normal session was mounted; failed preparation
+                                // returned all resources before reaching this callback.
+                                this.maintenance = SessionDrain::core_recovery().finish().ok();
+                            }
                             if let Some(maintenance) = &mut this.maintenance {
                                 maintenance.resume_failed();
                             }
+                            this.update_database_access(cx);
                             this.vm.complete(generation, outcome);
                             eprintln!("{}", this.vm.report());
                         }
@@ -289,6 +318,7 @@ impl StartupScreen {
                 .map_or_else(String::new, |report| report.report.clone());
         });
         self.maintenance.take();
+        self.update_database_access(cx);
         self.draining.take();
         #[cfg(debug_assertions)]
         {
@@ -337,12 +367,7 @@ impl StartupScreen {
                 report.retain_previous(&previous);
                 self.session_vm = Some(report);
                 self.draining = Some(Arc::new(Mutex::new(resources)));
-                if let Some(editor) = &self.editor {
-                    editor.update(cx, |editor, cx| {
-                        editor.vm.suspended = true;
-                        cx.notify();
-                    });
-                }
+                self.suspend_maintenance_forms(true, cx);
                 self.run_drain(window, cx);
             }
             SessionAction::RetryDrain => {
@@ -429,6 +454,8 @@ impl StartupScreen {
                             this.vm.return_to_recovery(vm.report.clone());
                         }
                         this.maintenance = Some(maintenance);
+                        this.draining.take();
+                        this.update_database_access(cx);
                         if let Some(editor) = &this.editor {
                             editor.update(cx, |editor, cx| {
                                 editor.set_access(CorrectionAccess::CoreRecovery, cx);
@@ -451,6 +478,96 @@ impl StartupScreen {
     fn drain_failed(&mut self, pending: &[String]) {
         if let Some(vm) = &mut self.session_vm {
             vm.failed(pending);
+        }
+    }
+
+    fn update_database_access(&self, cx: &mut Context<Self>) {
+        if let Some(tools) = &self.database_tools {
+            tools.update(cx, |tools, cx| {
+                tools.vm.maintenance_ready = self
+                    .maintenance
+                    .as_ref()
+                    .is_some_and(MaintenanceSession::is_ready);
+                cx.notify();
+            });
+        }
+    }
+
+    fn preserve_database(
+        &mut self,
+        generation: u64,
+        command: crate::application::commands::maintenance::DatabaseCommand,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(tools) = self.database_tools.clone() else {
+            return;
+        };
+        let (Some(worker), Some(maintenance)) = (self.worker.clone(), self.maintenance.take())
+        else {
+            tools.update(cx, |tools, cx| {
+                tools
+                    .vm
+                    .unavailable(generation, std::time::SystemTime::now());
+                cx.notify();
+            });
+            return;
+        };
+        self.update_database_access(cx);
+        // Retain ownership if worker admission rejects the job. The worker takes
+        // the token out before doing I/O, then returns it only after access closes.
+        let handoff = Arc::new(Mutex::new(Some(maintenance)));
+        let pending = handoff.clone();
+        if let Some(editor) = &self.editor {
+            editor.update(cx, |editor, cx| {
+                editor.vm.suspended = true;
+                cx.notify();
+            });
+        }
+        let receiver = worker.submit(move || {
+            let session = pending
+                .lock()
+                .expect("maintenance handoff")
+                .take()
+                .expect("unique maintenance session");
+            command.execute_preservation(session)
+        });
+        if let Ok(receiver) = receiver {
+            present_startup(
+                receiver,
+                worker,
+                window,
+                cx,
+                move |this, result, window, cx| {
+                    if let Ok((session, result)) = result {
+                        this.maintenance = Some(session);
+                        tools.update(cx, |tools, cx| {
+                            tools.complete(generation, result, window, cx);
+                        });
+                        this.update_database_access(cx);
+                        this.request(StartupAction::CheckAgain, CheckIntent::Check, window, cx);
+                    } else {
+                        tools.update(cx, |tools, cx| {
+                            tools
+                                .vm
+                                .unavailable(generation, std::time::SystemTime::now());
+                            tools.vm.worker_available = false;
+                            cx.notify();
+                        });
+                        this.vm.worker_available = false;
+                    }
+                },
+            );
+        } else {
+            self.maintenance = handoff.lock().expect("maintenance handoff").take();
+            self.suspend_maintenance_forms(false, cx);
+            self.update_database_access(cx);
+            tools.update(cx, |tools, cx| {
+                tools
+                    .vm
+                    .unavailable(generation, std::time::SystemTime::now());
+                cx.notify();
+            });
         }
     }
 }

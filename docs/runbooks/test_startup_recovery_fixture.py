@@ -522,6 +522,18 @@ else:
         self.assertFalse((self.root / "database-lock.pid").exists())
         self.assertFalse((self.root / "database.pid").exists())
 
+    def test_adr_0066_maintenance_writer_release_restores_exclusive_access(self):
+        before = fixture.digest(self.root / "database/locked.sqlite")
+        helper = self.start_helper("maintenance_hold", "maintenance.ready")
+        self.assertTrue(fixture.maintenance_writer_blocked(self.root))
+        self.assertEqual(fixture.digest(self.root / "database/locked.sqlite"), before)
+        self.assertTrue(fixture.maintenance_writer_blocked(self.root))
+        fixture.maintenance_release(self.root)
+        self.assertEqual(helper.wait(timeout=5), 0)
+        self.assertFalse(fixture.maintenance_writer_blocked(self.root))
+        self.assertEqual(fixture.digest(self.root / "database/locked.sqlite"), before)
+        self.assertFalse((self.root / "maintenance.pid").exists())
+
 
 class DatabasePreservationTests(unittest.TestCase):
     """Situational ADR 0066: snapshots and preservation require positive evidence."""
@@ -579,3 +591,72 @@ class DatabasePreservationTests(unittest.TestCase):
                 fixture.database_setup(self.root)
         spawn.assert_not_called()
         self.assertEqual((self.root / "database-baseline.json").read_bytes(), baseline)
+
+
+class MaintenanceCopyTests(unittest.TestCase):
+    """Situational ADR 0066: a completed manifest must account for every copied byte."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix="v4vmm-maintenance-inspect-")
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.data = self.root / "database"
+        self.data.mkdir()
+        hashes = {}
+        for copy, original in (("locked", "locked"), ("damaged", "integrity")):
+            source = self.data / (original + ".sqlite")
+            source.write_bytes(b"source evidence " + original.encode())
+            hashes[source.name] = fixture.digest(source)
+            destination = self.data / (copy + "-copy")
+            destination.mkdir(mode=0o700)
+            copied = destination / "database.sqlite"
+            copied.write_bytes(source.read_bytes())
+            copied.chmod(0o600)
+            manifest = {"kind": "database_file_preservation_not_verified_backup", "source": str(source),
+                        "journal_mode": "delete", "sqlite_version": "fixture", "sqlite_access": "acquired",
+                        "acquired_at_utc": "2026-09-17T10:00:00+00:00", "copied_at_utc": "2026-09-17T10:00:01+00:00",
+                        "files": [{"source": str(source), "copied_name": copied.name,
+                                   "length": copied.stat().st_size, "sha256": fixture.digest(copied)}]}
+            receipt = destination / "manifest.json"
+            receipt.write_text(json.dumps(manifest))
+            receipt.chmod(0o600)
+        (self.root / "maintenance-baseline.json").write_text(json.dumps({"source_hashes": hashes}))
+        (self.root / "case.json").write_text(json.dumps({"case": "database-maintenance-recovery"}))
+
+    def inspect(self, expected):
+        with patch.object(fixture, "inspect") as shared, contextlib.redirect_stdout(io.StringIO()):
+            if expected:
+                fixture.maintenance_inspect(self.root, {})
+                shared.assert_called_once()
+            else:
+                with self.assertRaisesRegex(SystemExit, "Maintenance preservation inspection failed"):
+                    fixture.maintenance_inspect(self.root, {})
+                shared.assert_not_called()
+
+    def test_adr_0066_complete_private_copy_passes_and_changed_bytes_fail(self):
+        self.inspect(True)
+        (self.data / "locked-copy/database.sqlite").write_bytes(b"changed")
+        self.inspect(False)
+
+    def test_adr_0066_empty_manifest_cannot_claim_preservation(self):
+        receipt = self.data / "locked-copy/manifest.json"
+        manifest = json.loads(receipt.read_text())
+        manifest["files"] = []
+        receipt.write_text(json.dumps(manifest))
+        self.inspect(False)
+
+    def test_adr_0066_busy_artifacts_and_changed_originals_fail_inspection(self):
+        destination = self.data / "busy-copy"
+        destination.mkdir()
+        self.inspect(False)
+        destination.rmdir()
+        (self.data / "integrity.sqlite").write_bytes(b"changed original")
+        self.inspect(False)
+
+    def test_adr_0066_maintenance_setup_cannot_replace_existing_evidence(self):
+        baseline = (self.root / "maintenance-baseline.json").read_bytes()
+        with patch.object(fixture.subprocess, "run") as seed:
+            with self.assertRaisesRegex(SystemExit, "already has a baseline"):
+                fixture.maintenance_setup(self.root)
+        seed.assert_not_called()
+        self.assertEqual((self.root / "maintenance-baseline.json").read_bytes(), baseline)
