@@ -4,7 +4,7 @@
 
 Accepted - 2026-09-10.
 
-Implementation partial: tasks 001–003 and 005–011 are complete, including applicable
+Implementation partial: tasks 001–003 and 005–012 are complete, including applicable
 operator acceptance, preservation inspection and fixture cleanup. Task 004's
 implementation and mechanical checks are complete; its presentation case and
 producer preservation are accepted. Its remaining operator checks and fixture
@@ -21,7 +21,7 @@ Task 008 is complete on 2026-09-17 with operator V1–V3, Settings/core-recovery
 presentation, preservation and fixture cleanup accepted. Task 009 is complete
 on 2026-09-17 with mechanical checks Green; operator V1–V3, normal/narrow
 presentation, configuration restoration, preservation and fixture cleanup are
-accepted. Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; task 011 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, preservation and cleanup accepted; tasks 012–013 have not started in
+accepted. Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; task 011 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, preservation and cleanup accepted; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 not started in
 the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md).
 Amended 2026-09-11: scoped optional-tool isolation and managed session draining
 and resumption, plus shared guarded configuration correction, are implemented.
@@ -30,7 +30,7 @@ with operator acceptance complete on 2026-09-16. Converter setup is complete in
 task 008 with operator acceptance and cleanup on 2026-09-17. Database inspection and verified backup are complete in task 010 on 2026-09-17,
 including operator acceptance, preservation and cleanup. Task 011 implements exclusive maintenance
 and preservation copies with mechanical checks Green and operator acceptance,
-preservation and cleanup complete. Restore and upgrade repair remain pending.
+preservation and cleanup complete. Restore is implemented with mechanical checks Green and operator acceptance open; upgrade repair remains pending.
 
 Amended 2026-09-17: task 009 conversion retry is complete after the operator's
 V1–V3 walkthrough, presentation acceptance, configuration restoration,
@@ -571,7 +571,7 @@ covers immutable subjects, fresh explicit Retry, scoped setup and shared entry
 points. Mechanical checks are Green; operator V1–V3, preservation and fixture
 cleanup are accepted for task 007. Task 008 is complete with mechanical checks
 Green and operator acceptance/cleanup on 2026-09-17. Task 009 is complete with
-operator acceptance and cleanup on 2026-09-17; task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; task 011 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, preservation and cleanup accepted; tasks 012–013 have not started.
+operator acceptance and cleanup on 2026-09-17; task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; task 011 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, preservation and cleanup accepted; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 not started.
 
 Task 008 adds `adr_0066_converter_checks_are_refreshable`, a situational guard
 for invariants 2, 7 and 9. Its [proof inventory](../tasks/adr-0066-task-008-converter-verification-and-setup.md#implementation-and-proof)
@@ -703,7 +703,9 @@ normal/narrow presentation, report copy, responsiveness, preservation in both
 fixture cases, normal-mode restoration and cleanup accepted. The final database
 inspection passed all 28 flags. The fixture lock correction has two real-process
 regressions; all 26 fixture tests are Green. The procedure remains a regression check.
-Task 011 is complete with mechanical checks Green and operator acceptance, preservation and cleanup confirmed; tasks 012–013 remain unstarted; ADR 0066 remains Accepted and partial.
+Tasks 011–012 are complete with mechanical checks Green and operator acceptance,
+preservation and cleanup confirmed; task 013 remains unstarted. ADR 0066 remains
+Accepted and partial.
 
 Task 011's [implementation evidence](../tasks/adr-0066-task-011-database-maintenance-and-preservation.md#implementation-and-proof)
 records exclusive-access process tests and file/manifest preservation.
@@ -713,3 +715,13 @@ unsafe copying or replacement. The [operator procedure](../runbooks/startup-reco
 remains a regression check. V1–V3, normal/narrow presentation, report retention,
 preservation in both fixtures, normal restoration and cleanup are accepted on
 2026-09-17; the [packet records operator evidence](../tasks/adr-0066-task-011-database-maintenance-and-preservation.md#operator-evidence--2026-09-17).
+
+Task 012's [implementation evidence](../tasks/adr-0066-task-012-database-restore.md#implementation-and-proof)
+records validated candidate review, preservation before installation, SQLite
+rollback verification and fresh-session resumption. The situational
+`adr_0066_restore_uses_validated_maintenance_install` guard protects invariant 6.
+Its [operator evidence](../tasks/adr-0066-task-012-database-restore.md#operator-evidence--2026-09-17)
+accepts V1–V3, Settings/recovery presentation, copied reports, both preservation
+inspections and confirmed fixture cleanup on 2026-09-17. The
+[procedure](../runbooks/startup-recovery-check.md#task-012-database-restore)
+remains a regression check; task 013 requires a fresh session.

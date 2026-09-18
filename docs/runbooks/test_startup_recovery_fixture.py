@@ -660,3 +660,75 @@ class MaintenanceCopyTests(unittest.TestCase):
                 fixture.maintenance_setup(self.root)
         seed.assert_not_called()
         self.assertEqual((self.root / "maintenance-baseline.json").read_bytes(), baseline)
+
+
+class RestorePreservationTests(unittest.TestCase):
+    """Situational ADR 0066: the restore inspector cannot accept missing evidence."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="v4vmm-restore-inspector-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        for name in ("data", "database", "config/v4vmm", "music"):
+            (self.root / name).mkdir(parents=True)
+        source = self.root / "data/library.sqlite"
+        source.write_bytes(b"restored fixture database")
+        backup = self.root / "database/restore-backup.sqlite"
+        backup.write_bytes(b"chosen backup")
+        config = self.root / "config/v4vmm/config.toml"
+        config.write_text("fixture configuration")
+        (self.root / "broadcaster-token.fixture").write_bytes(b"token sentinel")
+        (self.root / "broadcaster-token.fixture").chmod(0o600)
+        (self.root / "music/unchanged-audio.bin").write_bytes(b"music sentinel")
+        folder = self.root / "database/restored-preservation"
+        folder.mkdir(mode=0o700)
+        preserved = folder / "database.sqlite"
+        preserved.write_bytes(b"damaged original")
+        preserved.chmod(0o600)
+        receipt = {"kind": "database_file_preservation_not_verified_backup", "source": str(source),
+                   "files": [{"copied_name": "database.sqlite", "length": preserved.stat().st_size,
+                              "sha256": fixture.digest(preserved)}]}
+        (folder / "manifest.json").write_text(json.dumps(receipt))
+        (folder / "manifest.json").chmod(0o600)
+        baseline = {"backup_hashes": {backup.name: fixture.digest(backup)},
+                    "destination_inode": source.stat().st_ino, "destination_device": source.stat().st_dev,
+                    "original_sha256": fixture.digest(preserved),
+                    "token_sha256": fixture.digest(self.root / "broadcaster-token.fixture")}
+        (self.root / "restore-baseline.json").write_text(json.dumps(baseline))
+        (self.root / "case.json").write_text(json.dumps({"case": "database-restore-recovery", "config_sha256": fixture.digest(config)}))
+        (self.root / "session-observations.jsonl").write_text(json.dumps({"state": "opened", "generation": 2}) + "\n")
+        self.manifest = {"audio_sha256": fixture.digest(self.root / "music/unchanged-audio.bin"), "track_sha256": {}}
+        self.facts = {"integrity": [("ok",)], "foreign_keys": [], "probes": 0}
+
+    def inspect(self, accepted):
+        with patch.object(fixture, "restore_database_facts", return_value=self.facts), contextlib.redirect_stdout(io.StringIO()):
+            if accepted:
+                fixture.restore_inspect(self.root, self.manifest)
+            else:
+                with self.assertRaisesRegex(SystemExit, "Restore preservation inspection failed"):
+                    fixture.restore_inspect(self.root, self.manifest)
+
+    def test_adr_0066_restore_inspection_accepts_complete_recovery_evidence(self):
+        self.inspect(True)
+
+    def test_adr_0066_restore_inspection_rejects_damaged_preservation_and_missing_manifest(self):
+        (self.root / "database/restored-preservation/database.sqlite").write_bytes(b"changed")
+        self.inspect(False)
+        (self.root / "database/restored-preservation/manifest.json").unlink()
+        self.inspect(False)
+
+    def test_adr_0066_restore_inspection_rejects_changed_backup_or_destination_inode(self):
+        (self.root / "database/restore-backup.sqlite").write_bytes(b"changed")
+        self.inspect(False)
+        (self.root / "database/restore-backup.sqlite").write_bytes(b"chosen backup")
+        source = self.root / "data/library.sqlite"
+        source.rename(source.with_suffix(".retained"))
+        source.write_bytes(b"restored fixture database")
+        self.inspect(False)
+
+    def test_adr_0066_restore_inspection_rejects_duplicate_or_missing_session(self):
+        report = self.root / "session-observations.jsonl"
+        report.write_text(report.read_text() * 2)
+        self.inspect(False)
+        report.unlink()
+        self.inspect(False)

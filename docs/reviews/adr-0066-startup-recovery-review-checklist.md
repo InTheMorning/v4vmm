@@ -23,7 +23,7 @@ Task 009 is complete on 2026-09-17 with mechanical checks Green; operator V1–V
 normal/narrow presentation, configuration restoration, preservation and fixture
 cleanup are accepted. Tasks 010–011 are complete on 2026-09-17 with mechanical
 checks Green, operator acceptance, preservation and cleanup confirmed;
-tasks 012–013 have not started.
+task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 has not started.
 
 Read the [ADR](../adr/0066-configuration-and-startup-failure-recovery.md),
 [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md), active packet and
@@ -1471,3 +1471,53 @@ not launch a desktop or independently inspect these desktop fixtures.
 Result: task 011 complete on 2026-09-17. Mechanical checks **Green**; operator
 gate **closed**. ADR 0066 remains Accepted and partial. Task 004 and inherited
 gates are unchanged. Task 012 requires a fresh session.
+
+## Task 012 Review — 2026-09-17
+
+Scope: [database restore](../tasks/adr-0066-task-012-database-restore.md#implementation-and-proof).
+Mechanical checks are Green. Operator V1–V3, presentation, preservation and
+cleanup are accepted on 2026-09-17. Task 012 is complete; task 013 is unstarted.
+
+The packet records C1–C5's actual behavior tests and situational guard. Review
+binds candidate/source fingerprints, configured destination records/inode,
+configuration digest and session generation. Installation consumes the drained
+session, obtains the existing exclusive capability, preserves files and a
+verified snapshot when possible, then uses SQLite backup without a destination
+transaction already open. Failure finishes the backup handle before inspecting
+rollback. Fresh verification has an independent finite budget after cancellation.
+
+Real subprocess lock probes run between page batches in rollback and WAL modes.
+Success compares schema, stored values, row identity and migration ledger, then
+runs task 002's main-database read/write probe on the held connection. Startup
+uses its existing fresh check/open/mount path; failure retains recovery. The
+fixture inspector separately checks source bytes, destination inode, preserved
+files/snapshot, music, token sentinel, configuration and session observations.
+
+Shared VM/presenter/composite owners retain typed actions, destructive intent,
+named tokens, recorded UTC, safe report copy and the same tool in both surfaces.
+No new schema/config format, migration recipe, pathname swap or salvage path is
+introduced. The prospective recipe and prompt were retired from the packet.
+
+Validation: 1,466 unit tests, 258 architecture guards and 35 Python fixture
+tests Green; ten existing doctests ignored. Check, formatting, strict Clippy,
+normal binary rebuild and local documentation links Green. The sandbox's socket
+restrictions were followed by a Green unrestricted full suite. Both fixture
+cases passed backend setup, seed, real writer contention/release, failure
+controls, unchanged-backup and negative-inspection smoke, then owned cleanup.
+The agent did not launch the desktop; operator acceptance is recorded separately
+in the [packet evidence](../tasks/adr-0066-task-012-database-restore.md#operator-evidence--2026-09-17).
+
+No architectural deviation or unresolved mechanical failure remains. The
+chosen backup is required to be a standalone rollback-journal snapshot; WAL
+input first uses the existing verified backup tool. A regression proves that
+refusing the live database as its own backup preserves its process-held lock.
+The operator accepted review and input-change protection, Settings-to-recovery
+drain, invalid/newer backup refusals, real writer contention, occupied
+preservation-path refusal, interrupted-installation rollback, and same-window
+restoration with both playlists. Settings/recovery normal/narrow presentation
+and copied report history passed. Both preservation inspections passed, and
+cleanup of `nzvj4k26`, `vbz7ithx` and the additional `eloo_1ay` fixture was
+confirmed. A mismatched fixture path was corrected after review exposed the
+running app's configured destination; the runbook retains that explicit check.
+Task 012's pending-human entry is removed. Task 004 and inherited gates are
+unchanged; ADR 0066 remains Accepted and partial. Task 013 remains unstarted.

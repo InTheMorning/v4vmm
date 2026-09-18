@@ -21,7 +21,7 @@ operator V1–V3, Settings/core-recovery presentation, preservation in both case
 and fixture cleanup are accepted. Task 009 is complete on 2026-09-17 with
 mechanical checks Green; operator V1–V3, normal/narrow presentation,
 configuration restoration, preservation and fixture cleanup are accepted.
-Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; task 011 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, preservation and cleanup accepted; tasks 012–013 have not started.
+Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; task 011 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, preservation and cleanup accepted; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 not started.
 
 Scheduling amendment - 2026-09-13: at the operator's request,
 [shared log frames and following](../tasks/adr-0063-task-005-shared-log-frames-and-following.md)
@@ -105,7 +105,7 @@ an unwalked visual gate into a claim that the next dependency is complete.
 | [009: Conversion Retry And Retained Input](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md) | Return from converter setup to the same track, reuse valid downloaded input where possible, and avoid duplicate library materialization. | 008 | Complete - 2026-09-17; mechanical checks Green; operator V1–V3, normal/narrow presentation, configuration restoration and preservation accepted; fixture cleanup confirmed |
 | [010: Database Check And Backup](../tasks/adr-0066-task-010-database-check-and-backup.md) | Offer database inspection and a verified SQLite backup from both Settings and core recovery, without requiring the normal app runtime. | 009 | Complete - 2026-09-17; mechanical checks Green; V1–V3, Settings/recovery presentation, report copy, responsiveness and preservation in both cases accepted; normal-mode restoration and fixture cleanup confirmed |
 | [011: Database Maintenance And Preservation](../tasks/adr-0066-task-011-database-maintenance-and-preservation.md) | Obtain exclusive database maintenance access after draining the app, and preserve original database files without claiming an unverified copy is a backup. | 010 | Complete - 2026-09-17; mechanical checks Green; operator V1–V3, presentation, preservation, normal restoration and cleanup accepted |
-| [012: Database Restore](../tasks/adr-0066-task-012-database-restore.md) | Restore an explicitly chosen validated backup through the shared maintenance path, preserve the current database, and reopen only after verification. | 011 | Not started |
+| [012: Database Restore](../tasks/adr-0066-task-012-database-restore.md) | Restore an explicitly chosen validated backup through the shared maintenance path, preserve the current database, and reopen only after verification. | 011 | Complete - 2026-09-17; mechanical checks Green; operator V1–V3, presentation, preservation and cleanup accepted |
 | [013: Interrupted Upgrade Repair](../tasks/adr-0066-task-013-interrupted-upgrade-repair.md) | Repair one recognized interrupted schema upgrade using the existing migration authority, then complete ADR 0066's implementation evidence. | 012 | Not started |
 
 The sequence deliberately separates internal session draining (005) from
@@ -263,5 +263,5 @@ Task 008 is complete on 2026-09-17 with mechanical checks Green, operator V1–V
 Settings/core-recovery presentation, preservation in both cases and fixture
 cleanup accepted. Task 009 is complete on 2026-09-17 with mechanical checks
 Green; operator V1–V3, normal/narrow presentation, configuration restoration,
-preservation and fixture cleanup are accepted. Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; task 011 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, preservation and cleanup accepted; tasks 012–013 have not started.
+preservation and fixture cleanup are accepted. Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; task 011 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, preservation and cleanup accepted; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 not started.
 The series remains partial.

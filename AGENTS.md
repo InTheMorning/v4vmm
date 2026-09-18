@@ -87,8 +87,16 @@ is complete on 2026-09-17 with mechanical checks Green. Operator V1–V3,
 Settings/recovery normal/narrow presentation, report retention, preservation in
 both cases, normal-mode restoration and fixture cleanup are accepted. Its
 [operator procedure](docs/runbooks/startup-recovery-check.md#task-011-database-maintenance-and-preservation)
-remains a regression check. Tasks 012–013 have not started in the
+remains a regression check. Task 012 is complete in the
 [phase plan](docs/plans/adr-0066-startup-recovery-phase-plan.md).
+
+[Task 012: Database restore](docs/tasks/adr-0066-task-012-database-restore.md)
+is complete on 2026-09-17 with mechanical checks Green. Operator V1–V3,
+Settings/recovery normal/narrow presentation, report copy, input-change
+protection, same-window resumption and both preservation inspections are
+accepted; cleanup of all three operator fixtures is confirmed. Its
+[procedure](docs/runbooks/startup-recovery-check.md#task-012-database-restore)
+remains a regression check. Task 013 is unstarted and requires a fresh session.
 
 [ADR 0063 task 005](docs/tasks/adr-0063-task-005-shared-log-frames-and-following.md)
 is complete on 2026-09-13 with mechanical checks Green, V1–V3 operator checks,
@@ -106,8 +114,8 @@ remain untested coverage limits. The packet owns double/triple-click selection
 and Linux primary paste across shared logs and inputs. The completed log packet
 stays closed. Its separate [operator procedure](docs/runbooks/text-selection-check.md)
 covers Unicode, paths, cross-application paste, Undo/Redo and accepted Escape.
-ADR 0066 tasks 007–011 are complete. Task 012 remains unstarted and requires a
-fresh session.
+ADR 0066 tasks 007–012 are complete, including operator acceptance, preservation
+and cleanup. Task 013 remains unstarted and requires a fresh session.
 
 [ADR 0068: Show cue and audition isolation](docs/adr/0068-show-cue-and-audition-isolation.md)
 is Proposed; its implementation has not started. Task 004's playback checks

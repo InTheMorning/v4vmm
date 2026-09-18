@@ -64,7 +64,7 @@ prioritized, and routed to the right governance artifact.
      acceptance, preservation in both cases and fixture cleanup confirmed.
      Task 009 is complete on 2026-09-17 with mechanical checks Green; operator
      V1–V3, normal/narrow presentation, configuration restoration, preservation
-     and cleanup are accepted. Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; task 011 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, preservation and cleanup accepted; tasks 012–013 have not started.
+     and cleanup are accepted. Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; task 011 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, preservation and cleanup accepted; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 not started.
    - Note: a malformed layout *value* already falls back with a warning. This
      item is the level above that, where the file does not parse at all.
      Settings manages only a few keys, so operators hand-edit this file.
@@ -78,7 +78,7 @@ prioritized, and routed to the right governance artifact.
      alone are not the recovery workflow. ADR 0066 owns the detailed policy.
    - Route: execute the [thirteen ADR 0066 packets](adr-0066-startup-recovery-phase-plan.md),
      one per session. Task 005 used its recorded scheduling exception without
-     accepting task 004; tasks 007–011 are complete, including operator acceptance,
+     accepting task 004; tasks 007–012 are complete, including operator acceptance,
      preservation and cleanup. Independent pending
      work follows the delivery index while playback is deferred.
      [ADR 0069 task 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md)

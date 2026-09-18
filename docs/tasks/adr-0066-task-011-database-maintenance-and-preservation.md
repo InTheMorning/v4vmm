@@ -3,8 +3,8 @@
 Status: Complete - 2026-09-17; mechanical checks Green; operator gate closed.
 V1–V3 behavior, manifest content, reopening, report retention, normal/narrow
 presentation, both-fixture preservation and normal-mode restoration accepted.
-Both fixture cleanups are confirmed. Task 012 has not started and requires a
-fresh session.
+Both fixture cleanups are confirmed. The subsequent
+[task 012](adr-0066-task-012-database-restore.md) is also complete.
 
 ## Goal
 

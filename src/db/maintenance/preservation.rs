@@ -25,7 +25,7 @@ const COPY_BUFFER_BYTES: usize = 64 * 1024;
 /// Field order is significant: `SQLite` closes before ANY raw source descriptor.
 #[derive(Debug)]
 pub(crate) struct ExclusiveDatabase {
-    connection: Connection,
+    pub(super) connection: Connection,
     files: Vec<SourceFile>,
     source: PathBuf,
     mode: String,
@@ -73,6 +73,10 @@ struct FileRecord {
 }
 
 impl ExclusiveDatabase {
+    pub(super) fn source(&self) -> &Path {
+        &self.source
+    }
+
     /// Called by the maintenance command only while it owns a drained session.
     pub(crate) fn acquire(source: &Path, budget: &Budget) -> Result<Self, Failure> {
         Self::acquire_with_timeout(source, budget, EXCLUSIVE_ACCESS_DEADLINE)
@@ -413,7 +417,7 @@ fn copy_and_hash(
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use std::io::{BufRead, BufReader};
     use std::process::{Child, Command, Stdio};
@@ -437,9 +441,9 @@ mod tests {
         (temp, source)
     }
 
-    struct Peer(Child);
+    pub(in crate::db::maintenance) struct Peer(Child);
     impl Peer {
-        fn start(source: &Path, mode: &str) -> Self {
+        pub(in crate::db::maintenance) fn start(source: &Path, mode: &str) -> Self {
             let child = Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
@@ -455,7 +459,7 @@ mod tests {
                 .unwrap();
             Self(child)
         }
-        fn ready(&mut self) {
+        pub(in crate::db::maintenance) fn ready(&mut self) {
             let mut reader = BufReader::new(self.0.stdout.as_mut().unwrap());
             let mut line = String::new();
             loop {
@@ -470,7 +474,7 @@ mod tests {
                 line.clear();
             }
         }
-        fn finish(mut self) {
+        pub(in crate::db::maintenance) fn finish(mut self) {
             self.0
                 .stdin
                 .take()
@@ -479,7 +483,7 @@ mod tests {
                 .unwrap();
             assert!(self.0.wait().unwrap().success());
         }
-        fn probe(source: &Path, expected: &str) {
+        pub(in crate::db::maintenance) fn probe(source: &Path, expected: &str) {
             let mut peer = Self::start(source, expected);
             assert!(
                 peer.0.wait().unwrap().success(),

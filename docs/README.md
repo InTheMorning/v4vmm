@@ -104,7 +104,7 @@ Current plans:
   operator acceptance, preservation and cleanup; task 009 complete on 2026-09-17
   with operator V1–V3, presentation, configuration restoration, preservation
   and cleanup accepted; tasks 010–011 complete on 2026-09-17 with operator
-  acceptance, preservation and cleanup confirmed; tasks 012–013 not started
+  acceptance, preservation and cleanup confirmed; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 not started
 - [Show narrow-layout proposal](plans/show-narrow-layout-proposal.md):
   compact cards, full-width logs and an overlap alternative, readable log-body
   allocation, and hiding the playback bar only when every typed action is
@@ -183,7 +183,7 @@ Current reviews:
 - [ADR 0066 startup recovery review checklist](reviews/adr-0066-startup-recovery-review-checklist.md):
   tasks 001–003 and 005–006 complete with operator evidence; task 004 mechanical proof
   recorded with its remaining operator gate open; tasks 007–010 are complete,
-  including operator acceptance, preservation and cleanup; tasks 011–013 remain unstarted
+  including operator acceptance, preservation and cleanup; task 011 is complete; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 remains unstarted
 - [Staged Show packets review](reviews/staged-show-packets-review-2026-09-09.md):
   review of the 2026-09-09 staged revisions and follow-up on the packet
   corrections

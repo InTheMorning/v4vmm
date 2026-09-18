@@ -19,6 +19,7 @@ use super::SchemaCompatibility;
 
 mod preservation;
 pub(crate) use preservation::{ExclusiveDatabase, Preservation};
+pub(crate) mod restore;
 
 pub(crate) const MAINTENANCE_DEADLINE: Duration = Duration::from_mins(1);
 const LOCK_WAIT: Duration = Duration::from_millis(50);
@@ -445,6 +446,7 @@ fn checked_destination(source: &Path, destination: &Path) -> Result<PathBuf, Fai
     Ok(path)
 }
 
+#[derive(Debug)]
 struct Candidate {
     directory: PathBuf,
     path: PathBuf,

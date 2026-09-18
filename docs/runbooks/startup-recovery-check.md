@@ -1780,3 +1780,169 @@ python3 docs/runbooks/startup-recovery-fixture.py inspect "$maintenance_fixture"
 python3 docs/runbooks/startup-recovery-fixture.py cleanup "$maintenance_fixture"
 python3 docs/runbooks/startup-recovery-fixture.py cleanup "$recovery_fixture"
 ```
+
+## Task 012: Database Restore
+
+Gate: **closed — 2026-09-17**. Operator V1–V3, presentation, preservation and
+cleanup are accepted in the [packet evidence](../tasks/adr-0066-task-012-database-restore.md#operator-evidence--2026-09-17).
+Retain V1–V3 as a desktop regression procedure. This checks only task 012;
+accepted task 011 checks need no repeat. Use two fresh disposable fixtures.
+Requires Python 3, the normal debug binary and a Linux desktop session. Playback
+is Null and external commands use isolated stubs; no audio hardware, publisher,
+encoder or reachable MusicIndex is required. Do not use a production backup.
+
+### V1: Review And Restore From Settings
+
+Create the normal fixture. Keep this terminal's variable for V3 and cleanup.
+
+```bash
+cd /home/citizen/build/v4vmm
+cargo build --locked --offline --quiet --bin v4vmm
+RESTORE_FIXTURE=$(python3 docs/runbooks/startup-recovery-fixture.py setup)
+python3 docs/runbooks/startup-recovery-fixture.py mode "$RESTORE_FIXTURE" database-restore
+python3 docs/runbooks/startup-recovery-fixture.py restore-status "$RESTORE_FIXTURE"
+python3 docs/runbooks/startup-recovery-fixture.py run "$RESTORE_FIXTURE"
+```
+
+1. Open Settings > Diagnostics > Database tools. The existing database path
+   remains the inspection/backup source. Restore always targets the configured
+   `data/library.sqlite`, which the review must name explicitly.
+2. Walk **V3 below before the successful restore**, using a second terminal.
+   It ends in recovery after the interrupted installation, with the original
+   database retained. That first Restore also verifies the Settings-to-drain
+   transition. Do not manually relaunch the app.
+3. After V3, use `restore-ready`, enter `database/restored-preservation` as the
+   new directory and `database/restore-backup.sqlite` as the chosen backup,
+   then choose **Review restore**. All paths are printed by `restore-status`.
+   Review must name the chosen backup, configured destination, preservation
+   directory, private candidate and database-only scope. Choosing or reviewing
+   the file must leave the original playlist intact. Changing either restore
+   input must disable Restore until another review.
+4. Choose **Restore database** once. The app must preserve the original,
+   install and verify the candidate, then reopen one fresh Music session in
+   the same window. Music must contain **Startup fixture playlist** and
+   **Restored fixture playlist**. No manual relaunch or empty-library success
+   is acceptable.
+5. Return to Database tools. The retained report must name the previous
+   database's verified snapshot and file-preservation manifest. Copy the report
+   and paste it into a scratch editor; full paths and recorded UTC must remain.
+   At normal and narrow widths, review text, destructive Restore and report
+   controls must remain legible/reachable in both Settings and recovery.
+
+If work completed during drain changes database records, or configuration was
+saved after review, the operation must stop and request a fresh review in
+recovery. Review again there with the same unused preservation path. This is a
+conflict result, not permission to install the earlier review.
+
+### V3: Rejections And Failed Installation
+
+Use the normal V1 fixture before its successful restore. In a second terminal,
+set the variable to the exact path printed in the first terminal; `locate`
+selects the newest verified startup fixture, so confirm its output.
+
+```bash
+cd /home/citizen/build/v4vmm
+RESTORE_FIXTURE=$(python3 docs/runbooks/startup-recovery-fixture.py locate)
+python3 docs/runbooks/startup-recovery-fixture.py verify "$RESTORE_FIXTURE"
+python3 docs/runbooks/startup-recovery-fixture.py restore-status "$RESTORE_FIXTURE"
+```
+
+1. Enter the printed invalid-header backup and a new preservation path, then
+   Review restore. Repeat with the newer-schema backup. Each must report its
+   refusal without enabling Restore or replacing the database. Select the
+   valid restore backup afterward.
+2. Review the valid backup with `database/busy-preservation`, then hold a real
+   competing writer using this command. Choose Restore. It must stop within
+   the bounded exclusive-access wait, retain the candidate and create no
+   preservation directory. Release only the fixture writer afterward.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py restore-lock "$RESTORE_FIXTURE"
+```
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py restore-release "$RESTORE_FIXTURE"
+```
+
+3. Review with `database/blocked-preservation`. After review, occupy that
+   location using the next command, then choose Restore. It must stop before
+   installation and retain the occupied file.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py restore-block "$RESTORE_FIXTURE"
+```
+
+4. Enable the debug-only installation interruption. Review with
+   `database/failed-preservation`, then choose Restore. Recovery must remain
+   open. The report must identify the failure between SQLite page batches,
+   the verified rollback result, retained candidate, file manifest and verified
+   original snapshot. A reported successful restore or unqualified rollback
+   without verification is wrong. The preservation artifacts must be retained.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py restore-interrupt "$RESTORE_FIXTURE"
+```
+
+5. Remove the interruption and finish V1's successful restore using a new
+   `database/restored-preservation` directory.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py restore-ready "$RESTORE_FIXTURE"
+```
+
+Close the app after the successful restore, then inspect all V1/V3 evidence.
+Every preservation flag must be true. Keep a failing fixture for diagnosis.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py restore-inspect "$RESTORE_FIXTURE"
+```
+
+### V2: Restore From Core Recovery
+
+Use a second fresh fixture with lockable database damage. The configured
+library cannot pass its startup write probe. The chosen backup is still valid.
+
+```bash
+cd /home/citizen/build/v4vmm
+RECOVERY_RESTORE_FIXTURE=$(python3 docs/runbooks/startup-recovery-fixture.py setup)
+python3 docs/runbooks/startup-recovery-fixture.py mode "$RECOVERY_RESTORE_FIXTURE" database-restore-recovery
+python3 docs/runbooks/startup-recovery-fixture.py restore-status "$RECOVERY_RESTORE_FIXTURE"
+python3 docs/runbooks/startup-recovery-fixture.py run "$RECOVERY_RESTORE_FIXTURE"
+```
+
+1. In core recovery, enter the printed valid restore backup and
+   `database/restored-preservation`, then Review restore. Confirm the configured
+   destination and database-only scope before choosing Restore. For this
+   fixture check, the backup, configured destination and preservation directory
+   must all belong to the same root printed by `restore-status`. If the running
+   app names another root, leave Restore unclicked, confirm that root's
+   `case.json` says `database-restore-recovery`, and use its printed paths for
+   a fresh review. Do not use `locate` alone to identify a running window.
+2. Restore must preserve the damaged original as labelled database/journal
+   files, without describing those files as a verified backup. It must install
+   the valid candidate and reopen Music in the same window, showing both
+   fixture playlists. Inspect the retained report at normal/narrow widths.
+3. Close the app. Verify the damaged original's exact bytes, chosen/rejected
+   backup bytes, installed rows/ledger, configured inode, music, token sentinel,
+   configuration and observed fresh session.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py restore-inspect "$RECOVERY_RESTORE_FIXTURE"
+```
+
+### Cleanup
+
+After both inspections pass and acceptance is recorded, remove only these
+verified fixtures. This removes their private candidates, preservation copies,
+interruption markers and owned processes. It does not reverse production data.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py cleanup "$RESTORE_FIXTURE"
+python3 docs/runbooks/startup-recovery-fixture.py cleanup "$RECOVERY_RESTORE_FIXTURE"
+```
+
+Report V1, V2 and V3 separately, normal/narrow presentation, report copy,
+preservation flags, same-window resumption and cleanup. The operator accepted
+these checks and confirmed cleanup of both accepted fixtures and the additional
+fixture used during review. Task 012 is complete; task 013 requires a fresh
+session and remains unstarted.

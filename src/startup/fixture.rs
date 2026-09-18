@@ -10,6 +10,26 @@ use crate::db::startup::prepare_database;
 
 const FIXTURE_KIND: &str = "v4vmm-startup-recovery-v1";
 
+/// A verified debug fixture alone can interrupt an in-progress restore.
+pub(crate) fn interrupt_database_restore(config_path: &Path) -> bool {
+    let Some(root) = std::env::var_os("V4VMM_STARTUP_FIXTURE") else {
+        return false;
+    };
+    let Ok(root) = verified_config_root(Path::new(&root), config_path) else {
+        return false;
+    };
+    let Ok(bytes) = fs::read(root.join("case.json")) else {
+        return false;
+    };
+    let Ok(state) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return false;
+    };
+    matches!(
+        state["case"].as_str(),
+        Some("database-restore" | "database-restore-recovery")
+    ) && root.join("restore.interrupt").is_file()
+}
+
 /// Explicit debug activation is limited to this verified fixture's config path.
 pub(crate) fn injected_failure(
     config_path: &Path,
@@ -125,6 +145,21 @@ pub fn run_cli(args: &[String]) -> Result<()> {
             println!("{}", json!({"seeded": root}));
         }
         "database-seed" => seed_database_checks(&root)?,
+        "restore-seed" => {
+            seed_database_checks(&root)?;
+            let budget = crate::db::maintenance::Budget::new(std::sync::Arc::new(
+                std::sync::atomic::AtomicBool::new(false),
+            ));
+            let backup = root.join("database/restore-backup.sqlite");
+            crate::db::maintenance::backup(&db_path, &backup, &budget)
+                .map_err(|e| anyhow::anyhow!("{}: {:?}", e.operation, e.kind))?;
+            let conn = rusqlite::Connection::open(&backup)?;
+            conn.execute("INSERT INTO playlists(name, description) VALUES ('Restored fixture playlist', hex(zeroblob(524288)))", [])?;
+            println!(
+                "{}",
+                json!({"restore_backup": backup, "expected_playlists": 2})
+            );
+        }
         "database-backup" => {
             let budget = crate::db::maintenance::Budget::new(std::sync::Arc::new(
                 std::sync::atomic::AtomicBool::new(false),

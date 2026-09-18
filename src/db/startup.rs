@@ -97,8 +97,13 @@ fn check_with_wait(path: &Path, wait: Duration) -> Result<DatabaseReadiness, DbC
         Ok(_) => {}
     }
     let mut conn = open(path, false, wait)?;
-    let state = check_schema(&conn)?;
-    probe_main_database(&mut conn)?;
+    check_connection(&mut conn)
+}
+
+/// Verify the held maintenance connection without opening another database handle.
+pub(crate) fn check_connection(conn: &mut Connection) -> Result<DatabaseReadiness, DbCheckError> {
+    let state = check_schema(conn)?;
+    probe_main_database(conn)?;
     Ok(state)
 }
 

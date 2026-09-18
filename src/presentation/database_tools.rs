@@ -23,6 +23,10 @@ pub(crate) enum DatabaseEvent {
         u64,
         crate::application::commands::maintenance::DatabaseCommand,
     ),
+    Restore(
+        u64,
+        crate::application::commands::maintenance::DatabaseCommand,
+    ),
 }
 pub(crate) type DatabaseEventCallback = Rc<dyn Fn(DatabaseEvent, &mut Window, &mut App)>;
 
@@ -30,6 +34,7 @@ pub(crate) struct DatabaseTools {
     pub(crate) vm: DatabaseVm,
     source: Entity<InputState>,
     destination: Entity<InputState>,
+    restore_source: Entity<InputState>,
     worker: Option<MaintenanceClient>,
     logs: LogFrames,
     callback: DatabaseEventCallback,
@@ -45,6 +50,7 @@ impl DatabaseTools {
     ) -> Self {
         let source = cx.new(|cx| InputState::new(window, cx));
         let destination = cx.new(|cx| InputState::new(window, cx));
+        let restore_source = cx.new(|cx| InputState::new(window, cx));
         let subscriptions = vec![
             cx.subscribe(&source, |this, input, event, cx| {
                 if matches!(event, InputEvent::Change) && this.vm.input_enabled() {
@@ -58,11 +64,18 @@ impl DatabaseTools {
                     cx.notify();
                 }
             }),
+            cx.subscribe(&restore_source, |this, input, event, cx| {
+                if matches!(event, InputEvent::Change) && this.vm.input_enabled() {
+                    this.vm.restore_source = input.read(cx).value().to_string();
+                    cx.notify();
+                }
+            }),
         ];
         Self {
             vm: DatabaseVm::new(worker.is_some()),
             source,
             destination,
+            restore_source,
             worker,
             logs,
             callback,
@@ -75,18 +88,26 @@ impl DatabaseTools {
         }
         match action {
             DatabaseAction::EndSession => (self.callback)(DatabaseEvent::EndSession, window, cx),
-            DatabaseAction::Preserve => {
+            DatabaseAction::Preserve | DatabaseAction::Restore => {
                 if let Some((generation, command)) =
                     self.vm.begin(action, std::path::PathBuf::new())
                 {
-                    (self.callback)(DatabaseEvent::Preserve(generation, command), window, cx);
+                    let event = if action == DatabaseAction::Restore {
+                        DatabaseEvent::Restore(generation, command)
+                    } else {
+                        DatabaseEvent::Preserve(generation, command)
+                    };
+                    (self.callback)(event, window, cx);
                 }
             }
             DatabaseAction::Cancel => self.vm.cancel(),
             DatabaseAction::CopyReport => {
                 cx.write_to_clipboard(ClipboardItem::new_string(self.vm.report.clone()));
             }
-            DatabaseAction::ConfiguredSource | DatabaseAction::Check | DatabaseAction::Backup => {
+            DatabaseAction::ConfiguredSource
+            | DatabaseAction::Check
+            | DatabaseAction::Backup
+            | DatabaseAction::ReviewRestore => {
                 let path = crate::config::config_path().unwrap_or_default();
                 let Some((generation, command)) = self.vm.begin(action, path) else {
                     return;
@@ -145,7 +166,7 @@ impl Render for DatabaseTools {
         });
         database_tools(
             &self.vm,
-            [&self.source, &self.destination],
+            [&self.source, &self.destination, &self.restore_source],
             &callback,
             &self.logs,
             cx,

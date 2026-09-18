@@ -41,6 +41,11 @@ pub(super) struct StartupScreen {
     editor_subscription: Option<gpui::Subscription>,
     database_tools: Option<Entity<DatabaseTools>>,
     database_subscription: Option<gpui::Subscription>,
+    pending_restore: Option<(
+        u64,
+        crate::application::commands::maintenance::DatabaseCommand,
+    )>,
+    resume_after_restore: bool,
 }
 impl StartupScreen {
     pub(super) fn new(worker: Option<MaintenanceClient>, opened: Arc<AtomicBool>) -> Self {
@@ -63,6 +68,8 @@ impl StartupScreen {
             editor_subscription: None,
             database_tools: None,
             database_subscription: None,
+            pending_restore: None,
+            resume_after_restore: false,
         }
     }
     pub(super) fn begin(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -111,6 +118,25 @@ impl StartupScreen {
                     }
                     DatabaseEvent::Preserve(generation, command) => {
                         this.preserve_database(generation, command, window, cx);
+                    }
+                    DatabaseEvent::Restore(generation, command) => {
+                        if this.normal.is_some() {
+                            this.pending_restore = Some((generation, command));
+                            this.session_action(SessionAction::EndSession, window, cx);
+                            if this.draining.is_none() {
+                                this.pending_restore.take();
+                                if let Some(tools) = &this.database_tools {
+                                    tools.update(cx, |tools, cx| {
+                                        tools
+                                            .vm
+                                            .unavailable(generation, std::time::SystemTime::now());
+                                        cx.notify();
+                                    });
+                                }
+                            }
+                        } else {
+                            this.preserve_database(generation, command, window, cx);
+                        }
                     }
                 });
             });
@@ -242,6 +268,9 @@ impl StartupScreen {
                             this.update_database_access(cx);
                             this.vm.complete(generation, outcome);
                             eprintln!("{}", this.vm.report());
+                            if std::mem::take(&mut this.resume_after_restore) {
+                                this.action(StartupAction::OpenApp, window, cx);
+                            }
                         }
                         Err(_) => {
                             this.vm.worker_available = false;
@@ -318,7 +347,6 @@ impl StartupScreen {
                 .map_or_else(String::new, |report| report.report.clone());
         });
         self.maintenance.take();
-        self.update_database_access(cx);
         self.draining.take();
         #[cfg(debug_assertions)]
         {
@@ -330,6 +358,7 @@ impl StartupScreen {
             );
         }
         self.normal = Some(normal);
+        self.update_database_access(cx);
         self.opened.store(true, Ordering::Release);
     }
 
@@ -341,11 +370,9 @@ impl StartupScreen {
     ) {
         match action {
             SessionAction::EndSession => {
-                if self
-                    .database_tools
-                    .as_ref()
-                    .is_some_and(|tools| tools.read(cx).vm.is_working())
-                    || self.draining.is_some()
+                if self.database_tools.as_ref().is_some_and(|tools| {
+                    tools.read(cx).vm.is_working() && self.pending_restore.is_none()
+                }) || self.draining.is_some()
                     || self
                         .editor
                         .as_ref()
@@ -461,7 +488,11 @@ impl StartupScreen {
                                 editor.set_access(CorrectionAccess::CoreRecovery, cx);
                             });
                         }
-                        this.request(StartupAction::CheckAgain, CheckIntent::Check, window, cx);
+                        if let Some((generation, command)) = this.pending_restore.take() {
+                            this.preserve_database(generation, command, window, cx);
+                        } else {
+                            this.request(StartupAction::CheckAgain, CheckIntent::Check, window, cx);
+                        }
                     }
                     Ok(Err(pending)) => this.drain_failed(&pending),
                     Err(_) => this.drain_failed(&[
@@ -488,6 +519,16 @@ impl StartupScreen {
                     .maintenance
                     .as_ref()
                     .is_some_and(MaintenanceSession::is_ready);
+                tools.vm.session_generation = self
+                    .maintenance
+                    .as_ref()
+                    .map(MaintenanceSession::generation)
+                    .or_else(|| {
+                        self.normal
+                            .as_ref()
+                            .map(|normal| normal.read(cx).command_runner.session().generation())
+                    })
+                    .unwrap_or(0);
                 cx.notify();
             });
         }
@@ -524,13 +565,21 @@ impl StartupScreen {
                 cx.notify();
             });
         }
+        let restoring = matches!(
+            command.operation,
+            crate::application::commands::maintenance::DatabaseOperation::Restore(_)
+        );
         let receiver = worker.submit(move || {
             let session = pending
                 .lock()
                 .expect("maintenance handoff")
                 .take()
                 .expect("unique maintenance session");
-            command.execute_preservation(session)
+            if restoring {
+                command.execute_restore(session)
+            } else {
+                command.execute_preservation(session)
+            }
         });
         if let Ok(receiver) = receiver {
             present_startup(
@@ -540,11 +589,15 @@ impl StartupScreen {
                 cx,
                 move |this, result, window, cx| {
                     if let Ok((session, result)) = result {
+                        this.resume_after_restore = matches!(&result.outcome,
+                            crate::application::commands::maintenance::DatabaseOutcome::Restored(result)
+                                if matches!(result.state, crate::db::maintenance::restore::InstallState::Verified));
                         this.maintenance = Some(session);
                         tools.update(cx, |tools, cx| {
                             tools.complete(generation, result, window, cx);
                         });
                         this.update_database_access(cx);
+                        this.suspend_maintenance_forms(false, cx);
                         this.request(StartupAction::CheckAgain, CheckIntent::Check, window, cx);
                     } else {
                         tools.update(cx, |tools, cx| {

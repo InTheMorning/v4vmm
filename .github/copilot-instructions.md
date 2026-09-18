@@ -12,6 +12,7 @@ When you need to look something up, consult this map first to find the right fil
 | Startup SQLite read/write/schema verification and preparation | `src/db/startup.rs`; shared schema/read contract in `src/db.rs` |
 | Non-mutating database inspection, bounded verified SQLite backup, private candidate and cleanup | `src/db/maintenance.rs` (ADR 0066 task 010) |
 | Exclusive database connection, retained source descriptors, private preservation copies and manifests | `src/db/maintenance/preservation.rs`; drained-session handoff in `src/application/commands/maintenance.rs` and `src/app/startup.rs` (ADR 0066 task 011) |
+| Reviewed restore candidates, fingerprints, preservation-first SQLite installation and rollback verification | `src/db/maintenance/restore.rs`; explicit session/config-bound command in `src/application/commands/maintenance.rs`; existing drain/resumption in `src/app/startup.rs` (ADR 0066 task 012) |
 | Shared Settings/recovery database forms, typed reports and independent worker adapter | `src/view_models/startup/database.rs`, `src/presentation/database_tools.rs`, `src/ui/composites/maintenance_forms.rs` |
 | Config struct, TOML paths | `src/config.rs` |
 | Explicit configuration correction, drafts, backup and revision checks | `src/config/correction.rs`, `src/application/commands/maintenance.rs` (ADR 0066) |

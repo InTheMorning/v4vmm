@@ -108,6 +108,119 @@ mod tests {
     use crate::config::correction::CorrectionField;
 
     #[test]
+    fn adr_0066_restore_command_requires_review_drain_and_unchanged_configuration() {
+        use crate::application::session_lifecycle::{SessionDrain, SessionLifecycle};
+        use crate::db::maintenance::restore::InstallState;
+        use std::sync::{atomic::AtomicBool, Mutex};
+        for change in ["none", "config", "session", "backup", "busy"] {
+            let temp = tempfile::tempdir().unwrap();
+            let source = temp.path().join("configured.sqlite");
+            let backup = temp.path().join("chosen.sqlite");
+            let config = temp.path().join("config.toml");
+            std::fs::write(
+                &config,
+                format!(
+                    "music_dir = '{}'\ndb_path = '{}'\n",
+                    temp.path().display(),
+                    source.display()
+                ),
+            )
+            .unwrap();
+            let connection = Arc::new(Mutex::new(crate::db::open_db(&source).unwrap()));
+            let held = connection.clone();
+            let chosen = crate::db::open_db(&backup).unwrap();
+            chosen
+                .execute("INSERT INTO playlists(name) VALUES ('restored')", [])
+                .unwrap();
+            drop(chosen);
+            let session = SessionLifecycle::new();
+            let result = DatabaseCommand {
+                source: source.clone(),
+                cancelled: Arc::new(AtomicBool::new(false)),
+                operation: DatabaseOperation::ReviewRestore {
+                    backup: backup.clone(),
+                    preservation: temp.path().join("preserved"),
+                    config_path: config.clone(),
+                    session_generation: session.generation(),
+                },
+            }
+            .execute();
+            let DatabaseOutcome::RestoreReviewed(Ok(review)) = result.outcome else {
+                panic!("review failed: {result:?}");
+            };
+            let make = || DatabaseCommand {
+                source: source.clone(),
+                operation: DatabaseOperation::Restore(review.clone()),
+                cancelled: Arc::new(AtomicBool::new(false)),
+            };
+            assert!(matches!(
+                make().execute().outcome,
+                DatabaseOutcome::Restored(crate::db::maintenance::restore::RestoreResult {
+                    state: InstallState::NotInstalled(_),
+                    ..
+                })
+            ));
+            let mut drain = SessionDrain::new(session.clone(), connection, None);
+            session.begin_drain();
+            assert!(
+                drain.finish().is_err(),
+                "outstanding connection cannot authorize restore"
+            );
+            assert!(!review.candidate.preservation.exists());
+            drop(held);
+            let mut authority = drain.finish().unwrap();
+            match change {
+                "config" => {
+                    std::fs::write(&config, "music_dir = 'changed'\ndb_path = 'elsewhere'\n")
+                        .unwrap();
+                }
+                "session" => {
+                    authority = SessionDrain::core_recovery().finish().unwrap();
+                }
+                "backup" => {
+                    std::fs::write(&backup, b"changed").unwrap();
+                }
+                _ => {}
+            }
+            let peer = (change == "busy").then(|| {
+                let conn = rusqlite::Connection::open(&source).unwrap();
+                conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+                conn
+            });
+            let (mut authority, result) = make().execute_restore(authority);
+            if change == "none" {
+                assert!(
+                    matches!(
+                        result.outcome,
+                        DatabaseOutcome::Restored(crate::db::maintenance::restore::RestoreResult {
+                            state: InstallState::Verified,
+                            ..
+                        })
+                    ),
+                    "{result:?}"
+                );
+                assert_eq!(check_database(&source), Ok(DatabaseReadiness::Ready));
+                assert!(authority.begin_resume());
+                assert!(!authority.begin_resume());
+                assert!(!SessionLifecycle::new().accepts(session.generation()));
+            } else {
+                assert!(
+                    matches!(
+                        result.outcome,
+                        DatabaseOutcome::Restored(crate::db::maintenance::restore::RestoreResult {
+                            state: InstallState::NotInstalled(_),
+                            ..
+                        })
+                    ),
+                    "{result:?}"
+                );
+                assert!(!review.candidate.preservation.exists());
+            }
+            drop(peer);
+        }
+    }
+
+    #[test]
     fn adr_0066_path_correction_tests_existing_locations_and_never_creates_a_database() {
         let temp = tempfile::tempdir().unwrap();
         let music = temp.path().join("music");
@@ -212,8 +325,67 @@ mod tests {
 pub(crate) enum DatabaseOperation {
     ConfiguredSource(PathBuf),
     Check,
-    Backup { destination: PathBuf },
-    Preserve { destination: PathBuf },
+    Backup {
+        destination: PathBuf,
+    },
+    Preserve {
+        destination: PathBuf,
+    },
+    ReviewRestore {
+        backup: PathBuf,
+        preservation: PathBuf,
+        config_path: PathBuf,
+        session_generation: u64,
+    },
+    Restore(Arc<RestoreReview>),
+}
+
+/// Exact reviewed configuration and session; Debug never includes config bytes.
+#[derive(Debug)]
+pub(crate) struct RestoreReview {
+    pub(crate) candidate: crate::db::maintenance::restore::ValidatedRestore,
+    config_path: PathBuf,
+    config_digest: String,
+    pub(crate) session_generation: u64,
+}
+
+impl RestoreReview {
+    fn read_config(
+        path: &std::path::Path,
+    ) -> Result<(PathBuf, String), crate::db::maintenance::Failure> {
+        use sha2::{Digest, Sha256};
+        let failure = || crate::db::maintenance::Failure {
+            operation:
+                "Read configured restore destination; correct configuration and review again",
+            kind: crate::db::maintenance::FailureKind::Validation,
+            remaining: Vec::new(),
+        };
+        let snapshot = crate::config::ConfigSnapshot::read_existing(path).map_err(|_| failure())?;
+        let digest = format!("{:x}", Sha256::digest(snapshot.original_bytes()));
+        let destination = snapshot.db_path.map_err(|_| failure())?;
+        let destination = std::fs::canonicalize(destination).map_err(|_| failure())?;
+        Ok((destination, digest))
+    }
+
+    fn validate(
+        &self,
+        session: &crate::application::session_lifecycle::MaintenanceSession,
+    ) -> Result<(), crate::db::maintenance::Failure> {
+        let (destination, digest) = Self::read_config(&self.config_path)?;
+        if !session.is_ready()
+            || session.generation() != self.session_generation
+            || digest != self.config_digest
+            || destination != self.candidate.destination
+        {
+            return Err(crate::db::maintenance::Failure {
+                operation:
+                    "Configuration or app session changed since review; review restore again",
+                kind: crate::db::maintenance::FailureKind::UnstableFiles,
+                remaining: Vec::new(),
+            });
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -229,6 +401,8 @@ pub(crate) enum DatabaseOutcome {
     Checked(crate::db::maintenance::Inspection),
     BackedUp(Result<crate::db::maintenance::Snapshot, crate::db::maintenance::Failure>),
     Preserved(Result<crate::db::maintenance::Preservation, crate::db::maintenance::Failure>),
+    RestoreReviewed(Result<Arc<RestoreReview>, crate::db::maintenance::Failure>),
+    Restored(crate::db::maintenance::restore::RestoreResult),
 }
 
 #[derive(Debug)]
@@ -240,6 +414,52 @@ pub(crate) struct DatabaseResult {
 }
 
 impl DatabaseCommand {
+    /// Restore can only execute with the authority returned by the managed drain.
+    pub(crate) fn execute_restore(
+        self,
+        session: crate::application::session_lifecycle::MaintenanceSession,
+    ) -> (
+        crate::application::session_lifecycle::MaintenanceSession,
+        DatabaseResult,
+    ) {
+        use crate::db::maintenance::{
+            restore::RestoreResult, Budget, ExclusiveDatabase, Failure, FailureKind,
+        };
+        let budget = Budget::new(self.cancelled);
+        let outcome = if let DatabaseOperation::Restore(review) = &self.operation {
+            match review
+                .validate(&session)
+                .and_then(|()| review.candidate.revalidate(&budget))
+                .and_then(|()| ExclusiveDatabase::acquire(&review.candidate.destination, &budget))
+            {
+                Ok(access) => {
+                    #[cfg(debug_assertions)]
+                    let interrupt =
+                        crate::startup::fixture::interrupt_database_restore(&review.config_path);
+                    #[cfg(not(debug_assertions))]
+                    let interrupt = false;
+                    review.candidate.install(access, &budget, interrupt)
+                }
+                Err(failure) => RestoreResult::refused(failure),
+            }
+        } else {
+            RestoreResult::refused(Failure {
+                operation: "Require an explicit reviewed Restore action",
+                kind: FailureKind::Unsupported,
+                remaining: Vec::new(),
+            })
+        };
+        (
+            session,
+            DatabaseResult {
+                source: self.source,
+                operation: self.operation,
+                recorded_at: std::time::SystemTime::now(),
+                outcome: DatabaseOutcome::Restored(outcome),
+            },
+        )
+    }
+
     /// Keep unique drained-session authority until the exclusive connection and
     /// all copying have finished, including failures and cancellation.
     pub(crate) fn execute_preservation(
@@ -303,6 +523,39 @@ impl DatabaseCommand {
                     remaining: Vec::new(),
                 }))
             }
+            DatabaseOperation::ReviewRestore {
+                backup,
+                preservation,
+                config_path,
+                session_generation,
+            } => {
+                let result = RestoreReview::read_config(config_path).and_then(
+                    |(destination, config_digest)| {
+                        crate::db::maintenance::restore::ValidatedRestore::review(
+                            backup,
+                            &destination,
+                            preservation,
+                            &budget,
+                        )
+                        .map(|candidate| {
+                            Arc::new(RestoreReview {
+                                candidate,
+                                config_path: config_path.clone(),
+                                config_digest,
+                                session_generation: *session_generation,
+                            })
+                        })
+                    },
+                );
+                DatabaseOutcome::RestoreReviewed(result)
+            }
+            DatabaseOperation::Restore(_) => DatabaseOutcome::Restored(
+                maintenance::restore::RestoreResult::refused(maintenance::Failure {
+                    operation: "Require a completed app-session drain and reviewed restore",
+                    kind: maintenance::FailureKind::Unsupported,
+                    remaining: Vec::new(),
+                }),
+            ),
         };
         DatabaseResult {
             source: self.source,

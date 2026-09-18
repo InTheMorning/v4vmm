@@ -26,6 +26,8 @@ pub(crate) enum DatabaseAction {
     Backup,
     EndSession,
     Preserve,
+    ReviewRestore,
+    Restore,
     Cancel,
     CopyReport,
 }
@@ -35,15 +37,20 @@ pub(crate) struct DatabaseActionDisplay {
     pub(crate) label: &'static str,
     pub(crate) a11y_label: &'static str,
     pub(crate) availability: StartupAvailability,
+    pub(crate) destructive: bool,
 }
 
 pub(crate) struct DatabaseVm {
     pub(crate) source: String,
     pub(crate) destination: String,
+    pub(crate) restore_source: String,
     pub(crate) report: String,
     pub(crate) worker_available: bool,
     pub(crate) suspended: bool,
     pub(crate) maintenance_ready: bool,
+    pub(crate) session_generation: u64,
+    review: Option<Arc<crate::application::commands::maintenance::RestoreReview>>,
+    reviewed_inputs: Option<(String, String)>,
     running: Option<Arc<AtomicBool>>,
     generation: u64,
 }
@@ -53,17 +60,23 @@ impl DatabaseVm {
     pub(crate) const SCOPE: &'static str = "A database backup covers database records, including committed WAL data. It does not include music files or broadcaster token files. Checking and backing up do not change the selected database or switch the app's library.";
     pub(crate) const SOURCE: &'static str = "Existing database path";
     pub(crate) const DESTINATION: &'static str = "New backup file or preservation directory path";
-    pub(crate) const HELP: &'static str = "Use configured database fills the source path, or enter another existing database's absolute path. For backup, enter a new filename in an existing folder. For preservation, enter a new directory name. Existing paths are never overwritten. Each operation has a 60-second limit; Cancel waits for a known result before releasing database access.";
-    pub(crate) const PRESERVATION: &'static str = "If a verified backup cannot be made, end the app session, then choose Preserve database files. App waits up to five seconds for exclusive SQLite access and copies the database and journals to the new private directory. SQLite may recover journals while acquiring access and clean up or checkpoint them on close. The copy records files after access was acquired; it is not a verified restorable backup. Afterward, Check again and Open app use fresh core verification. Restore is not available yet; retain the originals and validate a known backup for recovery.";
+    pub(crate) const HELP: &'static str = "Use configured database fills the source path, or enter another existing database's absolute path. For backup, enter a new filename in an existing folder. For preservation, enter a new directory name. Existing paths are never overwritten. Checks, backups and file preservation each have a 60-second limit; Cancel waits for a known result before releasing database access.";
+    pub(crate) const PRESERVATION: &'static str = "If a verified backup cannot be made, end the app session, then choose Preserve database files. App waits up to five seconds for exclusive SQLite access and copies the database and journals to the new private directory. SQLite may recover journals while acquiring access and clean up or checkpoint them on close. The copy records files after access was acquired; it is not a verified restorable backup. Afterward, Check again and Open app use fresh core verification.";
+    pub(crate) const RESTORE_SOURCE: &'static str = "Chosen restore backup path";
+    pub(crate) const RESTORE_HELP: &'static str = "To restore, enter a standalone backup and a new preservation directory above, then choose Review restore. Restore replaces only the configured database, regardless of the inspection source field. Review does not replace data. The separate Restore database action ends the current app session, preserves its database, installs the reviewed candidate and reopens the app after fresh verification. Music files and broadcaster token files are not restored or changed. Only current-schema backups are supported. Restore has a 60-second work limit; final verification can take another 60 seconds, including after cancellation.";
 
     pub(crate) fn new(worker_available: bool) -> Self {
         Self {
             source: String::new(),
             destination: String::new(),
+            restore_source: String::new(),
             report: String::new(),
             worker_available,
             suspended: false,
             maintenance_ready: false,
+            session_generation: 0,
+            review: None,
+            reviewed_inputs: None,
             running: None,
             generation: 0,
         }
@@ -96,6 +109,8 @@ impl DatabaseVm {
                 "Preserve database files",
                 "Preserve database and journal files under exclusive access; this is not a verified backup",
             ),
+            DatabaseAction::ReviewRestore => ("Review restore", "Validate the chosen backup and review the configured destination and preservation directory"),
+            DatabaseAction::Restore => ("Restore database", "Replace the reviewed configured database after ending the app session and preserving its original data"),
             DatabaseAction::Cancel => (
                 "Cancel",
                 "Request cancellation of the running database operation",
@@ -127,11 +142,22 @@ impl DatabaseVm {
                     && PathBuf::from(&self.source).is_absolute()
                     && PathBuf::from(&self.destination).is_absolute()
             }
+            DatabaseAction::ReviewRestore => {
+                self.input_enabled()
+                    && self.worker_available
+                    && self.session_generation != 0
+                    && PathBuf::from(&self.restore_source).is_absolute()
+                    && PathBuf::from(&self.destination).is_absolute()
+            }
+            DatabaseAction::Restore => {
+                self.input_enabled() && self.worker_available && self.current_review().is_some()
+            }
         };
         DatabaseActionDisplay {
             action,
             label,
             a11y_label,
+            destructive: action == DatabaseAction::Restore,
             availability: if available {
                 StartupAvailability::Available
             } else {
@@ -156,6 +182,18 @@ impl DatabaseVm {
             DatabaseAction::Preserve => DatabaseOperation::Preserve {
                 destination: self.destination.clone().into(),
             },
+            DatabaseAction::ReviewRestore => {
+                self.review = None;
+                self.reviewed_inputs =
+                    Some((self.restore_source.clone(), self.destination.clone()));
+                DatabaseOperation::ReviewRestore {
+                    backup: self.restore_source.clone().into(),
+                    preservation: self.destination.clone().into(),
+                    config_path,
+                    session_generation: self.session_generation,
+                }
+            }
+            DatabaseAction::Restore => DatabaseOperation::Restore(self.review.take()?),
             DatabaseAction::EndSession | DatabaseAction::Cancel | DatabaseAction::CopyReport => {
                 return None
             }
@@ -177,6 +215,27 @@ impl DatabaseVm {
             cancelled.store(true, Ordering::Release);
         }
     }
+    fn current_review(
+        &self,
+    ) -> Option<&Arc<crate::application::commands::maintenance::RestoreReview>> {
+        self.review.as_ref().filter(|review| {
+            review.session_generation == self.session_generation
+                && self
+                    .reviewed_inputs
+                    .as_ref()
+                    .is_some_and(|(backup, preservation)| {
+                        backup == &self.restore_source && preservation == &self.destination
+                    })
+        })
+    }
+    pub(crate) fn restore_confirmation(&self) -> Option<String> {
+        self.current_review().map(|review| {
+            let candidate = &review.candidate;
+            crate::diagnostics::redact_endpoint_details(&format!(
+                "Ready for explicit Restore database.\nChosen backup: {}\nConfigured database to replace: {}\nPreservation directory: {}\nValidated candidate: {}\nThis replaces database records only. Keep the preservation directory to recover the previous database. Changes to the backup, destination, configuration or session require a new review.",
+                candidate.backup.display(), candidate.destination.display(), candidate.preservation.display(), candidate.candidate_path().display()))
+        })
+    }
     pub(crate) fn working_message(&self) -> Option<&'static str> {
         if !self.worker_available {
             return Some("The independent maintenance worker is unavailable. Copy the available report and restart the app after freeing system resources.");
@@ -190,10 +249,32 @@ impl DatabaseVm {
         if generation != self.generation || self.running.take().is_none() {
             return;
         }
-        let text = format!("{} — App could not start or receive the database operation for {}. The maintenance worker is busy or unavailable. Wait for the current operation and check again; no completed backup is confirmed.\n\n", time(recorded_at), self.source);
+        let text = format!("{} — App could not start or receive the database operation for {}. App-session work or the maintenance worker is busy or unavailable. Wait for the current operation, then review or check again; no completed database operation is confirmed.\n\n", time(recorded_at), self.source);
         self.report
             .push_str(&crate::diagnostics::redact_endpoint_details(&text));
     }
+    fn review_report(
+        &mut self,
+        result_review: Result<
+            Arc<crate::application::commands::maintenance::RestoreReview>,
+            Failure,
+        >,
+    ) -> String {
+        let mut text = String::new();
+        match result_review {
+            Ok(review) => {
+                self.review = Some(review);
+                if let Some(confirmation) = self.restore_confirmation() {
+                    let _ = writeln!(&mut text, "App validated a separate restore candidate. The chosen backup and configured database were not replaced.\n{confirmation}");
+                }
+            }
+            Err(failure) => {
+                let _ = writeln!(&mut text, "App refused restore review. No database was installed. {}\nChoose a current-schema standalone backup and Review restore again.", failure_report(&failure));
+            }
+        }
+        text
+    }
+
     pub(crate) fn complete(&mut self, generation: u64, result: DatabaseResult) -> bool {
         if generation != self.generation || self.running.take().is_none() {
             return false;
@@ -273,6 +354,23 @@ impl DatabaseVm {
                 text.push_str("The preservation operation has finished and released its database access. Normal work has not resumed. Choose Check again, then Open app only when fresh core checks pass.");
                 false
             }
+            DatabaseOutcome::RestoreReviewed(result_review) => {
+                if let DatabaseOperation::ReviewRestore {
+                    backup,
+                    preservation,
+                    config_path,
+                    ..
+                } = result.operation
+                {
+                    let _ = writeln!(text, "App reviewed backup {} for the database configured in {}. Preservation requested at {}.", backup.display(), config_path.display(), preservation.display());
+                }
+                text.push_str(&self.review_report(result_review));
+                false
+            }
+            DatabaseOutcome::Restored(result_restore) => {
+                text.push_str(&restore_report(result.operation, result_restore));
+                false
+            }
         };
         self.report
             .push_str(&crate::diagnostics::redact_endpoint_details(&text));
@@ -284,6 +382,37 @@ impl Drop for DatabaseVm {
     fn drop(&mut self) {
         self.cancel();
     }
+}
+
+fn restore_report(
+    operation: DatabaseOperation,
+    result_restore: crate::db::maintenance::restore::RestoreResult,
+) -> String {
+    use crate::db::maintenance::restore::InstallState;
+    let mut text = String::new();
+    if let DatabaseOperation::Restore(review) = operation {
+        let _ = writeln!(&mut text, "App attempted restore from {} into configured database {}. Validated candidate retained at {}. Preservation requested at {}.",
+                review.candidate.backup.display(), review.candidate.destination.display(), review.candidate.candidate_path().display(), review.candidate.preservation.display());
+    }
+    if let Some(copy) = result_restore.preservation {
+        let _ = writeln!(&mut text, "App preserved {} database/journal files after acquiring exclusive access at {}. File-preservation manifest: {}. This file copy is not a verified backup.", copy.file_count, time(copy.acquired_at), copy.manifest.display());
+    }
+    if let Some(path) = result_restore.verified_original {
+        let _ = writeln!(&mut text, "Verified snapshot of the previous database: {}. Retain this backup for an explicit restore if needed.", path.display());
+    }
+
+    match result_restore.state {
+            InstallState::Verified => text.push_str("App installed and verified the reviewed database, including its schema, records and rolled-back write probe. App will reopen one fresh session after checking configuration and music storage. The report remains in Settings > Diagnostics > Database tools."),
+            InstallState::NotInstalled(failure) => { let _ = writeln!(&mut text, "App stopped before installation. {}\nReview restore again after resolving the reported prerequisite. In recovery, Check again and Open app can reopen the current database if core checks pass.", failure_report(&failure)); }
+            InstallState::Failed { failure, rollback_verified } => {
+                let _ = writeln!(&mut text, "App could not complete SQLite installation. {}\n{}", failure_report(&failure), if rollback_verified {
+                    "App verified that SQLite rolled back installation: the destination schema and records match their pre-installation fingerprint. Recovery remains open. Resolve the failure, then Review restore again, or Check again and Open app to use the previous database."
+                } else { "App could not verify complete rollback. Recovery remains open. Retain the original files, candidate and preservation artifacts; check the destination and explicitly review a known backup before further recovery." });
+            }
+            InstallState::VerificationFailed(failure) => { let _ = writeln!(&mut text, "SQLite completed installation, but verification failed. {}\nRecovery remains open. No rollback is claimed. Retain all artifacts and explicitly review the preserved original backup for recovery.", failure_report(&failure)); }
+        }
+
+    text
 }
 
 fn time(recorded: std::time::SystemTime) -> String {
@@ -351,6 +480,98 @@ fn snapshot_report(snapshot: &Snapshot) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adr_0066_restore_review_is_explicit_bound_to_inputs_and_one_session() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("configured.sqlite");
+        let chosen = temp.path().join("chosen.sqlite");
+        let config = temp.path().join("config.toml");
+        drop(crate::db::open_db(&source).unwrap());
+        drop(crate::db::open_db(&chosen).unwrap());
+        std::fs::write(
+            &config,
+            format!(
+                "music_dir = '{}'\ndb_path = '{}'\n",
+                temp.path().display(),
+                source.display()
+            ),
+        )
+        .unwrap();
+        let mut vm = DatabaseVm::new(true);
+        vm.session_generation = 42;
+        vm.restore_source = chosen.display().to_string();
+        vm.destination = temp.path().join("preserved").display().to_string();
+        assert!(vm.begin(DatabaseAction::Restore, config.clone()).is_none());
+        let (generation, command) = vm
+            .begin(DatabaseAction::ReviewRestore, config.clone())
+            .unwrap();
+        vm.complete(generation, command.execute());
+        let summary = vm.restore_confirmation().unwrap();
+        for path in [&source, &chosen, &PathBuf::from(&vm.destination)] {
+            assert!(summary.contains(path.to_str().unwrap()));
+        }
+        assert!(summary.contains("database records only"));
+        assert!(!PathBuf::from(&vm.destination).exists());
+        assert!(vm.action(DatabaseAction::Restore).destructive);
+        vm.restore_source.push('x');
+        assert!(vm.restore_confirmation().is_none());
+        assert!(vm.begin(DatabaseAction::Restore, config.clone()).is_none());
+        vm.restore_source.pop();
+        vm.session_generation += 1;
+        assert!(vm.restore_confirmation().is_none());
+        vm.session_generation -= 1;
+        let (_, command) = vm.begin(DatabaseAction::Restore, config.clone()).unwrap();
+        assert!(matches!(command.operation, DatabaseOperation::Restore(_)));
+        assert!(vm.begin(DatabaseAction::Restore, config).is_none());
+        assert!(vm.restore_confirmation().is_none());
+        vm.cancel();
+        assert!(command.cancelled.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn adr_0066_restore_reports_distinguish_rollback_and_failed_verification() {
+        use crate::db::maintenance::restore::{InstallState, RestoreResult};
+        let failure = || Failure {
+            operation: "Install reviewed candidate",
+            kind: FailureKind::Io,
+            remaining: vec!["/retained/candidate.sqlite".into()],
+        };
+        for state in [
+            InstallState::Failed {
+                failure: failure(),
+                rollback_verified: true,
+            },
+            InstallState::Failed {
+                failure: failure(),
+                rollback_verified: false,
+            },
+            InstallState::VerificationFailed(failure()),
+        ] {
+            let verified = matches!(
+                state,
+                InstallState::Failed {
+                    rollback_verified: true,
+                    ..
+                }
+            );
+            let text = restore_report(
+                DatabaseOperation::Check,
+                RestoreResult {
+                    preservation: None,
+                    verified_original: None,
+                    state,
+                },
+            );
+            assert!(text.contains("Recovery remains open"));
+            assert!(text.contains("/retained/candidate.sqlite"));
+            assert_eq!(
+                text.contains("App verified that SQLite rolled back"),
+                verified
+            );
+            assert!(!text.contains("will reopen one fresh session"));
+        }
+    }
 
     #[test]
     fn adr_0066_preservation_requires_drained_authority_and_keeps_report_through_resumption() {

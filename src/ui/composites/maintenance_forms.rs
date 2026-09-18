@@ -285,7 +285,7 @@ pub(crate) type DatabaseCallback =
 /// Database tools use the same geometry and log owner in Settings and core recovery.
 pub(crate) fn database_tools(
     vm: &crate::view_models::startup::database::DatabaseVm,
-    inputs: [&gpui::Entity<gpui_component::input::InputState>; 2],
+    inputs: [&gpui::Entity<gpui_component::input::InputState>; 3],
     callback: &DatabaseCallback,
     logs: &LogFrames,
     cx: &App,
@@ -306,9 +306,13 @@ pub(crate) fn database_tools(
         .child(div().whitespace_normal().child(DatabaseVm::SCOPE))
         .child(div().whitespace_normal().child(DatabaseVm::HELP))
         .child(div().whitespace_normal().child(DatabaseVm::PRESERVATION));
-    for (label, input) in [DatabaseVm::SOURCE, DatabaseVm::DESTINATION]
-        .into_iter()
-        .zip(inputs)
+    for (label, input) in [
+        DatabaseVm::SOURCE,
+        DatabaseVm::DESTINATION,
+        DatabaseVm::RESTORE_SOURCE,
+    ]
+    .into_iter()
+    .zip(inputs)
     {
         body = body.child(div().whitespace_normal().child(label)).child(
             div().w_full().min_w_0().flex().flex_row().child(
@@ -325,6 +329,10 @@ pub(crate) fn database_tools(
             ),
         );
     }
+    body = body.child(div().whitespace_normal().child(DatabaseVm::RESTORE_HELP));
+    if let Some(confirmation) = vm.restore_confirmation() {
+        body = body.child(div().whitespace_normal().child(confirmation));
+    }
     let mut actions = div()
         .flex()
         .flex_wrap()
@@ -336,6 +344,8 @@ pub(crate) fn database_tools(
         DatabaseAction::Backup,
         DatabaseAction::EndSession,
         DatabaseAction::Preserve,
+        DatabaseAction::ReviewRestore,
+        DatabaseAction::Restore,
         DatabaseAction::Cancel,
         DatabaseAction::CopyReport,
     ] {
@@ -344,7 +354,11 @@ pub(crate) fn database_tools(
         actions = actions.child(
             Button::styled(
                 gpui::SharedString::from(format!("database-{:?}", display.action)),
-                ControlStyle::Secondary,
+                if display.destructive {
+                    ControlStyle::Destructive
+                } else {
+                    ControlStyle::Secondary
+                },
             )
             .label(display.label)
             .a11y_label(display.a11y_label)

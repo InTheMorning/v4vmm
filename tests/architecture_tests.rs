@@ -17825,3 +17825,111 @@ fn adr_0066_database_maintenance_requires_exclusive_access() {
         assert!(source.contains(test));
     }
 }
+
+/// Situational — ADR 0066 invariant 6: explicit review, preservation and verified installation.
+#[test]
+fn adr_0066_restore_uses_validated_maintenance_install() {
+    let source = read_source(&manifest_path("src/db/maintenance/restore.rs"));
+    let backend = production_source(&source);
+    for required in [
+        "struct ValidatedRestore",
+        "candidate: Candidate",
+        "candidate_revision: FileRevision",
+        "destination_contents: Option<String>",
+        "access: ExclusiveDatabase",
+        "self.revalidate(budget)?",
+        "access.source() != self.destination",
+        "access.preserve(&self.preservation, budget)",
+        "build_snapshot(&access.connection",
+        "copy_into(&source, &mut access.connection",
+        "Backup::new(source, destination)",
+        "backup.step(BACKUP_PAGE_BATCH)",
+        "self.verify_installed",
+        "crate::db::startup::check_connection",
+        "rollback_verified",
+        "InstallState::VerificationFailed",
+    ] {
+        assert!(
+            compact_source(backend).contains(&compact_source(required)),
+            "ADR 0066 restore missing: {required}"
+        );
+    }
+    for forbidden in [
+        "fs::rename(",
+        "fs::remove_file(",
+        "fs::copy(",
+        "open_db(",
+        "migrate_schema(",
+        "SQLITE_OPEN_CREATE",
+        "File::open(&self.destination)",
+    ] {
+        assert!(
+            !backend.contains(forbidden),
+            "ADR 0066 restore bypass: {forbidden}"
+        );
+    }
+    assert!(
+        backend.find("access.preserve(&self.preservation").unwrap()
+            < backend.find("let installed = copy_into").unwrap()
+    );
+    assert!(
+        backend.find("let installed = copy_into").unwrap()
+            < backend.find("self.verify_installed").unwrap()
+    );
+    let command = read_source(&manifest_path("src/application/commands/maintenance.rs"));
+    let entry = source_between(
+        &command,
+        "pub(crate) fn execute_restore(",
+        "pub(crate) fn execute_preservation(",
+    );
+    for required in [
+        "MaintenanceSession",
+        "review.validate(&session)",
+        "review.candidate.revalidate",
+        "ExclusiveDatabase::acquire",
+        "review.candidate.install",
+    ] {
+        assert!(
+            compact_source(entry).contains(&compact_source(required)),
+            "ADR 0066 command missing: {required}"
+        );
+    }
+    for file in rust_files_under("src") {
+        let contents = read_source(&file);
+        let production = production_source(&contents);
+        if production.contains(".execute_restore(") {
+            assert!(
+                file.ends_with("app/startup.rs"),
+                "restore dispatch escaped startup lifecycle: {}",
+                file.display()
+            );
+        }
+        if production.contains("candidate.install(") {
+            assert!(
+                file.ends_with("application/commands/maintenance.rs"),
+                "restore bypassed maintenance authority: {}",
+                file.display()
+            );
+        }
+    }
+    let screen = read_source(&manifest_path("src/app/startup.rs"));
+    for required in [
+        "DatabaseEvent::Restore",
+        "pending_restore.take()",
+        "command.execute_restore(session)",
+        "this.maintenance = Some(session)",
+        "InstallState::Verified",
+        "this.action(StartupAction::OpenApp",
+        "std::mem::take(&mut this.resume_after_restore)",
+    ] {
+        assert!(screen.contains(required));
+    }
+    for test in [
+        "adr_0066_restore_preserves_installs_and_verifies_without_replacing_inode",
+        "adr_0066_restore_interrupted_and_cancelled_steps_verify_sqlite_rollback",
+        "adr_0066_restore_changed_files_or_records_require_new_review",
+        "adr_0066_restore_verification_requires_candidate_records_and_usable_writes",
+    ] {
+        assert!(source.contains(test));
+    }
+}

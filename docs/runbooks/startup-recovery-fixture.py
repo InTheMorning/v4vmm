@@ -32,8 +32,9 @@ CONVERTER_MODES = ("missing", "working", "fallback", "nonzero", "timeout", "perm
 CONVERSION_CASES = ("conversion-retry",)
 DATABASE_CASES = ("database-tools", "database-recovery")
 MAINTENANCE_CASES = ("database-maintenance", "database-maintenance-recovery")
+RESTORE_CASES = ("database-restore", "database-restore-recovery")
 CONVERSION_MODES = ("encode-failure", "working", "fallback")
-CASES += ("session-held-command",) + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES + MAINTENANCE_CASES
+CASES += ("session-held-command",) + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES + MAINTENANCE_CASES + RESTORE_CASES
 
 
 def digest(path):
@@ -182,7 +183,7 @@ def hold_lock(root):
 
 def mode(root, case):
     previous = json.loads((root / "case.json").read_text())["case"]
-    if (case in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES + MAINTENANCE_CASES or previous in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES + MAINTENANCE_CASES or "session-held-command" in (case, previous)) and owned_process(root, "app.pid"):
+    if (case in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES + MAINTENANCE_CASES + RESTORE_CASES or previous in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES + MAINTENANCE_CASES + RESTORE_CASES or "session-held-command" in (case, previous)) and owned_process(root, "app.pid"):
         raise SystemExit("Close the fixture app before changing optional-tool or session cases.")
     if previous in CONVERTER_CASES + CONVERSION_CASES:
         for name in ("flac", "ffmpeg"):
@@ -205,7 +206,10 @@ def mode(root, case):
     cfg.chmod(0o600)
     (root / "repair.external").unlink(missing_ok=True)
     cfg.write_bytes((root / "config.baseline").read_bytes())
-    if case in MAINTENANCE_CASES:
+    if case in RESTORE_CASES:
+        restore_setup(root, case)
+        purpose = "Review the chosen backup before explicit Restore database. restore-status prints all paths. Use the task 012 runbook; no hardware or external services are needed."
+    elif case in MAINTENANCE_CASES:
         maintenance_setup(root)
         if case == "database-maintenance-recovery":
             cfg.write_text(cfg.read_text().replace(json.dumps(str(root / "data/library.sqlite")), json.dumps(str(root / "database/invalid-header.sqlite"))))
@@ -951,6 +955,106 @@ def maintenance_inspect(root, manifest):
         raise SystemExit("Maintenance preservation inspection failed. Keep the fixture for diagnosis.")
     inspect(root, manifest)
 
+
+def restore_setup(root, case):
+    directory = root / "database"
+    if directory.exists():
+        raise SystemExit("Use a fresh restore fixture; existing recovery artifacts cannot be replaced.")
+    subprocess.run([str(REPO / "target/debug/v4vmm"), "startup-fixture", "restore-seed", str(root)], env=environment(root), check=True)
+    source = root / "data/library.sqlite"
+    if case == "database-restore-recovery":
+        damaged = bytearray(source.read_bytes())
+        damaged[32:36] = (0x7fffffff).to_bytes(4, "big")
+        damaged[36:40] = (1).to_bytes(4, "big")
+        source.write_bytes(damaged)
+    token = root / "broadcaster-token.fixture"
+    token.write_bytes(b"isolated fixture token sentinel\n")
+    token.chmod(0o600)
+    state = {"backup_hashes": {p.name: digest(p) for p in directory.glob("*.sqlite")},
+             "destination_inode": source.stat().st_ino, "destination_device": source.stat().st_dev,
+             "original_sha256": digest(source), "token_sha256": digest(token)}
+    (root / "restore-baseline.json").write_text(json.dumps(state, indent=2))
+    restore_status(root)
+
+
+def restore_status(root):
+    directory = root / "database"
+    print(json.dumps({"configured_destination": str(root / "data/library.sqlite"),
+                      "chosen_backup": str(directory / "restore-backup.sqlite"),
+                      "invalid_backup": str(directory / "invalid-header.sqlite"),
+                      "newer_backup": str(directory / "newer.sqlite"),
+                      "preservation_directories": {name: str(directory / (name + "-preservation")) for name in ("busy", "blocked", "failed", "restored")},
+                      "installation_interruption": (root / "restore.interrupt").exists(),
+                      "writer_running": bool(owned_process(root, "lock.pid"))}, indent=2))
+
+
+def restore_database_facts(path):
+    with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as conn:
+        return {"integrity": conn.execute("PRAGMA integrity_check").fetchall(),
+                "foreign_keys": conn.execute("PRAGMA foreign_key_check").fetchall(),
+                "playlists": conn.execute("SELECT id,name,description FROM playlists ORDER BY id").fetchall(),
+                "versions": conn.execute("SELECT * FROM schema_migrations ORDER BY version").fetchall(),
+                "bindings": conn.execute("SELECT path,track_id FROM local_files ORDER BY track_id").fetchall(),
+                "tracks": conn.execute("SELECT * FROM tracks ORDER BY id").fetchall(),
+                "memberships": conn.execute("SELECT * FROM playlist_tracks ORDER BY playlist_id,position").fetchall(),
+                "probes": conn.execute("SELECT count(*) FROM sqlite_schema WHERE name LIKE 'v4vmm_startup_probe_%'").fetchone()[0]}
+
+def restore_inspect(root, manifest):
+    if owned_process(root, "app.pid") or owned_process(root, "lock.pid"):
+        raise SystemExit("Close the fixture app and release its writer before restore inspection.")
+    directory = root / "database"
+    state = json.loads((root / "restore-baseline.json").read_text())
+    case = json.loads((root / "case.json").read_text())
+    source = root / "data/library.sqlite"
+    config = root / "config/v4vmm/config.toml"
+    current = config.read_bytes()
+    checks = {"chosen_and_rejected_backups_unchanged": all(digest(directory / name) == value for name, value in state["backup_hashes"].items()),
+              "configured_database_inode_preserved": (source.stat().st_ino, source.stat().st_dev) == (state["destination_inode"], state["destination_device"]),
+              "music_files_unchanged": digest(root / "music/unchanged-audio.bin") == manifest["audio_sha256"] and all(digest(root / "music" / name) == value for name, value in manifest["track_sha256"].items()),
+              "token_file_unchanged": digest(root / "broadcaster-token.fixture") == state["token_sha256"] and (root / "broadcaster-token.fixture").stat().st_mode & 0o777 == 0o600,
+              "config_preserved": digest(config) == case["config_sha256"] or normal_workspace_preferences_only(root, case, current),
+              "interruption_removed": not (root / "restore.interrupt").exists(),
+              "busy_created_no_preservation": not (directory / "busy-preservation").exists()}
+    restored = restore_database_facts(source)
+    checks["restored_database_matches_chosen_records_and_ledger"] = restored == restore_database_facts(directory / "restore-backup.sqlite")
+    checks["restored_database_valid"] = restored["integrity"] == [("ok",)] and not restored["foreign_keys"] and not restored["probes"]
+    names = ("failed", "restored") if case["case"] == "database-restore" else ("restored",)
+    if case["case"] == "database-restore":
+        checks["occupied_preservation_file_unchanged"] = (directory / "blocked-preservation").read_text() == "Retain this occupied preservation destination.\n"
+    for name in names:
+        folder = directory / (name + "-preservation")
+        try:
+            receipt_path = folder / "manifest.json"
+            receipt = json.loads(receipt_path.read_text())
+            checks[name + "_private_preservation"] = not folder.is_symlink() and folder.stat().st_mode & 0o777 == 0o700 and receipt_path.stat().st_mode & 0o777 == 0o600
+            checks[name + "_manifest"] = receipt["kind"] == "database_file_preservation_not_verified_backup" and receipt["source"] == str(source) and bool(receipt["files"])
+            for index, entry in enumerate(receipt["files"]):
+                path = folder / entry["copied_name"]
+                if Path(entry["copied_name"]).name != entry["copied_name"] or path.is_symlink():
+                    raise ValueError("Preservation file escaped its directory")
+                checks[f"{name}_file_{index}"] = path.stat().st_size == entry["length"] and digest(path) == entry["sha256"] and path.stat().st_mode & 0o777 == 0o600
+            snapshots = list(folder.glob(".v4vmm-database-*/candidate.sqlite"))
+            if case["case"] == "database-restore":
+                checks[name + "_verified_original"] = len(snapshots) == 1
+                if snapshots:
+                    original = restore_database_facts(snapshots[0])
+                    checks[name + "_original_records"] = len(original["playlists"]) == 1 and original["playlists"][0][1] == "Startup fixture playlist" and original["versions"] == restored["versions"] and original["tracks"] == restored["tracks"] and original["bindings"] == restored["bindings"] and original["integrity"] == [("ok",)] and not original["probes"]
+            else:
+                checks[name + "_damaged_original_bytes"] = digest(folder / "database.sqlite") == state["original_sha256"] and not snapshots
+        except (OSError, ValueError, KeyError, sqlite3.Error):
+            checks[name + "_preservation"] = False
+    observations = root / "session-observations.jsonl"
+    if observations.exists():
+        sessions = [json.loads(line) for line in observations.read_text().splitlines()]
+        opened = [entry["generation"] for entry in sessions if entry["state"] == "opened"]
+        checks["fresh_session_observed"] = len(opened) == len(set(opened)) and len(opened) >= (2 if case["case"] == "database-restore" else 1)
+    else:
+        checks["fresh_session_observed"] = False
+    print(json.dumps(checks, indent=2))
+    if not all(checks.values()):
+        raise SystemExit("Restore preservation inspection failed. Keep the fixture for diagnosis.")
+
+
 def setup():
     binary = REPO / "target/debug/v4vmm"
     if not binary.is_file():
@@ -1012,7 +1116,7 @@ def run_app(root, manifest):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "session-status", "session-release", "repair-access", "repair-conflict", "repair-inspect", "retry-status", "retry-release", "retry-inspect", "retry-server", "converter-tools", "converter-status", "converter-inspect", "conversion-tools", "conversion-status", "conversion-remove-input", "conversion-inspect", "database-hold", "database-lock", "database-status", "database-inspect", "maintenance-hold", "maintenance-release", "maintenance-status", "maintenance-inspect"))
+    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "session-status", "session-release", "repair-access", "repair-conflict", "repair-inspect", "retry-status", "retry-release", "retry-inspect", "retry-server", "converter-tools", "converter-status", "converter-inspect", "conversion-tools", "conversion-status", "conversion-remove-input", "conversion-inspect", "database-hold", "database-lock", "database-status", "database-inspect", "maintenance-hold", "maintenance-release", "maintenance-status", "maintenance-inspect", "restore-status", "restore-inspect", "restore-lock", "restore-release", "restore-block", "restore-interrupt", "restore-ready"))
     parser.add_argument("directory", nargs="?")
     parser.add_argument("case", nargs="?", choices=CASES + CONVERTER_MODES + CONVERSION_MODES)
     args = parser.parse_args()
@@ -1048,6 +1152,37 @@ def main():
         database_status(root)
     elif args.command == "database-inspect":
         database_inspect(root, manifest)
+    elif args.command.startswith("restore-"):
+        if json.loads((root / "case.json").read_text())["case"] not in RESTORE_CASES:
+            raise SystemExit("Select a fresh database-restore or database-restore-recovery fixture first.")
+        if args.command == "restore-status":
+            restore_status(root)
+        elif args.command == "restore-inspect":
+            restore_inspect(root, manifest)
+        elif args.command == "restore-lock":
+            if owned_process(root, "lock.pid"):
+                raise SystemExit("Fixture writer is already running.")
+            with (root / "restore-lock.log").open("w") as output:
+                subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "hold-lock", str(root)], stdout=output, stderr=output, start_new_session=True)
+            deadline = time.monotonic() + 5
+            while not (root / "lock.ready").exists():
+                if time.monotonic() > deadline:
+                    raise SystemExit("Restore writer did not start. Inspect restore-lock.log.")
+                time.sleep(0.05)
+            print("Fixture writer holds the configured database. Restore must refuse exclusive access.")
+        elif args.command == "restore-release":
+            release_lock(root)
+            print("Fixture database writer released.")
+        elif args.command == "restore-block":
+            with (root / "database/blocked-preservation").open("x") as output:
+                output.write("Retain this occupied preservation destination.\n")
+            print("Preservation destination occupied after review. Restore must stop before installation.")
+        elif args.command == "restore-interrupt":
+            (root / "restore.interrupt").write_text("Interrupt only the verified debug fixture's restore.\n")
+            print("Fixture restore will fail between SQLite page batches. Review with failed-preservation.")
+        elif args.command == "restore-ready":
+            (root / "restore.interrupt").unlink(missing_ok=True)
+            print("Fixture installation interruption removed. Review with restored-preservation.")
     elif args.command == "maintenance-hold":
         maintenance_hold(root)
     elif args.command == "maintenance-release":
