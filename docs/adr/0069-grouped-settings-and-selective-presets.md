@@ -4,6 +4,12 @@
 
 Accepted - 2026-09-11.
 
+Reconciled 2026-09-18: [ADR 0074](0074-repair-and-diagnostics-pages.md) replaces
+the scrolling Diagnostics group with separate tool pages and uses compact
+menus for group and page navigation. General and Library
+retain their existing scroll behavior. This changes presentation during ADR
+0066 task 013 acceptance. Later configuration and preset phases remain unstarted.
+
 The operator accepted grouped Settings, selectable live metadata resources,
 independent audio outputs and console-style selective preset save/recall.
 Task 001 is complete with mechanical checks Green, operator V1–V3 and
@@ -40,8 +46,8 @@ it does not implement either lifecycle.
 ### Grouped Settings Within The Existing App Section
 
 Keep Music, Show and Settings as the three app sections. Settings has its own
-labeled group tabs, a persistent indication of the selected group and a bounded
-scroll area for the group's content. Remember the selected group within the
+labeled group tabs and a persistent indication of the selected group. General
+and Library use bounded scroll areas. ADR 0074 owns separate Diagnostics pages. Remember the selected group within the
 session. Changing groups or leaving Settings retains the working draft.
 
 Amended 2026-09-13 during ADR 0063 task 005 operator checks: retain an

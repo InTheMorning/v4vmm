@@ -1,4 +1,4 @@
-//! Background-tool reports, remedies and retry generations (ADR 0066).
+//! Background-tool reports and retries (ADR 0066), with a full tool page (ADR 0074).
 
 use std::fmt::Write as _;
 use std::time::SystemTime;
@@ -68,6 +68,18 @@ impl CapabilityReportVm {
 
     pub const TITLE: &'static str = "Background tools";
 
+    const TOOLS: [Dependency; 9] = [
+        Dependency::BackgroundRuntime,
+        Dependency::ThumbnailMaintenance,
+        Dependency::MusicIndex,
+        Dependency::Playback,
+        Dependency::Publisher,
+        Dependency::Producer,
+        Dependency::Encoder,
+        Dependency::Converter,
+        Dependency::Presentation,
+    ];
+
     #[must_use]
     pub fn notice_summary(&self) -> String {
         let issues = self.issues().count();
@@ -114,22 +126,17 @@ impl CapabilityReportVm {
         let mut rows: Vec<_> = self
             .issues()
             .map(|issue| {
+                if expanded {
+                    return self.tool_row(issue.dependency);
+                }
                 let dependency = canonical_dependency(issue.dependency);
                 let mut intents = vec![CapabilityAction::Configure(issue.dependency)];
                 if dependency != Dependency::LibraryPaths {
                     intents.push(CapabilityAction::CheckAgain(dependency));
                 }
                 CapabilityRowDisplay {
-                    label: if expanded {
-                        dependency_title(issue.dependency).to_owned()
-                    } else {
-                        observation_text(issue)
-                    },
-                    help: Some(if expanded {
-                        format!("{} {}", edit_help(issue.dependency), check_help(dependency))
-                    } else {
-                        edit_help(issue.dependency).into()
-                    }),
+                    label: observation_text(issue),
+                    help: Some(edit_help(issue.dependency).into()),
                     actions: intents
                         .into_iter()
                         .map(|intent| self.action(intent))
@@ -168,7 +175,39 @@ impl CapabilityReportVm {
                 .collect(),
             }
         }));
+        if expanded {
+            rows.extend(
+                Self::TOOLS
+                    .into_iter()
+                    .filter(|dependency| {
+                        !self
+                            .issues()
+                            .any(|issue| canonical_dependency(issue.dependency) == *dependency)
+                    })
+                    .map(|dependency| self.tool_row(dependency)),
+            );
+        }
         rows
+    }
+
+    fn tool_row(&self, source: Dependency) -> CapabilityRowDisplay {
+        let dependency = canonical_dependency(source);
+        let mut actions = Vec::new();
+        let mut help = String::new();
+        if correction_field(source).is_some() || dependency == Dependency::LibraryPaths {
+            actions.push(self.action(CapabilityAction::Configure(source)));
+            help.push_str(edit_help(source));
+            help.push(' ');
+        }
+        if dependency != Dependency::LibraryPaths {
+            actions.push(self.action(CapabilityAction::CheckAgain(dependency)));
+        }
+        help.push_str(check_help(dependency));
+        CapabilityRowDisplay {
+            label: dependency_title(source).into(),
+            help: Some(help),
+            actions,
+        }
     }
 
     #[must_use]
@@ -694,6 +733,128 @@ mod tests {
     use std::io;
     use std::time::{Duration, SystemTime};
 
+    /// Situational ADR 0074: the full page must not reuse the failure-only notice.
+    #[test]
+    fn adr_0074_background_tools_remain_visible_without_failures() {
+        let mut vm = CapabilityReportVm::new(Default::default(), true);
+        let before = vm.report();
+        let rows = vm.rows(true);
+        let labels: Vec<_> = rows.iter().map(|row| row.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            [
+                "Background runtime",
+                "Thumbnail maintenance",
+                "MusicIndex",
+                "Built-in playback",
+                "Publisher host",
+                "Drop-file publication",
+                "Stream encoder",
+                "Audio converter",
+                "Presentation settings",
+            ]
+        );
+        for row in &rows {
+            assert!(!row.help.as_ref().unwrap().is_empty());
+            assert!(row
+                .actions
+                .iter()
+                .any(|action| matches!(action.action, CapabilityAction::CheckAgain(_))));
+            assert!(row.actions.iter().all(|action| action.availability
+                == StartupAvailability::Available
+                && !action.a11y_label.is_empty()));
+        }
+        assert!(vm.rows(false).is_empty());
+        assert!(vm.observations.is_empty());
+        assert_eq!(vm.report(), before);
+        assert!(vm.running_dependency().is_none());
+
+        // A recorded success must not remove a tool or imply checks of other tools.
+        vm.observations.insert(
+            Dependency::BackgroundRuntime,
+            CapabilityObservation {
+                dependency: Dependency::BackgroundRuntime,
+                observed_at: SystemTime::UNIX_EPOCH + Duration::from_secs(10),
+                failure: None,
+                resource: None,
+            },
+        );
+        let before = vm.observations.clone();
+        assert_eq!(
+            vm.rows(true)
+                .iter()
+                .map(|row| row.label.as_str())
+                .collect::<Vec<_>>(),
+            labels
+        );
+        assert!(vm.rows(false).is_empty());
+        assert_eq!(vm.observations, before);
+        let report = vm.report();
+        assert!(report.contains("1970-01-01 00:00:10 UTC"));
+        assert!(report.contains("does not confirm that any external service is reachable"));
+        assert!(!report.contains("App verified MusicIndex"));
+    }
+
+    /// Situational ADR 0074: failures keep their routes and command availability.
+    #[test]
+    fn adr_0074_background_tools_keep_failure_routes_and_check_gates() {
+        let source = Dependency::Configuration("musicindex_endpoint");
+        let mut vm = CapabilityReportVm::new(
+            [(
+                source,
+                CapabilityObservation::new(source, Some(CapabilityFailure::Preparation)),
+            )]
+            .into_iter()
+            .collect(),
+            true,
+        );
+        let rows = vm.rows(true);
+        assert_eq!(rows[0].label, "musicindex_endpoint");
+        assert_eq!(
+            rows[0].actions[0].action,
+            CapabilityAction::Configure(source)
+        );
+        assert_eq!(
+            rows.iter()
+                .flat_map(|row| &row.actions)
+                .filter(
+                    |action| action.action == CapabilityAction::CheckAgain(Dependency::MusicIndex)
+                )
+                .count(),
+            1
+        );
+        assert_eq!(vm.rows(false).len(), 1);
+
+        let generation = vm.begin(Dependency::MusicIndex).unwrap();
+        for action in vm.rows(true).iter().flat_map(|row| &row.actions) {
+            match action.action {
+                CapabilityAction::CheckAgain(Dependency::MusicIndex) => {
+                    assert_eq!(action.availability, StartupAvailability::Working);
+                }
+                CapabilityAction::CheckAgain(_) => {
+                    assert_eq!(action.availability, StartupAvailability::Unavailable);
+                }
+                _ => {}
+            }
+        }
+        assert!(vm.complete(Dependency::MusicIndex, generation));
+        vm.observations.get_mut(&source).unwrap().failure = None;
+        vm.worker_available = false;
+        let rows = vm.rows(true);
+        assert!(rows.iter().any(|row| row.label == "MusicIndex"));
+        assert!(vm.rows(false).is_empty());
+        for action in rows.iter().flat_map(|row| &row.actions) {
+            assert_eq!(
+                action.availability,
+                if matches!(action.action, CapabilityAction::CheckAgain(_)) {
+                    StartupAvailability::Unavailable
+                } else {
+                    StartupAvailability::Available
+                }
+            );
+        }
+    }
+
     #[test]
     fn adr_0066_conversion_controls_preserve_subject_and_explain_explicit_redownload() {
         use crate::application::conversion_recovery::{ConversionReport, ConversionState};
@@ -913,7 +1074,16 @@ mod tests {
             vm.action(CapabilityAction::Retry(first)).availability,
             StartupAvailability::Unavailable
         );
-        assert_eq!(vm.rows(true).len(), 2);
+        assert_eq!(
+            vm.rows(true)
+                .iter()
+                .filter(|row| row
+                    .actions
+                    .iter()
+                    .any(|action| matches!(action.action, CapabilityAction::Verify(_))))
+                .count(),
+            2
+        );
         assert!(vm.report().contains("original search"));
         assert!(vm.report().contains("original track 44"));
         for dependency in [
@@ -991,7 +1161,10 @@ mod tests {
                 == StartupAvailability::Available
                 && !action.a11y_label.is_empty()));
         }
-        assert!(vm.rows(true).iter().all(|row| row.actions.len() == 2));
+        assert!(vm.rows(true).iter().all(|row| row
+            .actions
+            .iter()
+            .any(|action| matches!(action.action, CapabilityAction::CheckAgain(_)))));
         let report = vm.report();
         assert!(report.contains("1970-01-01 00:00:10 UTC"));
         assert!(report.contains("App could not start its background runtime"));

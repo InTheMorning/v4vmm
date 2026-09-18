@@ -6,12 +6,15 @@ use gpui::{div, prelude::*, App, IntoElement, SharedString, Window};
 use gpui_component::scroll::ScrollableElement;
 
 use crate::ui::composites::log_frame::{LogFrame, LogFrames};
-use crate::ui::composites::page_scroll_content::page_scroll_content;
+use crate::ui::composites::maintenance_page::{
+    instructions, MaintenancePage, PageCallback, PageMenu, PageNavigation,
+};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts;
 use crate::ui::primitives::Button;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Size, Spacing};
 use crate::view_models::log_view::LogSource;
+use crate::view_models::maintenance::RecoveryPage;
 use crate::view_models::startup::capabilities::{
     CapabilityAction, CapabilityActionDisplay, CapabilityReportVm,
 };
@@ -23,12 +26,14 @@ pub(crate) type CapabilityHandler = Rc<dyn Fn(CapabilityAction, &mut Window, &mu
 /// Shared Settings report and compact normal-shell notice.
 pub(crate) fn capability_report(
     vm: &CapabilityReportVm,
-    expanded: bool,
+    navigation: Option<PageNavigation>,
     logs: &LogFrames,
     handler: CapabilityHandler,
     cx: &App,
 ) -> Option<gpui::AnyElement> {
+    let expanded = navigation.is_some();
     let rows = vm.rows(expanded);
+    let mut commands = Vec::new();
     if !expanded && rows.is_empty() {
         return None;
     }
@@ -40,16 +45,8 @@ pub(crate) fn capability_report(
         .p(Spacing::MD.scaled(cx))
         .gap(Spacing::SM.scaled(cx))
         .bg(color(cx, SemanticColor::SecondarySystemBackground))
-        .text_color(color(cx, SemanticColor::Label));
-    if expanded {
-        body = body
-            .child(
-                div()
-                    .text_size(FontSize::Title3.scaled(cx))
-                    .child(CapabilityReportVm::TITLE),
-            )
-            .child(LogFrame::new(logs, LogSource::Background, vm.report()));
-    }
+        .text_color(color(cx, SemanticColor::Label))
+        .text_size(FontSize::Body.scaled(cx));
     for display in rows {
         let mut text = div()
             .min_w_0()
@@ -59,7 +56,7 @@ pub(crate) fn capability_report(
             .flex_col()
             .gap(Spacing::XS.scaled(cx))
             .whitespace_normal()
-            .child(display.label);
+            .child(display.label.clone());
         if let Some(help) = display.help {
             text = text.child(
                 div()
@@ -79,8 +76,20 @@ pub(crate) fn capability_report(
             .flex_wrap()
             .items_center()
             .gap(Spacing::SM.scaled(cx));
+        if expanded {
+            commands.push(
+                div()
+                    .text_size(FontSize::Caption.scaled(cx))
+                    .child(display.label.clone())
+                    .into_any_element(),
+            );
+        }
         for action in display.actions {
-            actions = actions.child(capability_button(action, handler.clone()));
+            if expanded {
+                commands.push(capability_button(action, handler.clone()).into_any_element());
+            } else {
+                actions = actions.child(capability_button(action, handler.clone()));
+            }
         }
         body = body.child(
             div()
@@ -93,12 +102,25 @@ pub(crate) fn capability_report(
                 .child(actions),
         );
     }
-    if expanded {
-        body = body.child(capability_button(
-            vm.action(CapabilityAction::CopyReport),
-            handler.clone(),
-        ));
-    } else if let Some(feedback) = vm.feedback() {
+    if let Some(navigation) = navigation {
+        commands.push(
+            capability_button(vm.action(CapabilityAction::CopyReport), handler.clone())
+                .into_any_element(),
+        );
+        return Some(
+            MaintenancePage::new(
+                CapabilityReportVm::TITLE,
+                navigation,
+                commands,
+                body.into_any_element(),
+                LogFrame::new(logs, LogSource::Background, vm.report())
+                    .fill()
+                    .into_any_element(),
+            )
+            .into_any_element(),
+        );
+    }
+    if let Some(feedback) = vm.feedback() {
         body = body.child(
             div()
                 .min_w_0()
@@ -106,9 +128,6 @@ pub(crate) fn capability_report(
                 .text_size(FontSize::Caption.scaled(cx))
                 .child(feedback),
         );
-    }
-    if expanded {
-        return Some(body.into_any_element());
     }
     Some(capability_notice(body, vm, handler, cx))
 }
@@ -174,19 +193,22 @@ fn capability_button(display: CapabilityActionDisplay, handler: CapabilityHandle
     .on_activate(move |window, cx| handler(action, window, cx))
 }
 
+pub(crate) struct RecoveryNavigation {
+    pub(crate) page: RecoveryPage,
+    pub(crate) select: PageCallback<RecoveryPage>,
+    pub(crate) startup: PageNavigation,
+}
+
 pub(crate) fn startup_report(
     vm: &StartupReportVm,
-    handler: Handler,
+    handler: &Handler,
     editor: Option<gpui::AnyElement>,
     database: Option<gpui::AnyElement>,
     logs: &LogFrames,
+    navigation: RecoveryNavigation,
     cx: &App,
 ) -> impl IntoElement {
-    let mut actions = div()
-        .flex()
-        .flex_wrap()
-        .gap(Spacing::SM.scaled(cx))
-        .flex_shrink_0();
+    let mut actions = Vec::new();
     for intent in [
         StartupAction::CheckAgain,
         StartupAction::OpenApp,
@@ -195,7 +217,7 @@ pub(crate) fn startup_report(
     ] {
         let display = vm.action(intent);
         let callback = handler.clone();
-        actions = actions.child(
+        actions.push(
             Button::styled(
                 SharedString::from(format!("startup-{intent:?}")),
                 if intent == StartupAction::OpenApp {
@@ -207,77 +229,82 @@ pub(crate) fn startup_report(
             .label(display.label)
             .a11y_label(display.a11y_label)
             .disabled(display.availability != StartupAvailability::Available)
-            .on_activate(move |window, cx| callback(intent, window, cx)),
+            .on_activate(move |window, cx| callback(intent, window, cx))
+            .into_any_element(),
         );
     }
-    let details = vm.action(StartupAction::Details);
-    let mut content = page_scroll_content(cx)
-        .gap(Spacing::MD.scaled(cx))
-        .child(
-            div()
-                .text_size(FontSize::Body.scaled(cx))
-                .child(vm.summary()),
-        )
-        .child(
-            Button::styled("startup-details", ControlStyle::Secondary)
-                .label(details.label)
-                .a11y_label(details.a11y_label)
-                .disabled(details.availability != StartupAvailability::Available)
-                .on_activate(move |window, cx| handler(StartupAction::Details, window, cx)),
-        );
-    if vm.details {
-        content = content.child(LogFrame::new(logs, LogSource::Startup, vm.report()));
-    }
-    if let Some(editor) = editor {
-        content = content.child(editor);
-    }
-    if let Some(database) = database {
-        content = content.child(database);
-    }
-    let body = div()
-        .id("startup-report-body")
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h_0()
-        .min_w_0()
-        .overflow_y_scrollbar()
-        .child(content);
     let mut heading = div()
         .flex()
-        .flex_col()
+        .flex_wrap()
+        .items_center()
         .flex_shrink_0()
         .min_w_0()
         .gap(Spacing::SM.scaled(cx))
-        .child(
-            div()
-                .text_size(FontSize::Title2.scaled(cx))
-                .child(vm.title()),
-        );
-    if let Some(feedback) = vm.feedback() {
-        // Keep the last completion above disclosure and the scrolling report.
+        .when(navigation.page == RecoveryPage::Startup, |heading| {
+            heading.child(
+                div()
+                    .text_size(FontSize::Headline.scaled(cx))
+                    .child(vm.title()),
+            )
+        })
+        .child(PageMenu::new(
+            "recovery-page-menu",
+            RecoveryPage::MENU_LABEL,
+            navigation.page.choices(),
+            navigation.select,
+        ));
+    if let Some(feedback) = vm
+        .feedback()
+        .filter(|_| navigation.page == RecoveryPage::Startup)
+    {
         heading = heading.child(
             div()
                 .id("startup-check-feedback")
                 .min_w_0()
                 .whitespace_normal()
-                .text_size(FontSize::Body.scaled(cx))
+                .text_size(FontSize::Caption.scaled(cx))
                 .child(feedback),
         );
     }
+    let content = match navigation.page {
+        RecoveryPage::Startup => Some(
+            MaintenancePage::new(
+                StartupReportVm::PAGE_TITLE,
+                navigation.startup,
+                actions,
+                instructions(cx).child(vm.summary()).into_any_element(),
+                LogFrame::new(logs, LogSource::Startup, vm.report())
+                    .fill()
+                    .into_any_element(),
+            )
+            .into_any_element(),
+        ),
+        RecoveryPage::Configuration => editor,
+        RecoveryPage::Database => database,
+    };
     div()
         .size_full()
         .min_w_0()
         .min_h_0()
         .flex()
         .flex_col()
-        .p(Spacing::LG.scaled(cx))
-        .gap(Spacing::MD.scaled(cx))
+        .p(Spacing::MD.scaled(cx))
+        .gap(Spacing::SM.scaled(cx))
         .bg(color(cx, SemanticColor::SystemBackground))
         .text_color(color(cx, SemanticColor::Label))
+        .text_size(FontSize::Body.scaled(cx))
+        .overflow_hidden()
         .child(heading)
-        .child(body)
-        .child(actions)
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h_0()
+                .min_w_0()
+                .overflow_hidden()
+                .children(content),
+        )
 }
 
 #[cfg(test)]
@@ -298,7 +325,7 @@ mod notice_tests {
                 .child(
                     capability_report(
                         &self.0,
-                        false,
+                        None,
                         &LogFrames::default(),
                         Rc::new(|_, _, _| {}),
                         cx,

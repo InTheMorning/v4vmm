@@ -70,7 +70,7 @@ impl TopApp {
         let entity = cx.weak_entity();
         capability_report(
             &self.capability_vm,
-            expanded,
+            expanded.then(|| self.maintenance_navigation(cx)),
             &self.log_frames,
             Rc::new(move |action, window, cx| {
                 let _ = entity.update(cx, |this, cx| this.capability_action(action, window, cx));

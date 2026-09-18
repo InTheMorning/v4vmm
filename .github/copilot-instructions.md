@@ -14,6 +14,7 @@ When you need to look something up, consult this map first to find the right fil
 | Exclusive database connection, retained source descriptors, private preservation copies and manifests | `src/db/maintenance/preservation.rs`; drained-session handoff in `src/application/commands/maintenance.rs` and `src/app/startup.rs` (ADR 0066 task 011) |
 | Reviewed restore candidates, fingerprints, preservation-first SQLite installation and rollback verification | `src/db/maintenance/restore.rs`; explicit session/config-bound command in `src/application/commands/maintenance.rs`; existing drain/resumption in `src/app/startup.rs` (ADR 0066 task 012) |
 | Narrow interrupted migration-11 schema recognition, normal migration boundaries and explicit repair/older-backup candidates | `src/db/upgrades.rs`, `src/db.rs`, `src/db/maintenance/restore.rs`; shared command/VM/database tools (ADR 0066 task 013) |
+| Repair/diagnostics page menus, separate instructions/report views and responsive action placement | `src/view_models/maintenance.rs`, `src/view_models/settings.rs`, `src/view_models/startup/database.rs`, `src/ui/composites/maintenance_page.rs`; shared menu-trigger focus in `src/ui/primitives/button.rs` (ADR 0074) |
 | Shared Settings/recovery database forms, typed reports and independent worker adapter | `src/view_models/startup/database.rs`, `src/presentation/database_tools.rs`, `src/ui/composites/maintenance_forms.rs` |
 | Config struct, TOML paths | `src/config.rs` |
 | Explicit configuration correction, drafts, backup and revision checks | `src/config/correction.rs`, `src/application/commands/maintenance.rs` (ADR 0066) |
@@ -24,7 +25,7 @@ When you need to look something up, consult this map first to find the right fil
 | Shared log frame, source identity, follow/pause and reading anchors | `src/ui/composites/log_frame.rs`, `src/view_models/log_view.rs`, `src/view_models/show.rs` (ADR 0063); app roots retain `LogFrames` |
 | Show log height priority and card overflow scrolling with logs closed or open, with independent sidebar | `src/view_models/show.rs`, `src/ui/composites/show_log_pane.rs`, `src/ui/composites/split_pane.rs`, `src/ui/shells/show.rs` (ADRs 0070/0073) |
 | Recovery/Settings page clearance for nested scrollbars | `src/ui/composites/page_scroll_content.rs`, `src/ui/layouts.rs` (ADR 0063) |
-| Scoped background issues and command remedies | `src/application/capability.rs`, `src/view_models/startup/capabilities.rs` |
+| Scoped background issues, persistent Diagnostics tool list and command remedies | `src/application/capability.rs`, `src/view_models/startup/capabilities.rs` |
 | Search failure explanation/disclosure; shared report URL redaction | `src/view_models/search_results/failure.rs`, `src/diagnostics.rs` |
 | Settings groups and field/action contracts; shared form/navigation and retained group scroll handles; screen wiring | `src/view_models/settings.rs`, `src/ui/composites/settings.rs`, `src/app/settings.rs` (ADR 0069) |
 | Settings cached-file query and saved observation | `src/application/queries/library.rs`, `src/view_models/cached_files.rs`, `src/app.rs` |

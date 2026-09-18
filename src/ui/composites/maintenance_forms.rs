@@ -6,6 +6,9 @@ use gpui::{div, prelude::*, AnyElement, App, Window};
 use gpui_component::StyleSized as _;
 
 use crate::ui::composites::log_frame::{LogFrame, LogFrames};
+use crate::ui::composites::maintenance_page::{
+    instructions, MaintenancePage, PageCallback, PageMenu, PageNavigation,
+};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts::{scaled_dimension, CONFIGURATION_EDITOR_HEIGHT};
 use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
@@ -26,11 +29,20 @@ pub(crate) fn configuration_correction(
     callback: &CorrectionCallback,
     logs: &LogFrames,
     disclosure_focus: &gpui::FocusHandle,
+    navigation: PageNavigation,
     cx: &App,
 ) -> AnyElement {
     use crate::view_models::startup::correction::{CorrectionAction, CorrectionVm};
     let close = vm.action(CorrectionAction::CloseEditor);
     let close_focus = disclosure_focus.clone();
+    let mut actions = Vec::new();
+    if vm.editor_open() {
+        actions.push(
+            correction_button(vm.action(CorrectionAction::CloseEditor), callback.clone())
+                .track_focus(disclosure_focus)
+                .into_any_element(),
+        );
+    }
     let mut body = div()
         .flex()
         .flex_col()
@@ -47,17 +59,19 @@ pub(crate) fn configuration_correction(
             },
         )
         .gap(Spacing::SM.scaled(cx))
-        .child(configuration_header(vm, callback, disclosure_focus, cx))
+        .text_size(FontSize::Body.scaled(cx))
         .child(div().whitespace_normal().child(CorrectionVm::EXPLANATION));
     if !vm.editor_open() {
-        body = body.child(
-            correction_button(vm.entry_action(), callback.clone()).track_focus(disclosure_focus),
+        actions.push(
+            correction_button(vm.entry_action(), callback.clone())
+                .track_focus(disclosure_focus)
+                .into_any_element(),
         );
     } else if vm.source.is_none() {
-        body = body.child(correction_button(
-            vm.action(CorrectionAction::Load),
-            callback.clone(),
-        ));
+        actions.push(
+            correction_button(vm.action(CorrectionAction::Load), callback.clone())
+                .into_any_element(),
+        );
     } else {
         let mut fields = div()
             .flex()
@@ -72,27 +86,17 @@ pub(crate) fn configuration_correction(
         }
         body = body.child(fields);
         if vm.converter_selected() {
-            use crate::view_models::startup::converter;
-            body = body
-                .child(
-                    div()
-                        .text_size(FontSize::Title3.scaled(cx))
-                        .child(converter::TITLE),
-                )
-                .child(div().whitespace_normal().child(vm.configured_converter()))
-                .child(div().whitespace_normal().child(converter::HELP))
-                .child(div().whitespace_normal().child(converter::INSTALLATION));
+            body = body.child(converter_help(vm, cx));
         }
         body = body
             .child(div().whitespace_normal().child(CorrectionVm::CLOSE_HELP))
             .child(div().whitespace_normal().child(vm.input_help()))
             .child(configuration_input_frame(vm, input, cx));
-        let mut actions = div().flex().flex_wrap().gap(Spacing::SM.scaled(cx));
         if vm.converter_selected() {
-            actions = actions.child(correction_button(
-                vm.action(CorrectionAction::TestConverter),
-                callback.clone(),
-            ));
+            actions.push(
+                correction_button(vm.action(CorrectionAction::TestConverter), callback.clone())
+                    .into_any_element(),
+            );
         }
         for action in [
             CorrectionAction::Validate,
@@ -100,58 +104,63 @@ pub(crate) fn configuration_correction(
             CorrectionAction::CopyDraft,
             CorrectionAction::Reload,
         ] {
-            actions = actions.child(correction_button(vm.action(action), callback.clone()));
+            actions.push(correction_button(vm.action(action), callback.clone()).into_any_element());
         }
         if vm.needs_maintenance() {
-            actions = actions.child(correction_button(
-                vm.action(CorrectionAction::EndSession),
-                callback.clone(),
-            ));
+            actions.push(
+                correction_button(vm.action(CorrectionAction::EndSession), callback.clone())
+                    .into_any_element(),
+            );
         }
-        body = body.child(actions);
     }
     if let Some(message) = vm.work_message() {
         body = body.child(div().whitespace_normal().child(message));
     }
-    if !vm.report.is_empty() {
-        body = body
-            .child(LogFrame::new(
-                logs,
-                LogSource::Configuration,
-                vm.report.clone(),
-            ))
-            .child(correction_button(
-                vm.action(CorrectionAction::CopyReport),
-                callback.clone(),
-            ));
-    }
-    body.into_any_element()
+    actions.push(
+        correction_button(vm.action(CorrectionAction::CopyReport), callback.clone())
+            .into_any_element(),
+    );
+    MaintenancePage::new(
+        CorrectionVm::TITLE,
+        navigation,
+        actions,
+        body.into_any_element(),
+        configuration_report(vm, logs).into_any_element(),
+    )
+    .into_any_element()
 }
 
-fn configuration_header(
+fn configuration_report(
     vm: &crate::view_models::startup::correction::CorrectionVm,
-    callback: &CorrectionCallback,
-    disclosure_focus: &gpui::FocusHandle,
-    cx: &App,
+    logs: &LogFrames,
 ) -> gpui::Div {
-    use crate::view_models::startup::correction::{CorrectionAction, CorrectionVm};
     div()
         .flex()
-        .flex_wrap()
-        .items_center()
-        .justify_between()
-        .gap(Spacing::SM.scaled(cx))
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
+        .children(
+            vm.work_message()
+                .map(|message| div().whitespace_normal().child(message)),
+        )
+        .child(LogFrame::new(logs, LogSource::Configuration, vm.report.clone()).fill())
+}
+
+fn converter_help(
+    vm: &crate::view_models::startup::correction::CorrectionVm,
+    cx: &App,
+) -> gpui::Div {
+    use crate::view_models::startup::converter;
+    instructions(cx)
         .child(
             div()
-                .text_size(FontSize::Title3.scaled(cx))
-                .child(CorrectionVm::TITLE),
+                .text_size(FontSize::Headline.scaled(cx))
+                .child(converter::TITLE),
         )
-        .when(vm.editor_open(), |header| {
-            header.child(
-                correction_button(vm.action(CorrectionAction::CloseEditor), callback.clone())
-                    .track_focus(disclosure_focus),
-            )
-        })
+        .child(vm.configured_converter())
+        .child(converter::HELP)
+        .child(converter::INSTALLATION)
 }
 
 fn configuration_input_frame(
@@ -207,29 +216,22 @@ pub(crate) fn session_entry(
     previous_report: &str,
     logs: &LogFrames,
     callback: SessionCallback,
+    navigation: PageNavigation,
     cx: &App,
 ) -> AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .min_w_0()
-        .gap(Spacing::SM.scaled(cx))
-        .child(
-            div()
-                .text_size(FontSize::Title3.scaled(cx))
-                .child(SessionReportVm::TITLE),
-        )
-        .child(
-            div()
-                .whitespace_normal()
-                .child(SessionReportVm::EXPLANATION),
-        )
-        .child(div().child(SessionReportVm::generation_label(generation)))
-        .child(session_button(display, callback))
-        .when(!previous_report.is_empty(), |body| {
-            body.child(LogFrame::new(logs, LogSource::Session, previous_report))
-        })
-        .into_any_element()
+    MaintenancePage::new(
+        SessionReportVm::TITLE,
+        navigation,
+        vec![session_button(display, callback).into_any_element()],
+        instructions(cx)
+            .child(SessionReportVm::EXPLANATION)
+            .child(SessionReportVm::generation_label(generation))
+            .into_any_element(),
+        LogFrame::new(logs, LogSource::Session, previous_report)
+            .fill()
+            .into_any_element(),
+    )
+    .into_any_element()
 }
 
 pub(crate) fn session_drain(
@@ -288,77 +290,66 @@ pub(crate) fn database_tools(
     inputs: [&gpui::Entity<gpui_component::input::InputState>; 3],
     callback: &DatabaseCallback,
     logs: &LogFrames,
+    navigation: PageNavigation,
+    task_callback: &PageCallback<crate::view_models::startup::database::DatabaseTask>,
     cx: &App,
 ) -> AnyElement {
-    use crate::view_models::startup::database::{DatabaseAction, DatabaseVm};
-    let mut body = div()
-        .flex()
-        .flex_col()
-        .flex_shrink_0()
-        .w_full()
-        .min_w_0()
-        .gap(Spacing::SM.scaled(cx))
+    use crate::view_models::startup::database::{DatabaseAction, DatabaseField, DatabaseVm};
+    let mut body = instructions(cx)
+        .child(div().whitespace_normal().child(vm.task.help()))
         .child(
             div()
-                .text_size(FontSize::Title3.scaled(cx))
-                .child(DatabaseVm::TITLE),
-        )
-        .child(div().whitespace_normal().child(DatabaseVm::SCOPE))
-        .child(div().whitespace_normal().child(DatabaseVm::HELP))
-        .child(div().whitespace_normal().child(DatabaseVm::PRESERVATION));
-    for (label, input) in [
-        DatabaseVm::SOURCE,
-        DatabaseVm::DESTINATION,
-        DatabaseVm::RESTORE_SOURCE,
-    ]
-    .into_iter()
-    .zip(inputs)
-    {
-        body = body.child(div().whitespace_normal().child(label)).child(
-            div().w_full().min_w_0().flex().flex_row().child(
-                gpui_component::input::Input::new(input)
-                    .scaled(gpui_component::Size::Small, cx)
-                    .flex_1()
-                    .min_w_0()
-                    .disabled(!vm.input_enabled())
-                    .input_text_size(crate::ui::sizable_bridge::scaled(
-                        gpui_component::Size::Small,
-                        cx,
-                    ))
-                    .with_primary_selection(input),
-            ),
+                .whitespace_normal()
+                .text_size(FontSize::Caption.scaled(cx))
+                .child(DatabaseVm::SCOPE),
         );
+    for &field in vm.task.fields() {
+        let label = match field {
+            DatabaseField::Source => DatabaseVm::SOURCE,
+            DatabaseField::Destination => vm.task.destination_label(),
+            DatabaseField::RestoreSource => DatabaseVm::RESTORE_SOURCE,
+        };
+        let input = inputs[field as usize];
+        body = body
+            .child(div().text_size(FontSize::Caption.scaled(cx)).child(label))
+            .child(
+                div().w_full().min_w_0().flex().flex_row().child(
+                    gpui_component::input::Input::new(input)
+                        .scaled(gpui_component::Size::Small, cx)
+                        .flex_1()
+                        .min_w_0()
+                        .disabled(!vm.input_enabled())
+                        .input_text_size(crate::ui::sizable_bridge::scaled(
+                            gpui_component::Size::Small,
+                            cx,
+                        ))
+                        .with_primary_selection(input),
+                ),
+            );
     }
-    body = body
-        .child(div().whitespace_normal().child(DatabaseVm::RESTORE_HELP))
-        .child(div().whitespace_normal().child(DatabaseVm::UPGRADE_HELP));
+    body = body.child(
+        div()
+            .text_size(FontSize::Caption.scaled(cx))
+            .child(vm.task.limits()),
+    );
     if let Some(confirmation) = vm.restore_confirmation() {
-        body = body.child(div().whitespace_normal().child(confirmation));
+        if vm.task == crate::view_models::startup::database::DatabaseTask::Restore {
+            body = body.child(div().whitespace_normal().child(confirmation));
+        }
     }
-    let mut actions = div()
-        .flex()
-        .flex_wrap()
-        .min_w_0()
-        .gap(Spacing::SM.scaled(cx));
-    for action in [
-        DatabaseAction::ConfiguredSource,
-        DatabaseAction::Check,
-        DatabaseAction::Backup,
-        DatabaseAction::EndSession,
-        DatabaseAction::Preserve,
-        DatabaseAction::ReviewRestore,
-        DatabaseAction::UpgradeBackup,
-        DatabaseAction::RepairUpgrade,
-        DatabaseAction::Restore,
-        DatabaseAction::Cancel,
-        DatabaseAction::CopyReport,
-    ] {
+    let mut actions = Vec::new();
+    for &action in vm
+        .task
+        .actions()
+        .iter()
+        .chain([DatabaseAction::Cancel, DatabaseAction::CopyReport].iter())
+    {
         let display = vm.action(action);
         if !display.visible {
             continue;
         }
         let callback = callback.clone();
-        actions = actions.child(
+        actions.push(
             Button::styled(
                 gpui::SharedString::from(format!("database-{:?}", display.action)),
                 if display.destructive {
@@ -370,15 +361,27 @@ pub(crate) fn database_tools(
             .label(display.label)
             .a11y_label(display.a11y_label)
             .disabled(display.availability != StartupAvailability::Available)
-            .on_activate(move |window, cx| callback(action, window, cx)),
+            .on_activate(move |window, cx| callback(action, window, cx))
+            .into_any_element(),
         );
     }
-    body = body.child(actions);
+    let mut report = div().flex().flex_col().flex_1().min_h_0().min_w_0();
     if let Some(message) = vm.working_message() {
-        body = body.child(div().whitespace_normal().child(message));
+        report = report.child(div().whitespace_normal().child(message));
     }
-    if !vm.report.is_empty() {
-        body = body.child(LogFrame::new(logs, LogSource::Database, vm.report.clone()));
-    }
-    body.into_any_element()
+    report = report.child(LogFrame::new(logs, LogSource::Database, vm.report.clone()).fill());
+    MaintenancePage::new(
+        DatabaseVm::TITLE,
+        navigation,
+        actions,
+        body.into_any_element(),
+        report.into_any_element(),
+    )
+    .selector(PageMenu::new(
+        "database-task-menu",
+        DatabaseVm::TASK_MENU,
+        vm.task.choices(),
+        task_callback.clone(),
+    ))
+    .into_any_element()
 }

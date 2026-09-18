@@ -96,17 +96,20 @@ Settings/recovery normal/narrow presentation, report copy, input-change
 protection, same-window resumption and both preservation inspections are
 accepted; cleanup of all three operator fixtures is confirmed. Its
 [procedure](docs/runbooks/startup-recovery-check.md#task-012-database-restore)
-remains a regression check. Task 013 implementation is complete; operator acceptance remains open.
+remains a regression check. Task 013 is complete, including operator acceptance, preservation and cleanup.
 
 [Task 013: Interrupted upgrade repair](docs/tasks/adr-0066-task-013-interrupted-upgrade-repair.md)
-is implemented on 2026-09-17; mechanical checks are Green. Its
-[operator procedure](docs/runbooks/startup-recovery-check.md#task-013-interrupted-upgrade-repair)
-covers migration-11 recognition, preservation-first candidate repair, failed
-installation, explicit older-backup upgrade and unsupported-schema refusal.
-Operator V1–V3, normal/narrow presentation, report copy, preservation and cleanup
-remain open. ADR 0066 stays Accepted until task 004 and task 013 gates pass;
-configuration-format changes and deferred item 7 remain behind that full gate.
-No successor implementation phase is authorized by this packet.
+is complete on 2026-09-18 with mechanical checks Green.
+Operator V1–V3, Settings/recovery presentation and both final preservation
+inspections are accepted. The
+[ADR 0074 page correction](docs/adr/0074-repair-and-diagnostics-pages.md) is
+Implemented. Its visual gate is accepted, including normal/narrow and short
+heights, Settings XL scale in both themes, report copy, scrolling, retained
+inputs and preference restoration. Cleanup of both fixtures is confirmed. The
+[focused check](docs/runbooks/startup-recovery-check.md#repair-and-diagnostics-pages--adr-0074)
+remains a regression procedure.
+Use the asd-ste100 skill for repair and diagnostics text. ADR 0066 stays Accepted.
+Task 004 retains its independent gate. Configuration-format work stays gated.
 
 [ADR 0063 task 005](docs/tasks/adr-0063-task-005-shared-log-frames-and-following.md)
 is complete on 2026-09-13 with mechanical checks Green, V1–V3 operator checks,
@@ -125,7 +128,7 @@ and Linux primary paste across shared logs and inputs. The completed log packet
 stays closed. Its separate [operator procedure](docs/runbooks/text-selection-check.md)
 covers Unicode, paths, cross-application paste, Undo/Redo and accepted Escape.
 ADR 0066 tasks 007–012 are complete, including operator acceptance, preservation
-and cleanup. Task 013 implementation is complete; operator acceptance remains open.
+and cleanup. Task 013 is complete, including operator acceptance, preservation and cleanup.
 
 [ADR 0068: Show cue and audition isolation](docs/adr/0068-show-cue-and-audition-isolation.md)
 is Proposed; its implementation has not started. Task 004's playback checks

@@ -4,6 +4,10 @@
 
 Implemented - 2026-09-13.
 
+Reconciled 2026-09-18: [ADR 0074](0074-repair-and-diagnostics-pages.md) replaces
+nested Settings/recovery reports with separate pages during task 013 acceptance.
+The shared log owner and this packet's accepted behavior remain.
+
 Reconciled 2026-09-13: task 005 is complete with mechanical checks Green,
 operator V1–V3 and editor follow-ups accepted, final preservation accepted and
 all fixture cleanup confirmed. The shared-log amendment's gate is closed.
@@ -223,18 +227,13 @@ logical line and its offset where that line survives. If replacement or trimming
 removes it, show the earliest available content and a visible explanation while
 remaining paused. Horizontal position is independent of vertical following.
 Wheel events over the log viewport affect only that viewport, including at its
-scroll limits or when its text does not overflow. Scrolling outside the viewport
-continues to move the containing page.
-
-Recovery and Settings pages reserve a separate right gutter for their page
-scrollbar through one shared page-content composite. Nested editors and log
-frames fit inside that gutter, so their scrollbar tracks cannot coincide with
-the page's track. The gutter covers the component's scrollbar hit width plus
-scaled separation at every supported UI scale. Editor typography, caret
+scroll limits or when its text does not overflow. ADR 0074 places Settings and
+recovery logs in a separate Report view with no containing page scroll view.
+Its shared maintenance composite owns instruction scrolling and action placement.
+Other pages retain the shared scrollbar gutter. Editor typography, caret
 scrolling and document-editing semantics remain with the existing input owner.
-Settings content fills the available width, and each Settings group retains its
-own page scroll position as specified by the ADR 0069 amendment. These page
-positions remain independent of the log reading positions inside them.
+General and Library keep their independent Settings scroll positions under
+ADR 0069. Log reading positions remain independent of instruction scrolling.
 
 ADR 0070 bounds this shared footer at narrow widths: the measured unscaled
 viewport selects either the full labels or compact state plus an icon-only

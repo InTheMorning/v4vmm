@@ -5,6 +5,7 @@
 use crate::config::UiScale;
 use crate::theme_profile::ThemeProfile;
 
+use super::maintenance::{MaintenanceView, PageChoice};
 use super::startup::StartupAvailability;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -44,6 +45,47 @@ impl SettingsGroup {
     }
 }
 
+/// One Diagnostics page is mounted at a time (ADR 0074).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum DiagnosticPage {
+    #[default]
+    Database,
+    Configuration,
+    Background,
+    Session,
+    CachedFiles,
+}
+
+impl DiagnosticPage {
+    pub(crate) const ALL: [Self; 5] = [
+        Self::Database,
+        Self::Configuration,
+        Self::Background,
+        Self::Session,
+        Self::CachedFiles,
+    ];
+
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Database => "Database",
+            Self::Configuration => "Configuration",
+            Self::Background => "Background tools",
+            Self::Session => "App session",
+            Self::CachedFiles => "Cached files",
+        }
+    }
+
+    pub(crate) const fn contents(self) -> &'static [SettingsContent] {
+        match self {
+            Self::Database => &[SettingsContent::DatabaseTools],
+            Self::Configuration => &[],
+            Self::Background => &[SettingsContent::BackgroundReports],
+            Self::Session => &[SettingsContent::SessionMaintenance],
+            Self::CachedFiles => &[SettingsContent::CachedFiles],
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SettingsContent {
     Scale,
@@ -77,7 +119,7 @@ impl SettingsContent {
             Self::Scale => "Scales the interface. Applies immediately; click Save to persist.",
             Self::Theme => "Applies immediately. Click Save to persist.",
             Self::Endpoint => "Use api.musicindex.org or a full http/https URL.",
-            Self::MusicDirectory => "Current session folder. Use Configuration repair below to test and save a different existing folder after ending this session.",
+            Self::MusicDirectory => "Current session folder. Open Configuration repair to test and save a different existing folder after ending this session.",
             Self::FlacPath => "Test FLAC and ffmpeg availability, edit the FLAC executable path, and save it with an original-file backup in Converter setup.",
             Self::BackgroundReports | Self::CachedFiles | Self::SessionMaintenance | Self::DatabaseTools => "",
         }
@@ -91,6 +133,8 @@ pub(crate) enum SettingsAction {
     OpenRepair,
     OpenConverter,
     SelectGroup(SettingsGroup),
+    SelectDiagnostic(DiagnosticPage),
+    SelectView(MaintenanceView),
     Save,
     UseDefaults,
     SetScale(UiScale),
@@ -121,23 +165,35 @@ pub(crate) struct SettingsActionDisplay {
 #[derive(Debug, Default)]
 pub(crate) struct SettingsVm {
     selected: SettingsGroup,
-    repair_first: bool,
+    diagnostic: DiagnosticPage,
+    views: [MaintenanceView; 5],
 }
 
 impl SettingsVm {
     pub(crate) const TITLE: &'static str = "Settings";
+    pub(crate) const GROUP_MENU: &'static str = "Choose settings group";
+    pub(crate) const DIAGNOSTIC_MENU: &'static str = "Choose diagnostics page";
     pub(crate) const SAVE_SCOPE: &'static str =
         "Save applies General and Library controls together. Use Defaults resets and saves these controls; core paths use Configuration repair.";
 
     pub(crate) const fn shows_configuration_repair(&self) -> bool {
-        matches!(
-            self.selected,
-            SettingsGroup::Library | SettingsGroup::Diagnostics
-        )
+        matches!(self.selected, SettingsGroup::Diagnostics)
+            && matches!(self.diagnostic, DiagnosticPage::Configuration)
     }
 
-    pub(crate) const fn repair_first(&self) -> bool {
-        self.repair_first
+    pub(crate) const fn diagnostic(&self) -> DiagnosticPage {
+        self.diagnostic
+    }
+
+    pub(crate) const fn view(&self) -> MaintenanceView {
+        self.views[self.diagnostic as usize]
+    }
+
+    pub(crate) const fn contents(&self) -> &'static [SettingsContent] {
+        match self.selected {
+            SettingsGroup::Diagnostics => self.diagnostic.contents(),
+            group => group.contents(),
+        }
     }
 
     pub(crate) const fn selected(&self) -> SettingsGroup {
@@ -157,17 +213,25 @@ impl SettingsVm {
             SettingsAction::OpenConverter => SettingsEffect::ConfigureConverter,
             SettingsAction::OpenRepair => {
                 self.selected = SettingsGroup::Diagnostics;
-                self.repair_first = true;
+                self.diagnostic = DiagnosticPage::Configuration;
                 SettingsEffect::Navigate
             }
             SettingsAction::OpenReport => {
-                self.repair_first = false;
+                self.diagnostic = DiagnosticPage::Background;
+                self.views[self.diagnostic as usize] = MaintenanceView::Report;
                 self.selected = SettingsGroup::Diagnostics;
                 SettingsEffect::Navigate
             }
             SettingsAction::SelectGroup(group) => {
-                self.repair_first = false;
                 self.selected = group;
+                SettingsEffect::Navigate
+            }
+            SettingsAction::SelectDiagnostic(page) => {
+                self.diagnostic = page;
+                SettingsEffect::Navigate
+            }
+            SettingsAction::SelectView(view) => {
+                self.views[self.diagnostic as usize] = view;
                 SettingsEffect::Navigate
             }
             SettingsAction::Save => SettingsEffect::Save,
@@ -177,26 +241,41 @@ impl SettingsVm {
         }
     }
 
-    pub(crate) fn navigation(&self) -> Vec<SettingsActionDisplay> {
+    pub(crate) fn navigation(&self) -> Vec<PageChoice<SettingsAction>> {
         SettingsGroup::ALL
             .into_iter()
-            .map(|group| SettingsActionDisplay {
-                action: SettingsAction::SelectGroup(group),
-                id: format!("settings-group-{}", group.label()),
-                label: group.label().into(),
-                a11y_label: format!(
-                    "Open {} settings{}",
+            .map(|group| {
+                PageChoice::new(
+                    SettingsAction::SelectGroup(group),
                     group.label(),
-                    if self.selected == group {
-                        ", selected"
-                    } else {
-                        ""
-                    }
-                ),
-                availability: StartupAvailability::Available,
-                selected: self.selected == group,
+                    self.selected == group,
+                )
             })
             .collect()
+    }
+
+    pub(crate) fn diagnostic_navigation(&self) -> Vec<PageChoice<SettingsAction>> {
+        DiagnosticPage::ALL
+            .into_iter()
+            .map(|page| {
+                PageChoice::new(
+                    SettingsAction::SelectDiagnostic(page),
+                    page.label(),
+                    page == self.diagnostic,
+                )
+            })
+            .collect()
+    }
+
+    pub(crate) fn repair_entry() -> Vec<SettingsActionDisplay> {
+        vec![SettingsActionDisplay {
+            action: SettingsAction::OpenRepair,
+            id: "settings-configuration-page".into(),
+            label: "Configuration repair".into(),
+            a11y_label: "Open Configuration repair".into(),
+            availability: StartupAvailability::Available,
+            selected: false,
+        }]
     }
 
     pub(crate) fn converter_setup() -> Vec<SettingsActionDisplay> {
@@ -284,12 +363,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn adr_0074_diagnostics_selects_one_page_without_edit_effects() {
+        let mut vm = SettingsVm::default();
+        vm.dispatch(SettingsAction::SelectGroup(SettingsGroup::Diagnostics));
+        for page in DiagnosticPage::ALL {
+            assert_eq!(
+                vm.dispatch(SettingsAction::SelectDiagnostic(page)),
+                SettingsEffect::Navigate
+            );
+            assert!(vm.contents().len() <= 1);
+            assert_eq!(
+                vm.shows_configuration_repair(),
+                page == DiagnosticPage::Configuration
+            );
+            assert_eq!(
+                vm.dispatch(SettingsAction::SelectView(MaintenanceView::Report)),
+                SettingsEffect::Navigate
+            );
+            assert!(vm.edit_actions(true).is_empty());
+        }
+        for page in DiagnosticPage::ALL {
+            vm.dispatch(SettingsAction::SelectDiagnostic(page));
+            assert_eq!(vm.view(), MaintenanceView::Report);
+        }
+        vm.dispatch(SettingsAction::OpenRepair);
+        assert_eq!(vm.diagnostic(), DiagnosticPage::Configuration);
+        vm.dispatch(SettingsAction::OpenReport);
+        assert_eq!(vm.diagnostic(), DiagnosticPage::Background);
+    }
+
+    #[test]
     fn adr_0069_group_contract_has_stable_membership_and_accessible_actions() {
         let mut vm = SettingsVm::default();
         let ids = vm
             .navigation()
             .into_iter()
-            .map(|item| item.id)
+            .map(|item| item.value)
             .collect::<Vec<_>>();
         assert_eq!(vm.selected(), SettingsGroup::General);
         for group in SettingsGroup::ALL {
@@ -299,14 +408,14 @@ mod tests {
             );
             let navigation = vm.navigation();
             assert_eq!(
-                navigation.iter().map(|item| &item.id).collect::<Vec<_>>(),
+                navigation
+                    .iter()
+                    .map(|item| &item.value)
+                    .collect::<Vec<_>>(),
                 ids.iter().collect::<Vec<_>>()
             );
             assert_eq!(
-                navigation
-                    .iter()
-                    .map(|item| item.label.as_str())
-                    .collect::<Vec<_>>(),
+                navigation.iter().map(|item| item.label).collect::<Vec<_>>(),
                 ["General", "Library", "Diagnostics"]
             );
             assert_eq!(navigation.iter().filter(|item| item.selected).count(), 1);
@@ -315,7 +424,7 @@ mod tests {
                 assert!(!item.a11y_label.is_empty());
                 assert_eq!(
                     item.selected,
-                    item.action == SettingsAction::SelectGroup(group)
+                    item.value == SettingsAction::SelectGroup(group)
                 );
             }
         }

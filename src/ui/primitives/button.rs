@@ -367,8 +367,6 @@ impl Button {
 
 impl RenderOnce for Button {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let height = self.height(cx);
-        let pad = self.px_inset().scaled(cx);
         let min_hit_target = Self::min_hit_target(cx);
         let font = self
             .font_size
@@ -395,8 +393,8 @@ impl RenderOnce for Button {
             .flex_row()
             .items_center()
             .gap(Spacing::XS.scaled(cx))
-            .h(height)
-            .px(pad)
+            .h(self.height(cx))
+            .px(self.px_inset().scaled(cx))
             .rounded(radius)
             .bg(bg)
             .text_color(fg)
@@ -455,16 +453,20 @@ impl RenderOnce for Button {
                     handler(event, window, cx);
                 });
             }
-            if let Some(handler) = on_activate {
+            // Menu triggers delegate activation to their popover, but keep
+            // the shared focus chrome and tab stop (ADR 0074).
+            if on_activate.is_some() || focus.is_some() {
                 hit_target = keyboard_button_focus(hit_target, appearance, focus, cx)
                     .tab_index(0)
-                    .rounded(radius)
-                    .on_key_down(move |event, window, cx| {
-                        if keyboard_activation_key(event) {
-                            cx.stop_propagation();
-                            handler(window, cx);
-                        }
-                    });
+                    .rounded(radius);
+            }
+            if let Some(handler) = on_activate {
+                hit_target = hit_target.on_key_down(move |event, window, cx| {
+                    if keyboard_activation_key(event) {
+                        cx.stop_propagation();
+                        handler(window, cx);
+                    }
+                });
             }
         }
 

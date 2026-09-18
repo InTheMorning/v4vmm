@@ -25,10 +25,15 @@ use crate::ui::composites::startup_report::startup_report;
 use crate::view_models::startup::session::{SessionAction, SessionReportVm};
 use crate::view_models::startup::{StartupAction, StartupAvailability, StartupReportVm};
 
+use crate::ui::composites::maintenance_page::PageNavigation;
+use crate::ui::composites::startup_report::RecoveryNavigation;
+use crate::view_models::maintenance::RecoveryPage;
+
 use super::{bootstrap, TopApp};
 
 pub(super) struct StartupScreen {
     vm: StartupReportVm,
+    page_scroll: gpui::ScrollHandle,
     log_frames: crate::ui::composites::log_frame::LogFrames,
     worker: Option<MaintenanceClient>,
     backend: Arc<Mutex<StartupBackend>>,
@@ -56,6 +61,7 @@ impl StartupScreen {
         }
         Self {
             vm,
+            page_scroll: gpui::ScrollHandle::default(),
             log_frames: crate::ui::composites::log_frame::LogFrames::default(),
             worker,
             backend: Arc::new(Mutex::new(StartupBackend::new(None))),
@@ -79,6 +85,7 @@ impl StartupScreen {
             window.defer(cx, move |window, cx| {
                 let _ = parent.update(cx, |this, cx| match event {
                     CorrectionEvent::EndSession => {
+                        this.vm.page = RecoveryPage::Configuration;
                         this.session_action(SessionAction::EndSession, window, cx);
                     }
                     CorrectionEvent::Saved(snapshot, dependencies) => {
@@ -114,12 +121,14 @@ impl StartupScreen {
             window.defer(cx, move |window, cx| {
                 let _ = parent.update(cx, |this, cx| match event {
                     DatabaseEvent::EndSession => {
+                        this.vm.page = RecoveryPage::Database;
                         this.session_action(SessionAction::EndSession, window, cx);
                     }
                     DatabaseEvent::Preserve(generation, command) => {
                         this.preserve_database(generation, command, window, cx);
                     }
                     DatabaseEvent::Restore(generation, command) => {
+                        this.vm.page = RecoveryPage::Database;
                         if this.normal.is_some() {
                             this.pending_restore = Some((generation, command));
                             this.session_action(SessionAction::EndSession, window, cx);
@@ -166,10 +175,6 @@ impl StartupScreen {
         match action {
             StartupAction::CopyReport => {
                 cx.write_to_clipboard(ClipboardItem::new_string(self.vm.report()));
-            }
-            StartupAction::Details => {
-                self.vm.details = !self.vm.details;
-                cx.notify();
             }
             StartupAction::Quit => {
                 self.vm.close();
@@ -658,16 +663,41 @@ impl Render for StartupScreen {
                 .database_tools
                 .as_ref()
                 .is_some_and(|tools| tools.read(cx).vm.is_working());
+        let owner = cx.weak_entity();
+        let select_page = Rc::new(move |page, _: &mut Window, cx: &mut gpui::App| {
+            let _ = owner.update(cx, |this, cx| {
+                this.vm.page = page;
+                cx.notify();
+            });
+        });
+        let owner = cx.weak_entity();
+        let select_view = Rc::new(move |view, _: &mut Window, cx: &mut gpui::App| {
+            let _ = owner.update(cx, |this, cx| {
+                this.vm.view = view;
+                cx.notify();
+            });
+        });
         startup_report(
             &self.vm,
-            Rc::new(move |action, window, cx| {
-                let _ = entity.update(cx, |this, cx| this.action(action, window, cx));
-            }),
+            &(Rc::new(
+                move |action: StartupAction, window: &mut Window, cx: &mut gpui::App| {
+                    let _ = entity.update(cx, |this, cx| this.action(action, window, cx));
+                },
+            ) as Rc<dyn Fn(StartupAction, &mut Window, &mut gpui::App)>),
             self.editor.clone().map(IntoElement::into_any_element),
             self.database_tools
                 .clone()
                 .map(IntoElement::into_any_element),
             &self.log_frames,
+            RecoveryNavigation {
+                page: self.vm.page,
+                select: select_page,
+                startup: PageNavigation {
+                    view: self.vm.view,
+                    select: select_view,
+                    scroll: self.page_scroll.clone(),
+                },
+            },
             cx,
         )
         .into_any_element()

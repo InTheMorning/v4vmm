@@ -23,7 +23,7 @@ Task 009 is complete on 2026-09-17 with mechanical checks Green; operator V1–V
 normal/narrow presentation, configuration restoration, preservation and fixture
 cleanup are accepted. Tasks 010–011 are complete on 2026-09-17 with mechanical
 checks Green, operator acceptance, preservation and cleanup confirmed;
-task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 is implemented with operator V1–V3, presentation, preservation and cleanup open.
+task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 is complete on 2026-09-18 with operator V1–V3, presentation, preservation and cleanup accepted.
 
 Read the [ADR](../adr/0066-configuration-and-startup-failure-recovery.md),
 [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md), active packet and
@@ -1476,7 +1476,8 @@ gates are unchanged. Task 012 requires a fresh session.
 
 Scope: [database restore](../tasks/adr-0066-task-012-database-restore.md#implementation-and-proof).
 Mechanical checks are Green. Operator V1–V3, presentation, preservation and
-cleanup are accepted on 2026-09-17. Task 012 is complete; task 013 is unstarted.
+cleanup are accepted on 2026-09-17. Task 012 is complete. Task 013's later
+completion is recorded in its review below.
 
 The packet records C1–C5's actual behavior tests and situational guard. Review
 binds candidate/source fingerprints, configured destination records/inode,
@@ -1520,15 +1521,16 @@ cleanup of `nzvj4k26`, `vbz7ithx` and the additional `eloo_1ay` fixture was
 confirmed. A mismatched fixture path was corrected after review exposed the
 running app's configured destination; the runbook retains that explicit check.
 Task 012's pending-human entry is removed. Task 004 and inherited gates are
-unchanged; ADR 0066 remains Accepted and partial. Task 013 remains unstarted.
+unchanged; ADR 0066 remains Accepted and partial. Task 013's later completion is
+recorded in its review below.
 
 
 ## Task 013 Review — 2026-09-17
 
 Scope: [interrupted upgrade repair](../tasks/adr-0066-task-013-interrupted-upgrade-repair.md#implementation-and-proof).
 Implementation is complete; final mechanical checks are Green.
-Operator V1–V3, presentation, report copy, same-window resumption, both
-preservation inspections and cleanup remain open.
+Operator V1–V3, presentation, report copy, same-window resumption and both
+preservation inspections are accepted on 2026-09-18. Fixture cleanup is confirmed.
 
 Validation: **Green** — 1,476 unit tests, 259 architecture guards, 39 Python
 fixture tests, formatting, check, strict production Clippy and a normal desktop
@@ -1587,7 +1589,7 @@ is reopened by this packet.
 | 8, window failure fallback | Task 002 `adr_0066_window_failure_and_closed_window_exit_but_activation_is_nonfatal` and `adr_0066_window_manager_close_queues_quit` |
 | 9, explicit fresh retry | Tasks 006–009 proof inventories; `adr_0066_recovery_controls_explain_effect_and_completion` and `adr_0066_converter_checks_are_refreshable` |
 
-Tasks 001–003 and 005–012 are complete with their applicable operator acceptance,
+Tasks 001–003 and 005–013 are complete with their applicable operator acceptance,
 preservation and cleanup. Task 004 retains its surviving independent checks and
 paused playback gate; task 007 supersedes its disabled-only remediation
 presentation without accepting blocked playback. ADRs 0063/0070 and 0071/0072
@@ -1595,9 +1597,24 @@ keep their completed log/text-selection gates; ADR 0073 keeps its accepted Show
 overflow follow-up. Inherited scrolling, identity/detail parity, toolbar,
 playlist reordering and metadata gates remain in the pending-human index.
 
-Task 013 adds only its new V1–V3 gate. Its procedure/prompt are retired for actual
-proof symbols, and all current status/index owners point to that open gate.
+Task 013's V1–V3 and ADR 0074 presentation gates are closed. Its procedure/prompt
+are retired for actual proof symbols, and current status/index owners record
+operator acceptance, preservation and cleanup. Task 004 retains its open gate.
 ADR 0066 remains **Accepted, partial**. Deferred item 6 remains open; item 7 and
 new persisted configuration formats remain dependent on full acceptance.
 No relay or successor implementation phase started. This packet makes no claim
 that all repository human checks are closed.
+
+### Task 013 Presentation Follow-Up — 2026-09-18
+
+The operator rejected the inline presentation after V3's read-only reports.
+[ADR 0074](../adr/0074-repair-and-diagnostics-pages.md) records the shared page
+correction. Mechanical checks are Green: 1,484 unit tests, 259 guards, formatting, check,
+strict Clippy and the normal desktop build. The task packet records the evidence. Existing
+repair behavior remains accepted where recorded. Operator V1–V3 and the
+replacement visual gate are accepted. This includes recovery report copy,
+unsupported-schema refusal, absent repair action and disabled Open app after
+Check again. The operator reported both final preservation inspections as
+passed, without supplying their raw JSON outputs. The operator confirmed that
+both cleanup commands printed Removed fixture. Task 013 is complete and ADR 0074
+is Implemented. Task 004 remains open, so ADR 0066 stays Accepted.

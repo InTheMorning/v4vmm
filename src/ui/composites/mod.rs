@@ -121,6 +121,7 @@ pub use track_row::TrackRow;
 pub(crate) use view_mode_control::{view_mode_control, ViewModeControlSlots};
 
 pub(crate) mod maintenance_forms;
+pub(crate) mod maintenance_page;
 pub(crate) mod settings;
 
 pub(crate) mod log_frame;

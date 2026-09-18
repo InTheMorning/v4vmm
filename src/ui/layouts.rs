@@ -51,6 +51,9 @@ pub const CONFLICT_MESSAGE_WIDTH: Pixels = px(190.0);
 pub const ACTION_MESSAGE_WIDTH: Pixels = px(180.0);
 /// Scrollable viewport for configuration correction text (ADR 0066).
 pub(crate) const CONFIGURATION_EDITOR_HEIGHT: Pixels = px(160.0);
+/// ADR 0074: actions remain separate from the active instructions or report.
+pub(crate) const MAINTENANCE_ACTION_COLUMN_WIDTH: Pixels = px(256.0);
+pub(crate) const MAINTENANCE_ACTION_BAND_FRACTION: f32 = 0.25;
 pub const MENU_MIN_WIDTH: Pixels = px(320.0);
 pub const MENU_MAX_WIDTH: Pixels = px(520.0);
 pub const TRACK_NUMBER_WIDTH: Pixels = px(24.0);

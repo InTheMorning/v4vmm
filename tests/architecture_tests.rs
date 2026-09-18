@@ -2086,9 +2086,10 @@ fn adr_0066_recorded_report_context() {
     assert!(screen.contains("this.vm.report()"));
     let composite = read_source(&manifest_path("src/ui/composites/startup_report.rs"));
     // ADR 0066 operator feedback: a fast identical failure needs a persistent
-    // receipt outside disclosure and the scroll body, using recorded VM state.
+    // receipt on the ADR 0074 Startup page, outside its content scroll body.
     let heading = source_between(&composite, "let mut heading", ".child(heading)");
-    assert!(heading.contains("vm.feedback()"));
+    assert!(heading.contains(".feedback()"));
+    assert!(heading.contains("navigation.page == RecoveryPage::Startup"));
     assert!(heading.contains("startup-check-feedback"));
     assert!(heading.contains("flex_shrink_0()"));
     assert!(!heading.contains("if vm.details"));
@@ -16775,7 +16776,7 @@ fn adr_0069_keyboard_buttons_show_focus_without_layout_shift() {
         "Situational ADR 0069: GPUI key-up clicks must not duplicate the key-down activation"
     );
     let keyboard = enabled
-        .rsplit_once("if let Some(handler) = on_activate {")
+        .rsplit_once("if on_activate.is_some() || focus.is_some() {")
         .unwrap()
         .1;
     for required in [
@@ -16829,7 +16830,7 @@ fn adr_0069_settings_group_ownership() {
     assert!(!app.contains("fn render_settings(") && !app.contains("fn render_ui_scale_picker("));
     assert_eq!(screen.matches("fn render_settings(").count(), 1);
     for required in [
-        "settings_frame(navigation, content, page_scroll, cx)",
+        "settings_frame(navigation, content, page_scroll, workspace, cx)",
         "settings_field(field, input, cx)",
         "app.render_capabilities(true, cx)",
         "app.cached_files.status()",
@@ -16867,7 +16868,8 @@ fn adr_0069_settings_group_ownership() {
     assert!(form.contains(".flex_wrap()") && form.contains(".on_activate("));
     assert!(form.contains(".a11y_label(") && form.contains(".disabled(display.availability"));
     assert!(
-        form.find(".child(navigation)").unwrap() < form.find(".id(\"settings-scroll\")").unwrap()
+        form.find(".children(navigation)").unwrap()
+            < form.find(".id(\"settings-scroll\")").unwrap()
     );
     assert!(form.contains(".min_h_0()") && form.contains(".overflow_y_scroll()"));
     assert!(form.contains(".track_scroll(scroll_handle)"));
@@ -17240,7 +17242,7 @@ fn adr_0066_editor_escape_focuses_close_without_closing() {
     let button = read_source(&manifest_path("src/ui/primitives/button.rs"));
     let keyboard = source_between(
         &button,
-        "if let Some(handler) = on_activate {",
+        "if on_activate.is_some() || focus.is_some() {",
         "if let Some(icon) = leading_icon",
     );
     assert!(keyboard.contains("keyboard_button_focus(hit_target, appearance, focus, cx)"));
@@ -17317,19 +17319,36 @@ fn adr_0063_logs_share_frame_following_and_renderer_free_state() {
     );
 }
 
-/// Situational ADR 0063: pages containing nested scrollbars share clearance ownership.
+/// Situational ADR 0074: instruction scrolling shares clearance, while reports have no scrolling ancestor.
 #[test]
-fn adr_0063_nested_scrollbars_share_page_content_owner() {
+fn adr_0074_reports_are_separate_from_instruction_scrolling() {
     for file in [
-        "src/ui/composites/startup_report.rs",
+        "src/ui/composites/maintenance_page.rs",
         "src/ui/composites/settings.rs",
     ] {
         let source = read_source(&manifest_path(file));
         assert!(
             source.contains("page_scroll_content(cx)"),
-            "ADR 0063: {file} must share the page scrollbar clearance owner"
+            "ADR 0074: {file} must retain scrollbar clearance"
         );
     }
+    let page = read_source(&manifest_path("src/ui/composites/maintenance_page.rs"));
+    let instructions = source_between(
+        &page,
+        "MaintenanceView::Instructions =>",
+        "MaintenanceView::Report =>",
+    );
+    assert!(!instructions.contains("self.report") && !instructions.contains("LogFrame::new"));
+    assert!(page.contains("MaintenanceView::Report => self.report"));
+    assert!(page.contains("FontSize::Body.scaled(cx)"));
+    let settings = read_source(&manifest_path("src/ui/composites/settings.rs"));
+    let workspace = source_between(&settings, ".child(if workspace {", "} else {");
+    assert!(workspace.contains("overflow_hidden()"));
+    assert!(!workspace.contains("overflow_y_scroll"));
+    let recovery = read_source(&manifest_path("src/ui/composites/startup_report.rs"));
+    let recovery = source_between(&recovery, "pub(crate) fn startup_report(", "#[cfg(test)]");
+    assert!(!recovery.contains("overflow_y_scroll"));
+    assert!(recovery.contains("match navigation.page"));
 }
 
 /// Situational ADR 0066 invariant 9: repair preserves subject identity across all entry points.

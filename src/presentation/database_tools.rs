@@ -11,6 +11,8 @@ use gpui_component::input::{InputEvent, InputState};
 
 use crate::ui::composites::log_frame::LogFrames;
 use crate::ui::composites::maintenance_forms::{database_tools, DatabaseCallback};
+use crate::ui::composites::maintenance_page::{PageCallback, PageNavigation};
+use crate::view_models::maintenance::MaintenanceView;
 use crate::view_models::startup::database::{DatabaseAction, DatabaseVm};
 use crate::view_models::startup::StartupAvailability;
 
@@ -37,6 +39,7 @@ pub(crate) struct DatabaseTools {
     restore_source: Entity<InputState>,
     worker: Option<MaintenanceClient>,
     logs: LogFrames,
+    page_scroll: [gpui::ScrollHandle; 5],
     callback: DatabaseEventCallback,
     _subscriptions: Vec<Subscription>,
 }
@@ -78,6 +81,7 @@ impl DatabaseTools {
             restore_source,
             worker,
             logs,
+            page_scroll: Default::default(),
             callback,
             _subscriptions: subscriptions,
         }
@@ -169,11 +173,32 @@ impl Render for DatabaseTools {
         let callback: DatabaseCallback = Rc::new(move |action, window, cx| {
             let _ = entity.update(cx, |this, cx| this.action(action, window, cx));
         });
+        let owner = cx.weak_entity();
+        let select: PageCallback<MaintenanceView> = Rc::new(move |view, _, cx| {
+            let _ = owner.update(cx, |this, cx| {
+                this.vm.view = view;
+                cx.notify();
+            });
+        });
+        let owner = cx.weak_entity();
+        let task: PageCallback<crate::view_models::startup::database::DatabaseTask> =
+            Rc::new(move |task, _: &mut Window, cx: &mut App| {
+                let _ = owner.update(cx, |this, cx| {
+                    this.vm.select_task(task);
+                    cx.notify();
+                });
+            });
         database_tools(
             &self.vm,
             [&self.source, &self.destination, &self.restore_source],
             &callback,
             &self.logs,
+            PageNavigation {
+                view: self.vm.view,
+                select,
+                scroll: self.page_scroll[self.vm.task as usize].clone(),
+            },
+            &task,
             cx,
         )
     }

@@ -2,8 +2,7 @@
 
 #![warn(clippy::pedantic)]
 
-use std::rc::Rc;
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 
 use gpui::{
     App, AppContext, ClipboardItem, Context, Entity, FocusHandle, IntoElement, Render,
@@ -14,6 +13,8 @@ use gpui_component::input::{InputEvent, TextareaState};
 use crate::application::commands::maintenance::{CorrectionAccess, CorrectionResult};
 use crate::config::ConfigSnapshot;
 use crate::ui::composites::maintenance_forms::{configuration_correction, CorrectionCallback};
+use crate::ui::composites::maintenance_page::{PageCallback, PageNavigation};
+use crate::view_models::maintenance::MaintenanceView;
 use crate::view_models::startup::correction::{CorrectionAction, CorrectionVm};
 use crate::view_models::startup::StartupAvailability;
 
@@ -34,6 +35,7 @@ pub(crate) struct ConfigurationEditor {
     pub(crate) vm: CorrectionVm,
     input: Entity<TextareaState>,
     disclosure_focus: FocusHandle,
+    page_scroll: gpui::ScrollHandle,
     logs: crate::ui::composites::log_frame::LogFrames,
     worker: Option<MaintenanceClient>,
     callback: CorrectionEventCallback,
@@ -60,6 +62,7 @@ impl ConfigurationEditor {
             vm: CorrectionVm::new(worker.is_some()),
             input,
             disclosure_focus: cx.focus_handle(),
+            page_scroll: gpui::ScrollHandle::default(),
             logs,
             worker,
             callback,
@@ -80,6 +83,7 @@ impl ConfigurationEditor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.vm.view = MaintenanceView::Instructions;
         self.requested_field = Some(field);
         self.vm.reopen_editor();
         if self.vm.source.is_none() {
@@ -111,7 +115,10 @@ impl ConfigurationEditor {
                 self.vm.close_editor();
                 self.disclosure_focus.focus(window, cx);
             }
-            CorrectionAction::ReopenEditor => self.vm.reopen_editor(),
+            CorrectionAction::ReopenEditor => {
+                self.vm.view = MaintenanceView::Instructions;
+                self.vm.reopen_editor();
+            }
             CorrectionAction::Select(field) => {
                 if self.vm.select(field) {
                     self.sync_input(window, cx);
@@ -150,6 +157,14 @@ impl ConfigurationEditor {
         let Some((generation, command)) = self.vm.begin(action, path) else {
             return;
         };
+        if matches!(
+            action,
+            CorrectionAction::Validate | CorrectionAction::Save | CorrectionAction::TestConverter
+        ) {
+            self.vm.view = MaintenanceView::Report;
+        } else if matches!(action, CorrectionAction::Load | CorrectionAction::Reload) {
+            self.vm.view = MaintenanceView::Instructions;
+        }
         let Some(worker) = &self.worker else {
             return;
         };
@@ -184,12 +199,24 @@ impl Render for ConfigurationEditor {
         let callback: CorrectionCallback = Rc::new(move |action, window, cx| {
             let _ = entity.update(cx, |this, cx| this.action(action, window, cx));
         });
+        let owner = cx.weak_entity();
+        let select: PageCallback<MaintenanceView> = Rc::new(move |view, _, cx| {
+            let _ = owner.update(cx, |this, cx| {
+                this.vm.view = view;
+                cx.notify();
+            });
+        });
         configuration_correction(
             &self.vm,
             &self.input,
             &callback,
             &self.logs,
             &self.disclosure_focus,
+            PageNavigation {
+                view: self.vm.view,
+                select,
+                scroll: self.page_scroll.clone(),
+            },
             cx,
         )
     }

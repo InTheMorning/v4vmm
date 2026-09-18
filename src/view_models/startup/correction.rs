@@ -44,6 +44,7 @@ enum EditorDisclosure {
 }
 
 pub(crate) struct CorrectionVm {
+    pub(crate) view: crate::view_models::maintenance::MaintenanceView,
     pub(crate) source: Option<Arc<CorrectionSource>>,
     pub(crate) selected: Option<CorrectionField>,
     draft: CorrectionDraft,
@@ -111,13 +112,14 @@ impl CorrectionVm {
         .collect()
     }
     pub(crate) const TITLE: &'static str = "Configuration repair";
-    pub(crate) const EXPLANATION: &'static str = "Load the current file to correct it. Editing keeps a draft only. Save preserves the original in a separate backup; it does not retry an operation. Core changes require ending this app session, then Check again and Open app.";
+    pub(crate) const EXPLANATION: &'static str = "Load the current configuration file. Edit the draft. Validate the draft before you save it. Save preserves the original in a separate backup. Save does not retry an operation. For core changes, end the app session first. After you save, choose Check again. Choose Open app when the checks pass.";
     pub(crate) const CLOSE_HELP: &'static str =
-        "Press Esc to focus Close editor. Enter or Space then closes it and keeps your draft until you quit the app.";
+        "Press Esc to select Close editor. Press Enter or Space to close the editor. App keeps your draft until you quit.";
 
     pub(crate) fn new(worker_available: bool) -> Self {
         Self {
             source: None,
+            view: crate::view_models::maintenance::MaintenanceView::default(),
             selected: None,
             draft: CorrectionDraft::default(),
             access: CorrectionAccess::CoreRecovery,
@@ -197,7 +199,7 @@ impl CorrectionVm {
             CorrectionAction::Validate => "Test draft and paths".into(),
             CorrectionAction::TestConverter => "Test converters".into(),
             CorrectionAction::Save => "Save correction".into(),
-            CorrectionAction::EndSession => "End session to edit core paths".into(),
+            CorrectionAction::EndSession => "End app session".into(),
             CorrectionAction::CopyDraft => "Copy draft (redacted)".into(),
             CorrectionAction::CopyReport => "Copy repair report".into(),
         };

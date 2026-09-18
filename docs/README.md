@@ -38,6 +38,12 @@ Core:
 
 Current governance:
 
+- [ADR 0074: Repair and diagnostics pages](adr/0074-repair-and-diagnostics-pages.md):
+  task 013 presentation correction. Separate tools, actions and reports.
+  [Visual checks](runbooks/startup-recovery-check.md#repair-and-diagnostics-pages--adr-0074) passed.
+  Task 013 final preservation inspections passed and fixture cleanup is confirmed.
+  ADR 0074 is Implemented.
+
 - [ADR 0071: Shared text selection](adr/0071-shared-text-selection-and-linux-primary.md):
   shared Unicode word/line policy and Linux primary paste;
   [task 001](tasks/adr-0071-task-001-shared-text-selection.md) complete with
@@ -104,7 +110,7 @@ Current plans:
   operator acceptance, preservation and cleanup; task 009 complete on 2026-09-17
   with operator V1–V3, presentation, configuration restoration, preservation
   and cleanup accepted; tasks 010–011 complete on 2026-09-17 with operator
-  acceptance, preservation and cleanup confirmed; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 implemented with operator V1–V3, presentation, preservation and cleanup open
+  acceptance, preservation and cleanup confirmed; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 complete on 2026-09-18 with operator V1–V3, presentation, preservation and cleanup accepted
 - [Show narrow-layout proposal](plans/show-narrow-layout-proposal.md):
   compact cards, full-width logs and an overlap alternative, readable log-body
   allocation, and hiding the playback bar only when every typed action is
@@ -142,7 +148,8 @@ Current implementation packets:
   final preservation and fixture cleanup accepted; ADR 0066 task 007 is complete with acceptance recorded in its packet
 
 - [ADR 0066 task 013: Interrupted upgrade repair](tasks/adr-0066-task-013-interrupted-upgrade-repair.md):
-  implemented; operator V1–V3, presentation, preservation and cleanup open
+  complete on 2026-09-18; mechanical checks Green; operator V1–V3, ADR 0074
+  presentation, preservation and cleanup accepted
 - [ADR 0066 task 009: Conversion retry and retained input](tasks/adr-0066-task-009-conversion-retry-and-retained-input.md):
   complete on 2026-09-17 with mechanical checks Green; [operator V1–V3](runbooks/startup-recovery-check.md#task-009-conversion-retry-and-retained-input),
   normal/narrow presentation, configuration restoration, preservation and
@@ -185,7 +192,7 @@ Current reviews:
 - [ADR 0066 startup recovery review checklist](reviews/adr-0066-startup-recovery-review-checklist.md):
   tasks 001–003 and 005–006 complete with operator evidence; task 004 mechanical proof
   recorded with its remaining operator gate open; tasks 007–010 are complete,
-  including operator acceptance, preservation and cleanup; task 011 is complete; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 implemented with operator V1–V3, presentation, preservation and cleanup open
+  including operator acceptance, preservation and cleanup; task 011 is complete; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 complete on 2026-09-18 with operator V1–V3, presentation, preservation and cleanup accepted
 - [Staged Show packets review](reviews/staged-show-packets-review-2026-09-09.md):
   review of the 2026-09-09 staged revisions and follow-up on the packet
   corrections

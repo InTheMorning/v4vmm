@@ -4,10 +4,11 @@
 
 use std::rc::Rc;
 
-use gpui::{AnyElement, Context, Window};
+use gpui::{AnyElement, Context, IntoElement, Window};
 
 use crate::config;
 use crate::theme_profile::ThemeProfile;
+use crate::ui::composites::maintenance_page::PageNavigation;
 use crate::ui::composites::settings::{
     settings_actions, settings_cached_row, settings_field, settings_frame, settings_heading,
     settings_message, settings_text_input, SettingsCallback,
@@ -15,12 +16,29 @@ use crate::ui::composites::settings::{
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::Button;
 use crate::view_models::cached_files::{CachedFileAction, CachedFileActionDisplay, CachedFileRow};
+use crate::view_models::settings::{DiagnosticPage, SettingsGroup};
 use crate::view_models::settings::{SettingsAction, SettingsContent, SettingsEffect, SettingsVm};
 use crate::view_models::startup::StartupAvailability;
 
 use super::TopApp;
 
 impl TopApp {
+    pub(super) fn maintenance_navigation(&self, cx: &mut Context<Self>) -> PageNavigation {
+        let owner = cx.weak_entity();
+        PageNavigation {
+            view: self.settings.view(),
+            scroll: self
+                .settings_scroll
+                .diagnostic_handle(self.settings.diagnostic())
+                .clone(),
+            select: Rc::new(move |view, window, cx| {
+                let _ = owner.update(cx, |this, cx| {
+                    this.settings_action(SettingsAction::SelectView(view), window, cx);
+                });
+            }),
+        }
+    }
+
     pub(super) fn settings_action(
         &mut self,
         action: SettingsAction,
@@ -120,34 +138,34 @@ pub(super) fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> Any
     let callback: SettingsCallback = Rc::new(move |action, window, cx| {
         let _ = entity.update(cx, |this, cx| this.settings_action(action, window, cx));
     });
-    let navigation = settings_actions(app.settings.navigation(), &callback, cx);
-    let mut content = vec![settings_heading(app.settings.selected().label(), cx)];
-    if app.settings.repair_first() {
-        if let Some(editor) = &app.configuration_editor {
-            use gpui::IntoElement as _;
-            content.push(editor.clone().into_any_element());
-        }
+    let mut navigation = vec![crate::ui::composites::maintenance_page::PageMenu::new(
+        "settings-group-menu",
+        SettingsVm::GROUP_MENU,
+        app.settings.navigation(),
+        callback.clone(),
+    )
+    .into_any_element()];
+    let workspace = app.settings.selected() == SettingsGroup::Diagnostics;
+    if workspace {
+        navigation.push(
+            crate::ui::composites::maintenance_page::PageMenu::new(
+                "diagnostics-page-menu",
+                SettingsVm::DIAGNOSTIC_MENU,
+                app.settings.diagnostic_navigation(),
+                callback.clone(),
+            )
+            .into_any_element(),
+        );
     }
-    for &field in app.settings.selected().contents() {
+    let mut content = if workspace {
+        Vec::new()
+    } else {
+        vec![settings_heading(app.settings.selected().label(), cx)]
+    };
+    for &field in app.settings.contents() {
         let input = match field {
             SettingsContent::SessionMaintenance => {
-                if let Some(callback) = app.session_callback.clone() {
-                    let available = app.maintenance_worker.is_some()
-                        && !app.capability_vm.is_working()
-                        && correction_idle
-                        && !app
-                            .database_tools
-                            .as_ref()
-                            .is_some_and(|tools| tools.read(cx).vm.is_working());
-                    content.push(crate::ui::composites::maintenance_forms::session_entry(
-                        crate::view_models::startup::session::SessionReportVm::entry(available),
-                        app.command_runner.session().generation(),
-                        &app.previous_session_report,
-                        &app.log_frames,
-                        callback,
-                        cx,
-                    ));
-                }
+                content.extend(render_session_tools(app, correction_idle, cx));
                 continue;
             }
             SettingsContent::DatabaseTools => {
@@ -175,7 +193,12 @@ pub(super) fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> Any
                 continue;
             }
             SettingsContent::CachedFiles => {
-                content.extend(render_cached_files(app, cx));
+                content.push(crate::ui::composites::settings::settings_plain_page(
+                    render_cached_files(app, cx),
+                    app.settings_scroll
+                        .diagnostic_handle(DiagnosticPage::CachedFiles),
+                    cx,
+                ));
                 continue;
             }
         };
@@ -189,17 +212,46 @@ pub(super) fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> Any
             cx,
         ));
     }
-    if app.settings.shows_configuration_repair() && !app.settings.repair_first() {
+    if app.settings.shows_configuration_repair() {
         if let Some(editor) = &app.configuration_editor {
             use gpui::IntoElement as _;
             content.push(editor.clone().into_any_element());
         }
     }
-    if !app.settings_status.is_empty() {
+    if app.settings.selected() == SettingsGroup::Library {
+        content.push(settings_actions(SettingsVm::repair_entry(), &callback, cx));
+    }
+    if !app.settings_status.is_empty() && !workspace {
         content.push(settings_message(app.settings_status.clone(), cx));
     }
     let page_scroll = app.settings_scroll.handle(app.settings.selected());
-    settings_frame(navigation, content, page_scroll, cx)
+    settings_frame(navigation, content, page_scroll, workspace, cx)
+}
+
+fn render_session_tools(
+    app: &TopApp,
+    correction_idle: bool,
+    cx: &mut Context<TopApp>,
+) -> Option<AnyElement> {
+    if let Some(callback) = app.session_callback.clone() {
+        let available = app.maintenance_worker.is_some()
+            && !app.capability_vm.is_working()
+            && correction_idle
+            && !app
+                .database_tools
+                .as_ref()
+                .is_some_and(|tools| tools.read(cx).vm.is_working());
+        return Some(crate::ui::composites::maintenance_forms::session_entry(
+            crate::view_models::startup::session::SessionReportVm::entry(available),
+            app.command_runner.session().generation(),
+            &app.previous_session_report,
+            &app.log_frames,
+            callback,
+            app.maintenance_navigation(cx),
+            cx,
+        ));
+    }
+    None
 }
 
 fn render_cached_files(app: &TopApp, cx: &mut Context<TopApp>) -> Vec<AnyElement> {

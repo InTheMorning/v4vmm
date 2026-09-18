@@ -2,7 +2,7 @@
 
 Status: Complete - 2026-09-17; mechanical checks Green. Operator V1–V3,
 presentation and both preservation inspections accepted; fixture cleanup
-confirmed. Task 013 is now implemented with its separate operator gate open.
+confirmed. Task 013 is also complete, with its separate evidence recorded in its packet.
 
 ## Goal
 
@@ -144,7 +144,7 @@ fixture paths match the running app before installation.
 
 These confirmations close only task 012. Task 004 and the inherited human
 checks retain their separate gates. ADR 0066 remains Accepted and partial;
-task 013 is unstarted.
+task 013's later completion is recorded in its own packet.
 
 ## Test Commands
 

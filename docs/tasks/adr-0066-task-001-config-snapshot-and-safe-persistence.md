@@ -144,8 +144,9 @@ Task 013 handoff review — 2026-09-17: the migration recipe and coding prompt
 are retired for `adr_0066_upgrade_repair_uses_normal_migration_authority` and
 [actual backend/command/VM/fixture proof](adr-0066-task-013-interrupted-upgrade-repair.md#implementation-and-proof).
 Tasks 011 and 012 retain their completed proof and accepted operator evidence.
-Task 013's operator gate and task 004's inherited gate stay open; the handoff
-does not close ADR 0066 or release its configuration-format dependency.
+Task 013's operator gate subsequently closed on 2026-09-18 with presentation,
+preservation and cleanup accepted. Task 004's inherited gate stays open, so
+ADR 0066 and its configuration-format dependency remain open.
 
 ## Acceptance Criteria
 

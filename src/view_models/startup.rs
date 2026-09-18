@@ -32,7 +32,6 @@ pub enum StartupAction {
     CheckAgain,
     OpenApp,
     Quit,
-    Details,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StartupAvailability {
@@ -71,11 +70,13 @@ pub struct StartupReportVm {
     phase: StartupPhase,
     pub worker_available: bool,
     pub(crate) maintenance_busy: bool,
-    pub details: bool,
+    pub(crate) view: crate::view_models::maintenance::MaintenanceView,
+    pub(crate) page: crate::view_models::maintenance::RecoveryPage,
     pub outcome: CoreCheckOutcome,
     pub(crate) session_report: String,
 }
 impl StartupReportVm {
+    pub(crate) const PAGE_TITLE: &'static str = "Startup checks";
     #[must_use]
     pub fn new(worker_available: bool) -> Self {
         Self {
@@ -83,7 +84,8 @@ impl StartupReportVm {
             phase: StartupPhase::Idle,
             worker_available,
             maintenance_busy: false,
-            details: true,
+            view: crate::view_models::maintenance::MaintenanceView::Report,
+            page: crate::view_models::maintenance::RecoveryPage::default(),
             outcome: CoreCheckOutcome::pending(),
             session_report: String::new(),
         }
@@ -214,7 +216,9 @@ impl StartupReportVm {
     #[must_use]
     pub fn action(&self, action: StartupAction) -> StartupActionDisplay {
         let (label, a11y_label) = match action {
-            StartupAction::CopyReport => ("Copy report", "Copy the complete startup report"),
+            StartupAction::CopyReport => {
+                ("Copy startup report", "Copy the complete startup report")
+            }
             StartupAction::CheckAgain
                 if self.phase == StartupPhase::Running(StartupWork::Check) =>
             {
@@ -232,14 +236,6 @@ impl StartupReportVm {
                 "Revalidate and prepare core resources, then open the app",
             ),
             StartupAction::Quit => ("Quit", "Close recovery and exit without opening the app"),
-            StartupAction::Details => (
-                if self.details {
-                    "Hide details"
-                } else {
-                    "Show details"
-                },
-                "Expand or collapse the full startup report",
-            ),
         };
         let availability = if matches!(self.phase, StartupPhase::Closed | StartupPhase::Mounted) {
             StartupAvailability::Unavailable
@@ -417,7 +413,7 @@ mod tests {
             "App finished check 1 at 1970-01-01 00:16:40 UTC."
         );
         assert_eq!(vm.action(StartupAction::CheckAgain).label, "Check again");
-        vm.details = false;
+        vm.view = crate::view_models::maintenance::MaintenanceView::Instructions;
         assert_eq!(vm.feedback().unwrap(), first_feedback);
         assert!(vm.report().starts_with(&first_feedback));
 
@@ -493,11 +489,7 @@ mod tests {
     #[test]
     fn adr_0066_worker_failure_leaves_copy_and_quit_available() {
         let vm = StartupReportVm::new(false);
-        for action in [
-            StartupAction::CopyReport,
-            StartupAction::Quit,
-            StartupAction::Details,
-        ] {
+        for action in [StartupAction::CopyReport, StartupAction::Quit] {
             assert_eq!(
                 vm.action(action).availability,
                 StartupAvailability::Available

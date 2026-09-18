@@ -1944,17 +1944,25 @@ python3 docs/runbooks/startup-recovery-fixture.py cleanup "$RECOVERY_RESTORE_FIX
 Report V1, V2 and V3 separately, normal/narrow presentation, report copy,
 preservation flags, same-window resumption and cleanup. The operator accepted
 these checks and confirmed cleanup of both accepted fixtures and the additional
-fixture used during review. Task 012 is complete; task 013 has its separate
-operator procedure and open gate below.
+fixture used during review. Tasks 012 and 013 are complete. Their procedures
+remain regression checks.
 
 ## Task 013: Interrupted Upgrade Repair
 
-Gate: **open**. Implementation and mechanical verification do not accept these
-operator checks. Use two fresh disposable fixtures in a Linux desktop session
+Gate: **accepted — 2026-09-18**. Operator V1–V3, ADR 0074 presentation and
+preservation passed. Cleanup of both fixtures is confirmed. For regression,
+use two fresh disposable fixtures in a Linux desktop session
 with Python 3.11+ and this checkout's debug binary. Playback is Null; external
 commands use isolated stubs. No audio hardware, running publisher, encoder or
 reachable MusicIndex is required. This procedure covers the new migration
 workflow only; task 012's accepted restore checks stay closed.
+
+
+ADR 0074 changes navigation during task 013 acceptance. In Settings, select
+Diagnostics > Database. In recovery, select Database. Then select Check,
+Backup, Preserve files, Restore or Repair upgrade for the required operation.
+Use Instructions for fields and Report for results. Earlier task procedures
+use the same commands and safety conditions through these pages.
 
 ### V1: Recognize, Interrupt And Repair Migration 11
 
@@ -2058,6 +2066,120 @@ python3 docs/runbooks/startup-recovery-fixture.py run "$UNSUPPORTED_UPGRADE_FIXT
 python3 docs/runbooks/startup-recovery-fixture.py upgrade-inspect "$UNSUPPORTED_UPGRADE_FIXTURE"
 ```
 
+### Repair And Diagnostics Pages — ADR 0074
+
+Visual, preservation and cleanup gates: **accepted — 2026-09-18**.
+The operator rejected the inline presentation on 2026-09-18.
+The page choices and text size subsequently passed. The corrected Database
+Check page passed short-window scrolling, text selection and complete report copy.
+The restored Settings title and single view-toggle button are accepted,
+including placement and switching in both directions. Database task navigation,
+relevant fields, retained destination input and report reading position passed.
+Configuration draft retention, Escape focus, Close/Reopen and draft reload
+without saving passed. The corrected Background tools list also passed at
+normal and narrow widths, including scrolling to the last instructions and
+actions and switching to Report and back. All five Diagnostics pages passed
+normal/narrow and short-height checks at XL scale in both themes. Menu mouse
+selection, keyboard selection and Escape passed. The operator restored the
+original theme and scale without saving. The operator then reported walkthrough
+steps 1–5 as passed, but the subsequent screenshot shows normal Settings in the
+repaired fixture. The next screenshot confirms the unsupported fixture's
+recovery window after startup check 1, with Open app disabled. The explicit
+Check again then passed: check 2 still reported the unsupported schema and left
+Open app disabled. Recovery Startup, Configuration and Database then passed
+normal/narrow and short-height layout, view switching, scrolling and button
+access. Database report/copy and the absent repair action also passed.
+The operator reported both final inspections in step 9 as passed. Raw JSON
+outputs were not supplied. Cleanup of both fixtures is confirmed. Task 013 is
+complete. This procedure remains a regression check. Create fresh task 013
+fixtures with the setup steps above before repeating it. These checks require a Linux desktop.
+Playback is Null. The fixtures use local service stubs. No audio hardware or
+external service is required. Close each fixture app before starting the other.
+
+1. Open the repaired fixture with the normal debug binary:
+
+   ```bash
+   cd /home/citizen/build/v4vmm
+   python3 docs/runbooks/startup-recovery-fixture.py run "$UPGRADE_FIXTURE"
+   ```
+
+2. Open Settings. Use the group menu to select Diagnostics.
+   Confirm that the Settings title remains, as it does in General and Library.
+   Open the menu that shows the current tool.
+   Select Database, Configuration, Background tools,
+   App session and Cached files. Each selection must show one page. General and
+   Library must keep their existing fields. Returning to a page must retain its
+   inputs. Page selection must not run a maintenance command.
+3. On Database, open the task menu and select Check.
+   Choose Use configured database. Choose Check database.
+   The Report view must show the result. The action controls must stay visible.
+   Choose Show instructions in the content container. Scroll over the instructions.
+   The instructions must move without a log capturing the wheel.
+   Choose Show report. Scroll and select text
+   inside the report. Copy database report must include the complete result.
+   Both widths must use one view-toggle button inside the content container.
+   The button must name the view it will open. There must be no view tabs or menu.
+4. Use the task menu to inspect Backup, Preserve files, Restore and Repair upgrade. Each page must
+   show only its relevant fields and actions. Enter a harmless unused path in
+   one field. Change pages. Confirm that the path remains. Leave database
+   mutation actions unclicked during this presentation check.
+5. Inspect Configuration. Load the configuration if necessary. Change a draft
+   value without saving. Change pages. Return to Configuration > Instructions.
+   Confirm that the draft remains. Press Esc in the editor. Focus must move to
+   Close editor without closing it. Close and reopen the editor to confirm
+   that the draft remains. Leave Save unclicked during this check.
+6. Inspect normal and narrow widths in both themes, including a larger UI scale.
+   On Background tools, choose Show instructions if the report is open.
+   Confirm that the tools have instructions and action controls even when no
+   failure is recorded. Scroll to Presentation settings in the instructions.
+   Scroll to Check display settings and Copy report in the actions.
+   An empty page or an inaccessible last instruction or action is a failure.
+   Choose Show report. The report must contain only recorded observations.
+   Opening the page must not start a tool check. Leave tool checks unclicked
+   during this layout check.
+   Reduce the Settings area to approximately 380 pixels high, as in the reported
+   failure. The header and task toolbar must leave room to read several lines
+   and scroll the content. Open each navigation menu. Check mouse selection,
+   keyboard selection and Escape. Menus must mark the current selection.
+   Instructions must match normal app body text. At normal widths, actions must
+   occupy a separate column. At narrow widths, the action band must remain
+   reachable. Reports must fill the content area and retain their reading
+   position when you change views. Clipped actions, overlapping scrollbars,
+   missing fields, oversized body text or a nested log capturing page scrolling
+   are failures.
+   Restore the original theme and scale before closing. Leave Settings Save
+   unclicked during this check.
+7. Close the app. Open the unsupported fixture:
+
+   ```bash
+   python3 docs/runbooks/startup-recovery-fixture.py run "$UNSUPPORTED_UPGRADE_FIXTURE"
+   ```
+
+   Confirm that this window shows Startup checks and the recovery page menu.
+   The normal Music, Show and Settings navigation must be absent. Startup is
+   not an entry in the normal Settings Diagnostics menu. The database path in
+   the report must belong to the directory stored in `UNSUPPORTED_UPGRADE_FIXTURE`.
+
+8. Use the recovery page menu to select Startup, Configuration and Database. Repeat the layout
+   and wheel checks. On Database > Check, select the configured database.
+   Choose Check database. The report must identify the unsupported schema.
+   On Repair upgrade, the repair action must be absent. Copy the database report.
+   Open the recovery page menu at the top left. Its current label is Database.
+   Select Startup. The content title must read Startup checks.
+   Choose Check again in the action column or narrow action band.
+   Open app must remain unavailable.
+9. Close the app. Inspect both fixtures:
+
+   ```bash
+   python3 docs/runbooks/startup-recovery-fixture.py upgrade-inspect "$UPGRADE_FIXTURE"
+   python3 docs/runbooks/startup-recovery-fixture.py upgrade-inspect "$UNSUPPORTED_UPGRADE_FIXTURE"
+   ```
+
+   Every flag must be true. Keep a failing fixture for diagnosis. After the
+   operator accepts the presentation and both inspections, use Cleanup below.
+   Cleanup removes the isolated fixtures and their owned processes. These
+   steps do not change production configuration.
+
 ### Cleanup
 
 After both inspections pass and results are recorded, remove the two isolated
@@ -2070,6 +2192,7 @@ python3 docs/runbooks/startup-recovery-fixture.py cleanup "$UNSUPPORTED_UPGRADE_
 ```
 
 Report V1–V3, normal/narrow presentation, report copy, same-window resumption,
-both preservation inspections and cleanup. Until a person supplies those
-results, task 013 remains open. Task 004 retains its separate gate; this packet
+both preservation inspections and cleanup when repeating this regression check.
+The operator accepted these results and confirmed cleanup on 2026-09-18.
+Task 013 is complete. Task 004 retains its separate gate; this packet
 does not close ADR 0066 or release configuration-format changes.
