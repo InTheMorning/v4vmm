@@ -88,11 +88,15 @@ impl DatabaseTools {
         }
         match action {
             DatabaseAction::EndSession => (self.callback)(DatabaseEvent::EndSession, window, cx),
-            DatabaseAction::Preserve | DatabaseAction::Restore => {
-                if let Some((generation, command)) =
-                    self.vm.begin(action, std::path::PathBuf::new())
+            DatabaseAction::Preserve | DatabaseAction::Restore | DatabaseAction::RepairUpgrade => {
+                if let Some((generation, command)) = self
+                    .vm
+                    .begin(action, crate::config::config_path().unwrap_or_default())
                 {
-                    let event = if action == DatabaseAction::Restore {
+                    let event = if matches!(
+                        action,
+                        DatabaseAction::Restore | DatabaseAction::RepairUpgrade
+                    ) {
                         DatabaseEvent::Restore(generation, command)
                     } else {
                         DatabaseEvent::Preserve(generation, command)
@@ -107,7 +111,8 @@ impl DatabaseTools {
             DatabaseAction::ConfiguredSource
             | DatabaseAction::Check
             | DatabaseAction::Backup
-            | DatabaseAction::ReviewRestore => {
+            | DatabaseAction::ReviewRestore
+            | DatabaseAction::UpgradeBackup => {
                 let path = crate::config::config_path().unwrap_or_default();
                 let Some((generation, command)) = self.vm.begin(action, path) else {
                     return;

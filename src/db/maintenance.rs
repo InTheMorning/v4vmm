@@ -138,9 +138,9 @@ impl Inspection {
             && self.foreign_keys == Some(Ok(0))
             && matches!(
                 self.schema,
-                Some(Ok(
-                    SchemaCompatibility::Current | SchemaCompatibility::UpgradeRequired { .. }
-                ))
+                Some(Ok(SchemaCompatibility::Current
+                    | SchemaCompatibility::UpgradeRequired { .. }
+                    | SchemaCompatibility::InterruptedUpgrade))
             )
     }
 }

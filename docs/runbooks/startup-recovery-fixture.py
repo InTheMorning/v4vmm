@@ -33,8 +33,9 @@ CONVERSION_CASES = ("conversion-retry",)
 DATABASE_CASES = ("database-tools", "database-recovery")
 MAINTENANCE_CASES = ("database-maintenance", "database-maintenance-recovery")
 RESTORE_CASES = ("database-restore", "database-restore-recovery")
+UPGRADE_CASES = ("upgrade-interrupted", "upgrade-unsupported")
 CONVERSION_MODES = ("encode-failure", "working", "fallback")
-CASES += ("session-held-command",) + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES + MAINTENANCE_CASES + RESTORE_CASES
+CASES += ("session-held-command",) + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES + MAINTENANCE_CASES + RESTORE_CASES + UPGRADE_CASES
 
 
 def digest(path):
@@ -183,7 +184,7 @@ def hold_lock(root):
 
 def mode(root, case):
     previous = json.loads((root / "case.json").read_text())["case"]
-    if (case in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES + MAINTENANCE_CASES + RESTORE_CASES or previous in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES + MAINTENANCE_CASES + RESTORE_CASES or "session-held-command" in (case, previous)) and owned_process(root, "app.pid"):
+    if (case in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES + MAINTENANCE_CASES + RESTORE_CASES + UPGRADE_CASES or previous in OPTIONAL_CASES + REPAIR_CASES + RETRY_CASES + CONVERTER_CASES + CONVERSION_CASES + DATABASE_CASES + MAINTENANCE_CASES + RESTORE_CASES + UPGRADE_CASES or "session-held-command" in (case, previous)) and owned_process(root, "app.pid"):
         raise SystemExit("Close the fixture app before changing optional-tool or session cases.")
     if previous in CONVERTER_CASES + CONVERSION_CASES:
         for name in ("flac", "ffmpeg"):
@@ -206,7 +207,10 @@ def mode(root, case):
     cfg.chmod(0o600)
     (root / "repair.external").unlink(missing_ok=True)
     cfg.write_bytes((root / "config.baseline").read_bytes())
-    if case in RESTORE_CASES:
+    if case in UPGRADE_CASES:
+        upgrade_setup(root, case)
+        purpose = "Use task 013: recognize migration 11, preserve and repair only the supported interruption. upgrade-status prints paths; upgrade-inspect verifies preservation after closing the app. No external service or audio hardware is needed."
+    elif case in RESTORE_CASES:
         restore_setup(root, case)
         purpose = "Review the chosen backup before explicit Restore database. restore-status prints all paths. Use the task 012 runbook; no hardware or external services are needed."
     elif case in MAINTENANCE_CASES:
@@ -1055,6 +1059,100 @@ def restore_inspect(root, manifest):
         raise SystemExit("Restore preservation inspection failed. Keep the fixture for diagnosis.")
 
 
+def upgrade_facts(path):
+    """Full row evidence; omit only migration 11 when comparing preserved data."""
+    with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as conn:
+        names = [row[0] for row in conn.execute("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+        return {name: conn.execute('SELECT rowid,* FROM "' + name.replace('"', '""') + '" ORDER BY rowid').fetchall() for name in names}
+
+
+def upgrade_setup(root, case):
+    directory = root / "upgrade"
+    if directory.exists():
+        raise SystemExit("Use a fresh upgrade fixture; preservation evidence cannot be replaced.")
+    subprocess.run([str(REPO / "target/debug/v4vmm"), "startup-fixture", "upgrade-seed", str(root)], env=environment(root), check=True)
+    source = root / "data/library.sqlite"
+    if case == "upgrade-unsupported":
+        with sqlite3.connect(source) as conn:
+            conn.execute("DELETE FROM schema_migrations WHERE version=5")
+    token = root / "broadcaster-token.fixture"
+    token.write_bytes(b"isolated upgrade fixture token sentinel\n")
+    token.chmod(0o600)
+    state = {"older_sha256": digest(directory / "older-backup.sqlite"),
+             "destination_inode": source.stat().st_ino, "destination_device": source.stat().st_dev,
+             "original_sha256": digest(source), "original_facts": upgrade_facts(source),
+             "token_sha256": digest(token)}
+    (root / "upgrade-baseline.json").write_text(json.dumps(state, indent=2))
+    upgrade_status(root)
+
+
+def upgrade_status(root):
+    directory = root / "upgrade"
+    print(json.dumps({"configured_database": str(root / "data/library.sqlite"),
+                      "older_backup": str(directory / "older-backup.sqlite"),
+                      "preservation_directories": {name: str(directory / (name + "-preservation")) for name in ("failed", "repaired", "backup-restore")},
+                      "installation_interruption": (root / "restore.interrupt").exists()}, indent=2))
+
+
+def upgrade_inspect(root, manifest):
+    if owned_process(root, "app.pid"):
+        raise SystemExit("Close the fixture app before upgrade inspection.")
+    directory = root / "upgrade"
+    baseline = json.loads((root / "upgrade-baseline.json").read_text())
+    case = json.loads((root / "case.json").read_text())
+    source = root / "data/library.sqlite"
+    config = root / "config/v4vmm/config.toml"
+    facts = json.loads(json.dumps(upgrade_facts(source)))
+    checks = {"older_backup_bytes_unchanged": digest(directory / "older-backup.sqlite") == baseline["older_sha256"],
+              "destination_inode_preserved": (source.stat().st_ino, source.stat().st_dev) == (baseline["destination_inode"], baseline["destination_device"]),
+              "music_unchanged": digest(root / "music/unchanged-audio.bin") == manifest["audio_sha256"] and all(digest(root / "music" / name) == value for name, value in manifest["track_sha256"].items()),
+              "token_unchanged": digest(root / "broadcaster-token.fixture") == baseline["token_sha256"] and (root / "broadcaster-token.fixture").stat().st_mode & 0o777 == 0o600,
+              "configuration_preserved": digest(config) == case["config_sha256"] or normal_workspace_preferences_only(root, case, config.read_bytes()),
+              "interruption_removed": not (root / "restore.interrupt").exists()}
+    if case["case"] == "upgrade-unsupported":
+        checks["unsupported_database_bytes_unchanged"] = digest(source) == baseline["original_sha256"]
+        checks["unsupported_records_unchanged"] = facts == baseline["original_facts"]
+        checks["no_repair_artifacts"] = not any(directory.glob("*-preservation")) and not any(directory.glob(".v4vmm-database-*"))
+    else:
+        ledger = facts["schema_migrations"]
+        checks["migration_11_recorded_once"] = len(ledger) == 11 and ledger[-1][1:3] == [11, "broadcast_event_selection"]
+        facts["schema_migrations"] = [row for row in ledger if row[1] != 11]
+        checks["all_original_rows_and_selection_preserved"] = facts == baseline["original_facts"]
+        with sqlite3.connect(source.as_uri() + "?mode=ro", uri=True) as conn:
+            checks["repaired_integrity_and_foreign_keys"] = conn.execute("PRAGMA integrity_check").fetchall() == [("ok",)] and not conn.execute("PRAGMA foreign_key_check").fetchall()
+        for name in ("failed", "repaired"):
+            folder = directory / (name + "-preservation")
+            try:
+                receipt_path = folder / "manifest.json"
+                receipt = json.loads(receipt_path.read_text())
+                checks[name + "_private_manifest"] = folder.stat().st_mode & 0o777 == 0o700 and receipt_path.stat().st_mode & 0o777 == 0o600 and receipt["source"] == str(source) and receipt["kind"] == "database_file_preservation_not_verified_backup"
+                checks[name + "_original_bytes"] = digest(folder / "database.sqlite") == baseline["original_sha256"]
+                for index, entry in enumerate(receipt["files"]):
+                    path = folder / entry["copied_name"]
+                    if Path(entry["copied_name"]).name != entry["copied_name"] or path.is_symlink():
+                        raise ValueError("Preservation file escaped its directory")
+                    checks[f"{name}_file_{index}"] = path.stat().st_size == entry["length"] and digest(path) == entry["sha256"] and path.stat().st_mode & 0o777 == 0o600
+                snapshots = [json.loads(json.dumps(upgrade_facts(path))) for path in folder.glob(".v4vmm-database-*/candidate.sqlite")]
+                checks[name + "_verified_original"] = any(f == baseline["original_facts"] for f in snapshots)
+                checks[name + "_repaired_candidate"] = any(len(f["schema_migrations"]) == 11 for f in snapshots)
+            except (OSError, ValueError, KeyError, sqlite3.Error):
+                checks[name + "_preservation"] = False
+        candidates = list(directory.glob(".v4vmm-database-*/candidate.sqlite"))
+        older = upgrade_facts(directory / "older-backup.sqlite")
+        valid_upgrades = []
+        for path in candidates:
+            candidate = upgrade_facts(path)
+            candidate["schema_migrations"] = [row for row in candidate["schema_migrations"] if row[1] != 11]
+            valid_upgrades.append(candidate.pop("broadcast_event_selection", None) == [] and candidate == older)
+        checks["explicitly_upgraded_backup_candidate"] = any(valid_upgrades)
+        observations = root / "session-observations.jsonl"
+        opened = [entry["generation"] for entry in map(json.loads, observations.read_text().splitlines()) if entry["state"] == "opened"] if observations.exists() else []
+        checks["fresh_session_observed"] = bool(opened) and len(opened) == len(set(opened))
+    print(json.dumps(checks, indent=2))
+    if not all(checks.values()):
+        raise SystemExit("Upgrade preservation inspection failed. Keep the fixture for diagnosis.")
+
+
 def setup():
     binary = REPO / "target/debug/v4vmm"
     if not binary.is_file():
@@ -1116,7 +1214,7 @@ def run_app(root, manifest):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "session-status", "session-release", "repair-access", "repair-conflict", "repair-inspect", "retry-status", "retry-release", "retry-inspect", "retry-server", "converter-tools", "converter-status", "converter-inspect", "conversion-tools", "conversion-status", "conversion-remove-input", "conversion-inspect", "database-hold", "database-lock", "database-status", "database-inspect", "maintenance-hold", "maintenance-release", "maintenance-status", "maintenance-inspect", "restore-status", "restore-inspect", "restore-lock", "restore-release", "restore-block", "restore-interrupt", "restore-ready"))
+    parser.add_argument("command", choices=("setup", "locate", "verify", "validate", "mode", "run", "inspect", "cleanup", "hold-lock", "session-status", "session-release", "repair-access", "repair-conflict", "repair-inspect", "retry-status", "retry-release", "retry-inspect", "retry-server", "converter-tools", "converter-status", "converter-inspect", "conversion-tools", "conversion-status", "conversion-remove-input", "conversion-inspect", "database-hold", "database-lock", "database-status", "database-inspect", "maintenance-hold", "maintenance-release", "maintenance-status", "maintenance-inspect", "restore-status", "restore-inspect", "restore-lock", "restore-release", "restore-block", "restore-interrupt", "restore-ready", "upgrade-status", "upgrade-inspect", "upgrade-interrupt", "upgrade-ready"))
     parser.add_argument("directory", nargs="?")
     parser.add_argument("case", nargs="?", choices=CASES + CONVERTER_MODES + CONVERSION_MODES)
     args = parser.parse_args()
@@ -1152,6 +1250,19 @@ def main():
         database_status(root)
     elif args.command == "database-inspect":
         database_inspect(root, manifest)
+    elif args.command.startswith("upgrade-"):
+        if json.loads((root / "case.json").read_text())["case"] not in UPGRADE_CASES:
+            raise SystemExit("Select a fresh upgrade-interrupted or upgrade-unsupported fixture first.")
+        if args.command == "upgrade-status":
+            upgrade_status(root)
+        elif args.command == "upgrade-inspect":
+            upgrade_inspect(root, manifest)
+        elif args.command == "upgrade-interrupt":
+            (root / "restore.interrupt").write_text("Interrupt only this verified debug fixture's repair installation.\n")
+            print("Repair installation interruption enabled. Use failed-preservation.")
+        elif args.command == "upgrade-ready":
+            (root / "restore.interrupt").unlink(missing_ok=True)
+            print("Repair installation interruption removed. Use repaired-preservation.")
     elif args.command.startswith("restore-"):
         if json.loads((root / "case.json").read_text())["case"] not in RESTORE_CASES:
             raise SystemExit("Select a fresh database-restore or database-restore-recovery fixture first.")

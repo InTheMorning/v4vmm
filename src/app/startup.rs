@@ -568,6 +568,7 @@ impl StartupScreen {
         let restoring = matches!(
             command.operation,
             crate::application::commands::maintenance::DatabaseOperation::Restore(_)
+                | crate::application::commands::maintenance::DatabaseOperation::RepairUpgrade { .. }
         );
         let receiver = worker.submit(move || {
             let session = pending

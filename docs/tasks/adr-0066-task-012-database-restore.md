@@ -2,7 +2,7 @@
 
 Status: Complete - 2026-09-17; mechanical checks Green. Operator V1–V3,
 presentation and both preservation inspections accepted; fixture cleanup
-confirmed. Task 013 remains unstarted and requires a fresh session.
+confirmed. Task 013 is now implemented with its separate operator gate open.
 
 ## Goal
 

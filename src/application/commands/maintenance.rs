@@ -108,6 +108,68 @@ mod tests {
     use crate::config::correction::CorrectionField;
 
     #[test]
+    fn adr_0066_upgrade_command_requires_configured_source_and_drained_session() {
+        use crate::application::session_lifecycle::SessionDrain;
+        use crate::db::maintenance::restore::InstallState;
+        use std::sync::atomic::AtomicBool;
+        for change in ["none", "config", "session"] {
+            let temp = tempfile::tempdir().unwrap();
+            let source = temp.path().join("library.sqlite");
+            let config = temp.path().join("config.toml");
+            let conn = crate::db::open_db(&source).unwrap();
+            crate::db::upgrades::interrupt_fixture(&conn, crate::db::MigrationBoundary::AfterApply)
+                .unwrap();
+            drop(conn);
+            std::fs::write(
+                &config,
+                format!(
+                    "music_dir = '{}'\ndb_path = '{}'\n",
+                    temp.path().display(),
+                    source.display()
+                ),
+            )
+            .unwrap();
+            let authority = SessionDrain::core_recovery().finish().unwrap();
+            let generation = authority.generation();
+            let preserved = temp.path().join("preserved");
+            let make = || DatabaseCommand {
+                source: source.clone(),
+                cancelled: Arc::new(AtomicBool::new(false)),
+                operation: DatabaseOperation::RepairUpgrade {
+                    preservation: preserved.clone(),
+                    config_path: config.clone(),
+                    session_generation: generation,
+                },
+            };
+            assert!(matches!(
+                make().execute().outcome,
+                DatabaseOutcome::Restored(crate::db::maintenance::restore::RestoreResult {
+                    state: InstallState::NotInstalled(_),
+                    ..
+                })
+            ));
+            let authority = if change == "session" {
+                SessionDrain::core_recovery().finish().unwrap()
+            } else {
+                authority
+            };
+            if change == "config" {
+                std::fs::write(&config, "db_path = '/changed'\n").unwrap();
+            }
+            let (_, result) = make().execute_restore(authority);
+            let DatabaseOutcome::Restored(result) = result.outcome else {
+                panic!("wrong result");
+            };
+            if change == "none" {
+                assert!(matches!(result.state, InstallState::Verified), "{result:?}");
+            } else {
+                assert!(matches!(result.state, InstallState::NotInstalled(_)));
+                assert!(!preserved.exists());
+            }
+        }
+    }
+
+    #[test]
     fn adr_0066_restore_command_requires_review_drain_and_unchanged_configuration() {
         use crate::application::session_lifecycle::{SessionDrain, SessionLifecycle};
         use crate::db::maintenance::restore::InstallState;
@@ -337,6 +399,17 @@ pub(crate) enum DatabaseOperation {
         config_path: PathBuf,
         session_generation: u64,
     },
+    UpgradeBackup {
+        backup: PathBuf,
+        preservation: PathBuf,
+        config_path: PathBuf,
+        session_generation: u64,
+    },
+    RepairUpgrade {
+        preservation: PathBuf,
+        config_path: PathBuf,
+        session_generation: u64,
+    },
     Restore(Arc<RestoreReview>),
 }
 
@@ -442,6 +515,35 @@ impl DatabaseCommand {
                 }
                 Err(failure) => RestoreResult::refused(failure),
             }
+        } else if let DatabaseOperation::RepairUpgrade {
+            preservation,
+            config_path,
+            session_generation,
+        } = &self.operation
+        {
+            let prerequisites = RestoreReview::read_config(config_path).and_then(|(destination, _)| {
+                if !session.is_ready() || session.generation() != *session_generation
+                    || std::fs::canonicalize(&self.source).ok().as_ref() != Some(&destination) {
+                    return Err(Failure { operation: "Repair requires the checked configured database and current drained session", kind: FailureKind::UnstableFiles, remaining: Vec::new() });
+                }
+                ExclusiveDatabase::acquire(&destination, &budget)
+            });
+            match prerequisites {
+                Ok(access) => {
+                    #[cfg(debug_assertions)]
+                    let interrupt =
+                        crate::startup::fixture::interrupt_database_restore(config_path);
+                    #[cfg(not(debug_assertions))]
+                    let interrupt = false;
+                    crate::db::maintenance::restore::repair_interrupted_upgrade(
+                        access,
+                        preservation,
+                        &budget,
+                        interrupt,
+                    )
+                }
+                Err(failure) => RestoreResult::refused(failure),
+            }
         } else {
             RestoreResult::refused(Failure {
                 operation: "Require an explicit reviewed Restore action",
@@ -528,16 +630,22 @@ impl DatabaseCommand {
                 preservation,
                 config_path,
                 session_generation,
+            }
+            | DatabaseOperation::UpgradeBackup {
+                backup,
+                preservation,
+                config_path,
+                session_generation,
             } => {
                 let result = RestoreReview::read_config(config_path).and_then(
                     |(destination, config_digest)| {
-                        crate::db::maintenance::restore::ValidatedRestore::review(
-                            backup,
-                            &destination,
-                            preservation,
-                            &budget,
-                        )
-                        .map(|candidate| {
+                        let review =
+                            if matches!(self.operation, DatabaseOperation::UpgradeBackup { .. }) {
+                                crate::db::maintenance::restore::ValidatedRestore::upgrade_backup
+                            } else {
+                                crate::db::maintenance::restore::ValidatedRestore::review
+                            };
+                        review(backup, &destination, preservation, &budget).map(|candidate| {
                             Arc::new(RestoreReview {
                                 candidate,
                                 config_path: config_path.clone(),
@@ -549,13 +657,15 @@ impl DatabaseCommand {
                 );
                 DatabaseOutcome::RestoreReviewed(result)
             }
-            DatabaseOperation::Restore(_) => DatabaseOutcome::Restored(
-                maintenance::restore::RestoreResult::refused(maintenance::Failure {
-                    operation: "Require a completed app-session drain and reviewed restore",
-                    kind: maintenance::FailureKind::Unsupported,
-                    remaining: Vec::new(),
-                }),
-            ),
+            DatabaseOperation::Restore(_) | DatabaseOperation::RepairUpgrade { .. } => {
+                DatabaseOutcome::Restored(maintenance::restore::RestoreResult::refused(
+                    maintenance::Failure {
+                        operation: "Require a completed app-session drain and reviewed restore",
+                        kind: maintenance::FailureKind::Unsupported,
+                        remaining: Vec::new(),
+                    },
+                ))
+            }
         };
         DatabaseResult {
             source: self.source,

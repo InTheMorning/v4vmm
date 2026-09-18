@@ -202,3 +202,27 @@ Open - implementation and mechanical checks recorded 2026-09-11.
 - Task 005's completion does not accept any of this packet's remaining checks.
   Its scheduling exception remains recorded in the phase plan. The inherited
   checks above are separate.
+
+
+## 7. Interrupted Upgrade Repair — ADR 0066 Task 013
+
+Open — implementation recorded 2026-09-17; mechanical checks Green.
+
+- Owner: [task 013](tasks/adr-0066-task-013-interrupted-upgrade-repair.md).
+- Check: [Interrupted Upgrade Repair V1–V3](runbooks/startup-recovery-check.md#task-013-interrupted-upgrade-repair).
+- Needs a Linux desktop, Python 3.11+ and this checkout's normal debug binary.
+  Two isolated fixtures use Null playback and local service stubs; no audio
+  hardware or reachable external service is needed.
+- V1 behavior and Settings normal/narrow presentation are accepted: migration-11
+  recognition, failed-installation rollback report, successful repair,
+  same-window resumption, retained playlist/tracks and saved event, and both
+  retained repair reports.
+- V2 is accepted: older-backup review refusal, explicit preparation of a separate
+  validated candidate, and the unchanged library and saved event. The operator
+  reported the first fixture's preservation inspection as passed.
+- V3 reports identify the unrecognized schema/ledger and give preservation
+  guidance without changing the database. Confirmation that Repair is absent
+  and Open app stays unavailable after startup Check again remains open.
+- Recovery normal/narrow presentation, the second preservation inspection and
+  fixture cleanup remain open. Task 004 retains its independent gate; ADR 0066
+  stays Accepted.

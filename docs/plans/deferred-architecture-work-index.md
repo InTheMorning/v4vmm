@@ -64,7 +64,7 @@ prioritized, and routed to the right governance artifact.
      acceptance, preservation in both cases and fixture cleanup confirmed.
      Task 009 is complete on 2026-09-17 with mechanical checks Green; operator
      V1–V3, normal/narrow presentation, configuration restoration, preservation
-     and cleanup are accepted. Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; task 011 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, preservation and cleanup accepted; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 not started.
+     and cleanup are accepted. Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; task 011 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, preservation and cleanup accepted; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 implemented with operator V1–V3, presentation, preservation and cleanup open.
    - Note: a malformed layout *value* already falls back with a warning. This
      item is the level above that, where the file does not parse at all.
      Settings manages only a few keys, so operators hand-edit this file.

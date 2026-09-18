@@ -151,6 +151,10 @@ fn check_schema(conn: &Connection) -> Result<DatabaseReadiness, DbCheckError> {
         SchemaCompatibility::Empty | SchemaCompatibility::UpgradeRequired { .. } => {
             Ok(DatabaseReadiness::NeedsPreparation)
         }
+        SchemaCompatibility::InterruptedUpgrade => Err(DbCheckError {
+            stage: DbStage::Schema,
+            reason: "Migration 11 broadcast_event_selection has no recorded completion. Use Database tools: Check database, then Repair interrupted upgrade. App did not apply the repair.",
+        }),
         SchemaCompatibility::Newer { .. } | SchemaCompatibility::Unknown => Err(DbCheckError {
             stage: DbStage::Schema,
             reason:

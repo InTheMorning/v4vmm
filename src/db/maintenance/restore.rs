@@ -77,6 +77,25 @@ impl ValidatedRestore {
         preservation: &Path,
         budget: &Budget,
     ) -> Result<Self, Failure> {
+        Self::review_with(backup, destination, preservation, budget, false)
+    }
+
+    pub(crate) fn upgrade_backup(
+        backup: &Path,
+        destination: &Path,
+        preservation: &Path,
+        budget: &Budget,
+    ) -> Result<Self, Failure> {
+        Self::review_with(backup, destination, preservation, budget, true)
+    }
+
+    fn review_with(
+        backup: &Path,
+        destination: &Path,
+        preservation: &Path,
+        budget: &Budget,
+        upgrade: bool,
+    ) -> Result<Self, Failure> {
         let destination = fs::canonicalize(destination)
             .map_err(|e| Failure::io("Locate configured restore destination", &e))?;
         let destination_identity = regular_identity(&destination)?;
@@ -109,7 +128,11 @@ impl ValidatedRestore {
             match super::super::inspect_schema(&source)
                 .map_err(|e| budget.sql("Read chosen backup schema", &e))?
             {
-                SchemaCompatibility::Current => {}
+                SchemaCompatibility::Current if !upgrade => {}
+                SchemaCompatibility::UpgradeRequired { .. } if upgrade => {}
+                SchemaCompatibility::InterruptedUpgrade | SchemaCompatibility::Current => {
+                    return Err(Failure::new("Upgrade backup requires a valid older schema; interrupted migration 11 uses Repair interrupted upgrade", FailureKind::Validation));
+                }
                 SchemaCompatibility::UpgradeRequired { .. } => {
                     return Err(Failure::new(
                         "Older backup requires explicit migration preparation before restore",
@@ -129,7 +152,12 @@ impl ValidatedRestore {
                     ))
                 }
             }
-            let inspection = build_snapshot(&source, &candidate.path, budget)?;
+            let mut inspection = build_snapshot(&source, &candidate.path, budget)?;
+            if upgrade {
+                migrate_candidate(&candidate.path, budget)?;
+                inspection =
+                    inspect_connection(&open_source(&candidate.path, budget)?, budget, false);
+            }
             if inspection.schema != Some(Ok(SchemaCompatibility::Current)) {
                 return Err(Failure::new("Restore requires the current schema; older backups need explicit migration preparation", FailureKind::Validation));
             }
@@ -165,6 +193,12 @@ impl ValidatedRestore {
     /// Recheck private inputs before acquiring destination access. Never hash
     /// the live destination through a raw file descriptor.
     pub(crate) fn revalidate(&self, budget: &Budget) -> Result<(), Failure> {
+        self.revalidate_inputs(budget)?;
+        checked_destination(&self.destination, &self.preservation)?;
+        Ok(())
+    }
+
+    fn revalidate_inputs(&self, budget: &Budget) -> Result<(), Failure> {
         if fs::canonicalize(&self.chosen_backup).ok().as_ref() != Some(&self.backup) {
             return Err(changed(
                 "Chosen backup path changed since review; review again",
@@ -174,9 +208,7 @@ impl ValidatedRestore {
         self.candidate.verify()?;
         self.candidate_revision
             .verify(&self.candidate.path, budget)?;
-        self.verify_destination_identity()?;
-        checked_destination(&self.destination, &self.preservation)?;
-        Ok(())
+        self.verify_destination_identity()
     }
 
     fn verify_destination_identity(&self) -> Result<(), Failure> {
@@ -209,12 +241,25 @@ impl ValidatedRestore {
 
     fn install_with(
         &self,
-        mut access: ExclusiveDatabase,
+        access: ExclusiveDatabase,
         budget: &Budget,
         after_step: impl Fn() -> Result<(), Failure>,
     ) -> RestoreResult {
-        let mut result =
-            RestoreResult::refused(changed("Restore prerequisites were not completed"));
+        self.install_prepared(
+            access,
+            budget,
+            after_step,
+            RestoreResult::refused(changed("Restore prerequisites were not completed")),
+        )
+    }
+
+    fn install_prepared(
+        &self,
+        mut access: ExclusiveDatabase,
+        budget: &Budget,
+        after_step: impl Fn() -> Result<(), Failure>,
+        mut result: RestoreResult,
+    ) -> RestoreResult {
         let prepare = (|| {
             if access.source() != self.destination {
                 return Err(changed(
@@ -222,7 +267,7 @@ impl ValidatedRestore {
                 ));
             }
             self.verify_destination_identity()?;
-            self.revalidate(budget)?;
+            self.revalidate_inputs(budget)?;
             // A changed database, including work completed during drain, needs a
             // new review in recovery. Checkpoint-only changes keep the same digest.
             let before = match content_digest(&access.connection, budget) {
@@ -244,8 +289,12 @@ impl ValidatedRestore {
                     "Candidate records changed since review; review again",
                 ));
             }
-            result.preservation = Some(access.preserve(&self.preservation, budget)?);
-            if needs_original_snapshot(&access.connection, budget)? {
+            if result.preservation.is_none() {
+                result.preservation = Some(access.preserve(&self.preservation, budget)?);
+            }
+            if result.verified_original.is_none()
+                && needs_original_snapshot(&access.connection, budget)?
+            {
                 let original = Candidate::reserve(&self.preservation, budget)?;
                 // A readable original must have a verified SQLite snapshot as well
                 // as its labelled files. A failed snapshot prevents installation.
@@ -339,6 +388,136 @@ impl ValidatedRestore {
         }
         budget.check("Finish installed database verification")
     }
+}
+
+/// Preserve the exclusive original before any candidate migration. Installation
+/// uses the same verified `SQLite` path as an ordinary reviewed restore.
+pub(crate) fn repair_interrupted_upgrade(
+    mut access: ExclusiveDatabase,
+    preservation: &Path,
+    budget: &Budget,
+    interrupt_after_step: bool,
+) -> RestoreResult {
+    let mut result = RestoreResult::refused(Failure::new(
+        "Recognize migration 11 broadcast_event_selection before repair",
+        FailureKind::Validation,
+    ));
+    let prepared = (|| {
+        let inspection = inspect_connection(&access.connection, budget, true);
+        if !inspection.valid_snapshot()
+            || inspection.schema != Some(Ok(SchemaCompatibility::InterruptedUpgrade))
+        {
+            return Err(Failure::new("Only migration 11 broadcast_event_selection after table creation and before recording is supported; preserve files or review a known backup", FailureKind::Validation));
+        }
+        let destination = access.source().to_owned();
+        let destination_identity = regular_identity(&destination)?;
+        let destination_contents = Some(content_digest(&access.connection, budget)?);
+        let preserved_data = database_digest(&access.connection, budget, true)?;
+        let copy = access.preserve(preservation, budget)?;
+        let preservation = copy.directory.clone();
+        result.preservation = Some(copy);
+        let original = Candidate::reserve(&preservation, budget)?;
+        build_snapshot(&access.connection, &original.path, budget).map_err(|mut failure| {
+            failure.remaining.push(original.directory.clone());
+            failure
+        })?;
+        result.verified_original = Some(original.path.clone());
+        let backup_revision = FileRevision::read(&original.path, budget)?;
+        let candidate = Candidate::reserve(&preservation, budget)?;
+        let prepare = (|| {
+            build_snapshot(&access.connection, &candidate.path, budget)?;
+            // Both the manifest and verified original are durable before migration.
+            for directory in [&original.directory, &preservation] {
+                File::open(directory)
+                    .and_then(|file| file.sync_all())
+                    .map_err(|e| Failure::io("Sync preserved original before migration", &e))?;
+            }
+            migrate_candidate(&candidate.path, budget)?;
+            let candidate_connection = open_source(&candidate.path, budget)?;
+            if database_digest(&candidate_connection, budget, true)? != preserved_data {
+                return Err(Failure::new("Verify repair preserved all rows, event selections and prior migration records", FailureKind::Validation));
+            }
+            Ok((
+                FileRevision::read(&candidate.path, budget)?,
+                content_digest(&candidate_connection, budget)?,
+            ))
+        })();
+        let (candidate_revision, contents) = prepare.map_err(|mut failure: Failure| {
+            failure.remaining.push(candidate.directory.clone());
+            failure
+        })?;
+        Ok(ValidatedRestore {
+            chosen_backup: original.path.clone(),
+            backup: original.path,
+            destination,
+            preservation,
+            candidate,
+            backup_revision,
+            candidate_revision,
+            destination_identity,
+            destination_contents,
+            contents,
+        })
+    })();
+    match prepared {
+        Ok(review) => review.install_prepared(
+            access,
+            budget,
+            || {
+                if interrupt_after_step {
+                    Err(Failure::new(
+                        "Fixture interrupted repair installation between page batches",
+                        FailureKind::Io,
+                    ))
+                } else {
+                    Ok(())
+                }
+            },
+            result,
+        ),
+        Err(failure) => {
+            result.state = InstallState::NotInstalled(failure);
+            result
+        }
+    }
+}
+
+fn migrate_candidate(path: &Path, budget: &Budget) -> Result<(), Failure> {
+    let mut candidate =
+        Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
+            .map_err(|e| budget.sql("Open private upgrade candidate", &e))?;
+    budget.configure(&candidate)?;
+    budget.check("Apply normal migrations to private candidate")?;
+    super::super::migrate_schema(&candidate).map_err(|_| {
+        budget
+            .check("Apply normal migration registry to private candidate")
+            .err()
+            .unwrap_or_else(|| {
+                Failure::new(
+                    "Apply normal migration registry to private candidate",
+                    FailureKind::Validation,
+                )
+            })
+    })?;
+    let inspection = inspect_connection(&candidate, budget, true);
+    if !inspection.valid_snapshot()
+        || inspection.schema != Some(Ok(SchemaCompatibility::Current))
+        || !super::super::upgrades::recognize_migration_11(&candidate)
+            .map_err(|e| budget.sql("Verify upgraded schema against the normal authority", &e))?
+        || crate::db::startup::check_connection(&mut candidate)
+            != Ok(crate::db::startup::DatabaseReadiness::Ready)
+    {
+        return Err(Failure::new(
+            "Validate upgraded candidate schema, integrity, foreign keys and read/write access",
+            FailureKind::Validation,
+        ));
+    }
+    candidate
+        .close()
+        .map_err(|(_, e)| budget.sql("Close upgraded candidate", &e))?;
+    File::open(path)
+        .and_then(|file| file.sync_all())
+        .map_err(|e| Failure::io("Sync upgraded candidate", &e))
 }
 
 fn needs_original_snapshot(connection: &Connection, budget: &Budget) -> Result<bool, Failure> {
@@ -482,6 +661,14 @@ impl FileRevision {
 /// Compare schema, row identities, all stored values and the migration ledger
 /// independent of journal mode, checkpointing and `SQLite` header counters.
 fn content_digest(conn: &Connection, budget: &Budget) -> Result<String, Failure> {
+    database_digest(conn, budget, false)
+}
+
+fn database_digest(
+    conn: &Connection,
+    budget: &Budget,
+    omit_migration_11: bool,
+) -> Result<String, Failure> {
     const OP: &str = "Fingerprint database records and schema";
     budget.check(OP)?;
     let _snapshot = if conn.is_autocommit() {
@@ -508,7 +695,13 @@ fn content_digest(conn: &Connection, budget: &Budget) -> Result<String, Failure>
         }
         for table in tables {
             let quoted = table.replace('"', "\"\"");
-            let mut statement = conn.prepare(&format!("SELECT rowid, * FROM \"{quoted}\""))?;
+            let filter = if omit_migration_11 && table == "schema_migrations" {
+                " WHERE version != 11"
+            } else {
+                ""
+            };
+            let mut statement =
+                conn.prepare(&format!("SELECT rowid, * FROM \"{quoted}\"{filter}"))?;
             let columns = statement.column_count();
             let mut rows = statement.query([])?;
             let mut records = Vec::new();
@@ -587,6 +780,151 @@ mod tests {
         conn.execute_batch("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<1500) INSERT INTO playlists(name) SELECT printf('%04d ', i) || hex(zeroblob(1024)) FROM n;").unwrap();
         drop(conn);
         (temp, backup, destination)
+    }
+
+    fn interrupted(path: &Path) {
+        let conn = crate::db::open_db(path).unwrap();
+        crate::db::upgrades::interrupt_fixture(&conn, crate::db::MigrationBoundary::AfterApply)
+            .unwrap();
+        conn.execute(
+            "INSERT INTO playlists(name,description) VALUES ('retained',hex(zeroblob(524288)))",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO broadcast_event_selection VALUES (1,'selected-event',9)",
+            [],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn adr_0066_upgrade_repair_preserves_before_install_and_verifies_failure_rollback() {
+        for interrupt in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("db.sqlite");
+            interrupted(&path);
+            assert!(crate::db::startup::check_database(&path).is_err());
+            let before = fs::read(&path).unwrap();
+            let before_contents =
+                content_digest(&open_source(&path, &budget()).unwrap(), &budget()).unwrap();
+            let before_data =
+                database_digest(&open_source(&path, &budget()).unwrap(), &budget(), true).unwrap();
+            let identity = fs::metadata(&path).unwrap();
+            let preserved = temp.path().join("preserved");
+            let result = repair_interrupted_upgrade(
+                ExclusiveDatabase::acquire(&path, &budget()).unwrap(),
+                &preserved,
+                &budget(),
+                interrupt,
+            );
+            assert!(result.preservation.as_ref().unwrap().manifest.exists());
+            let original = result.verified_original.as_ref().unwrap();
+            assert_eq!(
+                content_digest(&open_source(original, &budget()).unwrap(), &budget()).unwrap(),
+                before_contents
+            );
+            assert_eq!(fs::read(preserved.join("database.sqlite")).unwrap(), before);
+            assert!(same_file(&identity, &fs::metadata(&path).unwrap()));
+            let connection = open_source(&path, &budget()).unwrap();
+            assert_eq!(
+                database_digest(&connection, &budget(), true).unwrap(),
+                before_data
+            );
+            if interrupt {
+                assert!(
+                    matches!(
+                        result.state,
+                        InstallState::Failed {
+                            rollback_verified: true,
+                            ..
+                        }
+                    ),
+                    "{result:?}"
+                );
+                assert_eq!(
+                    content_digest(&connection, &budget()).unwrap(),
+                    before_contents
+                );
+                assert!(crate::db::startup::check_database(&path).is_err());
+            } else {
+                assert!(matches!(result.state, InstallState::Verified), "{result:?}");
+                assert_eq!(
+                    crate::db::startup::check_database(&path).unwrap(),
+                    crate::db::startup::DatabaseReadiness::Ready
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn adr_0066_upgrade_failed_preservation_and_unsupported_schema_do_not_mutate() {
+        for unsupported in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("db.sqlite");
+            interrupted(&path);
+            let preserved = temp.path().join("preserved");
+            if unsupported {
+                Connection::open(&path)
+                    .unwrap()
+                    .execute("DELETE FROM schema_migrations WHERE version=5", [])
+                    .unwrap();
+            } else {
+                fs::write(&preserved, "occupied").unwrap();
+            }
+            let before = fs::read(&path).unwrap();
+            let result = repair_interrupted_upgrade(
+                ExclusiveDatabase::acquire(&path, &budget()).unwrap(),
+                &preserved,
+                &budget(),
+                false,
+            );
+            assert!(
+                matches!(result.state, InstallState::NotInstalled(_)),
+                "{result:?}"
+            );
+            assert!(result.verified_original.is_none());
+            assert_eq!(fs::read(&path).unwrap(), before);
+            if unsupported {
+                assert!(!preserved.exists());
+            }
+        }
+    }
+
+    #[test]
+    fn adr_0066_upgrade_backup_requires_explicit_candidate_and_preserves_chosen_source() {
+        let (temp, backup, destination) = files("DELETE");
+        let conn = Connection::open(&backup).unwrap();
+        crate::db::upgrades::interrupt_fixture(&conn, crate::db::MigrationBoundary::BeforeApply)
+            .unwrap();
+        drop(conn);
+        let bytes = fs::read(&backup).unwrap();
+        let destination_bytes = fs::read(&destination).unwrap();
+        let preserved = temp.path().join("preserved");
+        assert!(ValidatedRestore::review(&backup, &destination, &preserved, &budget()).is_err());
+        let review =
+            ValidatedRestore::upgrade_backup(&backup, &destination, &preserved, &budget()).unwrap();
+        assert_eq!(fs::read(&backup).unwrap(), bytes);
+        assert_eq!(fs::read(&destination).unwrap(), destination_bytes);
+        let candidate = open_source(review.candidate_path(), &budget()).unwrap();
+        assert_eq!(
+            crate::db::inspect_schema(&candidate).unwrap(),
+            SchemaCompatibility::Current
+        );
+        assert_eq!(
+            candidate
+                .query_row("SELECT count(*) FROM playlists", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            1500
+        );
+        drop(candidate);
+        let result = review.install(
+            ExclusiveDatabase::acquire(&destination, &budget()).unwrap(),
+            &budget(),
+            false,
+        );
+        assert!(matches!(result.state, InstallState::Verified), "{result:?}");
+        assert_eq!(fs::read(&backup).unwrap(), bytes);
     }
 
     #[test]

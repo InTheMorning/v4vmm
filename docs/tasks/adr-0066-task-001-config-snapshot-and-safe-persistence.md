@@ -140,6 +140,13 @@ Mechanical verification is Green. Operator V1–V3, presentation, preservation,
 normal-mode restoration and fixture cleanup are accepted; task 010 is complete.
 Tasks 011–013 retain their assigned ownership and ADR invariants remain binding.
 
+Task 013 handoff review — 2026-09-17: the migration recipe and coding prompt
+are retired for `adr_0066_upgrade_repair_uses_normal_migration_authority` and
+[actual backend/command/VM/fixture proof](adr-0066-task-013-interrupted-upgrade-repair.md#implementation-and-proof).
+Tasks 011 and 012 retain their completed proof and accepted operator evidence.
+Task 013's operator gate and task 004's inherited gate stay open; the handoff
+does not close ADR 0066 or release its configuration-format dependency.
+
 ## Acceptance Criteria
 
 Mechanical evidence lives in [config.rs tests](../../src/config.rs) unless

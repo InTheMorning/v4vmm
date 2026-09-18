@@ -2851,6 +2851,7 @@ pub fn open_db(db_path: &Path) -> Result<Connection> {
 
 pub(crate) mod maintenance;
 pub mod startup;
+pub(crate) mod upgrades;
 
 struct Migration {
     version: i64,
@@ -2920,6 +2921,7 @@ const MIGRATIONS: &[Migration] = &[
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SchemaCompatibility {
     Current,
+    InterruptedUpgrade,
     UpgradeRequired { applied: usize, current: usize },
     Newer { version: i64 },
     Unknown,
@@ -2965,6 +2967,13 @@ pub(crate) fn inspect_schema(conn: &Connection) -> rusqlite::Result<SchemaCompat
         return Ok(SchemaCompatibility::Unknown);
     }
     if versions.len() < MIGRATIONS.len() {
+        if versions.len() == 10 && tables.iter().any(|t| t == "broadcast_event_selection") {
+            return Ok(if upgrades::recognize_migration_11(conn)? {
+                SchemaCompatibility::InterruptedUpgrade
+            } else {
+                SchemaCompatibility::Unknown
+            });
+        }
         return Ok(SchemaCompatibility::UpgradeRequired {
             applied: versions.len(),
             current: MIGRATIONS.len(),
@@ -3244,14 +3253,31 @@ const CURRENT_COLUMNS: &[(&str, &[&str])] = &[
 ];
 
 pub(crate) fn migrate_schema(conn: &Connection) -> Result<()> {
+    migrate_schema_with(conn, |_, _| Ok(()))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MigrationBoundary {
+    BeforeApply,
+    AfterApply,
+    AfterRecord,
+}
+
+fn migrate_schema_with(
+    conn: &Connection,
+    boundary: impl Fn(i64, MigrationBoundary) -> Result<()>,
+) -> Result<()> {
     ensure_schema_migrations_table(conn)?;
     for migration in MIGRATIONS {
         if migration_applied(conn, migration.version)? {
             continue;
         }
+        boundary(migration.version, MigrationBoundary::BeforeApply)?;
         (migration.apply)(conn)
             .with_context(|| format!("apply migration {} {}", migration.version, migration.name))?;
+        boundary(migration.version, MigrationBoundary::AfterApply)?;
         record_migration(conn, migration.version, migration.name)?;
+        boundary(migration.version, MigrationBoundary::AfterRecord)?;
     }
     Ok(())
 }

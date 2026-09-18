@@ -26,7 +26,12 @@ pub(crate) fn interrupt_database_restore(config_path: &Path) -> bool {
     };
     matches!(
         state["case"].as_str(),
-        Some("database-restore" | "database-restore-recovery")
+        Some(
+            "database-restore"
+                | "database-restore-recovery"
+                | "upgrade-interrupted"
+                | "upgrade-unsupported"
+        )
     ) && root.join("restore.interrupt").is_file()
 }
 
@@ -144,6 +149,7 @@ pub fn run_cli(args: &[String]) -> Result<()> {
             fs::write(root.join("config/v4vmm/config.toml"), config)?;
             println!("{}", json!({"seeded": root}));
         }
+        "upgrade-seed" => seed_upgrade_checks(&root)?,
         "database-seed" => seed_database_checks(&root)?,
         "restore-seed" => {
             seed_database_checks(&root)?;
@@ -525,5 +531,46 @@ fn append_session_observation(root: &Path, generation: u64, state: &str) -> Resu
         "{}",
         json!({"generation": generation, "state": state})
     )?;
+    Ok(())
+}
+
+/// ADR 0066 task 013 fixtures use the migration executor's failure seam.
+fn seed_upgrade_checks(root: &Path) -> Result<()> {
+    use crate::db::{upgrades::interrupt_fixture, MigrationBoundary};
+    let directory = root.join("upgrade");
+    fs::create_dir(&directory).context("reserve fresh upgrade fixture")?;
+    let source = root.join("data/library.sqlite");
+    let conn = rusqlite::Connection::open(&source)?;
+    conn.execute("UPDATE playlists SET description=hex(zeroblob(524288))", [])?;
+    crate::db::insert_broadcast_event(
+        &conn,
+        &crate::db::BroadcastEventInput {
+            event_id: "upgrade-fixture-event".into(),
+            label: Some("Upgrade fixture saved event".into()),
+            created_at: chrono::Utc::now().timestamp(),
+            last_checked_at: None,
+            last_status: None,
+            endpoint: "http://127.0.0.1:9".into(),
+            token_path: root.join("broadcaster-token.fixture").display().to_string(),
+        },
+    )?;
+    drop(conn);
+    let budget = crate::db::maintenance::Budget::new(std::sync::Arc::new(
+        std::sync::atomic::AtomicBool::new(false),
+    ));
+    let older = directory.join("older-backup.sqlite");
+    crate::db::maintenance::backup(&source, &older, &budget)
+        .map_err(|e| anyhow::anyhow!("{}: {:?}", e.operation, e.kind))?;
+    let conn = rusqlite::Connection::open(&older)?;
+    interrupt_fixture(&conn, MigrationBoundary::BeforeApply)?;
+    drop(conn);
+    let conn = rusqlite::Connection::open(&source)?;
+    interrupt_fixture(&conn, MigrationBoundary::AfterApply)?;
+    crate::db::select_broadcast_event(&conn, "upgrade-fixture-event")?;
+    drop(conn);
+    println!(
+        "{}",
+        json!({"interrupted_database": source, "older_backup": older})
+    );
     Ok(())
 }

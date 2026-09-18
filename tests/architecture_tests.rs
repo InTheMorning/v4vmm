@@ -17837,7 +17837,7 @@ fn adr_0066_restore_uses_validated_maintenance_install() {
         "candidate_revision: FileRevision",
         "destination_contents: Option<String>",
         "access: ExclusiveDatabase",
-        "self.revalidate(budget)?",
+        "self.revalidate_inputs(budget)?",
         "access.source() != self.destination",
         "access.preserve(&self.preservation, budget)",
         "build_snapshot(&access.connection",
@@ -17859,7 +17859,6 @@ fn adr_0066_restore_uses_validated_maintenance_install() {
         "fs::remove_file(",
         "fs::copy(",
         "open_db(",
-        "migrate_schema(",
         "SQLITE_OPEN_CREATE",
         "File::open(&self.destination)",
     ] {
@@ -17931,5 +17930,66 @@ fn adr_0066_restore_uses_validated_maintenance_install() {
         "adr_0066_restore_verification_requires_candidate_records_and_usable_writes",
     ] {
         assert!(source.contains(test));
+    }
+}
+
+/// Situational — ADR 0016 and ADR 0066 invariant 6: one migration authority,
+/// explicit candidate preparation and the existing maintenance installation.
+#[test]
+fn adr_0066_upgrade_repair_uses_normal_migration_authority() {
+    let db = read_source(&manifest_path("src/db.rs"));
+    let maintenance = read_source(&manifest_path("src/db/maintenance/restore.rs"));
+    let backend = production_source(&maintenance);
+    assert!(db.contains("migrate_schema_with(conn, |_, _| Ok(()))"));
+    assert!(db.contains("record_migration(conn, migration.version, migration.name)?"));
+    assert!(backend.contains("super::super::migrate_schema(&candidate)"));
+    assert_eq!(backend.matches("migrate_schema(").count(), 1);
+    let repair = source_between(
+        backend,
+        "pub(crate) fn repair_interrupted_upgrade(",
+        "fn migrate_candidate(",
+    );
+    assert!(repair.find("access.preserve(").unwrap() < repair.find("migrate_candidate(").unwrap());
+    for required in [
+        "build_snapshot(&access.connection",
+        "database_digest(&candidate_connection",
+        "review.install_prepared",
+        "SchemaCompatibility::InterruptedUpgrade",
+    ] {
+        assert!(
+            repair.contains(required),
+            "repair authority missing {required}"
+        );
+    }
+    for forbidden in [
+        "INSERT INTO schema_migrations",
+        "DELETE FROM schema_migrations",
+        "record_migration(",
+        "CREATE TABLE",
+    ] {
+        assert!(
+            !backend.contains(forbidden),
+            "parallel migration authority: {forbidden}"
+        );
+    }
+    let recognizer = read_source(&manifest_path("src/db/upgrades.rs"));
+    let recognition = source_between(&recognizer, "fn recognize_migration_11(", "type Column");
+    assert!(!recognition.contains("conn.execute"));
+    let startup = read_source(&manifest_path("src/db/startup.rs"));
+    assert!(startup.contains("SchemaCompatibility::InterruptedUpgrade => Err"));
+    let vm = read_source(&manifest_path("src/view_models/startup/database.rs"));
+    for required in [
+        "DatabaseAction::UpgradeBackup",
+        "DatabaseAction::RepairUpgrade",
+        "inspection.valid_snapshot()",
+        "self.maintenance_ready",
+    ] {
+        assert!(vm.contains(required));
+    }
+    for proof in [
+        "adr_0066_upgrade_repair_preserves_before_install_and_verifies_failure_rollback",
+        "adr_0066_upgrade_backup_requires_explicit_candidate_and_preserves_chosen_source",
+    ] {
+        assert!(maintenance.contains(proof));
     }
 }

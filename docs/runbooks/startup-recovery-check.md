@@ -1944,5 +1944,132 @@ python3 docs/runbooks/startup-recovery-fixture.py cleanup "$RECOVERY_RESTORE_FIX
 Report V1, V2 and V3 separately, normal/narrow presentation, report copy,
 preservation flags, same-window resumption and cleanup. The operator accepted
 these checks and confirmed cleanup of both accepted fixtures and the additional
-fixture used during review. Task 012 is complete; task 013 requires a fresh
-session and remains unstarted.
+fixture used during review. Task 012 is complete; task 013 has its separate
+operator procedure and open gate below.
+
+## Task 013: Interrupted Upgrade Repair
+
+Gate: **open**. Implementation and mechanical verification do not accept these
+operator checks. Use two fresh disposable fixtures in a Linux desktop session
+with Python 3.11+ and this checkout's debug binary. Playback is Null; external
+commands use isolated stubs. No audio hardware, running publisher, encoder or
+reachable MusicIndex is required. This procedure covers the new migration
+workflow only; task 012's accepted restore checks stay closed.
+
+### V1: Recognize, Interrupt And Repair Migration 11
+
+Create the supported interruption through Rust's migration failure seam.
+
+```bash
+cd /home/citizen/build/v4vmm
+cargo build --locked --offline --quiet --bin v4vmm
+UPGRADE_FIXTURE=$(python3 docs/runbooks/startup-recovery-fixture.py setup)
+python3 docs/runbooks/startup-recovery-fixture.py mode "$UPGRADE_FIXTURE" upgrade-interrupted
+python3 docs/runbooks/startup-recovery-fixture.py upgrade-interrupt "$UPGRADE_FIXTURE"
+python3 docs/runbooks/startup-recovery-fixture.py upgrade-status "$UPGRADE_FIXTURE"
+python3 docs/runbooks/startup-recovery-fixture.py run "$UPGRADE_FIXTURE"
+```
+
+1. Recovery must name **migration 11 broadcast_event_selection**, explain the
+   missing completion record and keep **Open app** unavailable. Check again
+   must not silently record the migration.
+2. In Database tools, choose **Use configured database**, then **Check database**.
+   Confirm the report names this fixture's `data/library.sqlite`, valid
+   migrations 1–10, the compatible table, integrity and the proposed repair.
+   Enter the printed `upgrade/failed-preservation` path as the new preservation
+   directory. **Repair interrupted upgrade** should now be available. If the
+   session is still draining, wait for its completion before using the action.
+3. Choose **Repair interrupted upgrade**. The injected installation failure
+   must retain recovery and report verified SQLite rollback, the preservation
+   manifest and the verified original snapshot. Success, loss of the report,
+   or automatic normal-session admission would be wrong.
+4. In a second terminal, set `UPGRADE_FIXTURE` to the exact root printed above.
+   Verify that it matches the database named by the running window. Remove
+   only this fixture's installation interruption:
+
+```bash
+cd /home/citizen/build/v4vmm
+UPGRADE_FIXTURE=$(python3 docs/runbooks/startup-recovery-fixture.py locate)
+python3 docs/runbooks/startup-recovery-fixture.py verify "$UPGRADE_FIXTURE"
+python3 docs/runbooks/startup-recovery-fixture.py upgrade-ready "$UPGRADE_FIXTURE"
+python3 docs/runbooks/startup-recovery-fixture.py upgrade-status "$UPGRADE_FIXTURE"
+```
+
+5. Choose **Check database** again, change the preservation destination to the
+   printed `upgrade/repaired-preservation`, then **Repair interrupted upgrade**.
+   The report must state that migration 11 was recorded and existing records
+   and event selections were preserved. One fresh Music session must open in
+   the same window after successful core checks.
+6. Inspect **Startup fixture playlist**, its tracks, and the saved **Upgrade
+   fixture saved event** in Show. Do not start playback or an external service.
+   Return to Settings > Diagnostics > Database tools: both failed and successful
+   reports must remain. Copy them to a scratch editor and check complete paths,
+   recorded UTC, preservation destinations and the named migration.
+7. Inspect the new help, repair action and reports at normal and narrow widths
+   in recovery and Settings. Overlapping controls, clipped paths or hidden
+   actions would be wrong. Continue with V2 in this same window.
+
+### V2: Explicitly Upgrade An Older Backup
+
+Use `upgrade-status` to obtain the chosen backup and new preservation path.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py upgrade-status "$UPGRADE_FIXTURE"
+```
+
+1. In Settings > Diagnostics > Database tools, put `upgrade/older-backup.sqlite`
+   in **Chosen restore backup path** and `upgrade/backup-restore-preservation`
+   in the preservation field. Choose **Review restore**. It must explain that
+   the older backup needs explicit preparation and leave Restore unavailable.
+2. Choose **Upgrade backup**. It must report a separate migrated candidate and
+   present the ordinary Restore review, naming the original chosen backup,
+   configured destination and candidate. The current library and saved event
+   remain unchanged. **Restore database** is a separate action; leave it
+   unclicked in this check because that older backup predates the selection.
+3. Close the app. Inspect the original rows, migration records, event selection,
+   both preservation sets, upgraded candidate, source backup bytes, configured
+   inode, music, token sentinel, configuration and fresh-session observation.
+   Every flag must be true; keep a failing fixture for diagnosis.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py upgrade-inspect "$UPGRADE_FIXTURE"
+```
+
+### V3: Refuse An Unsupported Partial Schema
+
+Create a second fixture with an unrelated missing migration record.
+
+```bash
+UNSUPPORTED_UPGRADE_FIXTURE=$(python3 docs/runbooks/startup-recovery-fixture.py setup)
+python3 docs/runbooks/startup-recovery-fixture.py mode "$UNSUPPORTED_UPGRADE_FIXTURE" upgrade-unsupported
+python3 docs/runbooks/startup-recovery-fixture.py upgrade-status "$UNSUPPORTED_UPGRADE_FIXTURE"
+python3 docs/runbooks/startup-recovery-fixture.py run "$UNSUPPORTED_UPGRADE_FIXTURE"
+```
+
+1. Recovery must remain open. Choose **Use configured database** and
+   **Check database**. The report must identify an unrecognized schema/ledger
+   and give preservation/known-backup guidance. **Repair interrupted upgrade**
+   must be absent. A missing migration record alone must not authorize repair.
+2. Check again must leave Open app unavailable. Close the app without changing
+   the fixture, then inspect it. Its database bytes, original records, music,
+   token file and configuration must be preserved; no repair artifacts exist.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py upgrade-inspect "$UNSUPPORTED_UPGRADE_FIXTURE"
+```
+
+### Cleanup
+
+After both inspections pass and results are recorded, remove the two isolated
+fixtures, including their private candidates, preservation copies and owned
+processes. There is no production configuration or hardware state to undo.
+
+```bash
+python3 docs/runbooks/startup-recovery-fixture.py cleanup "$UPGRADE_FIXTURE"
+python3 docs/runbooks/startup-recovery-fixture.py cleanup "$UNSUPPORTED_UPGRADE_FIXTURE"
+```
+
+Report V1–V3, normal/narrow presentation, report copy, same-window resumption,
+both preservation inspections and cleanup. Until a person supplies those
+results, task 013 remains open. Task 004 retains its separate gate; this packet
+does not close ADR 0066 or release configuration-format changes.

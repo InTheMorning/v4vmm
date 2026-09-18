@@ -732,3 +732,93 @@ class RestorePreservationTests(unittest.TestCase):
         self.inspect(False)
         report.unlink()
         self.inspect(False)
+
+
+class UpgradePreservationTests(unittest.TestCase):
+    """Situational ADR 0066: repair acceptance needs original and candidate evidence."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="v4vmm-upgrade-inspector-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        for name in ("data", "upgrade", "config/v4vmm", "music"):
+            (self.root / name).mkdir(parents=True)
+        self.source = self.root / "data/library.sqlite"
+        self.source.write_bytes(b"repaired database")
+        self.backup = self.root / "upgrade/older-backup.sqlite"
+        self.backup.write_bytes(b"older backup")
+        config = self.root / "config/v4vmm/config.toml"
+        config.write_text("fixture config")
+        token = self.root / "broadcaster-token.fixture"
+        token.write_bytes(b"token sentinel")
+        token.chmod(0o600)
+        music = self.root / "music/unchanged-audio.bin"
+        music.write_bytes(b"music sentinel")
+        self.original = {"schema_migrations": [[i, i, f"migration-{i}", "recorded"] for i in range(1, 11)],
+                         "broadcast_event_selection": [[1, 1, "event", 9]], "playlists": [[1, 1, "saved"]]}
+        self.repaired = json.loads(json.dumps(self.original))
+        self.repaired["schema_migrations"].append([11, 11, "broadcast_event_selection", "repaired"])
+        self.older = {k: v for k, v in self.original.items() if k != "broadcast_event_selection"}
+        self.upgraded = dict(self.repaired, broadcast_event_selection=[])
+        self.facts_by_path = {self.source: self.repaired, self.backup: self.older}
+        for name in ("failed", "repaired"):
+            folder = self.root / f"upgrade/{name}-preservation"
+            folder.mkdir(mode=0o700)
+            original = folder / "database.sqlite"
+            original.write_bytes(b"original database")
+            original.chmod(0o600)
+            receipt = {"kind": "database_file_preservation_not_verified_backup", "source": str(self.source),
+                       "files": [{"copied_name": original.name, "length": original.stat().st_size, "sha256": fixture.digest(original)}]}
+            (folder / "manifest.json").write_text(json.dumps(receipt))
+            (folder / "manifest.json").chmod(0o600)
+            for suffix, facts in (("original", self.original), ("repaired", self.repaired)):
+                candidate = folder / f".v4vmm-database-{suffix}/candidate.sqlite"
+                candidate.parent.mkdir()
+                candidate.touch()
+                self.facts_by_path[candidate] = facts
+        candidate = self.root / "upgrade/.v4vmm-database-upgraded/candidate.sqlite"
+        candidate.parent.mkdir()
+        candidate.touch()
+        self.facts_by_path[candidate] = self.upgraded
+        (self.root / "upgrade-baseline.json").write_text(json.dumps({
+            "older_sha256": fixture.digest(self.backup), "destination_inode": self.source.stat().st_ino,
+            "destination_device": self.source.stat().st_dev, "original_sha256": fixture.digest(original),
+            "original_facts": self.original, "token_sha256": fixture.digest(token)}))
+        (self.root / "case.json").write_text(json.dumps({"case": "upgrade-interrupted", "config_sha256": fixture.digest(config)}))
+        (self.root / "session-observations.jsonl").write_text(json.dumps({"state": "opened", "generation": 2}) + "\n")
+        self.manifest = {"audio_sha256": fixture.digest(music), "track_sha256": {}}
+
+    def inspect(self, accepted):
+        connection = Mock()
+        connection.execute.side_effect = lambda sql: Mock(fetchall=Mock(return_value=[("ok",)] if sql == "PRAGMA integrity_check" else []))
+        context = Mock(__enter__=Mock(return_value=connection), __exit__=Mock(return_value=False))
+        with patch.object(fixture, "upgrade_facts", side_effect=lambda path: json.loads(json.dumps(self.facts_by_path[path]))), \
+                patch.object(fixture.sqlite3, "connect", return_value=context), contextlib.redirect_stdout(io.StringIO()):
+            if accepted:
+                fixture.upgrade_inspect(self.root, self.manifest)
+            else:
+                with self.assertRaisesRegex(SystemExit, "Upgrade preservation inspection failed"):
+                    fixture.upgrade_inspect(self.root, self.manifest)
+
+    def test_adr_0066_upgrade_inspector_accepts_complete_evidence(self):
+        self.inspect(True)
+
+    def test_adr_0066_upgrade_inspector_rejects_lost_selection_or_prior_ledger_changes(self):
+        self.repaired["broadcast_event_selection"] = []
+        self.inspect(False)
+        self.repaired["broadcast_event_selection"] = self.original["broadcast_event_selection"]
+        self.repaired["schema_migrations"][0][2] = "changed"
+        self.inspect(False)
+
+    def test_adr_0066_upgrade_inspector_rejects_missing_preservation_or_changed_backup(self):
+        self.backup.write_bytes(b"changed backup")
+        self.inspect(False)
+        self.backup.write_bytes(b"older backup")
+        (self.root / "upgrade/failed-preservation/manifest.json").unlink()
+        self.inspect(False)
+
+    def test_adr_0066_upgrade_inspector_rejects_missing_upgrade_or_fresh_session(self):
+        (self.root / "upgrade/.v4vmm-database-upgraded/candidate.sqlite").unlink()
+        self.inspect(False)
+        (self.root / "session-observations.jsonl").unlink()
+        self.inspect(False)

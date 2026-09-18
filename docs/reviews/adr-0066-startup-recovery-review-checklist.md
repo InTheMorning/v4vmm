@@ -23,7 +23,7 @@ Task 009 is complete on 2026-09-17 with mechanical checks Green; operator V1–V
 normal/narrow presentation, configuration restoration, preservation and fixture
 cleanup are accepted. Tasks 010–011 are complete on 2026-09-17 with mechanical
 checks Green, operator acceptance, preservation and cleanup confirmed;
-task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 has not started.
+task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 is implemented with operator V1–V3, presentation, preservation and cleanup open.
 
 Read the [ADR](../adr/0066-configuration-and-startup-failure-recovery.md),
 [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md), active packet and
@@ -1521,3 +1521,83 @@ confirmed. A mismatched fixture path was corrected after review exposed the
 running app's configured destination; the runbook retains that explicit check.
 Task 012's pending-human entry is removed. Task 004 and inherited gates are
 unchanged; ADR 0066 remains Accepted and partial. Task 013 remains unstarted.
+
+
+## Task 013 Review — 2026-09-17
+
+Scope: [interrupted upgrade repair](../tasks/adr-0066-task-013-interrupted-upgrade-repair.md#implementation-and-proof).
+Implementation is complete; final mechanical checks are Green.
+Operator V1–V3, presentation, report copy, same-window resumption, both
+preservation inspections and cleanup remain open.
+
+Validation: **Green** — 1,476 unit tests, 259 architecture guards, 39 Python
+fixture tests, formatting, check, strict production Clippy and a normal desktop
+build after tests. Ten existing doctests remain ignored. Final tests used the
+approved unrestricted environment for existing local socket fixtures. Both
+new backend fixture modes passed setup/seed, state inspection, failure controls,
+negative acceptance checks and owned cleanup; no GUI process was launched.
+Changed local documentation links/anchors and proof-symbol references pass.
+
+- C1/C2: `inspect_schema` validates the exact version/name prefix, then the
+  read-only recognizer compares complete columns and schema objects with a
+  database constructed by the normal authority. It permits migration 2's
+  legitimate enclosure-column placement, preserves quoted SQL values and
+  refuses missing columns, different constraints/types, unknown tables/triggers,
+  unrelated missing/wrong versions and later versions. Integrity and foreign
+  keys are separate prerequisites. Startup does not auto-prepare the recognized
+  interruption. Shared executor seams exercise before-apply, after-apply and
+  after-record boundaries; repeated registry execution retains selections.
+- C3: repair requires the configured source and drained session, fresh exclusive
+  recognition, file preservation and a verified original before candidate
+  mutation. A digest of schema, row identities, stored values and prior ledger
+  records permits only the new migration-11 record. Installation, cancellation,
+  rollback verification, process exclusion and final main-database write probe
+  stay with task 012's shared owner. Unsupported/failed preservation cannot
+  enter installation. Failed installation keeps the original and candidate.
+- C4/C5: Upgrade backup is an explicit command that snapshots the selected file,
+  calls the same registry on its private candidate, validates it and returns to
+  ordinary Restore review. Original source bytes, configured destination,
+  fingerprints and session/configuration review binding remain protected.
+  There is one migration writer and one controlled SQLite installation path.
+- UI: typed facts, wording, visibility, availability, destructive intent and
+  accessibility stay in DatabaseVm. The existing presenter/composite use named
+  controls and tokens. Startup only routes the maintenance command and admits
+  a fresh session after the verified result and fresh core checks.
+- Fixture: Rust's debug-only seed uses the actual migration failure seam;
+  Python adds orchestration and all-row/selection/ledger preservation evidence.
+  Inspector regressions refuse lost selections, changed prior ledger records,
+  missing preservation, changed backups, missing upgraded candidates and absent
+  fresh-session evidence. No desktop was launched by the agent.
+
+### Series Evidence Reconciliation
+
+The invariant coverage and task 001 handoff tables were checked against the
+packet proof sections and acceptance prose. No checkbox-only gate inference is
+used. The completed packets retain their evidence; no prior visual acceptance
+is reopened by this packet.
+
+| ADR invariant | Named proof retained or added |
+|---|---|
+| 1, core minimum | Task 002 `adr_0066_core_recovery_ownership`; task 004 `adr_0066_normal_factory_scopes_each_optional_group_and_keeps_config_bytes` |
+| 2, scoped typed failures | Task 004 `adr_0066_optional_dependencies_are_scoped`; task 007 `adr_0066_repair_routes_preserve_action_subject` |
+| 3–4, preservation and one snapshot | Task 001 `adr_0066_config_creation_and_save_ownership`; task 006 `adr_0066_shared_guarded_config_repair` |
+| 5, recovery without ordinary dispatch | Tasks 002/003 `adr_0066_core_recovery_ownership`, `adr_0066_missing_runtime_has_no_implicit_runner`; task 005 `adr_0066_core_maintenance_drains_the_session` |
+| 6, data protection | Tasks 004/005/009–012's proof tables; `adr_0066_database_checks_and_snapshots_have_one_owner`, `adr_0066_database_maintenance_requires_exclusive_access`, `adr_0066_restore_uses_validated_maintenance_install`; task 013 `adr_0066_upgrade_repair_uses_normal_migration_authority` and its behavioral tests |
+| 7, safe recorded reports | Task 002 `adr_0066_recorded_report_context` and all result-producing packet VM proofs; task 013 uses the same recorded-result/redaction owner |
+| 8, window failure fallback | Task 002 `adr_0066_window_failure_and_closed_window_exit_but_activation_is_nonfatal` and `adr_0066_window_manager_close_queues_quit` |
+| 9, explicit fresh retry | Tasks 006–009 proof inventories; `adr_0066_recovery_controls_explain_effect_and_completion` and `adr_0066_converter_checks_are_refreshable` |
+
+Tasks 001–003 and 005–012 are complete with their applicable operator acceptance,
+preservation and cleanup. Task 004 retains its surviving independent checks and
+paused playback gate; task 007 supersedes its disabled-only remediation
+presentation without accepting blocked playback. ADRs 0063/0070 and 0071/0072
+keep their completed log/text-selection gates; ADR 0073 keeps its accepted Show
+overflow follow-up. Inherited scrolling, identity/detail parity, toolbar,
+playlist reordering and metadata gates remain in the pending-human index.
+
+Task 013 adds only its new V1–V3 gate. Its procedure/prompt are retired for actual
+proof symbols, and all current status/index owners point to that open gate.
+ADR 0066 remains **Accepted, partial**. Deferred item 6 remains open; item 7 and
+new persisted configuration formats remain dependent on full acceptance.
+No relay or successor implementation phase started. This packet makes no claim
+that all repository human checks are closed.

@@ -27,6 +27,8 @@ pub(crate) enum DatabaseAction {
     EndSession,
     Preserve,
     ReviewRestore,
+    UpgradeBackup,
+    RepairUpgrade,
     Restore,
     Cancel,
     CopyReport,
@@ -38,6 +40,7 @@ pub(crate) struct DatabaseActionDisplay {
     pub(crate) a11y_label: &'static str,
     pub(crate) availability: StartupAvailability,
     pub(crate) destructive: bool,
+    pub(crate) visible: bool,
 }
 
 pub(crate) struct DatabaseVm {
@@ -51,6 +54,7 @@ pub(crate) struct DatabaseVm {
     pub(crate) session_generation: u64,
     review: Option<Arc<crate::application::commands::maintenance::RestoreReview>>,
     reviewed_inputs: Option<(String, String)>,
+    repair_source: Option<PathBuf>,
     running: Option<Arc<AtomicBool>>,
     generation: u64,
 }
@@ -63,7 +67,9 @@ impl DatabaseVm {
     pub(crate) const HELP: &'static str = "Use configured database fills the source path, or enter another existing database's absolute path. For backup, enter a new filename in an existing folder. For preservation, enter a new directory name. Existing paths are never overwritten. Checks, backups and file preservation each have a 60-second limit; Cancel waits for a known result before releasing database access.";
     pub(crate) const PRESERVATION: &'static str = "If a verified backup cannot be made, end the app session, then choose Preserve database files. App waits up to five seconds for exclusive SQLite access and copies the database and journals to the new private directory. SQLite may recover journals while acquiring access and clean up or checkpoint them on close. The copy records files after access was acquired; it is not a verified restorable backup. Afterward, Check again and Open app use fresh core verification.";
     pub(crate) const RESTORE_SOURCE: &'static str = "Chosen restore backup path";
-    pub(crate) const RESTORE_HELP: &'static str = "To restore, enter a standalone backup and a new preservation directory above, then choose Review restore. Restore replaces only the configured database, regardless of the inspection source field. Review does not replace data. The separate Restore database action ends the current app session, preserves its database, installs the reviewed candidate and reopens the app after fresh verification. Music files and broadcaster token files are not restored or changed. Only current-schema backups are supported. Restore has a 60-second work limit; final verification can take another 60 seconds, including after cancellation.";
+    pub(crate) const RESTORE_HELP: &'static str = "To restore, enter a standalone backup and a new preservation directory above, then choose Review restore. Restore replaces only the configured database, regardless of the inspection source field. Review does not replace data. The separate Restore database action ends the current app session, preserves its database, installs the reviewed candidate and reopens the app after fresh verification. Music files and broadcaster token files are not restored or changed. Older valid backups need the explicit Upgrade backup action, which migrates a separate candidate and returns it to Restore review. The chosen backup is preserved. Restore has a 60-second work limit; final verification can take another 60 seconds, including after cancellation.";
+
+    pub(crate) const UPGRADE_HELP: &'static str = "For an interrupted upgrade, use the configured database and Check database. Repair interrupted upgrade is offered only when migration 11 broadcast_event_selection has a compatible table, migrations 1–10 are valid and integrity checks pass. Enter a new preservation directory and end the app session first. Repair preserves the original, records migration 11 through the normal migration registry in a separate candidate, verifies all existing records and event selections, then installs it. Unsupported schemas require preservation and a known backup.";
 
     pub(crate) fn new(worker_available: bool) -> Self {
         Self {
@@ -77,6 +83,7 @@ impl DatabaseVm {
             session_generation: 0,
             review: None,
             reviewed_inputs: None,
+            repair_source: None,
             running: None,
             generation: 0,
         }
@@ -109,6 +116,8 @@ impl DatabaseVm {
                 "Preserve database files",
                 "Preserve database and journal files under exclusive access; this is not a verified backup",
             ),
+            DatabaseAction::UpgradeBackup => ("Upgrade backup", "Upgrade a separate candidate from the chosen older backup using the normal migrations, then review restore"),
+            DatabaseAction::RepairUpgrade => ("Repair interrupted upgrade", "Preserve the configured database and complete migration 11 broadcast_event_selection in a validated candidate before installation"),
             DatabaseAction::ReviewRestore => ("Review restore", "Validate the chosen backup and review the configured destination and preservation directory"),
             DatabaseAction::Restore => ("Restore database", "Replace the reviewed configured database after ending the app session and preserving its original data"),
             DatabaseAction::Cancel => (
@@ -142,7 +151,15 @@ impl DatabaseVm {
                     && PathBuf::from(&self.source).is_absolute()
                     && PathBuf::from(&self.destination).is_absolute()
             }
-            DatabaseAction::ReviewRestore => {
+            DatabaseAction::RepairUpgrade => {
+                self.input_enabled()
+                    && self.worker_available
+                    && self.maintenance_ready
+                    && self.session_generation != 0
+                    && self.repair_source.as_ref() == Some(&PathBuf::from(&self.source))
+                    && PathBuf::from(&self.destination).is_absolute()
+            }
+            DatabaseAction::ReviewRestore | DatabaseAction::UpgradeBackup => {
                 self.input_enabled()
                     && self.worker_available
                     && self.session_generation != 0
@@ -157,7 +174,12 @@ impl DatabaseVm {
             action,
             label,
             a11y_label,
-            destructive: action == DatabaseAction::Restore,
+            visible: action != DatabaseAction::RepairUpgrade
+                || self.repair_source.as_ref() == Some(&PathBuf::from(&self.source)),
+            destructive: matches!(
+                action,
+                DatabaseAction::Restore | DatabaseAction::RepairUpgrade
+            ),
             availability: if available {
                 StartupAvailability::Available
             } else {
@@ -175,19 +197,40 @@ impl DatabaseVm {
         }
         let operation = match action {
             DatabaseAction::ConfiguredSource => DatabaseOperation::ConfiguredSource(config_path),
-            DatabaseAction::Check => DatabaseOperation::Check,
+            DatabaseAction::Check => {
+                self.repair_source = None;
+                DatabaseOperation::Check
+            }
             DatabaseAction::Backup => DatabaseOperation::Backup {
                 destination: self.destination.clone().into(),
             },
             DatabaseAction::Preserve => DatabaseOperation::Preserve {
                 destination: self.destination.clone().into(),
             },
-            DatabaseAction::ReviewRestore => {
+            DatabaseAction::ReviewRestore | DatabaseAction::UpgradeBackup => {
                 self.review = None;
                 self.reviewed_inputs =
                     Some((self.restore_source.clone(), self.destination.clone()));
-                DatabaseOperation::ReviewRestore {
-                    backup: self.restore_source.clone().into(),
+                if action == DatabaseAction::UpgradeBackup {
+                    DatabaseOperation::UpgradeBackup {
+                        backup: self.restore_source.clone().into(),
+                        preservation: self.destination.clone().into(),
+                        config_path,
+                        session_generation: self.session_generation,
+                    }
+                } else {
+                    DatabaseOperation::ReviewRestore {
+                        backup: self.restore_source.clone().into(),
+                        preservation: self.destination.clone().into(),
+                        config_path,
+                        session_generation: self.session_generation,
+                    }
+                }
+            }
+            DatabaseAction::RepairUpgrade => {
+                self.repair_source = None;
+                self.review = None;
+                DatabaseOperation::RepairUpgrade {
                     preservation: self.destination.clone().into(),
                     config_path,
                     session_generation: self.session_generation,
@@ -259,8 +302,28 @@ impl DatabaseVm {
             Arc<crate::application::commands::maintenance::RestoreReview>,
             Failure,
         >,
+        operation: &DatabaseOperation,
     ) -> String {
         let mut text = String::new();
+        if matches!(operation, DatabaseOperation::UpgradeBackup { .. }) {
+            text.push_str("App attempted normal migration preparation on a separate candidate. The chosen backup was not migrated.\n");
+        }
+        if let DatabaseOperation::ReviewRestore {
+            backup,
+            preservation,
+            config_path,
+            ..
+        }
+        | DatabaseOperation::UpgradeBackup {
+            backup,
+            preservation,
+            config_path,
+            ..
+        } = operation
+        {
+            let _ = writeln!(&mut text, "App reviewed backup {} for the database configured in {}. Preservation requested at {}.", backup.display(), config_path.display(), preservation.display());
+        }
+
         match result_review {
             Ok(review) => {
                 self.review = Some(review);
@@ -269,7 +332,7 @@ impl DatabaseVm {
                 }
             }
             Err(failure) => {
-                let _ = writeln!(&mut text, "App refused restore review. No database was installed. {}\nChoose a current-schema standalone backup and Review restore again.", failure_report(&failure));
+                let _ = writeln!(&mut text, "App refused restore review. No database was installed. {}\nChoose a valid standalone backup and Review restore again. For an older valid backup, choose Upgrade backup to prepare a separate candidate.", failure_report(&failure));
             }
         }
         text
@@ -302,6 +365,9 @@ impl DatabaseVm {
                 }
             }
             DatabaseOutcome::Checked(inspection) => {
+                self.repair_source = (inspection.valid_snapshot()
+                    && inspection.schema == Some(Ok(SchemaCompatibility::InterruptedUpgrade)))
+                .then(|| result.source.clone());
                 let _ = writeln!(text, "App checked database {}.\n{}\nApp did not initialize, migrate or repair this database.", result.source.display(), inspection_report(&inspection));
                 false
             }
@@ -330,44 +396,25 @@ impl DatabaseVm {
                 false
             }
             DatabaseOutcome::Preserved(result_copy) => {
-                let requested = match result.operation {
-                    DatabaseOperation::Preserve { destination } => destination,
-                    _ => PathBuf::new(),
-                };
-                let _ = writeln!(
-                    text,
-                    "App attempted file preservation from {} to {}.",
-                    result.source.display(),
-                    requested.display()
-                );
-                match result_copy {
-                    Ok(copy) => {
-                        let _ = writeln!(text, "App saved a preservation copy of {} database/journal file(s) in {}. This is not a verified restorable backup. Manifest: {}.\nSQLite acquired exclusive access at {} with journal mode {}. Files were copied after SQLite acquired access and before it closed the connection. SQLite may perform automatic journal recovery during access and cleanup/checkpoint on close. No pre-access byte identity is claimed. Keep the manifest and copied files together.", copy.file_count, copy.directory.display(), copy.manifest.display(), time(copy.acquired_at), copy.journal_mode);
-                        for path in copy.changed_during_access {
-                            let _ = writeln!(text, "App observed a file identity, size, modification time or presence change while SQLite acquired access: {}. The preservation copy reflects the state after that access, including any SQLite journal recovery.", path.display());
-                        }
-                    }
-                    Err(failure) => {
-                        let _ = writeln!(text, "App did not complete a preservation copy. {}\nIn-app preservation cannot proceed without safe exclusive access and a completed copy. App did not install or replace a database. Retain original files and inspect a known backup for recovery.", failure_report(&failure));
-                    }
-                }
-                text.push_str("The preservation operation has finished and released its database access. Normal work has not resumed. Choose Check again, then Open app only when fresh core checks pass.");
+                text.push_str(&preservation_report(
+                    &result.source,
+                    &result.operation,
+                    result_copy,
+                ));
                 false
             }
             DatabaseOutcome::RestoreReviewed(result_review) => {
-                if let DatabaseOperation::ReviewRestore {
-                    backup,
-                    preservation,
-                    config_path,
-                    ..
-                } = result.operation
-                {
-                    let _ = writeln!(text, "App reviewed backup {} for the database configured in {}. Preservation requested at {}.", backup.display(), config_path.display(), preservation.display());
-                }
-                text.push_str(&self.review_report(result_review));
+                text.push_str(&self.review_report(result_review, &result.operation));
                 false
             }
             DatabaseOutcome::Restored(result_restore) => {
+                if matches!(result.operation, DatabaseOperation::RepairUpgrade { .. }) {
+                    let _ = writeln!(
+                        text,
+                        "Configured database selected for repair: {}.",
+                        result.source.display()
+                    );
+                }
                 text.push_str(&restore_report(result.operation, result_restore));
                 false
             }
@@ -384,12 +431,49 @@ impl Drop for DatabaseVm {
     }
 }
 
+fn preservation_report(
+    source: &std::path::Path,
+    operation: &DatabaseOperation,
+    result_copy: Result<crate::db::maintenance::Preservation, Failure>,
+) -> String {
+    let mut text = String::new();
+    let requested = match operation {
+        DatabaseOperation::Preserve { destination } => destination,
+        _ => &PathBuf::new(),
+    };
+    let _ = writeln!(
+        &mut text,
+        "App attempted file preservation from {} to {}.",
+        source.display(),
+        requested.display()
+    );
+    match result_copy {
+        Ok(copy) => {
+            let _ = writeln!(&mut text, "App saved a preservation copy of {} database/journal file(s) in {}. This is not a verified restorable backup. Manifest: {}.\nSQLite acquired exclusive access at {} with journal mode {}. Files were copied after SQLite acquired access and before it closed the connection. SQLite may perform automatic journal recovery during access and cleanup/checkpoint on close. No pre-access byte identity is claimed. Keep the manifest and copied files together.", copy.file_count, copy.directory.display(), copy.manifest.display(), time(copy.acquired_at), copy.journal_mode);
+            for path in copy.changed_during_access {
+                let _ = writeln!(&mut text, "App observed a file identity, size, modification time or presence change while SQLite acquired access: {}. The preservation copy reflects the state after that access, including any SQLite journal recovery.", path.display());
+            }
+        }
+        Err(failure) => {
+            let _ = writeln!(&mut text, "App did not complete a preservation copy. {}\nIn-app preservation cannot proceed without safe exclusive access and a completed copy. App did not install or replace a database. Retain original files and inspect a known backup for recovery.", failure_report(&failure));
+        }
+    }
+    text.push_str("The preservation operation has finished and released its database access. Normal work has not resumed. Choose Check again, then Open app only when fresh core checks pass.");
+    text
+}
+
 fn restore_report(
     operation: DatabaseOperation,
     result_restore: crate::db::maintenance::restore::RestoreResult,
 ) -> String {
     use crate::db::maintenance::restore::InstallState;
     let mut text = String::new();
+    if let DatabaseOperation::RepairUpgrade { preservation, .. } = &operation {
+        let _ = writeln!(&mut text, "App attempted migration 11 broadcast_event_selection repair of the checked configured database. Preservation requested at {}.", preservation.display());
+        if matches!(result_restore.state, InstallState::Verified) {
+            text.push_str("App recorded migration 11 broadcast_event_selection through the normal migration registry. All existing rows, event selections, schema objects and prior migration records were preserved.\n");
+        }
+    }
     if let DatabaseOperation::Restore(review) = operation {
         let _ = writeln!(&mut text, "App attempted restore from {} into configured database {}. Validated candidate retained at {}. Preservation requested at {}.",
                 review.candidate.backup.display(), review.candidate.destination.display(), review.candidate.candidate_path().display(), review.candidate.preservation.display());
@@ -457,6 +541,7 @@ fn inspection_report(inspection: &Inspection) -> String {
     let schema = match &inspection.schema {
         None => "Not checked because database access failed.".into(),
         Some(Err(e)) => failure_report(e),
+        Some(Ok(SchemaCompatibility::InterruptedUpgrade)) => "Migration 11 broadcast_event_selection created its compatible table but has no completion record. Migrations 1–10 match the normal registry. If integrity and foreign-key checks pass, enter a new preservation directory, end the app session and choose Repair interrupted upgrade. Repair preserves the original and completes the migration on a separate validated candidate before installation.".into(),
         Some(Ok(SchemaCompatibility::Current)) => "Current schema and migration ledger are compatible. No schema action is needed.".into(),
         Some(Ok(SchemaCompatibility::UpgradeRequired { applied, current })) => format!("Supported older migration ledger ({applied} of {current} migrations). An explicit supported upgrade is needed before normal use; this check did not apply it."),
         Some(Ok(SchemaCompatibility::Newer { version })) => format!("Migration version {version} is newer than this app supports. Use a compatible app version; unfamiliar schema alone is not corruption."),
@@ -480,6 +565,82 @@ fn snapshot_report(snapshot: &Snapshot) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adr_0066_upgrade_actions_require_fresh_recognition_and_explicit_candidate_preparation() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("library.sqlite");
+        let conn = crate::db::open_db(&source).unwrap();
+        crate::db::upgrades::interrupt_fixture(&conn, crate::db::MigrationBoundary::AfterApply)
+            .unwrap();
+        drop(conn);
+        let mut vm = DatabaseVm::new(true);
+        vm.source = source.display().to_string();
+        vm.destination = temp.path().join("preserved").display().to_string();
+        vm.session_generation = 42;
+        assert!(!vm.action(DatabaseAction::RepairUpgrade).visible);
+        let (generation, command) = vm.begin(DatabaseAction::Check, PathBuf::new()).unwrap();
+        vm.complete(generation, command.execute());
+        assert!(vm.action(DatabaseAction::RepairUpgrade).visible);
+        assert!(vm.report.contains("Migration 11 broadcast_event_selection"));
+        assert!(vm
+            .begin(DatabaseAction::RepairUpgrade, PathBuf::new())
+            .is_none());
+        vm.maintenance_ready = true;
+        vm.source.push('x');
+        assert!(!vm.action(DatabaseAction::RepairUpgrade).visible);
+        vm.source.pop();
+        let (_, command) = vm
+            .begin(DatabaseAction::RepairUpgrade, PathBuf::from("/config"))
+            .unwrap();
+        assert!(matches!(
+            command.operation,
+            DatabaseOperation::RepairUpgrade {
+                session_generation: 42,
+                ..
+            }
+        ));
+        assert!(!vm.action(DatabaseAction::RepairUpgrade).visible);
+        assert!(vm
+            .begin(DatabaseAction::RepairUpgrade, PathBuf::new())
+            .is_none());
+    }
+
+    #[test]
+    fn adr_0066_upgrade_backup_returns_to_review_without_installing() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("library.sqlite");
+        drop(crate::db::open_db(&source).unwrap());
+        let backup = temp.path().join("older.sqlite");
+        let conn = crate::db::open_db(&backup).unwrap();
+        crate::db::upgrades::interrupt_fixture(&conn, crate::db::MigrationBoundary::BeforeApply)
+            .unwrap();
+        drop(conn);
+        let config = temp.path().join("config.toml");
+        std::fs::write(
+            &config,
+            format!(
+                "music_dir = '{}'\ndb_path = '{}'\n",
+                temp.path().display(),
+                source.display()
+            ),
+        )
+        .unwrap();
+        let before = std::fs::read(&source).unwrap();
+        let mut vm = DatabaseVm::new(true);
+        vm.session_generation = 7;
+        vm.restore_source = backup.display().to_string();
+        vm.destination = temp.path().join("preserved").display().to_string();
+        let (generation, command) = vm.begin(DatabaseAction::UpgradeBackup, config).unwrap();
+        vm.complete(generation, command.execute());
+        assert!(vm.restore_confirmation().is_some());
+        assert_eq!(
+            vm.action(DatabaseAction::Restore).availability,
+            StartupAvailability::Available
+        );
+        assert_eq!(std::fs::read(source).unwrap(), before);
+        assert!(vm.report.contains("chosen backup was not migrated"));
+    }
 
     #[test]
     fn adr_0066_restore_review_is_explicit_bound_to_inputs_and_one_session() {

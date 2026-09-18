@@ -329,7 +329,9 @@ pub(crate) fn database_tools(
             ),
         );
     }
-    body = body.child(div().whitespace_normal().child(DatabaseVm::RESTORE_HELP));
+    body = body
+        .child(div().whitespace_normal().child(DatabaseVm::RESTORE_HELP))
+        .child(div().whitespace_normal().child(DatabaseVm::UPGRADE_HELP));
     if let Some(confirmation) = vm.restore_confirmation() {
         body = body.child(div().whitespace_normal().child(confirmation));
     }
@@ -345,11 +347,16 @@ pub(crate) fn database_tools(
         DatabaseAction::EndSession,
         DatabaseAction::Preserve,
         DatabaseAction::ReviewRestore,
+        DatabaseAction::UpgradeBackup,
+        DatabaseAction::RepairUpgrade,
         DatabaseAction::Restore,
         DatabaseAction::Cancel,
         DatabaseAction::CopyReport,
     ] {
         let display = vm.action(action);
+        if !display.visible {
+            continue;
+        }
         let callback = callback.clone();
         actions = actions.child(
             Button::styled(

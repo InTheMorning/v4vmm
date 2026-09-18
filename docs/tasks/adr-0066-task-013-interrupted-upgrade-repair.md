@@ -1,7 +1,10 @@
 # ADR 0066 Task 013: Interrupted Upgrade Repair
 
-Status: Ready after the preceding packet - 2026-09-10.
-Implementation not started. Operator check specified below; not runnable or accepted yet.
+Status: Implementation complete; mechanical checks Green — 2026-09-17.
+Operator V1–V2, Settings normal/narrow presentation and the first preservation
+inspection are accepted. V3, recovery presentation, the second preservation
+inspection and fixture cleanup are open.
+ADR 0066 remains Accepted; task 004 retains its independent acceptance gate.
 
 ## Goal
 
@@ -27,17 +30,24 @@ created a listed owner, extend that owner.
 - docs/reviews/adr-0066-startup-recovery-review-checklist.md
 - `tests/architecture_tests.rs`; `AGENTS.md`
 
-## Files Likely To Change
+## Files Changed
 
-- src/db.rs — migration inspection/reuse and precise recognized condition only
-- src/db/maintenance.rs
-- src/application/commands/maintenance.rs; src/view_models/startup.rs; src/ui/composites/maintenance_forms.rs
-- tests/architecture_tests.rs; docs/runbooks/startup-recovery-fixture.py; docs/runbooks/startup-recovery-check.md
-- ADR 0066 and its plan, checklist, packet states, delivery/deferred indexes and AGENTS.md — evidence-based closure only
-- This packet's Status/evidence, the phase plan and review checklist.
-- ADR 0066's guard references/partial line and the delivery/deferred indexes as
-  appropriate; `docs/pending-human-checks.md` when a runnable visual gate opens.
-  Update `AGENTS.md` when the next executable packet changes.
+- Schema and migration: `src/db.rs`, new `src/db/upgrades.rs`,
+  `src/db/startup.rs`, `src/db/maintenance.rs`, `src/db/maintenance/restore.rs`.
+- Commands and presentation: `src/application/commands/maintenance.rs`,
+  `src/view_models/startup/database.rs`, `src/presentation/database_tools.rs`,
+  `src/ui/composites/maintenance_forms.rs`, `src/app/startup.rs`.
+- Verification and fixtures: `tests/architecture_tests.rs`,
+  `src/startup/fixture.rs`, `docs/runbooks/startup-recovery-fixture.py`,
+  `docs/runbooks/test_startup_recovery_fixture.py`.
+- Documentation: this packet, task 001's handoff, task 012's successor status,
+  the operator runbook, review checklist, ADR 0066 and its index, phase plan,
+  delivery/deferred indexes, pending-human index, docs index, `AGENTS.md` and
+  `.github/copilot-instructions.md`.
+
+No documentation files or folders were created or moved. Existing root
+`AGENTS.md` remains the workflow owner; other canonical root documents remain
+in place. Local links and heading anchors in changed documentation are Green.
 
 ## Do Not Touch
 
@@ -61,40 +71,139 @@ created a listed owner, extend that owner.
   actual guard symbol and verification artifact in this packet; keep the ADR's
   binding decision/invariants. Task 001 owns the series handoff review.
 
-## Implementation Steps
+## Implementation And Proof
 
-1. Name the first supported recipe narrowly: complete migration 11, broadcast_event_selection, after its table creation succeeded but its ledger row was not recorded. Require a valid schema through versions 1–10, their expected names, a compatible existing broadcast_event_selection table, no unknown later migration, and a passing integrity check. A merely missing ledger row in an arbitrary database is not enough.
+`db::inspect_schema` distinguishes `InterruptedUpgrade` from an ordinary older
+schema. `db::upgrades::recognize_migration_11` compares the existing schema with
+the normal authority's in-memory schema; startup keeps this state in recovery.
+`DatabaseVm` offers repair only after a successful read-only check and session
+drain. The command rechecks the configured source and session, then obtains
+`ExclusiveDatabase` before recognition and preservation.
 
-2. Recognize the condition through read-only schema/ledger inspection. Report the missing migration version/name and the proposed operation. Offer Repair interrupted upgrade only for this proven condition; unsupported/inconsistent schemas offer preservation/restore/check guidance instead of guessed SQL.
+`repair_interrupted_upgrade` preserves files and a verified snapshot before
+`migrate_candidate` calls the shared `migrate_schema` / `MIGRATIONS` /
+`record_migration` path. `database_digest` proves every existing row, event
+selection, schema object and prior ledger record survives, excluding only the
+new migration-11 record. `ValidatedRestore::install_prepared` is the same
+controlled SQLite installation and verification owner as task 012. There is no
+parallel repair SQL or ledger writer.
 
-3. Preserve the original under exclusive maintenance, create a candidate using the existing snapshot path, and call the SAME migrate_schema/MIGRATIONS/record_migration path used for normal preparation against that candidate. No repair-only SQL or ledger insert. If more robust migration atomicity is necessary, change the shared registry execution path and prove normal and repair behavior together; do not create a parallel engine.
+`ValidatedRestore::upgrade_backup` prepares only a private candidate. Its
+explicit VM action returns to the existing session/configuration-bound Restore
+review; it does not replace the configured database or migrate the chosen file.
 
-4. Validate candidate schema/ledger, integrity, foreign keys and preserved event selections/rows, then use task 012's controlled installation. Report what migration was recorded and what data was preserved. Failed recognition/apply/install leaves useful preservation paths and recovery available.
+UI ownership stays in `view_models/startup/database.rs`,
+`presentation/database_tools.rs` and the existing shared `maintenance_forms`
+composite. Geometry uses its existing named spacing, typography and control
+styles. `app/startup.rs` routes the existing drain, independent worker and fresh
+resumption lifecycle. No configuration or durable schema format changes.
 
-5. For otherwise valid older backups, prepare a candidate through the same normal migration registry after an explicit Upgrade backup action, then return it to task 012's validation/review. Do not silently migrate the operator's chosen backup or broaden the interrupted-repair recognizer to arbitrary partial schema states.
+### Mechanical Acceptance
 
-6. Extend the fixture with a migration-11 interruption produced by a test-only failure seam between apply and record_migration. Do not duplicate migration SQL in Python. Test interruption before apply, after apply, after recording, and during candidate installation.
+| ID | Actual proof |
+|---|---|
+| C1 | `adr_0066_upgrade_recognizer_rejects_inconsistent_schema_without_writes`; `adr_0066_upgrade_integrity_damage_never_authorizes_repair`; `adr_0066_upgrade_schema_recognizes_legacy_column_order_without_ignoring_sql_values`; schema/ledger checks in `db::inspect_schema`; `adr_0066_upgrade_actions_require_fresh_recognition_and_explicit_candidate_preparation` |
+| C2 | `adr_0066_upgrade_boundaries_share_normal_registry_and_preserve_selection`; existing `test_migrations_record_versions_on_fresh_schema` and `test_migrations_update_legacy_schema` |
+| C3 | `adr_0066_upgrade_repair_preserves_before_install_and_verifies_failure_rollback`; `adr_0066_upgrade_failed_preservation_and_unsupported_schema_do_not_mutate`; `adr_0066_upgrade_command_requires_configured_source_and_drained_session`; existing task 012 process-contention/install tests |
+| C4 | `adr_0066_upgrade_backup_requires_explicit_candidate_and_preserves_chosen_source`; `adr_0066_upgrade_backup_returns_to_review_without_installing` |
+| C5 | Situational `adr_0066_upgrade_repair_uses_normal_migration_authority` in `tests/architecture_tests.rs`, citing ADR 0016 and ADR 0066 invariant 6; task 012's guard retains its preservation/installation rules while allowing the explicitly gated candidate migration |
+| C6 | [Series evidence reconciliation](../reviews/adr-0066-startup-recovery-review-checklist.md#task-013-review--2026-09-17); existing completed packets stay accepted; task 004 and this packet retain their actual open gates |
 
-7. Review the series checklist and all packet evidence. Replace duplicated recipe/procedure prose with actual guard names and the fixture/runbook anchor. Mark ADR 0066 Implemented only when all packets and their operator gates have passed; otherwise keep Accepted with an accurate partial line. Reconcile deferred item 6 and release the item 7 dependency only at that completion point. Do not run relay or another implementation phase in this session.
+The implementation procedure and coding prompt are retired in favor of these
+symbols and the [task 013 operator procedure](../runbooks/startup-recovery-check.md#task-013-interrupted-upgrade-repair).
+`db::upgrades::interrupt_fixture` is compiled only for tests/debug builds;
+`startup::fixture::seed_upgrade_checks` constructs the interruption through the
+shared executor's apply/record failure seam. Python orchestrates the isolated
+files, unsupported ledger case and preservation inspection without migration
+DDL. The existing verified-debug-fixture installation hook is inert in release.
 
-## Acceptance Criteria
+### Mechanical Evidence — 2026-09-17
 
-Mechanical; assert at the named owner. Test/guard names below marked new must
-be implemented by this packet.
+Green: `cargo fmt -- --check`, `cargo check --quiet`, `cargo test --quiet`,
+`cargo clippy --quiet -- -D warnings`, `cargo build --quiet --bin v4vmm`.
+The full final suite passes **1,476 unit tests and 259 architecture guards**;
+ten existing documentation examples remain ignored. All **39 Python fixture
+tests** pass. The normal desktop binary was rebuilt after the final tests.
+Task proof-symbol references, changed documentation links and `git diff --check`
+are Green. Three existing loopback tests were sandbox-denied during a focused
+run; the approved unrestricted rerun and full final suite passed.
 
-| ID | Proof owner | Required assertion |
-|---|---|---|
-| C1 | migration recognizer tests | Only the named supported interrupted state offers repair. Missing/wrong columns, unrelated missing versions, unknown later versions and corruption are rejected without schema mutation. |
-| C2 | fresh/legacy/interrupted migration tests | Normal preparation and candidate repair use the same version/name records. Existing test_migrations_record_versions_on_fresh_schema and test_migrations_update_legacy_schema remain; interrupted apply/record boundaries preserve data and do not double-apply work. |
-| C3 | repair/installation tests | Original preservation precedes candidate mutation; repaired candidate passes integrity/schema checks; failed install retains recovery data and cannot falsely resume normal work. |
-| C4 | older-backup tests | Explicit candidate upgrade preserves the chosen source and uses the normal registry; only a validated result reaches Restore review. |
-| C5 | new situational guard adr_0066_upgrade_repair_uses_normal_migration_authority | Repair calls shared registry execution/version recording and shared maintenance installation. Cite ADR 0016 and ADR 0066 invariant 6. |
-| C6 | documentation/evidence review | Every invariant has named proof, every implemented visual change has recorded operator acceptance or an open tracked gate, and all status/index records agree. No unrun gate is closed by mechanical tests. |
+Backend fixture smoke passed setup, Rust seam construction, saved selection,
+older backup state, read-only inspection, missing-evidence refusal, interruption
+controls, prevention of reseeding, and cleanup for both new modes. Its private
+fixtures `/tmp/v4vmm-startup-doce9a9r` and `/tmp/v4vmm-startup-90f3ub4x` were
+removed. This did not launch a desktop or establish visual acceptance.
 
-Documentation proof: remove this packet's duplicate mechanism prose as its guards
-land; record actual symbols and fixture/runbook anchors. Keep its Status,
-the plan, ADR partial line, delivery row and pending-human-check index truthful.
-An unwalked visual check cannot pass through a green mechanical suite.
+No architectural deviation. The new schema-read helper stays under `db`;
+normal migration atomicity is unchanged because migration 11 is idempotent and
+all repair mutation occurs in a preserved candidate. The recognizer deliberately
+refuses schema definitions outside the authority-generated contract, including
+extra objects and inconsistent constraints. General corruption salvage remains
+unsupported. No unresolved mechanical failure remains.
+
+Operator inspection is in progress. V1 behavior and Settings presentation
+acceptance are recorded below; remaining operator checks and task 004's separate
+gate prevent full ADR closure.
+
+## Operator Evidence — 2026-09-18 UTC
+
+Fixture: `/tmp/v4vmm-startup-hyy6ux18`. Evidence in this section comes from the
+operator's copied reports and confirmation. The operator reported the first
+artifact inspection as passed; its raw output was not supplied.
+
+- Startup check 1 at 00:42:38 UTC and check 2 at 00:45:53 UTC identify the
+  unrecorded migration 11 `broadcast_event_selection`. Both reports keep normal
+  library/show operations closed. The operator confirmed Open app remains
+  unavailable after Check again.
+- Database checks at 00:46:15 and 00:47:34 UTC report read-only access, integrity
+  `ok` with the documented read-only CHECK-constraint limit, no foreign-key
+  violations, the compatible selection table and the valid 1–10 migration
+  prefix. Neither check initialized, migrated or repaired the database.
+- The repair result at 00:49:33 UTC records exclusive access at 00:49:32 UTC,
+  one preserved database/journal file and
+  `upgrade/failed-preservation/manifest.json`. It names the verified original
+  snapshot at
+  `upgrade/failed-preservation/.v4vmm-database-814801-0/candidate.sqlite`.
+  The injected page-batch installation failure reports verified SQLite rollback:
+  destination schema and records match their pre-installation fingerprint.
+  The report states that recovery remains open.
+- A fresh database check at 00:52:55 UTC still recognized the interrupted
+  migration. The successful repair at 00:53:30 UTC recorded migration 11 through
+  the normal registry and reported preservation of all existing rows, event
+  selections, schema objects and prior migration records. It recorded exclusive
+  access at 00:53:30 UTC, one preserved database/journal file and
+  `upgrade/repaired-preservation/manifest.json`. The verified original snapshot
+  is `upgrade/repaired-preservation/.v4vmm-database-814801-2/candidate.sqlite`.
+  Installation verification covered schema, records and a rolled-back write
+  probe.
+- The operator accepted automatic Music resumption in the same window, the
+  retained startup fixture playlist and tracks, and **Upgrade fixture saved
+  event** in Show. Both repair reports remained available in Settings >
+  Diagnostics > Database tools, with readable reports and reachable controls
+  at normal and narrow window widths.
+- V2's restore review at 01:08:18 UTC refused `upgrade/older-backup.sqlite`
+  because it required explicit migration preparation; no database was installed.
+  At 12:33:30 UTC, **Upgrade backup** reported normal migration preparation on
+  a separate candidate, followed by successful validation and an explicit
+  Restore review. The review names the original backup, configured database,
+  `upgrade/backup-restore-preservation` and the validated candidate at
+  `upgrade/.v4vmm-database-814801-5/candidate.sqlite`. It reports that neither
+  the chosen backup nor the configured database was replaced.
+- The operator reported a pass for the unchanged library and saved event after
+  preparation and for `upgrade-inspect` after closing the app. Restore remained
+  a separate, unexecuted action in this procedure.
+- V3 uses `/tmp/v4vmm-startup-t7hwzh63`. Configuration selection at 12:38:27
+  UTC named that fixture's database. Database checks at 12:38:30 and 12:38:33
+  UTC reported read-only access, integrity `ok`, no foreign-key violations and
+  an unrecognized schema or migration ledger. Both reports gave guidance to
+  retain the original and use a compatible app or inspect a known backup;
+  neither check initialized, migrated or repaired the database.
+
+V1–V2, Settings normal/narrow presentation and the first preservation inspection
+are accepted. V3's database-report checks are Green; confirmation that Repair is
+absent and Open app stays unavailable after startup Check again remains open.
+Recovery normal/narrow presentation, the second preservation inspection and
+cleanup also remain open.
 
 ## Test Commands
 
@@ -114,23 +223,13 @@ integration-test file.
 
 ## Operator Visual Check
 
-The implementation must extend `docs/runbooks/startup-recovery-fixture.py` and
-`docs/runbooks/startup-recovery-check.md` with a section for this packet.
-Those files are implementation deliverables, not commands available at packet
-authoring time. Follow the phase plan's fixture contract. Supply unindented
-copyable commands, named fixture state, purpose, expected result and cleanup.
-Never ask an operator to repeat an already accepted check without a changed
-owner or an unresolved failure.
-
-1. Open the interrupted-upgrade fixture in recovery. The report must name migration 11 and explain what Repair interrupted upgrade will do.
-
-2. Run the repair. Inspect the preserved original, repaired ledger and event selection. Open app and verify the fixture's library and saved event still exist.
-
-3. Try the unsupported partial-schema fixture. It must explain why this recipe does not apply and offer preservation/restore guidance. Clean up; record only this packet's new inspection, without rerunning already accepted layouts.
-
-Do not run the app as an agent. When the binary/fixture are ready, open this
-packet's gate in its Status, the delivery row and pending-human-check index.
-Record the operator's actual result before closing it.
+Follow [task 013 V1–V3](../runbooks/startup-recovery-check.md#task-013-interrupted-upgrade-repair).
+The runbook supplies complete commands, fixture states, expected results and
+cleanup. V1 covers recognition, failed installation and explicit successful
+repair with preserved selection; V2 covers older-backup candidate preparation;
+V3 covers unsupported-schema refusal. Normal/narrow presentation, safe complete
+report copy, same-window resumption, both preservation inspections and fixture
+cleanup remain open. No prior accepted packet needs repeating.
 
 ## Rollback
 
@@ -154,48 +253,3 @@ Migration 11 is not safely identifiable/replayable under the actual schema, the 
 Routine placement inside the named owner is authorized. If a boundary needs a
 new architectural decision, name the conflict and proposed bounded correction
 before widening this packet.
-
-## Prompt for lower-context coding model
-
-You are implementing one bounded task from a larger plan.
-
-Implement only this task. Do not redesign the architecture.
-
-Read:
-- `AGENTS.md`
-- `docs/adr/0066-configuration-and-startup-failure-recovery.md`
-- `docs/plans/adr-0066-startup-recovery-phase-plan.md`
-- This packet in full, including Files To Inspect, implementation steps and criteria.
-
-Goal:
-- Repair one recognized interrupted schema upgrade using the existing migration authority, then complete ADR 0066's implementation evidence.
-
-Constraints:
-- Follow this packet's Constraints and Implementation Steps.
-- Preserve its data, dependency and prose-retirement contracts.
-- One packet this session. Never run the app.
-
-Do not touch:
-- Independent repair SQL registry, fabricated applied versions, or general corruption salvage
-- Retroactive rewriting of an applied migration, schema reset, or deleting user rows to pass checks
-- Workspace format changes, relay work or unrelated open visual gates
-
-Acceptance criteria:
-- Prove every mechanical row in this packet at its named owner.
-- Record actual guard references and keep trackers consistent.
-- Supply the specified fixture/runbook check; keep its human gate open until walked.
-
-Test commands:
-- `cargo fmt -- --check`
-- `cargo check --quiet`
-- `cargo test --quiet`
-- `cargo clippy --quiet -- -D warnings`
-- `cargo build --quiet`
-
-At the end, report:
-1. files changed
-2. tests run
-3. behavior changed
-4. deviations from task
-5. unresolved concerns
-

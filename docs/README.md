@@ -104,7 +104,7 @@ Current plans:
   operator acceptance, preservation and cleanup; task 009 complete on 2026-09-17
   with operator V1–V3, presentation, configuration restoration, preservation
   and cleanup accepted; tasks 010–011 complete on 2026-09-17 with operator
-  acceptance, preservation and cleanup confirmed; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 not started
+  acceptance, preservation and cleanup confirmed; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 implemented with operator V1–V3, presentation, preservation and cleanup open
 - [Show narrow-layout proposal](plans/show-narrow-layout-proposal.md):
   compact cards, full-width logs and an overlap alternative, readable log-body
   allocation, and hiding the playback bar only when every typed action is
@@ -141,6 +141,8 @@ Current implementation packets:
   complete on 2026-09-13 with mechanical checks Green; [operator V1–V3 and editor follow-ups](runbooks/log-frame-check.md),
   final preservation and fixture cleanup accepted; ADR 0066 task 007 is complete with acceptance recorded in its packet
 
+- [ADR 0066 task 013: Interrupted upgrade repair](tasks/adr-0066-task-013-interrupted-upgrade-repair.md):
+  implemented; operator V1–V3, presentation, preservation and cleanup open
 - [ADR 0066 task 009: Conversion retry and retained input](tasks/adr-0066-task-009-conversion-retry-and-retained-input.md):
   complete on 2026-09-17 with mechanical checks Green; [operator V1–V3](runbooks/startup-recovery-check.md#task-009-conversion-retry-and-retained-input),
   normal/narrow presentation, configuration restoration, preservation and
@@ -183,7 +185,7 @@ Current reviews:
 - [ADR 0066 startup recovery review checklist](reviews/adr-0066-startup-recovery-review-checklist.md):
   tasks 001–003 and 005–006 complete with operator evidence; task 004 mechanical proof
   recorded with its remaining operator gate open; tasks 007–010 are complete,
-  including operator acceptance, preservation and cleanup; task 011 is complete; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 remains unstarted
+  including operator acceptance, preservation and cleanup; task 011 is complete; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 implemented with operator V1–V3, presentation, preservation and cleanup open
 - [Staged Show packets review](reviews/staged-show-packets-review-2026-09-09.md):
   review of the 2026-09-09 staged revisions and follow-up on the packet
   corrections
