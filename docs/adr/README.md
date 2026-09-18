@@ -110,7 +110,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0035](0035-track-surface-consolidation.md) | One track detail surface | Implemented |
 | [0036](0036-feed-visual-and-provenance-surface-consistency.md) | Feed visual and provenance consistency | Implemented |
 | [0037](0037-same-entity-surface-parity.md) | Same-entity surface parity | Accepted, partial |
-| [0039](0039-dynamic-type-ramp.md) | Text-scaling policy unspecified; explicitly unscheduled | Proposed |
+| [0039](0039-dynamic-type-ramp.md) | Separate type/chrome curves, five existing steps and fixed-height reservation; [two packets scheduled](../plans/adr-0039-dynamic-type-ramp-phase-plan.md); numeric type proposal unratified, twelve visual inspections open | Accepted |
 | [0043](0043-top-toolbar-global-search.md) | Global toolbar search; current light/dark width checks remain open | Accepted, partial |
 | [0044](0044-playlist-drag-handle-reordering.md) | Playlist drag handle reordering | Accepted, partial |
 | [0049](0049-inspector-source-ownership.md) | Inspector source tree and filter ownership | Implemented |
@@ -130,7 +130,10 @@ retired replaced requirements before restoring current human checks:
 
 - 0030, 0037, 0043, 0044, and 0054 have surviving checks in
   [pending human checks](../pending-human-checks.md).
-- 0039 remains Proposed and unscheduled because its policy is unspecified.
+- 0039's former policy deferral is resolved by its 2026-09-18 acceptance.
+  Its [phase plan](../plans/adr-0039-dynamic-type-ramp-phase-plan.md) is scheduled;
+  the numeric type table remains a proposal and the twelve visual inspections
+  remain open. The dated reconciliation retains its original historical result.
 - 0025 remains partially implemented; its recorded visual passes are not an
   open operator gate. Further theme work uses bounded packets.
 

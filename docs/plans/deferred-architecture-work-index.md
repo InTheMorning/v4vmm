@@ -5,6 +5,9 @@
 Active index - 2026-05-18. Reconciled 2026-09-11 against completed startup work,
 the retained human gates, and the operator's playback deferral. See the
 [pending-work review](../reviews/2026-09-11-pending-work-reconciliation.md).
+Amended 2026-09-18: ADR 0039's policy is Accepted and its two packets are
+scheduled after recovery task 013; the numeric type proposal and visual gate
+remain open.
 
 Item numbers below are stable identifiers. The execution order is the
 [broadcast-chain delivery order](broadcast-chain-delivery-order.md#current-delivery-order).
@@ -125,10 +128,18 @@ prioritized, and routed to the right governance artifact.
   status phrasings across the corpus. All 57 ADR headers were normalized to
   `Proposed` / `Accepted` / `Implemented` / `Superseded by ADR NNNN`, each with a
   date. ADR 0057 also supersedes ADR 0001's immutability clause, making the
-  in-place amendment practice explicit and bounded. ADR 0039 could not be
-  verified in either direction. The operator retained it as `Proposed` and
-  explicitly unscheduled on 2026-09-10 because its text-scaling policy is
-  unspecified; it has not been withdrawn.
+  in-place amendment practice explicit and bounded.
+
+- ADR 0039's policy deferral is resolved on 2026-09-18. The ADR is Accepted:
+  separate type/chrome curves, five existing steps, asymmetric type growth
+  and shrinkage, wrapping boundaries and fixed-height reservation are defined.
+  Its [two-packet plan](adr-0039-dynamic-type-ramp-phase-plan.md) is scheduled
+  after ADR 0066 task 013, before Settings follow-through and relay adoption.
+  Implementation has not started; the type table is a proposal, and twelve
+  operator inspections remain open. Chrome coefficients retain today's exact
+  values, with a future density re-walk owned by any packet that changes them.
+  No configuration-format dependency is introduced. The dated 2026-09-10
+  reconciliation retains the historical Proposed/unscheduled finding.
 
 - ADR 0056 remote media fetch validation completed on 2026-08-28 via Tasks
   001-004, implemented as one change and reviewed in

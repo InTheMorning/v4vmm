@@ -202,3 +202,24 @@ Open - implementation and mechanical checks recorded 2026-09-11.
 - Task 005's completion does not accept any of this packet's remaining checks.
   Its scheduling exception remains recorded in the phase plan. The inherited
   checks above are separate.
+
+## 7. Dynamic Type Ramp — ADR 0039 Tasks 001 And 002
+
+Open - scheduled 2026-09-18. Policy Accepted; implementation not started.
+The numeric type table is a proposal, not a ratified decision. The visual
+procedure becomes runnable after both packets; no inspection is claimed today.
+
+- Owner: [task 002](tasks/adr-0039-task-002-fixed-height-reserve-and-acceptance.md),
+  including the shared gate for [task 001](tasks/adr-0039-task-001-scale-domains-and-type-curves.md).
+- Method: [dynamic type check](runbooks/dynamic-type-ramp-check.md), using a new
+  disposable fixture, Null playback and local service stubs. No audio hardware
+  or live service is required.
+- Inspect the compact Music playlist track row, that track's detail page and
+  its Add to Playlist popover at x-small/x-large in Light/Dark: exactly twelve
+  cells in the [review checklist](reviews/adr-0039-review-checklist.md#operator-visual-check).
+- Confirm small-text readability, fixed row lines, no new vertical clipping
+  relative to medium, readable wrapped detail text and reachable popover
+  controls. Restore theme/scale, verify preservation and confirm fixture cleanup.
+- Chrome retains today's five coefficients. Its future density re-walk belongs
+  to a packet that changes those values; it is not an extra open check here.
+- This gate does not close any inherited check or ADR 0066 task 004 acceptance.

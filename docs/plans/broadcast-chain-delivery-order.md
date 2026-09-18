@@ -2,7 +2,7 @@
 
 ## Status
 
-Active index - 2026-09-13. Operator-approved order; one implementation packet
+Active index - 2026-09-18. Operator-approved order; one implementation packet
 per session.
 
 ## Purpose
@@ -57,19 +57,27 @@ full-width docking, title readability and inactive transport stay in order 4.
 Amended 2026-09-13 at the operator's request: the independent ADR 0071 shared
 text-selection packet follows the completed log packet in a fresh session,
 before recovery 007. It retains the log packet's closed acceptance.
+Amended 2026-09-18: ADR 0039's policy is Accepted. Schedule its two packets
+after completed recovery task 013, before Settings follow-through and relay
+adoption. Task 001 supplies the live domain split and per-role curves; task 002
+supplies fixed-height reservation and the twelve operator inspections. Numeric
+type coefficients remain a proposal until ratified in the ADR. Each packet
+uses a fresh session; no configuration-format change is involved.
 Complete one phase or packet per session. Restored human checks remain visible in the Progress table and
 [pending human checks](../pending-human-checks.md); listing them does not
 require walking them before the independent chain work.
 
 | Order | Work | Completion point |
 |---|---|---|
-| 1 | Governance reconciliation | Sweep ADR statuses and review gate prose; retire replaced requirements before indexing survivors; correct AGENTS.md; retain ADR 0039 as Proposed and unscheduled |
+| 1 | Governance reconciliation | Complete - 2026-09-10; surviving checks indexed. ADR 0039's policy deferral is resolved by its 2026-09-18 acceptance and the scheduled slot below; the dated reconciliation remains history |
 | 2, keyboard correction | [Platform shortcuts — ADR 0067](../tasks/adr-0067-task-001-platform-shortcuts.md) | Complete - 2026-09-11; Ctrl shortcuts, focus handling and Settings responsiveness accepted; fixture cleanup confirmed |
 | 2, Settings foundation | [Grouped Settings — ADR 0069 task 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Complete - 2026-09-11; mechanical checks Green; V1–V3 and all preservation inspections accepted; fixture cleanup confirmed; no configuration-format or playback changes |
 | 2, before recovery 007 | [Shared log frames and following — ADR 0063 task 005](../tasks/adr-0063-task-005-shared-log-frames-and-following.md) | Complete - 2026-09-13; mechanical checks Green; V1–V3, ADR 0070 narrow layout/header/footer, editor Close/Reopen and corrected Escape behavior accepted; final preservation and all fixture cleanup confirmed; ADRs 0063/0070 Implemented; ADR 0066 task 007 completion is recorded below |
 | 2, text selection | [Shared text selection — ADR 0071 task 001](../tasks/adr-0071-task-001-shared-text-selection.md) | Complete - 2026-09-15; migration and pinned ADR 0072 correction verified; mechanical checks Green; available X11 operator checks, preservation and fixture/scratch cleanup accepted; IME composition and Wayland untested; completed log packet remains closed |
 | 2 | [Configuration and startup failure recovery — ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md) | Accepted - 2026-09-10; tasks 001–003 and 005–006 complete; task 004 implemented with remaining operator gate open; task 006 complete on 2026-09-13 with mechanical checks Green and operator V1–V6, preservation and cleanup accepted; task 007 complete on 2026-09-16 with mechanical checks Green, V1–V3 and preservation accepted, Library/Show follow-ups accepted with preservation and cleanup, and no remaining startup fixtures in the checked temporary directories; task 008 complete on 2026-09-17 with operator V1–V3, presentation, preservation and cleanup accepted; task 009 complete on 2026-09-17 with mechanical checks Green and operator V1–V3, presentation, configuration restoration, preservation and cleanup accepted; task 010 complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; task 011 complete, mechanical checks Green, operator V1–V3/preservation/cleanup accepted; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 complete on 2026-09-18 with operator V1–V3, presentation, preservation and cleanup accepted in the [phase plan](adr-0066-startup-recovery-phase-plan.md); finish implementation and acceptance before config format changes |
-| 2, Settings follow-through | [ADR 0069 editor, metadata and preset phases](adr-0069-settings-presets-phase-plan.md#sequence-and-stopping-points) | Planned; shared editor waits for 0066 task 007, with 005–006 complete; new persisted mode/resource/preset formats wait for the full 0066 gate; author bounded packets before implementation; audio stays deferred |
+| 2, after recovery 013: type 001 | [ADR 0039 domain split and per-role curves](../tasks/adr-0039-task-001-scale-domains-and-type-curves.md) | Scheduled, not started; ratify proposed type numbers before landing. Chrome seam live with five-step bit-identical values; existing config unchanged; mechanical handoff to 002, shared visual gate open |
+| 2, type 002, fresh session | [ADR 0039 fixed-height reserve and acceptance](../tasks/adr-0039-task-002-fixed-height-reserve-and-acceptance.md) | Scheduled after 001 mechanical handoff; shared reservation and situational guard; twelve row/detail/popover inspections open at XS/XL in Light/Dark, then preservation and cleanup |
+| 2, Settings follow-through | [ADR 0069 editor, metadata and preset phases](adr-0069-settings-presets-phase-plan.md#sequence-and-stopping-points) | Planned after ADR 0039; shared editor waits for 0066 task 007, with 005–006 complete; new persisted mode/resource/preset formats wait for the full 0066 gate; author bounded packets before implementation; audio stays deferred |
 | 3 | Relay durability through adoption | splitkit reserved 001 → 002 → 003; deploy, reserve an event, configure the publisher to use it, then implement the v4vmm reservation packet |
 | 3, follow-through | splitkit reserved 004 → 005 | List/delete, final guards, and delivery reconciliation; explicitly scheduled after adoption, with interim command-line reservation allowing these before the v4vmm packet if needed |
 | 4 | Remaining narrow Show layout and A10 | Future decision and packet: compact cards, full-width log docking, card-title readability, and hiding transport only when every typed action is unavailable; one combined visual gate. ADR 0070 log-height priority is already in the shared-log packet |
@@ -86,6 +94,11 @@ This trigger does not combine two implementation phases into one session.
 
 - Configuration failure behavior precedes deferred item 7's workspace-config
   format migration and any other config format change.
+- ADR 0039 keeps the existing five `UiScale` variants, strings and default.
+  Its two packets are independent of ADR 0066's configuration-format gate and
+  task 004's remaining acceptance. Task 002 may follow 001's mechanical handoff
+  while their shared visual gate stays open. No chrome-density re-walk is due
+  for unchanged coefficients; a future coefficient change owns that check.
 - ADR 0069 task 001 is independent of the remaining ADR 0066 acceptance gate:
   it changes grouping and report navigation using current fields and writers.
   Its acceptance does not waive the configuration-format gate. The later
@@ -177,6 +190,8 @@ Update this table when a packet lands.
 |---|---|---|
 | `v4vmm` | [governance reconciliation](../reviews/2026-09-10-governance-reconciliation.md) | complete - 2026-09-10; documentation only; surviving gates indexed below |
 | `v4vmm` | [pending-work reconciliation](../reviews/2026-09-11-pending-work-reconciliation.md) | Complete - 2026-09-11; ADR header-format debt and corpus guard closed; stale startup backlog and shortcut instructions corrected; 235 architecture tests and required checks Green; human gates remain open |
+| `v4vmm` | [0039 scale domains and type curves 001](../tasks/adr-0039-task-001-scale-domains-and-type-curves.md) | Policy Accepted and scheduled - 2026-09-18; implementation not started; numeric type proposal unratified; shared twelve-cell visual gate open under 002 |
+| `v4vmm` | [0039 fixed-height reserve and acceptance 002](../tasks/adr-0039-task-002-fixed-height-reserve-and-acceptance.md) | Scheduled after 001 in a fresh session; implementation not started; all twelve operator inspections open, not yet runnable; preservation and fixture cleanup pending execution |
 | `v4vmm` | [0069 grouped Settings foundation 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Complete - 2026-09-11; mechanical checks Green; V1–V3 and all preservation inspections accepted; fixture cleanup confirmed; ADR remains Accepted for later phases |
 | `v4vmm` | [0066 configuration/startup failure recovery](adr-0066-startup-recovery-phase-plan.md) | ADR Accepted; tasks 001–003 complete, including [003 operator acceptance, preservation and fixture cleanup](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md#operator-evidence--2026-09-11) - 2026-09-11; task 004 implementation and mechanical gate Green; presentation case and preservation accepted - 2026-09-11; playback checks paused for cue/audition separation and observed mpv IPC error; remaining operator checks and final fixture cleanup open; task 005 complete as recorded below; task 006 complete on 2026-09-13 with mechanical checks Green and operator V1–V6, preservation and cleanup accepted; 007 complete on 2026-09-16 with mechanical checks Green, V1–V3 and preservation accepted, Library/Show follow-ups accepted with preservation and cleanup, and no remaining startup fixtures in the checked temporary directories; 008 complete on 2026-09-17 with operator V1–V3, presentation, preservation and cleanup accepted; 009 complete on 2026-09-17 with mechanical checks Green and operator acceptance, preservation and cleanup confirmed; 010 complete with operator acceptance, preservation and cleanup confirmed; 011 complete with operator acceptance, preservation and cleanup confirmed; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 complete on 2026-09-18 with operator V1–V3, presentation, preservation and cleanup accepted |
 | `v4vmm` | [0066 session drain and resumption 005](../tasks/adr-0066-task-005-session-drain-and-resumption.md) | Complete - 2026-09-11; mechanical checks Green; [operator V1–V3 and preservation](../tasks/adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11) accepted; fixture cleanup confirmed; task 006 completion recorded below |

@@ -140,6 +140,14 @@ The delivery order also schedules remaining narrow Show layout,
 external UTC timestamp corrections, and steady-state work.
 When a real show is scheduled, publisher show-log task 001 takes priority.
 
+[ADR 0039: Dynamic type ramp](docs/adr/0039-dynamic-type-ramp.md) is Accepted
+on 2026-09-18. Its [two-packet plan](docs/plans/adr-0039-dynamic-type-ramp-phase-plan.md)
+is scheduled after completed recovery task 013, before Settings follow-through
+and relay adoption. Implementation has not started. The type coefficient table
+remains a proposal; chrome retains today's exact five-step values. The twelve
+row/detail/popover inspections remain open under task 002. Existing `UiScale`
+variants and configuration format stay unchanged; ADR 0066's gate is independent.
+
 `docs/plans/broadcast-chain-delivery-order.md` is the only cross-repository
 order. Read it before starting a session on broadcast work.
 

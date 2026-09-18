@@ -38,6 +38,11 @@ Core:
 
 Current governance:
 
+- [ADR 0039: Dynamic type ramp](adr/0039-dynamic-type-ramp.md): Accepted policy
+  for separate type/chrome curves and fixed-height reservation. Numeric type
+  values remain proposed; [twelve operator inspections](runbooks/dynamic-type-ramp-check.md)
+  remain open after the scheduled implementation.
+
 - [ADR 0074: Repair and diagnostics pages](adr/0074-repair-and-diagnostics-pages.md):
   task 013 presentation correction. Separate tools, actions and reports.
   [Visual checks](runbooks/startup-recovery-check.md#repair-and-diagnostics-pages--adr-0074) passed.
@@ -94,6 +99,9 @@ Current governance:
 
 Current plans:
 
+- [ADR 0039 dynamic type ramp phase plan](plans/adr-0039-dynamic-type-ramp-phase-plan.md):
+  two packets after recovery task 013, before Settings follow-through and relay
+  adoption; no configuration-format change or chrome-density retuning.
 - [ADR 0069 Settings and presets phase plan](plans/adr-0069-settings-presets-phase-plan.md):
   existing-field foundation complete; guarded editing, metadata selection,
   selective presets and deferred audio integration have explicit prerequisites
@@ -143,6 +151,10 @@ Current plans:
 
 Current implementation packets:
 
+- [ADR 0039 task 001: Scale domains and type curves](tasks/adr-0039-task-001-scale-domains-and-type-curves.md)
+  and [task 002: Fixed-height reserve and acceptance](tasks/adr-0039-task-002-fixed-height-reserve-and-acceptance.md):
+  scheduled in separate sessions; implementation not started;
+  [review checklist](reviews/adr-0039-review-checklist.md) records the open gates.
 - [ADR 0063 task 005: Shared log frames and following](tasks/adr-0063-task-005-shared-log-frames-and-following.md):
   complete on 2026-09-13 with mechanical checks Green; [operator V1–V3 and editor follow-ups](runbooks/log-frame-check.md),
   final preservation and fixture cleanup accepted; ADR 0066 task 007 is complete with acceptance recorded in its packet
