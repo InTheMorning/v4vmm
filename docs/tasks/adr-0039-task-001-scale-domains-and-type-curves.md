@@ -1,13 +1,18 @@
 # ADR 0039 Task 001: Scale Domains And Type Curves
 
-Status: Scheduled - 2026-09-18. Implementation not started; numeric type
-proposal unratified; shared twelve-cell visual gate open under task 002.
+Status: Scheduled - 2026-09-18. Amended the same day: this packet now ships
+both live resolvers at identity. Implementation not started. No visual gate —
+there is nothing to inspect. [Task 003](adr-0039-task-003-type-curve-ratification.md)
+owns numeric ratification, the live per-role curves and the twelve-cell
+visual gate.
 
 ## Goal
 
 Wire separate live chrome and type resolvers. Preserve existing chrome bits,
-medium font bases and configuration while changing non-medium font results
-according to a numerically ratified ADR 0039 ramp.
+medium font bases and configuration. Both resolvers resolve bit-identically
+to today's uniform result at all five steps; nothing changes on screen. Shape
+the type resolver per-role so [task 003](adr-0039-task-003-type-curve-ratification.md)
+can change its numbers in one place without touching this seam again.
 
 ## Files To Inspect
 
@@ -47,11 +52,12 @@ third-party widget-size mapping in `src/ui/sizable_bridge.rs`.
 
 ## Constraints
 
-The ADR's type table is a proposal. Acceptance of the architecture is not
-ratification of those numbers. Present the concrete endpoints, intermediate
-results and existing fixed-height capacity findings for the numerical decision
-before landing type changes. No screen-specific adjustment, unused chrome
-seam, new persisted scale or speculative compatibility helper.
+The ADR's type table is a proposal, owned by task 003. This packet does not
+ratify it, does not present it for numerical decision, and does not land any
+non-identity type value. Wire the per-role resolver's shape only: it must
+resolve every role to its exact medium-based value at every step, bit-equal
+to the old uniform multiplier's result. No screen-specific adjustment, unused
+chrome seam, new persisted scale or speculative compatibility helper.
 
 Keep `Radius::Full` unscaled. Preserve the arithmetic order and float values
 of existing chrome calculations. The pixel-size branch of `SizableScaled`
@@ -60,22 +66,22 @@ uses chrome; its discrete tier branch keeps its current behavior.
 ## Implementation Steps
 
 1. Inspect current callers with `rg -n 'multiplier\(\)|ScaleFactor|FontSize'`
-   in the listed files. Classify direct multiplier calls as geometry. Audit
-   compact row/control capacity before the numerical decision; report any
-   conflict rather than quietly changing chrome.
-2. Record the operator's numeric decision in ADR 0039. The review must cover
-   upward endpoints, downward endpoints and intermediate-step interpolation.
-   Do not copy a proposed table into production as an accepted decision.
-3. Introduce a named chrome curve and a pure per-role type resolver in
-   `src/ui/tokens.rs`. Keep `.scaled(cx)` as the shared rendering entry point.
-   Route `FontSize` to type; route `Spacing`, `Radius` and `Size` to chrome.
-4. Migrate the listed geometry consumers to chrome without changing their
+   in the listed files. Classify direct multiplier calls as geometry. Confirm
+   the count and file set against this packet's list; report any mismatch
+   rather than silently expanding scope.
+2. Introduce a named chrome curve and a pure per-role type resolver in
+   `src/ui/tokens.rs`. The type resolver's per-role shape exists so task 003
+   can populate it later without a second migration, but every role at every
+   step must resolve to the same `f32` bits as today's uniform multiplier.
+   Keep `.scaled(cx)` as the shared rendering entry point. Route `FontSize` to
+   type; route `Spacing`, `Radius` and `Size` to chrome.
+3. Migrate the listed geometry consumers to chrome without changing their
    output or discrete mappings. Remove the old multiplier if no live caller
    needs it; any retained compatibility alias delegates to chrome.
-5. Add value tests and a situational ADR 0039 guard for live domain ownership.
+4. Add value tests and a situational ADR 0039 guard for live domain ownership.
    Preserve existing ADR 0034 and ADR 0063 guards. Keep constants in one owner.
-6. Run the checks below. Record a mechanical handoff, the numerical decision,
-   and the open shared visual gate. End the session before task 002 starts.
+5. Run the checks below. Record a mechanical handoff and state plainly there
+   is no visual gate to open or close. End the session before task 002 starts.
 
 ## Mechanical Acceptance Criteria
 
@@ -83,10 +89,13 @@ uses chrome; its discrete tier branch keeps its current behavior.
   former `f32` values using bit equality, not rounded display strings.
   Resolved `Spacing`, `Radius` and `Size` tests compare every variant/step with
   the old arithmetic, including the pill exception; no chrome base changes.
-- M2: tests cover all 35 ratified type outcomes. They prove exact medium base
-  preservation, change from the old uniform result at each non-medium step,
-  monotonic role growth, role ordering at every step, greater proportional
-  growth for smaller roles above medium and smaller proportional loss below it.
+- M2: a five-step pure value test compares the per-role type resolver's
+  output with the exact former uniform multiplier's `f32` result, using bit
+  equality, for all seven roles at all five steps. This is bit-identity with
+  the old uniform result, not divergence from it — task 001 ships no ratified
+  numbers, so there is nothing to diverge yet. Monotonic role growth, role
+  ordering and asymmetric growth/shrinkage are task 003's M2, tested once the
+  ratified curves land.
 - M3: the situational ADR 0039 guard proves `FontSize::scaled` uses type while
   chrome tokens and direct geometry bridges use chrome. Removing either live
   connection must fail; defining unused helpers must not satisfy the guard.
@@ -96,10 +105,14 @@ uses chrome; its discrete tier branch keeps its current behavior.
 
 ## Visual Acceptance
 
-Open. [Task 002](adr-0039-task-002-fixed-height-reserve-and-acceptance.md) owns
-the shared twelve inspections. This packet's mechanical handoff allows that
-packet in a fresh session; it does not claim that presentation is accepted.
-There is no additional chrome-density inspection for unchanged coefficients.
+None. Both resolvers land at identity, so resolved output does not change at
+any step, on any surface. There is nothing to inspect. This packet's
+mechanical handoff allows task 002 to proceed in a fresh session; it does not
+claim any presentation, because none changed.
+[Task 003](adr-0039-task-003-type-curve-ratification.md) owns the twelve
+inspections, once it lands the ratified per-role curves. There is no
+chrome-density inspection for unchanged coefficients, in this packet or any
+other in this ADR.
 
 ## Test Commands
 
@@ -122,17 +135,20 @@ Run additional affected unit tests if a consumer changes beyond a method name.
 ## Rollback And Escalation
 
 Revert this packet coherently; no configuration migration is required.
-Return to the ADR for an unratified value set, capacity conflict, any chrome
-pixel change, new persistence, or a need to alter the discrete size bridge.
-Do not widen the packet into density or row-layout work.
+Return to the ADR for a capacity conflict, any chrome pixel change, new
+persistence, or a need to alter the discrete size bridge. This packet lands
+no numeric proposal, so there is no ratification question to escalate here;
+that belongs to task 003. Do not widen the packet into density or row-layout
+work.
 
 ## Expected Final Report
 
-List files changed, numerical decision/evidence, checks (Green or error),
-behavior changed, deviations and unresolved concerns. Keep the Status line,
-phase plan, review checklist, delivery row and pending-human entry consistent.
-End with `Operator visual check`, linking the procedure and naming the open
-task 002 gate. Do not run the app.
+List files changed, checks (Green or error), confirmation that resolved
+output is bit-identical to the old uniform result at every step, deviations
+and unresolved concerns. Keep the Status line, phase plan, review checklist,
+delivery row and pending-human entry consistent. State plainly that there is
+no visual gate for this packet and name task 003 as the next packet. Do not
+run the app.
 
 ## Prompt for lower-context coding model
 
@@ -145,17 +161,19 @@ Read:
 - `docs/adr/0039-dynamic-type-ramp.md` and its phase plan.
 
 Goal:
-- Deliver live type/chrome resolution under the recorded numeric decision.
+- Deliver live type/chrome resolution, both bit-identical to today's uniform
+  result at every step. Shape the type resolver per-role for task 003.
 
 Constraints:
 - Meet M1–M4 above; preserve exact chrome output and all five persisted steps.
-- Obtain the numeric decision before landing proposed type values.
+- Land no numeric proposal value. Task 003 ratifies and lands those numbers.
 
 Do not touch:
-- Everything in this packet's Do Not Touch section; task 002 owns reservation.
+- Everything in this packet's Do Not Touch section; task 002 owns reservation
+  and task 003 owns numeric ratification.
 
 Acceptance criteria:
-- M1–M4 Green; shared visual gate explicitly open.
+- M1–M4 Green; no visual gate — state plainly there is nothing to inspect.
 
 Test commands:
 - Run this packet's Test Commands in order.

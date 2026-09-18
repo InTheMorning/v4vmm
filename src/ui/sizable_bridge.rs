@@ -18,8 +18,9 @@
 //! `ScaleFactor` has five steps centred on `Medium`; gpui-component's `Size`
 //! has four. We model each as an integer step, sum them, then clamp to the
 //! gpui-component range. The custom [`Size::Size(Pixels)`](gpui_component::Size::Size)
-//! variant is multiplied by [`ScaleFactor::multiplier`] instead — it
-//! represents an explicit pixel value, not a discrete tier.
+//! variant is multiplied by [`ScaleFactor::chrome_multiplier`] instead — it
+//! represents an explicit pixel value, not a discrete tier. ADR 0039: this
+//! is geometry, so it resolves through CHROME, never TYPE.
 //!
 //! See `docs/architecture/architecture-diagrams.md` § 2.4.
 
@@ -72,11 +73,12 @@ fn size_from_step(step: i32) -> Size {
 /// * Discrete tiers shift by the scale's signed step and clamp to the
 ///   gpui-component range.
 /// * The [`Size::Size(Pixels)`](gpui_component::Size::Size) variant is
-///   multiplied by [`ScaleFactor::multiplier`].
+///   multiplied by [`ScaleFactor::chrome_multiplier`] (ADR 0039 CHROME
+///   domain — this is a pixel geometry value, not type).
 #[must_use]
 pub fn scaled_for(base: Size, scale: ScaleFactor) -> Size {
     if let Size::Size(pixels) = base {
-        return Size::Size(gpui::px(f32::from(pixels) * scale.multiplier()));
+        return Size::Size(gpui::px(f32::from(pixels) * scale.chrome_multiplier()));
     }
     let Some(base_step) = size_step(base) else {
         unreachable!("non-Size variants handled above")
@@ -113,7 +115,7 @@ impl<T: Sizable> SizableScaled for T {}
 
 #[cfg(test)]
 mod tests {
-    use super::{scale_step, scaled_for, size_from_step, ScaleFactor, Size};
+    use super::{scale_step, scaled, scaled_for, size_from_step, ScaleFactor, Size};
     use gpui::px;
 
     #[test]
@@ -180,5 +182,29 @@ mod tests {
         assert_eq!(size_from_step(2), Size::Medium);
         assert_eq!(size_from_step(3), Size::Large);
         assert_eq!(size_from_step(99), Size::Large);
+    }
+
+    /// M4: exercises the environment-backed `scaled(base, cx)` path (not
+    /// only the pure `scaled_for` table), proving `Size::Size(Pixels)` reads
+    /// the installed `ScaleFactor` global through the ADR 0039 CHROME
+    /// resolver.
+    #[gpui::test]
+    fn adr_0039_environment_backed_scaled_reads_installed_scale_factor(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            cx.set_global(ScaleFactor::Large);
+            match scaled(Size::Size(px(20.0)), cx) {
+                Size::Size(p) => assert!(
+                    (f32::from(p) - 20.0 * 1.12).abs() < 0.001,
+                    "expected 22.4, got {}",
+                    f32::from(p)
+                ),
+                other => panic!("expected Size::Size variant, got {other:?}"),
+            }
+
+            cx.set_global(ScaleFactor::Medium);
+            assert_eq!(scaled(Size::Small, cx), Size::Small);
+        });
     }
 }

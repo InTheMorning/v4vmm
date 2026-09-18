@@ -138,7 +138,8 @@ const KEY_COL_BASE: f32 = 124.0;
 impl RenderOnce for DetailGrid {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let key_color = resolve_color(cx, SemanticColor::SecondaryLabel, self.appearance);
-        let mult = ScaleFactor::current(cx).multiplier();
+        // ADR 0039: a fixed-width label column is geometry — CHROME domain.
+        let mult = ScaleFactor::current(cx).chrome_multiplier();
         let key_width = gpui::px(KEY_COL_BASE * mult);
         let body_size = FontSize::Micro.scaled(cx);
 

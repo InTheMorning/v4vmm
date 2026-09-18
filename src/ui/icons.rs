@@ -163,13 +163,20 @@ impl IconSize {
     pub const fn px(self) -> Pixels {
         match self {
             Self::Action => layout::ACTION_ICON_INNER_SIZE,
+            // Trap: this reads `FontSize::Body`'s *unscaled* base pixel
+            // value only, to align the glyph with body text at 1.0×. The
+            // resolved size below still scales through CHROME, not TYPE —
+            // an icon glyph is geometry, per ADR 0039, even when its base
+            // happens to borrow a type-role constant.
             Self::Transport => FontSize::Body.px(),
         }
     }
 
+    /// ADR 0039: icon sizing is geometry — this resolves through CHROME,
+    /// never the TYPE domain, even for [`Self::Transport`].
     #[must_use]
     pub fn scaled(self, cx: &App) -> Pixels {
-        gpui::px(f32::from(self.px()) * ScaleFactor::current(cx).multiplier())
+        gpui::px(f32::from(self.px()) * ScaleFactor::current(cx).chrome_multiplier())
     }
 }
 

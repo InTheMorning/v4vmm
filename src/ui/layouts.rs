@@ -65,7 +65,8 @@ pub fn scaled_dimension(base: Pixels, cx: &App) -> Pixels {
 
 #[must_use]
 pub fn scaled_f32(base: f32, cx: &App) -> Pixels {
-    px(base * ScaleFactor::current(cx).multiplier())
+    // ADR 0039: pure geometry, so this resolves through the CHROME domain.
+    px(base * ScaleFactor::current(cx).chrome_multiplier())
 }
 
 /// ADR 0063: shared embedded log allocation and scrollbar clearance.

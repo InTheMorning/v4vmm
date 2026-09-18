@@ -56,8 +56,9 @@ impl ThumbnailSize {
         }
     }
 
+    /// ADR 0039: artwork sizing is geometry — this resolves through CHROME.
     pub(crate) fn scaled(self, cx: &App) -> Pixels {
-        gpui::px(self.base() * ScaleFactor::current(cx).multiplier())
+        gpui::px(self.base() * ScaleFactor::current(cx).chrome_multiplier())
     }
 
     fn radius(self) -> Radius {

@@ -190,7 +190,8 @@ fn with_log_slots(slots: ShowSlots, entity: &Entity<TopApp>) -> ShowSlots {
             });
         })
         .on_log_resize_start(move |event, _, cx| {
-            let scale = crate::ui::tokens::ScaleFactor::current(cx).multiplier();
+            // ADR 0039: un-scaling pointer drag Y is geometry — CHROME domain.
+            let scale = crate::ui::tokens::ScaleFactor::current(cx).chrome_multiplier();
             log_resize_start_entity.update(cx, |this, _| {
                 this.show_log_resize = Some((
                     f32::from(event.position.y) / scale,
@@ -199,7 +200,8 @@ fn with_log_slots(slots: ShowSlots, entity: &Entity<TopApp>) -> ShowSlots {
             });
         })
         .on_log_resize_move(move |event, _, cx| {
-            let scale = crate::ui::tokens::ScaleFactor::current(cx).multiplier();
+            // ADR 0039: un-scaling pointer drag Y is geometry — CHROME domain.
+            let scale = crate::ui::tokens::ScaleFactor::current(cx).chrome_multiplier();
             log_resize_move_entity.update(cx, |this, cx| {
                 if !event.dragging() {
                     this.show_log_resize = None;

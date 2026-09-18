@@ -93,7 +93,8 @@ impl RenderOnce for ShowLogPane {
             (layouts::scaled_f32(self.display.region_height - self.display.height, cx)
                 - handle_height)
                 .max(gpui::Pixels::ZERO);
-        let scale = ScaleFactor::current(cx).multiplier();
+        // ADR 0039: un-scaling drag bounds is geometry — CHROME domain.
+        let scale = ScaleFactor::current(cx).chrome_multiplier();
         let mut split = SplitPane::new("show-log-split")
             .axis(SplitPaneAxis::Vertical)
             .resize_handle_id("show-log-resize-handle")

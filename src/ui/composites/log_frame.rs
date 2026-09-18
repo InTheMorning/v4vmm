@@ -184,7 +184,8 @@ impl Render for LogFrameState {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.restore_reading_position(cx);
         let owner = cx.weak_entity();
-        let scale = ScaleFactor::current(cx).multiplier();
+        // ADR 0039: un-scaling resize bounds is geometry — CHROME domain.
+        let scale = ScaleFactor::current(cx).chrome_multiplier();
         div()
             .id("log-frame")
             .flex()

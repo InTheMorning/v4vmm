@@ -55,9 +55,11 @@ impl ImageSize {
     }
 
     /// Returns the size in pixels at the current global UI scale.
+    ///
+    /// ADR 0039: artwork sizing is geometry — this resolves through CHROME.
     #[must_use]
     pub fn scaled(self, cx: &App) -> Pixels {
-        gpui::px(self.base() * ScaleFactor::current(cx).multiplier())
+        gpui::px(self.base() * ScaleFactor::current(cx).chrome_multiplier())
     }
 }
 
@@ -81,7 +83,7 @@ impl Image {
     }
 
     /// Pick a [`ImageSize`] preset; the rendered dimension is
-    /// `size.base() * ScaleFactor::current(cx).multiplier()`.
+    /// `size.base() * ScaleFactor::current(cx).chrome_multiplier()`.
     pub fn size(mut self, size: ImageSize) -> Self {
         self.size = size;
         self.dimension = None;

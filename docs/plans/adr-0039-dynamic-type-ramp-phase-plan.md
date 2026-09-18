@@ -2,10 +2,15 @@
 
 ## Status
 
-Policy accepted and scheduled - 2026-09-18. Implementation not started.
-The type coefficient table in [ADR 0039](../adr/0039-dynamic-type-ramp.md#numeric-proposal--not-ratified)
+Policy accepted and scheduled - 2026-09-18. Amended the same day: three
+packets, not two. Task 001 ships both live resolvers — type and chrome — at
+identity, with no visual gate. Task 002 adds fixed-height reservation and
+ShowCard's single-line fix, also with no visual gate of its own. Task 003
+ratifies the numeric proposal, lands the per-role curves and owns the twelve
+operator inspections. Implementation has not started. The type coefficient
+table in [ADR 0039](../adr/0039-dynamic-type-ramp.md#numeric-proposal--not-ratified-owned-by-task-003)
 is a proposal, not a ratified value set. All twelve operator inspections are
-open; task 002 owns their evidence.
+open; task 003 owns their evidence.
 
 ## Goal
 
@@ -29,8 +34,11 @@ Do not reopen accepted recovery, log, Settings or text-selection packets.
 - `src/config.rs` and Settings already expose exactly the five required steps.
   Reuse them. ADR 0066 task 004's independent gate does not block this work.
 - ADRs 0046/0047/0060/0062 define the current Music/Show/Settings surfaces.
-- Chrome identity is decided. Type numbers need explicit ratification in ADR
-  0039 before landing. This is a bounded numeric review, not missing policy.
+- Chrome identity is decided and permanent. Task 001 also ships type at
+  identity; its per-role resolver is shaped but not yet populated with
+  ratified numbers. Type numbers need explicit ratification in ADR 0039
+  before task 003 lands them. This is a bounded numeric review, not missing
+  policy.
 
 ## Target State And Affected Modules
 
@@ -57,15 +65,18 @@ follow-through and relay adoption. The real-show priority trigger still applies.
 
 | Phase | Result | Entry condition | State / stopping point |
 |---|---|---|---|
-| [001: Scale domains and type curves](../tasks/adr-0039-task-001-scale-domains-and-type-curves.md) | Chrome seam live; reviewed type ramp live; 35 font outcomes and five chrome coefficients pinned | Accepted policy; record numerical ratification before landing type changes | Not started; mechanical handoff only, visual gate remains open |
-| [002: Fixed-height reserve and acceptance](../tasks/adr-0039-task-002-fixed-height-reserve-and-acceptance.md) | Shared reservation and guard; twelve operator inspections and cleanup recorded | 001 mechanical checks Green and numerical decision recorded; fresh session | Not started; all visual cells open |
+| [001: Scale domains and type curves](../tasks/adr-0039-task-001-scale-domains-and-type-curves.md) | Chrome and type resolvers both live, both bit-identical to today's uniform result at all five steps; type resolver shaped per-role for task 003 | Accepted policy | Not started; no visual gate — output does not change |
+| [002: Fixed-height reserve and acceptance](../tasks/adr-0039-task-002-fixed-height-reserve-and-acceptance.md) | Shared reservation and guard, sized against the ADR's reviewed (unratified) proposal; ShowCard single-line fix | 001 mechanical checks Green; fresh session | Not started; no visual gate of its own — type output still identity |
+| [003: Type curve ratification](../tasks/adr-0039-task-003-type-curve-ratification.md) | Numeric proposal ratified in the ADR; 35 font outcomes land in the live type resolver; twelve operator inspections and cleanup recorded | 002 mechanical checks Green; fresh session | Not started; all twelve visual cells open |
 
-Task 002 may proceed after task 001's mechanical handoff while their shared
-visual gate remains open. This is an explicit sequence within this plan, not
-acceptance of task 001's presentation. If the curves need adjustment after
-operator evidence, update the ADR's numeric decision and resolver tests in the
-correction; do not compensate in a screen. Both packets remain unaccepted for
-release until the twelve cells pass. Do not chain implementation sessions.
+Task 002 may proceed after task 001's mechanical handoff; task 003 may
+proceed after task 002's. Neither handoff is acceptance of the prior packet's
+presentation, because neither task 001 nor task 002 has presentation to
+accept — output stays identity until task 003 lands the ratified curves. If
+the curves need adjustment after operator evidence, update the ADR's numeric
+decision and resolver tests in the correction; do not compensate in a screen.
+All three packets remain unaccepted for release until the twelve cells pass.
+Do not chain implementation sessions.
 
 ## Schema And API Implications
 
@@ -79,13 +90,17 @@ live caller. No dead compatibility layer.
 
 | Risk | Evidence |
 |---|---|
-| Upward slope reused downward | All 35 pure type outcomes; small roles lose the least proportionally below medium |
-| Type curve changes geometry | Five exact `f32` chrome coefficients, resolved token bit comparisons and live-owner guard |
-| Prototype values treated as decided | ADR records the numerical decision before task 001 lands |
-| A fixed row cuts glyphs or gains a line | Shared reservation capacity test across roles/variants/steps; task 002 consumer guard; compact-row visual cells |
-| Font hierarchy collapses at XS | Ordered role-size test at every step and XS operator observations |
-| Details/popovers lose controls | Four detail and four popover inspections with the same data and viewport |
-| A refactor weakens column clipping or discrete widget sizing | Existing ADR 0063/0034 guards and size-bridge tests remain Green |
+| Task 001 quietly diverges from identity | M1/M2 bit-equality tests on both chrome and type resolvers against the exact former `f32` values |
+| Upward slope reused downward | All 35 pure type outcomes in task 003; small roles lose the least proportionally below medium |
+| Type curve changes geometry | Five exact `f32` chrome coefficients, resolved token bit comparisons and live-owner guard, retained through all three packets |
+| Prototype values treated as decided | ADR records the numerical decision in task 003, before that packet lands live type changes |
+| Task 002's reservation ceiling stops matching the eventual ratified numbers | Task 003 re-verifies the reservation guard against its final ratified values before claiming the twelve cells |
+| A fixed row cuts glyphs or gains a line | Shared reservation capacity test across roles/variants/steps; task 002 consumer guard; task 003's compact-row visual cells |
+| Font hierarchy collapses at XS | Ordered role-size test at every step and XS operator observations in task 003 |
+| x-small density regresses under the proposal | Named operator preference recorded in the ADR; task 003's numeric decision re-examines the shrink-least invariant against it before ratifying |
+| Details/popovers lose controls | Four detail and four popover inspections with the same data and viewport, in task 003 |
+| ShowCard's latent wrap-and-clip defect | Task 002 architecture guard proving `render_summary_line` matches the playlist/now-playing single-line pattern |
+| A refactor weakens column clipping or discrete widget sizing | Existing ADR 0063/0034 guards and size-bridge tests remain Green in every packet |
 
 Run focused tests, architecture guards and required check/format/Clippy commands
 as specified in each packet. Build the normal desktop binary after tests before
@@ -101,17 +116,22 @@ created by this planning change.
 ## Rollback Strategy
 
 Before task 002 lands, revert task 001 as one coherent code change if needed.
-After both land, revert them together or restore the previous type resolver
-while preserving a valid reservation contract. Preserve configuration and
-library data; there is no format downgrade. Restore the operator's starting
+Before task 003 lands, revert task 001 and task 002 together the same way —
+neither has changed output yet, so this reverts plumbing only. After task 003
+lands, revert all three together or restore the previous type resolver while
+preserving a valid reservation contract. Preserve configuration and library
+data; there is no format downgrade. Restore the operator's starting
 theme/scale and clean up only the new disposable fixture after inspection.
 Reopen failed evidence cells and reconcile status in the same change.
 
 ## Remaining Decisions
 
-Only numerical type ratification remains before task 001 can land. The ADR
-contains explicit proposed endpoints and interpolation for review. If those
-values exceed existing fixed-height capacity, report the measured bounds and
-revise that proposal; chrome retuning requires a separately approved packet
-with its own density inspection. No unspecified wrapping or truncation policy
-remains.
+Task 001 and task 002 need no further decision; both land at type identity.
+Numerical type ratification remains before task 003 can land live per-role
+values. The ADR contains explicit proposed endpoints and interpolation for
+review, an arithmetic verification of all 35 outcomes, and the operator's
+x-small-density preference as a named input to that decision. If those values
+exceed existing fixed-height capacity — including task 002's reservation
+ceiling — report the measured bounds and revise the proposal; chrome retuning
+requires a separately approved packet with its own density inspection. No
+unspecified wrapping or truncation policy remains.

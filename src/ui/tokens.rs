@@ -335,9 +335,12 @@ impl Spacing {
     }
 
     /// Same as [`Self::px`] but multiplied by the active [`ScaleFactor`].
+    ///
+    /// ADR 0039: `Spacing` is a CHROME token — this resolves through
+    /// [`scale_chrome_px`], never the TYPE domain.
     #[must_use]
     pub fn scaled(self, cx: &App) -> Pixels {
-        scale_px(f32::from(self.px()), ScaleFactor::current(cx))
+        scale_chrome_px(f32::from(self.px()), ScaleFactor::current(cx))
     }
 }
 
@@ -372,6 +375,8 @@ impl Radius {
         }
     }
 
+    /// ADR 0039: `Radius` is a CHROME token — this resolves through
+    /// [`scale_chrome_px`], never the TYPE domain.
     #[must_use]
     pub fn scaled(self, cx: &App) -> Pixels {
         // The pill radius is intentionally capped — scaling 999px makes no
@@ -379,7 +384,7 @@ impl Radius {
         if matches!(self, Self::Full) {
             return self.px();
         }
-        scale_px(f32::from(self.px()), ScaleFactor::current(cx))
+        scale_chrome_px(f32::from(self.px()), ScaleFactor::current(cx))
     }
 }
 
@@ -420,9 +425,63 @@ impl FontSize {
         }
     }
 
+    /// ADR 0039 TYPE domain: the per-role coefficient at a given
+    /// [`ScaleFactor`] step.
+    ///
+    /// This is the per-role SHAPE the ADR 0039 task 001 (amended scope)
+    /// domain split delivers: the resolver takes a role, not just a step.
+    /// Every arm below is deliberately identical to
+    /// [`ScaleFactor::chrome_multiplier`] today — task 001 wires live,
+    /// separately named domain ownership without moving a single ratified
+    /// number. A later, separately reviewed packet (ADR 0039 task 003)
+    /// supersedes these arms with the ratified per-role ramp. Do not
+    /// collapse this back to one shared curve, and do not hand-tune a
+    /// single arm without that ratification landing here first.
+    #[must_use]
+    #[expect(
+        clippy::match_same_arms,
+        reason = "ADR 0039 task 001: identity placeholder per role, pending task 003 ratification"
+    )]
+    pub const fn type_multiplier(self, scale: ScaleFactor) -> f32 {
+        match self {
+            Self::Micro => Self::identity_step(scale),
+            Self::Caption => Self::identity_step(scale),
+            Self::Body => Self::identity_step(scale),
+            Self::Headline => Self::identity_step(scale),
+            Self::Title3 => Self::identity_step(scale),
+            Self::Title2 => Self::identity_step(scale),
+            Self::Title => Self::identity_step(scale),
+        }
+    }
+
+    /// Shared identity table backing every [`Self::type_multiplier`] arm
+    /// until ADR 0039 task 003 ratifies per-role values. Deliberately
+    /// duplicated from [`ScaleFactor::chrome_multiplier`]'s literals rather
+    /// than delegating to it, so the TYPE domain stays a genuinely separate
+    /// resolver that task 003 can edit without touching CHROME.
+    const fn identity_step(scale: ScaleFactor) -> f32 {
+        match scale {
+            ScaleFactor::XSmall => 0.85,
+            ScaleFactor::Small => 0.92,
+            ScaleFactor::Medium => 1.0,
+            ScaleFactor::Large => 1.12,
+            ScaleFactor::XLarge => 1.25,
+        }
+    }
+
+    /// Pure ADR 0039 TYPE-domain resolver — usable in tests without an
+    /// `App`. [`Self::scaled`] is a thin environment-backed wrapper around
+    /// this same resolver.
+    #[must_use]
+    pub fn scaled_px(self, scale: ScaleFactor) -> Pixels {
+        px(f32::from(self.px()) * self.type_multiplier(scale))
+    }
+
+    /// ADR 0039: `FontSize` is the TYPE domain — this resolves through
+    /// [`Self::scaled_px`]/[`Self::type_multiplier`], never CHROME.
     #[must_use]
     pub fn scaled(self, cx: &App) -> Pixels {
-        scale_px(f32::from(self.px()), ScaleFactor::current(cx))
+        self.scaled_px(ScaleFactor::current(cx))
     }
 }
 
@@ -511,9 +570,11 @@ impl Size {
         }
     }
 
+    /// ADR 0039: `Size` is a CHROME token — this resolves through
+    /// [`scale_chrome_px`], never the TYPE domain.
     #[must_use]
     pub fn scaled(self, cx: &App) -> Pixels {
-        scale_px(f32::from(self.px()), ScaleFactor::current(cx))
+        scale_chrome_px(f32::from(self.px()), ScaleFactor::current(cx))
     }
 }
 
@@ -555,13 +616,15 @@ impl SkeletonBlock {
         }
     }
 
+    /// ADR 0039: `SkeletonBlock` is a CHROME token — this resolves through
+    /// [`scale_chrome_px`], never the TYPE domain.
     #[must_use]
     pub fn scaled(self, cx: &App) -> (Pixels, Pixels) {
         let (width, height) = self.px();
         let scale = ScaleFactor::current(cx);
         (
-            scale_px(f32::from(width), scale),
-            scale_px(f32::from(height), scale),
+            scale_chrome_px(f32::from(width), scale),
+            scale_chrome_px(f32::from(height), scale),
         )
     }
 }
@@ -585,8 +648,15 @@ pub enum ScaleFactor {
 }
 
 impl ScaleFactor {
+    /// ADR 0039 CHROME domain: the five geometry coefficients.
+    ///
+    /// Bit-identical to the pre-ADR-0039 uniform `ScaleFactor::multiplier()`
+    /// values at every step. `Spacing`, `Radius`, `Size`, `SkeletonBlock`,
+    /// icons, images, thumbnails and the geometry bridges listed in ADR 0039
+    /// task 001 all route through this resolver; `FontSize` never does — see
+    /// [`FontSize::type_multiplier`] for the TYPE domain.
     #[must_use]
-    pub const fn multiplier(self) -> f32 {
+    pub const fn chrome_multiplier(self) -> f32 {
         match self {
             Self::XSmall => 0.85,
             Self::Small => 0.92,
@@ -674,10 +744,15 @@ impl gpui::Global for Environment {}
 // Helpers.
 // -----------------------------------------------------------------------------
 
-/// Multiply a base point value by a scale and return `Pixels`.
+/// ADR 0039 CHROME domain: multiply a base point value by the chrome
+/// coefficient and return `Pixels`.
+///
+/// Used by `Spacing`, `Radius`, `Size` and `SkeletonBlock`. `FontSize` never
+/// calls this — see [`FontSize::scaled_px`] for the TYPE domain's own pure
+/// resolver.
 #[inline]
-fn scale_px(base: f32, scale: ScaleFactor) -> Pixels {
-    px(base * scale.multiplier())
+fn scale_chrome_px(base: f32, scale: ScaleFactor) -> Pixels {
+    px(base * scale.chrome_multiplier())
 }
 
 #[inline]
@@ -771,6 +846,234 @@ mod tests {
         assert!((c.g - 0.501_960_8).abs() < 1e-4);
         assert!((c.b - 0.250_980_4).abs() < 1e-4);
         assert!((c.a - 1.0).abs() < f32::EPSILON);
+    }
+
+    // -------------------------------------------------------------------
+    // ADR 0039 task 001 (amended scope): CHROME/TYPE domain split.
+    // -------------------------------------------------------------------
+
+    const ADR_0039_STEPS: [(ScaleFactor, f32); 5] = [
+        (ScaleFactor::XSmall, 0.85),
+        (ScaleFactor::Small, 0.92),
+        (ScaleFactor::Medium, 1.0),
+        (ScaleFactor::Large, 1.12),
+        (ScaleFactor::XLarge, 1.25),
+    ];
+
+    /// M1: the CHROME coefficients are bit-identical to the five former
+    /// uniform `ScaleFactor` values — not merely close by an epsilon.
+    #[test]
+    fn adr_0039_chrome_multiplier_matches_former_uniform_values_bit_exact() {
+        for (scale, former_value) in ADR_0039_STEPS {
+            assert_eq!(
+                scale.chrome_multiplier().to_bits(),
+                former_value.to_bits(),
+                "{scale:?} CHROME coefficient drifted from the former uniform value"
+            );
+        }
+    }
+
+    /// M1: every resolved `Spacing`/`Radius`/`Size`/`SkeletonBlock` value at
+    /// every step matches the old uniform arithmetic bit-for-bit, including
+    /// the `Radius::Full` pill exception. Exercises the environment-backed
+    /// `.scaled(cx)` path, not only the pure coefficient table.
+    #[gpui::test]
+    fn adr_0039_chrome_resolved_tokens_match_former_arithmetic_at_every_step(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let spacing = [
+            Spacing::XXS,
+            Spacing::XS,
+            Spacing::SM,
+            Spacing::MD,
+            Spacing::LG,
+            Spacing::XL,
+            Spacing::XXL,
+        ];
+        let radius = [Radius::SM, Radius::MD, Radius::LG, Radius::XL, Radius::Full];
+        let size = [
+            Size::MinHitTarget,
+            Size::ButtonSm,
+            Size::ButtonMd,
+            Size::ButtonLg,
+            Size::MenuCompact,
+            Size::MenuRegular,
+            Size::MenuWide,
+            Size::ColumnShort,
+            Size::ColumnRegular,
+            Size::ColumnTall,
+            Size::RowMd,
+            Size::RowLg,
+            Size::ContentTileWidth,
+            Size::ContentTileArtwork,
+            Size::NoticeWidth,
+        ];
+        let skeleton = [
+            SkeletonBlock::InspectorTitle,
+            SkeletonBlock::InspectorSubtitle,
+            SkeletonBlock::InspectorCaption,
+            SkeletonBlock::FeedTileSubtitle,
+            SkeletonBlock::TrackNumber,
+            SkeletonBlock::TrackDuration,
+        ];
+
+        cx.update(|cx| {
+            for (scale, former_multiplier) in ADR_0039_STEPS {
+                cx.set_global(scale);
+
+                for token in spacing {
+                    let expected = f32::from(token.px()) * former_multiplier;
+                    assert_eq!(
+                        f32::from(token.scaled(cx)).to_bits(),
+                        expected.to_bits(),
+                        "Spacing::{token:?} at {scale:?} drifted from the former arithmetic"
+                    );
+                }
+
+                for token in radius {
+                    let expected = if matches!(token, Radius::Full) {
+                        f32::from(token.px())
+                    } else {
+                        f32::from(token.px()) * former_multiplier
+                    };
+                    assert_eq!(
+                        f32::from(token.scaled(cx)).to_bits(),
+                        expected.to_bits(),
+                        "Radius::{token:?} at {scale:?} drifted from the former arithmetic"
+                    );
+                }
+
+                for token in size {
+                    let expected = f32::from(token.px()) * former_multiplier;
+                    assert_eq!(
+                        f32::from(token.scaled(cx)).to_bits(),
+                        expected.to_bits(),
+                        "Size::{token:?} at {scale:?} drifted from the former arithmetic"
+                    );
+                }
+
+                for token in skeleton {
+                    let (base_w, base_h) = token.px();
+                    let expected = (
+                        f32::from(base_w) * former_multiplier,
+                        f32::from(base_h) * former_multiplier,
+                    );
+                    let (resolved_w, resolved_h) = token.scaled(cx);
+                    assert_eq!(
+                        f32::from(resolved_w).to_bits(),
+                        expected.0.to_bits(),
+                        "SkeletonBlock::{token:?} width at {scale:?} drifted from the former arithmetic"
+                    );
+                    assert_eq!(
+                        f32::from(resolved_h).to_bits(),
+                        expected.1.to_bits(),
+                        "SkeletonBlock::{token:?} height at {scale:?} drifted from the former arithmetic"
+                    );
+                }
+            }
+        });
+    }
+
+    /// M2 (amended scope): all 35 role/step TYPE outcomes are bit-identical
+    /// to the former uniform result. This is the inverted criterion from the
+    /// superseded packet text, which asked outputs to differ from uniform.
+    #[test]
+    fn adr_0039_type_outcomes_are_bit_identical_to_the_former_uniform_result() {
+        let roles = [
+            FontSize::Micro,
+            FontSize::Caption,
+            FontSize::Body,
+            FontSize::Headline,
+            FontSize::Title3,
+            FontSize::Title2,
+            FontSize::Title,
+        ];
+        let mut checked = 0;
+        for role in roles {
+            for (scale, former_multiplier) in ADR_0039_STEPS {
+                let expected = f32::from(role.px()) * former_multiplier;
+                let resolved = f32::from(role.scaled_px(scale));
+                assert_eq!(
+                    resolved.to_bits(),
+                    expected.to_bits(),
+                    "{role:?} at {scale:?} is not bit-identical to the former uniform result"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(
+            checked, 35,
+            "expected all 35 role/step outcomes to be checked"
+        );
+    }
+
+    /// M2: medium returns each role's exact base size (11, 12, 13, 15, 17,
+    /// 20, 24), unchanged by the domain split.
+    #[test]
+    fn adr_0039_medium_type_returns_each_role_base_exactly() {
+        let expected = [
+            (FontSize::Micro, 11.0),
+            (FontSize::Caption, 12.0),
+            (FontSize::Body, 13.0),
+            (FontSize::Headline, 15.0),
+            (FontSize::Title3, 17.0),
+            (FontSize::Title2, 20.0),
+            (FontSize::Title, 24.0),
+        ];
+        for (role, base) in expected {
+            assert_eq!(role.scaled_px(ScaleFactor::Medium), px(base));
+        }
+    }
+
+    /// M2: role ordering `Micro < Caption < Body < Headline < Title3 <
+    /// Title2 < Title` holds at every step.
+    #[test]
+    fn adr_0039_type_role_ordering_holds_at_every_step() {
+        let roles = [
+            FontSize::Micro,
+            FontSize::Caption,
+            FontSize::Body,
+            FontSize::Headline,
+            FontSize::Title3,
+            FontSize::Title2,
+            FontSize::Title,
+        ];
+        for (scale, _) in ADR_0039_STEPS {
+            for pair in roles.windows(2) {
+                assert!(
+                    pair[0].scaled_px(scale) < pair[1].scaled_px(scale),
+                    "{:?} < {:?} failed at {scale:?}",
+                    pair[0],
+                    pair[1]
+                );
+            }
+        }
+    }
+
+    /// M2: each role grows monotonically across the five steps.
+    #[test]
+    fn adr_0039_type_grows_monotonically_per_role_across_steps() {
+        let roles = [
+            FontSize::Micro,
+            FontSize::Caption,
+            FontSize::Body,
+            FontSize::Headline,
+            FontSize::Title3,
+            FontSize::Title2,
+            FontSize::Title,
+        ];
+        for role in roles {
+            let resolved: Vec<Pixels> = ADR_0039_STEPS
+                .iter()
+                .map(|&(scale, _)| role.scaled_px(scale))
+                .collect();
+            for pair in resolved.windows(2) {
+                assert!(
+                    pair[0] < pair[1],
+                    "{role:?} did not grow monotonically across steps"
+                );
+            }
+        }
     }
 }
 

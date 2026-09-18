@@ -1,7 +1,11 @@
 # Dynamic Type Ramp Check
 
-Status: Planned - 2026-09-18. Run after ADR 0039 tasks 001 and 002 are
-implemented. All twelve cells in the [review checklist](../reviews/adr-0039-review-checklist.md#operator-visual-check)
+Status: Planned - 2026-09-18. Amended the same day: this is
+[task 003](../tasks/adr-0039-task-003-type-curve-ratification.md)'s
+procedure. Run after ADR 0039 tasks 001, 002 and 003 are implemented — task
+003 is the packet that lands the ratified per-role type curves; tasks 001 and
+002 land at identity and have no visual gate of their own. All twelve cells
+in the [review checklist](../reviews/adr-0039-review-checklist.md#operator-visual-check)
 are open. This procedure is for a person in a Linux desktop terminal.
 
 ## Purpose And Prerequisites
@@ -98,7 +102,7 @@ matrix. Do not reuse the retained ADR 0066 task 004 fixture.
    than restoring files to conceal an unexpected change.
 
 6. Record revision, viewport, each of the twelve outcomes and screenshot or
-   observation evidence in task 002 and the review checklist. After a correction,
+   observation evidence in task 003 and the review checklist. After a correction,
    repeat affected cells on the corrected revision. Mechanical checks alone
    do not close cells. Confirm preservation, then clean up:
 
@@ -109,9 +113,9 @@ matrix. Do not reuse the retained ADR 0066 task 004 fixture.
    ```
 
    Cleanup removes the disposable configuration, database, source text and
-   audio. It changes no system unit or retained fixture. Reconcile both packet
-   Status lines, ADR, phase plan, review, delivery rows and pending-human entry.
-   Leave any unwalked or failed cell open.
+   audio. It changes no system unit or retained fixture. Reconcile all three
+   packet Status lines, ADR, phase plan, review, delivery rows and
+   pending-human entry. Leave any unwalked or failed cell open.
 
 ## Rollback And Failure Handling
 

@@ -5551,7 +5551,9 @@ fn playlist_rows_scale_through_design_tokens() {
     for required in [
         "pub fn scaled_dimension(base: Pixels, cx: &App) -> Pixels",
         "pub fn scaled_f32(base: f32, cx: &App) -> Pixels",
-        "ScaleFactor::current(cx).multiplier()",
+        // ADR 0039: renamed from the retired uniform `.multiplier()` to the
+        // named CHROME resolver; geometry never reads the TYPE domain.
+        "ScaleFactor::current(cx).chrome_multiplier()",
     ] {
         if !layout_source.contains(required) {
             violations.push(format!(
@@ -18011,4 +18013,122 @@ fn adr_0066_upgrade_repair_uses_normal_migration_authority() {
     ] {
         assert!(maintenance.contains(proof));
     }
+}
+
+/// ADR 0039 task 001 geometry consumers that resolve through the CHROME
+/// domain (their `.multiplier()` call site is listed in the task packet).
+const ADR_0039_CHROME_GEOMETRY_FILES: &[&str] = &[
+    "src/ui/layouts.rs",
+    "src/ui/icons.rs",
+    "src/ui/primitives/image.rs",
+    "src/ui/composites/thumbnail.rs",
+    "src/ui/composites/detail_grid.rs",
+    "src/ui/composites/show_log_pane.rs",
+    "src/ui/composites/log_frame.rs",
+    "src/ui/composites/maintenance_page.rs",
+    "src/app/show.rs",
+    "src/ui/sizable_bridge.rs",
+];
+
+/// Situational ADR 0039 task 001: the CHROME and TYPE resolvers stay live
+/// and separately owned. `FontSize` must resolve through the per-role TYPE
+/// curve; `Spacing`, `Radius`, `Size`, `SkeletonBlock` and the direct
+/// geometry bridges must resolve through the CHROME curve. Neither domain
+/// may borrow the other's resolver, defining an unused helper does not
+/// satisfy this, and the retired uniform `ScaleFactor::multiplier` must not
+/// reappear.
+#[test]
+fn adr_0039_type_and_chrome_domains_stay_live_and_separate() {
+    const FIX: &str = "Fix: route FontSize through `type_multiplier`/`scaled_px` and Spacing/Radius/Size/SkeletonBlock plus the geometry bridges through `chrome_multiplier`/`scale_chrome_px` in src/ui/tokens.rs (ADR 0039).";
+
+    let tokens = read_source(&manifest_path("src/ui/tokens.rs"));
+    let mut violations = Vec::new();
+
+    if tokens.contains("fn multiplier(") {
+        violations.push(format!(
+            "src/ui/tokens.rs: ADR 0039 the retired uniform `ScaleFactor::multiplier` must not be reintroduced. {FIX}"
+        ));
+    }
+
+    // FontSize owns the TYPE domain: `scaled` must call `scaled_px`, which
+    // must call `type_multiplier`, and neither may reach for CHROME.
+    let font_size_impl = source_between(&tokens, "impl FontSize {", "/// Type weight token");
+    for required in [
+        "fn type_multiplier(self, scale: ScaleFactor) -> f32 {",
+        "fn scaled_px(self, scale: ScaleFactor) -> Pixels {",
+        "self.scaled_px(",
+    ] {
+        if !font_size_impl.contains(required) {
+            violations.push(format!(
+                "src/ui/tokens.rs: ADR 0039 `impl FontSize` is missing TYPE resolver wiring `{required}`. {FIX}"
+            ));
+        }
+    }
+    // Only flag actual calls (`name(`), not the doc-comment cross-reference
+    // to `ScaleFactor::chrome_multiplier` in the TYPE resolver's own comment.
+    for forbidden in ["chrome_multiplier(", "scale_chrome_px("] {
+        if font_size_impl.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/tokens.rs: ADR 0039 `FontSize` must not call the CHROME resolver `{forbidden}`. {FIX}"
+            ));
+        }
+    }
+
+    // Spacing, Radius, Size and SkeletonBlock own the CHROME domain: each
+    // `scaled` must call `scale_chrome_px` and never reach for TYPE.
+    for (label, start, end) in [
+        ("Spacing", "impl Spacing {", "impl Radius {"),
+        ("Radius", "impl Radius {", "// ---"),
+        ("Size", "impl Size {", "// ---"),
+        ("SkeletonBlock", "impl SkeletonBlock {", "// ---"),
+    ] {
+        let block = source_between(&tokens, start, end);
+        if !block.contains("scale_chrome_px(") {
+            violations.push(format!(
+                "src/ui/tokens.rs: ADR 0039 `impl {label}` must resolve through `scale_chrome_px`. {FIX}"
+            ));
+        }
+        for forbidden in ["type_multiplier(", "scaled_px("] {
+            if block.contains(forbidden) {
+                violations.push(format!(
+                    "src/ui/tokens.rs: ADR 0039 `impl {label}` must not call the TYPE resolver `{forbidden}`. {FIX}"
+                ));
+            }
+        }
+    }
+
+    // `scale_chrome_px` itself must close the loop onto `chrome_multiplier`.
+    let chrome_resolver = source_between(&tokens, "fn scale_chrome_px(", "const fn hex(");
+    if !chrome_resolver.contains("chrome_multiplier(") {
+        violations.push(format!(
+            "src/ui/tokens.rs: ADR 0039 `scale_chrome_px` must call `ScaleFactor::chrome_multiplier`. {FIX}"
+        ));
+    }
+    if chrome_resolver.contains("type_multiplier(") {
+        violations.push(format!(
+            "src/ui/tokens.rs: ADR 0039 `scale_chrome_px` must not call the TYPE resolver. {FIX}"
+        ));
+    }
+
+    // The eleven direct geometry call sites (ADR 0039 task 001) must resolve
+    // through CHROME and never acquire a font curve.
+    for file in ADR_0039_CHROME_GEOMETRY_FILES {
+        let source = read_source(&manifest_path(file));
+        if !source.contains(".chrome_multiplier()") {
+            violations.push(format!(
+                "{file}: ADR 0039 geometry call sites must resolve through `ScaleFactor::chrome_multiplier`. {FIX}"
+            ));
+        }
+        if source.contains("type_multiplier(") {
+            violations.push(format!(
+                "{file}: ADR 0039 geometry must not acquire a font curve; found a TYPE-domain reference. {FIX}"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0039 domain-ownership violations:\n{}",
+        violations.join("\n")
+    );
 }

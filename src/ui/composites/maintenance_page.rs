@@ -226,7 +226,10 @@ impl MaintenancePage {
 
 impl RenderOnce for MaintenancePage {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let width = f32::from(window.viewport_size().width) / ScaleFactor::current(cx).multiplier();
+        // ADR 0039: un-scaling the viewport for a breakpoint is geometry —
+        // CHROME domain.
+        let width =
+            f32::from(window.viewport_size().width) / ScaleFactor::current(cx).chrome_multiplier();
         self.render_layout(MaintenanceLayout::for_width(width), cx)
     }
 }
