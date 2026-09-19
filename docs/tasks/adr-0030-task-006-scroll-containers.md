@@ -5,6 +5,10 @@
 Accepted - 2026-09-10.
 Implementation recorded; surviving scroll acceptance remains open.
 
+The operator paused visual checks on 2026-09-19 for the
+[ADR 0075 metadata refactor](../plans/adr-0075-metadata-contract-phase-plan.md).
+The surviving scroll checks remain open.
+
 Reconciled against ADRs 0047/0048/0060/0062: separate Discovery and Recent
 Feeds paths are retired. The old implementation steps below are historical.
 The current check covers Music details and Settings. Follow

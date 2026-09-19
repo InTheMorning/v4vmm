@@ -2,8 +2,19 @@
 
 ## Status
 
-Active index - 2026-09-18. Operator-approved order; one implementation packet
-per session.
+Active index - 2026-09-19. The operator approved this order.
+Complete one implementation packet per session.
+
+The operator paused visual checks on 2026-09-19 to prioritise metadata handling
+in v4vmm and MusicIndex. [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md)
+is Proposed. Its [audit and review](../reviews/adr-0075-metadata-contract-review.md),
+[phase plan](adr-0075-metadata-contract-phase-plan.md) and
+[first packet](../tasks/adr-0075-task-001-contributor-claim-transport.md) are written.
+Implementation has not started.
+
+This priority includes the Stophammer backend and the generated MusicIndex API contract.
+The existing broadcast order resumes after this work. Acceptance gates remain open.
+Configuration formats remain unchanged.
 
 ## Purpose
 
@@ -85,6 +96,7 @@ ADR 0039 is Implemented. Its scheduled work is complete.
 
 | Order | Work | Completion point |
 |---|---|---|
+| Current priority | [Metadata contract — ADR 0075](adr-0075-metadata-contract-phase-plan.md) | Initial audit and proposal written on 2026-09-19. First packet is Draft. The operator paused visual checks. Implementation has not started. Acceptance remains open |
 | 1 | Governance reconciliation | Complete - 2026-09-10. Surviving checks indexed. ADR 0039's policy deferral and scheduled work are resolved by its 2026-09-18 implementation and acceptance below. The dated reconciliation remains history |
 | 2, keyboard correction | [Platform shortcuts — ADR 0067](../tasks/adr-0067-task-001-platform-shortcuts.md) | Complete - 2026-09-11; Ctrl shortcuts, focus handling and Settings responsiveness accepted; fixture cleanup confirmed |
 | 2, Settings foundation | [Grouped Settings — ADR 0069 task 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Complete - 2026-09-11; mechanical checks Green; V1–V3 and all preservation inspections accepted; fixture cleanup confirmed; no configuration-format or playback changes |
@@ -230,11 +242,11 @@ Update this table when a packet lands.
 | `v4vmm` | [0068 Show cue and audition isolation](../adr/0068-show-cue-and-audition-isolation.md) | Proposed - 2026-09-11; requested ADR drafted; implementation and its visual/audio checks not started; does not close 0066 task 004's paused playback gate |
 | `v4vmm` | [0030 006 scroll containers](../tasks/adr-0030-task-006-scroll-containers.md) | implementation recorded; current Music/Settings visual check open |
 | `v4vmm` | [0037 001 feed identity](../tasks/adr-0037-task-001-feed-identity-action-parity.md) | Complete - 2026-09-19. Local/Index controls, Nostr copy, Website and RSS accepted in both themes. Corrected fixture launch and Firefox accepted. Fixture removal confirmed. Task 002 retains its separate gate. |
-| `v4vmm` | [0037 002 track detail parity](../tasks/adr-0037-task-002-track-header-action-parity.md) | Implementation recorded. Private fixture copy confirmed on 2026-09-19. The Index supplies MoeFactz contributor Nostr and website facts. Source inspection found app request and presentation gaps for those facts. Contributor facts do not establish populated track header controls. Track selection, visual checks and cleanup remain open. |
+| `v4vmm` | [0037 002 track detail parity](../tasks/adr-0037-task-002-track-header-action-parity.md) | Implementation recorded. The operator paused checks on 2026-09-19 for ADR 0075 metadata work. The Index supplies MoeFactz contributor identities. App request and presentation problems remain. Fixture cleanup and the remaining checks are open. |
 | `v4vmm` | [0043 004 toolbar readiness](../tasks/adr-0043-task-004-guards-and-visual-readiness.md) | Complete - 2026-09-18. Normal/narrow Light/Dark checks passed. Library and Index results are confirmed. Fixture cleanup is confirmed. ADR 0043 is Implemented. |
 | `v4vmm` | [0044 003 playlist reorder](../tasks/adr-0044-task-003-playlist-reorder-guards-visual.md) | Complete - 2026-09-19. All Light/Dark visual checks passed, including removal and immediate availability updates on frame return. Fixture cleanup is confirmed. ADR 0044 is Implemented. |
-| `v4vmm` | [0054 004 feed hydration](../tasks/adr-0054-task-004-feed-read-model-hydration.md) | implementation recorded; stored metadata visual check open |
-| `v4vmm` | [0054 005 track hydration](../tasks/adr-0054-task-005-track-read-model-hydration.md) | implementation recorded; stored metadata/fallback visual check open |
+| `v4vmm` | [0054 004 feed hydration](../tasks/adr-0054-task-004-feed-read-model-hydration.md) | Implementation recorded. Stored metadata visual check remains open and paused for ADR 0075 metadata work |
+| `v4vmm` | [0054 005 track hydration](../tasks/adr-0054-task-005-track-read-model-hydration.md) | Implementation recorded. Stored metadata/fallback visual check remains open and paused for ADR 0075 metadata work |
 | `musicindex-live-publisher` | control surface 001 | complete - 2026-09-07 (`a5b434e`) |
 | `musicindex-live-publisher` | control surface 002 | complete - 2026-09-07 (`459854c`) |
 | `musicindex-live-publisher` | show log 001 | Not started. Resolve the producer timestamp source before implementation. Drop-file v1 has no producer timestamp. Scheduler times are monotonic. |

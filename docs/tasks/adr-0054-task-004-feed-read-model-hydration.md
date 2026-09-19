@@ -3,6 +3,10 @@
 Status: Accepted - 2026-09-10.
 Implementation recorded; operator visual acceptance remains open.
 
+The operator paused visual checks on 2026-09-19 for the
+[ADR 0075 metadata refactor](../plans/adr-0075-metadata-contract-phase-plan.md).
+The remaining check stays open.
+
 ## Current Acceptance Scope
 
 The implementation steps below are historical. The surviving visual check

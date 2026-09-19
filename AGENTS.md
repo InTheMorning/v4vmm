@@ -11,6 +11,17 @@ Governance model: ADR 0061.
 
 ## Where The Work Stands
 
+Current priority - 2026-09-19: the operator paused visual checks to address
+metadata handling in v4vmm and MusicIndex. [ADR 0075](docs/adr/0075-metadata-ownership-and-completeness.md)
+is Proposed. Its [audit](docs/reviews/adr-0075-metadata-contract-review.md),
+[plan](docs/plans/adr-0075-metadata-contract-phase-plan.md) and
+[first packet](docs/tasks/adr-0075-task-001-contributor-claim-transport.md) are written.
+Implementation has not started.
+
+Do not request another visual batch during this pause. Existing acceptance gates
+remain open. Cleanup of the evidence fixture
+`/tmp/v4vmm-governance.ie6k8TQf` remains unconfirmed.
+
 Music and Show are built. ADR 0059 tasks 001-017 are complete. ADRs 0059 and
 0063 are Implemented, including operator acceptance and fixture cleanup.
 

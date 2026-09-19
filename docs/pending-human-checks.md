@@ -1,5 +1,15 @@
 # Pending Human Checks
 
+## Scheduling
+
+The operator paused visual checks on 2026-09-19. Prioritise the
+[metadata contract refactor](plans/adr-0075-metadata-contract-phase-plan.md)
+before requesting more visual checks. The four groups below retain five open
+packets. Their acceptance and configuration gates remain open.
+
+The current evidence fixture is `/tmp/v4vmm-governance.ie6k8TQf`.
+Its cleanup remains unconfirmed. No app launch is requested during this pause.
+
 ## Purpose
 
 Some acceptance criteria need a person. An agent must not run this app, because

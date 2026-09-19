@@ -6,6 +6,10 @@ Open for task 002 - updated 2026-09-19. Task 001 is complete, including local
 and Index feed checks in both themes and confirmed fixture cleanup.
 Task 002 track-detail parity retains its separate operator checks.
 
+The operator paused visual checks on 2026-09-19 and prioritised the
+[metadata contract refactor](adr-0075-metadata-contract-review.md).
+Task 002 and its fixture cleanup remain open.
+
 ## Requirement Disposition
 
 | Earlier requirement | Disposition and owner |

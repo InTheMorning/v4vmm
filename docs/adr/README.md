@@ -36,6 +36,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 
 | ADR | Scope | Status |
 |---|---|---|
+| [0075](0075-metadata-ownership-and-completeness.md) | Shared metadata rules for the app and Index. Covers ownership, response completeness and storage by provider. Initial audit and first packet written. Implementation not started | Proposed |
 | [0004](0004-format-neutral-audio-tag-boundary.md) | Format-neutral audio tag boundary | Accepted |
 | [0005](0005-musicbrainz-metadata-lookup.md) | Metadata-based MusicBrainz lookup. No fingerprinting | Accepted |
 | [0006](0006-musicbrainz-release-detail-enrichment.md) | MusicBrainz release detail enrichment | Accepted |

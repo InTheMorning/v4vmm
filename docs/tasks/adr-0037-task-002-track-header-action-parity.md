@@ -3,6 +3,11 @@
 Status: Accepted - 2026-09-10.
 Implementation recorded; operator visual acceptance remains open.
 
+The operator paused visual checks on 2026-09-19 to prioritise the
+[ADR 0075 metadata refactor](../plans/adr-0075-metadata-contract-phase-plan.md).
+Keep this gate and fixture cleanup open. Do not request more visual checks
+during the pause.
+
 The operator confirmed the private database/audio copy at
 `/tmp/v4vmm-governance.ie6k8TQf` on 2026-09-19. Track selection and source-fact
 checks remain open. The first candidate query returned `[]`. A diagnostic query

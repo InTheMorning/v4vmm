@@ -10,6 +10,10 @@ Task 005 is complete under the operator's explicit scheduling exception;
 [its acceptance](adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11)
 closes none of this packet's remaining checks.
 
+The operator paused further visual checks on 2026-09-19 to prioritise the
+[ADR 0075 metadata refactor](../plans/adr-0075-metadata-contract-phase-plan.md).
+Task 004's remaining acceptance and configuration gates stay open.
+
 ## Goal
 
 Open the app with valid core resources even when optional configuration or tool preparation fails, and limit only the operations that actually depend on each failure.
