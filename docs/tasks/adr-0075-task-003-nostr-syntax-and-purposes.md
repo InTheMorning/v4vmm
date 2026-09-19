@@ -2,7 +2,7 @@
 
 Status: Ready - 2026-09-19. Work has not started.
 The parent ADR 0075 is Accepted from 2026-09-19.
-The operator holds the dispatch of every ADR 0075 packet.
+The operator holds the dispatch of all ADR 0075 packet.
 This packet produces a document. It changes no code.
 
 ## Goal
@@ -22,7 +22,7 @@ and no application code.
 - [Review](../reviews/adr-0075-metadata-contract-review.md), the section named "RSS Extraction Can Assign The Wrong Owner"
 - `src/rss/enrich.rs`, functions `nostr_from_extensions`, `nostr_from_extension`, `extract_nostr_handle`, and `enrich_track_from_feed_rss`
 
-Inspect these upstream files as read-only copies, at commit `a220f44`, in
+Examine these upstream files as read-only copies, at commit `a220f44`, in
 `/home/citizen/build/stophammer`. Do not write in that checkout.
 
 - `stophammer-parser/src/engine.rs`, functions `extract_entity_ids`, `extract_persons`, and `is_podcast_namespace`
@@ -62,8 +62,8 @@ exact headings:
 - Application code, tests, or configuration in this repository.
 - `AGENTS.md`, ADR 0075, the phase plan, or the review.
 - The Stophammer checkout at `/home/citizen/build/stophammer`.
-- Any live network request. Use the cited source files and the cited pages.
-- Visual acceptance gates that are already in place. This packet requests
+- Requests to live MusicIndex services or publisher feeds.
+- Visual acceptance gates that remain open. This packet requests
   no visual check.
 
 ## Constraints
@@ -85,12 +85,14 @@ Ground each claim about the app or the parser in a cited file and function.
 Ground each claim about NIP-19, `podcast:txt`, or `podcast:person` in the
 cited page.
 
-Decide the `purpose="nostr"` compatibility question inside the deliverable,
-not inside this packet.
-Base that decision on the evidence in Files To Inspect. Record the reason in
-the deliverable.
-Do not add support for a purpose value that no cited source or example uses
-today, unless the deliverable records a reason.
+Read-only retrieval of the cited specifications is permitted.
+Record the URL and revision when available.
+These pages define specifications. They do not establish the deployed MusicIndex behavior.
+
+Propose the `purpose="nostr"` compatibility rule in the deliverable.
+Use the cited evidence to support the proposal. Record its reason and operator review status.
+The proposal does not authorize code changes before operator acceptance.
+Keep current parser behavior separate from proposed support.
 
 ## Required Content
 
@@ -98,29 +100,25 @@ today, unless the deliverable records a reason.
 
 Write the `npub` encoding: a bech32 form of a 32-byte public key, with no
 other field.
-Write the `nprofile` encoding: a bech32 form of a TLV structure that carries
-the public key, and can carry one or more relay hints.
+Describe `nprofile` as a bech32 encoding of a TLV structure.
+Write that it contains the public key and can contain one or more relay hints.
 Write that the app must keep this distinction. Do not treat `npub` and
 `nprofile` as one interchangeable form.
 
 ### Supported podcast:txt Purpose Values
 
-Write that upstream's `extract_entity_ids` accepts only a `purpose`
-attribute equal to `npub`, after it trims and lowers the case, mapped to the
-scheme `nostr_npub`.
-Give one checked example: a direct channel or item `<podcast:txt
-purpose="npub">` element with a valid `npub1` value, and the `IngestEntityId`
-it produces.
-Write that, at the cited commit, the parser drops every other `purpose`
+Write that `extract_entity_ids` trims the `purpose` attribute and converts it to lowercase.
+Write that it accepts `npub` and maps that value to the `nostr_npub` scheme.
+Give a checked channel or item example with a direct `<podcast:txt purpose="npub">` child and a valid `npub1` value.
+Show the resulting `IngestEntityId`.
+Write that, at the cited commit, the parser drops all other `purpose`
 value from `entity_ids` today. The raw element stays present in the
 parser's general Podcast Namespace snapshot.
 
 ### Compatibility Decision For purpose="nostr"
 
-Decide if the app treats `purpose="nostr"` as the same as `purpose="npub"`,
-or as unsupported syntax.
-Record the reason with a citation: to the cited source files, to the
-specification, or to an example the operator supplied.
+Propose either compatibility with `purpose="npub"` or unsupported syntax for `purpose="nostr"`.
+Cite the source file, specification, or supplied example that supports the proposal.
 Write the consequence for a feed that already publishes `purpose="nostr"`,
 if the cited sources show one.
 
@@ -137,8 +135,7 @@ as the observed break of this rule.
 
 Write the rule: the channel gives a feed identity through its direct child.
 The item gives a track identity through its direct child.
-Write that a value in a deeper descendant element is not a track identity
-or a feed identity, under this contract.
+Write that deeper descendant values do not establish track or feed identity under this contract.
 Ground this rule in upstream's `extract_entity_ids`, which reads only
 direct children of the passed node.
 
@@ -153,7 +150,7 @@ action.
 ### Unsupported Syntax
 
 List each syntax form the app does not support as an identity, with the
-record the app writes for it. Cover a minimum of these:
+record the app writes for it. Include these forms:
 
 - an `nsec`, `note`, `nevent`, `naddr`, or `nrelay` value
 - a `purpose` value other than `npub`, and other than `nostr` if the
@@ -165,22 +162,22 @@ record the app writes for it. Cover a minimum of these:
 
 Compare `src/rss/enrich.rs::nostr_from_extension` with upstream's
 `extract_entity_ids` and `extract_persons`.
-Write that the app's function scans each extension under the `podcast` key,
-not only `txt` elements, and goes into child elements below that.
-Write that the app's function matches by the shape of the value, the
-`npub1` or `nprofile1` prefix, and not by a `purpose` attribute.
+Write that the app scans all extensions under the `podcast` key, including their children.
+Write that this scan includes elements other than `txt`.
+Write that it matches the `npub1` or `nprofile1` prefix without checking `purpose`.
 Write that `enrich_track_from_feed_rss` marks each match with the fixed
 extraction path `podcast:txt@purpose=nostr`. It does this apart from the
 element or the attribute the value came from.
-Write the exact difference that packet 009 must correct: the app must read
-a Nostr identity only from a direct `podcast:txt` element with a supported
-`purpose`. The app must not assign a `podcast:person` attribute's value to
-the track or the feed that holds it, as a `podcast:txt` fact.
+
+State the correction required in packet 009.
+A track or feed Nostr identity must come from a direct `podcast:txt` element with a supported `purpose`.
+A `podcast:person` attribute cannot become a `podcast:txt` fact for the enclosing track or feed.
 
 Write a second difference for the record. `src/rss/enrich.rs` looks up
-extensions by the literal key `"podcast"`. If the `rss` crate keys its
-extension map by the declared XML prefix, and not by the resolved namespace
-URI, then an alternate prefix breaks this lookup. Write that upstream's
+extensions by the literal key `"podcast"`.
+Check whether the `rss` crate keys extensions by declared prefix or resolved namespace URI.
+If the keys use declared prefixes, an alternate prefix breaks the app's lookup.
+Write that upstream's
 `is_podcast_namespace` matches by URI, so an alternate prefix does not
 affect upstream extraction. Check this claim against the `rss` crate source
 cited above before you write it as fact.
@@ -196,43 +193,47 @@ cited above before you write it as fact.
   of one fenced code block with a checked `purpose="npub"` example.
 - The `## Compatibility Decision For purpose="nostr"` section states
   "supported" or "not supported", plus a reason.
+- That section labels the rule as Proposed until the operator accepts it.
 - The `## Current Behavior Compared With The Upstream Parser` section names
   both `src/rss/enrich.rs::nostr_from_extension` and the upstream function
   it compares.
 - Each relative link in the deliverable resolves to a file or an anchor
   that is present.
-- The shared STE command in Checks reports no unresolved error for the deliverable.
+- The shared STE command runs without an input or configuration error.
+- Its findings have no unresolved confirmed prose defect after review.
 
 ### Review Criteria
 
 A reviewer checks that the NIP-19 description agrees with the cited page.
-A reviewer checks that the purpose-value table agrees with the real
-behavior of the cited upstream function.
+A reviewer checks the table's current-behavior entries against the cited upstream function.
+A reviewer checks proposed support against the cited evidence and accepted ADR rules.
 A reviewer checks that the compatibility decision states a clear reason,
 and not only a preference.
 A review check that did not run reports this gate as open, not as met.
 
 ## Checks
 
-Do these checks against the deliverable after you write it.
-No application test applies. This packet changes no code.
+Run these commands from the repository root after writing the deliverable.
+The link check tests local files and headings. It returns failure for a missing target.
+It does not change the current directory or request external pages.
+Use Markdown links for local references. Use fenced code blocks for recorded syntax.
 
 ```bash
-# From the repository root. Confirms every relative markdown link resolves.
-grep -oE '\]\([^)]+\)' docs/schema/adr-0075-identity-syntax-contract.md \
-  | sed -E 's/^\]\((.*)\)$/\1/' \
-  | grep -v '^https\?://' \
-  | while read -r link; do
-      target="${link%%#*}"
-      [ -z "$target" ] && continue
-      (cd docs/schema && test -e "$target") || echo "BROKEN: $link"
-    done
+python3 docs/runbooks/check-markdown-links.py \
+  docs/tasks/adr-0075-task-003-nostr-syntax-and-purposes.md \
+  docs/schema/adr-0075-identity-syntax-contract.md
 ```
 
 ```bash
 python3 "$HOME/.agents/skills/asd-ste100/scripts/ste_lint.py" \
   --check --no-heuristics docs/schema/adr-0075-identity-syntax-contract.md
 ```
+
+Examine the STE findings. Correct confirmed defects in the affected prose.
+Record retained technical names and the reasons for retaining them.
+Report a checker error as a failed check.
+Do not report the raw checker result as Green if findings remain.
+No application test applies to this document packet.
 
 ## Escalation Triggers
 
@@ -244,11 +245,9 @@ Stop and report if any of these happen:
   Content.
 - You find no source or example to support a compatibility decision for
   `purpose="nostr"`.
-- An accurate comparison might need a code change or a live network
-  request.
+- An accurate comparison requires a code change or a live service or publisher feed request.
 
-Revise this packet, or ask the operator, before you invent a fact to fill a
-gap.
+Do not invent missing facts. Resolve the reported issue before continuing.
 
 ## Expected Report
 
@@ -259,7 +258,7 @@ Report the checks you did and their results.
 Name each fact you could not check in the cited source or page.
 Name each deviation from this packet's Required Content.
 
-## Prompt for lower-context model
+## Prompt for lower-context coding model
 
 You write one bounded document from a larger plan. Do not write code. Do not
 redesign ADR 0075.
@@ -276,8 +275,8 @@ Goal:
 Constraints:
 
 - Apply this packet's Constraints and Required Content sections.
-- Decide the `purpose="nostr"` compatibility question inside the
-  deliverable. Record the reason.
+- Propose the `purpose="nostr"` compatibility rule in the deliverable.
+- Record the reason and operator review status.
 - Write each sentence in ASD-STE100 Simplified Technical English.
 
 Do not touch:
@@ -287,7 +286,7 @@ Do not touch:
 Acceptance criteria:
 
 - Pass each mechanical criterion above.
-- Leave each review criterion for a person. Report it as open.
+- Keep each review criterion open until a person checks it.
 
 Checks:
 

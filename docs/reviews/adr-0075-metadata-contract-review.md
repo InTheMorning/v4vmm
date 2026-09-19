@@ -8,11 +8,14 @@ Implementation has not started. No migration, deployment or new visual acceptanc
 Pre-dispatch review recorded on 2026-09-19. Packet 001's instructions are corrected.
 
 Operator decisions recorded on 2026-09-19. ADR 0075 is Accepted. Packet 001 is Ready.
-The operator holds every dispatch until the document packets exist.
+Document packets 002–008 exist. Their deliverables remain incomplete.
+The operator's dispatch hold remains in force.
+
 The plan now divides phases 002–006 into bounded packets.
 
-Accuracy review recorded on 2026-09-19. The new document packets need corrections
-before dispatch. The findings below do not change the accepted ADR or release a packet.
+Accuracy review recorded on 2026-09-19. The first-packet corrections below resolve R4, R5, R7, and R8.
+R1, R2, and R6 remain open for later packets.
+These corrections do not change the accepted ADR or release a packet.
 
 ## Evidence And Limits
 
@@ -198,7 +201,7 @@ The plan now holds a [packet register](../plans/adr-0075-metadata-contract-phase
 It divides phases 002 to 006 into 28 bounded packets.
 The register records the inputs of each packet. Packets 002 to 008 need no further decision.
 
-These changes moved in the same commit as the decision:
+The acceptance records cover these documents:
 
 - ADR 0075, from Proposed to Accepted, with both decisions in its Status section.
 - ADR 0028 and ADR 0054, with a dated amendment for the replaced replacement key.
@@ -454,13 +457,81 @@ Work that the decisions create:
 - Packets 022 to 025 must build the labelled sections that Decision B selects.
 - Packet 026 must report the repair of old records before any repair runs.
 
+## First-Packet Corrections — 2026-09-19
+
+The operator requested corrections to the first-packet instructions, prerequisites, and checks.
+This change resolves these findings:
+
+| Finding | Correction |
+|---|---|
+| R4 | Packet 002 separates current and required storage and display results. C01 links to the supplied response |
+| R5 | Dispatch prerequisites apply per packet. Documents can produce missing rules. Packets 008 and 011 now require field-rule documents |
+| R7 | Packets 002–008 use one link check that tests files and headings. Packet 003 permits specification retrieval. Packet 002 uses the deliverable's link base |
+| R8 | AGENTS.md and the delivery index now state Accepted, Ready, and held. The unsupported commit claim is removed |
+
+Packet 003 also separates proposed syntax support from current parser behavior.
+The operator must accept proposed policies before dependent code implements them.
+Packet 001 retains its contributor transport scope.
+
+### Verification
+
+The [link checker](../runbooks/check-markdown-links.py) is a situational check for ADR 0075 document packets.
+It tests local file paths, Markdown headings, explicit HTML anchors, and reference links.
+It skips external URLs and fenced code. It makes no network requests.
+The packet commands do not change the current directory.
+
+Temporary fixtures checked these results:
+
+- Valid links pass, including duplicate headings, Unicode, HTML anchors, and references.
+- Nested list links are checked.
+- Links in fenced code and inline code are excluded.
+- A missing file returns failure.
+- A missing heading returns failure.
+- A missing reference definition returns failure.
+- An unreadable input returns failure.
+
+These checks are Green. The temporary fixtures were removed.
+Application tests do not apply to the document and checker changes.
+
+The shared STE checker identified sentence-length, paragraph-length, and American-spelling defects in the first packets.
+Those confirmed defects are corrected.
+The full checker still reports lexical findings. Its raw result is not Green.
+The following retained terms need their technical meanings:
+
+| Retained term | Meaning |
+|---|---|
+| Ready | The repository's packet status before dispatch |
+| case | A named input and its expected test result |
+| field kind | A data classification named by ADR 0075 |
+| key | A map lookup value or identity key, as specified by context |
+| request | An HTTP operation or a recorded task request |
+| review | A recorded assessment of evidence, instructions, or implementation |
+| evidence | Source material that supports a recorded claim |
+| source form | The RSS or JSON syntax supplied to a test |
+| acceptance | The repository's decision that a named requirement is satisfied |
+| may | A retained qualification when the evidence does not establish certainty |
+
+Do not replace these terms with unrelated dictionary alternatives.
+Do not change a governing status or remove uncertainty to suppress a finding.
+Packet checks now require review of lexical findings and correction of confirmed defects.
+They distinguish that review from a raw Green checker result.
+
+### Remaining Scope
+
+Packets 002 and 003 are ready for document work when the operator releases their dispatch hold.
+Their deliverables and policy reviews are not complete.
+R1, R2, and R6 still require corrections before the affected later packets run.
+This change does not implement metadata handling or resume visual checks.
+
 ## Review Disposition
 
 The audit establishes that the app must correct how it handles metadata.
 The operator accepted ADR 0075 on 2026-09-19. The operator holds every dispatch.
 Packet 001 is Ready. It only preserves fields in the app's type for API data.
+
 The acceptance of the ADR closes no gate. Every open gate stays open.
-Correct the accuracy findings above before dispatching document packets 002 to 008.
+The instructions and checks for packets 002 and 003 are corrected.
+Correct R1, R2, and R6 before dispatching the affected later packets.
 
 ## Operator Visual Check
 
@@ -470,7 +541,7 @@ The current fixture is `/tmp/v4vmm-governance.ie6k8TQf`. Cleanup is unconfirmed.
 
 ## References
 
-- [Proposed ADR](../adr/0075-metadata-ownership-and-completeness.md)
+- [Accepted ADR](../adr/0075-metadata-ownership-and-completeness.md)
 - [Phase plan](../plans/adr-0075-metadata-contract-phase-plan.md)
 - [First packet](../tasks/adr-0075-task-001-contributor-claim-transport.md)
 - [Podcast person semantics](https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/tags/person.md)

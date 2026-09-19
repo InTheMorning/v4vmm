@@ -2,16 +2,16 @@
 
 Status: Ready - 2026-09-19. Work has not started.
 The parent ADR 0075 is Accepted from 2026-09-19.
-The operator holds the dispatch of every ADR 0075 packet.
+The operator holds the dispatch of all ADR 0075 packet.
 This packet produces a document. It changes no code.
 
 ## Goal
 
 Write one shared corpus of example cases for RSS and MusicIndex API metadata.
-The corpus records the declared owner and the expected result for each case,
-in [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md).
-Subsequent packets read this corpus as shared ground truth. Each repository
-reads it too.
+The corpus records the declared owner, current result, and required result for each example.
+[ADR 0075](../adr/0075-metadata-ownership-and-completeness.md) governs required results.
+The cited code establishes current results. Later packets use both results to identify required corrections.
+
 This packet writes the corpus document only.
 It changes no parser code, no application code, and no database schema.
 
@@ -31,7 +31,7 @@ It changes no parser code, no application code, and no database schema.
 - `src/db.rs`, functions `local_identity_links`, `replace_local_identity_links`, and `local_contributors`
 - `docs/schema/storage-and-metadata.md`, the `tracks` table entry, for the `(feed_id, item_guid)` storage key
 
-Inspect these upstream files as read-only copies, at commit `a220f44`, in
+Examine these upstream files as read-only copies, at commit `a220f44`, in
 `/home/citizen/build/stophammer`. Do not write in that checkout.
 
 - `stophammer-parser/src/engine.rs`, functions `extract_links`, `extract_persons`, and `extract_entity_ids`
@@ -40,7 +40,7 @@ Inspect these upstream files as read-only copies, at commit `a220f44`, in
 - `src/db.rs`, functions `get_effective_source_contributor_claims_for_track` and `get_source_contributor_claims_for_feed_entity`
 - `src/ingest.rs`
 
-Case C10 below depends in part on the code that handles extensions inside
+Case C10 below depends in part on the code that handles extensions in
 the `rss` crate. This repository's `Cargo.lock` pins that crate at version
 2.0.12. The `rss` crate is a dependency, not part of the two repositories
 named above. Check its behavior before you write it as fact. You can find a
@@ -55,18 +55,31 @@ The deliverable has:
 
 - A short scope note. See Constraints for its required statements.
 - A summary index: one table row for each case identifier, with a one-line
-  scenario label and the ADR 0075 rule it proves.
+  scenario label and the ADR 0075 rule it tests.
 - One subsection for each case identifier. Required Content gives the case
   identifiers in sequence. Follow that sequence.
 
 Give each case subsection the case identifier as its heading, for example
 `### C01`.
-Give each case subsection these six labeled fields: **Source Form**,
-**Declared Owner**, **Field Kind**, **Expected Stored Fact**, **Expected
-Display Result**, and **ADR 0075 Rule**.
-Write the source form as a fenced code block with an RSS or JSON fragment.
-Write the expected stored fact. Give its provenance: the source, the
-extraction path, and the position, where the cited source gives them.
+Give each example subsection these eight labeled fields:
+
+- **Source Form**
+- **Declared Owner**
+- **Field Kind**
+- **Current Stored Fact**
+- **Current Display Result**
+- **Required Stored Fact**
+- **Required Display Result**
+- **ADR 0075 Rule**
+
+For C01, link to the supplied response in packet 001. Do not copy that JSON.
+For other examples, write the source form as a fenced RSS or JSON fragment.
+
+For current facts, cite the source function and its evidence.
+For required facts, cite the accepted rule.
+Record the source, extraction path, and position when evidence supplies them.
+Record each difference between the current result and the required result.
+Do not describe a required correction as current behavior.
 
 ## Do Not Touch
 
@@ -76,7 +89,7 @@ extraction path, and the position, where the cited source gives them.
 - The Stophammer checkout at `/home/citizen/build/stophammer`.
 - Any live network request. Construct each example from the cited source
   files and the supplied fixture.
-- Visual acceptance gates that are already in place. This packet requests no visual check.
+- Visual acceptance gates that remain open. This packet requests no visual check.
 
 ## Constraints
 
@@ -88,8 +101,9 @@ Write compliant prose directly. Do not make a draft that requires conversion to 
 Use the shared checker in Checks. Correct only confirmed errors in the affected prose.
 A Green result covers the configured checks. It does not prove full dictionary compliance.
 
-Write, in the deliverable's scope note, that the corpus records each
-observed source form and the expected result in ADR 0075.
+Write that source forms come from supplied evidence or constructed examples of the cited rules.
+Label constructed examples. Do not describe them as captured production responses.
+Write that the corpus separates current results from results required by ADR 0075.
 Write that the corpus does not claim that production data is correct.
 
 Ground each case in a cited file, function, and line range, or in the
@@ -98,14 +112,15 @@ Do not invent a parser behavior, an extraction path string, or a default
 role or group.
 When a fact differs between this app and the upstream parser, record each
 value and name its source.
-When you can not check a fact, write it as an unverified fact. Do not guess
+When you cannot check a fact, write it as an unverified fact. Do not guess
 a missing value.
 
-Use relative links from `docs/tasks/` for each internal reference, for
-example `../adr/0075-metadata-ownership-and-completeness.md`.
+Resolve each deliverable link from `docs/schema/`.
+For a task link, use `../tasks/` followed by the task filename.
+For an ADR link, use `../adr/` followed by the ADR filename.
 Each relative link must resolve to a file or an anchor that is present.
 The deliverable path is not present when you read this packet. Do not write
-it as a clickable link inside this packet.
+it as a clickable link in this packet.
 
 ## Required Content
 
@@ -138,7 +153,7 @@ node for C03.
 
 - **C04** — Duplicate roles for one contributor name. Two `<podcast:person>`
   elements share one name and one role, at two different positions.
-- **C05** — Names that conflict for one key. One npub value appears under
+- **C05** — Names that conflict for one key. One npub value appears with
   two different display names, in two separate credits.
 - **C06** — Keys that conflict for one name. One display name appears with
   two different npub values, in two separate credits.
@@ -154,9 +169,11 @@ key, or payment address.
 - **C08a** — An item RSS `<link>`.
 - **C08b** — An item `<atom:link rel="alternate">`.
 
-Ground the owner and the field kind for each case in the field rule table of
-ADR 0075: the row for channel RSS `link` for C07, the row for item RSS
-`link` for C08a, and the row for a supported Atom alternate link for C08b.
+Use the ADR 0075 field table to check each owner and field kind:
+
+- C07 uses the channel RSS `link` rule.
+- C08a uses the item RSS `link` rule.
+- C08b uses the supported Atom alternate link rule.
 
 Record the current app behavior for C08a and C08b.
 Today, `src/rss/subscribe.rs::rss_track_link_inputs` does not store either
@@ -238,37 +255,38 @@ returns.
   case identifier C01 through C18c.
 - The deliverable contains one subsection for each case identifier, using
   the exact headings `### C01` through `### C18c`.
-- Each case subsection contains all six required labels: **Source Form**,
-  **Declared Owner**, **Field Kind**, **Expected Stored Fact**, **Expected
-  Display Result**, and **ADR 0075 Rule**.
+- Each example subsection contains the eight labels listed in Deliverable.
+- C01 links to packet 001's supplied response. Each other example has a fenced source fragment.
 - Each relative link in the deliverable resolves to a file or an anchor
   that is present.
-- The shared STE command in Checks reports no unresolved error for the deliverable.
+- The shared STE command runs without an input or configuration error.
+- Its findings have no unresolved confirmed prose defect after review.
 
 ### Review Criteria
 
-A reviewer checks that the expected stored fact and the expected display
-result for each case agree with the real behavior of the cited source
-function.
+A reviewer checks current results against the cited source functions.
+A reviewer checks required results against the accepted ADR rules.
+A reviewer checks that each difference identifies the correction needed in a later code packet.
+
+If an accepted rule does not select a result, record that result as unresolved.
+Name the later document packet that must propose that rule.
+An unresolved policy does not permit an invented result or block recording the current result.
+
 A reviewer checks that the deliverable does not claim that production data
 is correct.
 A review check that did not run reports this gate as open, not as met.
 
 ## Checks
 
-Do these checks against the deliverable after you write it.
-No application test applies. This packet changes no code.
+Run these commands from the repository root after writing the deliverable.
+The link check tests local files and headings. It returns failure for a missing target.
+It does not change the current directory or request external pages.
+Use Markdown links for local references. Use fenced code blocks for recorded syntax.
 
 ```bash
-# From the repository root. Confirms every relative markdown link resolves.
-grep -oE '\]\([^)]+\)' docs/schema/adr-0075-metadata-example-corpus.md \
-  | sed -E 's/^\]\((.*)\)$/\1/' \
-  | grep -v '^https\?://' \
-  | while read -r link; do
-      target="${link%%#*}"
-      [ -z "$target" ] && continue
-      (cd docs/schema && test -e "$target") || echo "BROKEN: $link"
-    done
+python3 docs/runbooks/check-markdown-links.py \
+  docs/tasks/adr-0075-task-002-shared-example-corpus.md \
+  docs/schema/adr-0075-metadata-example-corpus.md
 ```
 
 ```bash
@@ -276,20 +294,25 @@ python3 "$HOME/.agents/skills/asd-ste100/scripts/ste_lint.py" \
   --check --no-heuristics docs/schema/adr-0075-metadata-example-corpus.md
 ```
 
+Examine the STE findings. Correct confirmed defects in the affected prose.
+Record retained technical names and the reasons for retaining them.
+Report a checker error as a failed check.
+Do not report the raw checker result as Green if findings remain.
+No application test applies to this document packet.
+
 ## Escalation Triggers
 
 Stop and report if any of these happen:
 
-- A required case has no support in a cited file, function, or the supplied
-  fixture.
+- A current-result claim has no support in a cited function or supplied response.
 - A cited function is no longer present, or its behavior no longer matches
   this packet, at commit `a220f44`.
 - An accurate case would need a code change or a live network request.
-- Two cited sources disagree about a fact, and this packet does not say
-  which source governs.
+- Two binding rules require incompatible results.
 
-Revise this packet, or ask the operator, before you invent a fact to fill a
-gap.
+A difference between current code and ADR 0075 is a finding to record, not a reason to stop.
+
+Do not invent missing facts. Resolve the reported issue before continuing.
 
 ## Expected Report
 
@@ -302,7 +325,7 @@ Name each deviation from this packet's Required Content.
 State if the summary index is complete. State if each case subsection is
 complete.
 
-## Prompt for lower-context model
+## Prompt for lower-context coding model
 
 You write one bounded document from a larger plan. Do not write code. Do not
 redesign ADR 0075.
@@ -329,7 +352,7 @@ Do not touch:
 Acceptance criteria:
 
 - Pass each mechanical criterion above.
-- Leave each review criterion for a person. Report it as open.
+- Keep each review criterion open until a person checks it.
 
 Checks:
 

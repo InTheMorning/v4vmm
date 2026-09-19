@@ -4,11 +4,12 @@ Status: Ready - 2026-09-19. Implementation has not started.
 The parent ADR 0075 is Accepted from 2026-09-19. This packet's content review is Green.
 The operator holds the dispatch of this packet until the document packets 002 to 008 exist.
 Do not start this packet before the operator releases that hold.
-This packet preserves contributor fields when the app decodes and serialises API data.
+
+This packet preserves contributor fields when the app decodes and serializes API data.
 
 ## Goal
 
-Preserve every documented field in MusicIndex contributor claims when decoding and serialising `api::Contributor`.
+Preserve every documented field in MusicIndex contributor claims when decoding and serializing `api::Contributor`.
 Keep older payloads readable. This packet does not complete provenance handling
 in storage or display code. Provenance records a value's owner, source,
 extraction path and observation time.
@@ -59,15 +60,15 @@ Retain the existing name, role, group, href, image and npub fields.
 Add the seven fields in the field contract below.
 Retain the existing struct derives and `#[serde(default)]` behavior.
 Apply `#[serde(skip_serializing_if = "Option::is_none")]` to each new field only.
-Do not change serialisation of the six existing fields.
+Do not change serialization of the six existing fields.
 
 Do not add a duplicate contributor DTO. Do not infer the owner from the request URL.
 Do not replace a supplied position with the enumeration index.
 Do not replace a supplied observation time with the current time.
-Do not trim, normalise, validate identity syntax or infer missing fields in this DTO.
+Do not trim, normalize, validate identity syntax or infer missing fields in this DTO.
 Do not add an unknown-field map or new dependencies.
 
-The existing `persist_contributors` helper serialises this DTO into `raw_json`.
+The existing `persist_contributors` helper serializes this DTO into `raw_json`.
 Newly fetched records can therefore retain the added fields in that JSON without a schema change.
 This packet does not change typed database columns or recover fields from old JSON.
 Do not describe this change as complete storage preservation.
@@ -85,14 +86,14 @@ The app uses optional fields to accept older payloads.
 | `entity_type` | `Option<String>` | Declared owner of the credit, such as `feed` or `track` |
 | `entity_id` | `Option<String>` | Declared owner's identifier. It is not a global contributor identifier |
 | `position` | `Option<i64>` | Supplied position within the source collection |
-| `role_norm` | `Option<String>` | Supplied normalised role, separate from the original `role` |
+| `role_norm` | `Option<String>` | Supplied normalized role, separate from the original `role` |
 | `source` | `Option<String>` | Supplied assertion source |
 | `extraction_path` | `Option<String>` | Supplied source path |
 | `observed_at` | `Option<i64>` | Supplied observation time. Preserve the integer unchanged |
 
 Missing fields and explicit JSON `null` decode as `None`.
-Serialisation omits new fields whose value is `None`.
-This task does not preserve the distinction between an absent field and an explicit null inside one contributor.
+Serialization omits new fields whose value is `None`.
+This task does not preserve the distinction between an absent field and an explicit null in one contributor.
 Collection coverage remains a separate later task.
 Unknown string values remain unchanged. A value with the wrong JSON type remains a decoding error.
 
@@ -173,15 +174,15 @@ Keep the three credits and their values unchanged in the base fixture.
 
 Unit tests beside `api::Contributor` must check these results:
 
-- Deserialisation retains all thirteen fields in each supplied contributor object.
-- Serialisation matches each original contributor object as a JSON value, independent of object-key order.
+- Deserialization retains all thirteen fields in each supplied contributor object.
+- Serialization matches each original contributor object as a JSON value, independent of object-key order.
 - A second decode preserves those values and the order of the three credits.
 - Two HeyCitizen credits retain their different roles and original positions.
 - A derived `Track` fixture keeps a feed credit's declared `entity_type` and `entity_id` through a round trip.
 - A derived fixture with positions `7`, `2`, `19` retains those positions and its input order.
 - An older payload with six fields decodes with all seven new fields set to `None`.
 - Serialising that older payload does not add any of the seven new keys.
-- Explicit null values in the seven new fields decode as `None` and are omitted during serialisation.
+- Explicit null values in the seven new fields decode as `None` and are omitted during serialization.
 - A derived fixture retains an unknown `entity_type` string and different `role` and `role_norm` values.
 - A string in `position` or `observed_at` produces a decoding error.
 - Existing `href`, `img` and `npub` values remain unchanged.

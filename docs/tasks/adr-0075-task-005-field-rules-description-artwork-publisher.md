@@ -323,19 +323,15 @@ Column meanings:
 
 ## Checks
 
-Run this command after you write the packet file, and again after you
-write the deliverable, from the repository root:
+Run these commands from the repository root after writing the deliverable.
+The link check tests local files and headings. It returns failure for a missing target.
+It does not change the current directory or request external pages.
+Use Markdown links for local references. Use fenced code blocks for recorded syntax.
 
 ```bash
-cd docs/tasks && grep -oE '\]\([^)]+\)' adr-0075-task-005-field-rules-description-artwork-publisher.md \
-  | sed -E 's/^\]\((.*)\)$/\1/' | grep -v '^http' | cut -d'#' -f1 | sort -u \
-  | while read -r f; do test -e "$f" && echo "OK $f" || echo "MISSING $f"; done
-```
-
-```bash
-cd docs/schema && grep -oE '\]\([^)]+\)' adr-0075-field-rules-description-artwork-publisher.md \
-  | sed -E 's/^\]\((.*)\)$/\1/' | grep -v '^http' | cut -d'#' -f1 | sort -u \
-  | while read -r f; do test -e "$f" && echo "OK $f" || echo "MISSING $f"; done
+python3 docs/runbooks/check-markdown-links.py \
+  docs/tasks/adr-0075-task-005-field-rules-description-artwork-publisher.md \
+  docs/schema/adr-0075-field-rules-description-artwork-publisher.md
 ```
 
 ```bash
@@ -343,6 +339,10 @@ python3 "$HOME/.agents/skills/asd-ste100/scripts/ste_lint.py" \
   --check --no-heuristics docs/schema/adr-0075-field-rules-description-artwork-publisher.md
 ```
 
+Examine the STE findings. Correct confirmed defects in the affected prose.
+Record retained technical names and the reasons for retaining them.
+Report a checker error as a failed check.
+Do not report the raw checker result as Green if findings remain.
 No application test applies to this document packet.
 
 ## Escalation Triggers
@@ -369,7 +369,7 @@ List proposed field policies separately. Record their operator review status.
 Report the mechanical checks as Green, or name the failure and its cause.
 State separately whether the review criteria are met, open or not run.
 
-## Prompt for lower-context model
+## Prompt for lower-context coding model
 
 You write one bounded document from a larger plan. Do not write code.
 

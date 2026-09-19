@@ -36,11 +36,13 @@ Begin with websites, Nostr identifiers, contributor credits and their provenance
 Provenance records a value's owner, source, extraction path and observation time.
 
 The contract then covers every other metadata field. The operator selected that scope.
+
 Before you change the fallback of a field, audit the current rule and write a new rule.
 Cover description, artwork, publisher, artist text, language, explicit state, dates,
 links, transcripts and enclosures.
 Each field rule states the owner, the source order, the conflict result,
 and the displayed value when no source supplies the field.
+
 Distinguish accepted rules from proposed rules. Complete operator review of each proposal before coding its dependent packet.
 Keep identity, metadata, payment routes and tag-write policies separate.
 
@@ -100,7 +102,13 @@ Phase 001 leaves storage and display preparation for later packets.
 This register divides phases 002-006 into bounded packets.
 A packet is the unit of dispatch. A phase is not.
 A packet number with a link has a written packet file. A number without a link has none.
+
 A written packet is not a dispatched packet. The operator releases each dispatch.
+
+In the Needs column, a packet number means its completed deliverable and recorded technical review.
+A packet file alone does not satisfy that dependency.
+Document authors can record unresolved policy proposals as inputs to later document work.
+Code authors need operator acceptance of each policy their code implements.
 
 A document packet produces rules, examples or measurements. It changes no code.
 A code packet changes code in this repository only.
@@ -115,7 +123,7 @@ A code packet changes code in this repository only.
 | [005](../tasks/adr-0075-task-005-field-rules-description-artwork-publisher.md) | Document | Field rules for description, artwork and publisher | Packet 002 |
 | [006](../tasks/adr-0075-task-006-field-rules-artist-language-dates.md) | Document | Field rules for artist text, language, explicit state and dates | Packet 002 |
 | [007](../tasks/adr-0075-task-007-field-rules-links-and-media.md) | Document | Field rules for websites, page links, transcripts and enclosures | Packets 002 and 003 |
-| [008](../tasks/adr-0075-task-008-stophammer-decision-request.md) | Document | A decision request for Stophammer, with the app's required parser and API behavior | Packets 002, 003 and 004 |
+| [008](../tasks/adr-0075-task-008-stophammer-decision-request.md) | Document | A decision request for Stophammer, with the app's required parser and API behavior | Packets 002–007 |
 | 009 | Code | Correct the RSS owner rule in `src/rss/enrich.rs`. Remove the invented `podcast:txt` extraction path | Packets 003 and 007 |
 | 010 | Code | Store an item link as a track `web_page` identity fact in `src/rss/subscribe.rs` | Packet 007 |
 
@@ -123,7 +131,7 @@ A code packet changes code in this repository only.
 
 | Packet | Kind | Outcome | Needs |
 |---|---|---|---|
-| 011 | Document | The schema design: the provider key, the coverage state and the evidence column | Packets 004 and 008 |
+| 011 | Document | The schema design: the provider key, the coverage state and the evidence column | Packets 004–008 |
 | 012 | Code | The migration, with the backup and the rollback procedure | Packet 011 |
 | 013 | Code | Atomic replacement of one provider snapshot, with the empty-collection rule | Packets 011 and 012 |
 | 014 | Code | Keep the source evidence before the app cleans the text and before it applies fallback | Packet 011 |
@@ -166,21 +174,38 @@ Do not write a packet before its inputs exist.
 ## Requirements Before Dispatch
 
 ADR 0057 requires an Accepted decision before implementation. ADR 0075 is Accepted.
-Packet 001 is Ready. The operator holds its dispatch until the document packets exist.
+Packet 001 is Ready. Packet files 002–008 exist. The operator's explicit dispatch hold still applies.
 
-The packet register divides each phase into bounded packets.
-Phase 002 requires separate Stophammer decisions and repository ownership.
+The following prerequisites apply to individual packets, not whole phases.
+Document work can produce a decision request before that decision exists.
+Schema design can precede its migration, backup procedure, and tests.
+Evidence documents can precede the operations that use their evidence.
 Do not give an agent one task that changes both repositories.
 Review each completed packet before you dispatch its dependent packet.
 
-| Before dispatching work in | Required decision or evidence |
+| Packet | Required input before dispatch |
 |---|---|
-| Phase 001 | Accepted ADR 0075, Ready packet 001, and its complete field contract and example response |
-| Phase 002 | Agreed field scope. An accepted Stophammer decision. Checked RSS examples, supported Nostr syntax, and completeness rules for each response collection |
-| Phase 003 | Accepted replacement rules for requested subjects and declared owners. Exact schema, migration, backup, rollback and provider-isolation tests |
-| Phase 004 | Source and conflict policy. Fallback rules for each affected field. Cache freshness, explicit refresh, response ordering and measurable request limits |
-| Phase 005 | Typed action rules. Rules that show unresolved old records without invented ownership. The placement decision is recorded in ADR 0075 |
-| Phase 006 | Deployed revision evidence. Reviewed repair report. Bounded ingestion procedure with signed-event, replica and preservation checks |
+| 001 | Accepted ADR 0075 and the Ready packet's field contract and supplied response |
+| 002, 003 | Accepted ADR 0075 and access to their cited evidence. No completed corpus or Stophammer decision is required |
+| 004, 005, 006 | Completed packet 002 and its technical review |
+| 007 | Completed packets 002 and 003 and their technical reviews |
+| 008 | Completed packets 002–007 and their technical reviews. The output requests the Stophammer decision |
+| 011 | Completed packets 004–008 and their technical reviews. Unresolved policies remain explicit in the proposed schema |
+| 016 | Accepted ADR 0075 and the current request paths. The output measures the baseline before request changes |
+| 026 | Completed packet 015. Read-only access to the records under inspection |
+| 028 | Completed packet 008. Read-only access to deployment evidence. This packet establishes the deployed revision |
+| 029 | Completed packets 008 and 028. The accepted upstream decision and relevant event and replica contracts |
+| Code packets 009–025 and 027 | Completed dependencies from the register, accepted affected policies, and a reviewed Ready implementation packet |
+
+Code that relies on changed Stophammer behavior also needs its accepted decision and compatible implementation evidence.
+A written decision request does not establish either result.
+A live rollout also needs evidence that the configured endpoint supports the required contract.
+Existing-contract code does not need unrelated upstream changes.
+
+Each storage code packet must define its applicable schema, backup, rollback, and verification requirements before dispatch.
+Each request code packet must define freshness, response order, and measured request limits before dispatch.
+Each presentation packet must define typed actions and handling of unresolved ownership before dispatch.
+The operator's dispatch hold applies after these prerequisites are met.
 
 The operator answered the original scope and identity-placement questions on 2026-09-19.
 ADR 0075 also records the accepted artwork fallback and field-rule review process.
@@ -238,7 +263,7 @@ Do not claim faster operation without results from before and after the change.
 
 ## Risk Areas
 
-- The two parsers recognise different Nostr syntax and owner locations.
+- The two parsers recognize different Nostr syntax and owner locations.
 - A track response from the Index can contain credits that belong to its feed.
 - Partial payloads and complete, empty collections require different writes.
 - Existing contributor grouping can hide distinct claims when names match.
