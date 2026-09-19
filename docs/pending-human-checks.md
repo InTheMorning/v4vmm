@@ -29,48 +29,31 @@ and Settings.
   Settings content. Verify wheel, scrollbar, and supported keyboard scrolling
   in Light and Dark. Missing overflowing content leaves that subcheck open.
 
-## 2. Identity And Detail Parity — ADR 0037 Tasks 001 And 002
+## 2. Track Identity And Detail Parity — ADR 0037 Task 002
 
 Open - reconciled 2026-09-10. Compare the same entity through local and Index
 origins in Music. The separate Library/Discover screen requirement is retired
-by ADRs 0047/0048/0060; the identity and hydration requirements survive.
+by ADRs 0047/0048/0060. Track identity and detail requirements survive.
 
-- Owners: [task 001](tasks/adr-0037-task-001-feed-identity-action-parity.md)
-  and [task 002](tasks/adr-0037-task-002-track-header-action-parity.md).
+- Owner: [task 002](tasks/adr-0037-task-002-track-header-action-parity.md).
 - Check: [Identity And Detail Parity](runbooks/inherited-ui-checks.md#identity-and-detail-parity--adr-0037-tasks-001-and-002).
-- Record feed and track results separately in the
-  [checklist](reviews/adr-0037-review-checklist.md). Both require Light/Dark
-  and known populated identity facts. Empty fixtures do not close the gate.
+- Use the same track with known Website/Nostr facts and a downloaded local copy.
+  Check both origins in Light and Dark. Compare headers, actions, section order
+  and contextual disclosure. Empty source facts do not close the gate.
+- Record track results and fixture cleanup in the
+  [checklist](reviews/adr-0037-review-checklist.md).
+- The operator confirmed the private copy at
+  `/tmp/v4vmm-governance.ie6k8TQf` on 2026-09-19. Track selection and source-fact
+  checks remain open. All 79 library tracks have feed GUIDs and copied audio.
+  None has a stored track Website fact. Nine have Nostr facts. All 79 Index
+  lookups succeeded, with no Website or Nostr candidates counted. A
+  `website`-only check can miss `web_page` links. A follow-up Index request
+  confirmed MoeFactz contributor claims with Nostr and website evidence.
+  Source inspection found app request and presentation gaps for contributor
+  facts. Keep those facts separate from track header identity. No visual
+  acceptance or cleanup is recorded yet.
 
-## 3. Toolbar Search — ADR 0043 Task 004
-
-Open - reconciled 2026-09-10. Toolbar readability, focus, and submission
-survive. The trailing Now Playing frame, global scope controls, Search tab,
-and Recent Feeds root are retired by ADRs 0046/0047/0048/0060/0062.
-
-- Owner: [task 004](tasks/adr-0043-task-004-guards-and-visual-readiness.md).
-- Check: [Search Toolbar](runbooks/inherited-ui-checks.md#search-toolbar--adr-0043-task-004).
-- Verify normal/narrow widths in Light/Dark; record each in the
-  [checklist](reviews/adr-0043-review-checklist.md).
-
-## 4. Playlist Reordering — ADR 0044 Task 003
-
-Open - reconciled 2026-09-10. Handle/menu/insertion and mounted-row update
-requirements survive in Music. Inspector-owned Back to Playlist and
-InspectorOrigin are retired by ADRs 0046/0047; use frame navigation.
-
-- Owner: [task 003](tasks/adr-0044-task-003-playlist-reorder-guards-visual.md).
-- Check: [Playlist Reordering](runbooks/inherited-ui-checks.md#playlist-reordering--adr-0044-task-003).
-- Needs populated and unavailable rows in the disposable library. Check
-  upward/downward moves, no-op drops, menus, and immediate updates in both
-  themes. Record results in the [checklist](reviews/adr-0044-review-checklist.md).
-- The operator accepted the drag-pause correction and preservation on 2026-09-16.
-  The [review checklist](reviews/adr-0044-review-checklist.md) retains its evidence.
-  The fixture launcher now rebuilds the normal desktop binary before launch.
-  That correction does not close the remaining Light/Dark, insertion,
-  cancellation or text-selection checks.
-
-## 5. Stored Metadata In Details — ADR 0054 Tasks 004 And 005
+## 3. Stored Metadata In Details — ADR 0054 Tasks 004 And 005
 
 Open - reconciled 2026-09-10. The task reviews require operator inspection;
 the guard-only task 006 supplied no visual closure. ADR 0054 and its phase
@@ -84,10 +67,10 @@ plan are Accepted, with implementation recorded and visual acceptance open.
   Record feed and track results separately in the
   [checklist](reviews/adr-0054-review-checklist.md), in both themes.
 
-The five inherited groups above use the runbook's private database/audio copy and cleanup.
+The three inherited groups above use the runbook's private database/audio copy and cleanup.
 The numbers group checks. They do not change the approved delivery priority.
 
-## 6. Optional Tool Isolation — ADR 0066 Task 004
+## 4. Optional Tool Isolation — ADR 0066 Task 004
 
 Open - implementation and mechanical checks recorded 2026-09-11.
 

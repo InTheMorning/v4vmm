@@ -109,10 +109,10 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0031](0031-release-detail-presentation-contract.md) | Release detail composition | Implemented |
 | [0035](0035-track-surface-consolidation.md) | One track detail surface | Implemented |
 | [0036](0036-feed-visual-and-provenance-surface-consistency.md) | Feed visual and provenance consistency | Implemented |
-| [0037](0037-same-entity-surface-parity.md) | Same-entity surface parity | Accepted, partial |
+| [0037](0037-same-entity-surface-parity.md) | Same-entity surface parity. Feed task 001 is complete, including both themes and cleanup. Track task 002 retains its visual gate. | Accepted, partial |
 | [0039](0039-dynamic-type-ramp.md) | The app uses separate type and chrome curves, five existing steps and a shared reservation. [All three packets are complete](../plans/adr-0039-dynamic-type-ramp-phase-plan.md). The review records V1–V13, inferred preservation and confirmed fixture removal. | Implemented |
-| [0043](0043-top-toolbar-global-search.md) | Global toolbar search; current light/dark width checks remain open | Accepted, partial |
-| [0044](0044-playlist-drag-handle-reordering.md) | Playlist drag handle reordering | Accepted, partial |
+| [0043](0043-top-toolbar-global-search.md) | Global toolbar search. Normal/narrow Light/Dark checks and fixture cleanup accepted on 2026-09-18. | Implemented |
+| [0044](0044-playlist-drag-handle-reordering.md) | Playlist drag handle reordering. Light/Dark interaction, removal, immediate row updates and fixture cleanup accepted on 2026-09-19. | Implemented |
 | [0049](0049-inspector-source-ownership.md) | Inspector source tree and filter ownership | Implemented |
 | [0051](0051-workspace-pane-width-persistence.md) | Content pane width persistence | Implemented |
 
@@ -128,8 +128,13 @@ record cleanup does not require restoring their old screens:
 The [2026-09-10 reconciliation](../reviews/2026-09-10-governance-reconciliation.md)
 retired replaced requirements before restoring current human checks:
 
-- 0030, 0037, 0043, 0044, and 0054 have surviving checks in
+- 0030, 0037, and 0054 have surviving checks in
   [pending human checks](../pending-human-checks.md).
+- ADR 0043 is Implemented on 2026-09-18. The operator accepted normal/narrow
+  toolbar checks in both themes and confirmed fixture cleanup.
+- ADR 0044 is Implemented on 2026-09-19. The operator accepted playlist
+  interaction, library removal and immediate row updates in both themes.
+  Fixture cleanup is confirmed.
 - ADR 0039 is Implemented on 2026-09-18. All three packets and numerical
   ratification are complete. The operator passed thirteen visual checks and
   confirmed fixture removal. The review records preservation as an inference

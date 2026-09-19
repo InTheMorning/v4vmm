@@ -2,17 +2,19 @@
 
 ## Status
 
-Accepted - 2026-05-08.
+Implemented - 2026-09-18.
 
-Implementation partial: toolbar search is built; the surviving normal/narrow,
-light/dark readability check remains open in
-[task 004](../tasks/adr-0043-task-004-guards-and-visual-readiness.md).
+Status updated - 2026-09-18. The operator accepted normal/narrow checks in Light
+and Dark and confirmed fixture cleanup.
+[Task 004](../tasks/adr-0043-task-004-guards-and-visual-readiness.md) is complete.
+The [review checklist](../reviews/adr-0043-review-checklist.md#operator-batches--2026-09-18)
+records each result. No gate under this ADR remains open.
 
 Amended 2026-09-10: reconciled this record with ADRs 0046, 0047, 0048, 0060,
 and 0062. Retired the toolbar player, global scope controls, Search workspace,
 and separate Recent Feeds requirements. The
 [review checklist](../reviews/adr-0043-review-checklist.md) names each
-replacement and the surviving gate; no new visual acceptance is claimed.
+replacement and the surviving gate. That amendment claimed no visual acceptance.
 
 ## Context
 

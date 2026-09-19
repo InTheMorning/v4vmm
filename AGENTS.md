@@ -17,10 +17,31 @@ Music and Show are built. ADR 0059 tasks 001-017 are complete. ADRs 0059 and
 [Show action feedback task 001](docs/tasks/show-action-feedback-task-001-command-state-and-result.md)
 is complete, including operator visual acceptance.
 
-Inherited operator checks remain open for scrolling, identity/detail parity,
-toolbar search, playlist reordering, and metadata hydration. Their current
+Inherited operator checks remain open for scrolling, track identity/detail parity,
+and metadata hydration. Their current
 requirements are indexed in [pending human checks](docs/pending-human-checks.md).
 Task 017's acceptance remains closed.
+
+[ADR 0037 task 001](docs/tasks/adr-0037-task-001-feed-identity-action-parity.md)
+is complete on 2026-09-19. The operator accepted feed controls and action
+targets through local and Index routes in Light and Dark and confirmed fixture
+cleanup. The fixture browser correction is accepted. Task 002 retains its track
+parity gate. ADR 0037 remains Accepted. The
+[feed procedure](docs/runbooks/inherited-ui-checks.md#identity-and-detail-parity--adr-0037-tasks-001-and-002)
+remains a regression check.
+
+[ADR 0043 task 004](docs/tasks/adr-0043-task-004-guards-and-visual-readiness.md)
+is complete on 2026-09-18. The operator accepted normal/narrow toolbar checks
+in Light and Dark and confirmed fixture cleanup. ADR 0043 is Implemented.
+The [toolbar procedure](docs/runbooks/inherited-ui-checks.md#search-toolbar--adr-0043-task-004)
+remains a regression check.
+
+[ADR 0044 task 003](docs/tasks/adr-0044-task-003-playlist-reorder-guards-visual.md)
+is complete on 2026-09-19. The operator accepted Light/Dark playlist interaction,
+library removal and immediate row updates, and confirmed fixture cleanup.
+ADR 0044 is Implemented. The
+[playlist procedure](docs/runbooks/inherited-ui-checks.md#playlist-reordering--adr-0044-task-003)
+remains a regression check.
 
 ADR 0066 tasks 001–003 are complete, including operator acceptance,
 preservation inspection and fixture cleanup. ADR 0067 is Implemented;

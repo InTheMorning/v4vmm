@@ -3,6 +3,21 @@
 Status: Accepted - 2026-09-10.
 Implementation recorded; operator visual acceptance remains open.
 
+The operator confirmed the private database/audio copy at
+`/tmp/v4vmm-governance.ie6k8TQf` on 2026-09-19. Track selection and source-fact
+checks remain open. The first candidate query returned `[]`. A diagnostic query
+confirmed 79 library tracks with feed GUIDs and copied audio, no stored track
+Website facts and nine tracks with Nostr facts. All 79 scoped Index lookups
+succeeded. The check counted no Website or Nostr candidates. A `website`-only
+check can miss the Index's `web_page` links. The Index returned empty track
+identity lists for MoeFactz. Its parent-feed facts do not qualify as track
+facts. A follow-up request confirmed three contributor claims, including
+HeyCitizen's Nostr key and the Moe Factz host website. These facts belong to
+the contributors. Source inspection found app request and presentation gaps
+for those facts. The [review](../reviews/adr-0037-review-checklist.md#task-002-contributor-source-check--2026-09-19)
+records the evidence. No application code changed. No visual check or fixture
+cleanup is accepted yet.
+
 ## Scope After Reconciliation
 
 Track identity and detail parity is the remaining acceptance scope.

@@ -2,9 +2,10 @@
 
 ## Gate Status
 
-Open - reconciled 2026-09-10. The handle, menu, insertion feedback, and mounted
-playlist updates retain a light/dark operator recheck under
-[task 003](../tasks/adr-0044-task-003-playlist-reorder-guards-visual.md).
+Complete - 2026-09-19. The operator accepted all Light/Dark visual checks
+and confirmed fixture cleanup.
+[Task 003](../tasks/adr-0044-task-003-playlist-reorder-guards-visual.md) is complete.
+ADR 0044 is Implemented. No gate under this ADR remains open.
 
 ## Requirement Disposition
 
@@ -36,14 +37,140 @@ command. The guards establish ownership, not pointer interaction quality.
 Follow [Playlist Reordering](../runbooks/inherited-ui-checks.md#playlist-reordering--adr-0044-task-003).
 
 - [x] 2026-09-16 follow-up: normal-build restart removes the reported pause during reordering and horizontal out-of-bounds dragging; post-check preservation passes.
-- [ ] Light: upward/downward drag shows the correct insertion edge and commits in place.
-- [ ] Dark: the same drag behavior and legibility.
-- [ ] Both themes: original-slot/outside drops do not move rows; row-body selection still works.
-- [ ] Both themes: Actions menu moves rows; first/last boundaries are unavailable.
-- [ ] Both themes: unavailable row remains readable; removal in the disposable library is reflected on frame return.
-- [ ] Both themes: no stale playlist, mouse-dependent placeholder flash, or overwrite-like row tint.
+- [x] Light: upward/downward drag shows the correct insertion edge and commits in place. Accepted on 2026-09-18.
+- [x] Dark: the same drag behavior and legibility. Accepted on 2026-09-19.
+- [x] Both themes: original-slot/outside drops do not move rows. Clicking the row body opens the correct track. Dragging the row body does not reorder. Light passed on 2026-09-18. Dark passed on 2026-09-19.
+- [x] Both themes: the drag preview ends on release. Deliberate text selection and Copy still work in a report. Light passed on 2026-09-18. Dark passed on 2026-09-19.
+- [x] Both themes: Actions menu moves rows; first/last boundaries are unavailable. Accepted on 2026-09-18.
+- [x] Both themes: unavailable row remains readable; removal in the disposable library is reflected on frame return. Accepted on 2026-09-19.
+- [x] Both themes: no stale playlist, mouse-dependent placeholder flash, or overwrite-like row tint. Accepted on 2026-09-19.
+- [x] The operator confirms fixture cleanup. Accepted on 2026-09-19.
 
 ## Evidence
+
+### Operator Batches — 2026-09-18
+
+The operator confirmed the private database and audio copy at
+`/tmp/v4vmm-governance.1Rpxm4WH`. The setup command creates
+`ADR 0044 reorder check` with four downloaded tracks and one unavailable row.
+The command records the playlist ID and initial order in `reorder-check.json`.
+
+The operator reported `all pass` for the Light menu batch at Medium scale and
+normal width:
+
+- Five rows appear. The last row says `Unavailable`. Handles, titles and
+  Actions controls remain readable.
+- Move Down moves the second track immediately. Move Up restores that track
+  immediately.
+- Move Up is disabled on the first row. Move Down is disabled on the last row.
+
+The operator also reported `all pass` for the Light drag batch:
+
+- The second track moves after the fourth row. The insertion line appears
+  below the destination row before the drop.
+- The same track returns to its original position. The insertion line appears
+  above the destination row before the drop.
+- A drop over the original row leaves the order unchanged. A drop over the
+  playlist heading also leaves the order unchanged.
+- Each move updates the open playlist while the pointer stays still.
+  No navigation or pointer movement is needed to clear a placeholder.
+
+The operator passed Light insertion appearance and track navigation in the
+next batch. The insertion line identifies the destination without suggesting
+replacement. Clicking a downloaded title opens the correct detail. Frame Back
+returns to the unchanged playlist.
+
+The operator reported `no selecting is possible` for the title-text selection
+instruction. That instruction was incorrect. `render_playlist_track_body` in
+`src/ui/shells/playlist.rs` renders title labels with an open-track callback.
+It does not use the shared selectable-text owner. ADR 0044 retains row opening
+and handle-only reordering. ADR 0071 supplies text selection in logs and inputs.
+The existing ADR 0044 interaction test uses separate `SelectableText` elements
+around the handle. It does not require selectable playlist titles.
+
+The runbook now distinguishes row opening from text selection. A report is
+the target for deliberate selection and Copy.
+The failed instruction establishes no title-selection defect or visual pass.
+
+The operator reported `all pass` for the corrected Light batch:
+
+- Dragging across a title, away from its handle, produces no reorder preview
+  or order change.
+- The drag preview disappears after release over the original row.
+  Pointer movement alone does not restart dragging.
+- Text selection works inside the Background tools report in Settings Diagnostics.
+  Ctrl+C copies the selection. The pasted text matches in an unsaved document.
+
+The operator reported `all pass` for the Dark menu batch at Medium scale and
+normal width:
+
+- All five rows, handles, titles and Actions controls remain readable.
+  The last row says `Unavailable`.
+- Move Down moves the second track immediately. Move Up restores that track
+  immediately.
+- Move Up is disabled on the first row. Move Down is disabled on the last row.
+
+These results establish Light row legibility, menu moves, boundary states,
+drag insertion, immediate updates, cancellation, insertion appearance and track
+navigation. Light body-drag isolation, release behavior and report selection
+also passed. Dark row legibility, menu moves and boundary states passed.
+At the end of the September 18 batches, the remaining checks were Dark
+interaction, removal in both themes and fixture cleanup.
+This record uses the operator's report. The agent did not run the app.
+
+### Operator Batches — 2026-09-19
+
+The operator reported `all pass` for the Dark drag batch in the same fixture:
+
+- The second track moves after the fourth row. The insertion line appears
+  below the destination row before the drop.
+- The same track returns to its original position. The insertion line appears
+  above the destination row before the drop.
+- Drops over the original row and the playlist heading leave the order
+  unchanged. The drag preview disappears on release.
+- The feedback indicates insertion without suggesting replacement.
+  Each move updates the open playlist while the pointer stays still.
+  No navigation or pointer movement is needed to reveal the new order.
+
+The operator reported `all pass` for the remaining Dark interaction batch:
+
+- Pointer movement alone does not restart dragging. Dragging across a title,
+  away from its handle, produces no reorder preview or order change.
+- Clicking a downloaded title opens the correct detail. Frame Back returns
+  to the unchanged playlist.
+- Text selection works inside the Background tools report in Settings Diagnostics.
+  The copied text matches the selection when pasted into an unsaved document.
+
+The operator reported `all pass` for Dark removal and the immediate update:
+
+- The first downloaded track was removed through its detail action.
+  The confirmation identified removal from the library.
+- Frame Back returned to five playlist rows. The removed track said
+  `Unavailable`, and its Play action was disabled.
+- The original unavailable row remained. The other three tracks stayed available.
+- The playlist showed the change immediately while the pointer stayed still.
+
+The operator reported `all pass` for Light removal and the immediate update:
+
+- The second row's downloaded track was removed through its detail action.
+  The confirmation identified removal from the library.
+- Frame Back returned to five rows in the same order. Three rows were
+  unavailable, and two stayed available.
+- The removed track immediately said `Unavailable`, with Play disabled.
+  The pointer stayed still after frame return.
+
+All visual checks passed in both themes.
+
+The operator confirmed cleanup with:
+
+```text
+Removed fixture: /tmp/v4vmm-governance.1Rpxm4WH
+```
+
+The instructed cleanup verifies the fixture marker, removes the directory and
+checks its absence. This record uses the operator's report. The agent did not
+run the app or delete the fixture. This acceptance record includes no separate
+source-preservation inspection.
 
 ### Drag Pause And Gesture Isolation — 2026-09-16
 
@@ -123,5 +250,6 @@ earlier accepted subchecks.
 
 ## Merge Recommendation
 
-Keep ADR 0044 Accepted until the surviving visual gate passes. Reconcile task
-003, this checklist, delivery, and pending checks together.
+Task 003 is complete. ADR 0044 is Implemented. All visual checks and fixture
+cleanup are accepted. The retained procedure supports future regression checks.
+This acceptance pass changed documentation only. No new runtime test result is claimed.

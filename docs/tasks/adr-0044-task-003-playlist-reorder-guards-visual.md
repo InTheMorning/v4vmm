@@ -1,16 +1,30 @@
 # ADR 0044 Task 003: Playlist Reorder Visual Readiness
 
-Status: Accepted - 2026-09-10.
-Implementation recorded; operator visual acceptance remains open.
+Status: Complete - 2026-09-19.
+Implementation recorded. Operator visual acceptance and fixture cleanup are complete.
 The 2026-09-16 drag responsiveness follow-up is operator-accepted, including
 reordering and horizontal out-of-bounds dragging after restart with the normal
 desktop build. Post-check fixture preservation passes. Profile recovery located
 GPUI's synchronous test drawing loop in the captured executable; the launcher
-now rebuilds before launch. The broader Light/Dark playlist checks remain open.
+now rebuilds before launch. The Light/Dark playlist checks are now accepted.
+
+The operator accepted Light row legibility, menu and drag interaction, track
+navigation, release behavior and report selection on 2026-09-18.
+Dark row legibility, menu moves and first/last boundary states also passed.
+Dark drag insertion, immediate updates, cancellation and insertion appearance
+passed on 2026-09-19. The drag preview disappears on release.
+Dark body-drag isolation, track navigation, pointer movement after release
+and report selection also passed on 2026-09-19.
+Library removal and the immediate availability update on frame return passed
+in both themes on 2026-09-19. Fixture cleanup is confirmed.
+The [review checklist](../reviews/adr-0044-review-checklist.md#operator-batches--2026-09-18)
+records these batches.
+The title-text selection instruction was incorrect. Playlist titles are
+clickable labels. The corrected report selection check passed in both themes.
 
 ## Scope After Reconciliation
 
-Playlist reorder and mounted-row updates is the remaining acceptance scope.
+Playlist reorder and mounted-row updates were the surviving acceptance scope.
 The implementation and earlier mechanical evidence are recorded in the
 [ADR 0044 review checklist](../reviews/adr-0044-review-checklist.md).
 Its retirement table identifies replaced requirements before listing survivors.
@@ -36,8 +50,8 @@ Mechanical: existing ownership guards cited in the review remain applicable.
 Their recorded implementation results are historical evidence, not a claim
 that a new suite was run during reconciliation.
 
-Visual: complete the matching checklist rows in both Light and Dark using
-the required populated fixture. An unavailable fixture leaves that row open.
+Visual: the operator passed every checklist row in Light and Dark using the
+required populated fixture. The review records the batches and confirmed cleanup.
 
 ## Operator Visual Check
 
@@ -267,17 +281,20 @@ also passes, as does final preservation inspection. The operator confirms task
 in the diagnostic procedures above is now historical; use a fresh fixture for
 remaining checks. No new profiling is needed.
 
-### Remaining Inherited Checks
+### Regression Procedure
 
 Follow [the current playlist reorder and mounted-row updates procedure](../runbooks/inherited-ui-checks.md#playlist-reordering--adr-0044-task-003),
-including preparation and cleanup. Record the fixture, entry route, theme,
-result, and any screenshots in the review checklist. Close only this packet's
-criteria, even when one walkthrough also supplies another packet's evidence.
+including preparation and cleanup, for future regression checks.
+This packet's visual checks are accepted. Other packets retain their own criteria.
 
 ## Closure
 
-After operator acceptance and cleanup, update this Status, the review checklist,
-the owning ADR when all its gates are closed, and the delivery row. Remove the
-corresponding entry from pending human checks in the same change.
+The operator confirmed cleanup on 2026-09-19 with:
 
-No runtime work or visual acceptance is claimed by this reconciliation.
+```text
+Removed fixture: /tmp/v4vmm-governance.1Rpxm4WH
+```
+
+Task 003 is complete. ADR 0044 is Implemented.
+The pending-check index no longer lists this packet.
+This acceptance pass changed documentation only. No new runtime test result is claimed.

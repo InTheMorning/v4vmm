@@ -2,10 +2,13 @@
 
 ## Status
 
-Accepted - 2026-05-08.
+Implemented - 2026-09-19.
 
-Implementation partial: follow-up fixes landed; current playlist reorder
-visual checks remain open in [task 003](../tasks/adr-0044-task-003-playlist-reorder-guards-visual.md).
+Status updated - 2026-09-19. The operator accepted all Light/Dark visual checks
+and confirmed fixture cleanup.
+[Task 003](../tasks/adr-0044-task-003-playlist-reorder-guards-visual.md) is complete.
+The [review checklist](../reviews/adr-0044-review-checklist.md#operator-batches--2026-09-19)
+records the results and cleanup. No gate under this ADR remains open.
 
 Amended 2026-09-10: the reorder contract survives. ADRs 0046/0047 replace the
 inspector-owned Back to Playlist button and `InspectorOrigin` with frame

@@ -32,11 +32,13 @@ Core:
 - [Pending human checks](pending-human-checks.md): the acceptance criteria that
   are open now and need a person, and the method to reach each state
 - [Inherited UI checks](runbooks/inherited-ui-checks.md): current Music,
-  Settings, and toolbar procedures with a disposable database/audio copy
+  Settings, and toolbar procedures with a disposable database/audio copy.
+  Toolbar, playlist and feed identity checks are complete. Their procedures
+  remain regression checks. Track parity remains open.
 - [Governance reconciliation](reviews/2026-09-10-governance-reconciliation.md):
   gate-prose sweep, retired requirements, surviving checks, and delivery priority
 - [ADR status review — 2026-09-18](reviews/2026-09-18-adr-status-and-remaining-work.md):
-  corrected ADR and packet statuses, six open gate groups, current dependencies,
+  corrected ADR and packet statuses, six gate groups open at the time, dependencies,
   and existing versus unwritten implementation packets
 
 Current governance:

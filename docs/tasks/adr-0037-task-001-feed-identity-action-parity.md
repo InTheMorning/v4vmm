@@ -1,11 +1,32 @@
 # ADR 0037 Task 001: Feed Identity Action Parity
 
-Status: Accepted - 2026-09-10.
-Implementation recorded; operator visual acceptance remains open.
+Status: Complete - 2026-09-19.
+Implementation recorded. Operator visual acceptance and fixture cleanup are
+confirmed. Task 002 retains its separate gate. ADR 0037 remains Accepted.
+
+Fixture preparation is complete on 2026-09-19. The operator's read-only query
+confirmed stored Website, Nostr and RSS facts for `The Heycitizen Experience`,
+local feed `2`. The [fixture reference](../reviews/adr-0037-review-checklist.md#task-001-fixture-reference--2026-09-19)
+records the GUID, values and sources. The operator confirmed fixture removal
+on 2026-09-19.
+
+The operator accepted Light local-feed control visibility and readability,
+Nostr copy, Website and RSS actions on 2026-09-19. The operator also accepted
+Light Index-feed control visibility/readability, Nostr copy, Website and RSS
+actions for the same feed. Dark local-feed control visibility/readability,
+Nostr copy, Website and RSS actions also passed. Dark Index-feed control
+visibility/readability, Nostr copy, Website and RSS actions passed.
+All visual checks and fixture cleanup are accepted.
+
+The earlier fixture launch selected Chromium while the desktop selected Firefox.
+The corrected launch restores desktop lookup paths while retaining private app
+directories. The operator accepted the corrected launch and Firefox opening
+the expected Website and RSS URLs. The review records these passes and the
+handler diagnosis.
 
 ## Scope After Reconciliation
 
-Feed identity and hydration is the remaining acceptance scope.
+Feed identity and hydration was this packet's acceptance scope.
 The implementation and earlier mechanical evidence are recorded in the
 [ADR 0037 review checklist](../reviews/adr-0037-review-checklist.md).
 Its retirement table identifies replaced requirements before listing survivors.
@@ -36,6 +57,8 @@ the required populated fixture. An unavailable fixture leaves that row open.
 
 ## Operator Visual Check
 
+Accepted - 2026-09-19. This procedure remains a regression check.
+
 Follow [the current feed identity and hydration procedure](../runbooks/inherited-ui-checks.md#identity-and-detail-parity--adr-0037-tasks-001-and-002),
 including preparation and cleanup. Record the fixture, entry route, theme,
 result, and any screenshots in the review checklist. Close only this packet's
@@ -43,8 +66,7 @@ criteria, even when one walkthrough also supplies another packet's evidence.
 
 ## Closure
 
-After operator acceptance and cleanup, update this Status, the review checklist,
-the owning ADR when all its gates are closed, and the delivery row. Remove the
-corresponding entry from pending human checks in the same change.
-
-No runtime work or visual acceptance is claimed by this reconciliation.
+The operator accepted both entry routes in Light and Dark and confirmed removal
+of `/tmp/v4vmm-governance.JN95oN81`. This packet has no remaining gate.
+The review, ADR status, phase plan and delivery row record closure. The pending
+index retains task 002. No runtime code changed during this acceptance pass.

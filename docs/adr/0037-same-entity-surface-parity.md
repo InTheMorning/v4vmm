@@ -4,8 +4,9 @@
 
 Accepted - 2026-05-02.
 
-Implementation partial: Tasks 001 and 002 have recorded mechanical evidence;
-feed identity and track-detail visual parity checks remain open.
+Tasks 001 and 002 have recorded mechanical evidence. Task 001 is complete on
+2026-09-19, including local/Index feed checks in both themes and confirmed
+fixture cleanup. Task 002 retains its track-detail visual parity checks.
 
 Amended 2026-09-10: ADRs 0047/0048/0060 replaced separate Library/Discover
 screens with local and Index origins in Music. Preserve the identity/parity

@@ -6,7 +6,8 @@ Reconciled 2026-09-10. This sequence records the original implementation;
 its toolbar player, global scope controls, Search workspace, and Recent Feeds
 root were superseded by ADRs 0046/0047/0048/0060/0062. Do not execute that
 sequence again. [Task 004](../tasks/adr-0043-task-004-guards-and-visual-readiness.md)
-now owns only the surviving toolbar check. The
+owned the surviving toolbar check. It is complete on 2026-09-18, including
+normal/narrow Light/Dark acceptance and confirmed fixture cleanup. The
 [checklist](../reviews/adr-0043-review-checklist.md) names the current owners
 and retired requirements.
 

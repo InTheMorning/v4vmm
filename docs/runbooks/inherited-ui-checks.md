@@ -42,10 +42,26 @@ gate_music=$(cat "$gate_dir/source-music-path")
 cp -aL --reflink=auto -- "$gate_music/." "$gate_dir/music/"
 ```
 
-Launch the fixture from that terminal:
+Launch the fixture from that terminal. Keep its private configuration, data
+and cache directories. Add the normal desktop directories to the lookup
+paths so external links can find the desktop's browser preference and launcher.
+The command stops if the HTTPS handlers differ or the normal handler is empty.
 
 ```bash
-XDG_CONFIG_HOME="$gate_dir/config" XDG_DATA_HOME="$gate_dir/data" target/debug/v4vmm
+(
+  test "$(cat "$gate_dir/.governance-fixture")" = "$gate_dir" || exit 1
+  gate_desktop_handler=$(xdg-mime query default x-scheme-handler/https) || exit 1
+  test -n "$gate_desktop_handler" || exit 1
+  export XDG_CONFIG_DIRS="${XDG_CONFIG_HOME:-$HOME/.config}:${XDG_CONFIG_DIRS:-/etc/xdg}"
+  export XDG_DATA_DIRS="${XDG_DATA_HOME:-$HOME/.local/share}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+  export XDG_CONFIG_HOME="$gate_dir/config"
+  export XDG_DATA_HOME="$gate_dir/data"
+  export XDG_CACHE_HOME="$gate_dir/cache"
+  gate_fixture_handler=$(xdg-mime query default x-scheme-handler/https) || exit 1
+  printf 'Fixture HTTPS handler: %s\n' "$gate_fixture_handler"
+  test "$gate_fixture_handler" = "$gate_desktop_handler" || exit 1
+  target/debug/v4vmm
+)
 ```
 
 Use Settings to select Light or Dark when a check names a theme. Perform the
@@ -53,7 +69,27 @@ check in both. Keep the default medium UI scale. A successful build is not
 visual proof. Record which check and theme passed; do not use one unqualified
 pass to close all sections.
 
+### Browser Selection Before Identity Checks
+
+The fixture's XDG overrides also reach external link handlers. A launch that
+changes only the XDG home directories can hide desktop associations and launchers.
+On 2026-09-19, the operator's desktop selected `firefox.desktop`, while that
+isolated lookup selected `chromium-snapshot-bin.desktop`.
+
+The corrected launch above restores desktop lookup paths before checking
+handler agreement. Use a terminal with its normal environment. Close the
+earlier fixture app before using this launch. It changes no desktop defaults.
+The environment changes end when the subshell exits.
+
+For ADR 0037, confirm the actual browser and each URL target after launch.
+Matching handler queries alone do not establish action acceptance. Record
+redirects and downloads separately. Keep unresolved URL actions open in the
+review checklist. Fixture cleanup remains the final step below.
+
 ## Search Toolbar — ADR 0043 Task 004
+
+Accepted - 2026-09-18. The operator passed normal/narrow checks in both themes
+and confirmed fixture cleanup. This procedure remains a regression check.
 
 Purpose: confirm search stays readable and usable when the window narrows.
 Needs a query with a known local result and a reachable MusicIndex endpoint
@@ -63,10 +99,10 @@ for the Index path.
    submit with Enter. Inspect the input, clear control, and Search action.
 2. Use frame navigation to return, then submit using the toolbar Search
    action. Results must open in Music's content area. There is no Search tab.
-3. Use the app's Find command and Ctrl+F on Linux to focus the same input.
-   ADR 0067 maps the shared binding to Command+F on macOS. Record actual key
-   delivery as well as the menu action; clicking the input alone does not
-   verify keyboard focus.
+3. Press Ctrl+F on Linux to focus the same input.
+   ADR 0067 maps the shared binding to Command+F on macOS.
+   Record actual key delivery. Clicking the input alone does not prove keyboard focus.
+   Find names the keyboard action. The Linux app does not provide a native Find menu.
 4. Narrow the window to about 560 pixels, as in task 017's inspection. The input
    and the available compact Search action must remain identifiable and
    clickable, with no partial labels or overlapping controls. Open any
@@ -77,12 +113,24 @@ for the Index path.
 
 ## Identity And Detail Parity — ADR 0037 Tasks 001 And 002
 
+Task 001 is accepted on 2026-09-19, including both themes, both origins and
+fixture cleanup. Its feed procedure remains a regression check. Task 002's
+track checks remain open. Record the two packets separately.
+
 Purpose: confirm the same source facts produce consistent identity controls
 through local and Index routes. Needs a feed with Website, Nostr, and RSS
 facts, plus a downloaded track with Website and Nostr facts. Confirm the facts
 are actually present before using an absent button as evidence of a defect.
 The earlier `The Heycitizen Experience` feed is a candidate, not a guaranteed
 current fixture. Record the feed and track identifiers used.
+
+Keep each identity fact attached to its source owner. A contributor `href` or
+npub in `source_contributors` does not establish a track header Website or Nostr
+fact. Inspect contributor claims separately before concluding that the Index
+supplies no metadata. Track RSS page links can use `web_page`, while feed
+website links use `website`. A query that counts only `website` does not count
+every page link. The [MoeFactz source check](../reviews/adr-0037-review-checklist.md#task-002-contributor-source-check--2026-09-19)
+records the API evidence and current app gaps.
 
 1. Open that release from Music's local library. Record its Website, Nostr,
    and RSS controls and their targets. Return through frame navigation.
@@ -101,6 +149,9 @@ current fixture. Record the feed and track identifiers used.
 
 ## Playlist Reordering — ADR 0044 Task 003
 
+Accepted - 2026-09-19. The operator passed the checks in both themes and
+confirmed fixture cleanup. This procedure remains a regression check.
+
 Purpose: confirm a drag moves the intended row and updates the open playlist.
 Needs a fixture playlist with at least four downloaded tracks, plus a row
 whose audio is unavailable. Use the disposable copy for removals.
@@ -110,7 +161,13 @@ whose audio is unavailable. Use the disposable copy for removals.
    drop, the order must change in place without a navigation round trip or
    a placeholder flash that needs mouse motion to clear.
 2. Drop in the original slot and outside the playlist. Neither changes the
-   order. The row body must keep its normal selection behavior.
+   order. The drag preview must disappear on release.
+   Drag from the row body, away from the handle. This must not reorder tracks.
+   Click a track title. The correct detail must open. Return through frame Back.
+   Playlist titles are clickable labels. They do not support text selection.
+   For deliberate text selection, open Settings → Diagnostics → Background tools.
+   Choose Show report. Select text inside the report. Copy it to an unsaved
+   scratch document. The pasted text must match the selection.
 3. Use row Actions → Move Up and Move Down. The first/last boundary action
    must be unavailable. Inspect handle, menu, and unavailable-row legibility.
 4. Open a track, remove it from the fixture library, then return using frame

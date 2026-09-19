@@ -2,7 +2,9 @@
 
 ## Current Scope
 
-Reconciled 2026-09-10. Tasks 001/002 retain visual acceptance only.
+Updated 2026-09-19. Task 001 is complete. Local and Index feed checks passed in
+both themes, and the operator confirmed fixture cleanup. Task 002 retains visual
+acceptance and cleanup. ADR 0037 remains Accepted.
 ADRs 0047/0048/0060 replaced separate Library/Discover screens with local and
 Index origins in Music. ADR 0038 owns the migrated shared helpers. The
 [checklist](../reviews/adr-0037-review-checklist.md) retires old screen/file

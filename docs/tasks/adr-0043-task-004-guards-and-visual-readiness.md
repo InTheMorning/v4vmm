@@ -1,11 +1,19 @@
 # ADR 0043 Task 004: Toolbar Visual Readiness
 
-Status: Accepted - 2026-09-10.
-Implementation recorded; operator visual acceptance remains open.
+Status: Complete - 2026-09-18.
+Implementation recorded. Operator visual checks and fixture cleanup are accepted.
+
+Light at normal width passed Ctrl+F,
+Enter, the clear control, Search-button submission and toolbar layout.
+Query `heycitizen` returned both Library and Index results.
+Light at narrow width passed layout, compact Search and the detail toolbar check.
+Dark at normal width passed keyboard search, clear/Search-button operation and layout.
+Dark at narrow width passed layout, compact Search and the detail toolbar check.
+The [review checklist](../reviews/adr-0043-review-checklist.md#operator-batches--2026-09-18) records the fixture and evidence.
 
 ## Scope After Reconciliation
 
-Normal/narrow toolbar search is the remaining acceptance scope.
+Normal/narrow toolbar search was the surviving acceptance scope.
 The implementation and earlier mechanical evidence are recorded in the
 [ADR 0043 review checklist](../reviews/adr-0043-review-checklist.md).
 Its retirement table identifies replaced requirements before listing survivors.
@@ -31,20 +39,23 @@ Mechanical: existing ownership guards cited in the review remain applicable.
 Their recorded implementation results are historical evidence, not a claim
 that a new suite was run during reconciliation.
 
-Visual: complete the matching checklist rows in both Light and Dark using
-the required populated fixture. An unavailable fixture leaves that row open.
+Visual: the operator passed all four theme/width rows using a populated fixture.
+The review records each result separately.
 
 ## Operator Visual Check
 
 Follow [the current normal/narrow toolbar search procedure](../runbooks/inherited-ui-checks.md#search-toolbar--adr-0043-task-004),
-including preparation and cleanup. Record the fixture, entry route, theme,
-result, and any screenshots in the review checklist. Close only this packet's
-criteria, even when one walkthrough also supplies another packet's evidence.
+including preparation and cleanup, for future regression checks.
+This packet's visual checks are accepted. Other packets retain their own criteria.
 
 ## Closure
 
-After operator acceptance and cleanup, update this Status, the review checklist,
-the owning ADR when all its gates are closed, and the delivery row. Remove the
-corresponding entry from pending human checks in the same change.
+The operator confirmed cleanup on 2026-09-18 with:
 
-No runtime work or visual acceptance is claimed by this reconciliation.
+```text
+Removed fixture: /tmp/v4vmm-governance.jTg6NGQf
+```
+
+Task 004 is complete. ADR 0043 is Implemented.
+The pending-check index no longer lists this packet.
+This acceptance pass changed documentation only. No new runtime test result is claimed.
