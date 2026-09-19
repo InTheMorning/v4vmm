@@ -15,6 +15,12 @@ those gates, and no later acceptance record was found. The
 local/Index detail checks under ADRs 0047/0048/0060. The storage decision is
 unchanged.
 
+Amended 2026-09-19: [ADR 0075](0075-metadata-ownership-and-completeness.md) replaces one rule
+in this decision. This ADR used the assertion source as the replacement key for a
+metadata source-fact collection. The replacement key is now the provider, the declared
+subject and the collection kind. Every other rule in this ADR stays in force.
+The open hydration visual gates stay open.
+
 ## Context
 
 ADR 0053 reserved the persistence route for Library / Index parity fields that

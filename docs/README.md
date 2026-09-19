@@ -44,10 +44,14 @@ Core:
 Current governance:
 
 - [ADR 0075: Metadata ownership and completeness](adr/0075-metadata-ownership-and-completeness.md):
-  current operator priority. The [audit](reviews/adr-0075-metadata-contract-review.md)
-  records problems with extraction, source evidence, refresh and display. The
-  [plan](plans/adr-0075-metadata-contract-phase-plan.md) and
-  [first packet](tasks/adr-0075-task-001-contributor-claim-transport.md) are written.
+  current operator priority. Accepted on 2026-09-19. The
+  [audit](reviews/adr-0075-metadata-contract-review.md)
+  records problems with extraction, source evidence, refresh and display.
+  The contract covers every metadata field. A track page keeps track identities in its
+  header, and puts feed and contributor identities in labelled sections.
+  The [plan](plans/adr-0075-metadata-contract-phase-plan.md) holds a
+  [packet register](plans/adr-0075-metadata-contract-phase-plan.md#packet-register) of 28 packets.
+  The [first packet](tasks/adr-0075-task-001-contributor-claim-transport.md) is Ready and held.
   Implementation has not started. Visual checks are paused, with existing gates open.
 
 - [ADR 0039: Dynamic type ramp](adr/0039-dynamic-type-ramp.md): Implemented on

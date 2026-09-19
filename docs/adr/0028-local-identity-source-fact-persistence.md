@@ -4,6 +4,12 @@
 
 Implemented - 2026-05-01.
 
+Amended 2026-09-19: [ADR 0075](0075-metadata-ownership-and-completeness.md) replaces one rule
+in this decision. This ADR used the assertion source as the replacement key for a
+source-fact collection. The replacement key is now the provider, the declared subject
+and the collection kind. An assertion label such as `rss_link` is an attribute of a fact
+inside a snapshot. Every other rule in this ADR stays in force, and no gate closed.
+
 ## Context
 
 ADR 0026 added GPUI-free identity facts and shared entity projections for

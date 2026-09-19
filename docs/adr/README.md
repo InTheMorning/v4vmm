@@ -24,19 +24,19 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0002](0002-rust-cli-with-local-sqlite-state.md) | Rust CLI over local SQLite | Accepted |
 | [0012](0012-root-desktop-crate.md) | One root desktop crate | Accepted |
 | [0016](0016-schema-migration-discipline.md) | New tables and columns go through the migration registry | Accepted |
-| [0028](0028-local-identity-source-fact-persistence.md) | Source links, ids, and contributors persist as source facts | Implemented |
+| [0028](0028-local-identity-source-fact-persistence.md) | Source links, ids, and contributors persist as source facts. ADR 0075 replaces its replacement key | Implemented |
 | [0029](0029-artist-person-identity-persistence.md) | Artist subject facts persist. Person identity deferred | Implemented |
 | [0045](0045-track-artist-binding.md) | Track to artist binding for library artist views | Implemented |
 | [0052](0052-library-index-data-parity-triage.md) | Triage of Library versus Index detail gaps | Implemented |
 | [0053](0053-local-detail-source-fact-parity.md) | Source-fact route for parity gaps not locally durable | Accepted |
-| [0054](0054-local-metadata-source-fact-persistence.md) | Feed and track metadata facts persist by source; hydration visual checks remain open | Accepted, partial |
+| [0054](0054-local-metadata-source-fact-persistence.md) | Feed and track metadata facts persist by source; hydration visual checks remain open. ADR 0075 replaces its replacement key | Accepted, partial |
 | [0066](0066-configuration-and-startup-failure-recovery.md) | Core startup requirements; in-app repair and optional-tool retry; [001–003 and 005–013 complete; 004 implemented, operator gate open](../plans/adr-0066-startup-recovery-phase-plan.md) | Accepted |
 
 ## Metadata
 
 | ADR | Scope | Status |
 |---|---|---|
-| [0075](0075-metadata-ownership-and-completeness.md) | Shared metadata rules for the app and Index. Covers ownership, response completeness and storage by provider. Initial audit and first packet written. Implementation not started | Proposed |
+| [0075](0075-metadata-ownership-and-completeness.md) | Shared metadata rules for the app and Index. Covers ownership, response completeness, storage by provider, every metadata field and labelled identity sections. Implementation not started. The operator holds packet dispatch | Accepted |
 | [0004](0004-format-neutral-audio-tag-boundary.md) | Format-neutral audio tag boundary | Accepted |
 | [0005](0005-musicbrainz-metadata-lookup.md) | Metadata-based MusicBrainz lookup. No fingerprinting | Accepted |
 | [0006](0006-musicbrainz-release-detail-enrichment.md) | MusicBrainz release detail enrichment | Accepted |

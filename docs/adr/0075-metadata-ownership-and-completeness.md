@@ -2,14 +2,28 @@
 
 ## Status
 
-Proposed - 2026-09-19.
+Accepted - 2026-09-19. The operator accepted this decision and answered its two open questions.
+Implementation has not started. The operator holds the dispatch of every packet.
+
+Decision A, field scope. This contract covers every metadata field, not only identity and credit fields.
+Each field keeps a separate written rule. A packet cannot run before its field rule exists.
+
+Decision B, identity placement. A track page keeps track identities in its header.
+Feed identities and contributor identities go in separate sections with owner labels.
+Each row names its owner before the operator activates a link.
+
+Decision C, artwork fallback. Show the track's artwork when it has its own image.
+Otherwise, use the feed artwork in the track header without an additional visible owner label.
+The stored artwork facts retain their source and owner.
+
+Field-rule review. Document agents propose unresolved source priorities and conflict rules.
+The operator reviews those proposals before the dependent code packets run.
 
 The operator prioritised correct metadata handling in v4vmm and MusicIndex.
-The operator also paused visual checks. This proposal defines the contract for
-that work. Implementation has not started. Existing acceptance gates remain open.
+The operator also paused visual checks. The current acceptance gates remain open.
 The [review](../reviews/adr-0075-metadata-contract-review.md) records the evidence.
 
-This ADR covers the proposed app changes. Stophammer must record its own
+This ADR covers the app changes. Stophammer must record its own
 decision before it changes its parser, API or storage contract.
 This ADR reserves no Stophammer ADR number. The deployed Stophammer revision remains unverified.
 
@@ -28,7 +42,7 @@ Separate problems affect extraction, refresh, fallback, requests and presentatio
 A change to a missing button would leave those problems unresolved.
 
 ADRs 0028 and 0054 require the app to preserve source data. ADR 0053 keeps track
-descriptions distinct from feed descriptions. This proposal makes fallback
+descriptions distinct from feed descriptions. This decision makes fallback
 explicit in the shared code that prepares data for display.
 
 ## Terms
@@ -66,6 +80,8 @@ Keep these parts of the record separate:
 | Fetch time | Actual completed request time | When this app received the response |
 
 Retain raw evidence with the typed facts. Do not invent missing provenance.
+Serialising a cleaned DTO does not recover the original response.
+The later ingestion design must identify where it retains evidence before source-text cleaning or fallback.
 Older records with incomplete ownership remain explicitly unverified until a
 new source observation supplies the missing evidence. Do not infer identity
 from a matching name, URL, public key or payment address.
@@ -85,6 +101,11 @@ The code that handles responses distinguishes these outcomes before it selects v
 Treat a malformed payload as a failed request. Do not treat it as an empty collection.
 Record whether cached facts exist separately from the latest request outcome.
 An offline view can contain known facts and report that its refresh failed.
+
+A successful HTTP status alone does not establish collection completeness.
+The request contract must define completeness for each endpoint, collection and API version.
+It must cover pagination, inherited credits and unsupported includes.
+An incomplete response cannot authorise deletion of stored facts.
 
 ### 3. Use Explicit Field Rules
 
@@ -113,7 +134,7 @@ It must include checked examples. It must cover existing `purpose="npub"` suppor
 It must decide compatibility for `purpose="nostr"` before implementation.
 It must identify unsupported syntax explicitly.
 
-This proposal does not claim that the
+This decision does not claim that the
 [txt specification](https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/tags/txt.md)
 requires either spelling.
 
@@ -129,13 +150,26 @@ Preserve that rule when selecting credits for display.
 Preserve the original owner of each credit. Do not combine feed and track
 credits into one list of asserted track credits.
 
-The current proposal shows related feed and contributor identities with explicit
-owner labels. The operator's placement preference remains open. Placement cannot
-change ownership. A feed website must retain its feed label. A contributor key
-must retain the contributor's name and role context.
+The operator selected separate, labelled sections (Decision B).
+A track page keeps track identities in its header.
+Feed identities go in a section that names the feed as the owner.
+Contributor identities go in a section that names the contributor, the role and the source.
+Placement cannot change ownership. A feed website must retain its feed label.
+A contributor key must retain the contributor's name and role context.
 
-Before changing fallback for individual fields, document a separate rule for each field.
-Cover description, artwork, publisher, artist text, language, explicit state and dates.
+Artwork follows Decision C. The track header can use feed artwork when the track has no artwork of its own.
+This ordinary display fallback needs no additional visible owner label.
+It does not make the feed image a track assertion or remove ownership from the stored facts.
+Unknown ownership remains unknown until source evidence resolves it.
+
+The operator selected every metadata field (Decision A).
+Write a separate rule for each field before you change its fallback.
+Cover description, artwork, publisher, artist text, language, explicit state, dates,
+links, transcripts and enclosures. Each rule states the owner, the source order,
+the conflict result and the displayed value when no source supplies the field.
+Document agents propose any rule that an existing decision does not settle.
+Mark those rules as proposals until the operator accepts them.
+The dependent code packet requires the accepted field rule.
 A generic merge helper must not apply one field's rule to another field.
 The existing contract still governs payment-route inheritance.
 
@@ -145,10 +179,18 @@ The key for replacement consists of the provider, declared subject and collectio
 Assertion labels such as `rss_link` are attributes of facts within the snapshot.
 They are not the provider key.
 
+The requested subject and each returned fact's declared subject are separate fields.
+Before the storage packet, define how a response observation relates to snapshots for each declared owner.
+Do not use the request subject as the owner of every returned fact.
+
 A track response can contain feed credits selected through inheritance.
 That response does not authorise replacement of the feed snapshot.
 Fetch the feed collection separately before replacing it.
 Coverage applies to the requested subject and collection.
+
+The phase 002 contract must cover a track changing from its own credits to inherited feed credits, then to no credits.
+For each transition, specify which collection is complete and which earlier facts can be replaced.
+The storage packet cannot decide these rules during implementation.
 
 A complete, empty Index response must remove that Index snapshot's earlier
 `rss_link` or `podcast_txt` facts. It must not delete direct RSS observations,
@@ -177,6 +219,10 @@ Search lists must not fetch every full detail merely to render a result page.
 Measure existing request counts first. Fetch detail when the view needs it.
 Reuse a completed or active request with the same endpoint, scoped identity and request profile.
 Keep caches isolated by endpoint and source revision. RSS enrichment must report failures.
+
+Before changing requests, define cache freshness, expiry and explicit refresh behavior.
+Define response ordering when the service supplies no reliable source revision.
+Do not use the source observation time as the app's request sequence.
 
 Both routes receive the same typed actions for the same observed facts.
 The shared model selects sources and determines availability. The UI displays
@@ -235,6 +281,15 @@ The app can explain an absent field and preserve facts during failed refreshes.
 The refactor needs storage and compatibility work in addition to UI work.
 Earlier stored provenance may remain unresolved after the first repair pass.
 The [phase plan](../plans/adr-0075-metadata-contract-phase-plan.md) separates these changes.
+
+## Relationship To Existing Decisions
+
+ADRs 0028 and 0054 remain binding, with one limited replacement.
+This ADR replaces their use of assertion source as the replacement key for affected collections.
+The replacement key is now the provider, the declared subject and the collection kind.
+This ADR retains their separation of identity facts and metadata facts.
+ADRs 0028 and 0054 and the ADR index record this limited replacement.
+Their unrelated decisions and their open acceptance gates remain in force.
 
 ## References
 

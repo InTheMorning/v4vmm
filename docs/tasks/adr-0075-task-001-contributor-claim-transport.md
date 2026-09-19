@@ -1,7 +1,9 @@
 # ADR 0075 Task 001: Preserve Contributor Claim Transport Fields
 
-Status: Draft - 2026-09-19. Implementation has not started.
-The parent ADR is Proposed. Execute this packet after its transport decision becomes binding.
+Status: Ready - 2026-09-19. Implementation has not started.
+The parent ADR 0075 is Accepted from 2026-09-19. This packet's content review is Green.
+The operator holds the dispatch of this packet until the document packets 002 to 008 exist.
+Do not start this packet before the operator releases that hold.
 This packet preserves contributor fields when the app decodes and serialises API data.
 
 ## Goal
@@ -14,19 +16,29 @@ extraction path and observation time.
 ## Files To Inspect
 
 - `AGENTS.md`, `.github/copilot-instructions.md`
+- [ADR status rules](../adr/0057-adr-status-vocabulary-and-amendment-policy.md)
 - [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md)
 - [Plan](../plans/adr-0075-metadata-contract-phase-plan.md)
 - [Review](../reviews/adr-0075-metadata-contract-review.md)
 - `src/api.rs`, especially `Contributor` and API fixture tests
 - `src/views.rs`, `src/identity_ingest.rs`, `src/local_identity.rs`
 - `src/feed_service.rs`, `src/rss/subscribe.rs`, `src/metadata.rs`
-- Stophammer `src/query.rs::SourceContributorClaimResponse`, read-only
+- The [supplied response](#supplied-response) and [field contract](#field-contract) in this packet
+
+The upstream reference is `/home/citizen/build/stophammer/src/query.rs::SourceContributorClaimResponse`
+at commit `a220f44`. Inspect it read-only when available.
+The field contract below lets an agent work without that checkout or a live endpoint.
 
 ## Files Likely To Change
 
 `src/api.rs` owns the data transfer object (DTO) and its focused tests.
 The DTO is the Rust type that represents API data.
-Update `Contributor` literals in direct callers only where compilation requires a change.
+The current production literals that need new defaults are:
+
+- `src/views.rs::From<ContributorView> for api::Contributor`.
+- `src/feed_service.rs::contributor_from_local`.
+
+Update other `Contributor` literals only where compilation requires a change.
 Record those files in the implementation report.
 Keep unknown provenance unchanged when local code constructs a contributor.
 
@@ -44,21 +56,110 @@ Update this packet, its review and plan with the actual test results.
 ## Constraints
 
 Retain the existing name, role, group, href, image and npub fields.
-Add optional `entity_type`, `entity_id`, `position`, `role_norm`, `source`,
-`extraction_path` and `observed_at` fields using their documented wire names.
-Use `Option<i64>` for position and observation time. Fields missing from older
-payloads remain `None`. Do not add invented values for absent fields when serialising payloads.
+Add the seven fields in the field contract below.
+Retain the existing struct derives and `#[serde(default)]` behavior.
+Apply `#[serde(skip_serializing_if = "Option::is_none")]` to each new field only.
+Do not change serialisation of the six existing fields.
 
 Do not add a duplicate contributor DTO. Do not infer the owner from the request URL.
 Do not replace a supplied position with the enumeration index.
 Do not replace a supplied observation time with the current time.
+Do not trim, normalise, validate identity syntax or infer missing fields in this DTO.
+Do not add an unknown-field map or new dependencies.
+
+The existing `persist_contributors` helper serialises this DTO into `raw_json`.
+Newly fetched records can therefore retain the added fields in that JSON without a schema change.
+This packet does not change typed database columns or recover fields from old JSON.
+Do not describe this change as complete storage preservation.
 
 Later packets must address limitations in `ContributorView` and the local schema.
 Do not expand this task to resolve those limitations while correcting compilation errors.
 
+## Field Contract
+
+These fields match `SourceContributorClaimResponse` at the inspected upstream revision.
+The app uses optional fields to accept older payloads.
+
+| JSON field | App type | Meaning |
+|---|---|---|
+| `entity_type` | `Option<String>` | Declared owner of the credit, such as `feed` or `track` |
+| `entity_id` | `Option<String>` | Declared owner's identifier. It is not a global contributor identifier |
+| `position` | `Option<i64>` | Supplied position within the source collection |
+| `role_norm` | `Option<String>` | Supplied normalised role, separate from the original `role` |
+| `source` | `Option<String>` | Supplied assertion source |
+| `extraction_path` | `Option<String>` | Supplied source path |
+| `observed_at` | `Option<i64>` | Supplied observation time. Preserve the integer unchanged |
+
+Missing fields and explicit JSON `null` decode as `None`.
+Serialisation omits new fields whose value is `None`.
+This task does not preserve the distinction between an absent field and an explicit null inside one contributor.
+Collection coverage remains a separate later task.
+Unknown string values remain unchanged. A value with the wrong JSON type remains a decoding error.
+
+## Supplied Response
+
+The operator supplied this selected response on 2026-09-19.
+It is not the full HTTP response. Decode its `source_contributors` array as `Vec<Contributor>` in the tests.
+Keep the three credits and their values unchanged in the base fixture.
+
+```json
+{
+  "title": "MoeFactz",
+  "source_links": [],
+  "source_ids": [],
+  "source_contributors": [
+    {
+      "entity_type": "track",
+      "entity_id": "d489101a-4e62-492f-812e-9fe51def9423",
+      "position": 0,
+      "name": "HeyCitizen",
+      "role": "musician",
+      "role_norm": "musician",
+      "group_name": "music",
+      "href": null,
+      "img": "https://files.heycitizen.xyz/Songs/HeyCitizen.jpg",
+      "npub": "npub12um9zqae9uaydfszralpn0e0r90d559gd4qsrzar0j2yvut7t2zqwff5ck",
+      "source": "podcast_person",
+      "extraction_path": "track.podcast:person",
+      "observed_at": 1779240280
+    },
+    {
+      "entity_type": "track",
+      "entity_id": "d489101a-4e62-492f-812e-9fe51def9423",
+      "position": 1,
+      "name": "HeyCitizen",
+      "role": "audio engineer",
+      "role_norm": "audio engineer",
+      "group_name": "audio-production",
+      "href": null,
+      "img": "https://files.heycitizen.xyz/Songs/HeyCitizen.jpg",
+      "npub": "npub12um9zqae9uaydfszralpn0e0r90d559gd4qsrzar0j2yvut7t2zqwff5ck",
+      "source": "podcast_person",
+      "extraction_path": "track.podcast:person",
+      "observed_at": 1779240280
+    },
+    {
+      "entity_type": "track",
+      "entity_id": "d489101a-4e62-492f-812e-9fe51def9423",
+      "position": 2,
+      "name": "Moe Factz",
+      "role": "host",
+      "role_norm": "host",
+      "group_name": "cast",
+      "href": "https://www.moefactz.com/",
+      "img": null,
+      "npub": null,
+      "source": "podcast_person",
+      "extraction_path": "track.podcast:person",
+      "observed_at": 1779240280
+    }
+  ]
+}
+```
+
 ## Implementation Steps
 
-1. Check that the parent's transport decision is binding.
+1. Check that ADR 0075 is Accepted and this packet is Ready.
 2. Read the current API type.
 3. Add the seven optional fields to the existing DTO with compatible Serde behavior.
 4. Update affected literals without changing their existing values or meaning.
@@ -72,12 +173,17 @@ Do not expand this task to resolve those limitations while correcting compilatio
 
 Unit tests beside `api::Contributor` must check these results:
 
-- Deserialisation retains all documented claim fields from the supplied response.
-- Serialisation and a second decode preserve those values and the order of the three credits.
+- Deserialisation retains all thirteen fields in each supplied contributor object.
+- Serialisation matches each original contributor object as a JSON value, independent of object-key order.
+- A second decode preserves those values and the order of the three credits.
 - Two HeyCitizen credits retain their different roles and original positions.
-- A claim owned by a feed keeps `entity_type: feed` when a track response returns it.
-- An older contributor payload with six fields decodes with unknown provenance.
-- Missing optional fields do not become fabricated values during serialisation.
+- A derived `Track` fixture keeps a feed credit's declared `entity_type` and `entity_id` through a round trip.
+- A derived fixture with positions `7`, `2`, `19` retains those positions and its input order.
+- An older payload with six fields decodes with all seven new fields set to `None`.
+- Serialising that older payload does not add any of the seven new keys.
+- Explicit null values in the seven new fields decode as `None` and are omitted during serialisation.
+- A derived fixture retains an unknown `entity_type` string and different `role` and `role_norm` values.
+- A string in `position` or `observed_at` produces a decoding error.
 - Existing `href`, `img` and `npub` values remain unchanged.
 
 This packet changes transport only. It requires no visual acceptance.
@@ -96,6 +202,7 @@ cargo build --locked --offline --bin v4vmm
 
 Give the new tests the `adr_0075_contributor_transport` prefix. Follow repository escalation rules
 if a required check encounters a sandbox restriction. Do not launch the app.
+The focused command must execute tests. A successful command that matches zero tests is not Green.
 
 ## Rollback
 

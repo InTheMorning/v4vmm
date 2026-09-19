@@ -2,11 +2,27 @@
 
 ## Status
 
-Draft - 2026-09-19. The initial source audit and proposed contract are written.
+Active plan - 2026-09-19. The source audit and the accepted contract are written.
 Implementation has not started. The operator paused visual checks and prioritised
 metadata handling across v4vmm and MusicIndex.
 
+ADR 0075 is Accepted from 2026-09-19. The operator recorded these decisions:
+
+- Field scope. The contract covers every metadata field. Each field keeps a separate rule.
+- Identity placement. The track header keeps track identities. Feed identities and
+  contributor identities go in separate sections with owner labels.
+- Artwork fallback. The track header uses feed artwork when the track has no artwork of its own.
+  This fallback needs no additional visible owner label. Stored facts retain their source and owner.
+- Field-rule review. Document agents propose unresolved source priorities and conflict rules.
+  The operator reviews those proposals before the dependent code packets run.
+
+The operator holds the dispatch of every packet, packet 001 included.
+Write the document packets in the [packet register](#packet-register) first.
+
 Complete one packet per session.
+
+Phases 002–006 below are outcomes, not instructions. The packet register divides
+them into bounded packets. Do not give an agent a whole phase.
 
 ## Goal
 
@@ -19,8 +35,13 @@ Reduce repeated requests after automated checks cover the contract.
 Begin with websites, Nostr identifiers, contributor credits and their provenance.
 Provenance records a value's owner, source, extraction path and observation time.
 
-Before changing fallback for individual fields, audit the existing rules.
-Cover description, artwork, publisher, artist text, language, explicit state and dates.
+The contract then covers every other metadata field. The operator selected that scope.
+Before you change the fallback of a field, audit the current rule and write a new rule.
+Cover description, artwork, publisher, artist text, language, explicit state, dates,
+links, transcripts and enclosures.
+Each field rule states the owner, the source order, the conflict result,
+and the displayed value when no source supplies the field.
+Distinguish accepted rules from proposed rules. Complete operator review of each proposal before coding its dependent packet.
 Keep identity, metadata, payment routes and tag-write policies separate.
 
 Exclude these changes from this work:
@@ -33,8 +54,9 @@ Exclude these changes from this work:
 
 ## Assumptions And Decisions
 
-- [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md) is Proposed.
-  Resolve its decisions about fields and presentation before the affected packet runs.
+- [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md) is Accepted.
+  Its Status section records the field scope and the identity placement.
+  A field rule must exist before the packet that changes that field runs.
 - The inspected backend is Stophammer. The `musicindex` repository publishes
   its generated API contract. The deployed revision remains unverified.
 - This workspace permits writes to v4vmm. Changes to Stophammer require a
@@ -73,17 +95,112 @@ Write later implementation packets after their prerequisites are complete.
 Do not implement all phases in one session.
 Phase 001 leaves storage and display preparation for later packets.
 
+## Packet Register
+
+This register divides phases 002-006 into bounded packets.
+A packet is the unit of dispatch. A phase is not.
+A packet number with a link has a written packet file. A number without a link has none.
+A written packet is not a dispatched packet. The operator releases each dispatch.
+
+A document packet produces rules, examples or measurements. It changes no code.
+A code packet changes code in this repository only.
+
+### Phase 002, Rules And Corrections
+
+| Packet | Kind | Outcome | Needs |
+|---|---|---|---|
+| [002](../tasks/adr-0075-task-002-shared-example-corpus.md) | Document | A shared corpus of RSS and API examples with an expected owner for each value | ADR 0075 |
+| [003](../tasks/adr-0075-task-003-nostr-syntax-and-purposes.md) | Document | The supported Nostr syntax and the supported `podcast:txt` purpose values, with checked examples | ADR 0075 |
+| [004](../tasks/adr-0075-task-004-collection-completeness-rules.md) | Document | Completeness and transition rules for each response collection | Packet 002 |
+| [005](../tasks/adr-0075-task-005-field-rules-description-artwork-publisher.md) | Document | Field rules for description, artwork and publisher | Packet 002 |
+| [006](../tasks/adr-0075-task-006-field-rules-artist-language-dates.md) | Document | Field rules for artist text, language, explicit state and dates | Packet 002 |
+| [007](../tasks/adr-0075-task-007-field-rules-links-and-media.md) | Document | Field rules for websites, page links, transcripts and enclosures | Packets 002 and 003 |
+| [008](../tasks/adr-0075-task-008-stophammer-decision-request.md) | Document | A decision request for Stophammer, with the app's required parser and API behavior | Packets 002, 003 and 004 |
+| 009 | Code | Correct the RSS owner rule in `src/rss/enrich.rs`. Remove the invented `podcast:txt` extraction path | Packets 003 and 007 |
+| 010 | Code | Store an item link as a track `web_page` identity fact in `src/rss/subscribe.rs` | Packet 007 |
+
+### Phase 003, Storage
+
+| Packet | Kind | Outcome | Needs |
+|---|---|---|---|
+| 011 | Document | The schema design: the provider key, the coverage state and the evidence column | Packets 004 and 008 |
+| 012 | Code | The migration, with the backup and the rollback procedure | Packet 011 |
+| 013 | Code | Atomic replacement of one provider snapshot, with the empty-collection rule | Packets 011 and 012 |
+| 014 | Code | Keep the source evidence before the app cleans the text and before it applies fallback | Packet 011 |
+| 015 | Code | Tests for provider isolation, restart, rollback and superseded responses | Packets 012, 013 and 014 |
+
+### Phase 004, Requests And Projections
+
+| Packet | Kind | Outcome | Needs |
+|---|---|---|---|
+| 016 | Document | Measured request counts and database writes for the five scripted cases | ADR 0075 |
+| 017 | Code | Named request profiles with their required collections and scoped identity | Packets 008 and 016 |
+| 018 | Code | Cache key, expiry, explicit refresh and response order | Packets 016 and 017 |
+| 019 | Code | RSS enrichment reports a failed request separately from absent data | Packet 004 |
+| 020 | Code | One shared projection that applies the field rules | Packets 005, 006, 007 and 013 |
+| 021 | Code | Route parity tests for the local route and the Index route | Packet 020 |
+
+### Phase 005, Presentation
+
+| Packet | Kind | Outcome | Needs |
+|---|---|---|---|
+| 022 | Code | The track header view model, limited to track identities | Packet 020 |
+| 023 | Code | The feed section and the contributor section view models, with owner labels | Packet 022 |
+| 024 | Code | Shared typed actions for both routes | Packets 022 and 023 |
+| 025 | Code | Contributor sections on the Index detail route | Packet 024 |
+
+### Phase 006, Reconciliation
+
+| Packet | Kind | Outcome | Needs |
+|---|---|---|---|
+| 026 | Document | A read-only repair report of old records, with the unresolved cases | Packet 015 |
+| 027 | Code | Repair from source evidence, with a manifest and retained unresolved rows | Packet 026 |
+| 028 | Document | Evidence of the deployed Index revision and its generated API contract | Packet 008 |
+| 029 | Document | The procedure to crawl or ingest feeds again, with signed-event and replica checks | Packets 008 and 028 |
+
+Packets 002 to 008 need no further decision to write their documents and proposals. Write them first.
+Proposed field rules require operator acceptance before the dependent code packets run.
+Packets 009 and later need the outputs of the document packets above them.
+Do not write a packet before its inputs exist.
+
+## Requirements Before Dispatch
+
+ADR 0057 requires an Accepted decision before implementation. ADR 0075 is Accepted.
+Packet 001 is Ready. The operator holds its dispatch until the document packets exist.
+
+The packet register divides each phase into bounded packets.
+Phase 002 requires separate Stophammer decisions and repository ownership.
+Do not give an agent one task that changes both repositories.
+Review each completed packet before you dispatch its dependent packet.
+
+| Before dispatching work in | Required decision or evidence |
+|---|---|
+| Phase 001 | Accepted ADR 0075, Ready packet 001, and its complete field contract and example response |
+| Phase 002 | Agreed field scope. An accepted Stophammer decision. Checked RSS examples, supported Nostr syntax, and completeness rules for each response collection |
+| Phase 003 | Accepted replacement rules for requested subjects and declared owners. Exact schema, migration, backup, rollback and provider-isolation tests |
+| Phase 004 | Source and conflict policy. Fallback rules for each affected field. Cache freshness, explicit refresh, response ordering and measurable request limits |
+| Phase 005 | Typed action rules. Rules that show unresolved old records without invented ownership. The placement decision is recorded in ADR 0075 |
+| Phase 006 | Deployed revision evidence. Reviewed repair report. Bounded ingestion procedure with signed-event, replica and preservation checks |
+
+The operator answered the original scope and identity-placement questions on 2026-09-19.
+ADR 0075 also records the accepted artwork fallback and field-rule review process.
+The [review](../reviews/adr-0075-metadata-contract-review.md#operator-decisions--2026-09-19) records the answers.
+
 ## Schema And API Implications
 
 Phase 001 adds optional fields to the data transfer object (DTO).
 The DTO is the Rust type that represents API data.
 Phase 001 changes neither the HTTP contract nor the schema.
 Existing payloads remain readable without invented provenance.
+Existing JSON storage will include newly supplied fields when it serialises the expanded DTO.
+Typed storage and display remain incomplete after phase 001.
 
 Phase 003 must record the provider separately from the source assertion.
 It must also record whether a response contains the complete collection.
 Existing `source` columns currently serve several meanings.
 The migration must not silently reinterpret them.
+Define response completeness before writing replacement code.
+An HTTP success, populated list or empty list alone does not prove complete owner coverage.
 
 Create a database backup before the migration. Preserve rows with uncertain provenance.
 
@@ -114,6 +231,9 @@ The proposed changes must:
 - Parse each RSS document once per feed observation.
 
 Cache keys include the provider, scoped identity and request profile.
+The packet must set numeric request bounds for the scripted cases before implementation.
+Count requests on success and failure paths, including fallback and retries.
+Record response bytes and latency if the packet claims improvements in either measure.
 Do not claim faster operation without results from before and after the change.
 
 ## Risk Areas
@@ -125,6 +245,8 @@ Do not claim faster operation without results from before and after the change.
 - Re-ingestion can skip feeds with unchanged hashes and leave old facts in place.
 - Older rows cannot always establish which provider delivered them or who owns their values.
 - Tag comparison and explicit tag writes share metadata helpers with display.
+- Source-text cleaning can remove values before a later helper serialises its DTO as raw evidence.
+- A cached response can remain stale without an explicit expiry and refresh rule.
 
 ## Test Strategy
 
@@ -139,6 +261,9 @@ Do not write tests that only repeat helper logic. Include these cases:
 - Requested collections that are absent, null or empty.
 - Partial refreshes and endpoint changes.
 - Identical track GUIDs under different feeds.
+- Track credits changing to inherited feed credits, then to no credits.
+- An older response arriving after a newer request, including when source timestamps match.
+- Invalid or placeholder source text remaining available as evidence without becoming an active identity.
 
 Compare source ownership after decoding, storage, restart and display preparation.
 Use injected HTTP responses to test failures and count requests.
@@ -159,7 +284,7 @@ Do not change audio bytes, playlists, membership or user configuration during re
 
 The operator paused visual checks on 2026-09-19. This phase requests no app launch.
 Retain the existing gates. After the metadata work, compare their criteria with
-the accepted contract. Then resume a small visual batch.
+the accepted contract. Resume a small visual batch only when the operator resumes those checks.
 
 ## Review
 

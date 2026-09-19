@@ -7,6 +7,10 @@ The operator paused visual checks on 2026-09-19. Prioritise the
 before requesting more visual checks. The four groups below retain five open
 packets. Their acceptance and configuration gates remain open.
 
+The operator accepted ADR 0075 on 2026-09-19. Its placement decision adds future
+visual checks for the labelled identity sections on a track page. Phase 005 owns
+those checks. Do not request them during this pause.
+
 The current evidence fixture is `/tmp/v4vmm-governance.ie6k8TQf`.
 Its cleanup remains unconfirmed. No app launch is requested during this pause.
 
