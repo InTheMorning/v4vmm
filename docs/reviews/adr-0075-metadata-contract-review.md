@@ -40,7 +40,7 @@ The origin of nine stored local track Nostr facts remains unverified.
 
 The app's `src/api.rs::Contributor` omitted fields that Stophammer's
 `src/query.rs::SourceContributorClaimResponse` supplies. These include the owner,
-position, normalised role, source, extraction path and observation time.
+position, normalized role, source, extraction path and observation time.
 Packet 001 corrected the transport layer on 2026-09-19. Tests in `src/api.rs` now
 enforce that result. The [implementation record](#packet-001-implementation--2026-09-19)
 holds the remaining losses.
@@ -541,10 +541,14 @@ The six existing fields keep their previous serialization.
 constructs a credit. One test literal in `src/views.rs` now uses `..Default::default()`.
 
 Eleven tests with the `adr_0075_contributor_transport` prefix enforce this result.
-They use the operator's supplied response as the base fixture. They cover the round trip,
-credit order, the two HeyCitizen roles, a feed-owned credit in a track, supplied positions,
-an older payload, explicit null values, an unknown `entity_type`, and a decoding error
-for a string in `position` or `observed_at`.
+They use the operator's supplied response as the base fixture. They cover these cases:
+
+- The round trip and the order of the three credits.
+- The two HeyCitizen roles and their supplied positions.
+- A feed-owned credit in a track.
+- An older payload and explicit null values.
+- An unknown `entity_type` value.
+- A decoding error for a string in `position` or `observed_at`.
 
 These checks are Green: the focused tests, `cargo test --locked --offline`,
 `cargo check --locked --offline`, `cargo fmt -- --check`,

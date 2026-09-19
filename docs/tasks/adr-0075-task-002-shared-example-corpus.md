@@ -1,9 +1,11 @@
 # ADR 0075 Task 002: Write The Shared Metadata Example Corpus
 
-Status: Ready - 2026-09-19. Work has not started.
+Status: Deliverable complete - 2026-09-19. The review gate is open.
 The parent ADR 0075 is Accepted from 2026-09-19.
-The operator holds the dispatch of all ADR 0075 packet.
+The operator released the dispatch of this packet on 2026-09-19.
+
 This packet produces a document. It changes no code.
+The [deliverable result](#deliverable-result) records the file, the checks and the open review.
 
 ## Goal
 
@@ -299,6 +301,59 @@ Record retained technical names and the reasons for retaining them.
 Report a checker error as a failed check.
 Do not report the raw checker result as Green if findings remain.
 No application test applies to this document packet.
+
+## Deliverable Result
+
+Completed on 2026-09-19.
+
+### Deliverable
+
+The file is `docs/schema/adr-0075-metadata-example-corpus.md`.
+It holds 21 cases. The case identifiers are:
+
+- C01, C02, C03, C04, C05, C06, C07.
+- C08a, C08b, C09, C10, C11, C12, C13.
+- C14, C15, C16, C17, C18a, C18b, C18c.
+
+The summary index holds 21 rows, one for each case.
+Each case subsection holds the eight required labels.
+C01 links to this packet's cited supplied response and holds no source fragment.
+Each other case holds a fenced RSS or JSON fragment.
+The corpus also records unresolved results and retained technical terms.
+
+### Checks
+
+| Check | Result |
+|---|---|
+| `python3 docs/runbooks/check-markdown-links.py` on this packet and the deliverable | Green. 58 local links in 2 files |
+| `python3 ste_lint.py --check --no-heuristics` on the deliverable | The checker ran without an input or configuration error |
+
+The STE checker reports no sentence-length, paragraph-length, spelling or punctuation defect.
+Its remaining findings are rule 1.6 lexical findings for retained technical names.
+The deliverable records those names and their meanings.
+A Green link result covers local files and headings only.
+No application test applies to this document packet.
+
+### Facts Not Checked
+
+| Fact | Cases affected |
+|---|---|
+| The deployed MusicIndex revision and its generated API contract | C01, C14, C18a, C18b, C18c |
+| The rendered result for a second Nostr key under one contributor name | C06 |
+| The selected track when a search hit supplies no feed GUID | C17 |
+
+The corpus records each of these limits in the affected case.
+Packet 028 must establish the deployed revision.
+
+### Open Review Gate
+
+A person has not checked the current results against the cited source functions.
+A person has not checked the required results against the accepted ADR rules.
+That review gate stays open. This packet requests no visual check.
+
+### Deviations
+
+None from Required Content. The corpus uses the case identifiers as given.
 
 ## Escalation Triggers
 

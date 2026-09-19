@@ -219,6 +219,7 @@ Phase 001 added optional fields to the data transfer object (DTO).
 The DTO is the Rust type that represents API data.
 Phase 001 changed neither the HTTP contract nor the schema.
 Existing payloads remain readable without invented provenance.
+
 Existing JSON storage includes newly supplied fields, because it serialises the expanded DTO.
 Typed storage and display remain incomplete after phase 001.
 The [review](../reviews/adr-0075-metadata-contract-review.md#fields-that-later-layers-still-lose)

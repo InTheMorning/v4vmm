@@ -3,6 +3,7 @@
 Status: Complete - 2026-09-19. All mechanical checks are Green.
 The parent ADR 0075 is Accepted from 2026-09-19. This packet's content review is Green.
 The operator released the dispatch on 2026-09-19. Document packets 002 to 008 exist.
+
 This packet changes transport only. It needs no operator visual acceptance.
 The [implementation result](#implementation-result) records the changed files and the remaining losses.
 
