@@ -16,10 +16,16 @@ metadata handling in v4vmm and MusicIndex. [ADR 0075](docs/adr/0075-metadata-own
 is Accepted. Its [audit](docs/reviews/adr-0075-metadata-contract-review.md),
 [plan](docs/plans/adr-0075-metadata-contract-phase-plan.md) and
 [first packet](docs/tasks/adr-0075-task-001-contributor-claim-transport.md) are written.
-Implementation has not started.
 
-Packet 001 is Ready. Document packets 002–008 exist. Their deliverables are not complete.
-The operator holds all dispatches.
+[Packet 001](docs/tasks/adr-0075-task-001-contributor-claim-transport.md) is complete on
+2026-09-19. The contributor type for API data preserves the seven claim fields.
+Its mechanical checks are Green. It needs no visual acceptance.
+Storage and display still lose those fields. The
+[review](docs/reviews/adr-0075-metadata-contract-review.md#fields-that-later-layers-still-lose)
+lists the loss at each layer.
+
+Document packets 002–008 exist. Their deliverables are not complete.
+The operator holds the dispatch of every remaining packet.
 
 Do not request another visual batch during this pause. Existing acceptance gates
 remain open. Cleanup of the evidence fixture

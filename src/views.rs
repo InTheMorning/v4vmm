@@ -259,6 +259,7 @@ impl From<api::Contributor> for ContributorView {
 
 impl From<ContributorView> for api::Contributor {
     fn from(contributor: ContributorView) -> Self {
+        // ADR 0075: a view model carries no provenance, so these fields stay unknown.
         Self {
             name: contributor.name,
             role: contributor.role,
@@ -266,6 +267,13 @@ impl From<ContributorView> for api::Contributor {
             img: contributor.image_url,
             npub: contributor.nostr_npub,
             group_name: contributor.group_name,
+            entity_type: None,
+            entity_id: None,
+            position: None,
+            role_norm: None,
+            source: None,
+            extraction_path: None,
+            observed_at: None,
         }
     }
 }
@@ -878,6 +886,7 @@ mod tests {
                 href: Some("https://example.test/alice".into()),
                 img: Some("https://example.test/alice.jpg".into()),
                 npub: Some("npub1alice".into()),
+                ..Default::default()
             }]),
             ..Default::default()
         };

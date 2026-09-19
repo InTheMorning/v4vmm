@@ -460,6 +460,7 @@ fn source_id_from_local(row: db::LocalIdentityIdRow) -> SourceEntityId {
 }
 
 fn contributor_from_local(row: db::LocalContributorRow) -> Contributor {
+    // ADR 0075: the local row keeps no claim provenance, so these fields stay unknown.
     Contributor {
         name: row.name,
         role: row.role,
@@ -467,6 +468,13 @@ fn contributor_from_local(row: db::LocalContributorRow) -> Contributor {
         img: row.image_url,
         npub: row.nostr_npub,
         group_name: row.group_name,
+        entity_type: None,
+        entity_id: None,
+        position: None,
+        role_norm: None,
+        source: None,
+        extraction_path: None,
+        observed_at: None,
     }
 }
 

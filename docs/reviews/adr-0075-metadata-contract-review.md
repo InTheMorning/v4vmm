@@ -3,19 +3,23 @@
 ## Status
 
 Initial audit recorded - 2026-09-19. At that audit, ADR 0075 was Proposed and the first packet was Draft.
-Implementation has not started. No migration, deployment or new visual acceptance is recorded.
+Implementation had not started then. No migration, deployment or new visual acceptance is recorded.
 
 Pre-dispatch review recorded on 2026-09-19. Packet 001's instructions are corrected.
 
-Operator decisions recorded on 2026-09-19. ADR 0075 is Accepted. Packet 001 is Ready.
+Operator decisions recorded on 2026-09-19. ADR 0075 is Accepted. Packet 001 became Ready.
 Document packets 002–008 exist. Their deliverables remain incomplete.
-The operator's dispatch hold remains in force.
+The operator's dispatch hold applied to every packet at that time.
 
 The plan now divides phases 002–006 into bounded packets.
 
 Accuracy review recorded on 2026-09-19. The first-packet corrections below resolve R4, R5, R7, and R8.
 R1, R2, and R6 remain open for later packets.
 These corrections do not change the accepted ADR or release a packet.
+
+Packet 001 implementation recorded on 2026-09-19. The operator released its dispatch.
+The transport change is complete and its mechanical checks are Green.
+Storage and display preparation remain open. The operator holds every remaining dispatch.
 
 ## Evidence And Limits
 
@@ -34,10 +38,12 @@ The origin of nine stored local track Nostr facts remains unverified.
 
 ### Contributor Fields Are Lost
 
-The app's `src/api.rs::Contributor` omits fields that Stophammer's
+The app's `src/api.rs::Contributor` omitted fields that Stophammer's
 `src/query.rs::SourceContributorClaimResponse` supplies. These include the owner,
 position, normalised role, source, extraction path and observation time.
-Packet 001 preserves these fields when decoding and serialising API data.
+Packet 001 corrected the transport layer on 2026-09-19. Tests in `src/api.rs` now
+enforce that result. The [implementation record](#packet-001-implementation--2026-09-19)
+holds the remaining losses.
 
 Storage has a separate problem. `src/identity_ingest.rs::persist_contributors`
 assigns positions from list order and sets observation time to `None`.
@@ -191,7 +197,7 @@ The operator answered both questions and accepted ADR 0075.
 |---|---|---|
 | Field scope | Every metadata field, in separately bounded packets | Phases 002 to 005 grow. Each field needs a written rule before its packet runs. The first merge comes later |
 | Identity placement | Separate, labelled sections | The track header keeps track identities. Feed identities and contributor identities go in their own sections with owner labels |
-| ADR status | Accept ADR 0075, hold every dispatch | ADR 0075 is Accepted from 2026-09-19. Packet 001 is Ready and held. Write the document packets first |
+| ADR status | Accept ADR 0075, hold every dispatch | ADR 0075 is Accepted from 2026-09-19. Packet 001 became Ready and held. Write the document packets first |
 
 The operator selected the recommendation for placement. The operator selected the
 wider option for field scope. The agent recommended the narrower option.
@@ -523,11 +529,45 @@ Their deliverables and policy reviews are not complete.
 R1, R2, and R6 still require corrections before the affected later packets run.
 This change does not implement metadata handling or resume visual checks.
 
+## Packet 001 Implementation — 2026-09-19
+
+The operator released the dispatch of packet 001 on 2026-09-19. The implementation is complete.
+
+`src/api.rs::Contributor` now holds `entity_type`, `entity_id`, `position`, `role_norm`,
+`source`, `extraction_path` and `observed_at`. Each new field is optional.
+Serialization writes a new field only when the app holds a value.
+The six existing fields keep their previous serialization.
+`src/views.rs` and `src/feed_service.rs` set the seven fields to `None` when local code
+constructs a credit. One test literal in `src/views.rs` now uses `..Default::default()`.
+
+Eleven tests with the `adr_0075_contributor_transport` prefix enforce this result.
+They use the operator's supplied response as the base fixture. They cover the round trip,
+credit order, the two HeyCitizen roles, a feed-owned credit in a track, supplied positions,
+an older payload, explicit null values, an unknown `entity_type`, and a decoding error
+for a string in `position` or `observed_at`.
+
+These checks are Green: the focused tests, `cargo test --locked --offline`,
+`cargo check --locked --offline`, `cargo fmt -- --check`,
+`cargo clippy --locked --offline -- -D warnings`, and
+`cargo build --locked --offline --bin v4vmm`.
+
+### Fields That Later Layers Still Lose
+
+| Layer | Owner | Result |
+|---|---|---|
+| Storage, raw evidence | `src/identity_ingest.rs::persist_contributors` | The `raw_json` column of a newly fetched record now holds the seven fields. Old rows keep their old JSON |
+| Storage, typed columns | `src/db.rs::LocalContributorRow` | Six fields remain. The position comes from the list index, not from the supplied value. The observation time stays `None`. The declared owner, normalized role, assertion source and extraction path have no column |
+| Display preparation | `src/views.rs::ContributorView` | Six fields remain. All seven claim fields are lost |
+| Local route | `src/feed_service.rs::contributor_from_local` | The local row supplies no provenance, so all seven fields stay `None` |
+
+The storage packets and the projection packet must correct these losses.
+Packet 001 does not establish complete storage preservation.
+
 ## Review Disposition
 
 The audit establishes that the app must correct how it handles metadata.
-The operator accepted ADR 0075 on 2026-09-19. The operator holds every dispatch.
-Packet 001 is Ready. It only preserves fields in the app's type for API data.
+The operator accepted ADR 0075 on 2026-09-19. The operator holds every remaining dispatch.
+Packet 001 is complete. It only preserves fields in the app's type for API data.
 
 The acceptance of the ADR closes no gate. Every open gate stays open.
 The instructions and checks for packets 002 and 003 are corrected.

@@ -1,9 +1,10 @@
 # ADR 0075 Task 001: Preserve Contributor Claim Transport Fields
 
-Status: Ready - 2026-09-19. Implementation has not started.
+Status: Complete - 2026-09-19. All mechanical checks are Green.
 The parent ADR 0075 is Accepted from 2026-09-19. This packet's content review is Green.
-The operator holds the dispatch of this packet until the document packets 002 to 008 exist.
-Do not start this packet before the operator releases that hold.
+The operator released the dispatch on 2026-09-19. Document packets 002 to 008 exist.
+This packet changes transport only. It needs no operator visual acceptance.
+The [implementation result](#implementation-result) records the changed files and the remaining losses.
 
 This packet preserves contributor fields when the app decodes and serializes API data.
 
@@ -204,6 +205,57 @@ cargo build --locked --offline --bin v4vmm
 Give the new tests the `adr_0075_contributor_transport` prefix. Follow repository escalation rules
 if a required check encounters a sandbox restriction. Do not launch the app.
 The focused command must execute tests. A successful command that matches zero tests is not Green.
+
+## Implementation Result
+
+Completed on 2026-09-19.
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `src/api.rs` | `Contributor` holds the seven claim fields. The file holds eleven new tests with the `adr_0075_contributor_transport` prefix and the supplied response as a fixture |
+| `src/views.rs` | `From<ContributorView> for api::Contributor` sets the seven fields to `None`. One existing test literal uses `..Default::default()` |
+| `src/feed_service.rs` | `contributor_from_local` sets the seven fields to `None` |
+
+The compiler required the change in the `src/views.rs` test literal. No other literal required a change.
+The other literals already use `..Default::default()`.
+
+### Behavior Changed
+
+Deserialization keeps `entity_type`, `entity_id`, `position`, `role_norm`, `source`,
+`extraction_path` and `observed_at` from a MusicIndex contributor claim.
+Serialization writes each of these fields only when the app holds a value.
+The six existing fields keep their previous serialization.
+An older payload and a locally constructed credit keep unknown provenance.
+
+### Preservation By Layer
+
+| Layer | Result |
+|---|---|
+| Transport | The DTO preserves all thirteen fields. Tests check the round trip |
+| Storage | `src/identity_ingest.rs::persist_contributors` serializes the expanded DTO, so the `raw_json` column of a newly fetched record holds the seven fields. The typed columns in `src/db.rs::LocalContributorRow` hold six fields, a position from the list index, and no supplied observation time. Old rows keep their old JSON |
+| Display | `src/views.rs::ContributorView` holds six fields. `contributor_from_local` returns `None` provenance. The display route loses all seven fields |
+
+Storage and display preparation remain open for later packets. This packet does not complete them.
+
+### Checks
+
+| Command | Result |
+|---|---|
+| `cargo test --locked --offline --lib adr_0075_contributor_transport` | Green. 11 tests passed |
+| `cargo test --locked --offline` | Green. 1513 unit tests, 263 architecture tests |
+| `cargo check --locked --offline` | Green |
+| `cargo fmt -- --check` | Green |
+| `cargo clippy --locked --offline -- -D warnings` | Green |
+| `cargo build --locked --offline --bin v4vmm` | Green |
+
+`cargo clippy --all-targets` reports 55 existing errors in test code of other modules.
+This packet changed no file in that list. The repository does not require that command.
+
+### Deviations
+
+None. The packet triggered no escalation. No schema, request, or presentation change was necessary.
 
 ## Rollback
 

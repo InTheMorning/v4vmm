@@ -10,10 +10,13 @@ in v4vmm and MusicIndex. [ADR 0075](../adr/0075-metadata-ownership-and-completen
 is Accepted. Its [audit and review](../reviews/adr-0075-metadata-contract-review.md),
 [phase plan](adr-0075-metadata-contract-phase-plan.md) and
 [first packet](../tasks/adr-0075-task-001-contributor-claim-transport.md) are written.
-Implementation has not started.
 
-Packet 001 is Ready. Document packets 002–008 exist. Their deliverables are not complete.
-The operator holds all dispatches.
+Packet 001 is complete on 2026-09-19. Its mechanical checks are Green.
+It preserves the seven claim fields in the contributor type for API data.
+It needs no visual acceptance. Storage and display still lose those fields.
+
+Document packets 002–008 exist. Their deliverables are not complete.
+The operator holds the dispatch of every remaining packet.
 
 This priority includes the Stophammer backend and the generated MusicIndex API contract.
 The existing broadcast order resumes after this work. Acceptance gates remain open.
@@ -99,7 +102,7 @@ ADR 0039 is Implemented. Its scheduled work is complete.
 
 | Order | Work | Completion point |
 |---|---|---|
-| Current priority | [Metadata contract — ADR 0075](adr-0075-metadata-contract-phase-plan.md) | ADR 0075 is Accepted. Packet 001 is Ready. Document packets 002–008 exist. Implementation has not started. The operator holds all dispatches and visual checks |
+| Current priority | [Metadata contract — ADR 0075](adr-0075-metadata-contract-phase-plan.md) | ADR 0075 is Accepted. Packet 001 is complete on 2026-09-19 with Green mechanical checks and no visual gate. Document packets 002–008 exist. The operator holds every remaining dispatch and the visual checks |
 | 1 | Governance reconciliation | Complete - 2026-09-10. Surviving checks indexed. ADR 0039's policy deferral and scheduled work are resolved by its 2026-09-18 implementation and acceptance below. The dated reconciliation remains history |
 | 2, keyboard correction | [Platform shortcuts — ADR 0067](../tasks/adr-0067-task-001-platform-shortcuts.md) | Complete - 2026-09-11; Ctrl shortcuts, focus handling and Settings responsiveness accepted; fixture cleanup confirmed |
 | 2, Settings foundation | [Grouped Settings — ADR 0069 task 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Complete - 2026-09-11; mechanical checks Green; V1–V3 and all preservation inspections accepted; fixture cleanup confirmed; no configuration-format or playback changes |

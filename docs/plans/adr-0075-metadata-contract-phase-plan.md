@@ -3,7 +3,8 @@
 ## Status
 
 Active plan - 2026-09-19. The source audit and the accepted contract are written.
-Implementation has not started. The operator paused visual checks and prioritised
+Phase 001 is complete on 2026-09-19. Its mechanical checks are Green.
+The operator paused visual checks and prioritised
 metadata handling across v4vmm and MusicIndex.
 
 ADR 0075 is Accepted from 2026-09-19. The operator recorded these decisions:
@@ -16,7 +17,8 @@ ADR 0075 is Accepted from 2026-09-19. The operator recorded these decisions:
 - Field-rule review. Document agents propose unresolved source priorities and conflict rules.
   The operator reviews those proposals before the dependent code packets run.
 
-The operator holds the dispatch of every packet, packet 001 included.
+The operator released the dispatch of packet 001 on 2026-09-19.
+The operator holds the dispatch of every remaining packet.
 Write the document packets in the [packet register](#packet-register) first.
 
 Complete one packet per session.
@@ -86,7 +88,7 @@ Exclude these changes from this work:
 
 | Phase | Outcome | Prerequisites and completion evidence |
 |---|---|---|
-| 001 | Preserve contributor claim fields in the app's type for API data | [First packet](../tasks/adr-0075-task-001-contributor-claim-transport.md). Tests check JSON round trips and compatibility. No schema or UI change |
+| 001 | Preserve contributor claim fields in the app's type for API data | Complete on 2026-09-19. [First packet](../tasks/adr-0075-task-001-contributor-claim-transport.md). Eleven tests check JSON round trips and compatibility. No schema or UI change |
 | 002 | Agree the RSS extraction and Index ownership rules | A Stophammer ADR and a shared list of examples. Tests check parsing, ingestion and queries. Preserve compatibility. Do not crawl live feeds again yet |
 | 003 | Store provider snapshots and coverage state with their owners | Write the exact schema and migration packet first. Test transactions, empty refresh, rollback, restart and isolation between providers |
 | 004 | Share detail requests and code that prepares data for display | Define request includes, scoped identity, response failure handling and fallback for each field. Test partial responses, request counts and route parity |
@@ -174,7 +176,7 @@ Do not write a packet before its inputs exist.
 ## Requirements Before Dispatch
 
 ADR 0057 requires an Accepted decision before implementation. ADR 0075 is Accepted.
-Packet 001 is Ready. Packet files 002–008 exist. The operator's explicit dispatch hold still applies.
+Packet 001 is complete. Packet files 002–008 exist. The operator's explicit dispatch hold still applies to them.
 
 The following prerequisites apply to individual packets, not whole phases.
 Document work can produce a decision request before that decision exists.
@@ -213,12 +215,14 @@ The [review](../reviews/adr-0075-metadata-contract-review.md#operator-decisions-
 
 ## Schema And API Implications
 
-Phase 001 adds optional fields to the data transfer object (DTO).
+Phase 001 added optional fields to the data transfer object (DTO).
 The DTO is the Rust type that represents API data.
-Phase 001 changes neither the HTTP contract nor the schema.
+Phase 001 changed neither the HTTP contract nor the schema.
 Existing payloads remain readable without invented provenance.
-Existing JSON storage will include newly supplied fields when it serialises the expanded DTO.
+Existing JSON storage includes newly supplied fields, because it serialises the expanded DTO.
 Typed storage and display remain incomplete after phase 001.
+The [review](../reviews/adr-0075-metadata-contract-review.md#fields-that-later-layers-still-lose)
+lists the fields that each later layer loses.
 
 Phase 003 must record the provider separately from the source assertion.
 It must also record whether a response contains the complete collection.

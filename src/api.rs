@@ -239,6 +239,11 @@ pub struct Publisher {
     pub tracks: Option<Vec<Track>>,
 }
 
+/// One contributor claim from a source observation (ADR 0075).
+///
+/// The seven provenance fields keep the owner, position, normalized role,
+/// assertion source, extraction path and observation time that the API supplies.
+/// They stay `None` for an older payload and for a locally constructed credit.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Contributor {
@@ -248,6 +253,20 @@ pub struct Contributor {
     pub img: Option<String>,
     pub npub: Option<String>,
     pub group_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role_norm: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extraction_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub observed_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -938,5 +957,452 @@ mod tests {
             .expect("path segments")
             .collect::<Vec<_>>();
         assert_eq!(segments, vec!["v1", "liveitems", "event%2Fone", "metadata"]);
+    }
+
+    /// The operator's selected MusicIndex response from 2026-09-19 (ADR 0075 packet 001).
+    /// Keep the three credits and their values unchanged.
+    const ADR_0075_SUPPLIED_RESPONSE: &str = r#"{
+  "title": "MoeFactz",
+  "source_links": [],
+  "source_ids": [],
+  "source_contributors": [
+    {
+      "entity_type": "track",
+      "entity_id": "d489101a-4e62-492f-812e-9fe51def9423",
+      "position": 0,
+      "name": "HeyCitizen",
+      "role": "musician",
+      "role_norm": "musician",
+      "group_name": "music",
+      "href": null,
+      "img": "https://files.heycitizen.xyz/Songs/HeyCitizen.jpg",
+      "npub": "npub12um9zqae9uaydfszralpn0e0r90d559gd4qsrzar0j2yvut7t2zqwff5ck",
+      "source": "podcast_person",
+      "extraction_path": "track.podcast:person",
+      "observed_at": 1779240280
+    },
+    {
+      "entity_type": "track",
+      "entity_id": "d489101a-4e62-492f-812e-9fe51def9423",
+      "position": 1,
+      "name": "HeyCitizen",
+      "role": "audio engineer",
+      "role_norm": "audio engineer",
+      "group_name": "audio-production",
+      "href": null,
+      "img": "https://files.heycitizen.xyz/Songs/HeyCitizen.jpg",
+      "npub": "npub12um9zqae9uaydfszralpn0e0r90d559gd4qsrzar0j2yvut7t2zqwff5ck",
+      "source": "podcast_person",
+      "extraction_path": "track.podcast:person",
+      "observed_at": 1779240280
+    },
+    {
+      "entity_type": "track",
+      "entity_id": "d489101a-4e62-492f-812e-9fe51def9423",
+      "position": 2,
+      "name": "Moe Factz",
+      "role": "host",
+      "role_norm": "host",
+      "group_name": "cast",
+      "href": "https://www.moefactz.com/",
+      "img": null,
+      "npub": null,
+      "source": "podcast_person",
+      "extraction_path": "track.podcast:person",
+      "observed_at": 1779240280
+    }
+  ]
+}"#;
+
+    /// The seven claim fields that ADR 0075 packet 001 adds to the contributor DTO.
+    const ADR_0075_PROVENANCE_KEYS: [&str; 7] = [
+        "entity_type",
+        "entity_id",
+        "position",
+        "role_norm",
+        "source",
+        "extraction_path",
+        "observed_at",
+    ];
+
+    struct Adr0075ExpectedCredit {
+        entity_type: &'static str,
+        entity_id: &'static str,
+        position: i64,
+        name: &'static str,
+        role: &'static str,
+        role_norm: &'static str,
+        group_name: &'static str,
+        href: Option<&'static str>,
+        img: Option<&'static str>,
+        npub: Option<&'static str>,
+        source: &'static str,
+        extraction_path: &'static str,
+        observed_at: i64,
+    }
+
+    const ADR_0075_HEYCITIZEN_IMG: &str = "https://files.heycitizen.xyz/Songs/HeyCitizen.jpg";
+    const ADR_0075_HEYCITIZEN_NPUB: &str =
+        "npub12um9zqae9uaydfszralpn0e0r90d559gd4qsrzar0j2yvut7t2zqwff5ck";
+    const ADR_0075_TRACK_ID: &str = "d489101a-4e62-492f-812e-9fe51def9423";
+    const ADR_0075_OBSERVED_AT: i64 = 1_779_240_280;
+
+    const ADR_0075_EXPECTED_CREDITS: [Adr0075ExpectedCredit; 3] = [
+        Adr0075ExpectedCredit {
+            entity_type: "track",
+            entity_id: ADR_0075_TRACK_ID,
+            position: 0,
+            name: "HeyCitizen",
+            role: "musician",
+            role_norm: "musician",
+            group_name: "music",
+            href: None,
+            img: Some(ADR_0075_HEYCITIZEN_IMG),
+            npub: Some(ADR_0075_HEYCITIZEN_NPUB),
+            source: "podcast_person",
+            extraction_path: "track.podcast:person",
+            observed_at: ADR_0075_OBSERVED_AT,
+        },
+        Adr0075ExpectedCredit {
+            entity_type: "track",
+            entity_id: ADR_0075_TRACK_ID,
+            position: 1,
+            name: "HeyCitizen",
+            role: "audio engineer",
+            role_norm: "audio engineer",
+            group_name: "audio-production",
+            href: None,
+            img: Some(ADR_0075_HEYCITIZEN_IMG),
+            npub: Some(ADR_0075_HEYCITIZEN_NPUB),
+            source: "podcast_person",
+            extraction_path: "track.podcast:person",
+            observed_at: ADR_0075_OBSERVED_AT,
+        },
+        Adr0075ExpectedCredit {
+            entity_type: "track",
+            entity_id: ADR_0075_TRACK_ID,
+            position: 2,
+            name: "Moe Factz",
+            role: "host",
+            role_norm: "host",
+            group_name: "cast",
+            href: Some("https://www.moefactz.com/"),
+            img: None,
+            npub: None,
+            source: "podcast_person",
+            extraction_path: "track.podcast:person",
+            observed_at: ADR_0075_OBSERVED_AT,
+        },
+    ];
+
+    fn adr_0075_contributor_transport_supplied_values() -> Vec<serde_json::Value> {
+        let response: serde_json::Value = serde_json::from_str(ADR_0075_SUPPLIED_RESPONSE)
+            .expect("the supplied response should parse as JSON");
+        response
+            .get("source_contributors")
+            .and_then(serde_json::Value::as_array)
+            .expect("the supplied response should hold a contributor array")
+            .clone()
+    }
+
+    fn adr_0075_contributor_transport_supplied_contributors() -> Vec<Contributor> {
+        serde_json::from_value(serde_json::Value::Array(
+            adr_0075_contributor_transport_supplied_values(),
+        ))
+        .expect("the supplied contributors should decode")
+    }
+
+    #[test]
+    fn adr_0075_contributor_transport_decodes_every_supplied_field() {
+        let contributors = adr_0075_contributor_transport_supplied_contributors();
+        assert_eq!(contributors.len(), ADR_0075_EXPECTED_CREDITS.len());
+
+        for (credit, expected) in contributors.iter().zip(&ADR_0075_EXPECTED_CREDITS) {
+            assert_eq!(credit.entity_type.as_deref(), Some(expected.entity_type));
+            assert_eq!(credit.entity_id.as_deref(), Some(expected.entity_id));
+            assert_eq!(credit.position, Some(expected.position));
+            assert_eq!(credit.name.as_deref(), Some(expected.name));
+            assert_eq!(credit.role.as_deref(), Some(expected.role));
+            assert_eq!(credit.role_norm.as_deref(), Some(expected.role_norm));
+            assert_eq!(credit.group_name.as_deref(), Some(expected.group_name));
+            assert_eq!(credit.href.as_deref(), expected.href);
+            assert_eq!(credit.img.as_deref(), expected.img);
+            assert_eq!(credit.npub.as_deref(), expected.npub);
+            assert_eq!(credit.source.as_deref(), Some(expected.source));
+            assert_eq!(
+                credit.extraction_path.as_deref(),
+                Some(expected.extraction_path)
+            );
+            assert_eq!(credit.observed_at, Some(expected.observed_at));
+        }
+    }
+
+    #[test]
+    fn adr_0075_contributor_transport_keeps_existing_identity_fields() {
+        let contributors = adr_0075_contributor_transport_supplied_contributors();
+
+        assert_eq!(contributors[0].href, None);
+        assert_eq!(
+            contributors[0].img.as_deref(),
+            Some(ADR_0075_HEYCITIZEN_IMG)
+        );
+        assert_eq!(
+            contributors[0].npub.as_deref(),
+            Some(ADR_0075_HEYCITIZEN_NPUB)
+        );
+        assert_eq!(
+            contributors[2].href.as_deref(),
+            Some("https://www.moefactz.com/")
+        );
+        assert_eq!(contributors[2].img, None);
+        assert_eq!(contributors[2].npub, None);
+    }
+
+    #[test]
+    fn adr_0075_contributor_transport_serializes_each_supplied_credit_unchanged() {
+        let values = adr_0075_contributor_transport_supplied_values();
+        let contributors = adr_0075_contributor_transport_supplied_contributors();
+
+        for (contributor, expected) in contributors.iter().zip(&values) {
+            let serialized =
+                serde_json::to_value(contributor).expect("the contributor should serialize");
+            // A JSON object comparison ignores key order.
+            assert_eq!(&serialized, expected);
+        }
+    }
+
+    #[test]
+    fn adr_0075_contributor_transport_second_decode_keeps_values_and_order() {
+        let values = adr_0075_contributor_transport_supplied_values();
+        let first = adr_0075_contributor_transport_supplied_contributors();
+        let text = serde_json::to_string(&first).expect("the credits should serialize");
+        let second: Vec<Contributor> =
+            serde_json::from_str(&text).expect("the credits should decode a second time");
+
+        assert_eq!(
+            second
+                .iter()
+                .map(|credit| credit.position)
+                .collect::<Vec<_>>(),
+            vec![Some(0), Some(1), Some(2)]
+        );
+        assert_eq!(
+            serde_json::to_value(&second).expect("the second decode should serialize"),
+            serde_json::Value::Array(values)
+        );
+    }
+
+    #[test]
+    fn adr_0075_contributor_transport_keeps_repeated_name_with_separate_roles() {
+        let contributors = adr_0075_contributor_transport_supplied_contributors();
+        let heycitizen = contributors
+            .iter()
+            .filter(|credit| credit.name.as_deref() == Some("HeyCitizen"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(heycitizen.len(), 2);
+        assert_eq!(heycitizen[0].role.as_deref(), Some("musician"));
+        assert_eq!(heycitizen[1].role.as_deref(), Some("audio engineer"));
+        assert_eq!(heycitizen[0].role_norm.as_deref(), Some("musician"));
+        assert_eq!(heycitizen[1].role_norm.as_deref(), Some("audio engineer"));
+        assert_eq!(heycitizen[0].position, Some(0));
+        assert_eq!(heycitizen[1].position, Some(1));
+        assert_eq!(heycitizen[0].group_name.as_deref(), Some("music"));
+        assert_eq!(
+            heycitizen[1].group_name.as_deref(),
+            Some("audio-production")
+        );
+    }
+
+    #[test]
+    fn adr_0075_contributor_transport_keeps_feed_owned_credit_in_a_track() {
+        let track: Track = serde_json::from_str(
+            r#"{
+                "track_guid": "track-1",
+                "feed_guid": "feed-1",
+                "persons": [
+                    {
+                        "entity_type": "feed",
+                        "entity_id": "feed-1",
+                        "position": 0,
+                        "name": "Alice",
+                        "role": "musician",
+                        "source": "podcast_person",
+                        "extraction_path": "channel.podcast:person",
+                        "observed_at": 1779240280
+                    },
+                    {
+                        "entity_type": "track",
+                        "entity_id": "track-1",
+                        "position": 0,
+                        "name": "Bob",
+                        "role": "host",
+                        "source": "podcast_person",
+                        "extraction_path": "track.podcast:person",
+                        "observed_at": 1779240281
+                    }
+                ]
+            }"#,
+        )
+        .expect("the track fixture should decode");
+        let text = serde_json::to_string(&track).expect("the track should serialize");
+        let round_tripped: Track =
+            serde_json::from_str(&text).expect("the track should decode again");
+
+        let credits = round_tripped
+            .source_contributors
+            .expect("the track should keep its credits");
+        assert_eq!(credits.len(), 2);
+        assert_eq!(credits[0].entity_type.as_deref(), Some("feed"));
+        assert_eq!(credits[0].entity_id.as_deref(), Some("feed-1"));
+        assert_eq!(
+            credits[0].extraction_path.as_deref(),
+            Some("channel.podcast:person")
+        );
+        assert_eq!(credits[1].entity_type.as_deref(), Some("track"));
+        assert_eq!(credits[1].entity_id.as_deref(), Some("track-1"));
+    }
+
+    #[test]
+    fn adr_0075_contributor_transport_keeps_supplied_positions_and_input_order() {
+        let contributors: Vec<Contributor> = serde_json::from_str(
+            r#"[
+                {"name": "Alice", "position": 7},
+                {"name": "Bob", "position": 2},
+                {"name": "Carol", "position": 19}
+            ]"#,
+        )
+        .expect("the position fixture should decode");
+        let text = serde_json::to_string(&contributors).expect("the credits should serialize");
+        let round_tripped: Vec<Contributor> =
+            serde_json::from_str(&text).expect("the credits should decode again");
+
+        assert_eq!(
+            round_tripped
+                .iter()
+                .map(|credit| (credit.name.clone(), credit.position))
+                .collect::<Vec<_>>(),
+            vec![
+                (Some("Alice".to_string()), Some(7)),
+                (Some("Bob".to_string()), Some(2)),
+                (Some("Carol".to_string()), Some(19)),
+            ]
+        );
+    }
+
+    #[test]
+    fn adr_0075_contributor_transport_decodes_an_older_payload_without_provenance() {
+        let older = r#"{
+            "name": "Alice",
+            "role": "vocals",
+            "group_name": "Band",
+            "href": "https://example.com/alice",
+            "img": "https://example.com/alice.jpg",
+            "npub": "npub1alice"
+        }"#;
+        let contributor: Contributor =
+            serde_json::from_str(older).expect("the older payload should decode");
+
+        assert_eq!(contributor.entity_type, None);
+        assert_eq!(contributor.entity_id, None);
+        assert_eq!(contributor.position, None);
+        assert_eq!(contributor.role_norm, None);
+        assert_eq!(contributor.source, None);
+        assert_eq!(contributor.extraction_path, None);
+        assert_eq!(contributor.observed_at, None);
+
+        let serialized =
+            serde_json::to_value(&contributor).expect("the older payload should serialize");
+        let object = serialized
+            .as_object()
+            .expect("the credit should serialize as an object");
+        for key in ADR_0075_PROVENANCE_KEYS {
+            assert!(!object.contains_key(key), "serialization added {key}");
+        }
+        assert_eq!(object.len(), 6);
+        assert_eq!(
+            serialized,
+            serde_json::from_str::<serde_json::Value>(older).expect("the older payload is JSON")
+        );
+    }
+
+    #[test]
+    fn adr_0075_contributor_transport_reads_explicit_null_provenance_as_absent() {
+        let contributor: Contributor = serde_json::from_str(
+            r#"{
+                "name": "Alice",
+                "role": "vocals",
+                "group_name": "Band",
+                "href": "https://example.com/alice",
+                "img": "https://example.com/alice.jpg",
+                "npub": "npub1alice",
+                "entity_type": null,
+                "entity_id": null,
+                "position": null,
+                "role_norm": null,
+                "source": null,
+                "extraction_path": null,
+                "observed_at": null
+            }"#,
+        )
+        .expect("explicit null provenance should decode");
+
+        assert_eq!(contributor.entity_type, None);
+        assert_eq!(contributor.entity_id, None);
+        assert_eq!(contributor.position, None);
+        assert_eq!(contributor.role_norm, None);
+        assert_eq!(contributor.source, None);
+        assert_eq!(contributor.extraction_path, None);
+        assert_eq!(contributor.observed_at, None);
+
+        let serialized = serde_json::to_value(&contributor).expect("the credit should serialize");
+        let object = serialized
+            .as_object()
+            .expect("the credit should serialize as an object");
+        for key in ADR_0075_PROVENANCE_KEYS {
+            assert!(!object.contains_key(key), "serialization kept {key}");
+        }
+        assert_eq!(object.len(), 6);
+        assert_eq!(contributor.name.as_deref(), Some("Alice"));
+    }
+
+    #[test]
+    fn adr_0075_contributor_transport_keeps_unknown_entity_type_and_separate_role_norm() {
+        let contributor: Contributor = serde_json::from_str(
+            r#"{
+                "entity_type": "collection",
+                "entity_id": "collection-1",
+                "name": "Alice",
+                "role": "Lead Vocals",
+                "role_norm": "vocals"
+            }"#,
+        )
+        .expect("an unknown entity type should decode");
+        let text = serde_json::to_string(&contributor).expect("the credit should serialize");
+        let round_tripped: Contributor =
+            serde_json::from_str(&text).expect("the credit should decode again");
+
+        assert_eq!(round_tripped.entity_type.as_deref(), Some("collection"));
+        assert_eq!(round_tripped.entity_id.as_deref(), Some("collection-1"));
+        assert_eq!(round_tripped.role.as_deref(), Some("Lead Vocals"));
+        assert_eq!(round_tripped.role_norm.as_deref(), Some("vocals"));
+    }
+
+    #[test]
+    fn adr_0075_contributor_transport_rejects_a_string_position_or_observed_at() {
+        let position_error =
+            serde_json::from_str::<Contributor>(r#"{"name": "Alice", "position": "0"}"#);
+        assert!(
+            position_error.is_err(),
+            "a string position should not decode"
+        );
+
+        let observed_at_error = serde_json::from_str::<Contributor>(
+            r#"{"name": "Alice", "observed_at": "1779240280"}"#,
+        );
+        assert!(
+            observed_at_error.is_err(),
+            "a string observation time should not decode"
+        );
     }
 }

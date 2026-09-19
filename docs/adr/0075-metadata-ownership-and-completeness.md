@@ -3,7 +3,8 @@
 ## Status
 
 Accepted - 2026-09-19. The operator accepted this decision and answered its two open questions.
-Implementation has not started. The operator holds the dispatch of every packet.
+Packet 001 is complete on 2026-09-19. It preserves contributor claim transport.
+The operator holds the dispatch of every remaining packet.
 
 Decision A, field scope. This contract covers every metadata field, not only identity and credit fields.
 Each field keeps a separate written rule. A packet cannot run before its field rule exists.
