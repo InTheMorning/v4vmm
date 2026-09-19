@@ -206,12 +206,12 @@ Open - implementation and mechanical checks recorded 2026-09-11.
 ## 7. Dynamic Type Ramp — ADR 0039 Task 003
 
 Open - scheduled 2026-09-18; ownership amended the same day. Policy Accepted;
-implementation not started. Task 001 ships both live resolvers at identity
+task 003 implementation not started. Task 001 ships both live resolvers at identity
 and has no visual gate. Task 002 adds fixed-height reservation and ShowCard's
 single-line fix and has no visual gate of its own. The numeric type table is
 a proposal, not a ratified decision; task 003 ratifies it and lands the
-per-role curves. The visual procedure becomes runnable after all three
-packets; no inspection is claimed today.
+per-role curves. Inspection of the ratified curves follows all three packets;
+no inspection of those future values is claimed today.
 
 - Owner: [task 003](tasks/adr-0039-task-003-type-curve-ratification.md).
 - Method: [dynamic type check](runbooks/dynamic-type-ramp-check.md), using a new
@@ -228,3 +228,9 @@ packets; no inspection is claimed today.
   density re-walk belongs to a packet that changes those values; it is not an
   extra open check here.
 - This gate does not close any inherited check or ADR 0066 task 004 acceptance.
+- The operator's [pre-003 baseline walkthrough](reviews/adr-0039-review-checklist.md#operator-baseline-before-task-003)
+  passed Music and Show checks at identity, including XS/XL in both themes.
+  Final preservation is Green; starting theme/scale restoration and fixture
+  cleanup are confirmed. No baseline walkthrough action remains open.
+  These baseline observations do not close task 003's gate or the review's two
+  mechanical findings.

@@ -153,6 +153,7 @@ fn render_queue_row(row: QueueRowDisplay, cx: &App) -> impl IntoElement {
 
     div()
         .id(SharedString::from(row.id.clone()))
+        .debug_selector(|| "queue-now-playing-row".to_owned())
         .min_h(Size::RowLg.scaled(cx))
         .flex()
         .flex_row()
@@ -294,4 +295,114 @@ fn transport_button(
     }
 
     button
+}
+
+// ---------------------------------------------------------------------------
+// ADR 0039 task 002 M1: fixed geometry does not depend on string length.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use gpui::{div, prelude::*, px, TestAppContext};
+
+    use super::render_queue_row;
+    use crate::view_models::queue_now_playing::QueueRowDisplay;
+
+    fn row(
+        title: &str,
+        artist: Option<&str>,
+        duration: Option<&str>,
+        now_playing: bool,
+    ) -> QueueRowDisplay {
+        QueueRowDisplay {
+            track_id: 1,
+            id: "queue-row-1".to_owned(),
+            title: title.to_owned(),
+            artist: artist.map(str::to_owned),
+            duration_label: duration.map(str::to_owned),
+            now_playing,
+            a11y_label: title.to_owned(),
+        }
+    }
+
+    struct RowHeightTest {
+        display: QueueRowDisplay,
+    }
+
+    impl gpui::Render for RowHeightTest {
+        fn render(
+            &mut self,
+            _window: &mut gpui::Window,
+            cx: &mut gpui::Context<Self>,
+        ) -> impl gpui::IntoElement {
+            div()
+                .w(px(320.0))
+                .child(render_queue_row(self.display.clone(), cx))
+        }
+    }
+
+    /// ADR 0039 task 002 M1: the queue row is a floor
+    /// (`.min_h(Size::RowLg.scaled(cx))`), not a cap, but its height must
+    /// still stay independent of title/artist string length and unaffected
+    /// by which optional slots (artist, duration, now-playing) are present —
+    /// title/artist clip via `.truncate()` inside their `flex_1()` ancestor
+    /// rather than growing the row.
+    #[gpui::test]
+    fn adr_0039_queue_row_height_is_independent_of_title_length(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let short = row("A", None, None, false);
+        let (view, cx) = cx.add_window_view(|_, _| RowHeightTest {
+            display: short.clone(),
+        });
+
+        let long_title = "A very long queue row title that would otherwise wrap this row".repeat(3);
+        let cases = [
+            short.clone(),
+            row(&long_title, None, None, false),
+            row("A", Some("Artist"), None, false),
+            row(
+                &long_title,
+                Some("A very long artist name too"),
+                None,
+                false,
+            ),
+            row("A", Some("Artist"), Some("3:45"), false),
+            row(
+                &long_title,
+                Some("A very long artist name too"),
+                Some("3:45"),
+                true,
+            ),
+        ];
+
+        let mut heights = Vec::new();
+        for display in cases {
+            view.update(cx, |this, cx| {
+                this.display = display;
+                cx.notify();
+            });
+            cx.update(|window, cx| {
+                let _ = window.draw(cx);
+            });
+            let bounds = cx
+                .debug_bounds("queue-now-playing-row")
+                .expect("queue row bounds recorded");
+            heights.push(bounds.size.height);
+        }
+
+        // Toggling `now_playing`, `artist` or `duration_label` legitimately
+        // changes the row (a highlighted background, an extra line, a
+        // trailing label) — those are named optional states, not a
+        // string-length dependency. What must never move is the height
+        // *within* a fixed set of present slots when only string length
+        // changes: cases 0 vs 1 (title only) and cases 2 vs 3 (title+artist).
+        assert_eq!(
+            heights[0], heights[1],
+            "queue row height changed with title length alone: {heights:?}"
+        );
+        assert_eq!(
+            heights[2], heights[3],
+            "queue row height changed with title/artist length alone: {heights:?}"
+        );
+    }
 }

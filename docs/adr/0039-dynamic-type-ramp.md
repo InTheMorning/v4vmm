@@ -231,18 +231,68 @@ Verified against the code, ahead of task 001:
   the now-playing row (`src/ui/shells/queue_now_playing.rs`, lines 198 and
   206) are already structurally immune to this defect: they force one line
   and clip horizontally.
-- Open gap for task 002: GPUI's default line-height for a bare
-  `div().text_size()` is not determinable from application source. Only
+- Line-height prerequisite for task 002: RESOLVED, 2026-09-18. GPUI resolves
+  a bare `div().text_size(...)` with no `.line_height()` override as
+  `line_height_px = round(font_px * 1.618034)`. `TextStyle::default()` sets
+  `line_height: phi()` (`gpui-pre-0.3.1/src/style.rs:494`). `phi()` is
+  `relative(1.618_034)` (`gpui-pre-0.3.1/src/geometry.rs:3708-3711`).
+  Resolution runs through `line_height_in_pixels()` (`style.rs:554-556`),
+  which calls `DefiniteLength::to_pixels` (`geometry.rs:3496-3504`); its
+  `Fraction` branch multiplies the element's own font_size, not rem_size,
+  then rounds. gpui is pinned `gpui-pre` `=0.3.1` (`Cargo.toml:25`). It
+  scales with font size, not font family. No ancestor of the six named
+  surfaces overrides it: the window root (`src/app/bootstrap.rs:77`) applies
+  an empty StyleRefinement, and `src/ui/primitives/label.rs:118` and
+  `src/ui/primitives/button.rs:401,520` call only `.text_size(...)`. Task 002
+  may read it at runtime — `TextStyle`, `phi()`, `relative()` and
+  `DefiniteLength` are re-exported at the gpui crate root — or hardcode it as
+  a documented constant citing `gpui-pre-0.3.1/src/geometry.rs:3710`; this
+  finding records both options and picks neither. Also relevant to the
+  arithmetic: box sizing is border-box. Taffy's `Style::DEFAULT.box_sizing =
+  BoxSizing::BorderBox` (`taffy-0.13.0/src/style/mod.rs:598-605`) and GPUI's
+  `Style::to_taffy` (`gpui-pre-0.3.1/src/taffy.rs:479-513`) never overrides
+  it, so `.h()` sets total box height and padding/border subtract from it.
+  Application source pins two other explicit ratios, corrected count: only
   `MultilineText` (`text_size * 1.55`, `src/ui/primitives/multiline_text.rs`
-  line 120) and `LOG_LINE_HEIGHT` (1.5, `src/ui/tokens.rs` line 779) pin an
-  explicit ratio. Task 002's reservation arithmetic needs a real measured or
-  documented constant; record this as a named prerequisite, not an assumption.
+  line 120) and `LOG_LINE_HEIGHT` (1.5, `src/ui/tokens.rs:1082` — corrected
+  from a stale line-779 citation). `src/ui/style.rs:142-150` also defines a
+  `typography` module of fixed-pixel line heights (`LINE_TIGHT` 14,
+  `LINE_COMPACT` 15, `LINE_BODY` 16, `LINE_DETAIL` 17, `LINE_TITLE` 20,
+  `LINE_HEADER` 23), used by the legacy pre-Music `discover` and `library`
+  feed/track-detail surfaces this ADR's Context excludes from delivery. None
+  of the three is an ancestor of the six named surfaces.
 - Pre-existing, not caused by this ADR: `src/ui/composites/track_row.rs`
   (lines 185 and 221) and `src/ui/composites/skeleton_track_row.rs` (line
   102) consume `layouts::TRACK_NUMBER_WIDTH` (24px) and
   `layouts::MIN_HIT_TARGET` (44px) as raw unscaled constants, with no
   `.scaled()` call, so a 44px hit-target floor never responds to scale. This
   is a finding, not scheduled work.
+- Capacity audit, 2026-09-18: computed against the ADR's reviewed but
+  unratified numeric proposal as the sizing ceiling, using the resolved
+  line-height constant above, ShowCard and Button fit at all five steps with
+  zero mismatches; ListRow, TrackRow, the queue row, the playlist row and
+  content_list's row are each a FLOOR or uncapped, not a cap, so the
+  "reserved block exceeds available height" failure mode does not apply to
+  them mechanically. Nothing is escalated back to this ADR on capacity
+  grounds. Full figures are recorded in the
+  [review checklist](../reviews/adr-0039-review-checklist.md#task-002-implementation-step-1-evidence--2026-09-18).
+- Out of scope, recorded only, 2026-09-18:
+  `src/ui/shells/library/content_list.rs:391-406`
+  (`render_content_list_row_text`) has the same undisciplined shape ShowCard's
+  summary line had before task 002's fix — no `.truncate()`/`.whitespace_nowrap()`
+  on row title or secondary text. That row has no `.h()` cap, so wrapping
+  grows the row instead of clipping it silently. Task 002's Do Not Touch bars
+  fixing truncation beyond ShowCard's named single-line fix; no work is
+  scheduled here.
+- Out of scope, recorded only, 2026-09-18: `queue_now_playing.rs`'s
+  `.truncate()` sites sit in text divs whose own chain lacks
+  `flex_1()`/`max_w(`/`.w(` — that `flex_1()` is on their ancestor, at lines
+  186-187. The file is not one of `adr_0063_column_text_does_not_truncate`'s
+  three checked files, so nothing fails today, but the guard's own doc
+  comment (`tests/architecture_tests.rs:14508-14511`) asserts that usage
+  "sits in a flex row that gives the element a width" without mechanically
+  verifying this file. A latent inconsistency in an existing guard's
+  reasoning; the guard, its doc comment and the file are unchanged.
 
 ### Verification And Acceptance
 

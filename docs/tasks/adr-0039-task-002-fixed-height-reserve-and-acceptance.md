@@ -12,12 +12,14 @@ mechanically.
 
 Implement ADR 0039's fixed-height reservation at the shared geometry owner,
 and guard its live consumers, sized against the ADR's reviewed but unratified
-numeric proposal as a working ceiling. Give ShowCard's summary lines the same
-single-line discipline the playlist row and now-playing row already have,
-correcting a latent wrap-and-clip defect that predates this ADR. Text
-readable at medium must not acquire vertical clipping at either extreme,
-x-small or x-large — the relative text-to-box pressure this reservation
-guards against rises at both ends, not only at x-large.
+numeric proposal as a working ceiling. Give ShowCard's summary lines the
+playlist row's single-line discipline, `whitespace_nowrap()` with
+`overflow_hidden()`, correcting a latent wrap-and-clip defect that predates
+this ADR. The now-playing row uses `truncate()` instead. That is a different
+mechanism, and step 4 records why it is wrong here. Text readable at medium
+must not acquire vertical clipping at either extreme, x-small or x-large —
+the relative text-to-box pressure this reservation guards against rises at
+both ends, not only at x-large.
 
 ## Files To Inspect
 
@@ -26,7 +28,7 @@ guards against rises at both ends, not only at x-large.
   checklist; `docs/plans/broadcast-chain-delivery-order.md`.
 - `docs/adr/0063-show-dashboard-layout.md`,
   `docs/troubleshooting/column-text-truncation.md`.
-- `tests/architecture_tests.rs:14666` (`adr_0063_show_card_grid_shell_uses_vm_contract`):
+- `tests/architecture_tests.rs:14668` (`adr_0063_show_card_grid_shell_uses_vm_contract`):
   asserts the literal string `.h(Size::MenuCompact.scaled(cx))` against
   `src/ui/composites/show_card.rs`. Read this guard before touching ShowCard.
 - `src/ui/tokens.rs`, `src/ui/layouts.rs`,
@@ -80,12 +82,45 @@ reservation guard.
 string intact; do not move, edit or broaden that guard to accommodate this
 packet's fix.
 
-GPUI's default line-height for a bare `div().text_size()` is not
-determinable from application source. Only `MultilineText`
-(`text_size * 1.55`, `src/ui/primitives/multiline_text.rs` line 120) and
-`LOG_LINE_HEIGHT` (1.5, `src/ui/tokens.rs` line 779) pin an explicit ratio.
-Obtain or document a real line-height constant for this reservation's
-arithmetic before landing it; do not assume one silently.
+Line-height prerequisite: RESOLVED, 2026-09-18. GPUI resolves a bare
+`div().text_size(...)` with no `.line_height()` override as
+`line_height_px = round(font_px * 1.618034)`. `TextStyle::default()` sets
+`line_height: phi()` (`gpui-pre-0.3.1/src/style.rs:494`). `phi()` is
+`relative(1.618_034)` (`gpui-pre-0.3.1/src/geometry.rs:3708-3711`).
+
+Resolution runs through `line_height_in_pixels()` (`style.rs:554-556`). That
+calls `DefiniteLength::to_pixels` (`geometry.rs:3496-3504`). Its `Fraction`
+branch multiplies the element's own font_size, not rem_size. Then it rounds.
+gpui is pinned `gpui-pre` `=0.3.1` (`Cargo.toml:25`), source at
+`~/.cargo/registry/src/index.crates.io-*/gpui-pre-0.3.1/`. It scales with
+font size. It does not vary with font family. No ancestor of the six named
+surfaces overrides it: the window root (`src/app/bootstrap.rs:77`) applies
+an empty StyleRefinement, and `src/ui/primitives/label.rs:118` and
+`src/ui/primitives/button.rs:401,520` call only `.text_size(...)`.
+
+Two options exist for the reservation arithmetic. Read the constant at
+runtime — `TextStyle`, `phi()`, `relative()` and `DefiniteLength` are
+re-exported at the gpui crate root. Or hardcode it as a documented constant
+citing `gpui-pre-0.3.1/src/geometry.rs:3710`. Both are valid. This packet
+picks neither.
+
+Also relevant to the arithmetic: box sizing is border-box. Taffy's
+`Style::DEFAULT.box_sizing = BoxSizing::BorderBox`
+(`taffy-0.13.0/src/style/mod.rs:598-605`). GPUI's `Style::to_taffy`
+(`gpui-pre-0.3.1/src/taffy.rs:479-513`) never overrides it. `.h()` sets total
+box height. Padding and border subtract from it.
+
+Application source pins two other explicit ratios, corrected count: only
+`MultilineText` (`text_size * 1.55`, `src/ui/primitives/multiline_text.rs`
+line 120) and `LOG_LINE_HEIGHT` (1.5, `src/ui/tokens.rs:1082` — corrected
+from a stale line-779 citation) pin an explicit ratio in the delivery
+surfaces this task touches. `src/ui/style.rs:142-150` also defines a
+`typography` module of fixed-pixel line heights (`LINE_TIGHT` 14,
+`LINE_COMPACT` 15, `LINE_BODY` 16, `LINE_DETAIL` 17, `LINE_TITLE` 20,
+`LINE_HEADER` 23), used by `src/ui/shells/discover/*` and
+`src/ui/shells/library/{feed_list,feed_detail,track_detail_metadata_values}.rs`
+— the legacy pre-Music surfaces ADR 0039's Context calls out as not delivery
+targets. None of these three is an ancestor of the six named surfaces.
 
 Geometry belongs in existing shared layout/primitive/composite owners. View
 models retain renderer-free presentation intent. Shells use the owner; they
@@ -115,12 +150,25 @@ rule; cite and run its guard without re-homing or broadening it.
    proposal. Do not shrink one screen's font, drop a line, wrap a compact row,
    or enlarge chrome to make a test pass.
 4. Give ShowCard's `render_summary_line` (`src/ui/composites/show_card.rs`,
-   line 159) the same single-line discipline the playlist row
-   (`src/ui/shells/playlist.rs`, lines 755/765) and the now-playing row
-   (`src/ui/shells/queue_now_playing.rs`, lines 198/206) already have. Keep
-   `.h(Size::MenuCompact.scaled(cx))` and `overflow_hidden()` on the card
-   (lines 83/85) exactly as `adr_0063_show_card_grid_shell_uses_vm_contract`
-   requires; do not touch that guard.
+   line 159) the fix determined by investigation:
+   `whitespace_nowrap()` + `overflow_hidden()`, NOT `.truncate()`. This
+   follows the playlist row's mechanism
+   (`src/ui/shells/playlist.rs`, lines 755/765), a silent clip with no
+   ellipsis. The now-playing row (`src/ui/shells/queue_now_playing.rs`, lines
+   198/206) uses a different mechanism — `.truncate()`, a clip with an
+   ellipsis — and is not the pattern to follow here; the packet the two
+   rows share is single-line discipline, not an identical mechanism.
+   `.truncate()` would fail here: `render_summary_line`'s div chain
+   (`show_card.rs:162-166`) has only `.min_h(...)`, `.text_size(...)` and
+   `.text_color(...)`, none of which satisfies
+   `adr_0063_column_text_does_not_truncate`'s `flex_1()`/`max_w(`/`.w(`
+   requirement (`tests/architecture_tests.rs:14517-14550`). Keep
+   `.h(Size::MenuCompact.scaled(cx))` on the card (line 83); that is the
+   literal `adr_0063_show_card_grid_shell_uses_vm_contract` pins
+   (`tests/architecture_tests.rs:14823-14835`). Keep `overflow_hidden()` on
+   the card (line 85) too, but note it is not one of that guard's required
+   literals — it matters for ADR 0063's decision generally, not as a string
+   this particular guard checks. Do not touch that guard.
 5. Add one mechanical capacity criterion and its tests across all relevant
    roles/variants and five steps. Add a situational ADR 0039 guard proving
    that fixed-height consumers, including ShowCard, use the tested owner and

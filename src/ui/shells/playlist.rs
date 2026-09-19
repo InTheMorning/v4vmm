@@ -880,6 +880,96 @@ mod tests {
         }
     }
 
+    struct RowBodyHeightTest {
+        display: super::PlaylistTrackRowDisplay,
+    }
+
+    impl gpui::Render for RowBodyHeightTest {
+        fn render(
+            &mut self,
+            _: &mut gpui::Window,
+            cx: &mut gpui::Context<Self>,
+        ) -> impl gpui::IntoElement {
+            gpui::div()
+                .w(gpui::px(320.))
+                .child(super::render_playlist_track_body(
+                    self.display.clone(),
+                    None,
+                    None,
+                    cx,
+                ))
+        }
+    }
+
+    /// ADR 0039 task 002 M1: the playlist row body is a floor
+    /// (no `.h()` cap), but it must still stay independent of title/artist
+    /// string length and unaffected by which optional row states
+    /// (availability label, unavailable styling) are present — title and
+    /// artist clip via `whitespace_nowrap()` + `overflow_hidden()` rather
+    /// than wrapping and growing the row.
+    #[gpui::test]
+    fn adr_0039_playlist_row_body_height_is_independent_of_title_length(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let base = super::PlaylistTrackRowDisplay::playback_repair_fixture();
+        let short = super::PlaylistTrackRowDisplay {
+            title: "A".to_string(),
+            artist: "B".to_string(),
+            availability_label: None,
+            is_available: true,
+            ..base.clone()
+        };
+        let long = super::PlaylistTrackRowDisplay {
+            title: "A very long playlist track title".repeat(6),
+            artist: "A very long playlist artist name".repeat(6),
+            availability_label: None,
+            is_available: true,
+            ..base.clone()
+        };
+        let with_label_short = super::PlaylistTrackRowDisplay {
+            title: "A".to_string(),
+            artist: "B".to_string(),
+            availability_label: Some("Needs setup"),
+            is_available: false,
+            ..base.clone()
+        };
+        let with_label_long = super::PlaylistTrackRowDisplay {
+            title: "A very long playlist track title".repeat(6),
+            artist: "A very long playlist artist name".repeat(6),
+            availability_label: Some("Needs setup"),
+            is_available: false,
+            ..base
+        };
+
+        let (view, cx) = cx.add_window_view(|_, _| RowBodyHeightTest {
+            display: short.clone(),
+        });
+
+        let mut heights = Vec::new();
+        for display in [short, long, with_label_short, with_label_long] {
+            view.update(cx, |this, cx| {
+                this.display = display;
+                cx.notify();
+            });
+            cx.update(|window, cx| {
+                let _ = window.draw(cx);
+            });
+            let bounds = cx
+                .debug_bounds("playlist-row-body")
+                .expect("playlist row body bounds recorded");
+            heights.push(bounds.size.height);
+        }
+
+        assert_eq!(
+            heights[0], heights[1],
+            "playlist row body height changed with title/artist length alone: {heights:?}"
+        );
+        assert_eq!(
+            heights[2], heights[3],
+            "playlist row body height changed with title/artist length while the \
+             availability label is also present: {heights:?}"
+        );
+    }
+
     impl gpui::Render for DragTest {
         fn render(
             &mut self,

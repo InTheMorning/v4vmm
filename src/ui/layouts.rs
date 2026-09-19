@@ -6,9 +6,9 @@
 
 #![warn(clippy::pedantic)]
 
-use gpui::{px, App, Pixels};
+use gpui::{px, AbsoluteLength, App, Pixels, TextStyle};
 
-use crate::ui::tokens::ScaleFactor;
+use crate::ui::tokens::{FontSize, ScaleFactor, Size, Spacing};
 
 pub const WINDOW_WIDTH: Pixels = px(1120.0);
 pub const WINDOW_HEIGHT: Pixels = px(760.0);
@@ -77,3 +77,271 @@ pub const LOG_SCROLLBAR_GUTTER: Pixels = px(16.0);
 /// Default gpui-base overlay scrollbar track width.
 /// ADR 0063: reserve this width plus scaled separation for nested controls.
 pub(crate) const OVERLAY_SCROLLBAR_WIDTH: Pixels = gpui_base::Scrollbar::width();
+
+// -----------------------------------------------------------------------------
+// ADR 0039 task 002 — fixed-height reservation.
+// -----------------------------------------------------------------------------
+//
+// This is the shared geometry owner for the fixed-height reservation ADR 0039
+// requires: a fixed-height row/card reserves space for its largest permitted
+// type step so text readable at medium does not acquire vertical clipping at
+// either scale extreme, x-small or x-large. Two things live here, and they
+// stay deliberately distinct:
+//
+// - `line_box_height` is the *measured* line-box height GPUI resolves for a
+//   bare `.text_size(f)` with no `.line_height()` override, derived through
+//   GPUI's own `TextStyle`/`phi()`/`DefiniteLength` API rather than a
+//   hand-copied ratio, so a future gpui-pre upgrade that changes the default
+//   line-height policy fails the pinned test below instead of silently
+//   drifting every reservation.
+// - `reservation_endpoints`/`reservation_ceiling_factor`/`reservation_line_box`
+//   size the reservation against ADR 0039's *reviewed but unratified* numeric
+//   type proposal (docs/adr/0039-dynamic-type-ramp.md#numeric-proposal). This
+//   is a sizing ceiling only — it is NOT the live type resolver.
+//   `FontSize::type_multiplier` (src/ui/tokens.rs) stays at identity through
+//   this packet, and nothing here feeds that resolver. ADR 0039 task 003 owns
+//   ratifying real numbers into it; when it does, it must re-verify this
+//   reservation against the ratified values
+//   (docs/reviews/adr-0039-review-checklist.md).
+
+/// ADR 0039: the line-box height GPUI renders for `div().text_size(font_size)`
+/// with no `.line_height()` override.
+///
+/// Mirrors `TextStyle::line_height_in_pixels` exactly: `TextStyle::default()`
+/// already carries GPUI's golden-ratio line height (`phi()`,
+/// gpui-pre-0.3.1/src/geometry.rs:3708-3711), and the `Fraction` branch of
+/// `DefiniteLength::to_pixels` (geometry.rs:3496-3504) multiplies the text
+/// style's own `font_size` field — never `rem_size` — so the `rem_size`
+/// argument below is inert for this call and passed as zero. No ancestor of
+/// the surfaces this module sizes overrides `line_height` (ADR 0039 Audited
+/// Findings, 2026-09-18).
+#[must_use]
+pub(crate) fn line_box_height(font_size: Pixels) -> Pixels {
+    let style = TextStyle {
+        font_size: AbsoluteLength::Pixels(font_size),
+        ..TextStyle::default()
+    };
+    style.line_height_in_pixels(px(0.0))
+}
+
+/// ADR 0039 sizing-ceiling endpoints from the ADR's reviewed but unratified
+/// numeric proposal (docs/adr/0039-dynamic-type-ramp.md#numeric-proposal):
+/// `(x-small factor, x-large factor)` per role. Task 003 owns ratifying real
+/// numbers into `FontSize::type_multiplier`; this table exists only to size
+/// this reservation and must never be read by that resolver.
+const fn reservation_endpoints(role: FontSize) -> (f32, f32) {
+    match role {
+        FontSize::Micro => (0.98, 1.36),
+        FontSize::Caption => (0.97, 1.32),
+        FontSize::Body => (0.96, 1.28),
+        FontSize::Headline => (0.94, 1.24),
+        FontSize::Title3 => (0.92, 1.20),
+        FontSize::Title2 => (0.90, 1.16),
+        FontSize::Title => (0.88, 1.12),
+    }
+}
+
+/// ADR 0039 sizing ceiling: the proposal's interpolation factor at `scale` for
+/// `role` (docs/adr/0039-dynamic-type-ramp.md#numeric-proposal), reusing
+/// `ScaleFactor::chrome_multiplier`'s value as the step coordinate `c`. Below
+/// medium: small uses 8/15 of the downward change, x-small the full `d`
+/// endpoint. Above medium: large uses 12/25 of the upward change, x-large the
+/// full `u` endpoint.
+fn reservation_ceiling_factor(role: FontSize, scale: ScaleFactor) -> f32 {
+    let (d, u) = reservation_endpoints(role);
+    match scale {
+        ScaleFactor::Medium => 1.0,
+        ScaleFactor::XSmall | ScaleFactor::Small => {
+            let c = scale.chrome_multiplier();
+            1.0 - ((1.0 - c) / 0.15) * (1.0 - d)
+        }
+        ScaleFactor::Large | ScaleFactor::XLarge => {
+            let c = scale.chrome_multiplier();
+            1.0 + ((c - 1.0) / 0.25) * (u - 1.0)
+        }
+    }
+}
+
+/// ADR 0039 sizing ceiling: `role`'s maximum permitted line-box height at
+/// `scale`, sized against the unratified numeric proposal (see module docs
+/// above). Takes no text — the reservation cannot depend on string length.
+#[must_use]
+pub(crate) fn reservation_line_box(role: FontSize, scale: ScaleFactor) -> Pixels {
+    let ceiling_px = px(f32::from(role.px()) * reservation_ceiling_factor(role, scale));
+    line_box_height(ceiling_px)
+}
+
+/// ADR 0039: inner height left for content once vertical padding and border
+/// subtract from a border-box `.h()` (box-sizing is border-box:
+/// taffy-0.13.0/src/style/mod.rs:598-605; gpui-pre-0.3.1/src/taffy.rs:479-513
+/// never overrides it). Shared by every capped fixed-height consumer so no
+/// call site re-derives its own subtraction.
+#[must_use]
+pub(crate) fn available_inner_height(
+    box_height: Pixels,
+    vertical_padding: Pixels,
+    border_width: Pixels,
+) -> Pixels {
+    box_height - vertical_padding * 2.0 - border_width * 2.0
+}
+
+/// ADR 0039 task 002: `ShowCard`'s reserved header+summary block — the taller
+/// of the title line or the state badge, the header/body gap, two body lines
+/// and the inter-line gap. Mirrors `src/ui/composites/show_card.rs`'s actual
+/// layout (`render_header`/`render_summary_lines`); a shape change there must
+/// update this function to stay accurate.
+#[must_use]
+pub(crate) fn show_card_summary_reservation(scale: ScaleFactor) -> Pixels {
+    let headline_line = reservation_line_box(FontSize::Headline, scale);
+    let badge_padding = px(f32::from(Spacing::XXS.px()) * scale.chrome_multiplier());
+    let badge_height = reservation_line_box(FontSize::Micro, scale) + badge_padding * 2.0;
+    let header_height = if headline_line > badge_height {
+        headline_line
+    } else {
+        badge_height
+    };
+    let header_gap = px(f32::from(Spacing::SM.px()) * scale.chrome_multiplier());
+    let body_line = reservation_line_box(FontSize::Body, scale);
+    let body_gap = px(f32::from(Spacing::XS.px()) * scale.chrome_multiplier());
+    header_height + header_gap + body_line * 2.0 + body_gap
+}
+
+/// ADR 0039 task 002: the inner height `Size::MenuCompact` (`ShowCard`'s fixed
+/// `.h()`, pinned by `adr_0063_show_card_grid_shell_uses_vm_contract`) leaves
+/// once its own `Spacing::MD` padding and 1px border subtract, at `scale`.
+#[must_use]
+pub(crate) fn show_card_available_inner_height(scale: ScaleFactor) -> Pixels {
+    let card_height = px(f32::from(Size::MenuCompact.px()) * scale.chrome_multiplier());
+    let padding = px(f32::from(Spacing::MD.px()) * scale.chrome_multiplier());
+    available_inner_height(card_height, padding, px(1.0))
+}
+
+/// ADR 0039 task 002: a button's reserved single label line at `scale`. A
+/// button label is always one line — see `src/ui/primitives/button.rs`.
+#[must_use]
+pub(crate) fn button_label_reservation(role: FontSize, scale: ScaleFactor) -> Pixels {
+    reservation_line_box(role, scale)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        available_inner_height, button_label_reservation, line_box_height,
+        show_card_available_inner_height, show_card_summary_reservation,
+    };
+    use crate::ui::tokens::{FontSize, ScaleFactor};
+    use gpui::px;
+
+    /// ADR 0039: pins the GPUI line-height ratio this module's reservation
+    /// arithmetic depends on. If a gpui-pre upgrade changes `phi()` or the
+    /// `Fraction` branch of `DefiniteLength::to_pixels`, this fails loudly
+    /// instead of silently shifting every reservation in this module.
+    #[test]
+    fn adr_0039_line_box_height_matches_gpui_phi_rounding() {
+        // round(100 * 1.618_034) = round(161.8034) = 162.
+        assert_eq!(line_box_height(px(100.0)), px(162.0));
+        // The medium ShowCard headline case below depends on this exact value:
+        // round(15 * 1.618_034) = round(24.270_51) = 24.
+        assert_eq!(line_box_height(px(15.0)), px(24.0));
+    }
+
+    /// ADR 0039 task 002 M1: `ShowCard`'s reserved header+summary block fits
+    /// `Size::MenuCompact`'s available inner height at every scale step, sized
+    /// against the ADR's reviewed but unratified numeric proposal as the
+    /// worst-case text extent. Pins the review checklist's computed figures
+    /// (docs/reviews/adr-0039-review-checklist.md#task-002-implementation-step-1-evidence--2026-09-18)
+    /// so a change to chrome, padding, gap or the proposal endpoints is
+    /// caught here rather than discovered as clipping.
+    #[test]
+    fn adr_0039_show_card_reservation_fits_available_at_all_steps() {
+        let cases = [
+            (ScaleFactor::XSmall, 113.60, 73.2),
+            (ScaleFactor::Small, 123.12, 76.04),
+            (ScaleFactor::Medium, 134.0, 78.0),
+            (ScaleFactor::Large, 150.32, 88.44),
+            (ScaleFactor::XLarge, 168.0, 99.0),
+        ];
+        for (scale, expected_available, expected_reserved) in cases {
+            let available = show_card_available_inner_height(scale);
+            let reserved = show_card_summary_reservation(scale);
+            assert!(
+                (f32::from(available) - expected_available).abs() < 0.05,
+                "{scale:?}: available {available:?} != {expected_available}"
+            );
+            assert!(
+                (f32::from(reserved) - expected_reserved).abs() < 0.05,
+                "{scale:?}: reserved {reserved:?} != {expected_reserved}"
+            );
+            assert!(
+                reserved <= available,
+                "ADR 0039 task 002: ShowCard reservation {reserved:?} exceeds \
+                 available inner height {available:?} at {scale:?}"
+            );
+        }
+    }
+
+    /// ADR 0039 task 002 M1: every button size/role pairing reserves at most
+    /// its box height at every scale step, including the tightest case named
+    /// in the review checklist (Sm/Caption at x-small: 19px needed vs 23.80px
+    /// available, still fitting at 21.80px with the optional 2px border).
+    #[test]
+    fn adr_0039_button_reservation_fits_available_at_all_steps() {
+        let box_heights = [
+            (px(28.0), FontSize::Caption),
+            (px(32.0), FontSize::Body),
+            (px(40.0), FontSize::Headline),
+        ];
+        for (base_height, role) in box_heights {
+            for scale in [
+                ScaleFactor::XSmall,
+                ScaleFactor::Small,
+                ScaleFactor::Medium,
+                ScaleFactor::Large,
+                ScaleFactor::XLarge,
+            ] {
+                let box_height = px(f32::from(base_height) * scale.chrome_multiplier());
+                let reserved = button_label_reservation(role, scale);
+                for border_width in [px(0.0), px(1.0)] {
+                    let available = available_inner_height(box_height, px(0.0), border_width);
+                    assert!(
+                        reserved <= available,
+                        "ADR 0039 task 002: Button reservation {reserved:?} exceeds \
+                         available {available:?} for {role:?} at {scale:?} \
+                         (border {border_width:?})"
+                    );
+                }
+            }
+        }
+
+        // Pin the named tightest case exactly.
+        let reserved = button_label_reservation(FontSize::Caption, ScaleFactor::XSmall);
+        assert_eq!(reserved, px(19.0));
+        let available = available_inner_height(px(23.8), px(0.0), px(0.0));
+        assert!((f32::from(available) - 23.8).abs() < 0.05);
+        assert!(reserved <= available);
+    }
+
+    /// ADR 0039 task 002 M1: the reservation is a pure function of role/size
+    /// and scale step — its signature carries no text, so it structurally
+    /// cannot depend on string length. Calling it twice with the same inputs
+    /// must return the same value.
+    #[test]
+    fn adr_0039_reservation_does_not_take_text_and_is_deterministic() {
+        for scale in [
+            ScaleFactor::XSmall,
+            ScaleFactor::Small,
+            ScaleFactor::Medium,
+            ScaleFactor::Large,
+            ScaleFactor::XLarge,
+        ] {
+            assert_eq!(
+                show_card_summary_reservation(scale),
+                show_card_summary_reservation(scale)
+            );
+            assert_eq!(
+                button_label_reservation(FontSize::Body, scale),
+                button_label_reservation(FontSize::Body, scale)
+            );
+        }
+    }
+}

@@ -218,7 +218,10 @@ impl RenderOnce for TrackRow {
         for child in self.trailing {
             row = row.child(child);
         }
-        div().min_h(crate::ui::layouts::MIN_HIT_TARGET).child(row)
+        div()
+            .min_h(crate::ui::layouts::MIN_HIT_TARGET)
+            .debug_selector(|| "track-row".to_owned())
+            .child(row)
     }
 }
 
@@ -293,5 +296,100 @@ mod tests {
         .trailing_child(gpui::div())
         .trailing_child(gpui::div());
         assert_eq!(row.trailing.len(), 2);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ADR 0039 task 002 M1: fixed geometry does not depend on string length.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod reservation_tests {
+    use gpui::{div, prelude::*, px, TestAppContext};
+
+    use super::{TrackRow, TrackRowDisplay};
+
+    struct RowHeightTest {
+        display: TrackRowDisplay,
+        with_duration: bool,
+        with_trailing: bool,
+    }
+
+    impl gpui::Render for RowHeightTest {
+        fn render(
+            &mut self,
+            _window: &mut gpui::Window,
+            _cx: &mut gpui::Context<Self>,
+        ) -> impl gpui::IntoElement {
+            let mut row = TrackRow::new("row", self.display.clone());
+            if !self.with_duration {
+                row.duration = None;
+            }
+            if self.with_trailing {
+                row = row.trailing_child(gpui::div().w(px(20.0)).h(px(20.0)));
+            }
+            div().w(px(400.0)).child(row)
+        }
+    }
+
+    /// ADR 0039 task 002 M1: `TrackRow`'s height is a floor
+    /// (`.min_h(MIN_HIT_TARGET)`), not a cap, but it must still stay
+    /// independent of the track title's string length and unaffected by
+    /// which optional slots (duration, trailing actions) are present versus
+    /// their content length — the title truncates via `Label::truncated()`
+    /// (a single-line contract) rather than growing the row.
+    #[gpui::test]
+    fn adr_0039_track_row_height_is_independent_of_title_length(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let short = TrackRowDisplay {
+            number: "1".to_string(),
+            title: "A".to_string(),
+            duration: Some("0:01".to_string()),
+            a11y_label: "A".to_string(),
+        };
+        let long = TrackRowDisplay {
+            number: "1".to_string(),
+            title: "A very long track title that would otherwise wrap this row".repeat(3),
+            duration: Some("0:01".to_string()),
+            a11y_label: "long".to_string(),
+        };
+
+        let (view, cx) = cx.add_window_view(|_, _| RowHeightTest {
+            display: short.clone(),
+            with_duration: true,
+            with_trailing: false,
+        });
+
+        let mut heights = Vec::new();
+        for (display, with_duration, with_trailing) in [
+            (short.clone(), true, false),
+            (long.clone(), true, false),
+            (short.clone(), false, false),
+            (long.clone(), false, false),
+            (short, true, true),
+            (long, true, true),
+        ] {
+            view.update(cx, |this, cx| {
+                this.display = display;
+                this.with_duration = with_duration;
+                this.with_trailing = with_trailing;
+                cx.notify();
+            });
+            cx.update(|window, cx| {
+                let _ = window.draw(cx);
+            });
+            let bounds = cx
+                .debug_bounds("track-row")
+                .expect("track row bounds recorded");
+            heights.push(bounds.size.height);
+        }
+
+        let first = heights[0];
+        for height in &heights[1..] {
+            assert_eq!(
+                *height, first,
+                "TrackRow height changed with string length or optional slots: {heights:?}"
+            );
+        }
     }
 }

@@ -17,7 +17,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, App, ClickEvent, ElementId, FontWeight, IntoElement, KeyDownEvent,
+    div, prelude::*, px, App, ClickEvent, ElementId, FontWeight, IntoElement, KeyDownEvent,
     MouseButton, RenderOnce, Rgba, Window,
 };
 
@@ -25,7 +25,7 @@ use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::layouts as layout;
 use crate::ui::tokens::{
-    resolve_color, Appearance, FontSize, Radius, SemanticColor, Size, Spacing,
+    resolve_color, Appearance, FontSize, Radius, ScaleFactor, SemanticColor, Size, Spacing,
 };
 
 use super::tooltip::Tooltip;
@@ -318,6 +318,31 @@ impl Button {
             .and_then(Tooltip::non_empty)
     }
 
+    /// ADR 0039 task 002: the single label line at `font_role` must fit
+    /// inside this button's fixed `.h(self.height(cx))` cap at the active
+    /// scale step, before it clips silently. Always holds when `description`
+    /// is set: that path swaps in `.h_auto()`, which is not a fixed-height
+    /// cap. Debug-only — never changes what release builds render. If this
+    /// ever fires, bring the measured mismatch back to ADR 0039; never
+    /// shrink the font or grow chrome here to silence it.
+    fn debug_assert_label_reservation_fits(&self, font_role: FontSize, cx: &App) {
+        let border_width = if self.border.is_some() {
+            px(1.0)
+        } else {
+            px(0.0)
+        };
+        debug_assert!(
+            self.description.is_some()
+                || layout::button_label_reservation(font_role, ScaleFactor::current(cx))
+                    <= layout::available_inner_height(self.height(cx), px(0.0), border_width),
+            "ADR 0039 (docs/adr/0039-dynamic-type-ramp.md#wrapping-and-fixed-height-reservation): \
+             Button {:?} label at {font_role:?} cannot fit inside its fixed height at this scale \
+             step. Fix: report the measured mismatch to ADR 0039; do not shrink the font or grow \
+             chrome to pass this check.",
+            self.size,
+        );
+    }
+
     fn resolved_colors(&self, cx: &App, appearance: Option<Appearance>) -> (Rgba, Rgba, Rgba) {
         let (bg, mut fg, hover_bg) = match self.variant {
             ButtonVariant::Filled => (
@@ -368,12 +393,12 @@ impl Button {
 impl RenderOnce for Button {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let min_hit_target = Self::min_hit_target(cx);
-        let font = self
-            .font_size
-            .unwrap_or_else(|| self.font_size())
-            .scaled(cx);
+        let font_role = self.font_size.unwrap_or_else(|| self.font_size());
+        let font = font_role.scaled(cx);
         let radius = self.radius.unwrap_or(Radius::MD).scaled(cx);
         let appearance = self.appearance;
+
+        self.debug_assert_label_reservation_fits(font_role, cx);
 
         let (bg, fg, hover_bg) = self.resolved_colors(cx, appearance);
 

@@ -10851,6 +10851,18 @@ fn compact_source(source: &str) -> String {
     source.chars().filter(|ch| !ch.is_whitespace()).collect()
 }
 
+/// Drops whole-line `//` comments so a substring guard checks actual code,
+/// not an explanatory comment that happens to mention the same call syntax.
+/// Line-trailing comments are left as-is; none of this file's guards need
+/// that finer granularity.
+fn code_only(source: &str) -> String {
+    source
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn source_between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     let start_index = source
         .find(start)
@@ -18129,6 +18141,142 @@ fn adr_0039_type_and_chrome_domains_stay_live_and_separate() {
     assert!(
         violations.is_empty(),
         "Situational ADR 0039 domain-ownership violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0039 task 002 M2: the two hard fixed-height caps —
+/// ShowCard's `.h(Size::MenuCompact.scaled(cx))` and Button's
+/// `.h(self.height(cx))` — call the shared reservation geometry this task
+/// lands in `src/ui/layouts.rs`, rather than an ad hoc capacity check local
+/// to either file. Removing the call fails this guard.
+#[test]
+fn adr_0039_capped_surfaces_use_the_shared_reservation() {
+    const FIX: &str = "Fix: call `layouts::show_card_summary_reservation`/`show_card_available_inner_height` (ShowCard) or `layout::button_label_reservation`/`layout::available_inner_height` (Button) — ADR 0039 task 002's shared reservation owner in src/ui/layouts.rs — rather than an ad hoc capacity check.";
+
+    let show_card = read_source(&manifest_path("src/ui/composites/show_card.rs"));
+    let button = read_source(&manifest_path("src/ui/primitives/button.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "layouts::show_card_summary_reservation(",
+        "layouts::show_card_available_inner_height(",
+    ] {
+        if !show_card.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/show_card.rs: ADR 0039 task 002 missing reservation call `{required}`. {FIX}"
+            ));
+        }
+    }
+    for required in [
+        "layout::button_label_reservation(",
+        "layout::available_inner_height(",
+    ] {
+        if !button.contains(required) {
+            violations.push(format!(
+                "src/ui/primitives/button.rs: ADR 0039 task 002 missing reservation call `{required}`. {FIX}"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0039 task 002 reservation-ownership violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0039 task 002 M4: `render_summary_line`
+/// (`src/ui/composites/show_card.rs`) matches the playlist/now-playing
+/// single-line pattern — a silent clip via `whitespace_nowrap()` +
+/// `overflow_hidden()`, never `.truncate()`. `.truncate()` here would fail
+/// `adr_0063_column_text_does_not_truncate`: this div chain has none of
+/// `flex_1()`/`max_w(`/`.w(`. Mechanical, not visual — the defect and its
+/// correction are independent of scale.
+#[test]
+fn adr_0039_show_card_summary_line_matches_single_line_pattern() {
+    const FIX: &str = "Fix: give `render_summary_line` (src/ui/composites/show_card.rs) `whitespace_nowrap()` + `overflow_hidden()`, following the playlist row (src/ui/shells/playlist.rs:754-755,764-765). Do not use `.truncate()` there — ADR 0039 task 002.";
+
+    let source = read_source(&manifest_path("src/ui/composites/show_card.rs"));
+    let function = code_only(source_between(
+        &source,
+        "fn render_summary_line(",
+        "const fn show_card_id(",
+    ));
+    let mut violations = Vec::new();
+
+    for required in [".whitespace_nowrap()", ".overflow_hidden()"] {
+        if !function.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/show_card.rs: render_summary_line is missing `{required}`. {FIX}"
+            ));
+        }
+    }
+    if function.contains(".truncate()") {
+        violations.push(format!(
+            "src/ui/composites/show_card.rs: render_summary_line must not call `.truncate()`. {FIX}"
+        ));
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0039 task 002 ShowCard single-line violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0039 task 002 M2: the FLOOR/uncapped fixed-height row
+/// consumers named alongside ShowCard and Button — `TrackRow`, the queue row
+/// and the playlist row — keep the single-line text discipline that makes
+/// their line count independent of string length: `.truncate()` inside a
+/// `flex_1()`/definite-width ancestor (`Label::truncated()`, or a plain
+/// `.truncate()` call), or `whitespace_nowrap()` + `overflow_hidden()`.
+/// Removing that discipline, so title text could wrap and grow the row,
+/// fails this guard.
+#[test]
+fn adr_0039_fixed_height_rows_keep_single_line_text() {
+    const FIX: &str = "Fix: keep title/artist text single-line — `.truncate()` inside a `flex_1()`/`.w(`/`max_w(` ancestor, or `whitespace_nowrap()` + `overflow_hidden()` — ADR 0039 task 002.";
+
+    let track_row = code_only(&read_source(&manifest_path(
+        "src/ui/composites/track_row.rs",
+    )));
+    let queue = read_source(&manifest_path("src/ui/shells/queue_now_playing.rs"));
+    let playlist = read_source(&manifest_path("src/ui/shells/playlist.rs"));
+    let mut violations = Vec::new();
+
+    if !track_row.contains(".truncated()") {
+        violations.push(format!(
+            "src/ui/composites/track_row.rs: the track title must stay single-line via `Label::truncated()`. {FIX}"
+        ));
+    }
+
+    let queue_row = code_only(source_between(
+        &queue,
+        "fn render_queue_row(",
+        "fn render_control_deck(",
+    ));
+    if queue_row.matches(".truncate()").count() < 2 {
+        violations.push(format!(
+            "src/ui/shells/queue_now_playing.rs: render_queue_row's title/artist must stay single-line via `.truncate()`. {FIX}"
+        ));
+    }
+
+    let playlist_body = code_only(source_between(
+        &playlist,
+        "fn render_playlist_track_body(",
+        "fn render_playlist_thumb_placeholder(",
+    ));
+    if playlist_body.matches(".whitespace_nowrap()").count() < 2
+        || playlist_body.matches(".overflow_hidden()").count() < 2
+    {
+        violations.push(format!(
+            "src/ui/shells/playlist.rs: render_playlist_track_body's title/artist must stay single-line via `whitespace_nowrap()` + `overflow_hidden()`. {FIX}"
+        ));
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0039 task 002 fixed-height row single-line violations:\n{}",
         violations.join("\n")
     );
 }
