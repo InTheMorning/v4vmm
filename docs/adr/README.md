@@ -91,7 +91,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0064](0064-local-file-addressing.md) | Downloaded files live under music_dir and store a relative path | Accepted |
 | [0065](0065-payment-route-tag-repair.md) | A tag repair is gated on the file, not on feed staleness | Implemented |
 | [0067](0067-platform-shortcut-modifiers.md) | Ctrl app shortcuts on Linux; Command and native Hide actions on macOS | Implemented |
-| [0069](0069-grouped-settings-and-selective-presets.md) | Grouped Settings, live metadata resource selection, independent audio configuration and selective preset snapshots; [task 001 complete; later phases not started](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Accepted |
+| [0069](0069-grouped-settings-and-selective-presets.md) | Grouped Settings, live metadata resource selection, independent audio configuration and selective preset snapshots. Task 001 is complete. [Task 002 is Ready](../tasks/adr-0069-task-002-shared-guarded-editor.md). Implementation of task 002 has not started. | Accepted |
 | [0070](0070-show-log-space-priority.md) | Open Show logs take height before scrolling cards; sidebar actions remain reachable; ADR 0063 task 005 implementation, acceptance and cleanup complete | Implemented |
 | [0074](0074-repair-and-diagnostics-pages.md) | Separate repair/diagnostics pages, action columns, report views and consistent text. Visual and preservation gates accepted; task 013 cleanup confirmed | Implemented |
 | [0073](0073-show-card-overflow-scrolling.md) | Show cards scroll when space is insufficient, with logs closed or open; visual check, preservation and cleanup complete in task 007 | Implemented |

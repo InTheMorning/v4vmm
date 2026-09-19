@@ -100,7 +100,7 @@ Current governance:
 - [ADR 0069: Grouped Settings and selective presets](adr/0069-grouped-settings-and-selective-presets.md):
   accepted Settings groups, metadata resource selection, separate audio settings
   and selective preset snapshots. Task 001 is complete. Phase 002 prerequisites
-  are met, but its packet is unwritten. Later configuration formats remain gated.
+  are met. Its task 002 packet is Ready. Later configuration formats remain gated.
 
 Current plans:
 
@@ -110,7 +110,7 @@ Current plans:
   Configuration formats and chrome coefficients are unchanged.
   Settings follow-through and relay adoption retain their own scope.
 - [ADR 0069 Settings and presets phase plan](plans/adr-0069-settings-presets-phase-plan.md):
-  existing-field foundation complete; guarded editing, metadata selection,
+  existing-field foundation complete. Guarded-editor task 002 is Ready. Metadata selection,
   selective presets and deferred audio integration have explicit prerequisites
 - [ADR 0066 startup recovery phase plan](plans/adr-0066-startup-recovery-phase-plan.md):
   thirteen bounded packets for configuration safety, core recovery, optional-tool
@@ -190,6 +190,9 @@ Current implementation packets:
   General, Library and Diagnostics using current fields and save behavior;
   complete with mechanical checks Green, [operator acceptance](runbooks/settings-foundation-check.md),
   preservation inspection and fixture cleanup
+- [ADR 0069 task 002: Shared guarded Settings editor](tasks/adr-0069-task-002-shared-guarded-editor.md):
+  Ready on 2026-09-18. Existing fields get draft, Save, Cancel, conflict preservation
+  and saved/running distinctions. Implementation has not started.
 - [ADR 0066 task 004: Optional tool isolation](tasks/adr-0066-task-004-optional-tool-isolation.md):
   implemented; operator visual acceptance, preservation inspection and fixture
   cleanup remain open. Tasks 001–003 are complete, including

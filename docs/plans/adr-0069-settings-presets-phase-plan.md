@@ -5,11 +5,12 @@
 Design accepted - 2026-09-11. [Task 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md)
 is complete with mechanical checks Green, operator V1–V3 and preservation
 acceptance, and confirmed fixture cleanup. Its [operator procedure](../runbooks/settings-foundation-check.md)
-remains a regression check. Later rows define phases. They are not implementation packets.
+remains a regression check. Task 002 now has a packet. Phases 003–005 still need implementation packets.
 
 Reconciled 2026-09-18: recovery tasks 005–007 are complete with acceptance.
-Phase 002 now needs its implementation packet. Later phases retain the
-configuration-format and audio prerequisites below.
+[Task 002: Shared guarded editor](../tasks/adr-0069-task-002-shared-guarded-editor.md)
+is Ready. Implementation has not started. Its operator criteria are prospective.
+Later phases retain the configuration-format and audio prerequisites below.
 
 ## Goal
 
@@ -66,7 +67,7 @@ implementation. Finish one packet per session.
 | Phase | Usable result | Prerequisite | State |
 |---|---|---|---|
 | [001: Grouped Settings foundation](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Existing controls grouped under General, Library and Diagnostics; persistent in-session navigation/inputs and direct report routing | Accepted ADR 0069; existing app and scoped config owners | Complete - 2026-09-11; mechanical checks Green; V1–V3 and preservation accepted; fixture cleanup confirmed |
-| 002: Shared guarded editor | One draft/save/cancel contract, field errors and saved/running distinctions through shared recovery commands | Task 001 and recovery tasks 005–007 are complete with acceptance. | Implementation not started. Prerequisites met. Author the packet against the delivered owners. |
+| [002: Shared guarded editor](../tasks/adr-0069-task-002-shared-guarded-editor.md) | One draft/save/cancel contract, field errors and saved/running distinctions through shared recovery commands | Task 001 and recovery tasks 005–007 are complete with acceptance. | Ready - 2026-09-18. Implementation not started. Operator criteria become runnable after implementation and mechanical checks. |
 | 003: Live metadata setup | General mode selection and Live Metadata producer/publisher editors, compatible defaults and explicit apply behavior | 002 accepted; full ADR 0066 configuration-format prerequisite released | Not started; author schema and bounded packets before edits |
 | 004: Selective presets | Versioned named snapshots; save/recall masks for delivered components, composition in a draft, change review and conflict-safe persistence | 003 accepted; shared guarded persistence ready | Not started; split persistence/recall model and UI into separate packets if needed |
 | 005: Independent audio settings | Audio tab and Show/Audition preset components, PulseAudio and JACK destination controls backed by independent owners | Guarded editor and relevant preset model; ADR 0068 accepted and owner/route isolation delivered and verified | Deferred with playback; no implementation packet yet |
@@ -76,7 +77,9 @@ checkboxes arrive with their adapters, not as disabled promises. Native PipeWire
 is a later adapter packet, not part of the first audio delivery.
 
 Task 001 completed independently of ADR 0066 task 004's playback gate.
-Phase 002 can proceed after its packet defines the scope and checks.
+Phase 002's packet defines its scope and checks against the delivered owners.
+It covers existing fields, shared persistence, workspace-write coordination and
+explicit endpoint application. It adds no configuration key or preset format.
 Phase 003 still requires full ADR 0066 acceptance. Task 004 prevents that
 release while its playback checks remain paused for ADR 0068 and the mpv IPC error.
 

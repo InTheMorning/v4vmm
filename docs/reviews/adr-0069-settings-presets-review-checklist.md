@@ -9,7 +9,8 @@ packet against [ADR 0069](../adr/0069-grouped-settings-and-selective-presets.md)
 the [phase plan](../plans/adr-0069-settings-presets-phase-plan.md) and its diff.
 
 Task 001's [operator procedure](../runbooks/settings-foundation-check.md) remains a regression check.
-Later phases require their own packets
+Task 002 is [Ready](../tasks/adr-0069-task-002-shared-guarded-editor.md) on 2026-09-18.
+Its recovery prerequisites are complete. Later phases require their own packets
 and completed dependencies. This checklist supplies review coverage, not a
 claim that future test names or controls exist.
 
@@ -44,6 +45,34 @@ claim that future test names or controls exist.
   repository checks. Record V1–V3 as open until the operator supplies evidence.
 - If Settings scroll evidence also satisfies part of ADR 0030, record that
   exact subclaim. Do not close remaining Music scroll or unrelated checks.
+
+## Task 002 Review
+
+- Trace ordinary Settings Save and repair Save to the shared correction transaction.
+  Reject a second writer or independently writable drafts.
+- Check draft, saved and running values separately. Cancel restores the baseline.
+  Close retains edits. Defaults changes the draft only and names its complete scope.
+- Check source identity before writes. Navigation and resize must not cause false conflicts.
+  Deferred workspace writes must not hide an external edit or replace the editor's source.
+- Check typed field errors, focused optional correction and invalid sibling preservation.
+  Automatic persistence must remain paused when ADR 0066 requires it.
+- Trace ordinary Save and explicit MusicIndex check separately.
+  The existing check validates local configuration. It does not prove endpoint reachability.
+- Check that the accepted repair save/check route survives.
+  Stale capability results must not replace newer form edits or appearance previews.
+- Check M1–M9 against actual tests and the situational ADR 0069 guard.
+  Review the fixture assertions before opening V1–V4 in the pending-human index.
+- Check current converter/core-path routes and ADR 0074 page composition.
+  Do not restore task 001's former controls from its historical instructions.
+
+Packet authoring review - 2026-09-18: the packet names current owners, bounded
+steps, mechanical proof, operator requirements and rollback. The review found
+no need for new persistence formats. Implementation and operator evidence remain absent.
+Task 002 readiness does not release phase 003 or ADR 0066 task 004.
+
+Documentation checks: Green. All 304 relative file links in the eight changed
+Markdown files resolve. `git diff HEAD --check` is Green. This change contains
+documentation only. No Rust or operator tests ran during packet authoring.
 
 ## Later Phase Review
 

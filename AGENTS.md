@@ -36,8 +36,10 @@ The packet groups existing controls and reports without changing the configurati
 [ADR 0069](docs/adr/0069-grouped-settings-and-selective-presets.md) remains Accepted;
 later implementation has not started. The
 [Settings phase plan](docs/plans/adr-0069-settings-presets-phase-plan.md)
-records completed recovery prerequisites for phase 002. Its implementation
-packet remains unwritten. New metadata and preset formats still require full
+records completed recovery prerequisites for phase 002.
+[Task 002: Shared guarded editor](docs/tasks/adr-0069-task-002-shared-guarded-editor.md)
+is Ready on 2026-09-18. Implementation has not started. Its operator criteria
+are prospective. New metadata and preset formats still require full
 ADR 0066 acceptance. Audio integration remains deferred.
 
 [ADR 0066 task 004: Optional tool isolation](docs/tasks/adr-0066-task-004-optional-tool-isolation.md)
