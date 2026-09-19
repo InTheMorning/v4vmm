@@ -16,6 +16,10 @@ and PulseAudio/JACK-first configuration. It resolves the app-versus-desktop-only
 output-selection choice; this playback proposal remains otherwise Proposed
 and its implementation remains deferred.
 
+Reconciled 2026-09-18: ADR 0066 task 005 delivered session drain and resumption.
+Future isolation packets must integrate both playback owners with that lifecycle.
+This proposal remains unimplemented and unscheduled.
+
 ## Context
 
 [ADR 0060](0060-workflow-surface-structure.md) places the queue and transport in
@@ -367,12 +371,11 @@ audition/output ownership, then UI integration and operator verification. Each
 packet must be useful and reviewable on its own; no parallel legacy GUI route
 may ship under an Audition label while still controlling Show.
 
-Account for both owners when ADR 0066 task 005 introduces managed session drain;
-this ADR does not require that unstarted packet as a prerequisite for drafting
-or storage work. Scheduling must explicitly reconcile task 004's paused playback
-criteria instead of silently moving or closing them. Report/preservation checks
-may continue independently. The observed mpv IPC error needs its own diagnosis
-and regression proof before audible playback acceptance; this draft claims no fix.
+ADR 0066 task 005 already supplies managed session drain and resumption.
+Integrate both playback owners with that lifecycle. Scheduling must explicitly
+reconcile task 004's paused playback criteria. Report and preservation checks
+may continue independently. The observed mpv IPC error still needs diagnosis
+and regression proof before audible playback acceptance. This draft claims no fix.
 
 ## References
 

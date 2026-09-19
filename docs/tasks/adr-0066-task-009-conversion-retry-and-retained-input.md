@@ -8,8 +8,8 @@ Fixture cleanup confirmed.
 
 Return from converter setup to the original track, reuse validated downloaded
 input, and replace its existing library binding without repeating playlist append.
-Tasks 008 and 009 are complete. This session covered only task 009; task 010 has
-not started and requires a fresh session.
+Tasks 008–013 are complete. This packet records task 009 only.
+The phase plan records successor status.
 
 [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md), the
 [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md) and the

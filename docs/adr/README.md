@@ -72,7 +72,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | ADR | Scope | Status |
 |---|---|---|
 | [0023](0023-design-system-and-view-models.md) | Design system and view-model architecture | Implemented |
-| [0025](0025-theme-icon-style-boundary.md) | Theme, icon, and style boundary | Accepted, partial |
+| [0025](0025-theme-icon-style-boundary.md) | Theme, icon and style boundary. All eleven packets and recorded visual checks are complete. | Implemented |
 | [0026](0026-shared-entity-projection-layer.md) | Shared entity projection layer | Implemented |
 | [0027](0027-shared-entity-action-state.md) | Typed action state for shared entities | Implemented |
 | [0032](0032-ui-backend-boundary-and-popover-contracts.md) | UI and backend boundary, popover contracts | Implemented |
@@ -84,9 +84,9 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0047](0047-library-search-unification.md) | One content surface for library and index rows | Implemented |
 | [0048](0048-content-list-frame-breadcrumb-search.md) | Search is a toolbar command. Amended by ADR 0060 | Implemented |
 | [0050](0050-post-adr-0048-module-decomposition.md) | Module decomposition after ADR 0048 | Implemented |
-| [0055](0055-search-view-model-module-decomposition.md) | Search view-model module decomposition | Accepted |
-| [0060](0060-workflow-surface-structure.md) | Music, Show, Settings. Show is a screen mount | Accepted |
-| [0062](0062-music-content-surface.md) | Music opens on recent mixed entity rows | Accepted |
+| [0055](0055-search-view-model-module-decomposition.md) | Search view-model decomposition. Module review, focused tests and guard recorded on 2026-09-18. | Implemented |
+| [0060](0060-workflow-surface-structure.md) | Music, Show and Settings structure is delivered. Independent audition remains unfinished under proposed ADR 0068. | Accepted |
+| [0062](0062-music-content-surface.md) | Five Music packets are complete. The default Index order returns releases. Broader mixed-row search/expansion still needs an evidence review. | Accepted |
 | [0063](0063-show-dashboard-layout.md) | Show cards and diagnostics; [shared log frames and following](../tasks/adr-0063-task-005-shared-log-frames-and-following.md) complete with operator acceptance, preservation and cleanup | Implemented |
 | [0064](0064-local-file-addressing.md) | Downloaded files live under music_dir and store a relative path | Accepted |
 | [0065](0065-payment-route-tag-repair.md) | A tag repair is gated on the file, not on feed staleness | Implemented |
@@ -135,8 +135,16 @@ retired replaced requirements before restoring current human checks:
   confirmed fixture removal. The review records preservation as an inference
   from the conditional cleanup command. The dated reconciliation retains its
   original historical result.
-- 0025 remains partially implemented; its recorded visual passes are not an
-  open operator gate. Further theme work uses bounded packets.
+- ADR 0025 is Implemented after the 2026-09-18 status correction. All eleven
+  packets record implementation, and the review records the required visual passes.
+  Further theme work uses bounded packets.
+- ADR 0055 is Implemented after the 2026-09-18 module review and focused checks.
+- ADRs 0060 and 0062 retain the unfinished scope named in their status sections.
+  Their completed structural packets are not an implementation backlog.
+
+The [2026-09-18 review](../reviews/2026-09-18-adr-status-and-remaining-work.md)
+records these corrections and the remaining work. Historical reviews retain
+their dated findings.
 
 ## Status Verification
 

@@ -445,7 +445,7 @@ are zero and residual music probes are empty. The operator then confirmed the
 cleanup command's Removed fixture message. All acceptance and cleanup gates
 are closed. The accepted desktop build used revision 6c63451 with the temporary
 timing/profiling code removed; the retirement build and checks were Green before
-the final operator sequence. Task 004 is next and has not started.
+the final operator sequence. Task 004 had not started at this observation. Its current status is in the phase plan.
 
 ## Rollback
 

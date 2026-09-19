@@ -156,8 +156,8 @@ screen never rereads its own GPUI entity during rendering. No new service state,
 protocol, schema migration, configuration format or correction/retry workflow
 was added in this packet. Session draining and resumption are delivered separately
 by task 005; shared guarded configuration correction is delivered by task 006.
-Both are complete with operator acceptance and cleanup. Task 007 is implemented
-with its own operator gate open; tasks 008–013 have not started.
+Tasks 005–013 are complete with their required operator acceptance and cleanup.
+Their completion does not close this packet's remaining checks.
 
 ## Command And Query Dependency Inventory
 

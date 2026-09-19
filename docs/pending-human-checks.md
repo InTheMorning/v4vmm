@@ -64,29 +64,11 @@ InspectorOrigin are retired by ADRs 0046/0047; use frame navigation.
 - Needs populated and unavailable rows in the disposable library. Check
   upward/downward moves, no-op drops, menus, and immediate updates in both
   themes. Record results in the [checklist](reviews/adr-0044-review-checklist.md).
-- On 2026-09-16, the ADR 0066 V2 fixture `/tmp/v4vmm-startup-4yqtadz3`
-  exposed a brief drag-handle pause; Move Up/Down menus did not pause. The shared
-  handle's press now stops propagation to Root text selection. An interaction
-  test reproduced selection continuing after drop and passes with the correction.
-  Theme-specific insertion, cancellation and normal text-selection checks remain
-  in the broader playlist gate. An initial desktop recheck still failed: the
-  handle press stalled for 4–5 seconds with a hand cursor before the move occurred.
-  Supplied native stacks show
-  main-thread Taffy layout work, with the caller beyond the 40-frame cutoff.
-  A populated mock probe did not reproduce the pause and was removed. The supplied
-  CPU report contains 846 samples with none lost and confirms heavy layout
-  computation; most caller chains are absent after a debug-file analysis error.
-  Horizontal out-of-bounds dragging also hung longer. Offline recovery of the
-  supplied raw recording identifies GPUI's synchronous test drawing loop in the
-  desktop binary. Architecture tests reproduce the capture's exact build ID by
-  replacing the desktop executable; a normal build excludes that loop. The
-  fixture launcher now rebuilds before opening the app, with 16 fixture tests
-  and 251 architecture guards Green. The subsequent operator restart, reordering
-  and horizontal out-of-bounds drag check passes, as does the repeated fixture
-  preservation inspection. The reported pause correction is accepted on
-  2026-09-16. Separate Light/Dark and remaining inherited playlist requirements
-  remain open. Task 007's ordinary Null-player Play check is also accepted;
-  its final preservation inspection passes and fixture cleanup is confirmed.
+- The operator accepted the drag-pause correction and preservation on 2026-09-16.
+  The [review checklist](reviews/adr-0044-review-checklist.md) retains its evidence.
+  The fixture launcher now rebuilds the normal desktop binary before launch.
+  That correction does not close the remaining Light/Dark, insertion,
+  cancellation or text-selection checks.
 
 ## 5. Stored Metadata In Details — ADR 0054 Tasks 004 And 005
 
@@ -103,15 +85,45 @@ plan are Accepted, with implementation recorded and visual acceptance open.
   [checklist](reviews/adr-0054-review-checklist.md), in both themes.
 
 The five inherited groups above use the runbook's private database/audio copy and cleanup.
-The numbers group checks; they do not change the approved delivery priority.
+The numbers group checks. They do not change the approved delivery priority.
+
+## 6. Optional Tool Isolation — ADR 0066 Task 004
+
+Open - implementation and mechanical checks recorded 2026-09-11.
+
+- Owner: [task 004](tasks/adr-0066-task-004-optional-tool-isolation.md).
+- Check: [Optional Tool Isolation](runbooks/startup-recovery-check.md#task-004-optional-tool-isolation).
+- Needs a Linux desktop, Python 3.11+, this checkout's debug binary, installed
+  mpv and working desktop audio for the producer-failure case. The fixture
+  supplies local tracks, broken paths and external-service stubs.
+- For paired Index/player failure, check local search, playlist visibility and
+  retained reports. Check that Play and Ctrl+Alt+P cannot execute playback from Show.
+  Task 007 supplies enabled repair routes while retaining the execution restriction.
+- Check producer failure with audible playback. Check publisher failure with
+  an independent producer and encoder. Check partially applied path repair.
+- Check report copy and preservation for the publisher and path-repair cases.
+  Record final fixture cleanup. Producer preservation passed on 2026-09-11.
+  Its permitted workspace preference changes do not establish playback acceptance.
+- Playback checks remain paused. The operator requires cue loading and playback
+  from Show, with other Play buttons using a separate audition path.
+  Current Music Play shares the Show session. The producer screenshot also
+  reports an unresolved mpv IPC read error. Report-only checks cannot establish
+  audio or publication behavior. See [task 004's correction](tasks/adr-0066-task-004-optional-tool-isolation.md#playback-workflow-correction--2026-09-11).
+- [ADR 0068](adr/0068-show-cue-and-audition-isolation.md) proposes that separation.
+  Its visual/audio check cannot run before implementation. The proposal closes
+  no gate and reopens no accepted case.
+- Task 005's completion closes none of this packet's remaining checks.
+  The phase plan retains its scheduling exception. The inherited checks above
+  remain separate.
 
 ## Method: Reach A Publisher Service State
 
 This section is not a check. It is the method that each publisher check needs.
 It stays here when every check above is closed.
 
-A drop-in file makes the unit go to a state. The cleanup section removes that
-file.
+A temporary drop-in file makes the unit enter a test state. The cleanup removes
+only the named test files. Before each setup, check whether `zz-force-fail.conf`
+already exists at that path. If it exists, stop. Do not overwrite an existing drop-in.
 
 | State | How to reach it |
 |---|---|
@@ -158,47 +170,27 @@ The result is `ActiveState=failed` and `Result=exit-code`.
 
 ### Cleanup
 
+Use only the cleanup for the method you ran. The methods do not change the
+app configuration. They require no app configuration restore. Other drop-ins
+must remain intact.
+
+For **Failed With A Start Limit**:
+
 ```bash
-rm -rf ~/.config/systemd/user/mixxx-now-playing.service.d \
-       ~/.config/systemd/user/musicindex-live-publisher@mixxx.service.d
+rm -f -- ~/.config/systemd/user/musicindex-live-publisher@mixxx.service.d/zz-force-fail.conf
 systemctl --user daemon-reload
-systemctl --user reset-failed mixxx-now-playing.service musicindex-live-publisher@mixxx.service
-cp ~/.config/v4vmm/config.toml.bak ~/.config/v4vmm/config.toml
+systemctl --user reset-failed musicindex-live-publisher@mixxx.service
+```
+
+For **Failed Immediately**:
+
+```bash
+rm -f -- ~/.config/systemd/user/mixxx-now-playing.service.d/zz-force-fail.conf
+systemctl --user daemon-reload
+systemctl --user reset-failed mixxx-now-playing.service
 ```
 
 ## References
 
 - `docs/adr/0061-executable-governance.md`, for the mechanical and visual rule
 - `docs/plans/broadcast-chain-delivery-order.md`
-
-
-## 6. Optional Tool Isolation — ADR 0066 Task 004
-
-Open - implementation and mechanical checks recorded 2026-09-11.
-
-- Owner: [task 004](tasks/adr-0066-task-004-optional-tool-isolation.md).
-- Check: [Optional Tool Isolation](runbooks/startup-recovery-check.md#task-004-optional-tool-isolation).
-- Needs a Linux desktop, Python 3.11+, this checkout's debug binary, installed
-  mpv and working desktop audio for the producer-failure case. The fixture
-  supplies local tracks, broken paths and external-service stubs.
-- Remaining checks: confirm local search, playlist visibility, no playback
-  execution from Play/Ctrl+Alt+P on Show and retained reports for paired
-  Index/player failure. ADR 0066 task 007 replaces disabled affordances with
-  enabled repair routes while keeping the execution restriction; test producer failure
-  with audible playback, publisher failure with independent producer/encoder,
-  and partially applied path repair. Check report copy, preservation for the
-  publisher and path-repair cases, and final fixture cleanup. Producer-case
-  preservation is Green from the operator's 2026-09-11 inspection; its permitted
-  workspace preference changes do not close playback acceptance.
-- Playback-dependent portions are paused: the operator requires explicit Show
-  cue loading and playback from Show, with other Play buttons using a separate
-  audition audio path. Current Music Play shares the Show session and cannot
-  establish that workflow. The producer screenshot also reports an unresolved
-  mpv IPC read error. The producer case is incomplete; report-only checks do not
-  accept audio/publication. See [task 004's correction](tasks/adr-0066-task-004-optional-tool-isolation.md#playback-workflow-correction--2026-09-11).
-- [ADR 0068](adr/0068-show-cue-and-audition-isolation.md) now proposes that
-  separation. Its visual/audio check is specified but not runnable before
-  implementation; the draft does not close this gate or reopen accepted cases.
-- Task 005's completion does not accept any of this packet's remaining checks.
-  Its scheduling exception remains recorded in the phase plan. The inherited
-  checks above are separate.

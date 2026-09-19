@@ -4,7 +4,7 @@ Status: Complete - 2026-09-17; mechanical checks Green.
 Operator V1–V3, Settings/core-recovery presentation and preservation in both
 fixture cases are accepted. Normal-mode restoration and fixture cleanup are
 confirmed. This packet has no open acceptance checks.
-Task 007 is complete. Task 009 has not started.
+Tasks 007 and 009 are complete. The [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md) records current dependencies.
 
 ## Goal
 
@@ -175,7 +175,7 @@ success results. No separate cleanup timestamp was supplied.
 Together with the reports and both preservation inspections below, this accepts
 V1–V3, Settings/core-recovery presentation, preservation and cleanup. The task
 008 gate is closed. Task 004 and inherited checks retain their separate gates;
-Task 009 has not started and requires a fresh session.
+Task 009 had not started at this observation. It is now complete in the phase plan.
 
 The dated observations below record progress during the walkthrough. This final
 acceptance closes every temporary pending state recorded in those observations.

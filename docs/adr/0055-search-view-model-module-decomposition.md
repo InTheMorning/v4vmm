@@ -2,7 +2,13 @@
 
 ## Status
 
-Accepted - 2026-05-18.
+Implemented - 2026-09-18.
+
+Reconciled 2026-09-18: commit `4be09d8` delivered the split on 2026-05-18.
+The [status review](../reviews/2026-09-18-adr-status-and-remaining-work.md#verification-and-disposition)
+records the module review, decomposition guard and 97 search view-model tests.
+The private modules and root re-exports retain the required ownership boundary.
+This status correction changes no application behavior.
 
 ## Context
 
@@ -30,6 +36,7 @@ deep module paths.
 
 Initial ownership split:
 
+- `common.rs` owns the private helper shared by the extracted projections.
 - `results.rs` owns search result rows, display rows, navigation identity, type
   visibility, query normalization, feed title fallbacks, and derived artist rows.
 - `recent.rs` owns recent-feed tile display and recent-feed root/list display

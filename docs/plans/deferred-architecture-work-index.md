@@ -49,49 +49,27 @@ prioritized, and routed to the right governance artifact.
    - Order: local recording and generation first, then post-processing
      tooling, then publisher-side backup recording. Step three depends on step
      two, because a post-icecast recording drifts and needs edits to repair.
-   - Route: future ADR after the ADR 0059 control surface ships. See
+   - Route: a future episode-generation ADR. The ADR 0059 control surface is complete. See
      `docs/research/broadcast-recording-and-feed-publishing.md`.
+   - Publisher prerequisite: the show-log writer needs a producer timestamp source.
+     Version 1 drop files do not carry that fact. The owning ADR must resolve
+     the source before implementation. Delivery time cannot replace producer time.
 6. Configuration failure behavior.
    - Status: [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md)
-     Accepted - 2026-09-10. Tasks 001–003 are complete, including operator
-     acceptance, preservation inspection and fixture cleanup. Task 004 optional
-     tool isolation is implemented with mechanical checks Green; its presentation
-     case and producer preservation passed. Remaining operator checks and cleanup
-     are open; playback-dependent checks are deferred with proposed ADR 0068.
-     Task 005 is complete with operator acceptance and fixture cleanup. Task 006
-     is complete on 2026-09-13 with mechanical checks Green; operator V1–V6,
-     preservation and fixture cleanup are accepted. Task 007 optional-tool correction
-     and retry is complete on 2026-09-16 with mechanical checks Green; V1–V3 and
-     preservation are accepted, with no startup fixtures remaining in the checked
-     temporary directories. The narrow Library and ADR 0073 Show card-overflow
-     follow-ups are accepted with preservation and cleanup. ADR 0073 is Implemented.
-     Task 008 is complete on 2026-09-17 with mechanical checks Green, operator
-     acceptance, preservation in both cases and fixture cleanup confirmed.
-     Task 009 is complete on 2026-09-17 with mechanical checks Green; operator
-     V1–V3, normal/narrow presentation, configuration restoration, preservation
-     and cleanup are accepted. Task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; task 011 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, preservation and cleanup accepted; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 complete on 2026-09-18 with operator V1–V3, presentation, preservation and cleanup accepted.
-   - Note: a malformed layout *value* already falls back with a warning. This
-     item is the level above that, where the file does not parse at all.
-     Settings manages only a few keys, so operators hand-edit this file.
-   - Direction agreed 2026-09-10: preserve the broken file and report its path,
-     the parse error, and the recovery action. A defaults-start path requires
-     an explicit no-overwrite policy before any save can run.
-   - Operator review clarified the minimum: valid core configuration, usable
-     music-file storage, and verified SQLite. Optional-tool failures stay
-     visible with in-app correction and retry. Settings and startup recovery
-     share configuration and database maintenance tools; disabled controls
-     alone are not the recovery workflow. ADR 0066 owns the detailed policy.
-   - Route: execute the [thirteen ADR 0066 packets](adr-0066-startup-recovery-phase-plan.md),
-     one per session. Task 005 used its recorded scheduling exception without
-     accepting task 004; tasks 007–012 are complete, including operator acceptance,
-     preservation and cleanup. Independent pending
-     work follows the delivery index while playback is deferred.
-     [ADR 0069 task 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md)
-     is complete, including operator acceptance and cleanup; it grouped existing
-     Settings without changing their persisted format. Later editor/preset phases reuse this recovery work;
-     the [Settings plan](adr-0069-settings-presets-phase-plan.md) preserves its prerequisites.
-     **Implement and verify this before any config
-     format change**, since a format change puts more operators in this state.
+     remains Accepted. Tasks 001–003 and 005–013 are complete with their required
+     acceptance and cleanup. The [phase plan](adr-0066-startup-recovery-phase-plan.md)
+     links each packet and its evidence.
+   - Remaining gate: task 004's operator checks, outstanding preservation and
+     cleanup evidence. Its presentation and producer preservation passes remain accepted.
+     Playback checks wait for proposed ADR 0068 and diagnosis of the mpv IPC error.
+   - Implemented behavior: core startup checks, shared configuration correction,
+     optional-tool retry and database maintenance use the accepted recovery owners.
+   - Route: complete task 004's surviving checks under the delivery order.
+     Non-playback checks can proceed independently. Do not repeat completed packets.
+   - Settings: ADR 0069 task 001 is complete. Phase 002's editor prerequisites
+     are met, but its implementation packet remains unwritten.
+     New mode/resource keys and presets still require full ADR 0066 acceptance.
+   - **No configuration-format change may bypass the remaining gate.**
 7. Workspace configuration section naming.
    - Status: decided 2026-09-07, not scheduled. `[workspace.layout]` holds pane
      width under ADR 0051. `[workspace_layout]` holds frames and focus under
@@ -114,6 +92,12 @@ prioritized, and routed to the right governance artifact.
      reopen completed search/sidebar restructuring.
 
 ## Recently Resolved
+
+- ADR 0025 is Implemented after the 2026-09-18 status correction. All eleven
+  packets record implementation. The review records the required theme checks.
+  Item 8 covers future improvements, not unfinished packets from that series.
+- ADR 0055 is Implemented after the 2026-09-18 review and focused checks.
+  The decomposition shipped in commit `4be09d8`. It needs no duplicate packet.
 
 - ADR 0058 outbound HTTP client policy was implemented on 2026-08-28. Review
   `docs/reviews/adr-0058-implementation-review.md` verifies it. All ten blocking
@@ -214,11 +198,10 @@ scheduled, and none blocks another item.
 - Image sniffer format coverage. Trigger: real feed artwork outside PNG, JPEG,
   GIF, and WebP. Route: extend `src/media/image_type.rs`. Create an ADR only if
   the change affects artwork contracts, which also implicates priority item 3.
-- Feed and API fetch consolidation. `src/rss/**`, `src/musicbrainz.rs`,
-  `src/api.rs`, and `src/discover.rs` each build their own HTTP client. ADR 0056
-  deliberately left them out: they fetch documents, not media bytes, and want
-  retry and timeout policy the media transport does not carry. Route: future ADR
-  before any consolidation.
+- Feed and API fetch consolidation remains conditional. ADR 0058 already
+  centralizes blocking HTTP client construction in `src/http_client.rs`.
+  ADR 0056 does not consolidate document fetching into the media transport.
+  Any broader fetch/retry policy needs a future ADR before implementation.
 
 ## Execution Rule
 

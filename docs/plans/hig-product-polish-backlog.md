@@ -217,15 +217,18 @@ Acceptance direction:
 
 #### 10. Keyboard Shortcut Coverage
 
-Gap: keyboard coverage should match frequent workflow commands such as search
-focus, back navigation, sidebar reveal, and settings.
+Partly resolved by [ADR 0067](../adr/0067-platform-shortcut-modifiers.md),
+Implemented on 2026-09-11. Its packet records acceptance of the platform
+modifier, existing command bindings and focus behavior.
+Do not repeat that packet. Add shortcuts for future workflows only when those
+workflows have usable commands. Sidebar reveal remains tied to item 8.
 
 Acceptance direction:
 
 - Audit desired shortcuts against `inputs/keyboards.md` before binding them.
   Do not repurpose standard shortcuts when the app action does not match.
-- Prefer Command-based shortcuts for frequent app commands and descriptive
-  command titles.
+- Use Ctrl for app shortcuts on Linux and Command on macOS, as ADR 0067 requires.
+- Use descriptive command titles.
 - Route shortcuts through the app command/keyboard layer, not one-off screen
   key handlers.
 - Search focus should support the platform-appropriate Find/Search shortcut

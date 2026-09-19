@@ -5,7 +5,11 @@
 Design accepted - 2026-09-11. [Task 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md)
 is complete with mechanical checks Green, operator V1–V3 and preservation
 acceptance, and confirmed fixture cleanup. Its [operator procedure](../runbooks/settings-foundation-check.md)
-remains a regression check. Later rows are phase boundaries, not ready-to-execute task packets.
+remains a regression check. Later rows define phases. They are not implementation packets.
+
+Reconciled 2026-09-18: recovery tasks 005–007 are complete with acceptance.
+Phase 002 now needs its implementation packet. Later phases retain the
+configuration-format and audio prerequisites below.
 
 ## Goal
 
@@ -24,12 +28,9 @@ sharing. Do not mix unrelated pending UI polish into the Settings foundation.
 
 - `src/config.rs` owns scoped configuration readers and ordinary persistence.
   `TopApp` owns Settings inputs, saving and existing runtime updates.
-- ADR 0066 tasks 001–003 and 005–006 are complete, including applicable operator
-  acceptance and fixture cleanup. Task 004 is implemented with remaining
-  operator checks; task 005 used the operator's explicit scheduling exception.
-  Task 006's operator V1–V6, preservation and cleanup are accepted on 2026-09-13;
-  tasks 007–013 have not started. The shared Settings editor still needs task 007,
-  and this plan changes no configuration-format prerequisite.
+- ADR 0066 tasks 001–003 and 005–013 are complete with their required acceptance
+  and cleanup. Task 004 retains its operator gate. Task 005 used the operator's
+  explicit scheduling exception. Phase 002's named recovery prerequisites are complete.
 - ADR 0066 tasks 005–007 own session transitions, guarded shared correction and
   optional retry. Reuse those owners instead of constructing a Settings-only
   transaction engine.
@@ -45,15 +46,16 @@ sharing. Do not mix unrelated pending UI polish into the Settings foundation.
 | Owner | Responsibility |
 |---|---|
 | `src/config.rs`, later focused configuration modules | One scoped parse/validate/preserve/write authority; versioned component serialization |
-| `src/view_models/settings.rs` (new) | Group navigation, field/action presentation; later drafts, masks and changes |
-| `src/app/settings.rs` (new) | Thin GPUI Settings composition and focus/input wiring |
-| `src/ui/composites/settings.rs` (new if existing composites cannot supply it) | Shared Settings form/navigation geometry |
+| `src/view_models/settings.rs` | Existing group navigation and field/action presentation. Later phases add drafts, masks and changes. |
+| `src/app/settings.rs` | Existing Settings composition and focus/input wiring |
+| `src/ui/composites/settings.rs` | Existing shared forms and navigation geometry |
 | Existing application commands and ADR 0066 maintenance owners | Validation, save, apply and retry with typed results and stale-result rejection |
 | Existing Show view models, Event registry and broadcast adapters | Shared resource selection and operational command authority |
 | ADR 0068 playback owners/adapters | Independent Show and audition routes; future audio Settings consumers |
 
-New files are implementation targets. Create only owners with live callers in
-the current packet. Do not park empty modules for later phases.
+Task 001 created the Settings owners above. Later packets must extend those
+owners and the shared recovery commands. Create a module only when the active
+packet supplies its caller.
 
 ## Sequence And Stopping Points
 
@@ -64,7 +66,7 @@ implementation. Finish one packet per session.
 | Phase | Usable result | Prerequisite | State |
 |---|---|---|---|
 | [001: Grouped Settings foundation](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Existing controls grouped under General, Library and Diagnostics; persistent in-session navigation/inputs and direct report routing | Accepted ADR 0069; existing app and scoped config owners | Complete - 2026-09-11; mechanical checks Green; V1–V3 and preservation accepted; fixture cleanup confirmed |
-| 002: Shared guarded editor | One draft/save/cancel contract, field errors and saved/running distinctions integrated with shared recovery commands | 001 accepted; ADR 0066 tasks 005–007 complete with their required acceptance | Not started; author packet after inspecting those delivered owners |
+| 002: Shared guarded editor | One draft/save/cancel contract, field errors and saved/running distinctions through shared recovery commands | Task 001 and recovery tasks 005–007 are complete with acceptance. | Implementation not started. Prerequisites met. Author the packet against the delivered owners. |
 | 003: Live metadata setup | General mode selection and Live Metadata producer/publisher editors, compatible defaults and explicit apply behavior | 002 accepted; full ADR 0066 configuration-format prerequisite released | Not started; author schema and bounded packets before edits |
 | 004: Selective presets | Versioned named snapshots; save/recall masks for delivered components, composition in a draft, change review and conflict-safe persistence | 003 accepted; shared guarded persistence ready | Not started; split persistence/recall model and UI into separate packets if needed |
 | 005: Independent audio settings | Audio tab and Show/Audition preset components, PulseAudio and JACK destination controls backed by independent owners | Guarded editor and relevant preset model; ADR 0068 accepted and owner/route isolation delivered and verified | Deferred with playback; no implementation packet yet |
@@ -74,10 +76,12 @@ checkboxes arrive with their adapters, not as disabled promises. Native PipeWire
 is a later adapter packet, not part of the first audio delivery.
 
 Task 001 completed independently of ADR 0066 task 004's playback gate.
-Task 002 still waits for ADR 0066 tasks 005–007. The next session must inspect
-actual prerequisites. If later scheduling needs a narrower
-configuration-format dependency, record that decision explicitly before writing
-new configuration; do not infer it from this Settings priority change.
+Phase 002 can proceed after its packet defines the scope and checks.
+Phase 003 still requires full ADR 0066 acceptance. Task 004 prevents that
+release while its playback checks remain paused for ADR 0068 and the mpv IPC error.
+
+Any narrower configuration-format prerequisite needs an explicit decision before
+new configuration writes. The completed editor prerequisites do not grant that exception.
 
 ## Schema And API Implications
 

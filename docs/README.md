@@ -35,6 +35,9 @@ Core:
   Settings, and toolbar procedures with a disposable database/audio copy
 - [Governance reconciliation](reviews/2026-09-10-governance-reconciliation.md):
   gate-prose sweep, retired requirements, surviving checks, and delivery priority
+- [ADR status review — 2026-09-18](reviews/2026-09-18-adr-status-and-remaining-work.md):
+  corrected ADR and packet statuses, six open gate groups, current dependencies,
+  and existing versus unwritten implementation packets
 
 Current governance:
 
@@ -96,7 +99,8 @@ Current governance:
   audition audio/state; implementation and operator verification remain open
 - [ADR 0069: Grouped Settings and selective presets](adr/0069-grouped-settings-and-selective-presets.md):
   accepted Settings groups, metadata resource selection, separate audio settings
-  and component-masked preset snapshots; task 001 complete, later phases not started
+  and selective preset snapshots. Task 001 is complete. Phase 002 prerequisites
+  are met, but its packet is unwritten. Later configuration formats remain gated.
 
 Current plans:
 

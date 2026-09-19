@@ -4,8 +4,8 @@ Status: Complete - 2026-09-13. Mechanical checks Green. Operator V1–V3,
 ADR 0070 narrow Show layout/header/footer checks, Settings/recovery editor
 Close/Reopen and Escape follow-ups, final preservation inspection and all
 fixture cleanup are accepted. No acceptance gates remain for this packet.
-ADRs 0063 and 0070 are Implemented. ADR 0066 task 006 remains complete;
-task 007 follows in a fresh session and has not started.
+ADRs 0063 and 0070 are Implemented. ADR 0066 tasks 006 and 007 are complete.
+The [recovery plan](../plans/adr-0066-startup-recovery-phase-plan.md) records current dependencies.
 
 ## Goal And Owners
 
@@ -498,7 +498,7 @@ examples remain ignored. The operator accepted the
 on 2026-09-13: Escape from the focused input focuses Close editor while the
 editor stays open; activating that button closes it. The field, draft and log
 survive both steps in Settings and recovery. This completes the packet's visual
-checks. Final preservation is recorded below. Task 007 has not started.
+checks. Final preservation is recorded below. Task 007 had not started at this observation. The recovery plan records its later completion.
 
 ## Final Preservation — 2026-09-13
 
@@ -511,7 +511,7 @@ The final preservation gate is accepted. The operator confirmed cleanup of
 `/tmp/v4vmm-startup-kqcrv2ir` on 2026-09-13; both V1 fixtures were already cleaned.
 This closes the packet's final gate. All mechanical, visual, preservation and
 cleanup checks for this packet are complete. ADRs 0063 and 0070 are Implemented.
-ADR 0066 task 007 follows in a fresh session and has not started.
+ADR 0066 task 007 had not started at this observation. The recovery plan records its later completion.
 
 ## Scope Limits And Rollback
 

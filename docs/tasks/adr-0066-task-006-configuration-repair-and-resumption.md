@@ -3,7 +3,7 @@
 Status: Complete - 2026-09-13. Mechanical checks Green. Operator V1–V6,
 preservation inspections and fixture cleanup are accepted.
 Temporary viewport measurements are removed.
-Task 007 has not started; it follows in a fresh session.
+Task 007 is complete. The [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md) records successor status.
 
 The operator's later Close/Reopen editor request is a bounded presentation
 follow-up under [ADR 0063 task 005](adr-0063-task-005-shared-log-frames-and-following.md#configuration-editor-close-and-reopen--adr-0066).
@@ -430,7 +430,7 @@ Every case requires its preservation inspection and confirmed fixture cleanup.
 A Linux desktop, Python 3.11+, debug binary and unprivileged account are required;
 no audio hardware or reachable external service is needed. No agent ran the app.
 No task 006 operator check remains open. Task 004 and inherited checks retain
-their separate gates; task 007 has not started.
+their separate gates. Task 007 is complete.
 
 Closure verification - 2026-09-13: all 239 architecture tests, six fixture
 regression tests, changed-document file links and `git diff --check` are Green.

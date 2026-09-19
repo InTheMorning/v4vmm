@@ -1,6 +1,9 @@
 # ADR 0062 Task 002: Music Opens On Recent Music
 
-Status: Ready - 2026-09-07. Do after task 001.
+Status: Complete - 2026-09-07. Reconciled on 2026-09-18 against the
+[delivery record](../plans/broadcast-chain-delivery-order.md#surface-rewrite--complete).
+This correction records the existing completion result. It supplies no new
+operator observation and does not reopen the packet.
 
 ## Goal
 

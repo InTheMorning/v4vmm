@@ -2,11 +2,16 @@
 
 ## Status
 
-Accepted - 2026-05-01. Implementation partial: the phase plan records
-seven of eleven phases implemented by task packets. This ADR remains the live
-theme, icon, and style boundary; changes affecting tokens, primitives,
-composites, or theme contracts route through bounded ADR 0025 tasks per
-`docs/plans/deferred-architecture-work-index.md` priority item 5.
+Implemented - 2026-09-18.
+
+Reconciled 2026-09-18: all eleven packets, including task 003b, record implementation.
+The [review checklist](../reviews/adr-0025-review-checklist.md) records mechanical
+checks through task 010 and the theme visual passes on 2026-05-01.
+This correction removes the unsupported seven-of-eleven count. It records no
+new desktop observation.
+
+This ADR remains the theme, icon and style boundary. Future changes use bounded
+packets under [deferred item 8](../plans/deferred-architecture-work-index.md#priority-order).
 
 ## Context
 
@@ -18,7 +23,7 @@ the application boundary so GPUI screens are closer to thin presentation
 adapters.
 
 That work makes the app substantially easier to style, but it does not yet make
-theme, icon, and control-style changes boring. The current state is mixed:
+theme, icon, and control-style changes boring. At design time, the implementation had these conditions:
 
 - `src/ui/tokens.rs` owns semantic colors, spacing, radius, typography, scale,
   `Appearance`, and `Environment`.

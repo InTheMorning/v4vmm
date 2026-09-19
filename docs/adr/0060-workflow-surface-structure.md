@@ -13,6 +13,11 @@ Amended 2026-09-11: corrected the obsolete reserved audition ADR number to
 separation below remains binding; the proposed mechanism is not yet accepted
 or implemented.
 
+Reconciled 2026-09-18: the four structural packets are complete in the
+[delivery index](../plans/broadcast-chain-delivery-order.md#surface-rewrite--complete).
+This ADR remains Accepted because independent audition is not implemented.
+Cache/dump policy and play history remain future decisions without assigned numbers.
+
 ## Context
 
 `docs/plans/curator-workflow-ui-design-brief.md` records the product intent.
@@ -149,7 +154,7 @@ Two label pairs replace internal terms:
 | unreviewed release | `New` |
 
 `Cached` leaves the curation surface. Cache state appears in `Settings` under
-storage, with a size and a purge control. ADR 0061 owns the policy.
+storage, with a size and a purge control. A future ADR must define cache/dump policy.
 
 ### Sections Earn Their Place By Mode
 
@@ -237,13 +242,16 @@ Negative and risks:
 
 ## Follow-Up Work
 
-- ADR 0061, cache and dump policy. `Dump` cannot ship without it.
+- Write the cache and dump policy ADR. `Dump` requires that decision.
 - [ADR 0068, Show cue and audition isolation](0068-show-cue-and-audition-isolation.md), Proposed.
-- ADR 0063, play history and rotation warnings.
+- Write the play-history and rotation-warning ADR.
 - Mine the parked discover modules for the metadata grid and tree patterns,
   then delete them.
 - Revise the curator workflow design brief against this ADR.
-- Revise every pending ADR 0059 packet before implementation resumes.
+
+ADR 0059's packet revision and implementation are complete in the delivery index.
+Do not repeat those packets. Assign numbers to future decisions only when they
+are written.
 
 ## References
 

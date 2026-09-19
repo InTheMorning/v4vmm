@@ -4,11 +4,18 @@
 
 Accepted - 2026-09-07.
 
+Reconciled 2026-09-18: the [delivery index](../plans/broadcast-chain-delivery-order.md#surface-rewrite--complete)
+records tasks 001–005 complete on 2026-09-07. Their stale Ready headers are corrected.
+The packets deliver the row contract, default view, library control, view modes
+and retirement of the Recent Feeds destination.
+The broader search/expansion follow-up lacks completion evidence in this review.
+This ADR therefore remains Accepted. That evidence gap does not reopen the five completed packets.
+
 Amended 2026-09-07 after packets 001 through 003 shipped. The default order
 returns releases only, because the index recency query returns feeds. Mixed
-rows arrive through search and through expansion, not through the default
-order. The row contract still carries all three kinds, so neither path needs a
-second row model.
+rows belong to search and expansion, not the default order. The row contract
+carries all three kinds. This amendment defines the intended paths, not proof
+that both paths are implemented.
 
 Extends ADR 0060. Reverses the Recent Feeds reachability invariant that ADR
 0030 established.
@@ -253,21 +260,13 @@ Negative and risks:
 
 ## Follow-Up Work
 
-- Update `adr_0047_phase_d_filter_chip_strip_renders_through_frame_shell` and
-  `adr_0047_task_010_content_list_filter_chips_are_frame_local`. Both require
-  the segmented chip strip that this ADR replaces.
-- Reuse rather than rebuild. `RecentFeedsPageVm` already provides cursor
-  paging and load-more.
-  `ArtistResultDisplay`, `FeedResultDisplay`, and `TrackResultDisplay` already
-  exist, separated today by `SearchResultsTab`. The mixed row merges those three
-  tabs into one list, and the entity badge replaces the tab.
-- Task packets for the row contract, the library control, the sort, and the
-  tile mode.
-- Decide whether tile mode persists per section or globally.
-- Carry mixed rows into the list through search results and through expansion.
-  Neither path is scheduled.
-- Establish which sort orders the MusicIndex API can produce, before any second
-  sort is designed.
+- Review mixed-row search and expansion against current behavior. Record which
+  requirements are delivered before assigning any missing integration work.
+- Check which sort orders the MusicIndex API supports before designing another sort.
+
+Tasks 001–005 already cover the row contract, controls, view modes and retired
+Recent Feeds destination. View-mode persistence is decided above. These are
+not future tasks.
 
 ## References
 

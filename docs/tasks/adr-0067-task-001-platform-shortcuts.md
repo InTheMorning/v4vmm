@@ -146,7 +146,7 @@ same shared transition; their action and destination rules remain.
 Task 004's adapter-disposition note was also addressed as documentation only:
 C7 requires adapter deletion or an exact justified caller inventory, and removes
 the strict startup adapter call and its optional-configuration expect in either
-case. Task 004 implementation has not started.
+case. Task 004 had not started at this observation. Its implementation is now complete, with its own operator gate open.
 
 Operator acceptance is complete, with the evidence above. The ADR status and
 delivery row record completion; this packet has no pending-human-check entry.

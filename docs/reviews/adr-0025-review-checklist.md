@@ -4,6 +4,11 @@
 
 Use this checklist for ADR 0025 implementation diffs and final review.
 
+Status reconciled on 2026-09-18. All eleven packets, including 003b, record
+implementation. The evidence below covers review through task 010 and the
+2026-05-01 visual passes. The earlier task-007 merge recommendation was stale.
+No new desktop observation is claimed.
+
 ## Pass / Fail
 
 - Status: Reviewed through Task 010.
@@ -126,4 +131,5 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 
 ## Merge Recommendation
 
-- Mergeable through Task 007.
+- The recorded review supports completion through task 010, including task 003b.
+- Future theme work requires its own bounded packet and applicable checks.

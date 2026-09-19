@@ -2,7 +2,7 @@
 
 Status: Complete - 2026-09-10.
 Mechanical gate Green. No new layout or operator visual gate.
-Task 002 is next; it was not started in this session.
+The [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md) records successor status.
 
 ## Goal
 
@@ -14,7 +14,7 @@ Read [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md),
 the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md), this whole packet, and the
 [review checklist](../reviews/adr-0066-startup-recovery-review-checklist.md).
 This packet is complete. Its guard references below own the implemented
-mechanics; the handoff table still assigns the remaining work.
+mechanics. The handoff table identifies the owners of the later work.
 
 ## Files To Inspect
 
