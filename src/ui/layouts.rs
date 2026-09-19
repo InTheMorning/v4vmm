@@ -94,15 +94,15 @@ pub(crate) const OVERLAY_SCROLLBAR_WIDTH: Pixels = gpui_base::Scrollbar::width()
 //   hand-copied ratio, so a future gpui-pre upgrade that changes the default
 //   line-height policy fails the pinned test below instead of silently
 //   drifting every reservation.
-// - `reservation_endpoints`/`reservation_ceiling_factor`/`reservation_line_box`
-//   size the reservation against ADR 0039's *reviewed but unratified* numeric
-//   type proposal (docs/adr/0039-dynamic-type-ramp.md#numeric-proposal). This
-//   is a sizing ceiling only — it is NOT the live type resolver.
-//   `FontSize::type_multiplier` (src/ui/tokens.rs) stays at identity through
-//   this packet, and nothing here feeds that resolver. ADR 0039 task 003 owns
-//   ratifying real numbers into it; when it does, it must re-verify this
-//   reservation against the ratified values
-//   (docs/reviews/adr-0039-review-checklist.md).
+// - `reservation_endpoints`, `reservation_ceiling_factor` and
+//   `reservation_line_box` use the endpoints ratified in ADR 0039 task 003.
+//   The decision date is 2026-09-18. See docs/adr/0039-dynamic-type-ramp.md.
+//   Task 003 reduced the proposed downward endpoints and retained the upward endpoints.
+//   These helpers calculate reservation bounds. They do not resolve rendered font sizes.
+//   `FontSize::type_multiplier` in src/ui/tokens.rs maintains the same values separately.
+//   It must not read this reservation table.
+//   The review records checks at all five steps on 2026-09-18.
+//   See docs/reviews/adr-0039-review-checklist.md.
 
 /// ADR 0039: the line-box height GPUI renders for `div().text_size(font_size)`
 /// with no `.line_height()` override.
@@ -124,25 +124,25 @@ pub(crate) fn line_box_height(font_size: Pixels) -> Pixels {
     style.line_height_in_pixels(px(0.0))
 }
 
-/// ADR 0039 sizing-ceiling endpoints from the ADR's reviewed but unratified
-/// numeric proposal (docs/adr/0039-dynamic-type-ramp.md#numeric-proposal):
-/// `(x-small factor, x-large factor)` per role. Task 003 owns ratifying real
-/// numbers into `FontSize::type_multiplier`; this table exists only to size
-/// this reservation and must never be read by that resolver.
+/// Returns the reservation endpoints for this role
+///
+/// ADR 0039 task 003 ratified these `(x-small factor, x-large factor)` values on 2026-09-18.
+/// `FontSize::type_multiplier` maintains the same values in src/ui/tokens.rs.
+/// That resolver must not read this table.
 const fn reservation_endpoints(role: FontSize) -> (f32, f32) {
     match role {
-        FontSize::Micro => (0.98, 1.36),
-        FontSize::Caption => (0.97, 1.32),
-        FontSize::Body => (0.96, 1.28),
-        FontSize::Headline => (0.94, 1.24),
-        FontSize::Title3 => (0.92, 1.20),
-        FontSize::Title2 => (0.90, 1.16),
-        FontSize::Title => (0.88, 1.12),
+        FontSize::Micro => (0.91, 1.36),
+        FontSize::Caption => (0.90, 1.32),
+        FontSize::Body => (0.89, 1.28),
+        FontSize::Headline => (0.88, 1.24),
+        FontSize::Title3 => (0.87, 1.20),
+        FontSize::Title2 => (0.86, 1.16),
+        FontSize::Title => (0.85, 1.12),
     }
 }
 
-/// ADR 0039 sizing ceiling: the proposal's interpolation factor at `scale` for
-/// `role` (docs/adr/0039-dynamic-type-ramp.md#numeric-proposal), reusing
+/// ADR 0039 sizing ceiling: the ratified interpolation factor at `scale` for
+/// `role` (docs/adr/0039-dynamic-type-ramp.md, ratified 2026-09-18), reusing
 /// `ScaleFactor::chrome_multiplier`'s value as the step coordinate `c`. Below
 /// medium: small uses 8/15 of the downward change, x-small the full `d`
 /// endpoint. Above medium: large uses 12/25 of the upward change, x-large the
@@ -163,7 +163,7 @@ fn reservation_ceiling_factor(role: FontSize, scale: ScaleFactor) -> f32 {
 }
 
 /// ADR 0039 sizing ceiling: `role`'s maximum permitted line-box height at
-/// `scale`, sized against the unratified numeric proposal (see module docs
+/// `scale`, sized against the ratified numeric decision (see module docs
 /// above). Takes no text — the reservation cannot depend on string length.
 #[must_use]
 pub(crate) fn reservation_line_box(role: FontSize, scale: ScaleFactor) -> Pixels {
@@ -245,18 +245,17 @@ mod tests {
         assert_eq!(line_box_height(px(15.0)), px(24.0));
     }
 
-    /// ADR 0039 task 002 M1: `ShowCard`'s reserved header+summary block fits
-    /// `Size::MenuCompact`'s available inner height at every scale step, sized
-    /// against the ADR's reviewed but unratified numeric proposal as the
-    /// worst-case text extent. Pins the review checklist's computed figures
-    /// (docs/reviews/adr-0039-review-checklist.md#task-002-implementation-step-1-evidence--2026-09-18)
-    /// so a change to chrome, padding, gap or the proposal endpoints is
-    /// caught here rather than discovered as clipping.
+    /// ADR 0039 task 003 rechecks ShowCard capacity at all five steps.
+    /// The reserved header and summary must fit within `Size::MenuCompact`.
+    /// Ratification reduced the reserved height at `XSmall` and `Small`.
+    /// It retained the `Medium`, `Large` and `XLarge` figures.
+    /// See docs/reviews/adr-0039-review-checklist.md for the original figures.
+    /// The assertions detect changes to chrome, padding, gaps or endpoints.
     #[test]
     fn adr_0039_show_card_reservation_fits_available_at_all_steps() {
         let cases = [
-            (ScaleFactor::XSmall, 113.60, 73.2),
-            (ScaleFactor::Small, 123.12, 76.04),
+            (ScaleFactor::XSmall, 113.60, 69.20),
+            (ScaleFactor::Small, 123.12, 74.04),
             (ScaleFactor::Medium, 134.0, 78.0),
             (ScaleFactor::Large, 150.32, 88.44),
             (ScaleFactor::XLarge, 168.0, 99.0),
@@ -280,10 +279,11 @@ mod tests {
         }
     }
 
-    /// ADR 0039 task 002 M1: every button size/role pairing reserves at most
-    /// its box height at every scale step, including the tightest case named
-    /// in the review checklist (Sm/Caption at x-small: 19px needed vs 23.80px
-    /// available, still fitting at 21.80px with the optional 2px border).
+    /// ADR 0039 task 003 rechecks each button size and role at all five steps.
+    /// Each label reservation must fit within the button height.
+    /// The tightest case remains Sm/Caption at x-small.
+    /// Its reservation is 17 px, compared with the proposed 19 px.
+    /// Available height is 23.80 px, or 21.80 px with the optional border.
     #[test]
     fn adr_0039_button_reservation_fits_available_at_all_steps() {
         let box_heights = [
@@ -315,7 +315,7 @@ mod tests {
 
         // Pin the named tightest case exactly.
         let reserved = button_label_reservation(FontSize::Caption, ScaleFactor::XSmall);
-        assert_eq!(reserved, px(19.0));
+        assert_eq!(reserved, px(17.0));
         let available = available_inner_height(px(23.8), px(0.0), px(0.0));
         assert!((f32::from(available) - 23.8).abs() < 0.05);
         assert!(reserved <= available);

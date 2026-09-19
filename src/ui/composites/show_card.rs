@@ -59,22 +59,18 @@ impl ShowCard {
 impl RenderOnce for ShowCard {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let card_id = show_card_id(self.display.kind);
-        // ADR 0039 task 002: prove the fixed `.h(Size::MenuCompact.scaled(cx))`
-        // cap below always holds the reserved header+summary block, at every
-        // scale step, before it clips anything silently. Debug-only: this
-        // never changes what release builds render, and the reservation is
-        // sized against the ADR's numeric proposal as a ceiling, not against
-        // today's identity type output, so it stays true ahead of task 003's
-        // ratification too. If this ever fires, the fix is to bring the
-        // measured mismatch back to ADR 0039 — never to shrink the font, drop
-        // a line or grow chrome here to silence it.
+        // ADR 0039 task 002 checks the reserved header and summary against the card height.
+        // This debug assertion does not change rendered dimensions.
+        // Task 003 rechecked the reservation against the ratified values on 2026-09-18.
+        // If the assertion fails, report the measured mismatch in ADR 0039.
+        // Do not reduce the font size, remove a line or enlarge chrome to pass the check.
         debug_assert!(
             layouts::show_card_summary_reservation(ScaleFactor::current(cx))
                 <= layouts::show_card_available_inner_height(ScaleFactor::current(cx)),
             "ADR 0039 (docs/adr/0039-dynamic-type-ramp.md#wrapping-and-fixed-height-reservation): \
              ShowCard's reserved header+summary block exceeds Size::MenuCompact's available \
-             inner height at this scale step. Fix: report the measured mismatch to ADR 0039; \
-             do not shrink the font, drop a line, or grow chrome to pass this check."
+             inner height at this scale step. Fix: report the measured mismatch to ADR 0039. \
+             Do not shrink the font, drop a line, or grow chrome to pass this check."
         );
         let card_kind = self.display.kind;
         let selected = self.selected;

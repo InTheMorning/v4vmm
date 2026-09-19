@@ -38,11 +38,11 @@ Core:
 
 Current governance:
 
-- [ADR 0039: Dynamic type ramp](adr/0039-dynamic-type-ramp.md): Accepted policy
-  for separate type/chrome curves and fixed-height reservation. Tasks 001 and
-  002 land at identity with no visual gate; task 003 ratifies the proposed
-  numeric type values and lands them. [Twelve operator inspections](runbooks/dynamic-type-ramp-check.md)
-  remain open under task 003.
+- [ADR 0039: Dynamic type ramp](adr/0039-dynamic-type-ramp.md): Implemented on
+  2026-09-18. All three packets are complete. The operator passed thirteen
+  visual checks and confirmed fixture removal. The agent inferred preservation
+  from the conditional cleanup command. The review records the evidence limits.
+  The [dynamic type procedure](runbooks/dynamic-type-ramp-check.md) remains a regression check.
 
 - [ADR 0074: Repair and diagnostics pages](adr/0074-repair-and-diagnostics-pages.md):
   task 013 presentation correction. Separate tools, actions and reports.
@@ -101,9 +101,10 @@ Current governance:
 Current plans:
 
 - [ADR 0039 dynamic type ramp phase plan](plans/adr-0039-dynamic-type-ramp-phase-plan.md):
-  three packets after recovery task 013, before Settings follow-through and
-  relay adoption; the first two land at identity with no visual gate; no
-  configuration-format change or chrome-density retuning.
+  All three packets are complete on 2026-09-18. The review records operator
+  acceptance, inferred preservation and confirmed fixture removal.
+  Configuration formats and chrome coefficients are unchanged.
+  Settings follow-through and relay adoption retain their own scope.
 - [ADR 0069 Settings and presets phase plan](plans/adr-0069-settings-presets-phase-plan.md):
   existing-field foundation complete; guarded editing, metadata selection,
   selective presets and deferred audio integration have explicit prerequisites
@@ -153,13 +154,12 @@ Current plans:
 
 Current implementation packets:
 
-- [ADR 0039 task 001: Scale domains and type curves](tasks/adr-0039-task-001-scale-domains-and-type-curves.md),
-  [task 002: Fixed-height reserve and acceptance](tasks/adr-0039-task-002-fixed-height-reserve-and-acceptance.md)
-  and [task 003: Type curve ratification](tasks/adr-0039-task-003-type-curve-ratification.md):
-  scheduled in separate sessions; implementation not started; tasks 001/002
-  land at identity with no visual gate, task 003 owns numeric ratification and
-  the twelve inspections; [review checklist](reviews/adr-0039-review-checklist.md)
-  records the open gates.
+- ADR 0039: [task 001](tasks/adr-0039-task-001-scale-domains-and-type-curves.md),
+  [task 002](tasks/adr-0039-task-002-fixed-height-reserve-and-acceptance.md)
+  and [task 003](tasks/adr-0039-task-003-type-curve-ratification.md).
+  All three packets are complete on 2026-09-18. Mechanical checks are Green.
+  The [review checklist](reviews/adr-0039-review-checklist.md) records V1–V13,
+  inferred preservation and confirmed fixture removal.
 - [ADR 0063 task 005: Shared log frames and following](tasks/adr-0063-task-005-shared-log-frames-and-following.md):
   complete on 2026-09-13 with mechanical checks Green; [operator V1–V3 and editor follow-ups](runbooks/log-frame-check.md),
   final preservation and fixture cleanup accepted; ADR 0066 task 007 is complete with acceptance recorded in its packet

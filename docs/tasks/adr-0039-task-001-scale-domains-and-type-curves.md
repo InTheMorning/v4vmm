@@ -1,10 +1,13 @@
 # ADR 0039 Task 001: Scale Domains And Type Curves
 
-Status: Scheduled - 2026-09-18. Amended the same day: this packet now ships
-both live resolvers at identity. Implementation not started. No visual gate —
-there is nothing to inspect. [Task 003](adr-0039-task-003-type-curve-ratification.md)
-owns numeric ratification, the live per-role curves and the twelve-cell
-visual gate.
+Status: Complete - 2026-09-18 (`3b40ec1`). Mechanical checks are Green.
+Both resolvers initially produced the former uniform values.
+This packet has no visual gate.
+
+Task 003 introduced the ratified type curves
+and resolved review finding R2. Its review records thirteen visual passes,
+inferred preservation and confirmed fixture removal.
+[ADR 0039](../adr/0039-dynamic-type-ramp.md) is Implemented.
 
 ## Goal
 
@@ -109,8 +112,8 @@ None. Both resolvers land at identity, so resolved output does not change at
 any step, on any surface. There is nothing to inspect. This packet's
 mechanical handoff allows task 002 to proceed in a fresh session; it does not
 claim any presentation, because none changed.
-[Task 003](adr-0039-task-003-type-curve-ratification.md) owns the twelve
-inspections, once it lands the ratified per-role curves. There is no
+[Task 003](adr-0039-task-003-type-curve-ratification.md) owns the thirteen
+inspections, accepted on 2026-09-18 after landing the ratified per-role curves. There is no
 chrome-density inspection for unchanged coefficients, in this packet or any
 other in this ADR.
 

@@ -110,7 +110,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0035](0035-track-surface-consolidation.md) | One track detail surface | Implemented |
 | [0036](0036-feed-visual-and-provenance-surface-consistency.md) | Feed visual and provenance consistency | Implemented |
 | [0037](0037-same-entity-surface-parity.md) | Same-entity surface parity | Accepted, partial |
-| [0039](0039-dynamic-type-ramp.md) | Separate type/chrome curves, five existing steps and fixed-height reservation; [three packets scheduled](../plans/adr-0039-dynamic-type-ramp-phase-plan.md) — tasks 001/002 land at identity with no visual gate, task 003 ratifies and lands the numbers; numeric type proposal unratified, twelve visual inspections open under task 003 | Accepted |
+| [0039](0039-dynamic-type-ramp.md) | The app uses separate type and chrome curves, five existing steps and a shared reservation. [All three packets are complete](../plans/adr-0039-dynamic-type-ramp-phase-plan.md). The review records V1–V13, inferred preservation and confirmed fixture removal. | Implemented |
 | [0043](0043-top-toolbar-global-search.md) | Global toolbar search; current light/dark width checks remain open | Accepted, partial |
 | [0044](0044-playlist-drag-handle-reordering.md) | Playlist drag handle reordering | Accepted, partial |
 | [0049](0049-inspector-source-ownership.md) | Inspector source tree and filter ownership | Implemented |
@@ -130,12 +130,11 @@ retired replaced requirements before restoring current human checks:
 
 - 0030, 0037, 0043, 0044, and 0054 have surviving checks in
   [pending human checks](../pending-human-checks.md).
-- 0039's former policy deferral is resolved by its 2026-09-18 acceptance.
-  Its [phase plan](../plans/adr-0039-dynamic-type-ramp-phase-plan.md), amended
-  the same day to three packets, is scheduled; tasks 001/002 land at identity
-  with no visual gate, the numeric type table remains a proposal owned by
-  task 003, and the twelve visual inspections remain open under that packet.
-  The dated reconciliation retains its original historical result.
+- ADR 0039 is Implemented on 2026-09-18. All three packets and numerical
+  ratification are complete. The operator passed thirteen visual checks and
+  confirmed fixture removal. The review records preservation as an inference
+  from the conditional cleanup command. The dated reconciliation retains its
+  original historical result.
 - 0025 remains partially implemented; its recorded visual passes are not an
   open operator gate. Further theme work uses bounded packets.
 

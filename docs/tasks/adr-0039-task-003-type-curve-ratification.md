@@ -1,15 +1,20 @@
 # ADR 0039 Task 003: Type Curve Ratification
 
-Status: Scheduled - 2026-09-18, new packet. Implementation not started;
-requires task 001's and task 002's mechanical handoff. Numeric type proposal
-unratified; twelve operator inspections open.
+Status: Complete - 2026-09-18. Mechanical checks are Green.
+The operator ratified the numeric decision, passed V1–V13 and confirmed fixture removal.
+The agent inferred preservation and preference restoration from the conditional cleanup command.
+The conversation does not contain the original inspection JSON.
+
+The [review checklist](../reviews/adr-0039-review-checklist.md#operator-visual-check--task-003)
+records the observations, source hashes, viewport report and evidence limits.
+ADR 0039 is Implemented. No operator gate remains open in this packet.
 
 ## Goal
 
 Ratify ADR 0039's numeric type proposal, land the per-role curves in the live
-type resolver task 001 shaped, and walk the twelve operator inspections. This
-is the first ADR 0039 packet that changes anything on screen: task 001 and
-task 002 both land at identity.
+type resolver task 001 shaped, and walk the thirteen operator inspections. This
+is the first ADR 0039 packet that changes type values.
+Tasks 001/002 retain uniform type values. Task 002's ShowCard correction receives visual acceptance in this packet's V13.
 
 ## Files To Inspect
 
@@ -55,13 +60,11 @@ ShowCard fix beyond what re-verifying its reservation ceiling requires.
 
 ## Constraints
 
-Work follows task 001 and task 002 in a fresh session. Neither has presented
-anything on screen, so there is no prior visual acceptance to inherit — this
-packet opens the first visual gate in this ADR. Verify task 002's reservation
-ceiling was sized against this proposal; if the final ratified numbers exceed
-that ceiling anywhere, report the measured mismatch and correct the
-reservation at its shared owner before landing the ratified type values, not
-after.
+Work follows tasks 001/002 in a fresh session. They retain uniform type values and have no separate visual gate.
+This packet opens the first visual gate in this ADR, including V13 for task 002's ShowCard correction.
+Verify that task 002's reservation ceiling covers this proposal.
+If the ratified values exceed that ceiling, report the measured mismatch.
+Correct the reservation at its shared owner before introducing those values.
 
 Present the concrete endpoints, intermediate results and task 002's
 fixed-height capacity findings for the operator's numerical decision before
@@ -84,27 +87,30 @@ or additional accessibility tier.
    under the ratified values, at all five steps. Correct the reservation at
    its shared owner if a variant is short; do not shrink a font, drop a line,
    or wrap a compact row to make it fit.
-4. Add value tests for all 35 ratified type outcomes: exact medium base
-   preservation, change from the old uniform result at each non-medium step,
-   monotonic role growth, role ordering at every step, greater proportional
-   growth for smaller roles above medium and smaller proportional loss below
-   it. Add or extend the situational ADR 0039 guard proving the live resolver
-   outputs these values, not the task 001 identity placeholder.
-5. Run checks, rebuild the normal binary and hand the operator the linked
-   procedure. Record each of the twelve cells separately. Corrections stay at
-   shared owners and carry regression proof; repeat affected cells after
-   edits.
-6. Keep ADR 0039 short of Implemented until numeric ratification, all three
-   packets' mechanical checks, the twelve cells, preservation and cleanup all
-   pass. Reconcile all live status records in the same change.
+4. Add tests for all 35 ratified type outcomes.
+   Check exact Medium bases, monotonic growth and role ordering at every step.
+   Check that smaller roles grow more proportionally above Medium and shrink less proportionally below Medium.
+   Compare each non-medium outcome with the former uniform result.
+   Require differences for 26 outcomes and equality for Title at XS/Small.
+   Extend the situational ADR 0039 guard to require the ratified values in the live resolver.
+5. Run the checks.
+   Rebuild the normal desktop binary.
+   Give the operator the linked procedure.
+   Record each of the thirteen visual checks separately.
+   Correct defects at shared owners with regression proof.
+   Repeat affected visual checks after a correction.
+6. Keep ADR 0039 short of Implemented until numeric ratification, all mechanical checks, thirteen visual checks, preservation and cleanup pass.
+   Update all current status records in the same change.
 
 ## Mechanical Acceptance Criteria
 
-- M1: tests cover all 35 ratified type outcomes. They prove exact medium base
-  preservation, change from the old uniform result at each non-medium step,
-  monotonic role growth, role ordering at every step, greater proportional
-  growth for smaller roles above medium and smaller proportional loss below
-  it.
+- M1: tests cover all 35 ratified type outcomes.
+  They check exact Medium bases, monotonic role growth and role ordering at every step.
+  They check that smaller roles grow more proportionally above Medium and shrink less proportionally below Medium.
+  Of the 28 non-medium outcomes, 26 differ from the old uniform
+  result. Title at x-small and at small are asserted as equal to it, because
+  anchoring Title at today's 0.85 makes them so by construction. See the ADR's
+  amended difference criterion.
 - M2: the situational ADR 0039 guard proves the live type resolver outputs
   the ratified values recorded in the ADR, not the task 001 identity
   placeholder. Reverting to identity, or to any unratified value, must fail
@@ -123,21 +129,43 @@ or glyph clipping by itself.
 
 ## Visual Acceptance
 
-Open: exactly three named surfaces, each at x-small and x-large in Light and
-Dark — twelve inspections. This is the only visual gate in ADR 0039; task 001
-and task 002 have none.
+Accepted - 2026-09-18. V1–V13 passed. The review records inferred preservation
+and confirmed fixture removal. Three surfaces at XS/XL in both themes produce
+twelve type checks. V13 checks ShowCard summaries. Task 003 owns the only
+visual gate in ADR 0039.
 
 1. Compact row: a track row in Music's `Startup fixture playlist` detail.
 2. Detail page: the Music track detail opened from that same row.
 3. Popover: Add to Playlist on that track detail, including its New Playlist
    input mode, without submitting a change.
+4. Show cards, V13: each summary renders as one clipped line, with no ellipsis and no second row.
+   Folded in on 2026-09-18 as the
+   visual proof owed for task 002's user-visible single-line fix. It is
+   scale-independent, so one observation closes it.
 
 Use the [operator procedure](../runbooks/dynamic-type-ramp-check.md); record
 the same viewport/data, a medium reference, readable small text, uncropped
 glyphs, fixed row lines, accessible controls, detail/popover wrapping and
-cleanup. All twelve cells are listed in the
+cleanup. All thirteen cells are listed in the
 [review checklist](../reviews/adr-0039-review-checklist.md). Do not add a
 chrome-density re-walk while chrome coefficients remain unchanged.
+
+Operator evidence — 2026-09-18: the operator passed the prepared playlist
+row, detail and popover at XS/XL in Light/Dark, with Medium references, and
+ShowCard's single-line summaries. The
+[review checklist](../reviews/adr-0039-review-checklist.md#operator-visual-check--task-003)
+records each response, base revision `b5349f8`, matching working-tree source
+hashes and the reported `maximized 1440x900` / `~half width` viewport coverage.
+Exact pane geometry was not recorded. Starting preferences were Dark/Medium.
+
+The operator confirmed the inspected fixture `/tmp/v4vmm-startup-1nmjz81u`
+was already removed. The agent inferred preservation and preference restoration from the supplied command.
+That command permits cleanup only after successful inspection.
+The inference assumes that the operator used that command.
+
+The conversation does not contain the original inspection JSON. The subsequent missing-path error
+was not a failed preservation result. The unrelated located fixture was left
+untouched. All acceptance for this packet is complete.
 
 ## Test Commands
 
@@ -186,7 +214,7 @@ Read:
 
 Goal:
 - Ratify the numeric proposal, land it in the live type resolver, and walk
-  the twelve operator inspections.
+  the thirteen operator inspections.
 
 Constraints:
 - Meet M1–M4 above; preserve exact chrome output and all five persisted
@@ -199,7 +227,7 @@ Do not touch:
 - Everything in this packet's Do Not Touch section.
 
 Acceptance criteria:
-- M1–M4 Green; twelve separately recorded operator results and cleanup.
+- M1–M4 Green. Thirteen separately recorded operator results and cleanup.
 
 Test commands:
 - Run this packet's Test Commands in order, then the applicable consumer

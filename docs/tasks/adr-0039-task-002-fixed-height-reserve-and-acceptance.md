@@ -1,25 +1,31 @@
 # ADR 0039 Task 002: Fixed-Height Reserve And Acceptance
 
-Status: Scheduled - 2026-09-18. Amended the same day: requires task 001's
-mechanical handoff only — numeric ratification moved to
-[task 003](adr-0039-task-003-type-curve-ratification.md), which follows this
-packet. Implementation not started. No visual gate of its own; type output
-stays at identity through this packet, so there is nothing new to inspect
-from the ramp. ShowCard's single-line summary fix is in scope and is proven
-mechanically.
+Status: Complete - 2026-09-18. Mechanical checks M1–M4 are Green.
+These checks cover the shared reservation, its guards and ShowCard's correction.
+Type output retained the former uniform values through this packet.
+This packet has no separate visual gate.
+
+[Task 003](adr-0039-task-003-type-curve-ratification.md) owns numerical ratification
+and all thirteen visual checks. It updated the reservation to use the ratified
+endpoints. Margins increased at XS/Small and remained unchanged at the other steps.
+The operator accepted ShowCard's correction in V13 on 2026-09-18.
+Task 003 records complete acceptance, including inferred preservation and confirmed
+fixture removal.
 
 ## Goal
 
-Implement ADR 0039's fixed-height reservation at the shared geometry owner,
-and guard its live consumers, sized against the ADR's reviewed but unratified
-numeric proposal as a working ceiling. Give ShowCard's summary lines the
+Implement ADR 0039's fixed-height reservation at the shared geometry owner.
+Guard its live consumers.
+Use the reviewed numeric proposal as the working ceiling.
+Task 003 later retargeted that ceiling to the ratified endpoints.
+
+Give ShowCard's summary lines the
 playlist row's single-line discipline, `whitespace_nowrap()` with
 `overflow_hidden()`, correcting a latent wrap-and-clip defect that predates
 this ADR. The now-playing row uses `truncate()` instead. That is a different
-mechanism, and step 4 records why it is wrong here. Text readable at medium
-must not acquire vertical clipping at either extreme, x-small or x-large —
-the relative text-to-box pressure this reservation guards against rises at
-both ends, not only at x-large.
+mechanism, and step 4 records why it is wrong here.
+Text readable at Medium must not acquire vertical clipping at x-small or x-large.
+Relative text-to-box pressure rises at both ends of the scale.
 
 ## Files To Inspect
 
@@ -68,11 +74,11 @@ task 003's; do not promote the ADR's proposed table to a live value here.
 
 ## Constraints
 
-Work follows task 001 in a fresh session; task 001 has no visual gate to be
-open or closed. This packet's reservation ceiling uses the ADR's reviewed but
-unratified numeric proposal as its maximum permitted text extent — it does
-not need ratification to size a reservation, because type output stays at
-identity through this packet regardless. If task 003 later ratifies numbers
+Work follows task 001 in a fresh session. Task 001 has no visual gate.
+This packet uses the ADR's numeric proposal as its reservation ceiling.
+The proposal was unratified at the start of task 002.
+Sizing the reservation does not require ratification because type output remains uniform through this packet.
+If task 003 later ratifies numbers
 that exceed this proposal, its correction must re-verify this packet's
 reservation guard.
 
@@ -139,10 +145,10 @@ rule; cite and run its guard without re-homing or broadening it.
    states. Record actual capacity in the review checklist. Do not assume font
    point size equals line-box height. Resolve the line-height prerequisite
    above before computing capacity.
-2. Put the reservation calculation in the shared geometry owner. For each
-   variant, derive the maximum permitted text block from the ADR's reviewed
-   numeric proposal (unratified, used here only as a sizing ceiling) and the
-   resolved line-height policy, then account for surrounding chrome. Use that
+2. Put the reservation calculation in the shared geometry owner.
+   For each variant, derive the maximum permitted text block from the reviewed proposal and resolved line-height policy.
+   Use that proposal only as a sizing ceiling.
+   Account for surrounding chrome. Use that
    reserved space in the live consumers without changing chrome values or row
    heights.
 3. If any reserved block exceeds the existing available height at a permitted
@@ -177,7 +183,7 @@ rule; cite and run its guard without re-homing or broadening it.
 6. Run checks and rebuild the normal binary. State plainly that this packet
    has no visual gate of its own; hand off mechanically to task 003.
 7. Keep all three packets and ADR 0039 short of accepted implementation until
-   the twelve cells, preservation and cleanup pass in task 003. Reconcile all
+   the thirteen cells, preservation and cleanup pass in task 003. Reconcile all
    live status records in the same change; inherited gates remain separate.
 
 ## Mechanical Acceptance Criteria
@@ -206,17 +212,71 @@ M1 is the new reservation requirement; M2–M4 prove its integration, ShowCard's
 correction and retained requirements. Mechanical evidence does not prove
 glyph legibility.
 
+## Mechanical Evidence — 2026-09-18
+
+Green: `cargo fmt -- --check`, `cargo clippy --locked --offline -- -D
+warnings`, `cargo build --locked --offline --bin v4vmm`, `git diff --check`.
+Green: full suite, 1499 unit tests, 0 failed. Architecture guards, 263
+passed, 0 failed (up from 260 after task 001). Green: `adr_0039_` filter, 15
+unit tests and 4 architecture guards.
+
+| Criterion | Owner | Verification |
+|---|---|---|
+| M1, reservation | `line_box_height`, `reservation_endpoints`, `reservation_ceiling_factor`, `reservation_line_box`, `available_inner_height`, `show_card_summary_reservation`, `show_card_available_inner_height`, `button_label_reservation` (`src/ui/layouts.rs`) | `adr_0039_line_box_height_matches_gpui_phi_rounding`, `adr_0039_show_card_reservation_fits_available_at_all_steps`, `adr_0039_button_reservation_fits_available_at_all_steps`, `adr_0039_reservation_does_not_take_text_and_is_deterministic` |
+| M2, ownership | `debug_assert!` in `ShowCard::render` and `Button::debug_assert_label_reservation_fits`, both calling the owner above | `adr_0039_capped_surfaces_use_the_shared_reservation`. A source-grep guard plus a debug assertion, not a live layout constraint — see Finding 1 |
+| M3, preservation | Task 001's tests, ADR 0034/0063 guards, playlist/list geometry tests | Existing suite Green. No diff to persistence, action intent or list-height/drag calculations |
+| M4, ShowCard single-line fix | `render_summary_line` (`src/ui/composites/show_card.rs`): `.whitespace_nowrap()` + `.overflow_hidden()`, no `.truncate()` | `adr_0039_show_card_summary_line_matches_single_line_pattern`, `adr_0039_show_card_height_is_independent_of_summary_length` |
+
+The original capacity figures match the proposal table at all five steps.
+ShowCard has 113.60 px available and reserves 73.20 px at XSmall.
+At XLarge, it has 168.00 px available and reserves 99.00 px.
+The tightest proposed button case is Sm/Caption at x-small.
+It needs 19.00 px within 23.80 px, or 21.80 px with the optional border.
+Task 003's revised figures appear in the review checklist.
+
+ListRow, TrackRow, queue, playlist and content_list rows have minimum heights or no height limit.
+The capacity check for capped surfaces does not apply to those rows.
+The guard `adr_0039_fixed_height_rows_keep_single_line_text` checks the specified text policy.
+Separate tests check string-length independence for TrackRow, the queue row and the playlist row:
+
+- `adr_0039_track_row_height_is_independent_of_title_length`
+- `adr_0039_queue_row_height_is_independent_of_title_length`
+- `adr_0039_playlist_row_body_height_is_independent_of_title_length`
+
+The `line_box_height` function obtains line height from GPUI's `TextStyle`, `phi()` and `DefiniteLength` APIs.
+The test `adr_0039_line_box_height_matches_gpui_phi_rounding` detects changes to `phi()` or the `Fraction` branch.
+
+### Findings
+
+1. Debug assertions and source guards enforce M2.
+   The reservation does not control rendered dimensions.
+   Using the original ceiling as a layout dimension would change the appearance before ratification.
+   This packet prohibited that change.
+
+   Task 003 updated the endpoints and increased XS/Small margins.
+   Other margins and the enforcement mechanism did not change.
+   Release builds perform no runtime reservation check.
+   Whether the reservation should control rendered dimensions remains a separate design question.
+2. The row in `src/ui/shells/library/content_list.rs` received no test for fixed line count.
+   The function `render_content_list_row_text`, originally at lines 391–406, can wrap.
+   A correction is outside this packet's scope.
+   This is a documented coverage gap.
+3. `ListRow` in `src/ui/composites/list_row.rs` received no new test.
+   It renders opaque `AnyElement` children and owns no text field.
+   This observation does not prove that child geometry is independent of text length.
+4. The first `adr_0039_show_card_summary_line_matches_single_line_pattern` guard passed even when the correction was removed.
+   It matched method names in an explanatory comment.
+   The corrected guard uses `code_only()` to remove `//` lines before searching for calls.
+   It also requires a dot before each method name.
+   The comment no longer contains the searched call syntax.
+
 ## Visual Acceptance
 
-None of its own. Type output stays at identity through this packet, so the
-ramp produces nothing new to inspect. The twelve compact-row/detail/popover
-cells at XS/XL in Light/Dark belong to
-[task 003](adr-0039-task-003-type-curve-ratification.md), which lands the
-ratified numbers that make them meaningful; they are listed in the
-[review checklist](../reviews/adr-0039-review-checklist.md) under that
-packet. ShowCard's single-line fix is proven by M4 above, not by a new
-operator cell — its on-screen effect, where a summary line was already long
-enough to wrap, is real but is not part of the type-ramp gate.
+This packet has no separate visual gate. Its type output remains uniform.
+[Task 003](adr-0039-task-003-type-curve-ratification.md) introduces the ratified values and owns all thirteen inspections.
+Twelve checks cover compact rows, details and popovers at XS/XL in Light/Dark.
+V13 supplies visual proof for this packet's ShowCard correction, alongside the mechanical proof in M4.
+The [review checklist](../reviews/adr-0039-review-checklist.md) records all thirteen results as passed on 2026-09-18.
 
 ## Test Commands
 

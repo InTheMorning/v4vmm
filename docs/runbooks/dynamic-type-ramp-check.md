@@ -1,29 +1,33 @@
 # Dynamic Type Ramp Check
 
-Status: Planned - 2026-09-18. Amended the same day: this is
-[task 003](../tasks/adr-0039-task-003-type-curve-ratification.md)'s
-procedure. Run after ADR 0039 tasks 001, 002 and 003 are implemented — task
-003 is the packet that lands the ratified per-role type curves; tasks 001 and
-002 land at identity and have no visual gate of their own. All twelve cells
-in the [review checklist](../reviews/adr-0039-review-checklist.md#operator-visual-check)
-are open. This procedure is for a person in a Linux desktop terminal.
+Status: Accepted regression procedure - 2026-09-18.
+The operator passed all thirteen visual checks and confirmed fixture removal.
+The agent inferred preservation and preference restoration from the conditional cleanup command.
+The [review checklist](../reviews/adr-0039-review-checklist.md#operator-visual-check--task-003)
+records the evidence limits. ADR 0039 is Implemented.
+Use this procedure for future checks in a Linux desktop terminal.
 
 ## Purpose And Prerequisites
 
-Inspect a compact Music playlist row, its track detail and its Add to Playlist
-popover at x-small/x-large in Light/Dark. Use Python 3.11+, the normal desktop
-build and a new disposable fixture. The fixture supplies local tracks, Null
-playback and local service stubs. No audio device, reachable Index, installed
-player/converter or live broadcast service is required. Close the normal app.
+Inspect the compact playlist row, track detail and Add to Playlist popover in Music.
+Check these surfaces at x-small and x-large in Light and Dark.
+Use Python 3.11+, the normal desktop build and a new disposable fixture.
+The fixture supplies local tracks, Null playback and local service stubs.
+The checks require no audio device, reachable Index, installed player, converter or live broadcast service.
 
-Keep the same window size, pane width and fixture data for all twelve cells;
-record those dimensions. Medium is the reference, not an extra acceptance
-matrix. Do not reuse the retained ADR 0066 task 004 fixture.
+Close the normal app before fixture setup.
+Keep the window size, pane width and fixture data constant for the twelve type checks.
+Record both dimensions. Use Medium as the reference.
+V13 checks Show cards at any scale and theme.
+Do not reuse the retained ADR 0066 task 004 fixture.
 
 ## Operator Visual Check
 
-1. From the checkout, build and create the disposable fixture. These commands
-   do not launch the app yet. Keep this terminal for the remaining steps.
+1. Run these build and setup commands in your desktop terminal.
+   These commands do not open the app.
+   Keep this terminal and the printed fixture path for all later steps.
+   An agent session may use a different temporary filesystem.
+   Do not create a replacement fixture during the checks.
 
    ```bash
    cd /home/citizen/build/v4vmm
@@ -32,9 +36,11 @@ matrix. Do not reuse the retained ADR 0066 task 004 fixture.
    python3 docs/runbooks/startup-recovery-fixture.py verify "$type_fixture"
    ```
 
-2. With the fixture app closed, give its first track repeatable long text and
-   a description. This edits only the new disposable database. It leaves the
-   fixture's tracks, paths, playlist membership and audio intact.
+2. Keep the fixture app closed while the next commands prepare its first track.
+   Run the following commands once.
+   They add long text and a description to the disposable database.
+   Track records, paths, playlist membership and audio remain intact.
+   The final command opens the fixture app.
 
    ```bash
    python3 - "$type_fixture" <<'PY'
@@ -61,50 +67,96 @@ matrix. Do not reuse the retained ADR 0066 task 004 fixture.
    python3 docs/runbooks/startup-recovery-fixture.py run "$type_fixture"
    ```
 
-3. Record the fixture's starting theme and scale in Settings → General
-   (Ctrl+Comma). At medium, inspect Music → `Startup fixture playlist` and
-   its first row. Open that track's detail, then its Add to Playlist popover.
-   Record a reference for visible labels, glyphs, row lines and controls.
-   If a named surface cannot be reached, leave its cells open and record the
-   failed route. Do not substitute an empty screen.
+3. Open Settings → General with Ctrl+Comma.
+   Record the starting theme and scale.
+   Select Medium.
+   Inspect the first row in Music → `Startup fixture playlist`.
+   Open that track's detail.
+   Open its Add to Playlist popover.
 
-4. Select x-small/Light in Settings → General. Inspect all three surfaces,
-   recording V1, V5 and V9. Repeat x-small/Dark for V2, V6 and V10, then
-   x-large/Light for V3, V7 and V11, and x-large/Dark for V4, V8 and V12.
-   After every setting change, the mounted view must update without restart.
-   Settings is the selector, not a fourth inspection surface.
+   Record the visible labels, glyphs, row lines and controls as the reference.
+   If you cannot reach a named surface, record the failed route.
+   Leave that surface's checks open.
+   Do not substitute an empty screen.
 
-   - Row: small metadata is readable, title/artist lines keep their line count,
-     and glyph tops/bottoms and adjacent controls are not cut off. Long titles
-     may clip horizontally under the existing rule. Height may follow the
-     existing chrome step; it must not depend on text length. A new wrapped
-     row or text lost vertically compared with medium is wrong.
-   - Detail: inspect the title, small metadata, description and actions. Wrapping
-     must preserve readable lines and reachable content; overlap, a paragraph
-     trapped behind controls, or column text reduced to `...` is wrong.
-   - Popover: inspect list mode, then New Playlist input mode. Type the fixture
-     title into the draft input, inspect text and controls, use Back, then
-     dismiss with Escape. Do not submit Create & Add or select a playlist.
-     Hidden buttons, cut glyphs, overlapping text or an unreachable field fail
-     the cell. A single-line input may scroll horizontally.
+4. Use Settings → General to select each combination below.
+   Inspect the same row, detail and popover after each selection.
+   Record each check separately.
 
-5. Restore the recorded starting theme and scale in Settings. Close the app
-   normally so the launch command returns, then inspect preservation:
+   | Scale | Theme | Row | Detail | Popover |
+   |---|---|---|---|---|
+   | x-small | Light | V1 | V5 | V9 |
+   | x-small | Dark | V2 | V6 | V10 |
+   | x-large | Light | V3 | V7 | V11 |
+   | x-large | Dark | V4 | V8 | V12 |
+
+   The current view must reflect each setting change without an app restart.
+   Settings selects the values. It is not another inspection surface.
+
+   - Row: check small metadata, title and artist lines, glyphs and adjacent controls.
+     The text must remain readable and retain its line count.
+     Long titles may clip horizontally.
+     Row height may follow the existing chrome step, but must not depend on text length.
+     New wrapping or vertical clipping relative to Medium fails the check.
+   - Detail: check the title, metadata, description and actions.
+     Wrapped lines must remain readable and reachable.
+     Overlap, hidden paragraphs or column text reduced to `...` fails the check.
+   - Popover: inspect list mode.
+     Open New Playlist input mode.
+     Type the fixture title into the draft input.
+     Inspect the text and controls.
+     Select Back.
+     Press Escape to dismiss the popover.
+
+   Do not submit Create & Add.
+   Do not select a playlist.
+   Hidden buttons, clipped glyphs, overlapping text or an unreachable field fails the popover check.
+   The single-line input may scroll horizontally.
+
+   At x-large, check whether the title remains distinct from smaller text.
+   Task 003 changed page titles from 30.00 px to 26.88 px and increased small metadata.
+   Report the surface if the hierarchy is unclear.
+   A numeric correction requires a decision in ADR 0039.
+   Do not compensate with a screen-specific font adjustment.
+
+5. Open Show at any scale and theme.
+   Inspect each card's two summary lines for V13.
+   Each summary must occupy one line.
+   Narrow the window until a long summary overflows horizontally.
+   The summary must clip without an ellipsis or a second line.
+   A wrapped line hidden by the card's bottom edge fails the check.
+
+   Record V13. One observation completes this check because the correction does not depend on scale.
+
+6. Restore the starting theme and scale in Settings.
+   Close the app normally.
+   Wait for the launch command to return.
+   Run the preservation inspection:
 
    ```bash
    python3 docs/runbooks/startup-recovery-fixture.py inspect "$type_fixture"
    ```
 
-   Expect `config_preserved`, `music_preserved`, `migration_records_preserved`,
-   `bindings_preserved` and `library_preserved` to be true, one playlist, and
-   no residual probes. Normal workspace preference changes are permitted by
-   the fixture. A failure stays open; keep that fixture for diagnosis rather
-   than restoring files to conceal an unexpected change.
+   Check that these flags are true:
 
-6. Record revision, viewport, each of the twelve outcomes and screenshot or
-   observation evidence in task 003 and the review checklist. After a correction,
-   repeat affected cells on the corrected revision. Mechanical checks alone
-   do not close cells. Confirm preservation, then clean up:
+   - `config_preserved`
+   - `music_preserved`
+   - `migration_records_preserved`
+   - `bindings_preserved`
+   - `library_preserved`
+
+   Check that one playlist remains and no residual probes exist.
+   The fixture permits normal workspace preference changes.
+   If inspection fails, retain the fixture for diagnosis.
+   Do not restore files to conceal an unexpected change.
+
+7. Record the revision, viewport dimensions and all thirteen results in task 003 and the review checklist.
+   Include an observation or screenshot reference for each result.
+   After a correction, repeat affected checks on the corrected revision.
+   Mechanical checks alone do not establish visual acceptance.
+
+   Continue only if the preservation inspection passed.
+   Run the cleanup commands:
 
    ```bash
    python3 docs/runbooks/startup-recovery-fixture.py cleanup "$type_fixture"
@@ -112,15 +164,22 @@ matrix. Do not reuse the retained ADR 0066 task 004 fixture.
    unset type_fixture
    ```
 
-   Cleanup removes the disposable configuration, database, source text and
-   audio. It changes no system unit or retained fixture. Reconcile all three
-   packet Status lines, ADR, phase plan, review, delivery rows and
-   pending-human entry. Leave any unwalked or failed cell open.
+   Retain the inspection output and removal message before closing the terminal.
+   If a later command reports a missing fixture, check the retained output first.
+   The `locate` command can return an unrelated fixture.
+
+   Cleanup removes the disposable configuration, database, source text and audio.
+   It changes no system unit or retained fixture.
+   Update the three packet statuses, ADR, phase plan, review, delivery rows and pending-human index.
+   Leave any failed or unperformed check open.
 
 ## Rollback And Failure Handling
 
-A failed cell requires a correction at its shared owner and a repeat of that
-cell. Numerical corrections return to ADR 0039 and its tests; chrome retuning
-requires a future packet with its density gate. Restore the starting preferences
-before closing the fixture. Use the phase plan for code rollback; there is no
-configuration-format downgrade or live-service cleanup in this procedure.
+Correct a failed check at its shared owner.
+Repeat that check after the correction.
+Return numeric changes to ADR 0039 and its tests.
+A change to chrome requires a separate packet and density check.
+
+Restore the starting preferences before closing the fixture.
+Use the phase plan for code rollback.
+This procedure requires no configuration downgrade or live-service cleanup.

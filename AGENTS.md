@@ -140,17 +140,22 @@ The delivery order also schedules remaining narrow Show layout,
 external UTC timestamp corrections, and steady-state work.
 When a real show is scheduled, publisher show-log task 001 takes priority.
 
-[ADR 0039: Dynamic type ramp](docs/adr/0039-dynamic-type-ramp.md) is Accepted
-on 2026-09-18. Its [three-packet plan](docs/plans/adr-0039-dynamic-type-ramp-phase-plan.md)
-is scheduled after completed recovery task 013, before Settings follow-through
-and relay adoption. Implementation has not started. Task 001 ships both live
-resolvers — type and chrome — at identity, bit-identical to today's uniform
-result at all five steps; it has no visual gate. Task 002 adds fixed-height
-reservation and ShowCard's single-line fix, also with no visual gate of its
-own. The type coefficient table remains a proposal, owned by task 003, which
-ratifies it and lands the per-role curves. The twelve row/detail/popover
-inspections remain open under task 003. Existing `UiScale` variants and
-configuration format stay unchanged; ADR 0066's gate is independent.
+[ADR 0039: Dynamic type ramp](docs/adr/0039-dynamic-type-ramp.md) is Implemented
+on 2026-09-18. All three packets in the
+[phase plan](docs/plans/adr-0039-dynamic-type-ramp-phase-plan.md) are complete.
+Mechanical checks are Green. The app uses the ratified type curves.
+
+The operator passed all thirteen visual checks and confirmed fixture removal.
+The agent inferred preservation and preference restoration from the conditional
+cleanup command. The
+[review checklist](docs/reviews/adr-0039-review-checklist.md#operator-visual-check--task-003)
+records this inference and its evidence limits.
+
+The [operator procedure](docs/runbooks/dynamic-type-ramp-check.md) remains a
+regression check. A debug assertion and source guards check the reservation.
+They do not control rendered dimensions. Possible enforcement during layout
+remains a separate design question in the phase plan. The `UiScale` variants
+and configuration format are unchanged. ADR 0066's independent gate remains open.
 
 `docs/plans/broadcast-chain-delivery-order.md` is the only cross-repository
 order. Read it before starting a session on broadcast work.

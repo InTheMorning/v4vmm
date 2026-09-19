@@ -425,41 +425,67 @@ impl FontSize {
         }
     }
 
-    /// ADR 0039 TYPE domain: the per-role coefficient at a given
-    /// [`ScaleFactor`] step.
+    /// Returns the type coefficient for this role at the specified scale
     ///
-    /// This is the per-role SHAPE the ADR 0039 task 001 (amended scope)
-    /// domain split delivers: the resolver takes a role, not just a step.
-    /// Every arm below is deliberately identical to
-    /// [`ScaleFactor::chrome_multiplier`] today — task 001 wires live,
-    /// separately named domain ownership without moving a single ratified
-    /// number. A later, separately reviewed packet (ADR 0039 task 003)
-    /// supersedes these arms with the ratified per-role ramp. Do not
-    /// collapse this back to one shared curve, and do not hand-tune a
-    /// single arm without that ratification landing here first.
+    /// ADR 0039 task 003 ratified the endpoints on 2026-09-18.
+    /// Each role uses [`Self::type_endpoints`] and [`Self::interpolate`].
+    /// Medium returns exactly `1.0`.
+    /// This replaces task 001's uniform coefficients.
+    /// Keep the endpoints separate for each role.
+    /// Record new operator ratification in the ADR before changing an endpoint.
     #[must_use]
-    #[expect(
-        clippy::match_same_arms,
-        reason = "ADR 0039 task 001: identity placeholder per role, pending task 003 ratification"
-    )]
     pub const fn type_multiplier(self, scale: ScaleFactor) -> f32 {
+        let (x_small, x_large) = self.type_endpoints();
+        Self::interpolate(scale, x_small, x_large)
+    }
+
+    /// Returns the ratified `(x-small factor, x-large factor)` for this role
+    ///
+    /// ADR 0039 task 003 records the operator's decision on 2026-09-18.
+    /// `Title` retains the former uniform x-small factor of 0.85.
+    /// The x-small factor increases by 0.01 per role from `Title` toward `Micro`.
+    /// Ratification did not change the proposed x-large factors.
+    const fn type_endpoints(self) -> (f32, f32) {
         match self {
-            Self::Micro => Self::identity_step(scale),
-            Self::Caption => Self::identity_step(scale),
-            Self::Body => Self::identity_step(scale),
-            Self::Headline => Self::identity_step(scale),
-            Self::Title3 => Self::identity_step(scale),
-            Self::Title2 => Self::identity_step(scale),
-            Self::Title => Self::identity_step(scale),
+            Self::Micro => (0.91, 1.36),
+            Self::Caption => (0.90, 1.32),
+            Self::Body => (0.89, 1.28),
+            Self::Headline => (0.88, 1.24),
+            Self::Title3 => (0.87, 1.20),
+            Self::Title2 => (0.86, 1.16),
+            Self::Title => (0.85, 1.12),
         }
     }
 
-    /// Shared identity table backing every [`Self::type_multiplier`] arm
-    /// until ADR 0039 task 003 ratifies per-role values. Deliberately
-    /// duplicated from [`ScaleFactor::chrome_multiplier`]'s literals rather
-    /// than delegating to it, so the TYPE domain stays a genuinely separate
-    /// resolver that task 003 can edit without touching CHROME.
-    const fn identity_step(scale: ScaleFactor) -> f32 {
+    /// Interpolates the type factor between the ratified endpoints
+    ///
+    /// ADR 0039 task 003 uses [`Self::step_coordinate`] for the position `c`.
+    /// The type resolver does not call [`ScaleFactor::chrome_multiplier`].
+    /// Below medium, the factor is `1 - ((1 - c) / 0.15) * (1 - x_small)`.
+    /// Medium returns exactly `1.0`.
+    /// Above medium, the factor is `1 + ((c - 1) / 0.25) * (x_large - 1)`.
+    /// X-small and x-large resolve to their respective endpoints.
+    /// Small uses 8/15 of the downward change.
+    /// Large uses 12/25 of the upward change.
+    const fn interpolate(scale: ScaleFactor, x_small: f32, x_large: f32) -> f32 {
+        match scale {
+            ScaleFactor::Medium => 1.0,
+            ScaleFactor::XSmall | ScaleFactor::Small => {
+                let c = Self::step_coordinate(scale);
+                1.0 - ((1.0 - c) / 0.15) * (1.0 - x_small)
+            }
+            ScaleFactor::Large | ScaleFactor::XLarge => {
+                let c = Self::step_coordinate(scale);
+                1.0 + ((c - 1.0) / 0.25) * (x_large - 1.0)
+            }
+        }
+    }
+
+    /// Returns the step coordinate for type interpolation
+    ///
+    /// ADR 0039 keeps these literals separate from [`ScaleFactor::chrome_multiplier`].
+    /// Task 003 changed the type endpoints without changing the chrome resolver.
+    const fn step_coordinate(scale: ScaleFactor) -> f32 {
         match scale {
             ScaleFactor::XSmall => 0.85,
             ScaleFactor::Small => 0.92,
@@ -974,11 +1000,55 @@ mod tests {
         });
     }
 
-    /// M2 (amended scope): all 35 role/step TYPE outcomes are bit-identical
-    /// to the former uniform result. This is the inverted criterion from the
-    /// superseded packet text, which asked outputs to differ from uniform.
+    /// ADR 0039 task 003 compares all 35 type outcomes with the ratified table.
+    /// The comparison tolerance is 0.001 px.
+    /// Expected values come from the table, independently of the resolver's formula.
+    /// This test replaces task 001's assertion that every outcome matches uniform scaling.
+    /// `adr_0039_non_medium_type_outcomes_differ_from_uniform_except_title_downward`
+    /// retains the comparison with uniform scaling.
     #[test]
-    fn adr_0039_type_outcomes_are_bit_identical_to_the_former_uniform_result() {
+    fn adr_0039_type_outcomes_match_ratified_values() {
+        // (role, [XSmall, Small, Medium, Large, XLarge] expected px).
+        let cases: [(FontSize, [f32; 5]); 7] = [
+            (FontSize::Micro, [10.01, 10.472, 11.00, 12.9008, 14.96]),
+            (FontSize::Caption, [10.80, 11.36, 12.00, 13.8432, 15.84]),
+            (FontSize::Body, [11.57, 12.237_333, 13.00, 14.7472, 16.64]),
+            (FontSize::Headline, [13.20, 14.04, 15.00, 16.728, 18.60]),
+            (FontSize::Title3, [14.79, 15.821_333, 17.00, 18.632, 20.40]),
+            (FontSize::Title2, [17.20, 18.506_667, 20.00, 21.536, 23.20]),
+            (FontSize::Title, [20.40, 22.08, 24.00, 25.3824, 26.88]),
+        ];
+
+        let mut checked = 0;
+        for (role, expected_by_step) in cases {
+            for (i, (scale, _)) in ADR_0039_STEPS.iter().enumerate() {
+                let resolved = f32::from(role.scaled_px(*scale));
+                let expected = expected_by_step[i];
+                assert!(
+                    (resolved - expected).abs() < 0.001,
+                    "{role:?} at {scale:?}: resolved {resolved} != ratified {expected}"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(
+            checked, 35,
+            "expected all 35 ratified role/step outcomes to be checked"
+        );
+    }
+
+    /// ADR 0039 task 003 M1 compares the 28 non-medium outcomes with uniform scaling.
+    /// Exactly 26 outcomes differ.
+    /// `Title` at `XSmall` and `Small` retains bit-identical output.
+    ///
+    /// The operator retained `Title`'s x-small factor of 0.85.
+    /// Interpolation therefore also retains its small factor of 0.92.
+    /// Do not change these endpoints to remove the two accepted exceptions.
+    ///
+    /// This test excludes medium.
+    /// `adr_0039_medium_type_returns_each_role_base_exactly` checks its seven unchanged outcomes.
+    #[test]
+    fn adr_0039_non_medium_type_outcomes_differ_from_uniform_except_title_downward() {
         let roles = [
             FontSize::Micro,
             FontSize::Caption,
@@ -988,23 +1058,104 @@ mod tests {
             FontSize::Title2,
             FontSize::Title,
         ];
-        let mut checked = 0;
+        let non_medium_steps: Vec<(ScaleFactor, f32)> = ADR_0039_STEPS
+            .into_iter()
+            .filter(|(scale, _)| !matches!(scale, ScaleFactor::Medium))
+            .collect();
+        assert_eq!(non_medium_steps.len(), 4, "expected 4 non-medium steps");
+
+        let mut differing = 0;
+        let mut equal = 0;
         for role in roles {
-            for (scale, former_multiplier) in ADR_0039_STEPS {
-                let expected = f32::from(role.px()) * former_multiplier;
+            for (scale, former_multiplier) in non_medium_steps.iter().copied() {
+                let former = f32::from(role.px()) * former_multiplier;
                 let resolved = f32::from(role.scaled_px(scale));
-                assert_eq!(
-                    resolved.to_bits(),
-                    expected.to_bits(),
-                    "{role:?} at {scale:?} is not bit-identical to the former uniform result"
-                );
-                checked += 1;
+                let is_title_downward = matches!(role, FontSize::Title)
+                    && matches!(scale, ScaleFactor::XSmall | ScaleFactor::Small);
+
+                if is_title_downward {
+                    assert_eq!(
+                        resolved.to_bits(),
+                        former.to_bits(),
+                        "documented exception: {role:?} at {scale:?} must stay bit-identical \
+                         to the former uniform result"
+                    );
+                    equal += 1;
+                } else {
+                    assert_ne!(
+                        resolved.to_bits(),
+                        former.to_bits(),
+                        "{role:?} at {scale:?} unexpectedly matches the former uniform result"
+                    );
+                    differing += 1;
+                }
             }
         }
+
         assert_eq!(
-            checked, 35,
-            "expected all 35 role/step outcomes to be checked"
+            equal, 2,
+            "expected exactly 2 documented Title-downward exceptions"
         );
+        assert_eq!(
+            differing, 26,
+            "expected the other 26 non-medium cells to differ from uniform"
+        );
+    }
+
+    /// ADR 0039 task 003 M1: above medium, smaller roles grow more
+    /// proportionally than larger roles, at both `Large` and `XLarge`.
+    #[test]
+    fn adr_0039_smaller_roles_grow_more_above_medium() {
+        let roles_smallest_to_largest = [
+            FontSize::Micro,
+            FontSize::Caption,
+            FontSize::Body,
+            FontSize::Headline,
+            FontSize::Title3,
+            FontSize::Title2,
+            FontSize::Title,
+        ];
+        for scale in [ScaleFactor::Large, ScaleFactor::XLarge] {
+            for pair in roles_smallest_to_largest.windows(2) {
+                let smaller_growth = pair[0].type_multiplier(scale) - 1.0;
+                let larger_growth = pair[1].type_multiplier(scale) - 1.0;
+                assert!(
+                    smaller_growth > larger_growth,
+                    "{:?} should grow more than {:?} at {scale:?} \
+                     ({smaller_growth} <= {larger_growth})",
+                    pair[0],
+                    pair[1]
+                );
+            }
+        }
+    }
+
+    /// ADR 0039 task 003 M1: below medium, smaller roles shrink less
+    /// proportionally than larger roles, at both `XSmall` and `Small`.
+    #[test]
+    fn adr_0039_smaller_roles_shrink_less_below_medium() {
+        let roles_smallest_to_largest = [
+            FontSize::Micro,
+            FontSize::Caption,
+            FontSize::Body,
+            FontSize::Headline,
+            FontSize::Title3,
+            FontSize::Title2,
+            FontSize::Title,
+        ];
+        for scale in [ScaleFactor::XSmall, ScaleFactor::Small] {
+            for pair in roles_smallest_to_largest.windows(2) {
+                let smaller_loss = 1.0 - pair[0].type_multiplier(scale);
+                let larger_loss = 1.0 - pair[1].type_multiplier(scale);
+                assert!(
+                    smaller_loss < larger_loss,
+                    "{:?} should shrink less than {:?} at {scale:?} \
+                     ({smaller_loss} >= {larger_loss})",
+                    pair[0],
+                    pair[1]
+                );
+            }
+        }
     }
 
     /// M2: medium returns each role's exact base size (11, 12, 13, 15, 17,

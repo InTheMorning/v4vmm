@@ -5,10 +5,11 @@
 Active index - 2026-05-18. Reconciled 2026-09-11 against completed startup work,
 the retained human gates, and the operator's playback deferral. See the
 [pending-work review](../reviews/2026-09-11-pending-work-reconciliation.md).
-Amended 2026-09-18: ADR 0039's policy is Accepted and its three packets are
-scheduled after recovery task 013. Tasks 001 and 002 land at identity with no
-visual gate; task 003 ratifies the numeric type proposal, lands it and owns
-the twelve-cell visual gate, which remains open.
+
+Amended 2026-09-18: ADR 0039 is Implemented. All three packets and numerical
+ratification are complete. The operator passed thirteen visual checks and
+confirmed fixture removal. The review records inferred preservation and the
+evidence limits.
 
 Item numbers below are stable identifiers. The execution order is the
 [broadcast-chain delivery order](broadcast-chain-delivery-order.md#current-delivery-order).
@@ -131,18 +132,17 @@ prioritized, and routed to the right governance artifact.
   date. ADR 0057 also supersedes ADR 0001's immutability clause, making the
   in-place amendment practice explicit and bounded.
 
-- ADR 0039's policy deferral is resolved on 2026-09-18. The ADR is Accepted:
-  separate type/chrome curves, five existing steps, asymmetric type growth
-  and shrinkage, wrapping boundaries and fixed-height reservation are defined.
-  Its [three-packet plan](adr-0039-dynamic-type-ramp-phase-plan.md) is
-  scheduled after ADR 0066 task 013, before Settings follow-through and relay
-  adoption. Implementation has not started. Tasks 001 and 002 land at
-  identity with no visual gate; the type table is a proposal owned by task
-  003, which ratifies it, lands it and owns the twelve open operator
-  inspections. Chrome coefficients retain today's exact values in every
-  packet, with a future density re-walk owned by any packet that changes
-  them. No configuration-format dependency is introduced. The dated 2026-09-10
-  reconciliation retains the historical Proposed/unscheduled finding.
+- ADR 0039's policy deferral and scheduled work are resolved on 2026-09-18.
+  The ADR is Implemented: the three-packet plan, ratified type curves,
+  thirteen visual inspections and fixture cleanup are complete.
+  The agent inferred preservation from the conditional cleanup command.
+  The [review checklist](../reviews/adr-0039-review-checklist.md) records the
+  conditional cleanup evidence and viewport limits.
+
+  Chrome coefficients and
+  configuration formats are unchanged. Possible live layout enforcement of
+  the reservation remains separate design follow-up in the phase plan.
+  The dated 2026-09-10 reconciliation retains its historical finding.
 
 - ADR 0056 remote media fetch validation completed on 2026-08-28 via Tasks
   001-004, implemented as one change and reviewed in

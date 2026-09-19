@@ -18042,13 +18042,21 @@ const ADR_0039_CHROME_GEOMETRY_FILES: &[&str] = &[
     "src/ui/sizable_bridge.rs",
 ];
 
-/// Situational ADR 0039 task 001: the CHROME and TYPE resolvers stay live
-/// and separately owned. `FontSize` must resolve through the per-role TYPE
-/// curve; `Spacing`, `Radius`, `Size`, `SkeletonBlock` and the direct
-/// geometry bridges must resolve through the CHROME curve. Neither domain
-/// may borrow the other's resolver, defining an unused helper does not
-/// satisfy this, and the retired uniform `ScaleFactor::multiplier` must not
-/// reappear.
+/// Situational guard for ADR 0039 tasks 001-003.
+/// `FontSize` must use the type resolver.
+/// `Spacing`, `Radius`, `Size`, `SkeletonBlock` and geometry bridges must use the chrome resolver.
+/// Neither domain may call the other domain's resolver.
+/// An unused helper does not satisfy this requirement.
+/// The retired uniform `ScaleFactor::multiplier` must not return.
+///
+/// Task 003 extended this guard on 2026-09-18 to close review finding R2.
+/// The earlier guard searched the complete `FontSize` implementation for declarations and calls.
+/// It did not require `scaled_px` itself to call `type_multiplier`.
+/// This guard checks each function's body separately.
+/// `scaled_px` must call `self.type_multiplier`.
+/// `scaled` must call `self.scaled_px`.
+/// The guard also requires each ratified endpoint arm and rejects the retired identity helper.
+/// See docs/reviews/adr-0039-review-checklist.md.
 #[test]
 fn adr_0039_type_and_chrome_domains_stay_live_and_separate() {
     const FIX: &str = "Fix: route FontSize through `type_multiplier`/`scaled_px` and Spacing/Radius/Size/SkeletonBlock plus the geometry bridges through `chrome_multiplier`/`scale_chrome_px` in src/ui/tokens.rs (ADR 0039).";
@@ -18065,10 +18073,12 @@ fn adr_0039_type_and_chrome_domains_stay_live_and_separate() {
     // FontSize owns the TYPE domain: `scaled` must call `scaled_px`, which
     // must call `type_multiplier`, and neither may reach for CHROME.
     let font_size_impl = source_between(&tokens, "impl FontSize {", "/// Type weight token");
+    const SCALED_PX_DECL: &str = "fn scaled_px(self, scale: ScaleFactor) -> Pixels {";
+    const SCALED_DECL: &str = "fn scaled(self, cx: &App) -> Pixels {";
     for required in [
         "fn type_multiplier(self, scale: ScaleFactor) -> f32 {",
-        "fn scaled_px(self, scale: ScaleFactor) -> Pixels {",
-        "self.scaled_px(",
+        SCALED_PX_DECL,
+        SCALED_DECL,
     ] {
         if !font_size_impl.contains(required) {
             violations.push(format!(
@@ -18076,6 +18086,58 @@ fn adr_0039_type_and_chrome_domains_stay_live_and_separate() {
             ));
         }
     }
+
+    // Review R2: require each call in the body of the function that must make it.
+    // A call elsewhere in the implementation does not satisfy this check.
+    if font_size_impl.contains(SCALED_PX_DECL) && font_size_impl.contains(SCALED_DECL) {
+        let scaled_px_body = source_between(font_size_impl, SCALED_PX_DECL, SCALED_DECL);
+        if !scaled_px_body.contains("self.type_multiplier(") {
+            violations.push(format!(
+                "src/ui/tokens.rs: ADR 0039 (review R2) `scaled_px` must call `self.type_multiplier(scale)` \
+                 in its own body. This call keeps font sizes on the per-role type curve. {FIX}"
+            ));
+        }
+
+        let scaled_start = font_size_impl
+            .find(SCALED_DECL)
+            .expect("checked by the `contains` guard above");
+        let scaled_body = &font_size_impl[scaled_start..];
+        if !scaled_body.contains("self.scaled_px(") {
+            violations.push(format!(
+                "src/ui/tokens.rs: ADR 0039 (review R2) `scaled` must call `self.scaled_px(...)` in its own \
+                 body. Check this call separately from the call inside `scaled_px`. {FIX}"
+            ));
+        }
+    }
+
+    // ADR 0039 task 003 M2 requires the endpoint pairs ratified on 2026-09-18.
+    // Each `(x-small, x-large)` pair must appear verbatim for its role.
+    // The retired identity helper must not return.
+    const RATIFIED_TYPE_ENDPOINTS: &[(&str, &str)] = &[
+        ("Micro", "(0.91, 1.36)"),
+        ("Caption", "(0.90, 1.32)"),
+        ("Body", "(0.89, 1.28)"),
+        ("Headline", "(0.88, 1.24)"),
+        ("Title3", "(0.87, 1.20)"),
+        ("Title2", "(0.86, 1.16)"),
+        ("Title", "(0.85, 1.12)"),
+    ];
+    for (role, pair) in RATIFIED_TYPE_ENDPOINTS {
+        let arm = format!("Self::{role} => {pair},");
+        if !font_size_impl.contains(&arm) {
+            violations.push(format!(
+                "src/ui/tokens.rs: ADR 0039 task 003 `type_endpoints` is missing the ratified arm \
+                 `{arm}`. The type resolver must use the operator's ratified values. {FIX}"
+            ));
+        }
+    }
+    if font_size_impl.contains("Self::identity_step(") {
+        violations.push(format!(
+            "src/ui/tokens.rs: ADR 0039 task 003 `impl FontSize` must not reintroduce task 001's \
+             identity placeholder `Self::identity_step`. {FIX}"
+        ));
+    }
+
     // Only flag actual calls (`name(`), not the doc-comment cross-reference
     // to `ScaleFactor::chrome_multiplier` in the TYPE resolver's own comment.
     for forbidden in ["chrome_multiplier(", "scale_chrome_px("] {
