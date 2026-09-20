@@ -24,8 +24,19 @@ Storage and display still lose those fields. The
 [review](docs/reviews/adr-0075-metadata-contract-review.md#fields-that-later-layers-still-lose)
 lists the loss at each layer.
 
-Document packets 002–008 exist. Their deliverables are not complete.
-The operator holds the dispatch of every remaining packet.
+Document packets 002–008 contain corrected deliverables. Their remaining review gates are open.
+The [field inventory](docs/schema/adr-0075-metadata-field-inventory.md) assigns uncovered fields to packets 031 and 034.
+Those additional field rules are not yet written. Full metadata coverage is not complete.
+
+The operator accepted ADR 0075 Decisions D through G.
+They cover supported Nostr purposes, supported enclosures, fresh RSS priority for descriptions and websites, and retained discrepancy evidence.
+Description comparison uses readable text. A possible MusicIndex update hook remains deferred.
+
+Code packets stay held. [Packet 030](docs/tasks/adr-0075-task-030-enclosure-claim-transport.md)
+is Draft and preserves enclosure fields already supplied upstream. Its implementation has not started.
+The [phase plan](docs/plans/adr-0075-metadata-contract-phase-plan.md) assigns remaining transport, comparison, and storage work.
+The [proposal queue](docs/reviews/adr-0075-metadata-contract-review.md#proposals-awaiting-operator-acceptance)
+keeps unaccepted policy details separate from the operator's decisions.
 
 Do not request another visual batch during this pause. Existing acceptance gates
 remain open. Cleanup of the evidence fixture

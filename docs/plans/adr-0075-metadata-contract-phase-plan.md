@@ -17,9 +17,11 @@ ADR 0075 is Accepted from 2026-09-19. The operator recorded these decisions:
 - Field-rule review. Document agents propose unresolved source priorities and conflict rules.
   The operator reviews those proposals before the dependent code packets run.
 
-The operator released the dispatch of packet 001 on 2026-09-19.
-The operator holds the dispatch of every remaining packet.
-Write the document packets in the [packet register](#packet-register) first.
+The operator released the dispatch of packets 001 to 008 on 2026-09-19.
+Packet 001 is complete. Packets 002–008 have corrected deliverables with remaining review gates open.
+The operator accepted supported enclosures, fresh RSS priority, and retained discrepancy detection.
+The field inventory assigns remaining coverage to packets 031 and 034. Their rules are not yet written.
+The operator holds the dispatch of every code packet.
 
 Complete one packet per session.
 
@@ -42,6 +44,7 @@ The contract then covers every other metadata field. The operator selected that 
 Before you change the fallback of a field, audit the current rule and write a new rule.
 Cover description, artwork, publisher, artist text, language, explicit state, dates,
 links, transcripts and enclosures.
+The [field inventory](../schema/adr-0075-metadata-field-inventory.md) also assigns titles, numbers, sort text, medium, aggregates, and relationships.
 Each field rule states the owner, the source order, the conflict result,
 and the displayed value when no source supplies the field.
 
@@ -133,7 +136,7 @@ A code packet changes code in this repository only.
 
 | Packet | Kind | Outcome | Needs |
 |---|---|---|---|
-| 011 | Document | The schema design: the provider key, the coverage state and the evidence column | Packets 004–008 |
+| 011 | Document | Provider snapshots, field coverage, raw evidence, and durable discrepancy records | Packets 004–008, field inventory, and document packets 031, 034, 035 |
 | 012 | Code | The migration, with the backup and the rollback procedure | Packet 011 |
 | 013 | Code | Atomic replacement of one provider snapshot, with the empty-collection rule | Packets 011 and 012 |
 | 014 | Code | Keep the source evidence before the app cleans the text and before it applies fallback | Packet 011 |
@@ -144,11 +147,11 @@ A code packet changes code in this repository only.
 | Packet | Kind | Outcome | Needs |
 |---|---|---|---|
 | 016 | Document | Measured request counts and database writes for the five scripted cases | ADR 0075 |
-| 017 | Code | Named request profiles with their required collections and scoped identity | Packets 008 and 016 |
-| 018 | Code | Cache key, expiry, explicit refresh and response order | Packets 016 and 017 |
+| 017 | Code | Named request profiles with scoped identity, summary coverage, and required collections | Packets 008, 016, 030, 032, 033, and applicable packet 034 follow-ups |
+| 018 | Code | Cache key, expiry, explicit refresh and response order | Packets 016, 017, and packet 035's freshness interface |
 | 019 | Code | RSS enrichment reports a failed request separately from absent data | Packet 004 |
-| 020 | Code | One shared projection that applies the field rules | Packets 005, 006, 007 and 013 |
-| 021 | Code | Route parity tests for the local route and the Index route | Packet 020 |
+| 020 | Code | One shared projection with accepted field rules and operation-specific enclosure support | Packets 005, 006, 007, 013, 018, 031, 034, and required transport corrections |
+| 021 | Code | Route parity tests for facts, selected values, and discrepancy state | Packets 020 and 036 |
 
 ### Phase 005, Presentation
 
@@ -168,6 +171,27 @@ A code packet changes code in this repository only.
 | 028 | Document | Evidence of the deployed Index revision and its generated API contract | Packet 008 |
 | 029 | Document | The procedure to crawl or ingest feeds again, with signed-event and replica checks | Packets 008 and 028 |
 
+### Additional Packets From The Correction
+
+These numbers preserve the existing register. Their phase assignment determines dependencies, not their numeric order.
+A row without a linked packet file remains planned work.
+
+| Packet | Phase | Kind | Outcome | Needs |
+|---|---|---|---|---|
+| [030](../tasks/adr-0075-task-030-enclosure-claim-transport.md) | 002 | Code | Preserve enclosure owner, position, and observation time in the app DTO | Accepted ADR 0075 and the inspected existing wire contract. Draft, dispatch held |
+| 031 | 002 | Document | Rules for titles, album/feed titles, track/disc/season numbers, artist sort text, medium, and release kind | Field inventory and packets 005–007 |
+| 032 | 002 | Code | Preserve the existing upstream transcript collection and its claim fields | Packet 007, field inventory, and a reviewed bounded transport packet |
+| 033 | 002 | Code | Preserve upstream track language and artist sort text | Packet 006, field inventory, and a reviewed bounded transport packet |
+| 034 | 002 | Document | Rules for aggregates, remaining scalar fields, platform claims, remote items, and publisher relationships | Field inventory and packets 004–008. Assign bounded transport follow-ups for uncovered collections |
+| 035 | 002 | Document | Description and URL comparison, freshness interface, discrepancy identity, and lifecycle cases | Accepted Decisions F and G, packets 005 and 007 |
+| 036 | 004 | Code | Detect discrepancies and retain active/resolved evidence through restart and snapshot replacement | Packets 011, 013, 014, 018, 020, and accepted packet 035 rules |
+
+Packet 035 defines what comparison requires from freshness state. Packet 018 supplies the numeric expiry and refresh policy.
+Packet 011 designs retention before packet 036 writes evidence. The schema must support replacement without erasing discrepancy history.
+
+Packet 020 exposes operation-specific supported-format selection. Deferred playback work keeps its separate gate.
+No packet implements a MusicIndex update hook or sends an update signal.
+
 Packets 002 to 008 need no further decision to write their documents and proposals. Write them first.
 Proposed field rules require operator acceptance before the dependent code packets run.
 Packets 009 and later need the outputs of the document packets above them.
@@ -176,7 +200,8 @@ Do not write a packet before its inputs exist.
 ## Requirements Before Dispatch
 
 ADR 0057 requires an Accepted decision before implementation. ADR 0075 is Accepted.
-Packet 001 is complete. Packet files 002–008 exist. The operator's explicit dispatch hold still applies to them.
+Packet 001 is complete. Document corrections do not establish full field-rule coverage or acceptance.
+The operator's dispatch hold still applies to every code packet, including packets 030, 032, 033, and 036.
 
 The following prerequisites apply to individual packets, not whole phases.
 Document work can produce a decision request before that decision exists.
@@ -192,7 +217,9 @@ Review each completed packet before you dispatch its dependent packet.
 | 004, 005, 006 | Completed packet 002 and its technical review |
 | 007 | Completed packets 002 and 003 and their technical reviews |
 | 008 | Completed packets 002–007 and their technical reviews. The output requests the Stophammer decision |
-| 011 | Completed packets 004–008 and their technical reviews. Unresolved policies remain explicit in the proposed schema |
+| 011 | Corrected packets 004–008, the field inventory, and document packets 031, 034, 035. Record unresolved policies explicitly |
+| 031, 034, 035 | The written inputs listed above and operator release of their document dispatch |
+| 030, 032, 033, 036 | A reviewed implementation packet, accepted affected rules, completed dependencies, and operator release |
 | 016 | Accepted ADR 0075 and the current request paths. The output measures the baseline before request changes |
 | 026 | Completed packet 015. Read-only access to the records under inspection |
 | 028 | Completed packet 008. Read-only access to deployment evidence. This packet establishes the deployed revision |
@@ -200,6 +227,8 @@ Review each completed packet before you dispatch its dependent packet.
 | Code packets 009–025 and 027 | Completed dependencies from the register, accepted affected policies, and a reviewed Ready implementation packet |
 
 Code that relies on changed Stophammer behavior also needs its accepted decision and compatible implementation evidence.
+Packet 030 preserves fields already supplied upstream. It needs no upstream API addition.
+The same distinction applies to the existing transcript and track scalar transport gaps.
 A written decision request does not establish either result.
 A live rollout also needs evidence that the configured endpoint supports the required contract.
 Existing-contract code does not need unrelated upstream changes.
@@ -227,6 +256,8 @@ lists the fields that each later layer loses.
 
 Phase 003 must record the provider separately from the source assertion.
 It must also record whether a response contains the complete collection.
+Discrepancy records retain both provider observations and actual recorded times, including after restart or snapshot replacement.
+Packet 035 must define comparison and resolution before the schema fixes their durable representation.
 Existing `source` columns currently serve several meanings.
 The migration must not silently reinterpret them.
 Define response completeness before writing replacement code.
@@ -294,6 +325,13 @@ Do not write tests that only repeat helper logic. Include these cases:
 - Track credits changing to inherited feed credits, then to no credits.
 - An older response arriving after a newer request, including when source timestamps match.
 - Invalid or placeholder source text remaining available as evidence without becoming an active identity.
+- A rejected primary enclosure followed by a supported alternate enclosure.
+- Different operation capabilities with the same enclosure priority order.
+- RSS and Index descriptions that differ only in HTML or equivalent whitespace.
+- A meaningful description change, repeated mismatch, later agreement, and failed refresh during an active discrepancy.
+- Discrepancy evidence surviving restart, endpoint changes, and replacement of its source snapshots.
+- Track summaries that omit fields supplied by full detail.
+- Artwork facts with no track image, and separate owners that supply the same image URL.
 
 Compare source ownership after decoding, storage, restart and display preparation.
 Use injected HTTP responses to test failures and count requests.
@@ -315,6 +353,24 @@ Do not change audio bytes, playlists, membership or user configuration during re
 The operator paused visual checks on 2026-09-19. This phase requests no app launch.
 Retain the existing gates. After the metadata work, compare their criteria with
 the accepted contract. Resume a small visual batch only when the operator resumes those checks.
+
+## Document Correction Checks
+
+Checked on 2026-09-19:
+
+- Local links: Green. The checker resolved 530 links in 24 files.
+- Identity examples: Green. The guard checked 13 valid examples, two intentional invalid examples, and three decoded vectors.
+- Guard controls: Green. Known-key, uppercase, unknown-TLV, and eight rejection controls passed.
+- Diff whitespace: Green.
+- Shared STE check: no structural findings in changed Markdown prose or guard docstrings. Lexical findings remain.
+
+The raw STE result is not Green. Technical terms retain their source and contract meanings.
+The checker cannot prove full standard compliance.
+
+Source inspection used app commit `d3c6ee4` and Stophammer commit `a220f44`.
+The field inventory records the inspected boundaries and assigns missing rules.
+This correction changes documents and their example guard. It changes no application behavior.
+Application tests were not rerun for these changes. Document checks do not close the remaining operator gates.
 
 ## Review
 

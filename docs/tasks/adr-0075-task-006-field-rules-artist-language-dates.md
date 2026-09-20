@@ -1,9 +1,20 @@
 # ADR 0075 Task 006: Write The Field Rules For Artist Text, Language, Explicit State And Dates
 
-Status: Ready - 2026-09-19. Work has not started.
+Status: Deliverable corrected - 2026-09-19. Remaining review gates are open.
 The parent ADR 0075 is Accepted from 2026-09-19.
-The operator holds the dispatch of every ADR 0075 packet.
+The operator released the dispatch of this packet on 2026-09-19.
+
+Correction scope: the operator accepted ADR 0075 Decisions E, F, and G.
+Only those decisions and earlier accepted rules are approved. Other policy proposals remain open.
+The [field inventory](../schema/adr-0075-metadata-field-inventory.md) assigns remaining coverage.
+This correction releases no code packet and closes no visual gate.
+
 This packet produces a document. It changes no code.
+The deliverable is [adr-0075-field-rules-artist-language-dates.md](../schema/adr-0075-field-rules-artist-language-dates.md).
+The correction has no structural finding in changed prose. Its local link check is Green.
+Lexical findings remain. The raw STE checker result is not Green.
+The [technical review record](../reviews/adr-0075-metadata-contract-review.md#packet-004-to-007-technical-reviews--2026-09-19)
+holds the result. A person has not walked the review gate.
 
 ## Goal
 
@@ -179,7 +190,8 @@ The deliverable must contain the items below.
 5. For Album artist text, name the current sites that produce a value.
 
    - `api::Feed.release_artist` is the feed's own declared artist.
-     `api::Track.release_artist` is a separate, per-track claim.
+     The inspected upstream track response selects `f.release_artist`.
+     It carries the feed value, not an independent track claim.
 
    - `src/metadata.rs::source_value_for_metadata_field`, the `"Album
      artist"` arm, falls back from `track.release_artist` to
@@ -234,8 +246,8 @@ The deliverable must contain the items below.
 
    - `src/views.rs::FeedView::from_api` and `from_local_with_facts` read
      `f.release_date` or `metadata_facts.release_date` with no fallback
-     chain. `TrackView` reads `t.pub_date` or `metadata_facts.pub_date`
-     the same way.
+     chain. `TrackView::from_api` reads `t.pub_date` directly.
+     The local route uses `metadata_facts.pub_date.or(t.pub_date)`.
 
    - `src/metadata.rs::feed_release_pubdate` runs a different, longer
      chain for the audio tag comparison grid: a release-date claim, then
@@ -315,6 +327,12 @@ Column meanings:
 
 - Required change: the change a later packet must make. Write "None" when
   the current rule already matches this row.
+
+## Additional Assignments
+
+Packet 033 preserves upstream track language and artist sort text in app transport.
+Packet 031 owns the remaining title, number, classification, and sort-text rules.
+Packet 034 owns remaining scalar and aggregate rules. This packet does not complete those assignments.
 
 ## Acceptance Criteria
 

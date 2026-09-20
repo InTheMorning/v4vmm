@@ -1,9 +1,20 @@
 # ADR 0075 Task 003: Write The Identity Syntax And Purpose Contract
 
-Status: Ready - 2026-09-19. Work has not started.
+Status: Deliverable corrected - 2026-09-19. Remaining review gates are open.
 The parent ADR 0075 is Accepted from 2026-09-19.
-The operator holds the dispatch of all ADR 0075 packet.
+The operator released the dispatch of this packet on 2026-09-19.
+
+Correction scope: the operator accepted ADR 0075 Decisions E, F, and G.
+Only those decisions and earlier accepted rules are approved. Other policy proposals remain open.
+The [field inventory](../schema/adr-0075-metadata-field-inventory.md) assigns remaining coverage.
+This correction releases no code packet and closes no visual gate.
+
 This packet produces a document. It changes no code.
+The deliverable is [adr-0075-identity-syntax-contract.md](../schema/adr-0075-identity-syntax-contract.md).
+The correction has no structural finding in changed prose. Its local link check is Green.
+Lexical findings remain. The raw STE checker result is not Green.
+The [technical review record](../reviews/adr-0075-metadata-contract-review.md#packet-002-and-003-technical-reviews--2026-09-19)
+holds the result. A person has not walked the review gate.
 
 ## Goal
 
@@ -89,9 +100,8 @@ Read-only retrieval of the cited specifications is permitted.
 Record the URL and revision when available.
 These pages define specifications. They do not establish the deployed MusicIndex behavior.
 
-Propose the `purpose="nostr"` compatibility rule in the deliverable.
-Use the cited evidence to support the proposal. Record its reason and operator review status.
-The proposal does not authorize code changes before operator acceptance.
+Record accepted Decision D: only `purpose="npub"` is supported.
+Keep the rejected compatibility proposal as history only. Do not reopen it as a pending decision.
 Keep current parser behavior separate from proposed support.
 
 ## Required Content
@@ -117,7 +127,7 @@ parser's general Podcast Namespace snapshot.
 
 ### Compatibility Decision For purpose="nostr"
 
-Propose either compatibility with `purpose="npub"` or unsupported syntax for `purpose="nostr"`.
+Record unsupported syntax for `purpose="nostr"`, as accepted in Decision D.
 Cite the source file, specification, or supplied example that supports the proposal.
 Write the consequence for a feed that already publishes `purpose="nostr"`,
 if the cited sources show one.
@@ -153,8 +163,7 @@ List each syntax form the app does not support as an identity, with the
 record the app writes for it. Include these forms:
 
 - an `nsec`, `note`, `nevent`, `naddr`, or `nrelay` value
-- a `purpose` value other than `npub`, and other than `nostr` if the
-  Compatibility Decision section adds it
+- a `purpose` value other than `npub`, including `nostr`
 - a value shaped like `npub`, in a place other than a direct `podcast:txt`
   or `podcast:person` element
 
@@ -193,7 +202,7 @@ cited above before you write it as fact.
   of one fenced code block with a checked `purpose="npub"` example.
 - The `## Compatibility Decision For purpose="nostr"` section states
   "supported" or "not supported", plus a reason.
-- That section labels the rule as Proposed until the operator accepts it.
+- That section records accepted Decision D and keeps the rejected proposal separate.
 - The `## Current Behavior Compared With The Upstream Parser` section names
   both `src/rss/enrich.rs::nostr_from_extension` and the upstream function
   it compares.
@@ -210,6 +219,12 @@ A reviewer checks proposed support against the cited evidence and accepted ADR r
 A reviewer checks that the compatibility decision states a clear reason,
 and not only a preference.
 A review check that did not run reports this gate as open, not as met.
+
+## Fixture Validation
+
+Use validated keys in successful cases. Keep malformed keys only in explicit negative cases.
+Validate `nprofile` payloads separately from `npub` payloads. Preserve their encoding distinction.
+Run `python3 docs/runbooks/check-adr0075-identity-examples.py` before reporting the fixture check.
 
 ## Checks
 
@@ -275,7 +290,7 @@ Goal:
 Constraints:
 
 - Apply this packet's Constraints and Required Content sections.
-- Propose the `purpose="nostr"` compatibility rule in the deliverable.
+- Record the accepted `purpose="npub"`-only rule in the deliverable.
 - Record the reason and operator review status.
 - Write each sentence in ASD-STE100 Simplified Technical English.
 

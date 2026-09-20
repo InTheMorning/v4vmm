@@ -2,7 +2,7 @@
 
 ## Scope
 
-This corpus holds 21 example cases for RSS and MusicIndex API metadata.
+This corpus holds 21 original cases and five correction scenarios for RSS and MusicIndex metadata.
 Each case records the declared owner, the current result and the required result.
 [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md) governs each required result.
 The cited source functions establish each current result.
@@ -114,7 +114,7 @@ Constructed example of the channel `podcast:txt` rule.
 ```xml
 <channel>
   <title>Example Feed</title>
-  <podcast:txt purpose="npub">npub1feedexamplevalue</podcast:txt>
+  <podcast:txt purpose="npub">npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6</podcast:txt>
   <item>
     <guid>item-1</guid>
   </item>
@@ -166,7 +166,7 @@ Constructed example of the item `podcast:txt` rule.
 ```xml
 <item>
   <guid>item-1</guid>
-  <podcast:txt purpose="npub">npub1trackexamplevalue</podcast:txt>
+  <podcast:txt purpose="npub">npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg</podcast:txt>
 </item>
 ```
 
@@ -256,8 +256,8 @@ Constructed example of one key with two names.
 ```xml
 <item>
   <guid>item-1</guid>
-  <podcast:person role="musician" npub="npub1sharedkeyexample">HeyCitizen</podcast:person>
-  <podcast:person role="producer" npub="npub1sharedkeyexample">Hey Citizen Music</podcast:person>
+  <podcast:person role="musician" npub="npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6">HeyCitizen</podcast:person>
+  <podcast:person role="producer" npub="npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6">Hey Citizen Music</podcast:person>
 </item>
 ```
 
@@ -294,8 +294,8 @@ Constructed example of one name with two keys.
 ```xml
 <item>
   <guid>item-1</guid>
-  <podcast:person role="musician" npub="npub1firstkeyexample">HeyCitizen</podcast:person>
-  <podcast:person role="producer" npub="npub1secondkeyexample">HeyCitizen</podcast:person>
+  <podcast:person role="musician" npub="npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6">HeyCitizen</podcast:person>
+  <podcast:person role="producer" npub="npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg">HeyCitizen</podcast:person>
 </item>
 ```
 
@@ -493,7 +493,7 @@ Constructed example of an alternate namespace prefix.
 ```xml
 <item xmlns:pc="https://podcastindex.org/namespace/1.0">
   <guid>item-1</guid>
-  <pc:txt purpose="npub">npub1trackexamplevalue</pc:txt>
+  <pc:txt purpose="npub">npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg</pc:txt>
 </item>
 ```
 
@@ -623,7 +623,7 @@ Collection state, "returned empty".
 
 **Current Stored Fact**
 `persist_source_ids`, line 224, starts its group map with the `musicindex` key and an empty list.
-`src/db.rs::replace_local_identity_links`, line 1383, deletes only the rows of one owner and one source.
+`src/db.rs::replace_local_identity_ids`, line 1435, deletes only the rows of one owner and one source.
 The app therefore replaces the `musicindex` group with an empty group.
 Rows with another source label, such as `rss`, stay in place.
 `src/identity_ingest.rs::source_token`, line 510, maps a missing source to `musicindex`.
@@ -658,7 +658,7 @@ Constructed example of a populated collection.
       "entity_id": "track-1",
       "position": 0,
       "scheme": "nostr_npub",
-      "value": "npub1trackexamplevalue",
+      "value": "npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg",
       "source": "podcast_txt",
       "extraction_path": "track.podcast:txt",
       "observed_at": 1779240280
@@ -677,7 +677,7 @@ Collection state, "returned populated".
 `persist_source_ids`, line 224, groups the entry by its `source` value.
 The group label becomes `podcast_txt`, not `musicindex`.
 The app keeps the declared owner, the position, the extraction path and the observation time.
-`src/api.rs::SourceEntityId`, line 281, holds each of those fields.
+`src/api.rs::SourceEntityId`, line 299, holds each of those fields.
 
 **Current Display Result**
 `nostr_npub_from_ids`, line 333, returns the first matching value in row order.
@@ -950,13 +950,36 @@ These results need a rule that ADR 0075 does not select today.
 
 | Case | Unresolved result | Packet that must propose the rule |
 |---|---|---|
-| C02, C07 | The source order that selects one displayed website or key, when two sources supply a value | Packet 007, links and media field rules |
+| C02 | Nostr source selection when two sources supply different validated keys | Packet 003 syntax contract and packet 020 projection. Decision F does not cover Nostr identities |
+| C07 | Accepted: fresh direct RSS website before Index. Within-provider and stale-value details remain proposed | Packet 007 and packet 035 comparison rules |
 | C05, C06 | The displayed result for a conflict between credits | Packet 003, Nostr syntax and purposes |
 | C09 | The supported Nostr syntax, and the display of unsupported syntax | Packet 003, Nostr syntax and purposes |
-| C11, C12 | The record that separates "not requested" from "not returned" | Packet 004, collection completeness rules |
+| C11, C12 | Resolved by request intent. Retain the sent include list with response coverage | Packet 004, implemented later by packets 011 and 017 |
 
 An unresolved result does not permit an invented result.
 Each case above still records its current result.
+
+## Correction Regression Scenarios
+
+These constructed scenarios extend the original cases. They define required checks, not current app behavior.
+Each implementation packet must convert its applicable scenario into a test at the owning layer.
+
+| Case | Input or transition | Required result and owner |
+|---|---|---|
+| C19 | Primary `application/pdf` enclosure, then `audio/mpeg` alternate. The selecting operation supports MP3 only | Select the MP3 with its own MIME type and byte count. No action is available when all collection and scalar candidates are unsupported. Packet 020, Decision E |
+| C20 | RSS description `<p>Hello <b>world</b></p>` and Index description `Hello world` | Equal readable text creates no discrepancy. Preserve both original strings. Packet 035 defines normalization, packet 036 implements it |
+| C21 | Same-owner RSS description `New text` and Index description `Old text`. Repeat the pair, restart, then observe `New text` from both | Fresh RSS supplies display text. One active discrepancy survives repeat and restart. Agreement resolves it and retains its evidence. Packets 011 and 036 |
+| C22 | An active description or website discrepancy followed by HTTP 503, an omitted include, or unknown owner coverage | Preserve facts and discrepancy evidence. Do not create or resolve a mismatch from missing evidence. Packets 004, 017, and 036 |
+| C23 | A track has no artwork while its feed has an image. Later both owners assert the same URL | Preserve separate owner facts and absent track coverage. URL equality never establishes ownership. Packet 008 upstream request and packet 011 storage |
+
+Validate the positive Nostr examples and intentional negative examples with:
+
+```bash
+python3 docs/runbooks/check-adr0075-identity-examples.py
+```
+
+The [syntax contract](adr-0075-identity-syntax-contract.md#checked-encoding-vectors) records the decoded public keys and separate profile vector.
+The guard checks encoding examples only. The scenarios above still need implementation tests.
 
 ## Retained Terms
 

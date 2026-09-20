@@ -1,9 +1,20 @@
 # ADR 0075 Task 007: Write The Field Rules For Links And Media
 
-Status: Ready - 2026-09-19. Work has not started.
+Status: Deliverable corrected - 2026-09-19. Remaining review gates are open.
 The parent ADR 0075 is Accepted from 2026-09-19.
-The operator holds the dispatch of every ADR 0075 packet.
+The operator released the dispatch of this packet on 2026-09-19.
+
+Correction scope: the operator accepted ADR 0075 Decisions E, F, and G.
+Only those decisions and earlier accepted rules are approved. Other policy proposals remain open.
+The [field inventory](../schema/adr-0075-metadata-field-inventory.md) assigns remaining coverage.
+This correction releases no code packet and closes no visual gate.
+
 This packet produces a document. It changes no code.
+The deliverable is [adr-0075-field-rules-links-and-media.md](../schema/adr-0075-field-rules-links-and-media.md).
+The correction has no structural finding in changed prose. Its local link check is Green.
+Lexical findings remain. The raw STE checker result is not Green.
+The [technical review record](../reviews/adr-0075-metadata-contract-review.md#packet-004-to-007-technical-reviews--2026-09-19)
+holds the result. A person has not walked the review gate.
 
 ## Goal
 
@@ -200,16 +211,17 @@ The deliverable must contain the items below.
      for the same field.
 
    - Cite the upstream rule: `extract_links` maps an item or live-item RSS
-     `link`, and the Atom alternate link on a track or live item, to link
-     type `web_page`, extraction path `entity.link`. This is the source
-     of a MusicIndex `Track.source_links` `web_page` entry.
+     `link` to `web_page` with extraction path `entity.link`.
+     Atom alternate links use `entity.atom:link[@rel='alternate']`.
+     Preserve these separate extraction paths.
 
    - State the target rule for packet 010: store the item RSS `link` as
      a track `web_page` identity fact, with the same extraction path
      Stophammer uses, not only as a plain database column.
 
-5. For Transcript links, name the three current storage sites for one
-   conceptual value.
+5. For transcript links, distinguish the two legacy storage sites from their read selectors.
+   Also inspect upstream `SourceItemTranscriptResponse` and the `source_transcripts` include branch.
+   The app drops that existing typed collection. Packet 032 owns its transport correction.
 
    - `src/rss/subscribe.rs::rss_track_link_inputs` writes an identity
      link fact with link type `transcript`, extraction path
@@ -231,7 +243,7 @@ The deliverable must contain the items below.
      `transcript_from_links` applies.
 
    - Record this as an inconsistency between two selectors for the same
-     field in the same file.
+     field across `src/metadata.rs` and `src/views.rs`.
 
 6. For Enclosure links, name the two representations in the API data
    object and the current selection rule.
@@ -239,9 +251,9 @@ The deliverable must contain the items below.
    - `api::Track` carries a scalar `enclosure_url`, `enclosure_type` and
      `enclosure_bytes`, and a separate typed list, `source_enclosures`.
 
-   - `src/track_compare.rs::select_audio_enclosure` picks the
-     `is_primary` entry from `source_enclosures` first, then the first
-     entry in that list, then the scalar fields as a last resort.
+   - `src/track_compare.rs::select_audio_enclosure` selects the first supported primary enclosure.
+     It then selects the first supported enclosure, followed by a supported direct scalar enclosure.
+     Cite `selected_source_enclosure` and `classify_enclosure` for the supported-format filter.
 
    - `src/views.rs::TrackView` reads only the scalar `enclosure_url`,
      `enclosure_type` and `enclosure_bytes` fields, for `audio_url`,
@@ -326,6 +338,19 @@ Column meanings:
 
 - Required change: the change a later packet must make. Write "None" when
   the current rule already matches this row.
+
+## Accepted Corrections
+
+Decision E preserves the supported-format filter at each selection step.
+Use the same priority order with the selecting operation's capability check.
+Different operation capabilities can produce different selected files.
+Require a case with an unsupported primary enclosure and a supported alternate.
+
+Decision F prefers fresh direct RSS websites and track pages over matching Index values.
+Decision G retains discrepancies and their source evidence. Packet 035 defines URL comparison.
+
+Packet 030 preserves the four enclosure claim fields already present upstream.
+The artwork request requires separate owner facts while retaining the old scalar API field.
 
 ## Acceptance Criteria
 

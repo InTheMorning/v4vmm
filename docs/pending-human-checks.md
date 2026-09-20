@@ -4,8 +4,8 @@
 
 The operator paused visual checks on 2026-09-19. Prioritise the
 [metadata contract refactor](plans/adr-0075-metadata-contract-phase-plan.md)
-before requesting more visual checks. The four groups below retain five open
-packets. Their acceptance and configuration gates remain open.
+before requesting more visual checks. The first four groups retain five open visual packets.
+Their acceptance and configuration gates remain open. Group 5 records the remaining metadata document review.
 
 The operator accepted ADR 0075 on 2026-09-19. Its placement decision adds future
 visual checks for the labelled identity sections on a track page. Phase 005 owns
@@ -191,3 +191,16 @@ systemctl --user reset-failed mixxx-now-playing.service
 
 - `docs/adr/0061-executable-governance.md`, for the mechanical and visual rule
 - `docs/plans/broadcast-chain-delivery-order.md`
+
+## 5. Metadata Contract Document Review — ADR 0075
+
+Open - corrected documents recorded on 2026-09-19. This group requests no visual check or app launch.
+
+- Owners: document packets 002–008 in the [phase plan](plans/adr-0075-metadata-contract-phase-plan.md).
+- Accepted policy: Decisions D–G. Do not request acceptance of those decisions again.
+- Remaining review: within-provider selection, stale-value handling, inherited description/publisher placement, and other marked field proposals.
+- Check source claims against the named functions. Check proposed rules against the accepted ADR and constructed examples.
+- The [field inventory](schema/adr-0075-metadata-field-inventory.md) assigns additional rules to packets 031 and 034.
+  Those rules are not yet written. Packet 035 must define comparison details before implementation.
+- Keep the code dispatch hold. Document correction and policy discussion do not prove full document acceptance.
+- This document review creates no fixture and requires no cleanup. The existing evidence fixture remains unmodified.

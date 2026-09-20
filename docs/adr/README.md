@@ -36,7 +36,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 
 | ADR | Scope | Status |
 |---|---|---|
-| [0075](0075-metadata-ownership-and-completeness.md) | Shared metadata rules for the app and Index. Covers ownership, response completeness, storage by provider, every metadata field and labeled identity sections. Packet 001 preserves contributor claim transport. Later packets have not started. The operator holds every remaining dispatch | Accepted |
+| [0075](0075-metadata-ownership-and-completeness.md) | Shared metadata rules cover ownership, response completeness, storage by provider, all metadata fields, and labeled identity sections. Packet 001 preserves contributor claim transport. Documents 002–008 are corrected with remaining review gates open. Decisions E–G accept supported enclosures, limited RSS priority, and retained discrepancies. The field inventory assigns incomplete coverage. Each code dispatch remains held | Accepted |
 | [0004](0004-format-neutral-audio-tag-boundary.md) | Format-neutral audio tag boundary | Accepted |
 | [0005](0005-musicbrainz-metadata-lookup.md) | Metadata-based MusicBrainz lookup. No fingerprinting | Accepted |
 | [0006](0006-musicbrainz-release-detail-enrichment.md) | MusicBrainz release detail enrichment | Accepted |

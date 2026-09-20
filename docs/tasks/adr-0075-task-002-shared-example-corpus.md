@@ -1,8 +1,13 @@
 # ADR 0075 Task 002: Write The Shared Metadata Example Corpus
 
-Status: Deliverable complete - 2026-09-19. The review gate is open.
+Status: Deliverable corrected - 2026-09-19. Remaining review gates are open.
 The parent ADR 0075 is Accepted from 2026-09-19.
 The operator released the dispatch of this packet on 2026-09-19.
+
+Correction scope: the operator accepted ADR 0075 Decisions E, F, and G.
+Only those decisions and earlier accepted rules are approved. Other policy proposals remain open.
+The [field inventory](../schema/adr-0075-metadata-field-inventory.md) assigns remaining coverage.
+This correction releases no code packet and closes no visual gate.
 
 This packet produces a document. It changes no code.
 The [deliverable result](#deliverable-result) records the file, the checks and the open review.
@@ -278,6 +283,12 @@ A reviewer checks that the deliverable does not claim that production data
 is correct.
 A review check that did not run reports this gate as open, not as met.
 
+## Correction Scenarios
+
+Retain the original 21 cases. Add the five correction scenarios C19 through C23.
+They cover supported enclosures, readable-text equivalence, retained discrepancies, failed refresh, and artwork ownership.
+Run `python3 docs/runbooks/check-adr0075-identity-examples.py` for positive and negative identity examples.
+
 ## Checks
 
 Run these commands from the repository root after writing the deliverable.
@@ -321,7 +332,13 @@ C01 links to this packet's cited supplied response and holds no source fragment.
 Each other case holds a fenced RSS or JSON fragment.
 The corpus also records unresolved results and retained technical terms.
 
-### Checks
+### Correction Scenarios
+
+Retain the original 21 cases. Add the five correction scenarios C19 through C23.
+They cover supported enclosures, readable-text equivalence, retained discrepancies, failed refresh, and artwork ownership.
+Run `python3 docs/runbooks/check-adr0075-identity-examples.py` for positive and negative identity examples.
+
+## Checks
 
 | Check | Result |
 |---|---|

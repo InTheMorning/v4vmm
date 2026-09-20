@@ -1,9 +1,20 @@
 # ADR 0075 Task 008: Write The Stophammer Decision Request
 
-Status: Ready - 2026-09-19. Work has not started.
+Status: Deliverable corrected - 2026-09-19. Remaining review gates are open.
 The parent ADR 0075 is Accepted from 2026-09-19.
-The operator holds the dispatch of every ADR 0075 packet.
+The operator released the dispatch of this packet on 2026-09-19.
+
+Correction scope: the operator accepted ADR 0075 Decisions E, F, and G.
+Only those decisions and earlier accepted rules are approved. Other policy proposals remain open.
+The [field inventory](../schema/adr-0075-metadata-field-inventory.md) assigns remaining coverage.
+This correction releases no code packet and closes no visual gate.
+
 This packet produces a document. It changes no code.
+The deliverable is [the Stophammer decision request](../plans/adr-0075-stophammer-decision-request.md).
+The correction has no structural finding in changed prose. Its local link check is Green.
+Lexical findings remain. The raw STE checker result is not Green.
+The corrected deliverable separates upstream requirements from app transport losses.
+No Stophammer maintainer read the request. No Stophammer decision exists.
 
 ## Goal
 
@@ -46,8 +57,9 @@ answer. It states the app's requirement and names each open question.
 Inspect the upstream Stophammer checkout read-only, at
 `/home/citizen/build/stophammer`, commit `a220f44`:
 
-- `src/query.rs`: `SourceContributorClaimResponse`, `ListQuery::includes`
-  and `CapabilitiesResponse`
+- `src/query.rs`: contributor, enclosure, transcript, artwork, summary, and collection response paths
+- `src/api.rs::build_source_contributor_claims`
+- `src/verifiers/content_hash.rs::ContentHashVerifier::verify`
 - `src/db.rs`: `get_effective_source_contributor_claims_for_track`
 - `src/api.rs` and `src/openapi.rs`: the documented routes and `include`
   values
@@ -113,33 +125,44 @@ The deliverable must contain:
    requirement.
 2. The exact fields and collections the app needs, and the owner each field
    declares. Use the `SourceContributorClaimResponse` fields from task 001
-   and the `entity_type`/`entity_id` fields already present on
-   `SourceEntityLink`, `SourceEntityId`, `SourceReleaseClaim` and
-   `SourceEnclosure` in `src/api.rs`.
+   and the owner fields on existing link, ID, and release-claim DTOs.
+   Upstream enclosure rows also contain owner, position, and observation time. The app drops those four fields.
+   Assign that app correction to packet 030. Include the existing upstream transcript collection and packet 032.
+   Include track language and sort text as packet 033 app losses.
+   Request separate artwork owner facts while retaining the existing scalar field for compatibility.
 3. The completeness signal the app needs for each collection. Pull this
-   requirement from packet 004's deliverable. State that Stophammer's
+   requirement from packet 004's deliverable. Request intent already separates not requested from not returned.
+   Keep that app bookkeeping separate from proof of completeness. State that Stophammer's
    `api.rs`, `query.rs` and `openapi.rs` define no such signal today.
 4. The parser behavior the app needs, from packet 003: the supported
    identity syntax, the owner of a `podcast:person` key, and the valid
    positions of a `podcast:txt` value. Cite
-   `stophammer-parser/src/engine.rs::extract_persons`, which assigns a
-   credit's owner from the feed node or the item node around it, not from
-   an attribute on the `podcast:person` element. Cite
+   `stophammer-parser/src/engine.rs::extract_persons` for occurrence extraction.
+   Cite `src/api.rs::build_source_contributor_claims` for typed owner, source, path, and observation time.
+   The containing feed or item supplies the source location. Cite
    `extract_entity_ids`, which today accepts only `purpose="npub"` and
    drops every other purpose value.
-5. The open questions the app cannot answer alone. Include whether
-   `purpose="nostr"` is compatible with `purpose="npub"`, and whether
-   Stophammer will add a completeness signal to the Index API.
+5. The upstream questions about completeness, artwork provenance, payment ownership, and unsupported-syntax evidence.
+   Decision D already rejects app support for `purpose="nostr"`.
+   Do not request an upstream addition for fields that its response already supplies.
 6. The compatibility requirement. An older payload must stay readable
    after a Stophammer change. The generated API contract in `openapi.rs`
    must match the deployed routes and fields.
 7. The recrawl requirement. Cite `src/ingest.rs::content_hash` and
-   `force_reingest`. State that an unchanged feed hash can cause the
+   `force_reingest`. Cite `ContentHashVerifier::verify` for the actual bypass and `NO_CHANGE` result.
+   Other ingestion checks still apply. State that an unchanged feed hash can cause the
    ingestion to skip a feed. State that a parser deployment alone does not
    prove that stored facts changed.
 8. The signed-event and replica checks a data path change needs. Cite ADR
    0075 decision 7 and the phase plan's requirement to test signed-event
    replay for a changed Stophammer data path.
+
+## Correction Review Checks
+
+Compare each claimed missing field against both the upstream response and the app DTO.
+Confirm that artwork provenance appears in the upstream request.
+Confirm that request intent needs no new server field.
+Keep retained discrepancy evidence in scope. A possible Index update hook remains deferred.
 
 ## Acceptance Criteria
 

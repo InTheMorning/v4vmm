@@ -2,6 +2,9 @@
 
 ## Status
 
+Current disposition after the operator's correction request: see [Review Disposition](#review-disposition).
+The dated records below retain their original review context. Decisions E–G are now accepted in ADR 0075.
+
 Initial audit recorded - 2026-09-19. At that audit, ADR 0075 was Proposed and the first packet was Draft.
 Implementation had not started then. No migration, deployment or new visual acceptance is recorded.
 
@@ -567,15 +570,220 @@ These checks are Green: the focused tests, `cargo test --locked --offline`,
 The storage packets and the projection packet must correct these losses.
 Packet 001 does not establish complete storage preservation.
 
+## Packet 002 And 003 Technical Reviews — 2026-09-19
+
+The operator released the dispatch of the document packets on 2026-09-19.
+An agent wrote each deliverable. A separate reviewer checked packet 002.
+These records satisfy the register's requirement for a recorded technical review.
+
+### Packet 002, The Metadata Example Corpus
+
+The deliverable is [the corpus](../schema/adr-0075-metadata-example-corpus.md).
+It holds 21 cases, C01 through C18c. Each case holds the eight required labels.
+
+An independent reviewer checked each current result against its cited function.
+The reviewer opened the app source, the Stophammer source at commit `a220f44`, and the
+`rss` crate source. The first result was a failure with two citation defects:
+
+| Case | Defect | Correction |
+|---|---|---|
+| C13 | The text cited `src/db.rs::replace_local_identity_links`, line 1383. The `source_ids` path calls `replace_local_identity_ids`, line 1435 | The corpus now cites line 1435. The conclusion is unchanged |
+| C14 | The text cited `src/api.rs::SourceEntityId` at line 281. That line is inside `PaymentRoute`. The struct starts at line 299 | The corpus now cites line 299 |
+
+Both corrections are applied. The link check and the language check are Green after them.
+The reviewer confirmed the remaining 19 cases and about 40 separate citations.
+The reviewer found no sentence that states a required correction as current behavior.
+
+Three facts remain unverified:
+
+- The deployed MusicIndex revision.
+- The rendered result for a second Nostr key under one contributor name.
+- The selected track when a search hit supplies no feed GUID.
+
+The corpus records each limit in the affected case.
+
+### Packet 003, The Identity Syntax Contract
+
+The deliverable is [the identity syntax contract](../schema/adr-0075-identity-syntax-contract.md).
+It holds the eight required sections in the required order.
+The language check reports no structural defect. The link check is Green.
+
+The packet author found one current-behavior gap that earlier work did not record.
+`src/rss/enrich.rs::extract_nostr_handle`, line 365, accepts the `npub1` prefix and the
+`nprofile1` prefix. `enrich_track_from_feed_rss`, lines 99 and 102, then writes the scheme
+`nostr_npub` for both forms. The app therefore loses the NIP-19 distinction on that path.
+A later code packet must correct this. The corpus does not record this gap.
+
+One proposal needs operator acceptance:
+
+- Treat `purpose="nostr"` as compatible with `purpose="npub"`, under the scheme `nostr_npub`.
+  No inspected feed supplies `purpose="nostr"`. The proposal rests on the app's own
+  extraction-path label and on the permissive specification text.
+  The upstream parser accepts only `npub` today.
+
+### Operator Decision On Nostr Purpose Values — 2026-09-19
+
+The operator rejected packet 003's compatibility proposal.
+The app supports the purpose value `npub` only.
+`purpose="nostr"` is unsupported syntax, and the app keeps such a value as evidence.
+[ADR 0075](../adr/0075-metadata-ownership-and-completeness.md) records this as Decision D.
+
+This decision has two consequences for later code packets:
+
+- Packet 009 must narrow the RSS scan to a direct `podcast:txt` element with the purpose `npub`.
+  It must treat `purpose="nostr"` as unsupported syntax.
+- The fixed extraction path `podcast:txt@purpose=nostr` in `src/rss/enrich.rs`, lines 99 and 102,
+  does not match any supported purpose value. Packet 009 must replace that label.
+
+### Effect On The Register
+
+Packets 002 and 003 have a completed deliverable and a recorded technical review.
+Packets 004, 005, 006 and 007 can therefore run.
+Their proposed rules still need operator acceptance before any dependent code packet runs.
+
+## Packet 004 To 007 Technical Reviews — 2026-09-19
+
+Four agents wrote these deliverables in parallel. A session limit stopped three agents
+during their own check passes. The orchestrator completed the checks and the corrections.
+Each deliverable now passes its language check and its link check.
+
+| Packet | Deliverable | Structure | Corrections applied after the agent stopped |
+|---|---|---|---|
+| 004 | [Collection completeness rules](../schema/adr-0075-collection-completeness-rules.md) | 13 sections | Five language defects |
+| 005 | [Description, artwork and publisher rules](../schema/adr-0075-field-rules-description-artwork-publisher.md) | 13 sections, field table with 5 rows | Four language defects |
+| 006 | [Artist, language and date rules](../schema/adr-0075-field-rules-artist-language-dates.md) | 15 sections, field table with 7 rows | None |
+| 007 | [Links and media rules](../schema/adr-0075-field-rules-links-and-media.md) | 16 sections, field table with 6 rows | None |
+
+The link check is Green for all six packet and deliverable pairs, with 89 local links.
+No deliverable reports a structural language defect.
+
+### Checked Claims
+
+The orchestrator opened the cited code for these claims and confirmed each one:
+
+- `src/application/queries/search.rs`, line 737, defines `INDEX_FEED_DETAIL_INCLUDE`.
+  That value requests `source_enclosures`. Upstream `FeedResponse`, `query.rs` lines 165
+  to 203, has no such field. `TrackResponse` has one. The feed route ignores the token.
+- `src/api.rs::track_with_feed_defaults`, lines 204 to 206, copies `feed.publisher_text`
+  into the track when the track field is `None`.
+- `src/metadata.rs::source_value_for_metadata_field`, lines 1903 to 1906, applies the
+  publisher fallback a second time, separate from the first.
+- `src/api.rs::Track` has no `language` field. `src/api.rs::Feed` has one.
+- `src/metadata.rs::website_from_links`, line 308, matches `website` and `web_page`.
+  `src/views.rs::website_url_from_links`, line 343, matches `website` only.
+  The two routes apply different rules to the same concept.
+- `src/view_models/track.rs::play_url`, line 123, is a third enclosure selection order.
+- `rss-2.0.12/src/item.rs`, line 73, gates `atom_ext` behind the `atom` feature.
+  That feature is off in this build, so the field does not exist here.
+
+### Defects Found In Current Code
+
+These document packets recorded current-behavior defects that no earlier record held:
+
+| Defect | Owner | Later packet |
+|---|---|---|
+| The app requests the include token `source_enclosures` on the feed route. That route ignores it | `src/application/queries/search.rs`, line 737 | Packet 017 |
+| The publisher fallback runs two times through separate code paths | `src/api.rs` and `src/metadata.rs` | Packet 020 |
+| Two website selectors apply different link-type rules | `src/metadata.rs` and `src/views.rs` | Packet 020 |
+| Three enclosure selectors apply three different orders | Download, display and playback code | Packet 020 |
+| The RSS path labels an `nprofile1` value with the scheme `nostr_npub` | `src/rss/enrich.rs`, lines 99 and 102 | Packet 009 |
+
+### Open Review Gate
+
+A person has not walked the review gate of packet 002, 003, 004, 005, 006 or 007.
+The orchestrator checked citations and structure. That check is not operator acceptance.
+Every proposed rule in these documents needs operator acceptance before its code packet runs.
+
+## Packet 008 Technical Review — 2026-09-19
+
+The deliverable is the
+[Stophammer decision request](../plans/adr-0075-stophammer-decision-request.md).
+The orchestrator wrote it, because it assembles the output of packets 002 to 007.
+Its language check reports no structural defect. Its link check is Green.
+
+The document holds 11 numbered requirements, each with an ADR 0075 decision number.
+It holds a field and collection table with an owner column.
+It states the three required limits word for word.
+It cites `content_hash` and `force_reingest` for the recrawl requirement.
+It states the signed-event and replica requirement.
+It holds an open-questions section with six questions.
+
+### Correction To Packet 008
+
+Packet 008 states that `entity_type` and `entity_id` are already present on
+`SourceEntityLink`, `SourceEntityId`, `SourceReleaseClaim` and `SourceEnclosure`.
+That statement is correct for the first three types only.
+`src/api.rs::SourceEnclosure`, line 325, carries no owner field.
+`src/api.rs::PaymentRoute`, line 274, carries no owner field either.
+The deliverable records the true position and requests the decision.
+No escalation trigger applies, because the correction needs no code change.
+
+### Effect Of Decision D
+
+Packet 008's Required Content lists the `purpose="nostr"` compatibility as an open
+question for the app. The operator answered that question on 2026-09-19.
+The deliverable keeps the question for Stophammer only, and records the deviation.
+
+## Proposals Awaiting Operator Acceptance
+
+This queue records remaining policy proposals after the operator's correction request.
+It does not treat assigned but unwritten field rules as completed proposals.
+
+### Decided
+
+| Decision | Result |
+|---|---|
+| D, Nostr purpose | Only `npub` is supported. The `nostr` compatibility proposal is rejected |
+| E, enclosure selection | Each operation selects supported formats in primary, alternate, then scalar order |
+| F, limited source priority | Fresh direct RSS precedes corresponding Index descriptions and website/page values |
+| G, discrepancies | Retain source evidence and active/resolved state. Compare descriptions by readable text. The future update hook remains deferred |
+
+### From Packet 005, Description, Artwork And Publisher
+
+| Remaining proposal | Blocks |
+|---|---|
+| Within-provider description order, ambiguous positions, and stale-value fallback | Packets 020 and 035 |
+| Separate "Feed description" and "Feed publisher" sections for inherited values | Packets 020 and 022–023 |
+| Cross-provider artwork selection details beyond accepted track/feed fallback | Packet 020 |
+
+### From Packet 006, Artist Text, Language, Explicit State And Dates
+
+| Remaining proposal | Blocks |
+|---|---|
+| Contributor-derived artist text and artist/album-artist selection | Packet 020 and affected RSS corrections |
+| Language, explicit-state, and date source priorities | Packet 020 |
+| Duration conflict rules and durable field representation | Packets 011 and 020 |
+| Feed release-date fallback and the existing ADR 0054 boundary | Packet 020 |
+
+### From Packet 007, Links And Media
+
+| Remaining proposal | Blocks |
+|---|---|
+| Within-provider link order, stale-value fallback, and URL comparison | Packets 020 and 035 |
+| Transcript selection across full transcript facts and legacy links | Packet 020 |
+| Supported-format capability owners for each operation | Packet 020 implementation packet. Decision E is already accepted |
+| Storage of artwork facts and support state for unknown syntax | Packet 011 schema design |
+
+### Remaining Coverage And Upstream Work
+
+The [field inventory](../schema/adr-0075-metadata-field-inventory.md) assigns all inspected fields to rules or remaining packets.
+Packets 031 and 034 must supply their remaining field rules. Packet 035 must supply comparison details.
+The corrected [Stophammer request](../plans/adr-0075-stophammer-decision-request.md) includes artwork ownership and separates app transport loss from upstream gaps.
+
+Enclosure ownership already exists upstream. Packet 030 preserves it in the app DTO.
+A possible update hook is separate future work.
+
 ## Review Disposition
 
-The audit establishes that the app must correct how it handles metadata.
-The operator accepted ADR 0075 on 2026-09-19. The operator holds every remaining dispatch.
-Packet 001 is complete. It only preserves fields in the app's type for API data.
+Packet 001 remains complete for its transport scope.
+The operator accepted ADR 0075 Decisions E–G and authorized documentation correction.
+The correction changes the ADR, rules, examples, packet instructions, and dependency register.
+It does not implement source handling, release code dispatch, or close remaining document and visual gates.
 
-The acceptance of the ADR closes no gate. Every open gate stays open.
-The instructions and checks for packets 002 and 003 are corrected.
-Correct R1, R2, and R6 before dispatching the affected later packets.
+R1 and R6 source assertions are corrected in the affected documents and packets.
+R2 now has an explicit inventory and assigned work. Its full field-rule coverage remains incomplete until packets 031 and 034 finish.
+The [pending-check index](../pending-human-checks.md#5-metadata-contract-document-review--adr-0075) records remaining document review.
+The operator's existing code dispatch hold remains in force.
 
 ## Operator Visual Check
 

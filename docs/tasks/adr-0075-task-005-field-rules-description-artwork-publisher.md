@@ -1,9 +1,20 @@
 # ADR 0075 Task 005: Write The Field Rules For Description, Artwork And Publisher
 
-Status: Ready - 2026-09-19. Work has not started.
+Status: Deliverable corrected - 2026-09-19. Remaining review gates are open.
 The parent ADR 0075 is Accepted from 2026-09-19.
-The operator holds the dispatch of every ADR 0075 packet.
+The operator released the dispatch of this packet on 2026-09-19.
+
+Correction scope: the operator accepted ADR 0075 Decisions E, F, and G.
+Only those decisions and earlier accepted rules are approved. Other policy proposals remain open.
+The [field inventory](../schema/adr-0075-metadata-field-inventory.md) assigns remaining coverage.
+This correction releases no code packet and closes no visual gate.
+
 This packet produces a document. It changes no code.
+The deliverable is [adr-0075-field-rules-description-artwork-publisher.md](../schema/adr-0075-field-rules-description-artwork-publisher.md).
+The correction has no structural finding in changed prose. Its local link check is Green.
+Lexical findings remain. The raw STE checker result is not Green.
+The [technical review record](../reviews/adr-0075-metadata-contract-review.md#packet-004-to-007-technical-reviews--2026-09-19)
+holds the result. A person has not walked the review gate.
 
 ## Goal
 
@@ -211,7 +222,11 @@ The deliverable must contain the items below.
 
    - `src/views.rs::TrackView::from_local_with_facts` reads
      `t.track_image_href.or(t.album_image_href)` from the database row. It
-     is a third, SQL-level site for the same fallback.
+     is a third site in the Rust projection, after separate database columns are read.
+
+   - Inspect upstream `get_track_rows_by_guid` and `get_track_row_for_feed`.
+     They apply `COALESCE(t.image_url, f.image_url)` before the API response.
+     Request separate artwork facts with declared owners and source evidence in packet 008.
 
 8. For Publisher, name the three sites of the feed-to-track fallback.
 
@@ -280,6 +295,16 @@ Column meanings:
 
 - Required change: the change a later packet must make. Write "None" when
   the current rule already matches this row.
+
+## Accepted Corrections
+
+Apply Decision F to feed and track descriptions for matching owners.
+Prefer fresh direct RSS over the corresponding Index value. Retain both observations.
+Apply Decision G to readable-text differences and retained discrepancy evidence.
+Formatting alone must not create a discrepancy. Failed refresh must not resolve one.
+
+Propose within-provider order and stale-value handling separately. Keep those proposals open until accepted.
+Existing audio-tag comparison and write policies remain separate.
 
 ## Acceptance Criteria
 

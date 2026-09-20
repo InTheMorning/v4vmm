@@ -4,7 +4,9 @@
 
 Accepted - 2026-09-19. The operator accepted this decision and answered its two open questions.
 Packet 001 is complete on 2026-09-19. It preserves contributor claim transport.
-The operator holds the dispatch of every remaining packet.
+Document packets 002 to 008 have corrected deliverables. Their remaining review gates stay open.
+The field inventory assigns uncovered fields to additional packets. Full field-rule coverage is not complete.
+The operator holds the dispatch of every code packet.
 
 Decision A, field scope. This contract covers every metadata field, not only identity and credit fields.
 Each field keeps a separate written rule. A packet cannot run before its field rule exists.
@@ -16,6 +18,38 @@ Each row names its owner before the operator activates a link.
 Decision C, artwork fallback. Show the track's artwork when it has its own image.
 Otherwise, use the feed artwork in the track header without an additional visible owner label.
 The stored artwork facts retain their source and owner.
+
+Decision D, Nostr purpose values. The app supports the `podcast:txt` purpose value `npub` only.
+The app treats `purpose="nostr"` as unsupported syntax. It keeps an unsupported value as evidence.
+The operator made this decision on 2026-09-19 and rejected the compatibility proposal in packet 003.
+
+Amended 2026-09-19: added Decision D. The amendment limits the supported purpose value to `npub`.
+It tightens this decision and reverses no earlier rule.
+
+Decision E, supported enclosures. Each operation selects only a format that it supports.
+Select the first supported primary enclosure, then the first supported enclosure, then a supported direct enclosure.
+The priority order is shared. Different operation capabilities can produce different selections.
+
+Decision F, description and website priority. Prefer a fresh, successful direct RSS observation over the corresponding MusicIndex value.
+Compare the same declared owner and field. This rule covers feed and track descriptions, feed websites, and track page links.
+Keep both providers' facts. This rule selects display values only.
+
+Other fields retain their separate rules.
+
+Decision G, retained discrepancies. Preserve a structured discrepancy when comparable RSS and MusicIndex values differ.
+Keep both original values, the owner, the field, provider resources, and available source observation times.
+Record actual fetch times and whether the discrepancy is active or resolved.
+Repeated observations update the same discrepancy. A later matching observation resolves it without deleting its evidence.
+
+Compare descriptions by readable text. HTML formatting and equivalent whitespace alone do not create a discrepancy.
+An omitted collection or a failed request is not a conflicting value.
+A discrepancy does not prove that MusicIndex is stale.
+
+Retain evidence for a possible future update hook. This decision authorizes no hook implementation or outbound update request.
+
+Amended 2026-09-19: added Decisions E, F, and G after the operator's review.
+They define supported enclosure selection, limited RSS priority, and retained discrepancy evidence.
+They tighten field handling without changing ownership or releasing code dispatch.
 
 Field-rule review. Document agents propose unresolved source priorities and conflict rules.
 The operator reviews those proposals before the dependent code packets run.
@@ -168,11 +202,35 @@ Write a separate rule for each field before you change its fallback.
 Cover description, artwork, publisher, artist text, language, explicit state, dates,
 links, transcripts and enclosures. Each rule states the owner, the source order,
 the conflict result and the displayed value when no source supplies the field.
+The [field inventory](../schema/adr-0075-metadata-field-inventory.md) assigns every inspected metadata field to a rule or packet.
+An assigned packet does not establish a completed or accepted field rule.
 Document agents propose any rule that an existing decision does not settle.
 Mark those rules as proposals until the operator accepts them.
 The dependent code packet requires the accepted field rule.
 A generic merge helper must not apply one field's rule to another field.
 The existing contract still governs payment-route inheritance.
+
+Decisions E and F govern enclosure support and limited source priority.
+The [description rules](../schema/adr-0075-field-rules-description-artwork-publisher.md#accepted-description-priority-and-discrepancies)
+and [link rules](../schema/adr-0075-field-rules-links-and-media.md#accepted-source-priority)
+define their scope and proposed details. Unaccepted details remain held.
+
+### 4a. Keep Discrepancy Evidence Separate From Display Selection
+
+Decision G applies to comparable values covered by Decision F.
+Match the feed scope, track scope when applicable, field, and provider pair before comparison.
+Retain the source resource and extraction path for each value.
+Missing source timestamps remain unknown. Fetch time does not replace source observation time.
+
+The schema packet must preserve discrepancy evidence through restart and later snapshot replacement.
+The comparison packet must specify readable-text normalization and comparison-version changes before implementation.
+It must distinguish a known absent value from incomplete coverage, a failed refresh, or unknown ownership.
+Only comparable successful observations can establish or resolve a discrepancy.
+Do not resolve a discrepancy because a request failed or its evidence expired from a cache.
+
+Define freshness and expiry before implementing Decision F. A retained RSS value is not fresh merely because it exists.
+Do not compare a feed fallback against a track assertion as if both describe the same field owner.
+The future hook remains separate work. Current packets preserve evidence and expose typed discrepancy state only.
 
 ### 5. Replace A Complete Provider Snapshot Atomically
 
@@ -258,6 +316,9 @@ Preserve compatibility with signed events and replicas.
 - Display fallback cannot become a new source assertion.
 - Unknown provenance stays unknown until evidence resolves it.
 - Raw values and recorded times remain available beside derived values.
+- Display priority cannot erase discrepancy evidence from another provider.
+- Description formatting alone cannot create a discrepancy between equivalent readable values.
+- Enclosure priority never bypasses the selecting operation's supported-format check.
 - Accept a presentation or performance claim only after its named check passes.
 
 ## Non-Goals

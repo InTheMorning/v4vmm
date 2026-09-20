@@ -1,9 +1,20 @@
 # ADR 0075 Task 004: Write The Collection Completeness And Transition Rules
 
-Status: Ready - 2026-09-19. Work has not started.
+Status: Deliverable corrected - 2026-09-19. Remaining review gates are open.
 The parent ADR 0075 is Accepted from 2026-09-19.
-The operator holds the dispatch of every ADR 0075 packet.
+The operator released the dispatch of this packet on 2026-09-19.
+
+Correction scope: the operator accepted ADR 0075 Decisions E, F, and G.
+Only those decisions and earlier accepted rules are approved. Other policy proposals remain open.
+The [field inventory](../schema/adr-0075-metadata-field-inventory.md) assigns remaining coverage.
+This correction releases no code packet and closes no visual gate.
+
 This packet produces a document. It changes no code.
+The deliverable is [adr-0075-collection-completeness-rules.md](../schema/adr-0075-collection-completeness-rules.md).
+The correction has no structural finding in changed prose. Its local link check is Green.
+Lexical findings remain. The raw STE checker result is not Green.
+The [technical review record](../reviews/adr-0075-metadata-contract-review.md#packet-004-to-007-technical-reviews--2026-09-19)
+holds the result. A person has not walked the review gate.
 
 ## Goal
 
@@ -142,6 +153,10 @@ The deliverable must contain:
   `Feed` and `Track` structs: `tracks`, `source_contributors`,
   `source_links`, `source_ids`, `source_release_claims`,
   `source_enclosures` and `payment_routes`.
+- The inventory also covers upstream `source_transcripts`, platform claims, remote items, publisher relationships, and value time splits.
+- The document distinguishes app transport loss from missing upstream owner fields.
+- The document separates summary field coverage from full detail coverage.
+- Each deletion rule requires established completeness, not merely an array in the response.
 - The document contains one row for each of the five collection states from
   ADR 0075 decision 2.
 - The document contains the complete three-step credit transition table:
