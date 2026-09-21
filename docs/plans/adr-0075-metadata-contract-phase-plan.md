@@ -39,9 +39,9 @@ podping.me.
 Decision I supersedes provider-ownership display work. Document-subject ownership, which
 separates the channel, the item, and a person, remains in force.
 
-Register reorganized on 2026-09-21. It holds complete work, a committed path of four
-packets, and parked work. Two dependency cuts are proposed there, and both need operator
-acceptance. A parked packet carries no obligation.
+Register reorganized on 2026-09-21. It holds complete work and a committed path of five
+packets. The operator accepted both dependency cuts and deleted sixteen packets on the
+same day.
 
 The [API change request](musicindex-api-change-request.md) replaces packet 008 as the
 request to Stophammer. It asks for four changes. Three of them need no reingestion.
@@ -69,7 +69,6 @@ them into bounded packets. Do not give an agent a whole phase.
 | [013 verified snapshot replacement](../tasks/adr-0075-task-013-verified-snapshot-replacement.md) | Implementation, technical review, and mechanical checks complete on 2026-09-21. Bounded RSS identity contracts and typed local reads. Inherited presentation gates open and paused |
 | [038 Library reader retention](../tasks/adr-0075-task-038-library-reader-observation-retention.md) | Implementation, technical review, and mechanical checks complete on 2026-09-21. Presentation gate open and paused |
 | [039 feed checks and updates](../tasks/adr-0075-task-039-feed-check-and-update-observation-retention.md) | Implementation, technical review, and mechanical checks complete on 2026-09-21. Three converted roots, one dead command deleted, receipts kept across route repair. Presentation gate open and paused |
-| 044 payment-route repair retention | Newly identified caller scope. Separate packet required because the existing repair holds its database lock across HTTP requests |
 
 Code agents preserve the existing packet 030 working changes. They do not commit or run the app.
 The orchestrator reviews each diff and runs the integrated checks.
@@ -153,22 +152,23 @@ Exclude these changes from this work:
 | 003 | Store provider snapshots and coverage state with their owners | Write the exact schema and migration packet first. Test transactions, empty refresh, rollback, restart and isolation between providers |
 | 004 | Share detail requests and code that prepares data for display | Define request includes, scoped identity, response failure handling and fallback for each field. Test partial responses, request counts and route parity |
 | 005 | Display the accepted contract through both app routes | Share contributor and entity actions with document-subject owner labels. Test the view models. Visual acceptance remains pending during the operator pause |
-| 006 | Reconcile old records and deployed Index data | Produce a read-only repair report first. Repair records from source evidence. Define how to crawl or ingest feeds again. Check replicas and preservation |
+| 006 | Reconcile old records and deployed Index data | Dropped on 2026-09-21. Its four packets are deleted. ADR 0075 completes at the reduced scope |
 
-Write later implementation packets after their prerequisites are complete.
-Do not implement all phases in one session.
-Phase 001 leaves storage and display preparation for later packets.
+Phases 001, 002, and 003 are complete. Phase 006 is dropped.
+Phases 004 and 005 continue only through the committed path in the register.
+Write each implementation packet after its prerequisites are complete.
+Do not implement more than one packet in one session.
 
 ## Packet Register
 
 A packet is the unit of dispatch. A phase is not.
-This register holds three groups: complete, the committed path, and parked work.
+This register holds two groups: complete work and the committed path.
 The committed path is what an agent may dispatch now.
-Parked work is possible later work, and a parked packet carries no obligation.
+Deleted work is not planned work, and no agent may dispatch it.
 
 Reorganized on 2026-09-21. This grouping replaces the earlier phase-ordered register.
-Git history holds the phase tables and the dependency notes of each parked packet.
-Re-derive a parked packet's dependencies when you unpark it.
+Git history holds the earlier phase tables and the dependency notes of each deleted packet.
+A later need for deleted work starts with a new decision record that states its reason.
 
 ### Complete
 
@@ -208,11 +208,11 @@ Document packets. Their deliverables exist. Some field policies stay open.
 
 ### The Committed Path
 
-These four packets carry ADR 0075 to a visible result. Dispatch them in this sequence.
+These five packets carry ADR 0075 to a visible result. Dispatch them in this sequence.
 
 | Packet | Kind | Outcome | Needs |
 |---|---|---|---|
-| 017 | Code | Name the requests that the Library and Index detail routes make | 013, 014, 016, and both cuts below |
+| [017](../tasks/adr-0075-task-017-named-request-profiles.md) | Code | Name the requests that the Library and Index detail routes make. Ready on 2026-09-21 | 013, 014, 016, and both accepted cuts below |
 | 018 | Code | Cache key, expiry, explicit refresh, and response order | 016, 017, and packet 035's freshness interface |
 | 045 | Code | Report a stale MusicIndex record and direct the operator to podping.me | 018, ADR 0075 Decision I, and packet 035's comparison rules |
 | 020 | Code | One shared projection, for the accepted field rules only | 005, 006, 007, 013, and 018 |
@@ -227,42 +227,24 @@ Packet 020 applies the rules that the operator accepted. Packet 022 puts them on
 Packet 020 covers accepted fields only. A field with an open policy stays unattributed.
 That keeps packets 031 and 034 off the critical path.
 
-### Parked
+### Deleted Work
 
-A parked packet is possible later work. It has no packet file and no dispatch.
-Delete a row when the operator decides that the work is not wanted.
+The operator deleted sixteen packets on 2026-09-21: 015, 019, 021, 023 to 029, 036,
+and 040 to 044. They are not planned work, and they carry no obligation.
 
-| Packet | Outcome | Why it is parked |
-|---|---|---|
-| 015 | Combined storage regression matrix | Needs 040 to 044, which are parked |
-| 019 | Separate refresh-failure reporting | Presentation work during the visual pause |
-| 021 | Route parity tests | Follows 020 and 036 |
-| 023 | Feed and contributor sections with document-subject owner labels | Follows 022. Its provider-label scope is superseded by Decision I |
-| 024 | Shared typed actions for both routes | Follows 022 and 023 |
-| 025 | Contributor sections on the Index detail route | Follows 024. Its provider-label scope is superseded by Decision I |
-| 026 | Read-only repair report of old records | Needs 015 |
-| 027 | Repair from source evidence | Needs 026 |
-| 028 | Evidence of the deployed Index revision | Needs an operator answer, not agent work |
-| 029 | Procedure to crawl or ingest feeds again | Needs an upstream decision |
-| 036 | Discrepancy detection and retained evidence | Needs 018, 020, and the accepted packet 035 rules |
-| 040 | Index search and inspector retention | Adds cost and returns nothing by itself. Decision I removes most of its reason |
-| 041 | Direct RSS subscription and import retention | Adds cost and returns nothing by itself. Decision I removes most of its reason |
-| 042 | Download and subscription context retention | Adds cost and returns nothing by itself. Decision I removes most of its reason |
-| 043 | CLI metadata reader retention | Adds cost and returns nothing by itself. Decision I removes most of its reason |
-| 044 | Payment-route repair retention | Adds cost, and its repair holds a database lock across HTTP requests. Decision I removes most of its reason |
+Git history holds each deleted row, its outcome, and its dependencies. ADR 0075 completes
+at the reduced scope in Decision A, amended. A later need for any of this work starts with
+a new decision record that states its reason.
 
-### Proposed Dependency Cuts
+### Accepted Dependency Cuts
 
-Both cuts need operator acceptance. The committed path above assumes both.
-Neither cut is recorded as a decision yet.
+The operator accepted both cuts on 2026-09-21.
 
-1. Packet 017 does not need packet 008. Packet 008 asks for an upstream decision that
-   does not exist. Define request profiles against the contract that exists today.
-2. Packet 017 does not need packets 038 to 044. Scope packet 017 to the Library and Index
-   detail routes. Other callers keep their current behavior.
-
-Without both cuts, the first visible result needs 20 packets and an upstream decision.
-With them it needs four.
+1. Packet 017 does not need packet 008. Packet 008 asks for an upstream decision that does
+   not exist. Packet 017 names the requests against the contract that exists today.
+2. Packet 017 does not need packets 038 to 044. Packet 017 covers the Library and Index
+   detail routes. Other callers keep their current behavior, and packets 040 to 044 are
+   deleted.
 
 ### Unassigned Work
 
@@ -296,12 +278,9 @@ Review each completed packet before you dispatch its dependent packet.
 | 008 | Completed packets 002–007 and their technical reviews. The output requests the Stophammer decision |
 | 011 | Corrected packets 004–008, the field inventory, and document packets 031, 034, 035. Record unresolved policies explicitly |
 | 031, 034, 035 | The written inputs listed above and the completion orchestration authorization |
-| 030, 032, 033, 036 | A reviewed implementation packet, accepted affected rules, completed dependencies, and recorded orchestrator dispatch |
+| 030, 032, 033 | A reviewed implementation packet, accepted affected rules, completed dependencies, and recorded orchestrator dispatch |
 | 016 | Accepted ADR 0075 and the current request paths. The output measures the baseline before request changes |
-| 026 | Completed packet 015. Read-only access to the records under inspection |
-| 028 | Completed packet 008. Read-only access to deployment evidence. This packet establishes the deployed revision |
-| 029 | Completed packets 008 and 028. The accepted upstream decision and relevant event and replica contracts |
-| Code packets 009–025 and 027 | Completed dependencies from the register, accepted affected policies, and a reviewed Ready implementation packet |
+| Committed-path code packets 017, 018, 045, 020, 022 | Completed dependencies from the register, accepted affected policies, and a reviewed Ready implementation packet |
 
 Code that relies on changed Stophammer behavior also needs its accepted decision and compatible implementation evidence.
 Packet 030 preserves fields already supplied upstream. It needs no upstream API addition.
@@ -314,6 +293,7 @@ Existing-contract code does not need unrelated upstream changes.
 Each storage code packet must define its applicable schema, backup, rollback, and verification requirements before dispatch.
 Each request code packet must define freshness, response order, and measured request limits before dispatch.
 Each presentation packet must define typed actions and handling of unresolved ownership before dispatch.
+ADR 0075 Decision I removes provider ownership from every presentation packet.
 Dispatch follows the completion authorization after these prerequisites are met.
 
 The operator answered the original scope and identity-placement questions on 2026-09-19.

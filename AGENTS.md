@@ -59,7 +59,6 @@ Its repair-report presentation gate remains open and paused.
 
 [Packet 014](docs/tasks/adr-0075-task-014-provider-observation-retention.md) implementation, technical review, and mechanical checks are complete on 2026-09-21.
 It retains original observations through the shared writer and Library track-detail command. Its storage-failure presentation gate remains open and paused.
-Packets 038–044 retain the other caller families as separate follow-up work.
 
 [Packet 013](docs/tasks/adr-0075-task-013-verified-snapshot-replacement.md) implementation, technical review, and mechanical checks are complete on 2026-09-21.
 It covers verified RSS identity collection replacement and typed local collection reads. MusicIndex replacement remains disabled pending completeness proof.
@@ -70,7 +69,7 @@ It retains observations from Library comparison and album hydration without chan
 
 [Packet 039](docs/tasks/adr-0075-task-039-feed-check-and-update-observation-retention.md) implementation, technical review, and mechanical checks are complete on 2026-09-21.
 It retains observations from feed checks, explicit feed updates, and the combined ADR 0065 workflow. Its presentation gate remains open and paused.
-Packet 044 still owns payment-route request retention. Packets 040-043 retain the other caller families.
+The other caller families keep their current behavior. Their conversion packets are deleted.
 
 ADR 0075 is amended on 2026-09-21. Decision I states that MusicIndex is a cache of RSS and
 that RSS is the only provenance. The app reports a stale MusicIndex record and directs the
@@ -78,9 +77,11 @@ operator to podping.me. It sends no podping. Provider-ownership display work is 
 Decision A is reduced, and nine field policies are deferred.
 
 The [packet register](docs/plans/adr-0075-metadata-contract-phase-plan.md#packet-register)
-was reorganized on 2026-09-21 into complete work, a committed path, and parked work.
-The committed path is packets 017, 018, 045, 020, and 022. Two dependency cuts are proposed
-there and need operator acceptance.
+was reorganized on 2026-09-21 into complete work and a committed path.
+The committed path is packets 017, 018, 045, 020, and 022. The operator accepted both
+dependency cuts on 2026-09-21 and deleted sixteen packets.
+[Packet 017](docs/tasks/adr-0075-task-017-named-request-profiles.md) is Ready on 2026-09-21.
+It names existing requests and changes none of them.
 The [API change request](docs/plans/musicindex-api-change-request.md) replaces packet 008
 as the request to Stophammer.
 
