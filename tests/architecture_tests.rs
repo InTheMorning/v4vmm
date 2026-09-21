@@ -3005,7 +3005,7 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         }
     }
 
-    if !search_query_source.contains("INDEX_FEED_DETAIL_INCLUDE") {
+    if !search_query_source.contains("INDEX_FEED_DETAIL") {
         violations.push(
             "src/application/queries/search.rs: ADR 0049 Index fetch query must request rich feed detail includes"
                 .to_string(),
@@ -10141,7 +10141,7 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
     let views_source = read_source(&manifest_path("src/views.rs"));
     for required in [
         "source_text_missing",
-        ".fetch_feed_track(feed_guid, &track.item_guid, include)",
+        ".fetch_feed_track_with_profile(feed_guid, &track.item_guid, &LIBRARY_TRACK_DETAIL_SCOPED_TRACK)",
         "crate::subscribe_service::enrich_track_context_from_rss_with_recorder(&mut context, recorder)?;",
         "library_track_context_rejects_placeholder_source_text_at_boundary",
         // Local-row read boundary: polluted DB rows must not become display
@@ -10316,9 +10316,16 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
     );
 
     let agent_source = read_source(&manifest_path("AGENTS.md"));
+    // AGENTS.md wraps its prose, so this rule can break across two lines.
+    // Compare the text with its whitespace collapsed.
+    let agent_text = agent_source
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     assert!(
-        agent_source.contains("Placeholder-looking source text is a source-boundary problem"),
-        "Future agents must see the source-boundary placeholder mitigation rule"
+        agent_text.contains("Placeholder-looking source text is a source-boundary problem"),
+        "ADR 0075 Decision I: AGENTS.md must keep the source-boundary placeholder rule. \
+Restore that sentence in the `Provenance first` paragraph of AGENTS.md."
     );
     let troubleshooting_source = read_source(&manifest_path(
         "docs/troubleshooting/metadata-source-fact-regressions.md",
@@ -18528,7 +18535,7 @@ fn adr_0075_library_observation_callers_and_consumers_are_guarded() {
     assert!(hydration.contains("with_observation_recorder(Some(Arc::clone(&recorder)))"));
     assert!(hydration.contains("assemble_observed_query(&recorder, result"));
     assert!(
-        hydration.find("fetch_feed(").unwrap()
+        hydration.find("fetch_feed_with_profile(").unwrap()
             < hydration.find("persist_musicindex_feed(").unwrap()
     );
     let comparison = source_between(
@@ -18683,7 +18690,7 @@ and the Library callbacks retain evidence before any result reduction.";
     );
     for required in [
         "with_observation_recorder(Some(Arc::clone(recorder)))",
-        "propagate_storage_failure(client.fetch_feed(&stale.feed_guid, include))?",
+        "client.fetch_feed_with_profile(&stale.feed_guid, &LIBRARY_FEED_UPDATE_FEED)",
         "propagate_storage_failure(fetch_library_track_detail_with_recorder(",
         "merge_track_context_with_recorder(",
         "set_feed_musicindex_updated_at(&db, stale.feed_id, stale.new_updated_at)?",
@@ -18903,6 +18910,68 @@ and the Library callbacks retain evidence before any result reduction.";
     assert!(
         violations.is_empty(),
         "ADR 0075 packet 039 feed observation violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational — ADR 0075 packet 017: request profiles own the include
+/// literals and carry no provider ownership field.
+#[test]
+fn adr_0075_request_profile_registry_owns_literals_and_has_no_provider_field() {
+    const FIX: &str = "ADR 0075 Decision I: a profile names what the app asks a cache for. \
+It must not model provider ownership, because a provider is transport evidence, not a \
+source. Route an ADR 0075 include list through \
+`src/application/request_profiles.rs`, not as an inline string. \
+`src/subscribe_service.rs`, `src/application/commands/payment_routes.rs`, and \
+`src/application/commands/feed.rs` stay outside packet 017 and may keep their own \
+literals until a later decision changes them.";
+
+    let mut violations = Vec::new();
+
+    let registry = read_source(&manifest_path("src/application/request_profiles.rs"));
+    let registry_production = production_source(&registry);
+    let struct_body = source_between(
+        registry_production,
+        "pub(crate) struct RequestProfile {",
+        "}",
+    );
+    for forbidden in ["provider", "owner"] {
+        if struct_body.to_lowercase().contains(forbidden) {
+            violations.push(format!(
+                "src/application/request_profiles.rs: RequestProfile must not carry a `{forbidden}` field. {FIX}"
+            ));
+        }
+    }
+
+    let recorded_literals = [
+        "source_links,source_ids,source_release_claims,source_contributors,payment_routes",
+        "tracks,source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes",
+        "source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes",
+        "tracks,source_enclosures,source_links,source_ids,source_release_claims,payment_routes",
+        "source_links,source_ids,source_release_claims,source_contributors",
+    ];
+    for relative in [
+        "src/feed_service.rs",
+        "src/application/queries/search.rs",
+        "src/application/queries/feed.rs",
+        "src/application/queries/library.rs",
+        "src/api.rs",
+    ] {
+        let source = read_source(&manifest_path(relative));
+        let production = production_source(&source);
+        for literal in recorded_literals {
+            if production.contains(literal) {
+                violations.push(format!(
+                    "{relative}: an ADR 0075 include literal must live in \
+src/application/request_profiles.rs, not as an inline string. {FIX}"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0075 packet 017 request profile violations:\n{}",
         violations.join("\n")
     );
 }

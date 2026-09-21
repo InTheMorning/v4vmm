@@ -544,9 +544,9 @@ fn hydrate_album_identity_facts(
     let result = (|| {
         let client = crate::api::Client::new_with_base_url(musicindex_endpoint.clone())
             .with_observation_recorder(Some(Arc::clone(&recorder)));
-        let feed = client.fetch_feed(
+        let feed = client.fetch_feed_with_profile(
             feed_guid,
-            Some("source_links,source_ids,source_release_claims,source_contributors"),
+            &crate::application::request_profiles::LIBRARY_ALBUM_HYDRATION_FEED,
         )?;
         let description = FeedView::from_api(feed.clone()).description;
         let mut db = conn
@@ -2179,6 +2179,61 @@ mod observation_tests {
             let equal_inputs:bool = conn.query_row("SELECT a.requested_subject_json=b.requested_subject_json AND a.profile_json=b.profile_json AND a.interpretation_metadata_json=b.interpretation_metadata_json AND a.outcome=b.outcome FROM metadata_observations a, metadata_observations b WHERE a.id=?1 AND b.id=?2",rusqlite::params![receipt.observation_id,current.observation_id],|row|row.get(0)).unwrap();
             assert!(equal_inputs);
         }
+    }
+
+    /// R17-07: the Library album hydration request sends L5.
+    #[test]
+    fn adr_0075_request_profile_library_album_hydration_sends_l5() {
+        let fixture = Fixture::start();
+
+        fixture.hydrate().unwrap();
+
+        let requests = fixture.requests.lock().unwrap().clone();
+        let include = crate::application::request_profiles::LIBRARY_ALBUM_HYDRATION_FEED
+            .include()
+            .unwrap();
+        assert_eq!(
+            requests,
+            vec![format!(
+                "/v1/feeds/f1?include={}",
+                include.replace(',', "%2C")
+            )],
+            "R17-07: the Library album hydration request must send L5"
+        );
+    }
+
+    /// R17-10: `ProviderRequestSpec` values and their profile JSON equal
+    /// the values recorded before this packet, for the converted Library
+    /// album hydration call site.
+    #[test]
+    fn adr_0075_request_profile_album_hydration_profile_json_is_unchanged() {
+        let fixture = Fixture::start();
+
+        fixture.hydrate().unwrap();
+
+        let profile_json: String = fixture
+            .conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT profile_json FROM metadata_observations ORDER BY id DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let profile: serde_json::Value = serde_json::from_str(&profile_json).unwrap();
+        let include = crate::application::request_profiles::LIBRARY_ALBUM_HYDRATION_FEED
+            .include()
+            .unwrap();
+        assert_eq!(
+            profile,
+            json!({
+                "version": 1,
+                "path": ["v1", "feeds", "f1"],
+                "query": [["include", include]]
+            }),
+            "R17-10: the retained profile JSON must keep its pre-packet shape"
+        );
     }
 }
 

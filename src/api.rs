@@ -6,6 +6,8 @@ use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::application::request_profiles::{RequestPathShape, RequestProfile};
+
 pub const DEFAULT_BASE_URL: &str = "https://api.musicindex.org";
 pub const PAGE_LIMIT: i32 = 20;
 
@@ -672,6 +674,72 @@ impl Client {
         self.fetch_wrapped_with_query(&["v1", "feeds", feed_guid, "tracks", track_guid], &params)
     }
 
+    /// Fetches a feed using a named ADR 0075 request profile.
+    ///
+    /// The profile supplies the include list. An L0 profile sends no
+    /// `include` query parameter. The wire format stays the same as
+    /// `fetch_feed`.
+    ///
+    /// # Errors
+    /// Returns the same errors as `fetch_feed`.
+    pub(crate) fn fetch_feed_with_profile(
+        &self,
+        feed_guid: &str,
+        profile: &RequestProfile,
+    ) -> Result<Feed> {
+        debug_assert_eq!(
+            profile.path_shape(),
+            RequestPathShape::Feed,
+            "ADR 0075 packet 017: {profile:?} must name the feed path shape"
+        );
+        self.fetch_feed(feed_guid, profile.include())
+    }
+
+    /// Fetches an unscoped track using a named ADR 0075 request profile.
+    ///
+    /// The profile supplies the include list. The wire format stays the
+    /// same as `fetch_track`.
+    ///
+    /// # Errors
+    /// Returns the same errors as `fetch_track`.
+    pub(crate) fn fetch_track_with_profile(
+        &self,
+        track_guid: &str,
+        profile: &RequestProfile,
+    ) -> Result<Track> {
+        debug_assert!(
+            matches!(
+                profile.path_shape(),
+                RequestPathShape::UnscopedTrack | RequestPathShape::ScopedOrUnscopedTrack
+            ),
+            "ADR 0075 packet 017: {profile:?} must name an unscoped track path shape"
+        );
+        self.fetch_track(track_guid, profile.include())
+    }
+
+    /// Fetches a scoped track using a named ADR 0075 request profile.
+    ///
+    /// The profile supplies the include list. The wire format stays the
+    /// same as `fetch_feed_track`.
+    ///
+    /// # Errors
+    /// Returns the same errors as `fetch_feed_track`.
+    pub(crate) fn fetch_feed_track_with_profile(
+        &self,
+        feed_guid: &str,
+        track_guid: &str,
+        profile: &RequestProfile,
+    ) -> Result<Track> {
+        debug_assert!(
+            matches!(
+                profile.path_shape(),
+                RequestPathShape::ScopedTrack | RequestPathShape::ScopedOrUnscopedTrack
+            ),
+            "ADR 0075 packet 017: {profile:?} must name a scoped track path shape"
+        );
+        self.fetch_feed_track(feed_guid, track_guid, profile.include())
+    }
+
     pub fn fetch_tracks_by_artist(
         &self,
         artist: &str,
@@ -981,6 +1049,27 @@ mod tests {
         Client, Contributor, Feed, PaymentRoute, SourceEnclosure, SourceEntityId, SourceTranscript,
         Track,
     };
+    use crate::application::request_profiles;
+
+    /// R17-03: an L0 profile sends no `include` query parameter, and the
+    /// recorded request path equals the path before this packet.
+    #[test]
+    fn adr_0075_request_profile_l0_profile_sends_no_include_parameter() {
+        let client = Client::new();
+        let mut params = Vec::new();
+        if let Some(include) = request_profiles::INDEX_TRACK_DETAIL_UNSCOPED.include() {
+            params.push(("include", include.to_string()));
+        }
+        let url = client
+            .build_url(&["v1", "tracks", "t1"], &params)
+            .expect("url");
+        assert_eq!(url.path(), "/v1/tracks/t1");
+        assert_eq!(
+            url.query(),
+            None,
+            "an L0 profile must send no include parameter"
+        );
+    }
 
     #[test]
     fn build_url_sanitizes_metadata_path_segments_and_query_values() {

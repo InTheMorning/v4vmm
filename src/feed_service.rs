@@ -61,28 +61,34 @@ fn fetch_library_track_detail_with_recorder(
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
     recorder: Option<Arc<crate::provider_observation::ProviderObservationRecorder>>,
 ) -> Result<(Option<Track>, Option<Feed>)> {
+    use crate::application::request_profiles::{
+        LIBRARY_TRACK_DETAIL_FEED, LIBRARY_TRACK_DETAIL_SCOPED_TRACK,
+        LIBRARY_TRACK_DETAIL_UNSCOPED_TRACK,
+    };
     use crate::provider_observation::propagate_storage_failure;
     let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.clone())
         .with_observation_recorder(recorder);
-    let include =
-        Some("source_links,source_ids,source_release_claims,source_contributors,payment_routes");
     let mut fetched_track = match track.feed_guid.as_deref() {
-        Some(feed_guid) => propagate_storage_failure(client.fetch_feed_track(
+        Some(feed_guid) => propagate_storage_failure(client.fetch_feed_track_with_profile(
             feed_guid,
             &track.item_guid,
-            include,
+            &LIBRARY_TRACK_DETAIL_SCOPED_TRACK,
         ))?,
         None => None,
     };
     if fetched_track.is_none() {
-        fetched_track = propagate_storage_failure(client.fetch_track(&track.item_guid, include))?;
+        fetched_track = propagate_storage_failure(
+            client.fetch_track_with_profile(&track.item_guid, &LIBRARY_TRACK_DETAIL_UNSCOPED_TRACK),
+        )?;
     }
     let feed_guid = fetched_track
         .as_ref()
         .and_then(|track| track.feed_guid.as_deref())
         .or(track.feed_guid.as_deref());
     let fetched_feed = match feed_guid {
-        Some(guid) => propagate_storage_failure(client.fetch_feed(guid, include))?,
+        Some(guid) => propagate_storage_failure(
+            client.fetch_feed_with_profile(guid, &LIBRARY_TRACK_DETAIL_FEED),
+        )?,
         None => None,
     };
     if fetched_track.is_none() && fetched_feed.is_none() {
@@ -303,12 +309,13 @@ pub fn apply_feed_updates(
     music_dir: &std::path::Path,
     recorder: &Arc<crate::provider_observation::ProviderObservationRecorder>,
 ) -> Result<FeedApplyOutcome> {
+    use crate::application::request_profiles::LIBRARY_FEED_UPDATE_FEED;
     use crate::provider_observation::propagate_storage_failure;
     let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.clone())
         .with_observation_recorder(Some(Arc::clone(recorder)));
-    let include =
-        Some("source_links,source_ids,source_release_claims,source_contributors,payment_routes");
-    let feed_update = propagate_storage_failure(client.fetch_feed(&stale.feed_guid, include))?;
+    let feed_update = propagate_storage_failure(
+        client.fetch_feed_with_profile(&stale.feed_guid, &LIBRARY_FEED_UPDATE_FEED),
+    )?;
     if let Some(feed) = feed_update.as_ref() {
         let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
         if !source_text_missing(feed.description.as_deref()) {
@@ -1106,5 +1113,253 @@ mod tests {
         assert_eq!(context.track.pub_date, Some(1_700_000_000));
         assert_eq!(context.track.explicit, Some(true));
         Ok(())
+    }
+}
+
+/// ADR 0075 packet 017: request-profile behavior at the Library track
+/// detail and Library feed update request sites.
+#[cfg(test)]
+mod adr_0075_request_profile_tests {
+    use super::*;
+    use crate::application::request_profiles;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    /// A minimal local HTTP server that records each request path.
+    struct Fixture {
+        endpoint: crate::config::MusicIndexEndpoint,
+        address: String,
+        requests: Arc<Mutex<Vec<String>>>,
+        mode: Arc<AtomicUsize>,
+        stop: Arc<AtomicBool>,
+        worker: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl Fixture {
+        fn start() -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let address = listener.local_addr().unwrap().to_string();
+            let endpoint: crate::config::MusicIndexEndpoint = format!("http://{address}").into();
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let mode = Arc::new(AtomicUsize::new(0));
+            let stop = Arc::new(AtomicBool::new(false));
+            let received = Arc::clone(&requests);
+            let selected = Arc::clone(&mode);
+            let stopped = Arc::clone(&stop);
+            let worker = std::thread::spawn(move || {
+                while !stopped.load(Ordering::SeqCst) {
+                    match listener.accept() {
+                        Ok((mut stream, _)) => {
+                            stream
+                                .set_read_timeout(Some(Duration::from_secs(2)))
+                                .unwrap();
+                            let mut bytes = Vec::new();
+                            let mut buffer = [0; 4096];
+                            while !bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                                match stream.read(&mut buffer) {
+                                    Ok(0) | Err(_) => break,
+                                    Ok(read) => bytes.extend_from_slice(&buffer[..read]),
+                                }
+                            }
+                            let request = String::from_utf8_lossy(&bytes);
+                            let Some(path) = request
+                                .lines()
+                                .next()
+                                .and_then(|line| line.split_whitespace().nth(1))
+                            else {
+                                continue;
+                            };
+                            received.lock().unwrap().push(path.to_string());
+                            let (status, body) = response(path, selected.load(Ordering::SeqCst));
+                            write!(
+                                stream,
+                                "HTTP/1.1 {status}\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                                body.len()
+                            )
+                            .unwrap();
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(2));
+                        }
+                        Err(error) => panic!("fixture listener: {error}"),
+                    }
+                }
+            });
+            Self {
+                endpoint,
+                address,
+                requests,
+                mode,
+                stop,
+                worker: Some(worker),
+            }
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+            let _ = std::net::TcpStream::connect(&self.address);
+            self.worker.take().unwrap().join().unwrap();
+        }
+    }
+
+    /// `mode` 0: the scoped track request succeeds. `mode` 1: the scoped
+    /// track request fails, so the caller must fall back to the unscoped
+    /// track request.
+    fn response(path: &str, mode: usize) -> (&'static str, String) {
+        let bare = path.split('?').next().unwrap_or(path);
+        if mode == 1 && bare == "/v1/feeds/f1/tracks/t1" {
+            return (
+                "503 Service Unavailable",
+                "{\"error\":\"induced failure\"}".into(),
+            );
+        }
+        if bare.contains("/tracks/") {
+            return (
+                "200 OK",
+                serde_json::json!({"data": {
+                    "track_guid": bare.rsplit('/').next(),
+                    "feed_guid": "f1",
+                    "source_links": [], "source_ids": [], "source_contributors": []
+                }})
+                .to_string(),
+            );
+        }
+        (
+            "200 OK",
+            serde_json::json!({"data": {
+                "feed_guid": "f1", "title": "Feed",
+                "source_links": [], "source_ids": [], "source_contributors": []
+            }})
+            .to_string(),
+        )
+    }
+
+    fn scoped_track_row() -> TrackRow {
+        TrackRow {
+            id: 1,
+            feed_id: 1,
+            feed_guid: Some("f1".into()),
+            item_guid: "t1".into(),
+            ..TrackRow::default()
+        }
+    }
+
+    /// Percent-encodes an include list's commas the way the `url` crate
+    /// encodes a comma-separated query value.
+    fn encoded_include(profile: crate::application::request_profiles::RequestProfile) -> String {
+        profile
+            .include()
+            .map(|include| include.replace(',', "%2C"))
+            .unwrap_or_default()
+    }
+
+    /// R17-04: when the scoped track request succeeds, the Library track
+    /// detail route sends the scoped track request first, then the feed
+    /// request. It sends no unscoped track request.
+    #[test]
+    fn adr_0075_request_profile_library_track_detail_scoped_success_skips_unscoped_request() {
+        let fixture = Fixture::start();
+        let track = scoped_track_row();
+
+        let context = fetch_library_track_context(&track, &fixture.endpoint).unwrap();
+
+        assert_eq!(context.track.track_guid.as_deref(), Some("t1"));
+        let requests = fixture.requests.lock().unwrap().clone();
+        assert_eq!(
+            requests,
+            vec![
+                format!(
+                    "/v1/feeds/f1/tracks/t1?include={}",
+                    encoded_include(request_profiles::LIBRARY_TRACK_DETAIL_SCOPED_TRACK)
+                ),
+                format!(
+                    "/v1/feeds/f1?include={}",
+                    encoded_include(request_profiles::LIBRARY_TRACK_DETAIL_FEED)
+                ),
+            ],
+            "R17-04: a successful scoped request must not fall back to the unscoped request"
+        );
+    }
+
+    /// R17-04: when the scoped track request fails, the route falls back
+    /// to the unscoped track request, then sends the feed request.
+    #[test]
+    fn adr_0075_request_profile_library_track_detail_falls_back_to_unscoped_then_feed() {
+        let fixture = Fixture::start();
+        fixture.mode.store(1, Ordering::SeqCst);
+        let track = scoped_track_row();
+
+        let context = fetch_library_track_context(&track, &fixture.endpoint).unwrap();
+
+        assert_eq!(context.track.track_guid.as_deref(), Some("t1"));
+        let requests = fixture.requests.lock().unwrap().clone();
+        assert_eq!(
+            requests,
+            vec![
+                format!(
+                    "/v1/feeds/f1/tracks/t1?include={}",
+                    encoded_include(request_profiles::LIBRARY_TRACK_DETAIL_SCOPED_TRACK)
+                ),
+                format!(
+                    "/v1/tracks/t1?include={}",
+                    encoded_include(request_profiles::LIBRARY_TRACK_DETAIL_UNSCOPED_TRACK)
+                ),
+                format!(
+                    "/v1/feeds/f1?include={}",
+                    encoded_include(request_profiles::LIBRARY_TRACK_DETAIL_FEED)
+                ),
+            ],
+            "R17-04: a failed scoped request must fall back to the unscoped request, then the feed request"
+        );
+    }
+
+    /// R17-07: the Library feed update request sends L1.
+    #[test]
+    fn adr_0075_request_profile_library_feed_update_sends_l1() {
+        let fixture = Fixture::start();
+        let db_conn = Connection::open_in_memory().unwrap();
+        db::upgrades::create_fixture(&db_conn, 12).unwrap();
+        db_conn
+            .execute(
+                "INSERT INTO feeds(feed_url,feed_guid,title,is_subscribed) \
+                 VALUES('http://fixture.invalid/feed.xml','f1','Feed',1)",
+                [],
+            )
+            .unwrap();
+        let conn = Arc::new(Mutex::new(db_conn));
+        let recorder = Arc::new(
+            crate::provider_observation::ProviderObservationRecorder::new(Arc::clone(&conn)),
+        );
+        let stale = StaleFeed {
+            feed_id: 1,
+            feed_guid: "f1".into(),
+            title: None,
+            new_updated_at: 100,
+        };
+
+        let outcome = apply_feed_updates(
+            &conn,
+            &fixture.endpoint,
+            &stale,
+            std::path::Path::new("/tmp"),
+            &recorder,
+        )
+        .unwrap();
+
+        assert_eq!(outcome.tracks_updated, 0);
+        let requests = fixture.requests.lock().unwrap().clone();
+        assert_eq!(
+            requests,
+            vec![format!(
+                "/v1/feeds/f1?include={}",
+                encoded_include(request_profiles::LIBRARY_FEED_UPDATE_FEED)
+            )],
+            "R17-07: the Library feed update request must send L1"
+        );
     }
 }

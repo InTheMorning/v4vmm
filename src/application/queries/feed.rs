@@ -21,8 +21,9 @@ use crate::subscribe_service::enrich_track_context_from_rss;
 use crate::view_models::recent_feeds::RecentFeedsPageBatch;
 use crate::view_models::track::TrackVm;
 
-use super::search::{
-    index_feed_display, index_item_id, non_empty_str, INDEX_FEED_DETAIL_INCLUDE, INDEX_FEED_ID_BASE,
+use super::search::{index_feed_display, index_item_id, non_empty_str, INDEX_FEED_ID_BASE};
+use crate::application::request_profiles::{
+    INDEX_FEED_DETAIL, INSPECTOR_TRACK_DETAIL_FEED, INSPECTOR_TRACK_DETAIL_TRACK,
 };
 
 /// Fetches one remote Recent Feeds page for presentation.
@@ -309,7 +310,7 @@ fn fetch_recent_feed_result_rows(
                 .as_deref()
                 .and_then(|guid| {
                     client
-                        .fetch_feed(guid, Some(INDEX_FEED_DETAIL_INCLUDE))
+                        .fetch_feed_with_profile(guid, &INDEX_FEED_DETAIL)
                         .ok()
                 })
                 .unwrap_or(feed);
@@ -450,7 +451,7 @@ fn artist_feed_for_guid(
 }
 
 fn fetch_feed_detail(client: &Client, entity_id: &str) -> Result<InspectorDetailResult> {
-    let mut feed = client.fetch_feed(entity_id, Some(INDEX_FEED_DETAIL_INCLUDE))?;
+    let mut feed = client.fetch_feed_with_profile(entity_id, &INDEX_FEED_DETAIL)?;
     hydrate_feed_track_play_urls(client, &mut feed);
     sanitize_feed_source_text(&mut feed);
     let image_url = feed
@@ -473,18 +474,11 @@ fn fetch_track_detail(
         client,
         entity_id,
         feed_guid,
-        Some(
-            "source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes",
-        ),
+        INSPECTOR_TRACK_DETAIL_TRACK.include(),
     )?;
     let feed = track.feed_guid.as_deref().and_then(|guid| {
         client
-            .fetch_feed(
-                guid,
-                Some(
-                    "tracks,source_enclosures,source_links,source_ids,source_release_claims,payment_routes",
-                ),
-            )
+            .fetch_feed_with_profile(guid, &INSPECTOR_TRACK_DETAIL_FEED)
             .ok()
     });
     let mut track_context = TrackContext::new(track, feed);
@@ -637,5 +631,191 @@ mod tests {
         assert_eq!(rows[0].feed_guid, "feed-guid");
 
         Ok(())
+    }
+}
+
+/// ADR 0075 packet 017: request-profile behavior at the Recent Feeds page,
+/// the Feed detail, and the inspector track detail call sites.
+#[cfg(test)]
+mod adr_0075_request_profile_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    /// A minimal local HTTP server that records each request path.
+    struct Fixture {
+        endpoint: crate::config::MusicIndexEndpoint,
+        address: String,
+        requests: Arc<Mutex<Vec<String>>>,
+        stop: Arc<AtomicBool>,
+        worker: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl Fixture {
+        fn start() -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let address = listener.local_addr().unwrap().to_string();
+            let endpoint: crate::config::MusicIndexEndpoint = format!("http://{address}").into();
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let stop = Arc::new(AtomicBool::new(false));
+            let received = Arc::clone(&requests);
+            let stopped = Arc::clone(&stop);
+            let worker = std::thread::spawn(move || {
+                while !stopped.load(Ordering::SeqCst) {
+                    match listener.accept() {
+                        Ok((mut stream, _)) => {
+                            stream
+                                .set_read_timeout(Some(Duration::from_secs(2)))
+                                .unwrap();
+                            let mut bytes = Vec::new();
+                            let mut buffer = [0; 4096];
+                            while !bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                                match stream.read(&mut buffer) {
+                                    Ok(0) | Err(_) => break,
+                                    Ok(read) => bytes.extend_from_slice(&buffer[..read]),
+                                }
+                            }
+                            let request = String::from_utf8_lossy(&bytes);
+                            let Some(path) = request
+                                .lines()
+                                .next()
+                                .and_then(|line| line.split_whitespace().nth(1))
+                            else {
+                                continue;
+                            };
+                            received.lock().unwrap().push(path.to_string());
+                            let body = response(path);
+                            write!(
+                                stream,
+                                "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                                body.len()
+                            )
+                            .unwrap();
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(2));
+                        }
+                        Err(error) => panic!("fixture listener: {error}"),
+                    }
+                }
+            });
+            Self {
+                endpoint,
+                address,
+                requests,
+                stop,
+                worker: Some(worker),
+            }
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+            let _ = std::net::TcpStream::connect(&self.address);
+            self.worker.take().unwrap().join().unwrap();
+        }
+    }
+
+    fn response(path: &str) -> String {
+        let bare = path.split('?').next().unwrap_or(path);
+        if bare == "/v1/feeds/recent" {
+            return serde_json::json!({
+                "data": [{"feed_guid": "f1"}],
+                "pagination": {"has_more": false}
+            })
+            .to_string();
+        }
+        if bare.contains("/tracks/") {
+            return serde_json::json!({"data": {
+                "track_guid": bare.rsplit('/').next(),
+                "feed_guid": "f1"
+            }})
+            .to_string();
+        }
+        serde_json::json!({"data": {"feed_guid": "f1", "title": "Feed"}}).to_string()
+    }
+
+    fn encoded_include(profile: crate::application::request_profiles::RequestProfile) -> String {
+        profile
+            .include()
+            .map(|include| include.replace(',', "%2C"))
+            .unwrap_or_default()
+    }
+
+    /// R17-05: the Index feed detail profile serves
+    /// `fetch_recent_feed_result_rows`, and this call site sends L2.
+    #[test]
+    fn adr_0075_request_profile_recent_feed_result_rows_sends_l2() {
+        let fixture = Fixture::start();
+
+        let batch = fetch_recent_feed_result_rows(&fixture.endpoint, None, 0).unwrap();
+
+        assert_eq!(batch.rows.len(), 1);
+        let requests = fixture.requests.lock().unwrap().clone();
+        assert_eq!(
+            requests.len(),
+            2,
+            "one recent-feeds request, one feed detail request"
+        );
+        assert!(
+            requests[1].starts_with(&format!(
+                "/v1/feeds/f1?include={}",
+                encoded_include(INDEX_FEED_DETAIL)
+            )),
+            "R17-05: the Recent Feeds feed detail call site must send L2. Got: {requests:?}"
+        );
+    }
+
+    /// R17-05: the Index feed detail profile serves `fetch_feed_detail`,
+    /// and this call site sends L2.
+    #[test]
+    fn adr_0075_request_profile_inspector_feed_detail_sends_l2() {
+        let fixture = Fixture::start();
+        let client = crate::api::Client::new_with_base_url(fixture.endpoint.clone());
+
+        let result = fetch_feed_detail(&client, "f1").unwrap();
+
+        assert!(matches!(result.detail, InspectorDetailData::Feed(_)));
+        let requests = fixture.requests.lock().unwrap().clone();
+        assert_eq!(
+            requests,
+            vec![format!(
+                "/v1/feeds/f1?include={}",
+                encoded_include(INDEX_FEED_DETAIL)
+            )],
+            "R17-05: the inspector feed detail call site must send L2"
+        );
+    }
+
+    /// R17-06: the inspector track detail route sends L3 for its track
+    /// request, then L4 for its feed request.
+    #[test]
+    fn adr_0075_request_profile_inspector_track_detail_sends_l3_then_l4() {
+        let fixture = Fixture::start();
+        let client = crate::api::Client::new_with_base_url(fixture.endpoint.clone());
+
+        let result = fetch_track_detail(&client, "t1", Some("f1")).unwrap();
+
+        assert!(matches!(result.detail, InspectorDetailData::Track(_)));
+        let requests = fixture.requests.lock().unwrap().clone();
+        assert_eq!(
+            requests,
+            vec![
+                format!(
+                    "/v1/feeds/f1/tracks/t1?include={}",
+                    encoded_include(INSPECTOR_TRACK_DETAIL_TRACK)
+                ),
+                format!(
+                    "/v1/feeds/f1?include={}",
+                    encoded_include(INSPECTOR_TRACK_DETAIL_FEED)
+                ),
+            ],
+            "R17-06: the inspector track detail route must send L3 then L4, in that order"
+        );
     }
 }

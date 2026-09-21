@@ -19,6 +19,7 @@ pub mod library_removal;
 pub mod paged_track_list;
 pub mod ports;
 pub mod queries;
+pub(crate) mod request_profiles;
 pub mod session_lifecycle;
 
 pub use application_event_bus::{ApplicationEventBus, ApplicationEventSubscriber};

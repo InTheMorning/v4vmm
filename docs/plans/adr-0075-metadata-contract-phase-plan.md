@@ -69,17 +69,21 @@ them into bounded packets. Do not give an agent a whole phase.
 | [013 verified snapshot replacement](../tasks/adr-0075-task-013-verified-snapshot-replacement.md) | Implementation, technical review, and mechanical checks complete on 2026-09-21. Bounded RSS identity contracts and typed local reads. Inherited presentation gates open and paused |
 | [038 Library reader retention](../tasks/adr-0075-task-038-library-reader-observation-retention.md) | Implementation, technical review, and mechanical checks complete on 2026-09-21. Presentation gate open and paused |
 | [039 feed checks and updates](../tasks/adr-0075-task-039-feed-check-and-update-observation-retention.md) | Implementation, technical review, and mechanical checks complete on 2026-09-21. Three converted roots, one dead command deleted, receipts kept across route repair. Presentation gate open and paused |
+| [017 named request profiles](../tasks/adr-0075-task-017-named-request-profiles.md) | Implementation, technical review, and mechanical checks complete on 2026-09-21. Ten named profiles, eight converted request sites, one new guard. No visual gate |
 
 Code agents preserve the existing packet 030 working changes. They do not commit or run the app.
 The orchestrator reviews each diff and runs the integrated checks.
 Reviews go directly to the operator. Existing status documents record completion without a new review document.
 
-Integrated verification on 2026-09-21: 1,650 unit tests and 269 architecture tests are Green. Ten documentation examples remain ignored.
+Integrated verification on 2026-09-21: 1,665 unit tests and 270 architecture tests are Green. Ten documentation examples remain ignored.
 The final full suite used four test threads. Packets 013, 014, and 038 record earlier failures and their corrections.
 Packet 039 adds eight unit tests and one guard. Root corrected seven defects in its new test code before acceptance.
 
+Packet 017 adds fifteen unit tests and one guard. It also repaired a guard that the Decision I amendment broke.
+That guard asserted one exact sentence of `AGENTS.md`, which the amendment rewrapped. It now compares collapsed whitespace.
+
 Format, compile, and strict Clippy checks are Green. The normal desktop binary build is Green after testing.
-These results cover the combined code changes through packets 009, 010, 012, 013, 014, 030, 032, 033, 037, 038, and 039.
+These results cover the combined code changes through packets 009, 010, 012, 013, 014, 017, 030, 032, 033, 037, 038, and 039.
 
 Packet 012 also passed 42 Python fixture tests and isolated CLI verification.
 No application launch, production-data change, or visual acceptance occurred.
@@ -212,14 +216,15 @@ These five packets carry ADR 0075 to a visible result. Dispatch them in this seq
 
 | Packet | Kind | Outcome | Needs |
 |---|---|---|---|
-| [017](../tasks/adr-0075-task-017-named-request-profiles.md) | Code | Name the requests that the Library and Index detail routes make. Ready on 2026-09-21 | 013, 014, 016, and both accepted cuts below |
+| [017](../tasks/adr-0075-task-017-named-request-profiles.md) | Code | Name the requests that the Library route and the Index route make. Complete on 2026-09-21 | 013, 014, 016, and both accepted cuts below |
 | 018 | Code | Cache key, expiry, explicit refresh, and response order | 016, 017, and packet 035's freshness interface |
 | 045 | Code | Report a stale MusicIndex record and direct the operator to podping.me | 018, ADR 0075 Decision I, and packet 035's comparison rules |
 | 020 | Code | One shared projection, for the accepted field rules only | 005, 006, 007, 013, and 018 |
 | 022 | Code | The track header view model, limited to track identities | 020 |
 
-Packet 017 is smaller under Decision I. It names the requests that each route makes.
-It models no provider profile, because a provider is transport and not a source.
+Packet 017 is complete. It named ten requests and models no provider profile, because a
+provider is transport and not a source. Packet 018 is the next dispatch, and it has no packet
+document yet.
 
 Packet 018 ends the repeated fetch that the baseline measured.
 Packet 020 applies the rules that the operator accepted. Packet 022 puts them on screen.

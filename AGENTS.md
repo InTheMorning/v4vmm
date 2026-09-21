@@ -80,8 +80,13 @@ The [packet register](docs/plans/adr-0075-metadata-contract-phase-plan.md#packet
 was reorganized on 2026-09-21 into complete work and a committed path.
 The committed path is packets 017, 018, 045, 020, and 022. The operator accepted both
 dependency cuts on 2026-09-21 and deleted sixteen packets.
-[Packet 017](docs/tasks/adr-0075-task-017-named-request-profiles.md) is Ready on 2026-09-21.
-It names existing requests and changes none of them.
+
+[Packet 017](docs/tasks/adr-0075-task-017-named-request-profiles.md) is complete on
+2026-09-21. Ten named profiles own the include lists of the Library route and the Index
+route. Its mechanical checks are Green. It changes no request, and it needs no visual
+acceptance.
+
+Packet 018 is next on the committed path, and no packet document exists for it.
 The [API change request](docs/plans/musicindex-api-change-request.md) replaces packet 008
 as the request to Stophammer.
 
