@@ -225,6 +225,7 @@ pub fn subscribe_feed(
             contributors: contributor_inputs_from_extensions(item.extensions()),
             links: rss_track_link_inputs(
                 &item_guid,
+                item_link.as_deref(),
                 transcript_url.as_deref(),
                 transcript_type.as_deref(),
             ),
@@ -434,29 +435,45 @@ fn rss_feed_link_inputs(
 
 fn rss_track_link_inputs(
     item_guid: &str,
+    item_link: Option<&str>,
     transcript_url: Option<&str>,
     transcript_type: Option<&str>,
 ) -> Vec<db::LocalIdentityLinkInput> {
-    clean_text(transcript_url)
-        .map(|url| {
-            vec![db::LocalIdentityLinkInput {
-                entity_type: Some("track".to_owned()),
-                entity_id: Some(item_guid.to_owned()),
-                position: Some(0),
-                link_type: Some("transcript".to_owned()),
-                url: Some(url.clone()),
-                extraction_path: Some("podcast:transcript@url".to_owned()),
-                observed_at: None,
-                raw_json: Some(
-                    serde_json::json!({
-                        "url": url,
-                        "type": clean_text(transcript_type),
-                    })
-                    .to_string(),
-                ),
-            }]
-        })
-        .unwrap_or_default()
+    let mut links = Vec::new();
+
+    if let Some(url) = clean_text(item_link) {
+        links.push(db::LocalIdentityLinkInput {
+            entity_type: Some("track".to_owned()),
+            entity_id: Some(item_guid.to_owned()),
+            position: Some(0),
+            link_type: Some("web_page".to_owned()),
+            url: Some(url),
+            extraction_path: Some("entity.link".to_owned()),
+            observed_at: None,
+            raw_json: Some(serde_json::json!({ "link": item_link }).to_string()),
+        });
+    }
+
+    if let Some(url) = clean_text(transcript_url) {
+        links.push(db::LocalIdentityLinkInput {
+            entity_type: Some("track".to_owned()),
+            entity_id: Some(item_guid.to_owned()),
+            position: Some(1),
+            link_type: Some("transcript".to_owned()),
+            url: Some(url.clone()),
+            extraction_path: Some("podcast:transcript@url".to_owned()),
+            observed_at: None,
+            raw_json: Some(
+                serde_json::json!({
+                    "url": url,
+                    "type": clean_text(transcript_type),
+                })
+                .to_string(),
+            ),
+        });
+    }
+
+    links
 }
 
 fn clean_attr(ext: &Extension, name: &str) -> Option<String> {
@@ -607,7 +624,7 @@ mod tests {
     }
 
     #[test]
-    fn rss_track_identity_persistence_preserves_transcript_link() -> Result<()> {
+    fn adr_0075_item_page_persistence_preserves_page_and_transcript_links() -> Result<()> {
         let mut conn = setup_test_db()?;
         let (_, track_id) = create_feed_and_track(&conn)?;
         let facts = RssTrackIdentityFacts {
@@ -615,6 +632,7 @@ mod tests {
             contributors: contributor_inputs_from_extensions(&podcast_person_extensions()),
             links: rss_track_link_inputs(
                 "item-guid",
+                Some(" https://example.test/item "),
                 Some("https://example.test/transcript.vtt"),
                 Some("text/vtt"),
             ),
@@ -627,13 +645,129 @@ mod tests {
         assert_eq!(contributors[0].source, "rss");
 
         let links = db::local_identity_links(&conn, db::LocalIdentityOwner::Track(track_id))?;
-        assert_eq!(links.len(), 1);
-        assert_eq!(links[0].source, "rss");
-        assert_eq!(links[0].link_type.as_deref(), Some("transcript"));
+        assert_eq!(links.len(), 2);
+        let page = &links[0];
+        assert_eq!(page.source, "rss");
+        assert_eq!(page.entity_type.as_deref(), Some("track"));
+        assert_eq!(page.entity_id.as_deref(), Some("item-guid"));
+        assert_eq!(page.position, Some(0));
+        assert_eq!(page.link_type.as_deref(), Some("web_page"));
+        assert_eq!(page.url.as_deref(), Some("https://example.test/item"));
+        assert_eq!(page.extraction_path.as_deref(), Some("entity.link"));
+        assert_eq!(page.observed_at, None);
         assert_eq!(
-            links[0].url.as_deref(),
+            serde_json::from_str::<serde_json::Value>(page.raw_json.as_deref().unwrap())?,
+            serde_json::json!({ "link": " https://example.test/item " })
+        );
+
+        let transcript = &links[1];
+        assert_eq!(transcript.source, "rss");
+        assert_eq!(transcript.position, Some(1));
+        assert_eq!(transcript.link_type.as_deref(), Some("transcript"));
+        assert_eq!(
+            transcript.url.as_deref(),
             Some("https://example.test/transcript.vtt")
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn adr_0075_item_page_omits_missing_or_blank_pages_without_feed_inheritance() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let (feed_id, track_id) = create_feed_and_track(&conn)?;
+        persist_rss_feed_identity(
+            &mut conn,
+            feed_id,
+            Some("feed-guid"),
+            Some("https://example.test/feed"),
+            &ExtensionMap::new(),
+        )?;
+
+        for item_link in [None, Some(" \t ")] {
+            let facts = RssTrackIdentityFacts {
+                item_guid: "item-guid".to_owned(),
+                contributors: Vec::new(),
+                links: rss_track_link_inputs("item-guid", item_link, None, None),
+            };
+            persist_rss_track_identity(&mut conn, "https://example.test/feed.xml", &facts)?;
+
+            assert!(
+                db::local_identity_links(&conn, db::LocalIdentityOwner::Track(track_id))?
+                    .is_empty()
+            );
+        }
+
+        let feed_links = db::local_identity_links(&conn, db::LocalIdentityOwner::Feed(feed_id))?;
+        assert_eq!(feed_links.len(), 1);
+        assert_eq!(
+            feed_links[0].url.as_deref(),
+            Some("https://example.test/feed")
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn adr_0075_item_page_reimport_replaces_rss_rows_and_keeps_musicindex_rows() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let (_, track_id) = create_feed_and_track(&conn)?;
+        db::replace_local_identity_links(
+            &mut conn,
+            db::LocalIdentityOwner::Track(track_id),
+            "musicindex",
+            &[db::LocalIdentityLinkInput {
+                entity_type: Some("track".to_owned()),
+                entity_id: Some("item-guid".to_owned()),
+                position: Some(0),
+                link_type: Some("web_page".to_owned()),
+                url: Some("https://musicindex.example/item".to_owned()),
+                extraction_path: Some("entity.link".to_owned()),
+                observed_at: Some(1_725_000_000),
+                raw_json: Some(r#"{"link":"https://musicindex.example/item"}"#.to_owned()),
+            }],
+        )?;
+
+        let first = RssTrackIdentityFacts {
+            item_guid: "item-guid".to_owned(),
+            contributors: Vec::new(),
+            links: rss_track_link_inputs(
+                "item-guid",
+                Some("https://rss.example/old"),
+                Some("https://rss.example/old.vtt"),
+                Some("text/vtt"),
+            ),
+        };
+        let second = RssTrackIdentityFacts {
+            item_guid: "item-guid".to_owned(),
+            contributors: Vec::new(),
+            links: rss_track_link_inputs(
+                "item-guid",
+                Some("https://rss.example/current"),
+                Some("https://rss.example/current.vtt"),
+                Some("text/vtt"),
+            ),
+        };
+        persist_rss_track_identity(&mut conn, "https://example.test/feed.xml", &first)?;
+        persist_rss_track_identity(&mut conn, "https://example.test/feed.xml", &second)?;
+
+        let links = db::local_identity_links(&conn, db::LocalIdentityOwner::Track(track_id))?;
+        assert_eq!(links.len(), 3);
+        assert_eq!(links.iter().filter(|link| link.source == "rss").count(), 2);
+        assert!(links.iter().any(|link| {
+            link.source == "rss" && link.url.as_deref() == Some("https://rss.example/current")
+        }));
+        assert!(links.iter().any(|link| {
+            link.source == "rss" && link.url.as_deref() == Some("https://rss.example/current.vtt")
+        }));
+        assert!(!links.iter().any(|link| {
+            link.source == "rss" && link.url.as_deref() == Some("https://rss.example/old")
+        }));
+        assert!(links.iter().any(|link| {
+            link.source == "musicindex"
+                && link.url.as_deref() == Some("https://musicindex.example/item")
+                && link.observed_at == Some(1_725_000_000)
+        }));
 
         Ok(())
     }

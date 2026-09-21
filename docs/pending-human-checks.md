@@ -6,6 +6,10 @@ The operator paused visual checks on 2026-09-19. Prioritise the
 [metadata contract refactor](plans/adr-0075-metadata-contract-phase-plan.md)
 before requesting more visual checks. The first four groups retain five open visual packets.
 Their acceptance and configuration gates remain open. Group 5 records the remaining metadata document review.
+Groups 6 and 7 record the metadata migration and storage-failure presentation gates.
+
+Group 8 records the Library comparison and hydration presentation gate.
+Group 9 records the feed check and feed update presentation gate.
 
 The operator accepted ADR 0075 on 2026-09-19. Its placement decision adds future
 visual checks for the labelled identity sections on a track page. Phase 005 owns
@@ -194,13 +198,117 @@ systemctl --user reset-failed mixxx-now-playing.service
 
 ## 5. Metadata Contract Document Review — ADR 0075
 
-Open - corrected documents recorded on 2026-09-19. This group requests no visual check or app launch.
+Closed for the deferred policies - 2026-09-21. The operator deferred the nine remaining
+field policies in packets 031 and 034. ADR 0075 Decision A, amended, records the reduced
+scope. The accepted field decisions stay recorded below. This group requests no visual
+check or app launch.
 
-- Owners: document packets 002–008 in the [phase plan](plans/adr-0075-metadata-contract-phase-plan.md).
-- Accepted policy: Decisions D–G. Do not request acceptance of those decisions again.
-- Remaining review: within-provider selection, stale-value handling, inherited description/publisher placement, and other marked field proposals.
+- Owners: document packets 002–008, 031, 034, and 035 in the [phase plan](plans/adr-0075-metadata-contract-phase-plan.md).
+
+- Accepted policy: Decisions D–H and the individual field decisions in [ADR 0075](adr/0075-metadata-ownership-and-completeness.md#status).
+  Description, website, page, artwork, publisher, artist, and language policies have individual acceptance.
+  Feed and proven track explicit-state source priority, removal, conflict, and stale-state rules are accepted.
+  Known feed state can appear separately when track explicit state is unknown.
+
+- Legacy feed explicit state: MusicIndex `false` without evidence of a valid clean marker stays unknown, with its evidence retained.
+- Legacy track explicit state: MusicIndex booleans with unknown ownership stay in source details without declaring a track state.
+- Feed publication-date source priority: prefer valid fresh RSS channel `pubDate`, then MusicIndex claims with actual channel publication evidence.
+- Feed publication-date refinements: apply accepted removal, conflict, and stale-state rules. Retain original date text, source evidence, and selected absence.
+- Feed publication-date precision: show valid partial dates at their supplied precision without invented date parts or timezones.
+- Feed publication timestamp display: show UTC for known instants. Metadata details retain the source timezone and original text.
+- Track publication-date source priority: prefer valid fresh item RSS `pubDate`, then MusicIndex claims with track publication evidence.
+- Track publication-date refinements: apply the feed date's removal, conflict, and stale-state rules. Retain original text, source evidence, and selected absence.
+- Track publication-date precision: apply the feed precision rule. Show valid partial dates without invented parts or timezones.
+- Track publication timestamp display: show UTC for known instants. Metadata details retain the source timezone and original text.
+- Track publication-date fallback: show the available feed date separately as "Feed publication date" when the track date is absent.
+- Feed release-date evidence: require direct release-date evidence. Keep publication, build, and oldest-item dates separate, with derivation evidence retained.
+- Feed release-date refinements: apply the publication-date removal, conflict, and stale-state rules. Retain original text, source evidence, and selected absence.
+- Feed release-date source priority: prefer fresh supported RSS assertions, then MusicIndex assertions, with proof of an actual release date.
+- Feed release-date precision: preserve year-only and year-month precision without inventing a missing day or time.
+- Feed release timestamp display: show UTC when the source timezone is known. Retain original text and source timezone in metadata details.
+- Track release dates: require direct evidence and apply the feed release-date source, removal, conflict, and stale-state rules.
+- Track release-date precision: apply the feed precision rule without invented date parts. Retain original text and source precision.
+- Track release timestamp display: show UTC when the source timezone is known. Retain original text and source timezone in metadata details.
+- Track release-date fallback: show the available feed release date separately as "Feed release date" when the track release date is absent.
+- Date format interpretation: require unambiguous formats with known source rules for all four date fields. Retain other text as unresolved evidence.
+- Track duration metadata: prefer fresh valid RSS iTunes duration, then MusicIndex. Keep measured file duration separate.
+- Track duration refinements: apply accepted removal, conflict, and stale-state rules. Retain original text, source evidence, and selected absence.
+- Track duration precision: retain valid fractional seconds at source precision without rounding stored values to whole seconds.
+- Track duration validation: accept explicitly supplied zero. Reject negative and malformed durations while retaining source evidence.
+- RSS duration formats: accept seconds, `MM:SS`, and `HH:MM:SS`, with fractional seconds and valid component ranges.
+- Measured duration presentation: when duration metadata is absent, show available measured file duration separately as "File duration".
+- Track transcript source priority: prefer fresh direct RSS claims over MusicIndex. Retain all candidates and source evidence.
+- Track transcript refinements: apply the description fields' removal, source-order, conflict, and stale-state rules, including retained selected absence.
+- MusicIndex transcript representation: prefer full transcript claims over legacy transcript links. Retain both forms of evidence.
+- Legacy transcript recognition: require explicit transcript, caption, or subtitle evidence. Filename-only matches remain unresolved evidence.
+- Transcript alternatives: offer different languages and formats with their declared labels. Retain each alternative's source evidence.
+- Legacy transcript ownership: retain unknown ownership in source details only, without active track transcript actions.
+- Transcript URL actions: allow only valid HTTP or HTTPS URLs. Retain other URLs as source evidence without a transcript action.
+- Feed website actions: allow only valid HTTP or HTTPS URLs. Retain other schemes as source evidence without a website action.
+- Track page actions: allow only valid HTTP or HTTPS URLs. Retain other schemes as source evidence without a page action.
+- Feed website comparison: normalize scheme, host, and default ports. Preserve path, query, and fragment differences.
+- Track page comparison: apply the feed website normalization while preserving path, query, and fragment differences.
+- Feed title source priority: prefer fresh direct RSS titles over MusicIndex. Retain both source assertions and original evidence.
+- Feed title refinements: apply accepted removal, conflict, and stale-state rules. Retain original title text, source evidence, and selected absence.
+- MusicIndex feed title representation: prefer `title`, then legacy `name`. Retain both values and their field paths.
+- Missing feed title presentation: keep "Unknown Feed" as a display label only, without storing it as source metadata.
+- Feed title placeholders: hide only confirmed generated placeholders. Retain literal publisher-supplied titles and derivation evidence.
+- Track title rules: apply the feed title source priority, title/name order, removal, conflict, stale-state, and placeholder rules.
+- Missing track title presentation: display its GUID, then "Untitled" when no GUID exists, without creating source metadata.
+- Feed-title reference fallback: allow a track response's `feed_title` as a labeled feed reference without a separately selected feed title.
+- Feed-title reference removal: verified feed-title removal hides the reference while retaining its evidence.
+- Feed-title reference refinements: apply the feed title's conflict, stale-state, and generated-placeholder rules.
+
+- Remaining field review: deferred on 2026-09-21. Packets 031 and 034 keep their written
+  proposals. A deferred field follows the general source rule in ADR 0075 Decision I.
 - Check source claims against the named functions. Check proposed rules against the accepted ADR and constructed examples.
 - The [field inventory](schema/adr-0075-metadata-field-inventory.md) assigns additional rules to packets 031 and 034.
-  Those rules are not yet written. Packet 035 must define comparison details before implementation.
-- Keep the code dispatch hold. Document correction and policy discussion do not prove full document acceptance.
+  Those rules are deferred. Packet 035's comparison and URL action rules have individual acceptance.
+- The operator authorized completion orchestration on 2026-09-20. Accepted-rule code can proceed after technical review.
+- New product policies still need operator acceptance. Document completion does not close that gate.
 - This document review creates no fixture and requires no cleanup. The existing evidence fixture remains unmodified.
+
+## 6. Metadata Migration Repair Report And Readiness — ADR 0075 Task 012
+
+Open and paused - implementation, technical review, and mechanical checks are complete on 2026-09-20. Operator inspection is pending.
+
+- Owner: [packet 012](tasks/adr-0075-task-012-provider-snapshot-migration.md#operator-visual-check).
+- Check: separate version-11 repair and version-12 readiness reports, retained backup paths, recorded times, report copy, and normal/narrow presentation.
+- Run the packet's temporary-fixture procedure only after mechanical review and the operator resumes visual checks.
+- Preserve configuration, audio files, secret files, playlists, source records, and the selected event during the fixture check.
+- Retain a failing fixture. Confirm successful preservation and fixture cleanup before closing this gate.
+
+## 7. Metadata Observation Storage Failure — ADR 0075 Task 014
+
+Open and paused - implementation, technical review, and mechanical checks are complete on 2026-09-21. Operator inspection is pending.
+
+- Owner: [packet 014](tasks/adr-0075-task-014-provider-observation-retention.md#operator-visual-check).
+- Check: the existing Library status identifies a metadata storage failure without claiming MusicIndex unavailability or successful persistence.
+- Verify delayed failure reporting after navigation without changing the selected track's metadata or unrelated Library state.
+- [Packet 013](tasks/adr-0075-task-013-verified-snapshot-replacement.md) passed technical and mechanical review. Its provider-state reads preserve this open presentation gate.
+- The packet supplies exact temporary-fixture setup, failure injection, launch, inspection, and cleanup commands.
+- Run that procedure only after technical review and the operator resumes visual checks.
+- Use disposable data and scripted local services. Confirm fixture cleanup before closing this gate.
+
+## 8. Library Comparison And Hydration Storage Failure — ADR 0075 Task 038
+
+Open and paused - implementation, technical review, and mechanical checks are complete on 2026-09-21. Operator inspection is pending.
+
+- Owner: [packet 038](tasks/adr-0075-task-038-library-reader-observation-retention.md#operator-visual-check).
+- Check: ordinary comparison errors stay in their panel. Ordinary hydration errors remain silent.
+- Verify that storage failures remain reported after navigation without changing selection or unrelated Library state.
+- The packet supplies prospective isolated setup, failure injection, desktop inspection, and cleanup commands.
+- Run the procedure only after technical and mechanical review and after the operator resumes visual checks.
+- Confirm fixture preservation and cleanup before closing this gate.
+
+## 9. Feed Check And Feed Update Storage Failure — ADR 0075 Task 039
+
+Open and paused - implementation, technical review, and mechanical checks are complete on 2026-09-21. Operator inspection is pending.
+
+- Owner: [packet 039](tasks/adr-0075-task-039-feed-check-and-update-observation-retention.md#operator-visual-check).
+- Check: an ordinary feed error keeps its existing per-feed message and placement.
+- Verify that a storage failure ends only the current feed operation and claims no successful persistence.
+- Verify that **Check all feeds** keeps its existing results, controls, and placement.
+- The packet supplies prospective isolated setup, failure injection, desktop inspection, and cleanup commands.
+- Run the procedure only after the operator resumes visual checks.
+- Confirm fixture preservation and cleanup before closing this gate.

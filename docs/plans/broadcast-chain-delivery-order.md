@@ -18,10 +18,33 @@ It needs no visual acceptance. Storage and display still lose those fields.
 Document packets 002–008 contain corrected deliverables with remaining review gates open.
 Decisions D–G accept Nostr purposes, supported enclosures, limited RSS priority, and retained discrepancy evidence.
 The [field inventory](../schema/adr-0075-metadata-field-inventory.md) assigns remaining rules and transport gaps.
-Full field-rule coverage is incomplete. Packet 030 is Draft and held. The possible update hook remains deferred.
+The remaining proposed field rules are written. Their policy review remains open. The possible update hook remains deferred.
 
-The operator holds the dispatch of every code packet.
-Each code packet needs operator acceptance of the rules that it implements.
+[Packet 030](../tasks/adr-0075-task-030-enclosure-claim-transport.md) is complete on
+2026-09-20. Its mechanical checks are Green. It preserves the four enclosure
+claim fields already supplied upstream. It needs no visual acceptance.
+Storage and display still lose those fields.
+
+The operator authorized completion orchestration on 2026-09-20.
+Code packets 009, 010, 032, 033, and 037 are complete. Technical review and integrated checks are Green.
+The normal desktop binary build is Green after testing.
+
+[Packet 012](../tasks/adr-0075-task-012-provider-snapshot-migration.md) implementation, technical review, and mechanical checks are complete on 2026-09-20.
+Its repair-report and readiness presentation gate remains open and paused.
+
+[Packet 014](../tasks/adr-0075-task-014-provider-observation-retention.md) implementation, technical review, and mechanical checks are complete on 2026-09-21.
+Its shared writer retains original Library track-detail observations. The storage-failure presentation gate remains open and paused.
+[Packet 013](../tasks/adr-0075-task-013-verified-snapshot-replacement.md) implementation, technical review, and mechanical checks are complete on 2026-09-21.
+It covers verified RSS identity collection replacement and typed local collection reads.
+Inherited presentation gates remain open and paused.
+
+[Packet 038](../tasks/adr-0075-task-038-library-reader-observation-retention.md) covers Library comparison and album hydration.
+Implementation, technical review, and mechanical checks are complete on 2026-09-21. Its presentation gate remains open and paused.
+[Packet 039](../tasks/adr-0075-task-039-feed-check-and-update-observation-retention.md) covers feed checks, explicit feed updates, and the combined ADR 0065 workflow.
+Implementation, technical review, and mechanical checks are complete on 2026-09-21. Its presentation gate remains open and paused.
+
+The orchestrator dispatches bounded work under accepted rules and reviews each result.
+New product policies retain their acceptance gate. Visual checks remain paused.
 
 This priority includes the Stophammer backend and the generated MusicIndex API contract.
 The existing broadcast order resumes after this work. Acceptance gates remain open.
@@ -107,7 +130,7 @@ ADR 0039 is Implemented. Its scheduled work is complete.
 
 | Order | Work | Completion point |
 |---|---|---|
-| Current priority | [Metadata contract — ADR 0075](adr-0075-metadata-contract-phase-plan.md) | ADR 0075 is Accepted. Packet 001 is complete on 2026-09-19 with Green mechanical checks and no visual gate. Documents 002–008 are corrected. Remaining review gates and code dispatch stay held. The inventory assigns incomplete field coverage, and Decisions E–G are accepted. Visual checks remain paused |
+| Current priority | [Metadata contract — ADR 0075](adr-0075-metadata-contract-phase-plan.md) | ADR 0075 is Accepted and amended on 2026-09-21. Decision I makes RSS the only provenance and treats MusicIndex as a cache. Twelve code packets are complete: 001, 009, 010, 012, 013, 014, 030, 032, 033, 037, 038, and 039. Their checks are Green. The committed path is packets 017, 018, 045, 020, and 022, and other packets are parked. Four presentation gates stay open, and visual checks stay paused |
 | 1 | Governance reconciliation | Complete - 2026-09-10. Surviving checks indexed. ADR 0039's policy deferral and scheduled work are resolved by its 2026-09-18 implementation and acceptance below. The dated reconciliation remains history |
 | 2, keyboard correction | [Platform shortcuts — ADR 0067](../tasks/adr-0067-task-001-platform-shortcuts.md) | Complete - 2026-09-11; Ctrl shortcuts, focus handling and Settings responsiveness accepted; fixture cleanup confirmed |
 | 2, Settings foundation | [Grouped Settings — ADR 0069 task 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Complete - 2026-09-11; mechanical checks Green; V1–V3 and all preservation inspections accepted; fixture cleanup confirmed; no configuration-format or playback changes |

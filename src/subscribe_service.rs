@@ -228,14 +228,15 @@ pub(crate) fn subscribe_feed_retaining(
                 Some(&track_for_persistence),
             )?;
         }
-        let mut track = track_with_feed_defaults(track_for_metadata, Some(&feed));
-        let mut context_feed = feed.clone();
-        enrich_track_context_from_rss(&mut track, Some(&mut context_feed));
-        let mut track_context = TrackContext {
-            track: track.clone(),
-            feed: Some(context_feed),
-        };
+        let track = track_with_feed_defaults(track_for_metadata, Some(&feed));
+        let mut track_context = TrackContext::new(track, Some(feed.clone()));
+        enrich_track_context_from_rss(&mut track_context);
         sanitize_track_context_source_text(&mut track_context);
+        let error_title = track_context
+            .track
+            .title
+            .clone()
+            .unwrap_or_else(|| "(untitled)".to_owned());
         let edits = id3_edits_for_track_context(&track_context);
 
         let original_request = SubscribeTrackRequest::SearchTrack {
@@ -270,10 +271,7 @@ pub(crate) fn subscribe_feed_retaining(
                 applied_edits += outcome.applied_edits;
             }
             Err(err) => {
-                eprintln!(
-                    "skip {}: {err:#}",
-                    track.title.as_deref().unwrap_or("(untitled)")
-                );
+                eprintln!("skip {}: {err:#}", error_title);
                 skipped += 1;
             }
         }
@@ -380,10 +378,7 @@ fn subscribe_library_track_internal(
 ) -> Result<SubscribeTrackOutcome> {
     let api_track = track_row_to_api_track(&track);
 
-    let track_context = TrackContext {
-        track: api_track,
-        feed: None,
-    };
+    let track_context = TrackContext::new(api_track, None);
     let edits = id3_edits_for_track_context(&track_context);
     *retained = Some(materialization::Materialization::new(
         track,
@@ -411,11 +406,12 @@ fn subscribe_track_from_search_internal(
         mark_feed_subscribed,
         return_tag_compare,
     } = input;
-    let mut feed = track_context.feed;
+    let feed = track_context.feed;
     let original_track = track_context.track.clone();
-    let mut track = track_with_feed_defaults(original_track.clone(), feed.as_ref());
-    enrich_track_context_from_rss(&mut track, feed.as_mut());
-    let mut refreshed_context = TrackContext { track, feed };
+    let track = track_with_feed_defaults(original_track.clone(), feed.as_ref());
+    let mut refreshed_context = TrackContext::new(track, feed);
+    refreshed_context.rss_observation = track_context.rss_observation;
+    enrich_track_context_from_rss(&mut refreshed_context);
     sanitize_track_context_source_text(&mut refreshed_context);
     let feed_url = refreshed_context
         .track
@@ -549,17 +545,43 @@ fn drop_placeholder(value: Option<String>) -> Option<String> {
     value.filter(|value| !source_text_missing(Some(value.as_str())))
 }
 
-pub fn enrich_track_context_from_rss(track: &mut Track, feed: Option<&mut Feed>) {
-    let feed_url = track
+pub fn enrich_track_context_from_rss(context: &mut TrackContext) {
+    let _ = enrich_track_context_from_rss_with_recorder(context, None);
+}
+
+pub(crate) fn rss_request_spec(
+    context: &TrackContext,
+) -> Option<crate::provider_observation::ProviderRequestSpec> {
+    let feed_url = context
+        .track
         .feed_url
         .clone()
         .filter(|url| !source_text_missing(Some(url.as_str())))
-        .or_else(|| feed.as_ref().and_then(|feed| feed.feed_url.clone()))
+        .or_else(|| context.feed.as_ref().and_then(|feed| feed.feed_url.clone()))
         .filter(|url| !source_text_missing(Some(url.as_str())));
-    let Some(feed_url) = feed_url else {
-        return;
+    feed_url.map(|url| {
+        crate::provider_observation::contracts::rss_request(
+            &url,
+            context.track.track_guid.as_deref(),
+            context.track.enclosure_url.as_deref(),
+        )
+    })
+}
+
+pub(crate) fn enrich_track_context_from_rss_with_recorder(
+    context: &mut TrackContext,
+    recorder: Option<&crate::provider_observation::ProviderObservationRecorder>,
+) -> Result<()> {
+    let Some(request) = rss_request_spec(context) else {
+        return Ok(());
     };
-    let _ = rss::enrich_track_from_feed_rss(track, feed, &feed_url);
+    let feed_url = request.request_uri;
+    let result = match recorder {
+        Some(recorder) => rss::enrich_track_from_feed_rss_observed(context, &feed_url, recorder),
+        None => rss::enrich_track_from_feed_rss(context, &feed_url),
+    };
+    crate::provider_observation::propagate_storage_failure(result)?;
+    Ok(())
 }
 
 pub(crate) fn prepare_track_for_subscription_internal(
@@ -591,13 +613,13 @@ pub fn download_and_compare_track(
     entity_id: &str,
     force_download: bool,
 ) -> Result<TagCompareResult> {
-    let mut track = client.fetch_track(
+    let track = client.fetch_track(
         entity_id,
         Some(
             "source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes",
         ),
     )?;
-    let mut feed = match track.feed_guid.as_deref() {
+    let feed = match track.feed_guid.as_deref() {
         Some(feed_guid) => client
             .fetch_feed(
                 feed_guid,
@@ -606,8 +628,8 @@ pub fn download_and_compare_track(
             .ok(),
         None => None,
     };
-    enrich_track_context_from_rss(&mut track, feed.as_mut());
-    let mut track_context = TrackContext { track, feed };
+    let mut track_context = TrackContext::new(track, feed);
+    enrich_track_context_from_rss(&mut track_context);
     sanitize_track_context_source_text(&mut track_context);
     let cfg_path = config::config_path()?;
     let cfg = config::ConfigSnapshot::read_existing(&cfg_path)?.downloads()?;
@@ -1001,13 +1023,14 @@ mod tests {
 
     #[test]
     fn enrich_no_feed_url_is_noop() {
-        let mut track = Track {
+        let track = Track {
             title: Some("Title".into()),
             ..Track::default()
         };
-        let before = track.clone();
-        enrich_track_context_from_rss(&mut track, None);
-        assert_eq!(track.title, before.title);
-        assert_eq!(track.feed_url, before.feed_url);
+        let mut context = TrackContext::new(track, None);
+        let before = context.track.clone();
+        enrich_track_context_from_rss(&mut context);
+        assert_eq!(context.track.title, before.title);
+        assert_eq!(context.track.feed_url, before.feed_url);
     }
 }

@@ -810,10 +810,10 @@ impl TopApp {
             Arc::clone(&self.conn),
             self.application_services.download_manager(),
             SubscribeTrackRequest::SearchTrack {
-                track_context: Box::new(TrackContext {
-                    track: api_track_from_view(feed, track),
-                    feed: Some(api_feed_from_view(feed)),
-                }),
+                track_context: Box::new(TrackContext::new(
+                    api_track_from_view(feed, track),
+                    Some(api_feed_from_view(feed)),
+                )),
                 edits: Vec::new(),
                 musicindex_endpoint: self.musicindex_endpoint.clone(),
                 mark_feed_subscribed: false,

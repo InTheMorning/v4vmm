@@ -9,8 +9,8 @@ use rusqlite::Connection;
 pub(super) fn recognize_migration_11(conn: &Connection) -> rusqlite::Result<bool> {
     let expected = Connection::open_in_memory()?;
     super::init_schema(&expected).map_err(|_| rusqlite::Error::InvalidQuery)?;
-    super::migrate_schema(&expected).map_err(|_| rusqlite::Error::InvalidQuery)?;
-    for (table, _) in super::CURRENT_COLUMNS {
+    super::migrate_schema_to(&expected, 11).map_err(|_| rusqlite::Error::InvalidQuery)?;
+    for (table, _) in super::VERSION_11_COLUMNS {
         if columns(conn, table)? != columns(&expected, table)? {
             return Ok(false);
         }
@@ -24,6 +24,100 @@ pub(super) fn recognize_migration_11(conn: &Connection) -> rusqlite::Result<bool
             "SELECT count(*) FROM broadcast_event_selection WHERE singleton != 1 OR event_id = '' OR revision <= 0 OR typeof(singleton) != 'integer' OR typeof(event_id) != 'text' OR typeof(revision) != 'integer'",
             [], |row| row.get::<_, i64>(0),
         )? == 0)
+}
+
+/// Compare a supported target against the normal registry's exact schema.
+pub(crate) fn verify_target(conn: &Connection, target: i64) -> anyhow::Result<()> {
+    let expected = Connection::open_in_memory()?;
+    super::init_schema(&expected)?;
+    super::migrate_schema_internal(&expected, target, |_, _| Ok(()), false)?;
+    anyhow::ensure!(
+        objects(conn)? == objects(&expected)?,
+        "Database schema differs from its target"
+    );
+    for (table, _) in super::VERSION_11_COLUMNS.iter().chain(if target == 12 {
+        super::provider_snapshot_schema::COLUMNS
+    } else {
+        &[]
+    }) {
+        anyhow::ensure!(
+            columns(conn, table)? == columns(&expected, table)?,
+            "Database columns differ from their target"
+        );
+    }
+    let ledger = |connection: &Connection| -> rusqlite::Result<Vec<(i64, String)>> {
+        connection
+            .prepare("SELECT version,name FROM schema_migrations ORDER BY version")?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect()
+    };
+    anyhow::ensure!(
+        ledger(conn)? == ledger(&expected)?,
+        "Database ledger differs from its target"
+    );
+    if target == 11 {
+        anyhow::ensure!(
+            recognize_migration_11(conn)?,
+            "Invalid migration 11 selection state"
+        );
+    }
+    verify_integrity(conn)
+}
+
+pub(super) fn verify_integrity(conn: &Connection) -> anyhow::Result<()> {
+    let results = conn
+        .prepare("PRAGMA integrity_check")?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    anyhow::ensure!(results == ["ok"], "Database integrity check failed");
+    anyhow::ensure!(
+        !conn.prepare("PRAGMA foreign_key_check")?.exists([])?,
+        "Database foreign-key check failed"
+    );
+    Ok(())
+}
+
+/// Hash every version-11 row identity and value, including its complete ledger.
+pub(super) fn legacy_digest(conn: &Connection) -> anyhow::Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    for (table, _) in super::VERSION_11_COLUMNS {
+        hash.update((table.len() as u64).to_le_bytes());
+        hash.update(table.as_bytes());
+        let filter = if *table == "schema_migrations" {
+            " WHERE version <= 11"
+        } else {
+            ""
+        };
+        let mut statement = conn.prepare(&format!(
+            "SELECT rowid,* FROM {table}{filter} ORDER BY rowid"
+        ))?;
+        let count = statement.column_count();
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
+            hash.update([255]);
+            for index in 0..count {
+                super::maintenance::restore::hash_value(&mut hash, row.get_ref(index)?);
+            }
+        }
+    }
+    Ok(format!("{:x}", hash.finalize()))
+}
+
+/// Construct only disposable schemas through the current registry.
+#[cfg(any(test, debug_assertions))]
+pub(crate) fn create_fixture(conn: &Connection, target: i64) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        super::inspect_schema(conn)? == super::SchemaCompatibility::Empty,
+        "Fixture database must be empty"
+    );
+    anyhow::ensure!(
+        matches!(target, 10..=12),
+        "Unsupported fixture schema target"
+    );
+    conn.pragma_update(None, "foreign_keys", true)?;
+    super::init_schema(conn)?;
+    super::migrate_schema_to(conn, target)
 }
 
 type Column = (String, String, bool, Option<String>, i64, i64);
@@ -90,10 +184,15 @@ pub(crate) fn interrupt_fixture(
     conn: &Connection,
     boundary: super::MigrationBoundary,
 ) -> anyhow::Result<()> {
-    conn.execute_batch(
-        "DROP TABLE broadcast_event_selection; DELETE FROM schema_migrations WHERE version = 11;",
-    )?;
-    let result = super::migrate_schema_with(conn, |version, reached| {
+    anyhow::ensure!(
+        super::inspect_schema(conn)?
+            == super::SchemaCompatibility::UpgradeRequired {
+                applied: 10,
+                current: super::MIGRATIONS.len()
+            },
+        "Fixture requires registry target 10"
+    );
+    let result = super::migrate_schema_with(conn, 11, |version, reached| {
         anyhow::ensure!(
             version != 11 || reached != boundary,
             "Fixture interrupted migration 11"
@@ -110,10 +209,166 @@ mod tests {
     use crate::db::{inspect_schema, migrate_schema, MigrationBoundary, SchemaCompatibility};
 
     #[test]
+    fn adr_0075_migration_frozen_11_preserves_every_legacy_row_and_initializes_only_generation() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", false).unwrap();
+        conn.execute_batch(include_str!("fixtures/adr-0075-schema-11.sql"))
+            .unwrap();
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
+        let before = legacy_digest(&conn).unwrap();
+        assert!(recognize_migration_11(&conn).unwrap());
+        assert_eq!(
+            inspect_schema(&conn).unwrap(),
+            SchemaCompatibility::UpgradeRequired {
+                applied: 11,
+                current: 12
+            }
+        );
+        migrate_schema(&conn).unwrap();
+        verify_target(&conn, 12).unwrap();
+        assert_eq!(legacy_digest(&conn).unwrap(), before);
+        for (table, _) in crate::db::provider_snapshot_schema::COLUMNS {
+            let count: i64 = conn
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, i64::from(*table == "metadata_generation"), "{table}");
+        }
+        assert_eq!(
+            conn.query_row(
+                "SELECT last_generation FROM metadata_generation",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT revision FROM broadcast_event_selection",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            7
+        );
+    }
+
+    #[test]
+    fn adr_0075_migration_frozen_interruption_and_partial_12_remain_distinct() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", false).unwrap();
+        conn.execute_batch(include_str!("fixtures/adr-0075-interrupted-11.sql"))
+            .unwrap();
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
+        assert_eq!(
+            inspect_schema(&conn).unwrap(),
+            SchemaCompatibility::InterruptedUpgrade
+        );
+        for invalid in [
+            "CREATE TABLE unexpected(value)",
+            "CREATE TABLE metadata_providers(id INTEGER)",
+            "PRAGMA ignore_check_constraints=ON; UPDATE broadcast_event_selection SET revision=0",
+        ] {
+            let conn = Connection::open_in_memory().unwrap();
+            conn.pragma_update(None, "foreign_keys", false).unwrap();
+            conn.execute_batch(include_str!("fixtures/adr-0075-interrupted-11.sql"))
+                .unwrap();
+            conn.pragma_update(None, "foreign_keys", true).unwrap();
+            conn.execute_batch(invalid).unwrap();
+            assert_eq!(
+                inspect_schema(&conn).unwrap(),
+                SchemaCompatibility::Unknown,
+                "{invalid}"
+            );
+        }
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", false).unwrap();
+        conn.execute_batch(include_str!("fixtures/adr-0075-schema-11.sql"))
+            .unwrap();
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
+        conn.execute_batch("CREATE TABLE metadata_bodies(value)")
+            .unwrap();
+        assert_eq!(inspect_schema(&conn).unwrap(), SchemaCompatibility::Unknown);
+    }
+
+    #[test]
+    fn adr_0075_migration_each_registry_boundary_rolls_back_schema_and_ledger() {
+        for boundary in [
+            MigrationBoundary::BeforeApply,
+            MigrationBoundary::AfterApply,
+            MigrationBoundary::AfterRecord,
+        ] {
+            let conn = Connection::open_in_memory().unwrap();
+            conn.pragma_update(None, "foreign_keys", false).unwrap();
+            conn.execute_batch(include_str!("fixtures/adr-0075-schema-11.sql"))
+                .unwrap();
+            conn.pragma_update(None, "foreign_keys", true).unwrap();
+            let before = legacy_digest(&conn).unwrap();
+            let result = crate::db::migrate_schema_with(&conn, 12, |version, reached| {
+                anyhow::ensure!(
+                    version != 12 || reached != boundary,
+                    "Injected migration failure"
+                );
+                Ok(())
+            });
+            assert!(result.is_err());
+            assert!(conn.is_autocommit());
+            verify_target(&conn, 11).unwrap();
+            assert_eq!(legacy_digest(&conn).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn adr_0075_migration_interrupted_process() {
+        let Some(path) = std::env::var_os("V4VMM_TEST_MIGRATION_INTERRUPTION") else {
+            return;
+        };
+        let conn = Connection::open(path).unwrap();
+        crate::db::migrate_schema_with(&conn, 12, |version, boundary| {
+            if version == 12 && boundary == MigrationBoundary::AfterRecord {
+                conn.cache_flush().unwrap();
+                std::process::exit(77);
+            }
+            Ok(())
+        })
+        .unwrap();
+        panic!("Migration did not reach the interruption");
+    }
+
+    #[test]
+    fn adr_0075_migration_process_exit_recovers_uncommitted_schema() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("interrupted.sqlite");
+        let conn = Connection::open(&path).unwrap();
+        conn.pragma_update(None, "foreign_keys", false).unwrap();
+        conn.execute_batch(include_str!("fixtures/adr-0075-schema-11.sql"))
+            .unwrap();
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
+        let before = legacy_digest(&conn).unwrap();
+        drop(conn);
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "db::upgrades::tests::adr_0075_migration_interrupted_process",
+                "--nocapture",
+            ])
+            .env("V4VMM_TEST_MIGRATION_INTERRUPTION", &path)
+            .output()
+            .unwrap()
+            .status;
+        assert_eq!(status.code(), Some(77));
+        let conn = Connection::open(&path).unwrap();
+        verify_target(&conn, 11).unwrap();
+        assert_eq!(legacy_digest(&conn).unwrap(), before);
+    }
+
+    #[test]
     fn adr_0066_upgrade_schema_recognizes_legacy_column_order_without_ignoring_sql_values() {
         let conn = Connection::open_in_memory().unwrap();
-        crate::db::init_schema(&conn).unwrap();
-        migrate_schema(&conn).unwrap();
+        create_fixture(&conn, 10).unwrap();
         interrupt_fixture(&conn, MigrationBoundary::AfterApply).unwrap();
         conn.execute_batch("ALTER TABLE tracks DROP COLUMN enclosure_type; ALTER TABLE tracks ADD COLUMN enclosure_type TEXT").unwrap();
         assert_eq!(
@@ -130,7 +385,8 @@ mod tests {
     fn adr_0066_upgrade_integrity_damage_never_authorizes_repair() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("damaged.sqlite");
-        let conn = crate::db::open_db(&path).unwrap();
+        let conn = Connection::open(&path).unwrap();
+        create_fixture(&conn, 10).unwrap();
         interrupt_fixture(&conn, MigrationBoundary::AfterApply).unwrap();
         drop(conn);
         let mut bytes = std::fs::read(&path).unwrap();
@@ -152,8 +408,7 @@ mod tests {
             MigrationBoundary::AfterRecord,
         ] {
             let conn = Connection::open_in_memory().unwrap();
-            crate::db::init_schema(&conn).unwrap();
-            migrate_schema(&conn).unwrap();
+            create_fixture(&conn, 10).unwrap();
             interrupt_fixture(&conn, boundary).unwrap();
             let state = inspect_schema(&conn).unwrap();
             assert_eq!(
@@ -161,10 +416,13 @@ mod tests {
                 match boundary {
                     MigrationBoundary::BeforeApply => SchemaCompatibility::UpgradeRequired {
                         applied: 10,
-                        current: 11
+                        current: 12
                     },
                     MigrationBoundary::AfterApply => SchemaCompatibility::InterruptedUpgrade,
-                    MigrationBoundary::AfterRecord => SchemaCompatibility::Current,
+                    MigrationBoundary::AfterRecord => SchemaCompatibility::UpgradeRequired {
+                        applied: 11,
+                        current: 12
+                    },
                 }
             );
             if boundary != MigrationBoundary::BeforeApply {
@@ -221,7 +479,8 @@ mod tests {
         ] {
             let temp = tempfile::tempdir().unwrap();
             let path = temp.path().join("db.sqlite");
-            let conn = crate::db::open_db(&path).unwrap();
+            let conn = Connection::open(&path).unwrap();
+        create_fixture(&conn, 10).unwrap();
             interrupt_fixture(&conn, MigrationBoundary::AfterApply).unwrap();
             conn.execute_batch(change).unwrap();
             drop(conn);

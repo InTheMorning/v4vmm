@@ -4,12 +4,37 @@
 
 Accepted - 2026-09-19. The operator accepted this decision and answered its two open questions.
 Packet 001 is complete on 2026-09-19. It preserves contributor claim transport.
-Document packets 002 to 008 have corrected deliverables. Their remaining review gates stay open.
+Document packets 002 to 008 contain corrected deliverables. Their remaining review gates stay open.
+
 The field inventory assigns uncovered fields to additional packets. Full field-rule coverage is not complete.
-The operator holds the dispatch of every code packet.
+Packet 030 is complete and passed independent review on 2026-09-20.
+
+Code packets 009, 010, 032, 033, and 037 are complete on 2026-09-20.
+Their technical review, integrated checks, and normal desktop binary build are Green.
+These packets correct direct RSS identity extraction, item-page storage, and existing API transport losses.
+
+Packet 012 implementation, technical review, and mechanical checks are complete on 2026-09-20.
+It adds the preserved migration to schema 12. Its presentation gate remains open and paused.
+Durable snapshots, shared projections, remaining field policies, upstream changes, and visual acceptance remain open.
+
+Amended 2026-09-21. The operator recorded Decision I: MusicIndex is a cache of RSS, and
+RSS is the only provenance. The operator also reduced the field scope in Decision A and
+deferred nine field policies. Provider-ownership display work is superseded.
+The app reports a stale MusicIndex record and directs the operator to podping.me.
+
+The operator authorized orchestration of the remaining work on 2026-09-20.
+The orchestrator dispatches bounded tasks under accepted rules. Unaccepted policies and visual gates remain open.
+The operator requires a separate review of each new field policy, confirmed on 2026-09-20.
 
 Decision A, field scope. This contract covers every metadata field, not only identity and credit fields.
 Each field keeps a separate written rule. A packet cannot run before its field rule exists.
+
+Amended 2026-09-21: the operator reduced this scope. The contract covers each field with
+an accepted rule. Nine field policies in packets 031 and 034 are deferred. They cover
+track and disc numbers, season, embedded album title, artist sort text, medium and release
+kind, aggregate counts, iTunes feed type, and relationship evidence. A deferred field
+follows the general source rule in Decision I and gets no field-specific refinement.
+This contract no longer claims coverage of every metadata field.
 
 Decision B, identity placement. A track page keeps track identities in its header.
 Feed identities and contributor identities go in separate sections with owner labels.
@@ -53,6 +78,255 @@ They tighten field handling without changing ownership or releasing code dispatc
 
 Field-rule review. Document agents propose unresolved source priorities and conflict rules.
 The operator reviews those proposals before the dependent code packets run.
+
+Decision H, explicit RSS absence. Fresh verified RSS absence hides the retained MusicIndex description or track page value.
+This rule covers feed descriptions, track descriptions, feed websites, and track page links.
+Retain the earlier values and discrepancy evidence. Unknown coverage or a failed request cannot establish absence.
+The operator accepted this rule on 2026-09-20 and separately confirmed the feed-description case.
+
+Decision I, RSS is the only provenance. MusicIndex is a cache of RSS facts, and it is not
+an independent source. Provenance names the element in the RSS document that asserted a
+value: the channel, the item, or a person.
+
+The provider that delivered a value is transport evidence. It is not provenance, and it is
+not a display concern. A screen does not label a value with the provider that carried it.
+
+A fresh, successful direct RSS observation always supplies the value. MusicIndex supplies a
+value only for a feed that the app has not fetched.
+
+A MusicIndex value that disagrees with a fresh RSS value is a stale cache record, and it is
+not a competing claim. The app reports that record as stale and names the feed.
+
+The app directs the operator to podping.me to request a refetch. The app sends no podping
+and makes no outbound update request. Only a later decision can change that restriction.
+
+The operator accepted this rule on 2026-09-21.
+
+Amended 2026-09-21: added Decision I. It supersedes the treatment of MusicIndex as a
+competing source in Decisions F and G. It also deletes the earlier rule that a fresh Index
+absence hides a stale RSS value. A cache cannot establish absence in its own source. Decisions F and G keep their retained evidence and their comparison rules, which
+Decision I uses to find a stale record.
+
+
+Description refinements, accepted separately for feed and track fields on 2026-09-20:
+Prefer an owner-matching MusicIndex description claim before its plain description field.
+When both description sources are stale, retain the last selected description with a stale label.
+Use declared source order for multiple sourced descriptions. Report conflicting ties as unresolved.
+
+Feed-website refinement, accepted on 2026-09-20: apply the same absence, source-order, conflict, and stale-label rules.
+This field continues to use website claims. The feed's RSS resource URL is not a website fallback.
+
+Track-page refinement, accepted separately on 2026-09-20: apply the same absence, source-order, conflict, and stale-label rules.
+Prefer the direct item page link before a supported Atom alternate link.
+
+Track-description placement, accepted on 2026-09-20: show no description when the track has no description of its own.
+Do not substitute a feed description or add the proposed fallback "Feed description" section to that track page.
+
+Feed-artwork source order, accepted on 2026-09-20: prefer fresh direct RSS artwork before MusicIndex artwork.
+Retain both source facts with their feed owner.
+Track-artwork source order, accepted separately: prefer fresh RSS track-owned artwork before MusicIndex track-owned artwork.
+Then use the accepted feed-artwork fallback. Unknown artwork ownership remains unknown.
+
+Feed-artwork refinements, accepted on 2026-09-20: honor fresh explicit absence using the description fields' provider priority.
+Retain removed artwork as evidence. When both providers expire, retain the last selected field state.
+Keep a retained image visible and report its stale state in metadata details. Retained absence stays absent.
+
+Track-artwork refinements, accepted separately on 2026-09-20: apply the same removal and stale-state rules.
+When the track's own image is absent, use the accepted feed-artwork fallback.
+Retain removed track artwork as evidence. Expiry cannot restore a removed track image.
+
+Feed-artwork extraction order, accepted on 2026-09-20: prefer `podcast:image`, then iTunes artwork, then the RSS image.
+Report conflicting ties as unresolved and retain their evidence.
+Track-artwork extraction order, accepted separately: prefer `podcast:image`, then iTunes artwork. Report conflicting ties as unresolved.
+
+Legacy track artwork, accepted on 2026-09-20: keep the image for display and report unknown ownership in metadata details.
+The compatibility value does not become a track-owned source fact.
+
+Feed publisher text, accepted on 2026-09-20: keep the supplied MusicIndex value and identify its source in metadata details.
+This acceptance does not invent the value's derivation evidence or a track-owned publisher assertion.
+Feed-publisher removal and expiry, accepted separately: honor verified removals and retain the evidence.
+After expiry, retain the last selected state with a stale label. Selected absence stays absent.
+
+Track publisher placement, accepted on 2026-09-20: show an available feed publisher in a separate "Feed publisher" section.
+This fallback applies when the track has no proven publisher of its own. It does not create a track assertion.
+Proven track publisher text, accepted separately: apply the feed publisher's Index selection, removal, and stale-state rules.
+Preserve its evidence and keep a selected absence absent after expiry.
+
+Track artist text, accepted on 2026-09-20: prefer fresh RSS author text, then the corresponding MusicIndex value.
+Keep contributor names in credits. Do not substitute those names for artist text.
+
+Track-artist refinements, accepted separately: use iTunes author before RSS author.
+Apply the accepted removal, conflict, and stale-state rules. Retain source evidence and selected absence.
+
+Track-artist fallback, accepted separately: show an available feed artist in a separate "Feed artist" section.
+Use this section when the track has no artist text. It does not create a track artist assertion.
+
+Feed artist text, accepted separately: prefer fresh RSS iTunes author, then MusicIndex.
+Keep contributor and track names separate. They do not supply fallback feed artist text.
+Feed-artist refinements, accepted separately: apply the track artist's removal, conflict, and stale-state rules.
+Retain source evidence and selected absence.
+
+Feed-artist placeholders, accepted separately: hide only confirmed generated placeholders.
+Retain literal source assertions, including "Unknown Artist". The text alone cannot prove that a value is a placeholder.
+Track-artist placeholders, accepted separately: apply the same rule. Retain literal source assertions and all rejected-value evidence.
+
+Feed language, accepted on 2026-09-20: prefer fresh RSS before MusicIndex.
+Apply the accepted removal, conflict, and stale-state rules. Retain source evidence and selected absence.
+Proven track language, accepted separately: prefer fresh item RSS before MusicIndex, with those same rules.
+
+Track-language fallback, accepted separately: show the available feed value as a separate "Feed language" value when track language is absent.
+Legacy track language, accepted separately: retain values with unknown ownership in source details only.
+Do not present those values as track-owned assertions.
+
+Feed explicit state, accepted on 2026-09-20: prefer fresh valid RSS markers and keep unknown distinct from clean.
+Missing or unsupported markers cannot establish clean content. Retain raw values and their validation evidence.
+Accepted separately: apply the description fields' removal, conflict, and stale-state rules.
+Retain source evidence and the last selected field state, including absence. Unknown remains distinct from clean.
+
+Proven track explicit state, accepted separately: prefer fresh valid item RSS markers.
+Apply the feed explicit-state removal, conflict, unknown, and stale-state rules. Retain source evidence and selected absence.
+Feed fallback, accepted separately: show a known feed state as a separate "Feed explicit state" value when track state is unknown.
+This fallback does not create a track-owned assertion.
+
+Legacy feed explicit state, accepted separately: MusicIndex `false` without evidence of a valid clean marker stays unknown.
+Retain the original boolean and its source evidence. That scalar alone cannot establish clean content or verified absence.
+
+Legacy track explicit state, accepted separately: retain MusicIndex booleans with unknown ownership in source details only.
+Do not present those values as track-owned explicit-state assertions.
+
+Feed publication-date source priority, accepted on 2026-09-20: prefer valid fresh RSS channel `pubDate`.
+Then use MusicIndex claims that prove an actual channel publication date.
+The current `feed.pub_date` claim path alone cannot prove publication because the upstream parser can substitute `lastBuildDate`.
+
+Feed publication-date refinements, accepted separately: apply the description fields' removal, conflict, and stale-state rules.
+Retain original date text and source evidence. Retain the last selected field state after expiry, including selected absence.
+
+Feed publication-date precision, accepted separately: show valid partial dates at their supplied precision.
+Do not invent missing date parts or timezones. Retain original text and validation evidence.
+
+Feed publication timestamp display, accepted separately: show UTC and retain the source timezone and original text in metadata details.
+Convert only a known instant. Partial dates and unknown timezones remain unconverted.
+
+Track publication-date source priority, accepted separately: prefer valid fresh item RSS `pubDate`.
+Then use MusicIndex claims that prove the track's publication date.
+
+Track publication-date refinements, accepted on 2026-09-21: apply the feed date's removal, conflict, and stale-state rules.
+Retain original date text and source evidence. Retain the last selected field state after expiry, including selected absence.
+
+Track publication-date precision, accepted separately: show valid partial dates at their supplied precision.
+Do not invent missing date parts or timezones. Retain original text and validation evidence, as required for feed publication dates.
+
+Track publication timestamp display, accepted separately: show UTC and retain the source timezone and original text in metadata details.
+Convert only a known instant. Partial dates and unknown timezones remain unconverted.
+
+Track publication-date fallback, accepted separately: show the available feed date as a separate "Feed publication date" value.
+Use this value when the track publication date is absent. This presentation does not create a track-owned date assertion.
+
+Feed release-date evidence, accepted on 2026-09-21: require direct release-date evidence.
+Keep publication, build, and oldest-item dates separate. Those dates cannot supply a missing feed release date.
+Retain derived values and their derivation evidence. A `release_date` field name or claim type alone cannot prove release-date meaning.
+
+Feed release-date refinements, accepted separately: apply the publication-date removal, conflict, and stale-state rules.
+Retain original date text, source evidence, and the last selected field state, including absence.
+
+Feed release-date source priority, accepted separately: prefer fresh supported RSS assertions, then MusicIndex assertions.
+Both sources must prove an actual release date.
+
+Feed release-date precision, accepted separately: preserve year-only and year-month precision.
+Do not invent a missing day or time. Keep the original date text and source precision.
+
+Feed release timestamp display, accepted separately: show UTC when the source timestamp has a known timezone.
+Metadata details retain the source timezone and original text. Partial calendar dates remain unchanged.
+
+Track release dates, accepted separately: require direct evidence and apply the feed release-date source, removal, conflict, and stale-state rules.
+Retain original date text, source evidence, and the last selected field state, including absence.
+Keep track publication dates separate.
+
+Track release-date precision, accepted separately: preserve year-only and year-month precision without invented date parts.
+Keep the original date text and source precision, as required for feed release dates.
+
+Track release timestamp display, accepted separately: show UTC when the source timestamp has a known timezone.
+Metadata details retain the source timezone and original text. Partial calendar dates remain unchanged.
+
+Track release-date fallback, accepted separately: show the available feed release date as a separate "Feed release date" value.
+Use this value when the track release date is absent. This presentation does not create a track-owned release-date assertion.
+
+Date format interpretation, accepted separately for all four date fields: require unambiguous formats with known source rules.
+Retain other text as unresolved evidence. Do not guess date order, epoch units, missing date parts, or timezones.
+
+Track duration metadata, accepted separately: prefer fresh valid RSS iTunes duration, then MusicIndex.
+Keep measured file duration separate.
+Apply the accepted removal, conflict, and stale-state rules. Retain original text, source evidence, and selected absence.
+
+Track duration precision, accepted separately: retain valid fractional seconds at source precision without rounding stored values to whole seconds.
+Track duration validation, accepted separately: accept explicitly supplied zero. Reject negative or malformed durations while retaining their source evidence.
+
+RSS duration formats, accepted separately: accept seconds, `MM:SS`, and `HH:MM:SS`, with fractional seconds and valid component ranges.
+The leading component can exceed 59. Each subsequent minute or second component must remain below 60 and nonnegative.
+
+Measured duration presentation, accepted separately: when duration metadata is absent, show available measured file duration separately as "File duration".
+This presentation does not create an RSS or MusicIndex duration assertion.
+
+Track transcript source priority, accepted separately: prefer fresh direct RSS claims over MusicIndex.
+Retain all transcript candidates and their source evidence.
+Track transcript refinements, accepted separately: apply the description fields' removal, source-order, conflict, and stale-state rules.
+Retain the last selected state, including absence, and the underlying evidence.
+
+MusicIndex transcript representation, accepted separately: prefer full transcript claims over legacy transcript links.
+Retain both forms of evidence. This rule does not change provider priority.
+
+Legacy transcript recognition, accepted separately: require explicit transcript, caption, or subtitle evidence.
+Filename-only matches remain unresolved evidence. A file extension alone cannot establish a transcript action.
+
+Transcript alternatives, accepted separately: offer available language and format alternatives with their declared labels.
+Preserve each alternative's source evidence. Distinct language or format alternatives are not conflicting claims merely because their URLs differ.
+
+Legacy transcript ownership, accepted separately: retain unknown ownership in source details only.
+Do not present these links as track-owned transcripts or active track transcript actions.
+
+Transcript URL actions, accepted separately: allow only valid HTTP or HTTPS URLs.
+Retain other URLs as source evidence without a transcript action.
+
+Feed website actions, accepted separately: allow only valid HTTP or HTTPS URLs.
+Retain other schemes as source evidence without a website action.
+
+Track page actions, accepted separately: allow only valid HTTP or HTTPS URLs.
+Retain other schemes as source evidence without a page action.
+
+Feed website comparison, accepted separately: normalize scheme, host, and default ports.
+Preserve path, query, and fragment differences. Retain the original URL and comparison evidence.
+
+Track page comparison, accepted separately: use the same scheme, host, and default-port normalization as feed websites.
+Preserve path, query, and fragment differences. Retain the original URL and comparison evidence.
+
+Feed title source priority, accepted separately: prefer fresh direct RSS titles over MusicIndex.
+Retain both source assertions and their original evidence.
+Feed title refinements, accepted separately: apply the accepted removal, conflict, and stale-state rules.
+Retain original title text, source evidence, and the last selected state, including absence.
+
+MusicIndex feed title representation, accepted separately: prefer `title`, then legacy `name`.
+Retain both values and their field paths. A compatibility fallback cannot override verified title removal.
+
+Missing feed title presentation, accepted separately: keep "Unknown Feed" as a display label only.
+Do not store that generated label as source metadata.
+
+Feed title placeholders, accepted separately: hide only confirmed generated placeholders from title selection.
+Retain literal publisher-supplied titles such as "Unknown Feed". Preserve evidence that identifies a value as generated.
+
+Track title rules, accepted separately: apply the feed title source priority, title/name order, removal, conflict, stale-state, and placeholder rules.
+Prefer fresh direct item RSS titles over MusicIndex. Retain original title text, source evidence, and selected absence.
+Keep the track owner. A feed title cannot become a track title.
+
+Missing track title presentation, accepted separately: display the track GUID, then "Untitled" when no GUID exists.
+These display labels do not create source metadata.
+
+Feed-title references, accepted separately: allow a track response's `feed_title` when no separately selected feed title exists.
+Present it as a labeled feed reference. Retain its feed owner, original value, response field, and source evidence.
+Do not turn that reference into a track title or an embedded album assertion.
+
+Feed-title reference removal, accepted separately: verified feed-title removal hides the reference while retaining its evidence.
+The reference cannot restore a title removed by verified absence.
+Feed-title reference refinements, accepted separately: apply the feed title's conflict, stale-state, and generated-placeholder rules.
 
 The operator prioritised correct metadata handling in v4vmm and MusicIndex.
 The operator also paused visual checks. The current acceptance gates remain open.
@@ -197,8 +471,8 @@ This ordinary display fallback needs no additional visible owner label.
 It does not make the feed image a track assertion or remove ownership from the stored facts.
 Unknown ownership remains unknown until source evidence resolves it.
 
-The operator selected every metadata field (Decision A).
-Write a separate rule for each field before you change its fallback.
+The operator reduced the field scope on 2026-09-21 (Decision A, amended).
+Write a separate rule for a covered field before you change its fallback.
 Cover description, artwork, publisher, artist text, language, explicit state, dates,
 links, transcripts and enclosures. Each rule states the owner, the source order,
 the conflict result and the displayed value when no source supplies the field.

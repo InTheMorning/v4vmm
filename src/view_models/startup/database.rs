@@ -594,6 +594,10 @@ fn restore_report(
     }
 
     match result_restore.state {
+            InstallState::Verified if result_restore.target != Some(crate::db::CURRENT_VERSION) => {
+                let _ = writeln!(text, "App repaired schema version {}. Current readiness requires separate guarded preparation to version {}.", result_restore.target.unwrap_or_default(), crate::db::CURRENT_VERSION);
+                text.push_str("App retains this repair report. App must preserve the repaired database before current-schema preparation.");
+            }
             InstallState::Verified => text.push_str("App installed the reviewed database. App checked its schema and records. App tested a write, then rolled back that test. App will open a new session after it checks configuration and music storage. Read this report in Settings > Diagnostics > Database > Report."),
             InstallState::NotInstalled(failure) => { let _ = writeln!(&mut text, "App stopped before installation. {}\n{retry}", failure_report(&failure)); }
             InstallState::Failed { failure, rollback_verified } => {
@@ -676,6 +680,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn adr_0075_migration_repair_report_does_not_claim_current_readiness() {
+        let text = restore_report(
+            DatabaseOperation::RepairUpgrade {
+                preservation: PathBuf::from("/fixture/repair"),
+                config_path: PathBuf::from("/fixture/config.toml"),
+                session_generation: 1,
+            },
+            crate::db::maintenance::restore::RestoreResult {
+                target: Some(11),
+                preservation: None,
+                verified_original: Some(PathBuf::from("/fixture/repair/original.sqlite")),
+                state: crate::db::maintenance::restore::InstallState::Verified,
+            },
+        );
+        assert!(text.contains("repaired schema version 11"));
+        assert!(text.contains("separate guarded preparation to version 12"));
+        assert!(text.contains("/fixture/repair/original.sqlite"));
+        assert!(!text.contains("App will open a new session"));
+    }
+
+    #[test]
     fn adr_0074_repair_failure_reports_only_verified_recovery_steps() {
         use crate::db::maintenance::restore::{InstallState, RestoreResult};
         for rollback_verified in [false, true] {
@@ -686,6 +711,7 @@ mod tests {
                     session_generation: 1,
                 },
                 RestoreResult {
+                    target: Some(crate::db::CURRENT_VERSION),
                     preservation: None,
                     verified_original: None,
                     state: InstallState::Failed {
@@ -738,7 +764,8 @@ mod tests {
     fn adr_0066_upgrade_actions_require_fresh_recognition_and_explicit_candidate_preparation() {
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("library.sqlite");
-        let conn = crate::db::open_db(&source).unwrap();
+        let conn = rusqlite::Connection::open(&source).unwrap();
+        crate::db::upgrades::create_fixture(&conn, 10).unwrap();
         crate::db::upgrades::interrupt_fixture(&conn, crate::db::MigrationBoundary::AfterApply)
             .unwrap();
         drop(conn);
@@ -780,7 +807,8 @@ mod tests {
         let source = temp.path().join("library.sqlite");
         drop(crate::db::open_db(&source).unwrap());
         let backup = temp.path().join("older.sqlite");
-        let conn = crate::db::open_db(&backup).unwrap();
+        let conn = rusqlite::Connection::open(&backup).unwrap();
+        crate::db::upgrades::create_fixture(&conn, 10).unwrap();
         crate::db::upgrades::interrupt_fixture(&conn, crate::db::MigrationBoundary::BeforeApply)
             .unwrap();
         drop(conn);
@@ -887,6 +915,7 @@ mod tests {
             let text = restore_report(
                 DatabaseOperation::Check,
                 RestoreResult {
+                    target: Some(crate::db::CURRENT_VERSION),
                     preservation: None,
                     verified_original: None,
                     state,
@@ -908,7 +937,7 @@ mod tests {
         use std::sync::Mutex;
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("library.sqlite");
-        let connection = Arc::new(Mutex::new(crate::db::open_db(&source).unwrap()));
+        let connection = Arc::new(Mutex::new(crate::db::open_db(&source).unwrap().connection));
         let held = connection.clone();
         let session = SessionLifecycle::new();
         let mut drain = SessionDrain::new(session.clone(), connection, None);

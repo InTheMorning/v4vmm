@@ -10142,7 +10142,7 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
     for required in [
         "source_text_missing",
         ".fetch_feed_track(feed_guid, &track.item_guid, include)",
-        "crate::subscribe_service::enrich_track_context_from_rss(&mut track, Some(&mut feed));",
+        "crate::subscribe_service::enrich_track_context_from_rss_with_recorder(&mut context, recorder)?;",
         "library_track_context_rejects_placeholder_source_text_at_boundary",
         // Local-row read boundary: polluted DB rows must not become display
         // facts. Identity columns pass through, but display text is
@@ -10155,7 +10155,7 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
         "if !source_text_missing(feed.description.as_deref())",
     ] {
         assert!(
-            feed_service_source.contains(required),
+            compact_source(&feed_service_source).replace(",)", ")").contains(&compact_source(required)),
             "Metadata placeholder mitigation must stay at the source boundary: `{required}`"
         );
     }
@@ -10250,7 +10250,7 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
     let search_source = read_source(&manifest_path("src/application/queries/feed.rs"));
     for required in [
         "sanitize_feed_source_text(&mut feed);",
-        "let mut track_context = TrackContext { track, feed };",
+        "let mut track_context = TrackContext::new(track, feed);",
         "sanitize_track_context_source_text(&mut track_context);",
     ] {
         assert!(
@@ -10327,6 +10327,57 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
         troubleshooting_source
             .contains("Do not patch Library/Search renderers, composites, or display view-models"),
         "Metadata source-fact regression runbook must record the prohibited fix"
+    );
+}
+
+#[test]
+fn adr_0075_rss_observation_parser_boundary_is_guarded() {
+    let rss_enrich_source = read_source(&manifest_path("src/rss/enrich.rs"));
+    let rss_identity_source = read_source(&manifest_path("src/rss/identity.rs"));
+    let production = rss_enrich_source.split("#[cfg(test)]").next().unwrap();
+    assert_eq!(
+        production.matches("Document::parse(").count(),
+        1,
+        "ADR 0075 enrichment must use one full DOM parser"
+    );
+    let enrichment = production
+        .split("pub fn fetch_track_enrichment_from_feed")
+        .nth(1)
+        .unwrap();
+    assert!(
+        !enrichment.contains("Channel::read_from"),
+        "ADR 0075 enrichment must not run a second full RSS parser"
+    );
+    let materialization = read_source(&manifest_path("src/subscribe_service/materialization.rs"));
+    let retry = materialization.split("#[cfg(test)]").next().unwrap();
+    assert!(
+        !retry.contains("enrich_track") && !retry.contains("fetch_track_enrichment"),
+        "ADR 0075 retries must retain the original RSS observation without another fetch"
+    );
+    for required in [
+        "Document::parse(decoded.text())",
+        "contracts::decode_rss_body(",
+        "RssObservation",
+        "RssTxtEvidence",
+        "podcast_namespace(node.tag_name().namespace())",
+        "context.rss_observation = Some(Arc::clone(&result.observation));",
+        "RssTxtValidation::ValidPublicKey",
+        "RssTxtValidation::ValidProfile",
+    ] {
+        assert!(
+            rss_enrich_source.contains(required),
+            "ADR 0075 RSS evidence must stay in the DOM parser boundary: `{required}`"
+        );
+    }
+    for forbidden in ["nostr_from_extension", "extract_nostr_handle"] {
+        assert!(
+            !rss_enrich_source.contains(forbidden),
+            "ADR 0075 must not restore recursive RSS identity extraction: `{forbidden}`"
+        );
+    }
+    assert!(
+        rss_identity_source.contains("fn decode_bech32"),
+        "ADR 0075 must retain narrow NIP-19 validation"
     );
 }
 
@@ -12481,13 +12532,13 @@ fn adr_0065_readiness_rows_keep_state_labels_separate_from_actions() {
         "impl ApplicationCommand for CheckFeedsAndRepairRoutes",
         "/// Command result for subscribing/downloading a feed.",
     );
-    let check_index = combined_command.find("CheckSubscribedFeeds::new");
-    let apply_index = combined_command.find("ApplyFeedUpdates::new");
+    let check_index = combined_command.find("check_feed_batch_for_updates(");
+    let apply_index = combined_command.find("apply_stale_feed_updates(");
     let repair_index = combined_command.find("RepairMissingPaymentRouteTags::new");
     match (check_index, apply_index, repair_index) {
         (Some(check), Some(apply), Some(repair)) if check < apply && apply < repair => {}
         _ => violations.push(
-            "src/application/commands/feed.rs: ADR 0065 Check all feeds must repair only after stale feed updates apply"
+            "src/application/commands/feed.rs: ADR 0065 Check all feeds must repair only after stale feed updates apply. Call check_feed_batch_for_updates, then apply_stale_feed_updates, then RepairMissingPaymentRouteTags::new inside CheckFeedsAndRepairRoutes."
                 .to_string(),
         ),
     }
@@ -17827,8 +17878,9 @@ fn adr_0066_database_maintenance_requires_exclusive_access() {
         let production = production_source(&contents);
         if production.contains("ExclusiveDatabase::acquire(") {
             assert!(
-                file.ends_with("application/commands/maintenance.rs"),
-                "exclusive entry bypassed the drained-session command: {}",
+                file.ends_with("application/commands/maintenance.rs")
+                    || file.ends_with("db/maintenance/upgrade.rs"),
+                "exclusive entry bypassed maintenance or pre-session preparation: {}",
                 file.display()
             );
         }
@@ -17973,10 +18025,10 @@ fn adr_0066_upgrade_repair_uses_normal_migration_authority() {
     let db = read_source(&manifest_path("src/db.rs"));
     let maintenance = read_source(&manifest_path("src/db/maintenance/restore.rs"));
     let backend = production_source(&maintenance);
-    assert!(db.contains("migrate_schema_with(conn, |_, _| Ok(()))"));
+    assert!(db.contains("migrate_schema_with(conn, target, |_, _| Ok(()))"));
     assert!(db.contains("record_migration(conn, migration.version, migration.name)?"));
-    assert!(backend.contains("super::super::migrate_schema(&candidate)"));
-    assert_eq!(backend.matches("migrate_schema(").count(), 1);
+    assert!(backend.contains("super::super::migrate_schema_to(&candidate, target)"));
+    assert_eq!(backend.matches("migrate_schema_to(").count(), 1);
     let repair = source_between(
         backend,
         "pub(crate) fn repair_interrupted_upgrade(",
@@ -18339,6 +18391,518 @@ fn adr_0039_fixed_height_rows_keep_single_line_text() {
     assert!(
         violations.is_empty(),
         "Situational ADR 0039 task 002 fixed-height row single-line violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational — ADR 0075 packet 012: guarded preparation and bounded migration ownership.
+#[test]
+fn adr_0075_migration_registry_preservation_and_receipts_have_live_callers() {
+    let db = read_source(&manifest_path("src/db.rs"));
+    let startup = read_source(&manifest_path("src/db/startup.rs"));
+    let owner = read_source(&manifest_path("src/db/maintenance/upgrade.rs"));
+    let backend = production_source(&owner);
+    assert!(
+        source_between(&db, "pub fn open_db(", "pub(crate) mod maintenance")
+            .contains("startup::prepare_database(db_path)")
+    );
+    assert!(startup.contains("super::maintenance::upgrade::prepare(path)"));
+    for required in [
+        "probe.close()",
+        "ExclusiveDatabase::acquire",
+        "access.preserve",
+        "build_snapshot(&access.connection",
+        "file.sync_all()",
+        "migrate_schema_with",
+        "content_digest",
+        "PreparationState::RollbackVerified",
+        "PreparationState::VerificationFailed",
+        "drop(access)",
+        "startup::open_existing",
+    ] {
+        assert!(
+            compact_source(backend).contains(&compact_source(required)),
+            "migration preparation missing {required}"
+        );
+    }
+    assert!(
+        compact_source(backend).find("probe.close()").unwrap()
+            < backend.find("ExclusiveDatabase::acquire").unwrap()
+    );
+    assert!(
+        backend.find("preserve_original(&mut access").unwrap()
+            < backend.find("crate::db::migrate_schema_to").unwrap()
+    );
+    let initializer = source_between(
+        &db,
+        "pub(crate) fn init_schema(",
+        "fn create_identity_source_fact_tables",
+    );
+    assert!(!initializer.contains("provider_snapshot_schema"));
+    assert!(!initializer.contains("create_broadcast_event_selection_table"));
+    let registry = source_between(&db, "const MIGRATIONS:", "/// Read compatibility facts");
+    assert!(registry.contains("provider_snapshot_schema::apply"));
+    assert_eq!(
+        production_source(&db)
+            .matches("INSERT INTO schema_migrations")
+            .count(),
+        1
+    );
+    let core = read_source(&manifest_path("src/startup.rs"));
+    let bootstrap = read_source(&manifest_path("src/app/bootstrap.rs"));
+    let cli = read_source(&manifest_path("src/cli.rs"));
+    assert!(core.contains("preparation_receipt: prepared.receipt"));
+    assert!(bootstrap.contains("preparation_report(&preparation_receipt)"));
+    assert!(cli.contains("preparation_report(&prepared.receipt)"));
+    assert!(cli.contains("preparation_failure_report(preparation)"));
+    let callbacks = read_source(&manifest_path("src/app/startup.rs"));
+    assert!(callbacks.contains("self.vm.take_normal_session_report("));
+    assert!(callbacks.contains("normal.read(cx).previous_session_report.clone()"));
+    assert!(callbacks.contains("StartupReportVm::drain_report("));
+    let restore = read_source(&manifest_path("src/db/maintenance/restore.rs"));
+    assert!(restore.contains("migrate_candidate(&candidate.path, 11, budget)"));
+    assert!(restore.contains("verify_target(&access.connection, self.target)"));
+    let review = source_between(&restore, "fn review_with(", "pub(crate) fn candidate_path(");
+    assert!(review.contains("verify_target(&completed, super::super::CURRENT_VERSION)"));
+}
+
+/// Situational: ADR 0075 packets 013 and 014 share one response transaction and Library root.
+#[test]
+fn adr_0075_observation_writer_and_library_retention_have_one_owner() {
+    let writer = read_source(&manifest_path("src/db/provider_observations.rs"));
+    let writer = production_source(&writer);
+    for forbidden in [
+        "INSERT INTO metadata_field_selections",
+        "INSERT INTO metadata_discrepancies",
+        "DELETE FROM",
+    ] {
+        assert!(
+            !writer.contains(forbidden),
+            "ADR 0075 observation writer exceeded its packet: {forbidden}"
+        );
+    }
+    assert_eq!(writer.matches("tx.commit()").count(), 2);
+    let query = read_source(&manifest_path("src/application/queries/library.rs"));
+    let selected = source_between(
+        &query,
+        "pub(crate) fn fetch_library_track_context_with_local_fallback(",
+        "pub(crate) fn apply_local_track_metadata_defaults(",
+    );
+    assert!(selected.contains("ProviderObservationRecorder::new"));
+    assert!(selected.contains("take_receipts()"));
+    assert!(selected.contains("ObservationWriteFailure"));
+    let app = read_source(&manifest_path("src/library/app_impl.rs"));
+    let callback = source_between(
+        &app,
+        "fn load_track_source_context(",
+        "fn navigate_back_to_frame_history(",
+    );
+    assert!(callback.contains("retain_observation_failure(&error)"));
+    let vm = read_source(&manifest_path("src/view_models/library.rs"));
+    let retention = source_between(
+        &vm,
+        "pub(crate) fn retain_observation_failure(",
+        "pub(crate) fn is_resizing(",
+    );
+    assert!(!retention.contains("set_error_status("));
+    assert!(!retention.contains(".clear()"));
+    let capture = read_source(&manifest_path("src/provider_observation/http.rs"));
+    assert!(capture.contains("request.timeout(timeout).send()"));
+    assert!(capture.contains("crate::http_client::document_timeout()"));
+    let rss = read_source(&manifest_path("src/rss/enrich.rs"));
+    assert_eq!(
+        production_source(&rss).matches("Document::parse(").count(),
+        1
+    );
+}
+
+/// Situational: ADR 0075 packet 038 retains Library reader evidence before selection checks.
+#[test]
+fn adr_0075_library_observation_callers_and_consumers_are_guarded() {
+    let query = read_source(&manifest_path("src/application/queries/library.rs"));
+    let hydration = source_between(
+        &query,
+        "fn hydrate_album_identity_facts(",
+        "fn compare_library_track(",
+    );
+    assert!(hydration.contains("with_observation_recorder(Some(Arc::clone(&recorder)))"));
+    assert!(hydration.contains("assemble_observed_query(&recorder, result"));
+    assert!(
+        hydration.find("fetch_feed(").unwrap()
+            < hydration.find("persist_musicindex_feed(").unwrap()
+    );
+    let comparison = source_between(
+        &query,
+        "fn compare_library_track(",
+        "fn assemble_observed_query<",
+    );
+    assert!(comparison.contains("fetch_library_track_context_with_recorder("));
+    assert!(comparison.contains("local_provider_request("));
+    assert!(comparison.contains("assemble_provider_context("));
+    assert!(comparison.contains("assemble_observed_query(&recorder, result"));
+    assert!(!comparison.contains("fetch_library_track_context_with_local_fallback"));
+    let assembly = source_between(
+        &query,
+        "fn assemble_observed_query<",
+        "fn fetch_local_track_context(",
+    );
+    assert_eq!(assembly.matches("take_receipts()").count(), 1);
+    assert!(assembly.contains("CommandError::ObservedQueryFailure"));
+    assert!(assembly.contains("CommandError::ObservationWriteFailure"));
+    let app = read_source(&manifest_path("src/library/app_impl.rs"));
+    for (start, end, retention, selection) in [
+        (
+            "fn apply_library_comparison_result(",
+            "fn apply_library_comparison_failure(",
+            "retain_observation_receipts",
+            "if let LibraryDetail::Track",
+        ),
+        (
+            "fn apply_library_comparison_failure(",
+            "fn apply_library_hydration_result(",
+            "retain_library_query_failure",
+            "if let LibraryDetail::Track",
+        ),
+        (
+            "fn apply_library_hydration_result(",
+            "fn feed_check_route_repair_outcome(",
+            "retain_observation_receipts",
+            "if let LibraryDetail::Album",
+        ),
+    ] {
+        let callback = source_between(&app, start, end);
+        assert!(callback.find(retention).unwrap() < callback.find(selection).unwrap());
+    }
+    let callbacks = source_between(
+        &app,
+        "fn start_compare_library_track(",
+        "pub(crate) fn toggle_musicbrainz_lookup(",
+    );
+    assert!(callbacks.contains("Arc::clone(&self.conn)"));
+    assert!(callbacks.contains("apply_library_comparison_result("));
+    assert!(callbacks.contains("apply_library_comparison_failure("));
+    let hydration_callback = source_between(
+        &app,
+        "fn hydrate_album_identity_on_view(",
+        "pub(crate) fn select_artist(",
+    );
+    assert!(hydration_callback.contains("apply_library_hydration_result("));
+    assert!(hydration_callback.contains("retain_library_query_failure("));
+    assert!(hydration_callback.contains("album_has_feed_identity_actions"));
+    assert!(hydration_callback.contains("album.description.is_some()"));
+    assert!(hydration_callback.contains("!album.metadata_facts.is_empty()"));
+    let cache = source_between(
+        &app,
+        "pub(crate) fn toggle_tag_compare(",
+        "fn start_compare_library_track(",
+    );
+    assert!(cache.contains("LazyPanel::Loaded(_)"));
+    assert_eq!(cache.matches("self.reload_tag_compare(cx)").count(), 2);
+    for path in [
+        "src/application/queries/search.rs",
+        "src/application/commands/feed.rs",
+        "src/cli.rs",
+    ] {
+        assert!(!production_source(&read_source(&manifest_path(path)))
+            .contains("with_observation_recorder("));
+    }
+}
+
+/// Situational: ADR 0075 requires verified replacement and live typed local reads.
+#[test]
+fn adr_0075_snapshot_registry_transaction_and_local_read_boundaries() {
+    let registry = read_source(&manifest_path("src/provider_observation/contracts.rs"));
+    let production = production_source(&registry);
+    assert!(production.contains("struct VerifiedCoverage"));
+    assert!(production.contains("struct DecodedRssBody"));
+    assert!(production.contains("decoded.text() != owner.document().input_text()"));
+    assert!(production.contains("ProviderKind::Rss"));
+    assert!(!production.contains("ProviderKind::MusicIndex"));
+    let writer = read_source(&manifest_path("src/db/provider_observations.rs"));
+    let response = source_between(
+        &writer,
+        "fn record(
+",
+        "fn read_values(",
+    );
+    assert!(response.contains("contracts::validate(&token.spec, observation)?"));
+    assert!(response.contains("replace_collections(tx, token, observation, id, superseded)?"));
+    assert!(!response.contains(".commit()"));
+    let query = read_source(&manifest_path("src/application/queries/library.rs"));
+    let assembly = source_between(
+        &query,
+        "fn assemble_provider_context(",
+        "pub(crate) fn apply_local_track_metadata_defaults(",
+    );
+    assert!(assembly.contains("read_track_provider_state"));
+    assert!(assembly.contains("write_failure: capsule"));
+    assert!(assembly.contains("receipts: receipts.into()"));
+    let local = source_between(&query, "fn fetch_local_track_context(", "fn nonempty_url(");
+    assert!(local.contains("read_track_provider_state"));
+    assert!(!local.contains("ProviderObservationRecorder"));
+    let rss = read_source(&manifest_path("src/rss/enrich.rs"));
+    assert_eq!(
+        production_source(&rss).matches("Document::parse(").count(),
+        1
+    );
+    assert!(rss.contains("contracts::RSS_DECODER"));
+}
+
+/// Situational: ADR 0075 packet 039 retains feed-check and update evidence.
+#[test]
+fn adr_0075_feed_observation_roots_and_consumers_are_guarded() {
+    const FIX: &str = "ADR 0075 packet 039: the four feed roots own one recorder, drain it once, \
+and the Library callbacks retain evidence before any result reduction.";
+    let mut violations = Vec::new();
+    let service = read_source(&manifest_path("src/feed_service.rs"));
+    let commands = read_source(&manifest_path("src/application/commands/feed.rs"));
+    let errors = read_source(&manifest_path("src/application/errors/command.rs"));
+    let app = read_source(&manifest_path("src/library/app_impl.rs"));
+    let vm = read_source(&manifest_path("src/view_models/library.rs"));
+
+    // The provider client reaches the recorder only through the feed service.
+    let staleness = source_between(
+        &service,
+        "pub fn check_feed_staleness(",
+        "pub fn configured_music_dir(",
+    );
+    for required in [
+        "with_observation_recorder(Some(Arc::clone(recorder)))",
+        "client.fetch_feed(&stored.feed_guid, None)?",
+    ] {
+        if !staleness.contains(required) {
+            violations.push(format!(
+                "src/feed_service.rs: check_feed_staleness must keep its observed request; missing `{required}`. {FIX}"
+            ));
+        }
+    }
+    let update = source_between(
+        &service,
+        "pub fn apply_feed_updates(",
+        "pub fn track_row_to_track_context(",
+    );
+    for required in [
+        "with_observation_recorder(Some(Arc::clone(recorder)))",
+        "propagate_storage_failure(client.fetch_feed(&stale.feed_guid, include))?",
+        "propagate_storage_failure(fetch_library_track_detail_with_recorder(",
+        "merge_track_context_with_recorder(",
+        "set_feed_musicindex_updated_at(&db, stale.feed_id, stale.new_updated_at)?",
+    ] {
+        if !update.contains(required) {
+            violations.push(format!(
+                "src/feed_service.rs: apply_feed_updates must keep observed requests before legacy writes; missing `{required}`. {FIX}"
+            ));
+        }
+    }
+    for (earlier, later) in [
+        (
+            "propagate_storage_failure(fetch_library_track_detail_with_recorder(",
+            "merge_track_context_with_recorder(",
+        ),
+        (
+            "merge_track_context_with_recorder(",
+            "persist_musicindex_track(",
+        ),
+        ("persist_musicindex_track(", "write_id3v24_edits("),
+        ("write_id3v24_edits(", "set_feed_musicindex_updated_at("),
+    ] {
+        match (update.find(earlier), update.find(later)) {
+            (Some(first), Some(second)) if first < second => {}
+            _ => violations.push(format!(
+                "src/feed_service.rs: apply_feed_updates must keep `{earlier}` before `{later}`. {FIX}"
+            )),
+        }
+    }
+
+    // Every converted root owns one recorder and one drain.
+    let production = production_source(&commands);
+    if production.contains("with_observation_recorder(") {
+        violations.push(format!(
+            "src/application/commands/feed.rs: the provider client belongs to src/feed_service.rs. {FIX}"
+        ));
+    }
+    if production.contains("CheckSubscribedFeeds") {
+        violations.push(format!(
+            "src/application/commands/feed.rs: the dead subscribed-feed command stays deleted. {FIX}"
+        ));
+    }
+    assert_eq!(
+        production.matches("take_receipts()").count(),
+        1,
+        "ADR 0075 packet 039: feed commands drain the recorder in one place. {FIX}"
+    );
+    assert_eq!(
+        production
+            .matches("ProviderObservationRecorder::new(Arc::clone(&self.conn))")
+            .count(),
+        3,
+        "ADR 0075 packet 039: each converted root owns one recorder. {FIX}"
+    );
+    for (start, end, required) in [
+        (
+            "impl ApplicationCommand for CheckFeedStaleness",
+            "/// Command result for applying remote feed updates",
+            "assemble_observed_feed_command(&recorder, result",
+        ),
+        (
+            "impl ApplicationCommand for ApplyFeedUpdates",
+            "/// ADR 0075 drains the recorder once",
+            "assemble_observed_feed_command(&recorder, result",
+        ),
+        (
+            "impl ApplicationCommand for CheckFeedsAndRepairRoutes",
+            "/// Command result for subscribing/downloading a feed.",
+            "assemble_observed_feed_command(&recorder, result",
+        ),
+    ] {
+        if !source_between(&commands, start, end).contains(required) {
+            violations.push(format!(
+                "src/application/commands/feed.rs: `{start}` must assemble receipts; missing `{required}`. {FIX}"
+            ));
+        }
+    }
+    for required in [
+        "CommandError::ObservationWriteFailure(Arc::new(failure))",
+        "observation_storage_failure(&error)",
+    ] {
+        if !source_between(
+            &commands,
+            "fn check_feed_batch_for_updates(",
+            "fn apply_stale_feed_updates(",
+        )
+        .contains(required)
+        {
+            violations.push(format!(
+                "src/application/commands/feed.rs: batch checks must classify storage failures; missing `{required}`. {FIX}"
+            ));
+        }
+    }
+
+    // The ordinary wrapper keeps the original cause and hides its contents.
+    for required in [
+        "pub struct ObservedCommandFailure",
+        "cause: Arc<CommandError>",
+        "Self::ObservedCommandFailure(failure) => failure.cause().fmt(f)",
+        "f.debug_struct(\"ObservedCommandFailure\")",
+        "finish_non_exhaustive()",
+        "pub(crate) fn attach_observation_receipts(",
+    ] {
+        if !errors.contains(required) {
+            violations.push(format!(
+                "src/application/errors/command.rs: the ordinary observation wrapper is incomplete; missing `{required}`. {FIX}"
+            ));
+        }
+    }
+    let attach = source_between(
+        &errors,
+        "pub(crate) fn attach_observation_receipts(",
+        "fn merged_receipts(",
+    );
+    for required in [
+        "if receipts.is_empty()",
+        "CommandError::ObservationWriteFailure(failure)",
+        "CommandError::ObservedQueryFailure(failure)",
+        "CommandError::ObservedCommandFailure(failure)",
+    ] {
+        if !attach.contains(required) {
+            violations.push(format!(
+                "src/application/errors/command.rs: receipt attachment must preserve each error family; missing `{required}`. {FIX}"
+            ));
+        }
+    }
+
+    // The three live Library callbacks retain evidence before any reduction.
+    for (start, end, retention, reduction) in [
+        (
+            "fn apply_feed_view_check_result(",
+            "/// ADR 0075 retains combined-check evidence",
+            "retain_observation_receipts",
+            "finish_feed_view_check(",
+        ),
+        (
+            "fn retain_feed_check_evidence(",
+            "/// ADR 0075 retains update evidence",
+            "retain_observation_receipts",
+            "feed_check_route_repair_outcome(",
+        ),
+        (
+            "fn apply_feed_updates_result(",
+            "fn feed_check_route_repair_outcome(",
+            "retain_observation_receipts",
+            "finish_apply_feed_updates(",
+        ),
+    ] {
+        let callback = source_between(&app, start, end);
+        match (callback.find(retention), callback.find(reduction)) {
+            (Some(first), Some(second)) if first < second => {}
+            _ => violations.push(format!(
+                "src/library/app_impl.rs: `{start}` must retain evidence before `{reduction}`. {FIX}"
+            )),
+        }
+    }
+    for (start, end, failure) in [
+        (
+            "fn check_feed_on_view(",
+            "fn check_all_feeds(",
+            "finish_feed_view_check_error(feed_id, error)",
+        ),
+        (
+            "fn check_all_feeds(",
+            "fn apply_all_feed_updates(",
+            "set_feed_check_error(error)",
+        ),
+        (
+            "fn apply_all_feed_updates(",
+            "fn repair_broadcast_routes_for_track(",
+            "finish_apply_feed_updates_error(error)",
+        ),
+    ] {
+        let callback = source_between(&app, start, end);
+        match (
+            callback.find("retain_library_query_failure(&mut this.vm, &error)"),
+            callback.find(failure),
+        ) {
+            (Some(first), Some(second)) if first < second => {}
+            _ => violations.push(format!(
+                "src/library/app_impl.rs: `{start}` must retain evidence before `{failure}`. {FIX}"
+            )),
+        }
+    }
+    if !source_between(
+        &app,
+        "fn command_error_detail(",
+        "/// ADR 0075 consumes query evidence",
+    )
+    .contains("CommandError::ObservedCommandFailure(failure) => {")
+    {
+        violations.push(format!(
+            "src/library/app_impl.rs: command_error_detail must delegate to the original cause. {FIX}"
+        ));
+    }
+    let retention = source_between(
+        &vm,
+        "pub(crate) fn retain_query_evidence(",
+        "pub(crate) fn is_resizing(",
+    );
+    for required in [
+        "CommandError::ObservedCommandFailure(failure)",
+        "self.retain_observation_receipts(failure.receipts())",
+    ] {
+        if !retention.contains(required) {
+            violations.push(format!(
+                "src/view_models/library.rs: retain_query_evidence must accept the ordinary wrapper; missing `{required}`. {FIX}"
+            ));
+        }
+    }
+    if retention.contains("set_error_status(") {
+        violations.push(format!(
+            "src/view_models/library.rs: evidence retention must not use the broad error status helper. {FIX}"
+        ));
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0075 packet 039 feed observation violations:\n{}",
         violations.join("\n")
     );
 }

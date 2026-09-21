@@ -416,10 +416,7 @@ fn repair_loaded_payment_routes_track<C: PaymentRouteApi>(
         return PaymentRouteRepairTrackResult::no_routes_upstream(track.id, title);
     }
 
-    let context = TrackContext {
-        track: fetched_track.clone(),
-        feed: fetched_feed,
-    };
+    let context = TrackContext::new(fetched_track.clone(), fetched_feed);
     let edits = payment_route_edits(&context);
     if edits.is_empty() {
         return PaymentRouteRepairTrackResult::failed(

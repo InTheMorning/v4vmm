@@ -10,8 +10,8 @@ use super::{
 };
 use crate::application::commands::download::{SubscribeThenAppendToPlaylist, SubscribeTrack};
 use crate::application::commands::feed::{
-    ApplyFeedUpdates, CheckFeedStaleness, CheckFeedsAndRepairRoutes,
-    CheckFeedsAndRepairRoutesResult, SubscribeFeed,
+    ApplyFeedUpdates, ApplyFeedUpdatesResult, CheckFeedStaleness, CheckFeedStalenessResult,
+    CheckFeedsAndRepairRoutes, CheckFeedsAndRepairRoutesResult, SubscribeFeed,
 };
 use crate::application::commands::library_removal::RemoveFromLibrary;
 use crate::application::commands::metadata::{
@@ -29,7 +29,8 @@ use crate::application::queries::broadcast::BroadcastReadinessReport;
 use crate::application::queries::feed::FetchRecentFeedsPage;
 use crate::application::queries::images::FetchThumbnail;
 use crate::application::queries::library::{
-    CompareLibraryTrack, FetchLibraryTrackContext, HydrateAlbumIdentity, LoadLibraryTracksTree,
+    AlbumIdentityHydration, CompareLibraryTrack, FetchLibraryTrackContext, HydrateAlbumIdentity,
+    LibraryTrackCompare, LoadLibraryTracksTree,
 };
 use crate::application::{ApplicationServices, AsyncCommandRunner, CommandContext};
 use crate::db::{self, TrackRow};
@@ -139,6 +140,11 @@ enum TrackSubscriptionAction {
 fn command_error_detail(error: CommandError) -> String {
     match error {
         CommandError::Unavailable(reason) => reason.to_string(),
+        CommandError::ObservationWriteFailure(failure) => failure.to_string(),
+        CommandError::ObservedQueryFailure(failure) => failure.message().to_owned(),
+        CommandError::ObservedCommandFailure(failure) => {
+            command_error_detail(failure.cause().clone())
+        }
         error @ CommandError::SessionDraining(_) => error.to_string(),
         CommandError::Playlist(message)
         | CommandError::Feed(message)
@@ -149,6 +155,86 @@ fn command_error_detail(error: CommandError) -> String {
         | CommandError::Other(message) => message,
         CommandError::Cancelled => "command cancelled".to_string(),
     }
+}
+
+/// ADR 0075 consumes query evidence before any selected-frame check.
+fn retain_library_query_failure(vm: &mut LibraryViewModel, error: &CommandError) {
+    if matches!(error, CommandError::ObservationWriteFailure(_)) {
+        vm.retain_observation_failure(error);
+    } else {
+        vm.retain_query_evidence(error);
+    }
+}
+
+fn apply_library_comparison_result(
+    vm: &mut LibraryViewModel,
+    detail: &mut LibraryDetail,
+    entity_id: i64,
+    result: LibraryTrackCompare,
+) {
+    vm.retain_observation_receipts(&result.track_context.observation_receipts);
+    if let LibraryDetail::Track(frame) = detail {
+        if frame.entity_id == entity_id {
+            frame.source_context = Some(result.track_context);
+            frame.tag_compare = LazyPanel::Loaded(result.tag_compare);
+        }
+    }
+}
+
+fn apply_library_comparison_failure(
+    vm: &mut LibraryViewModel,
+    detail: &mut LibraryDetail,
+    entity_id: i64,
+    error: CommandError,
+) {
+    retain_library_query_failure(vm, &error);
+    if let LibraryDetail::Track(frame) = detail {
+        if frame.entity_id == entity_id {
+            frame.tag_compare =
+                LazyPanel::Empty(LibraryViewModel::deferred_panel_error_message(error));
+        }
+    }
+}
+
+fn apply_library_hydration_result(
+    vm: &mut LibraryViewModel,
+    detail: &mut LibraryDetail,
+    feed_id: i64,
+    hydration: AlbumIdentityHydration,
+) {
+    vm.retain_observation_receipts(&hydration.observation_receipts);
+    vm.update_album_identity_facts(feed_id, &hydration.identity_facts);
+    vm.update_album_metadata_facts(feed_id, &hydration.metadata_facts);
+    vm.update_album_description(feed_id, hydration.description.as_deref());
+    if let LibraryDetail::Album(album) = detail {
+        if album.feed_id == Some(feed_id) {
+            album.identity_facts = hydration.identity_facts;
+            *album.metadata_facts = hydration.metadata_facts;
+            album.description = hydration.description;
+        }
+    }
+}
+
+/// ADR 0075 retains feed-view evidence before the stale entry reduces into state.
+fn apply_feed_view_check_result(vm: &mut LibraryViewModel, result: CheckFeedStalenessResult) {
+    vm.retain_observation_receipts(result.observation_receipts());
+    let checked_feed_id = result.feed_id();
+    vm.finish_feed_view_check(checked_feed_id, Ok(result.into_stale()));
+}
+
+/// ADR 0075 retains combined-check evidence before any result reduction.
+fn retain_feed_check_evidence(
+    vm: &mut LibraryViewModel,
+    outcome: &CheckFeedsAndRepairRoutesResult,
+) -> FeedCheckRouteRepairOutcome {
+    vm.retain_observation_receipts(outcome.observation_receipts());
+    feed_check_route_repair_outcome(outcome)
+}
+
+/// ADR 0075 retains update evidence before the completion message reduces.
+fn apply_feed_updates_result(vm: &mut LibraryViewModel, result: &ApplyFeedUpdatesResult) {
+    vm.retain_observation_receipts(result.observation_receipts());
+    vm.finish_apply_feed_updates(result.message().to_string());
 }
 
 fn feed_check_route_repair_outcome(
@@ -1463,22 +1549,10 @@ impl LibraryApp {
             CommandContext::next(),
             cx,
             move |this, hydration, cx| {
-                this.vm
-                    .update_album_identity_facts(feed_id, &hydration.identity_facts);
-                this.vm
-                    .update_album_metadata_facts(feed_id, &hydration.metadata_facts);
-                this.vm
-                    .update_album_description(feed_id, hydration.description.as_deref());
-                if let LibraryDetail::Album(album) = &mut this.detail {
-                    if album.feed_id == Some(feed_id) {
-                        album.identity_facts = hydration.identity_facts;
-                        *album.metadata_facts = hydration.metadata_facts;
-                        album.description = hydration.description;
-                    }
-                }
+                apply_library_hydration_result(&mut this.vm, &mut this.detail, feed_id, hydration);
                 cx.notify();
             },
-            |_, _, _| {},
+            |this, error, _| retain_library_query_failure(&mut this.vm, &error),
         );
     }
 
@@ -1573,11 +1647,10 @@ impl LibraryApp {
             CommandContext::next(),
             cx,
             move |this, outcome, _cx| {
-                let checked_feed_id = outcome.feed_id();
-                this.vm
-                    .finish_feed_view_check(checked_feed_id, Ok(outcome.into_stale()));
+                apply_feed_view_check_result(&mut this.vm, outcome);
             },
             move |this, error, _cx| {
+                retain_library_query_failure(&mut this.vm, &error);
                 this.vm.finish_feed_view_check_error(feed_id, error);
             },
         );
@@ -1624,13 +1697,12 @@ impl LibraryApp {
             CommandContext::next(),
             cx,
             |this, outcome, _cx| {
-                this.vm
-                    .finish_all_feed_check_with_route_repair(feed_check_route_repair_outcome(
-                        &outcome,
-                    ));
+                let repair = retain_feed_check_evidence(&mut this.vm, &outcome);
+                this.vm.finish_all_feed_check_with_route_repair(repair);
                 this.refresh_current_broadcast_readiness_report();
             },
             |this, error, _cx| {
+                retain_library_query_failure(&mut this.vm, &error);
                 this.vm.set_feed_check_error(error);
                 this.refresh_current_broadcast_readiness_report();
             },
@@ -1654,10 +1726,10 @@ impl LibraryApp {
             CommandContext::next(),
             cx,
             |this, outcome, _cx| {
-                this.vm
-                    .finish_apply_feed_updates(outcome.message().to_string());
+                apply_feed_updates_result(&mut this.vm, &outcome);
             },
             |this, error, _cx| {
+                retain_library_query_failure(&mut this.vm, &error);
                 this.vm.finish_apply_feed_updates_error(error);
             },
         );
@@ -1761,12 +1833,10 @@ impl LibraryApp {
             cx,
             move |this, context, _cx| {
                 if let Some(frame) = this.selected_track_frame_mut() {
-                    if frame.entity_id == entity_id {
-                        frame.source_context = Some(context);
-                    }
+                    retain_track_source_context(frame, entity_id, context);
                 }
             },
-            |_, _, _| {},
+            |this, error, _| this.vm.retain_observation_failure(&error),
         );
     }
 
@@ -2318,6 +2388,7 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) {
         let command = CompareLibraryTrack::new(
+            Arc::clone(&self.conn),
             track,
             self.musicindex_endpoint.clone(),
             self.music_dir.clone(),
@@ -2328,20 +2399,10 @@ impl LibraryApp {
             CommandContext::next(),
             cx,
             move |this, result, _cx| {
-                if let Some(frame) = this.selected_track_frame_mut() {
-                    if frame.entity_id == entity_id {
-                        frame.source_context = Some(result.track_context);
-                        frame.tag_compare = LazyPanel::Loaded(result.tag_compare);
-                    }
-                }
+                apply_library_comparison_result(&mut this.vm, &mut this.detail, entity_id, result);
             },
             move |this, error, _cx| {
-                if let Some(frame) = this.selected_track_frame_mut() {
-                    if frame.entity_id == entity_id {
-                        frame.tag_compare =
-                            LazyPanel::Empty(LibraryViewModel::deferred_panel_error_message(error));
-                    }
-                }
+                apply_library_comparison_failure(&mut this.vm, &mut this.detail, entity_id, error);
             },
         );
     }
@@ -3096,6 +3157,17 @@ impl Render for LibraryApp {
     }
 }
 
+// ADR 0075 keeps typed provider state in the mounted frame.
+fn retain_track_source_context(
+    frame: &mut InspectorFrame,
+    entity_id: i64,
+    context: crate::metadata::TrackContext,
+) {
+    if frame.entity_id == entity_id {
+        frame.source_context = Some(context);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3210,6 +3282,7 @@ mod tests {
     fn library_track_context_falls_back_to_local_hydrated_context() -> anyhow::Result<()> {
         let mut conn = Connection::open_in_memory()?;
         db::init_schema(&conn)?;
+        db::migrate_schema(&conn)?;
         conn.execute(
             "INSERT INTO feeds (id, feed_url, feed_guid, title)
              VALUES (2, ?1, ?2, ?3)",
@@ -3253,12 +3326,16 @@ mod tests {
             context.track.description.as_deref(),
             Some("Local track description")
         );
+        assert_eq!(context.observation_receipts.len(), 3);
         Ok(())
     }
 
     #[test]
     fn local_track_metadata_fills_missing_remote_context_fields() {
         let mut remote_context = TrackContext {
+            rss_observation: None,
+            observation_receipts: Vec::new(),
+            provider_state: Default::default(),
             track: crate::api::Track {
                 title: Some("Remote Track".into()),
                 publisher_text: Some("Remote Publisher".into()),
@@ -3267,6 +3344,9 @@ mod tests {
             feed: None,
         };
         let local_context = TrackContext {
+            rss_observation: None,
+            observation_receipts: Vec::new(),
+            provider_state: Default::default(),
             track: crate::api::Track {
                 publisher_text: Some("Local Publisher".into()),
                 description: Some("Local track description".into()),
@@ -3292,6 +3372,55 @@ mod tests {
         assert_eq!(remote_context.track.explicit, Some(true));
     }
 
+    #[test]
+    fn adr_0075_snapshot_mounted_frame_preserves_typed_state_and_legacy_fields() {
+        use crate::provider_observation::{
+            AcceptedSnapshot, CollectionState, ProviderBinding, ProviderCollection,
+            ProviderTrackState, SubjectKey,
+        };
+        let mut context = TrackContext::new(
+            crate::api::Track {
+                title: Some("Source title".into()),
+                track_guid: Some("track-1".into()),
+                ..Default::default()
+            },
+            None,
+        );
+        context.provider_state = ProviderTrackState {
+            binding: ProviderBinding::Proven,
+            request_refresh: None,
+            collections: vec![ProviderCollection {
+                provider_id: 1,
+                subject: SubjectKey::guid("feed", Some("track-1")),
+                collection: "source_ids".into(),
+                refresh: None,
+                state: CollectionState::CompleteEmpty(AcceptedSnapshot {
+                    snapshot_id: 1,
+                    generation: 3,
+                    observation_id: 2,
+                    scope_ordinal: 0,
+                    fetched_at_us: Some(10),
+                    occurrence: serde_json::json!({}),
+                    members: Vec::new(),
+                }),
+            }],
+        };
+        let legacy = serde_json::to_value((&context.track, &context.feed)).unwrap();
+        let expected = context.provider_state.clone();
+        crate::metadata::sanitize_track_context_source_text(&mut context);
+        let mut frame = test_inspector_frame(test_track(1, 1, true));
+        retain_track_source_context(&mut frame, 1, context.clone());
+        let mounted = frame.clone().source_context.unwrap();
+        assert_eq!(mounted.provider_state, expected);
+        assert_eq!(
+            serde_json::to_value((&mounted.track, &mounted.feed)).unwrap(),
+            legacy
+        );
+        context.provider_state = Default::default();
+        retain_track_source_context(&mut frame, 99, context);
+        assert_eq!(frame.source_context.unwrap().provider_state, expected);
+    }
+
     fn test_inspector_frame(track: TrackRow) -> InspectorFrame {
         InspectorFrame {
             entity_id: track.id,
@@ -3313,6 +3442,255 @@ mod tests {
             musicbrainz_selected: 0,
             inspector_state: LibraryTrackInspectorState::default(),
         }
+    }
+
+    fn library_observation_receipt(
+        generation: i64,
+    ) -> crate::provider_observation::ObservationReceipt {
+        crate::provider_observation::ObservationReceipt {
+            observation_id: generation,
+            generation,
+            provider_id: 1,
+            resource_id: 1,
+            request_uri: "private URI".into(),
+            response_uri: None,
+            body_key: Some("private body".into()),
+            started_at_us: 10,
+            finished_at_us: 20,
+            fetched_at_us: Some(19),
+            occurrence: serde_json::json!({}),
+            outcome: crate::provider_observation::ObservationOutcome::Success,
+            retention: crate::provider_observation::ObservationRetention::Unknown,
+            collections: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn adr_0075_library_observation_live_callbacks_keep_success_and_failure_after_navigation() {
+        use crate::application::errors::command::ObservedQueryFailure;
+        use crate::provider_observation::{ObservationCommandFailure, ProviderReadError};
+        let mut vm = LibraryViewModel::new();
+        let mut detail =
+            LibraryDetail::Track(Box::new(test_inspector_frame(test_track(99, 1, true))));
+        let mut context = track_row_to_track_context(&test_track(1, 1, true));
+        context.observation_receipts = vec![library_observation_receipt(1)];
+        let comparison = LibraryTrackCompare {
+            track_context: context,
+            tag_compare: crate::metadata::TagCompareResult {
+                path: "local.mp3".into(),
+                rows: Vec::new(),
+                file_image: None,
+                contributors: Vec::new(),
+                value_routes: Vec::new(),
+                id3_fields: Vec::new(),
+                total_tracks: None,
+                format: None,
+            },
+        };
+        let status = vm.status_snapshot().text;
+        apply_library_comparison_result(&mut vm, &mut detail, 1, comparison);
+        assert_eq!(vm.retained_observation_evidence_counts(), (1, 0));
+        let LibraryDetail::Track(frame) = &detail else {
+            panic!("track remains selected")
+        };
+        assert!(frame.source_context.is_none());
+        assert!(matches!(&frame.tag_compare, LazyPanel::Empty(text) if text == "stale comparison"));
+        let error = CommandError::ObservedQueryFailure(Arc::new(ObservedQueryFailure::new(
+            "private ordinary cause".into(),
+            vec![library_observation_receipt(2)],
+        )));
+        assert_eq!(
+            error.to_string(),
+            CommandError::Query("private ordinary cause".into()).to_string()
+        );
+        assert_eq!(
+            command_error_detail(error.clone()),
+            command_error_detail(CommandError::Query("private ordinary cause".into()))
+        );
+        assert!(!format!("{error:?}").contains("private"));
+        apply_library_comparison_failure(&mut vm, &mut detail, 1, error.clone());
+        assert_eq!(vm.retained_observation_evidence_counts(), (2, 0));
+        assert_eq!(vm.status_snapshot().text, status);
+        apply_library_comparison_failure(&mut vm, &mut detail, 99, error.clone());
+        let LibraryDetail::Track(frame) = &detail else {
+            panic!("track remains selected")
+        };
+        assert!(
+            matches!(&frame.tag_compare, LazyPanel::Empty(text) if text == &LibraryViewModel::deferred_panel_error_message(error.clone()))
+        );
+        assert_eq!(vm.status_snapshot().text, status);
+        detail = LibraryDetail::None;
+        apply_library_hydration_result(
+            &mut vm,
+            &mut detail,
+            1,
+            AlbumIdentityHydration {
+                identity_facts: LocalIdentityFacts::default(),
+                metadata_facts: Default::default(),
+                description: Some("Hydrated description".into()),
+                observation_receipts: vec![library_observation_receipt(3)],
+            },
+        );
+        assert!(matches!(detail, LibraryDetail::None));
+        assert_eq!(vm.retained_observation_evidence_counts(), (3, 0));
+        retain_library_query_failure(&mut vm, &error);
+        assert_eq!(vm.status_snapshot().text, status);
+        let conn = Connection::open_in_memory().unwrap();
+        db::upgrades::create_fixture(&conn, 12).unwrap();
+        conn.execute_batch("CREATE TEMP TRIGGER reject_observation AFTER INSERT ON metadata_observations BEGIN SELECT RAISE(ABORT,'fixture rejection'); END").unwrap();
+        let recorder = crate::provider_observation::ProviderObservationRecorder::new(Arc::new(
+            Mutex::new(conn),
+        ));
+        let token = recorder
+            .begin(crate::provider_observation::contracts::rss_request(
+                "https://example.test/feed",
+                Some("track-1"),
+                None,
+            ))
+            .unwrap();
+        let capsule = recorder
+            .record(
+                token,
+                crate::provider_observation::ProviderObservation {
+                    body: Some(Arc::from(b"private response".as_slice())),
+                    http_status: Some(200),
+                    response_uri: None,
+                    interpretation: serde_json::json!({}),
+                    source_revision: None,
+                    source_times: serde_json::json!({}),
+                    decoder_version: "fixture".into(),
+                    outcome: crate::provider_observation::ObservationOutcome::Partial,
+                    failure: None,
+                    finished_at_us: 20,
+                    fetched_at_us: Some(19),
+                    occurrence: serde_json::json!({}),
+                    coverage: Vec::new(),
+                },
+            )
+            .unwrap_err();
+        let storage = CommandError::ObservationWriteFailure(Arc::new(ObservationCommandFailure {
+            write_failure: Some(Arc::new(capsule)),
+            storage_error: None,
+            read_error: Some(ProviderReadError::Storage),
+            receipts: vec![library_observation_receipt(4)].into(),
+        }));
+        apply_library_comparison_failure(&mut vm, &mut detail, 1, storage.clone());
+        assert!(vm.status_snapshot().is_error);
+        assert_eq!(vm.retained_observation_evidence_counts(), (4, 1));
+        retain_library_query_failure(&mut vm, &storage);
+        assert!(vm
+            .status_snapshot()
+            .text
+            .contains("could not confirm response retention"));
+        assert!(!vm.status_snapshot().text.contains("private"));
+        apply_library_hydration_result(
+            &mut vm,
+            &mut detail,
+            1,
+            AlbumIdentityHydration {
+                identity_facts: LocalIdentityFacts::default(),
+                metadata_facts: Default::default(),
+                description: None,
+                observation_receipts: vec![library_observation_receipt(5)],
+            },
+        );
+        retain_library_query_failure(&mut vm, &error);
+        assert_eq!(vm.retained_observation_evidence_counts(), (5, 1));
+    }
+
+    #[test]
+    fn adr_0075_library_observation_comparison_callback_keeps_empty_state_and_album_updates() {
+        use crate::provider_observation::{
+            AcceptedSnapshot, CollectionState, ProviderBinding, ProviderCollection,
+            ProviderTrackState, RefreshState, RequestRefresh, SubjectKey,
+        };
+        let mut context = track_row_to_track_context(&test_track(1, 1, true));
+        context
+            .observation_receipts
+            .push(library_observation_receipt(5));
+        context.provider_state = ProviderTrackState {
+            binding: ProviderBinding::Proven,
+            request_refresh: Some(RequestRefresh {
+                request: crate::provider_observation::contracts::rss_request(
+                    "https://example.test/feed",
+                    Some("track-1"),
+                    None,
+                ),
+                generation: 5,
+                state: RefreshState::Failed,
+                observation_id: Some(5),
+                failure_id: Some(5),
+            }),
+            collections: vec![ProviderCollection {
+                provider_id: 1,
+                subject: SubjectKey::guid("feed", Some("track-1")),
+                collection: "source_ids".into(),
+                refresh: None,
+                state: CollectionState::CompleteEmpty(AcceptedSnapshot {
+                    snapshot_id: 1,
+                    generation: 4,
+                    observation_id: 4,
+                    scope_ordinal: 0,
+                    fetched_at_us: Some(19),
+                    occurrence: serde_json::json!({}),
+                    members: Vec::new(),
+                }),
+            }],
+        };
+        let expected = context.provider_state.clone();
+        let comparison = LibraryTrackCompare {
+            track_context: context,
+            tag_compare: crate::metadata::TagCompareResult {
+                path: "local.mp3".into(),
+                rows: Vec::new(),
+                file_image: None,
+                contributors: Vec::new(),
+                value_routes: Vec::new(),
+                id3_fields: Vec::new(),
+                total_tracks: None,
+                format: None,
+            },
+        };
+        let mut vm = LibraryViewModel::new();
+        let mut detail =
+            LibraryDetail::Track(Box::new(test_inspector_frame(test_track(1, 1, true))));
+        apply_library_comparison_result(&mut vm, &mut detail, 1, comparison);
+        let LibraryDetail::Track(frame) = &detail else {
+            panic!("matching track")
+        };
+        assert_eq!(
+            frame.source_context.as_ref().unwrap().provider_state,
+            expected
+        );
+        assert!(matches!(&frame.tag_compare, LazyPanel::Loaded(_)));
+        let album = test_album(1, vec![test_track(1, 1, true)]);
+        vm.replace_tree(crate::view_models::library::LibraryTree {
+            artists: vec![crate::view_models::library::ArtistNode {
+                name: "Artist".into(),
+                albums: vec![album.clone()],
+            }],
+        });
+        detail = LibraryDetail::Album(album);
+        apply_library_hydration_result(
+            &mut vm,
+            &mut detail,
+            1,
+            AlbumIdentityHydration {
+                identity_facts: LocalIdentityFacts::default(),
+                metadata_facts: Default::default(),
+                description: Some("Current description".into()),
+                observation_receipts: vec![library_observation_receipt(6)],
+            },
+        );
+        let LibraryDetail::Album(album) = &detail else {
+            panic!("matching album")
+        };
+        assert_eq!(album.description.as_deref(), Some("Current description"));
+        assert_eq!(
+            vm.tree().artists[0].albums[0].description,
+            album.description
+        );
+        assert_eq!(vm.retained_observation_evidence_counts(), (2, 0));
     }
 
     #[test]

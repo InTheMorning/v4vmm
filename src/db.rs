@@ -2836,20 +2836,13 @@ pub fn stop_playback_session(conn: &Connection, session_id: &str) -> Result<Play
     playback_session(conn, session_id)?.context("playback session missing after stop")
 }
 
-pub fn open_db(db_path: &Path) -> Result<Connection> {
-    let conn = Connection::open(db_path)
-        .with_context(|| format!("open/create db {}", db_path.display()))?;
-
-    // Basic sanity / good defaults
-    conn.pragma_update(None, "foreign_keys", "ON")
-        .context("enable foreign_keys pragma")?;
-
-    init_schema(&conn)?;
-    migrate_schema(&conn)?;
-    Ok(conn)
+pub fn open_db(db_path: &Path) -> Result<startup::PreparedDatabase> {
+    startup::prepare_database(db_path).map_err(Into::into)
 }
 
 pub(crate) mod maintenance;
+pub mod provider_observations;
+mod provider_snapshot_schema;
 pub mod startup;
 pub(crate) mod upgrades;
 
@@ -2858,6 +2851,8 @@ struct Migration {
     name: &'static str,
     apply: fn(&Connection) -> Result<()>,
 }
+
+pub(crate) const CURRENT_VERSION: i64 = 12;
 
 const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -2915,6 +2910,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "broadcast_event_selection",
         apply: create_broadcast_event_selection_table,
     },
+    Migration {
+        version: 12,
+        name: "provider_metadata_snapshots",
+        apply: provider_snapshot_schema::apply,
+    },
 ];
 
 /// Read compatibility facts share the migration authority (ADRs 0016, 0066).
@@ -2967,6 +2967,12 @@ pub(crate) fn inspect_schema(conn: &Connection) -> rusqlite::Result<SchemaCompat
         return Ok(SchemaCompatibility::Unknown);
     }
     if versions.len() < MIGRATIONS.len() {
+        if tables.iter().any(|table| table.starts_with("metadata_")) {
+            return Ok(SchemaCompatibility::Unknown);
+        }
+        if versions.len() == 11 && !upgrades::recognize_migration_11(conn)? {
+            return Ok(SchemaCompatibility::Unknown);
+        }
         if versions.len() == 10 && tables.iter().any(|t| t == "broadcast_event_selection") {
             return Ok(if upgrades::recognize_migration_11(conn)? {
                 SchemaCompatibility::InterruptedUpgrade
@@ -2979,7 +2985,10 @@ pub(crate) fn inspect_schema(conn: &Connection) -> rusqlite::Result<SchemaCompat
             current: MIGRATIONS.len(),
         });
     }
-    for (table, columns) in CURRENT_COLUMNS {
+    for (table, columns) in VERSION_11_COLUMNS
+        .iter()
+        .chain(provider_snapshot_schema::COLUMNS)
+    {
         let sql = format!("SELECT * FROM main.{table} LIMIT 0");
         let Ok(statement) = conn.prepare(&sql) else {
             return Ok(SchemaCompatibility::Unknown);
@@ -3002,7 +3011,7 @@ const BASE_READS: &[&str] = &[
     "SELECT playlist_id, track_id, position FROM playlist_tracks LIMIT 0",
     "SELECT session_id, local_track_id, sequence, state, position_ms FROM playback_sessions LIMIT 0",
 ];
-const CURRENT_COLUMNS: &[(&str, &[&str])] = &[
+const VERSION_11_COLUMNS: &[(&str, &[&str])] = &[
     ("schema_migrations", &["version", "name", "applied_at"]),
     ("schema_version", &["version"]),
     (
@@ -3252,8 +3261,8 @@ const CURRENT_COLUMNS: &[(&str, &[&str])] = &[
     ),
 ];
 
-pub(crate) fn migrate_schema(conn: &Connection) -> Result<()> {
-    migrate_schema_with(conn, |_, _| Ok(()))
+pub(crate) fn migrate_schema_to(conn: &Connection, target: i64) -> Result<()> {
+    migrate_schema_with(conn, target, |_, _| Ok(()))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3265,19 +3274,74 @@ pub(crate) enum MigrationBoundary {
 
 fn migrate_schema_with(
     conn: &Connection,
+    target: i64,
     boundary: impl Fn(i64, MigrationBoundary) -> Result<()>,
 ) -> Result<()> {
+    migrate_schema_internal(conn, target, boundary, true)
+}
+
+fn migrate_schema_internal(
+    conn: &Connection,
+    target: i64,
+    boundary: impl Fn(i64, MigrationBoundary) -> Result<()>,
+    verify: bool,
+) -> Result<()> {
+    anyhow::ensure!(
+        MIGRATIONS
+            .iter()
+            .any(|migration| migration.version == target),
+        "Unsupported migration target"
+    );
     ensure_schema_migrations_table(conn)?;
-    for migration in MIGRATIONS {
+    for migration in MIGRATIONS
+        .iter()
+        .filter(|migration| migration.version <= target)
+    {
         if migration_applied(conn, migration.version)? {
             continue;
         }
+        let transaction = (migration.version == 12)
+            .then(|| conn.unchecked_transaction())
+            .transpose()?;
+        let baseline = if migration.version == 12 && verify {
+            Some(upgrades::legacy_digest(conn)?)
+        } else {
+            None
+        };
         boundary(migration.version, MigrationBoundary::BeforeApply)?;
         (migration.apply)(conn)
             .with_context(|| format!("apply migration {} {}", migration.version, migration.name))?;
         boundary(migration.version, MigrationBoundary::AfterApply)?;
         record_migration(conn, migration.version, migration.name)?;
         boundary(migration.version, MigrationBoundary::AfterRecord)?;
+        if let Some(before) = baseline {
+            upgrades::verify_target(conn, target)?;
+            for (table, _) in provider_snapshot_schema::COLUMNS {
+                let count: i64 =
+                    conn.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                        row.get(0)
+                    })?;
+                anyhow::ensure!(
+                    count == i64::from(*table == "metadata_generation"),
+                    "Migration created unexpected metadata records"
+                );
+            }
+            anyhow::ensure!(
+                conn.query_row(
+                    "SELECT last_generation FROM metadata_generation WHERE singleton=1",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )? == 0,
+                "Migration changed the initial generation"
+            );
+            anyhow::ensure!(
+                upgrades::legacy_digest(conn)? == before,
+                "Migration changed legacy records"
+            );
+        }
+        if let Some(transaction) = transaction {
+            transaction.commit()?;
+        }
     }
     Ok(())
 }
@@ -3570,7 +3634,6 @@ pub(crate) fn init_schema(conn: &Connection) -> Result<()> {
     create_track_artist_source_binding_tables(conn)?;
     create_metadata_source_fact_tables(conn)?;
     create_broadcast_event_tables(conn)?;
-    create_broadcast_event_selection_table(conn)?;
     create_local_path_repair_tables(conn)?;
 
     Ok(())
@@ -3910,6 +3973,11 @@ fn create_local_path_repair_tables(conn: &Connection) -> Result<()> {
 }
 
 #[cfg(test)]
+pub(crate) fn migrate_schema(conn: &Connection) -> Result<()> {
+    migrate_schema_to(conn, CURRENT_VERSION)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -3993,13 +4061,13 @@ mod tests {
         assert!(select_broadcast_event(&conn, "missing").is_err());
         let next = select_broadcast_event(&conn, "second")?;
         assert!(next.revision > selected.revision);
-        // Simulate the legacy schema then apply migration 11 independently.
-        conn.execute_batch(
-            "DROP TABLE broadcast_event_selection; DELETE FROM schema_migrations WHERE version=11;",
-        )?;
-        migrate_schema(&conn)?;
+        // Build the legacy schema through the registry before migration 11.
+        let legacy = Connection::open_in_memory()?;
+        upgrades::create_fixture(&legacy, 10)?;
+        legacy.execute_batch("INSERT INTO broadcast_events(event_id,endpoint,token_path,created_at) VALUES('first','http://localhost','/fixture/token',1),('second','http://localhost','/fixture/token',2)")?;
+        migrate_schema_to(&legacy, 11)?;
         assert_eq!(
-            broadcast_event_selection(&conn)?.event_id.as_deref(),
+            broadcast_event_selection(&legacy)?.event_id.as_deref(),
             Some("second")
         );
         Ok(())
@@ -4655,7 +4723,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
             "fresh schema should record all registry migrations"
         );
 
@@ -4686,8 +4754,8 @@ mod tests {
         )
         .context("create legacy schema")?;
 
-        migrate_schema(&conn)?;
-        migrate_schema(&conn)?;
+        migrate_schema_to(&conn, 11)?;
+        migrate_schema_to(&conn, 11)?;
 
         assert!(
             table_has_column(&conn, "feeds", "musicindex_updated_at")?,
@@ -4989,7 +5057,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
             "cleanup migration should be recorded exactly once"
         );
 

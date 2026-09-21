@@ -26,17 +26,65 @@ lists the loss at each layer.
 
 Document packets 002–008 contain corrected deliverables. Their remaining review gates are open.
 The [field inventory](docs/schema/adr-0075-metadata-field-inventory.md) assigns uncovered fields to packets 031 and 034.
-Those additional field rules are not yet written. Full metadata coverage is not complete.
+Those proposed rules are written. Their product-policy review remains open. Full metadata coverage is not complete.
 
 The operator accepted ADR 0075 Decisions D through G.
 They cover supported Nostr purposes, supported enclosures, fresh RSS priority for descriptions and websites, and retained discrepancy evidence.
 Description comparison uses readable text. A possible MusicIndex update hook remains deferred.
 
-Code packets stay held. [Packet 030](docs/tasks/adr-0075-task-030-enclosure-claim-transport.md)
-is Draft and preserves enclosure fields already supplied upstream. Its implementation has not started.
-The [phase plan](docs/plans/adr-0075-metadata-contract-phase-plan.md) assigns remaining transport, comparison, and storage work.
+[Packet 030](docs/tasks/adr-0075-task-030-enclosure-claim-transport.md) is complete on
+2026-09-20. The operator released this held packet on the same day. The
+enclosure type for API data preserves the four claim fields. Its mechanical
+checks are Green. It needs no visual acceptance.
+
+Storage and display still lose those fields. The
+[implementation result](docs/tasks/adr-0075-task-030-enclosure-claim-transport.md#preservation-by-layer)
+lists the loss at each layer. The
+[phase plan](docs/plans/adr-0075-metadata-contract-phase-plan.md) assigns remaining transport, comparison, and storage work.
 The [proposal queue](docs/reviews/adr-0075-metadata-contract-review.md#proposals-awaiting-operator-acceptance)
 keeps unaccepted policy details separate from the operator's decisions.
+
+The operator authorized orchestration of ADR 0075 completion on 2026-09-20.
+The orchestrator dispatches bounded tasks and reviews each result.
+Accepted-rule code can proceed. New product policies retain their review gate.
+The operator requires individual field-policy review, confirmed on 2026-09-20.
+Each delegated implementation session owns one packet.
+
+Code packets 009, 010, 032, 033, and 037 are complete. Technical review and integrated checks are Green.
+The [phase plan](docs/plans/adr-0075-metadata-contract-phase-plan.md#active-orchestration--2026-09-20) records active assignments and integrated verification.
+Packet 009 corrects direct RSS identity ownership and preserves rejected evidence in the active context.
+
+[Packet 012](docs/tasks/adr-0075-task-012-provider-snapshot-migration.md) implementation, technical review, and mechanical checks are complete on 2026-09-20.
+Its repair-report presentation gate remains open and paused.
+
+[Packet 014](docs/tasks/adr-0075-task-014-provider-observation-retention.md) implementation, technical review, and mechanical checks are complete on 2026-09-21.
+It retains original observations through the shared writer and Library track-detail command. Its storage-failure presentation gate remains open and paused.
+Packets 038–044 retain the other caller families as separate follow-up work.
+
+[Packet 013](docs/tasks/adr-0075-task-013-verified-snapshot-replacement.md) implementation, technical review, and mechanical checks are complete on 2026-09-21.
+It covers verified RSS identity collection replacement and typed local collection reads. MusicIndex replacement remains disabled pending completeness proof.
+Inherited presentation gates remain open and paused.
+
+[Packet 038](docs/tasks/adr-0075-task-038-library-reader-observation-retention.md) implementation, technical review, and mechanical checks are complete on 2026-09-21.
+It retains observations from Library comparison and album hydration without changing field policies. Its presentation gate remains open and paused.
+
+[Packet 039](docs/tasks/adr-0075-task-039-feed-check-and-update-observation-retention.md) implementation, technical review, and mechanical checks are complete on 2026-09-21.
+It retains observations from feed checks, explicit feed updates, and the combined ADR 0065 workflow. Its presentation gate remains open and paused.
+Packet 044 still owns payment-route request retention. Packets 040-043 retain the other caller families.
+
+ADR 0075 is amended on 2026-09-21. Decision I states that MusicIndex is a cache of RSS and
+that RSS is the only provenance. The app reports a stale MusicIndex record and directs the
+operator to podping.me. It sends no podping. Provider-ownership display work is superseded.
+Decision A is reduced, and nine field policies are deferred.
+
+The [packet register](docs/plans/adr-0075-metadata-contract-phase-plan.md#packet-register)
+was reorganized on 2026-09-21 into complete work, a committed path, and parked work.
+The committed path is packets 017, 018, 045, 020, and 022. Two dependency cuts are proposed
+there and need operator acceptance.
+The [API change request](docs/plans/musicindex-api-change-request.md) replaces packet 008
+as the request to Stophammer.
+
+Storage, shared projections, remaining field policies, and upstream changes remain open. Visual checks stay paused.
 
 Do not request another visual batch during this pause. Existing acceptance gates
 remain open. Cleanup of the evidence fixture
@@ -225,8 +273,11 @@ a toolbar command, never a section. ADR 0060.
 `Settings` show no queue, no transport, and no broadcast status. A surface that
 cannot act is absent, not disabled.
 
-**Provenance first.** RSS, MusicIndex, embedded tags, and MusicBrainz stay
-separate. Never collapse them into one inferred truth. Placeholder-looking source text is a source-boundary problem, never a renderer problem.
+**Provenance first.** Provenance is the element in the RSS document that
+asserted a value: the channel, the item, or a person. MusicIndex is a cache of
+RSS, never a peer source. Embedded tags and MusicBrainz stay separate. Never
+collapse them into one inferred truth. Placeholder-looking source text is a
+source-boundary problem, never a renderer problem. ADR 0075 Decision I.
 
 **The broadcast chain runs when this app is closed.** This app is a control
 surface and a status display, never a required part of the chain. The built-in

@@ -24,6 +24,7 @@ use super::{
 /// are retained as evidence, including when the review is abandoned or rejected.
 #[derive(Debug)]
 pub(crate) struct ValidatedRestore {
+    pub(crate) target: i64,
     pub(crate) backup: PathBuf,
     chosen_backup: PathBuf,
     pub(crate) destination: PathBuf,
@@ -55,6 +56,7 @@ pub(crate) enum InstallState {
 
 #[derive(Debug)]
 pub(crate) struct RestoreResult {
+    pub(crate) target: Option<i64>,
     pub(crate) preservation: Option<Preservation>,
     pub(crate) verified_original: Option<PathBuf>,
     pub(crate) state: InstallState,
@@ -63,6 +65,7 @@ pub(crate) struct RestoreResult {
 impl RestoreResult {
     pub(crate) fn refused(failure: Failure) -> Self {
         Self {
+            target: None,
             preservation: None,
             verified_original: None,
             state: InstallState::NotInstalled(failure),
@@ -154,20 +157,29 @@ impl ValidatedRestore {
             }
             let mut inspection = build_snapshot(&source, &candidate.path, budget)?;
             if upgrade {
-                migrate_candidate(&candidate.path, budget)?;
+                migrate_candidate(&candidate.path, super::super::CURRENT_VERSION, budget)?;
                 inspection =
                     inspect_connection(&open_source(&candidate.path, budget)?, budget, false);
             }
             if inspection.schema != Some(Ok(SchemaCompatibility::Current)) {
                 return Err(Failure::new("Restore requires the current schema; older backups need explicit migration preparation", FailureKind::Validation));
             }
+            let completed = open_source(&candidate.path, budget)?;
+            super::super::upgrades::verify_target(&completed, super::super::CURRENT_VERSION)
+                .map_err(|_| {
+                    Failure::new(
+                        "Verify exact restore candidate schema",
+                        FailureKind::Validation,
+                    )
+                })?;
             backup_revision.verify(&backup, budget)?;
             let candidate_revision = FileRevision::read(&candidate.path, budget)?;
-            let contents = content_digest(&open_source(&candidate.path, budget)?, budget)?;
+            let contents = content_digest(&completed, budget)?;
             Ok((candidate_revision, contents))
         })();
         match result {
             Ok((candidate_revision, contents)) => Ok(Self {
+                target: super::super::CURRENT_VERSION,
                 backup,
                 chosen_backup,
                 destination,
@@ -355,6 +367,7 @@ impl ValidatedRestore {
             };
             return result;
         }
+        result.target = Some(self.target);
         result.state = match self.verify_installed(&mut access, &verification) {
             Ok(()) => InstallState::Verified,
             Err(failure) => InstallState::VerificationFailed(failure),
@@ -370,7 +383,7 @@ impl ValidatedRestore {
         self.verify_destination_identity()?;
         let inspection = inspect_connection(&access.connection, budget, true);
         if !inspection.valid_snapshot()
-            || inspection.schema != Some(Ok(SchemaCompatibility::Current))
+            || super::super::upgrades::verify_target(&access.connection, self.target).is_err()
             || content_digest(&access.connection, budget)? != self.contents
         {
             return Err(Failure::new(
@@ -379,7 +392,11 @@ impl ValidatedRestore {
             ));
         }
         if crate::db::startup::check_connection(&mut access.connection)
-            != Ok(crate::db::startup::DatabaseReadiness::Ready)
+            != Ok(if self.target == super::super::CURRENT_VERSION {
+                crate::db::startup::DatabaseReadiness::Ready
+            } else {
+                crate::db::startup::DatabaseReadiness::NeedsPreparation
+            })
         {
             return Err(Failure::new(
                 "Verify installed database reads and rolled-back writes",
@@ -432,7 +449,7 @@ pub(crate) fn repair_interrupted_upgrade(
                     .and_then(|file| file.sync_all())
                     .map_err(|e| Failure::io("Sync preserved original before migration", &e))?;
             }
-            migrate_candidate(&candidate.path, budget)?;
+            migrate_candidate(&candidate.path, 11, budget)?;
             let candidate_connection = open_source(&candidate.path, budget)?;
             if database_digest(&candidate_connection, budget, true)? != preserved_data {
                 return Err(Failure::new("Verify repair preserved all rows, event selections and prior migration records", FailureKind::Validation));
@@ -447,6 +464,7 @@ pub(crate) fn repair_interrupted_upgrade(
             failure
         })?;
         Ok(ValidatedRestore {
+            target: 11,
             chosen_backup: original.path.clone(),
             backup: original.path,
             destination,
@@ -482,13 +500,13 @@ pub(crate) fn repair_interrupted_upgrade(
     }
 }
 
-fn migrate_candidate(path: &Path, budget: &Budget) -> Result<(), Failure> {
+fn migrate_candidate(path: &Path, target: i64, budget: &Budget) -> Result<(), Failure> {
     let mut candidate =
         Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
             .map_err(|e| budget.sql("Open private upgrade candidate", &e))?;
     budget.configure(&candidate)?;
     budget.check("Apply normal migrations to private candidate")?;
-    super::super::migrate_schema(&candidate).map_err(|_| {
+    super::super::migrate_schema_to(&candidate, target).map_err(|_| {
         budget
             .check("Apply normal migration registry to private candidate")
             .err()
@@ -501,11 +519,13 @@ fn migrate_candidate(path: &Path, budget: &Budget) -> Result<(), Failure> {
     })?;
     let inspection = inspect_connection(&candidate, budget, true);
     if !inspection.valid_snapshot()
-        || inspection.schema != Some(Ok(SchemaCompatibility::Current))
-        || !super::super::upgrades::recognize_migration_11(&candidate)
-            .map_err(|e| budget.sql("Verify upgraded schema against the normal authority", &e))?
+        || super::super::upgrades::verify_target(&candidate, target).is_err()
         || crate::db::startup::check_connection(&mut candidate)
-            != Ok(crate::db::startup::DatabaseReadiness::Ready)
+            != Ok(if target == super::super::CURRENT_VERSION {
+                crate::db::startup::DatabaseReadiness::Ready
+            } else {
+                crate::db::startup::DatabaseReadiness::NeedsPreparation
+            })
     {
         return Err(Failure::new(
             "Validate upgraded candidate schema, integrity, foreign keys and read/write access",
@@ -660,7 +680,7 @@ impl FileRevision {
 
 /// Compare schema, row identities, all stored values and the migration ledger
 /// independent of journal mode, checkpointing and `SQLite` header counters.
-fn content_digest(conn: &Connection, budget: &Budget) -> Result<String, Failure> {
+pub(super) fn content_digest(conn: &Connection, budget: &Budget) -> Result<String, Failure> {
     database_digest(conn, budget, false)
 }
 
@@ -729,7 +749,7 @@ fn database_digest(
     run().map_err(|e| budget.sql(OP, &e))
 }
 
-fn hash_value(hash: &mut Sha256, value: ValueRef<'_>) {
+pub(in crate::db) fn hash_value(hash: &mut Sha256, value: ValueRef<'_>) {
     match value {
         ValueRef::Null => hash.update([0]),
         ValueRef::Integer(value) => {
@@ -783,7 +803,8 @@ mod tests {
     }
 
     fn interrupted(path: &Path) {
-        let conn = crate::db::open_db(path).unwrap();
+        let conn = Connection::open(path).unwrap();
+        crate::db::upgrades::create_fixture(&conn, 10).unwrap();
         crate::db::upgrades::interrupt_fixture(&conn, crate::db::MigrationBoundary::AfterApply)
             .unwrap();
         conn.execute(
@@ -796,6 +817,167 @@ mod tests {
             [],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn adr_0075_migration_repair_11_requires_separate_preserved_preparation_to_12() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("interrupted.sqlite");
+        let conn = Connection::open(&path).unwrap();
+        conn.pragma_update(None, "foreign_keys", false).unwrap();
+        conn.execute_batch(include_str!("../fixtures/adr-0075-interrupted-11.sql"))
+            .unwrap();
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
+        let original = content_digest(&conn, &budget()).unwrap();
+        drop(conn);
+        let result = repair_interrupted_upgrade(
+            ExclusiveDatabase::acquire(&path, &budget()).unwrap(),
+            &temp.path().join("repair"),
+            &budget(),
+            false,
+        );
+        assert!(matches!(result.state, InstallState::Verified));
+        assert_eq!(result.target, Some(11));
+        assert_eq!(
+            crate::db::startup::check_database(&path).unwrap(),
+            crate::db::startup::DatabaseReadiness::NeedsPreparation
+        );
+        let backup = result.verified_original.unwrap();
+        assert_eq!(
+            content_digest(&open_source(&backup, &budget()).unwrap(), &budget()).unwrap(),
+            original
+        );
+        let bytes = fs::read(&backup).unwrap();
+        let prepared = crate::db::startup::prepare_database(&path).unwrap();
+        assert_eq!(
+            prepared.receipt.state,
+            crate::db::startup::PreparationState::Upgraded
+        );
+        let separate = prepared.receipt.snapshot.as_ref().unwrap();
+        assert_ne!(&backup, separate);
+        crate::db::upgrades::verify_target(&open_source(separate, &budget()).unwrap(), 11).unwrap();
+        crate::db::upgrades::verify_target(&prepared, 12).unwrap();
+        assert_eq!(
+            prepared
+                .query_row(
+                    "SELECT revision FROM broadcast_event_selection",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            7
+        );
+        assert_eq!(fs::read(backup).unwrap(), bytes);
+    }
+
+    #[test]
+    fn adr_0075_migration_older_backup_creates_private_12_candidate_without_changing_source() {
+        let (temp, _, destination) = files("DELETE");
+        let backup = temp.path().join("frozen-11.sqlite");
+        let conn = Connection::open(&backup).unwrap();
+        conn.pragma_update(None, "foreign_keys", false).unwrap();
+        conn.execute_batch(include_str!("../fixtures/adr-0075-schema-11.sql"))
+            .unwrap();
+        let before = crate::db::upgrades::legacy_digest(&conn).unwrap();
+        drop(conn);
+        let bytes = fs::read(&backup).unwrap();
+        let destination_bytes = fs::read(&destination).unwrap();
+        let review = ValidatedRestore::upgrade_backup(
+            &backup,
+            &destination,
+            &temp.path().join("preserved"),
+            &budget(),
+        )
+        .unwrap();
+        assert_eq!(review.target, 12);
+        let candidate = open_source(review.candidate_path(), &budget()).unwrap();
+        crate::db::upgrades::verify_target(&candidate, 12).unwrap();
+        assert_eq!(
+            crate::db::upgrades::legacy_digest(&candidate).unwrap(),
+            before
+        );
+        assert_eq!(fs::read(&backup).unwrap(), bytes);
+        assert_eq!(fs::read(&destination).unwrap(), destination_bytes);
+    }
+
+    #[test]
+    fn adr_0075_migration_restore_rejects_extra_current_column_before_installation() {
+        let (temp, backup, destination) = files("DELETE");
+        let conn = Connection::open(&backup).unwrap();
+        conn.execute_batch("ALTER TABLE metadata_generation ADD COLUMN unexpected TEXT")
+            .unwrap();
+        assert_eq!(
+            crate::db::inspect_schema(&conn).unwrap(),
+            SchemaCompatibility::Current
+        );
+        drop(conn);
+        let backup_bytes = fs::read(&backup).unwrap();
+        let destination_bytes = fs::read(&destination).unwrap();
+        let failure = ValidatedRestore::review(
+            &backup,
+            &destination,
+            &temp.path().join("preserved"),
+            &budget(),
+        )
+        .unwrap_err();
+        assert_eq!(failure.kind, FailureKind::Validation);
+        assert_eq!(failure.operation, "Verify exact restore candidate schema");
+        assert_eq!(fs::read(&backup).unwrap(), backup_bytes);
+        assert_eq!(fs::read(&destination).unwrap(), destination_bytes);
+        assert!(!temp.path().join("preserved").exists());
+    }
+
+    #[test]
+    fn adr_0075_migration_current_restore_preserves_bodies_absence_and_discrepancy_history() {
+        let (temp, backup, destination) = files("DELETE");
+        let conn = Connection::open(&backup).unwrap();
+        conn.execute_batch(crate::db::provider_snapshot_schema::RETAINED_ROWS)
+            .unwrap();
+        let expected = content_digest(&conn, &budget()).unwrap();
+        drop(conn);
+        let bytes = fs::read(&backup).unwrap();
+        let review = ValidatedRestore::review(
+            &backup,
+            &destination,
+            &temp.path().join("preserved"),
+            &budget(),
+        )
+        .unwrap();
+        assert_eq!(review.target, 12);
+        let result = review.install(
+            ExclusiveDatabase::acquire(&destination, &budget()).unwrap(),
+            &budget(),
+            false,
+        );
+        assert!(matches!(result.state, InstallState::Verified));
+        assert_eq!(result.target, Some(12));
+        let conn = Connection::open(&destination).unwrap();
+        assert_eq!(content_digest(&conn, &budget()).unwrap(), expected);
+        assert_eq!(
+            conn.query_row("SELECT bytes FROM metadata_bodies", [], |row| row
+                .get::<_, Vec<u8>>(0))
+                .unwrap(),
+            [0, 255, 66]
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT selection_state,value_json FROM metadata_field_selections",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            )
+            .unwrap(),
+            ("absent".into(), None)
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT count(*) FROM metadata_discrepancy_transitions",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(fs::read(backup).unwrap(), bytes);
     }
 
     #[test]
@@ -851,7 +1033,7 @@ mod tests {
                 assert!(matches!(result.state, InstallState::Verified), "{result:?}");
                 assert_eq!(
                     crate::db::startup::check_database(&path).unwrap(),
-                    crate::db::startup::DatabaseReadiness::Ready
+                    crate::db::startup::DatabaseReadiness::NeedsPreparation
                 );
             }
         }
@@ -893,8 +1075,11 @@ mod tests {
 
     #[test]
     fn adr_0066_upgrade_backup_requires_explicit_candidate_and_preserves_chosen_source() {
-        let (temp, backup, destination) = files("DELETE");
+        let (temp, _, destination) = files("DELETE");
+        let backup = temp.path().join("older.sqlite");
         let conn = Connection::open(&backup).unwrap();
+        crate::db::upgrades::create_fixture(&conn, 10).unwrap();
+        conn.execute_batch("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<1500) INSERT INTO playlists(name) SELECT printf('%04d ', i) || hex(zeroblob(1024)) FROM n;").unwrap();
         crate::db::upgrades::interrupt_fixture(&conn, crate::db::MigrationBoundary::BeforeApply)
             .unwrap();
         drop(conn);
@@ -1043,11 +1228,11 @@ mod tests {
         let newer = fs::read(&backup).unwrap();
         assert!(ValidatedRestore::review(&backup, &destination, &preservation, &budget()).is_err());
         assert_eq!(fs::read(&backup).unwrap(), newer);
-        let conn = Connection::open(&backup).unwrap();
-        conn.execute("DELETE FROM schema_migrations WHERE version>=11", [])
-            .unwrap();
+        let older = temp.path().join("older.sqlite");
+        let conn = Connection::open(&older).unwrap();
+        crate::db::upgrades::create_fixture(&conn, 10).unwrap();
         drop(conn);
-        assert!(ValidatedRestore::review(&backup, &destination, &preservation, &budget()).is_err());
+        assert!(ValidatedRestore::review(&older, &destination, &preservation, &budget()).is_err());
         let alias = temp.path().join("alias.sqlite");
         fs::hard_link(&destination, &alias).unwrap();
         assert!(ValidatedRestore::review(&alias, &destination, &preservation, &budget()).is_err());

@@ -118,6 +118,7 @@ pub fn run_app() -> bool {
 }
 
 pub(super) struct NormalStartup {
+    preparation_receipt: crate::db::startup::PreparationReceipt,
     cfg: config::ConfigSnapshot,
     session: crate::application::session_lifecycle::SessionLifecycle,
     cfg_path: std::path::PathBuf,
@@ -136,6 +137,7 @@ pub(super) fn prepare_normal(core: PreparedCore) -> Result<NormalStartup, CoreCh
         config_path: cfg_path,
         snapshot,
         connection,
+        preparation_receipt,
         notices,
     } = core;
     let cfg = snapshot;
@@ -148,7 +150,14 @@ pub(super) fn prepare_normal(core: PreparedCore) -> Result<NormalStartup, CoreCh
         .db_path
         .as_ref()
         .expect("core admission verified database path");
-    if crate::startup::prepare_local_paths(&connection, music_dir, db_path)? {
+    if crate::startup::prepare_local_paths(&connection, music_dir, db_path).map_err(
+        |mut outcome| {
+            outcome
+                .preparation_receipts
+                .push(preparation_receipt.clone());
+            outcome
+        },
+    )? {
         capability_observations.record(
             CapabilityObservation::new(
                 Dependency::LibraryPaths,
@@ -184,6 +193,7 @@ pub(super) fn prepare_normal(core: PreparedCore) -> Result<NormalStartup, CoreCh
         session.clone(),
     );
     Ok(NormalStartup {
+        preparation_receipt,
         cfg,
         session,
         cfg_path,
@@ -204,6 +214,7 @@ pub(super) fn mount_normal<T: 'static>(
     cx: &mut Context<T>,
 ) -> Entity<TopApp> {
     let NormalStartup {
+        preparation_receipt,
         session,
         cfg,
         cfg_path,
@@ -241,6 +252,8 @@ pub(super) fn mount_normal<T: 'static>(
             window,
             cx,
         );
+        app.previous_session_report =
+            crate::view_models::startup::preparation_report(&preparation_receipt);
         app.focus_active_tab(window, cx);
         app.install_capability_controls(capability_observations, worker, cx);
         app.maybe_start_broadcast_readiness_watch(cx);

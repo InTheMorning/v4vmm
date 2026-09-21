@@ -116,7 +116,8 @@ mod tests {
             let temp = tempfile::tempdir().unwrap();
             let source = temp.path().join("library.sqlite");
             let config = temp.path().join("config.toml");
-            let conn = crate::db::open_db(&source).unwrap();
+            let conn = rusqlite::Connection::open(&source).unwrap();
+            crate::db::upgrades::create_fixture(&conn, 10).unwrap();
             crate::db::upgrades::interrupt_fixture(&conn, crate::db::MigrationBoundary::AfterApply)
                 .unwrap();
             drop(conn);
@@ -188,7 +189,7 @@ mod tests {
                 ),
             )
             .unwrap();
-            let connection = Arc::new(Mutex::new(crate::db::open_db(&source).unwrap()));
+            let connection = Arc::new(Mutex::new(crate::db::open_db(&source).unwrap().connection));
             let held = connection.clone();
             let chosen = crate::db::open_db(&backup).unwrap();
             chosen

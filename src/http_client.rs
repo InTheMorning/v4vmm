@@ -36,6 +36,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// explicitly so a dependency bump cannot move it silently.
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// ADR 0075 uses this duration for the complete observed request.
+pub(crate) const fn document_timeout() -> Duration {
+    OPERATION_TIMEOUT
+}
+
 /// Builder for document and API fetches, for callers that add their own
 /// configuration such as a MusicBrainz user agent.
 pub fn document_builder() -> ClientBuilder {

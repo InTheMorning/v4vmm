@@ -7611,8 +7611,10 @@ name = "v4vmm"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "chrono",
  "directories",
+ "encoding_rs",
  "gpui-base",
  "gpui-component",
  "gpui-kit-assets",
@@ -7622,8 +7624,11 @@ dependencies = [
  "image",
  "lofty",
  "lru",
+ "mime",
  "open",
+ "quick-xml 0.37.5",
  "reqwest",
+ "roxmltree 0.21.1",
  "rss",
  "rusqlite",
  "serde",

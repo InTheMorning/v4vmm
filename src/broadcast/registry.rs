@@ -298,7 +298,7 @@ mod tests {
     }
 
     fn test_db(temp: &tempfile::TempDir) -> Result<Connection> {
-        db::open_db(&temp.path().join("v4vmm.sqlite"))
+        db::open_db(&temp.path().join("v4vmm.sqlite")).map(|prepared| prepared.connection)
     }
 
     fn registry<'a>(

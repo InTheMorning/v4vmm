@@ -2045,7 +2045,9 @@ mod tests {
     use crate::view_models::show::{EventSectionDisplay, ShowLogPaneDisplay};
 
     fn show_event_db(temp: &tempfile::TempDir) -> Connection {
-        db::open_db(&temp.path().join("app.sqlite")).unwrap()
+        db::open_db(&temp.path().join("app.sqlite"))
+            .unwrap()
+            .connection
     }
 
     fn show_event_relay(statuses: Vec<u16>) -> (String, std::thread::JoinHandle<Vec<String>>) {

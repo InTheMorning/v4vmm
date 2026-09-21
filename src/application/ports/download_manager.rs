@@ -302,10 +302,7 @@ mod tests {
         let manager = ServiceDownloadManager::new();
         let context = cancelled_context();
         let track_request = SubscribeTrackRequest::SearchTrack {
-            track_context: Box::new(TrackContext {
-                track: Track::default(),
-                feed: None,
-            }),
+            track_context: Box::new(TrackContext::new(Track::default(), None)),
             edits: Vec::new(),
             musicindex_endpoint: "https://api.example.test".into(),
             mark_feed_subscribed: false,

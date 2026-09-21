@@ -93,6 +93,8 @@ pub struct CoreCheckOutcome {
     pub observed_at: SystemTime,
     pub issues: Vec<StartupIssue>,
     pub observations: Vec<CoreObservation>,
+    pub preparation_receipts: Vec<database::PreparationReceipt>,
+    pub preparation_failure: Option<Box<database::PreparationError>>,
     checked_bytes: Option<Vec<u8>>,
 }
 
@@ -115,6 +117,8 @@ impl CoreCheckOutcome {
             observed_at: SystemTime::now(),
             issues: Vec::new(),
             observations: Vec::new(),
+            preparation_receipts: Vec::new(),
+            preparation_failure: None,
             checked_bytes: None,
         }
     }
@@ -123,6 +127,8 @@ impl CoreCheckOutcome {
             observed_at: issue.observed_at,
             issues: vec![issue],
             observations: Vec::new(),
+            preparation_receipts: Vec::new(),
+            preparation_failure: None,
             checked_bytes: None,
         }
     }
@@ -143,6 +149,7 @@ pub struct PreparedCore {
     pub config_path: PathBuf,
     pub snapshot: ConfigSnapshot,
     pub connection: Connection,
+    pub preparation_receipt: database::PreparationReceipt,
     pub notices: Vec<StartupIssue>,
 }
 
@@ -220,6 +227,8 @@ impl StartupBackend {
             observed_at: SystemTime::now(),
             issues: Vec::new(),
             observations: Vec::new(),
+            preparation_receipts: Vec::new(),
+            preparation_failure: None,
             checked_bytes: Some(snapshot.original_bytes().to_vec()),
         };
         for field in [&snapshot.music_dir, &snapshot.db_path] {
@@ -282,10 +291,13 @@ impl StartupBackend {
             .db_path
             .as_ref()
             .expect("core admission verified database path");
-        let connection = match database::prepare_database(db_path) {
+        let prepared = match database::prepare_database(db_path) {
             Ok(conn) => conn,
             Err(error) => {
-                outcome.issues.push(database_issue(db_path, error));
+                outcome
+                    .issues
+                    .push(database_issue(db_path, error.check.clone()));
+                outcome.preparation_failure = Some(Box::new(error));
                 return CoreResult::Checked(outcome);
             }
         };
@@ -305,7 +317,8 @@ impl StartupBackend {
         CoreResult::Prepared(Box::new(PreparedCore {
             config_path: path,
             snapshot,
-            connection,
+            connection: prepared.connection,
+            preparation_receipt: prepared.receipt,
             notices: outcome.issues,
         }))
     }
@@ -609,6 +622,47 @@ mod tests {
         match result {
             CoreResult::Checked(outcome) => outcome,
             CoreResult::Prepared(_) => panic!("unexpected preparation"),
+        }
+    }
+
+    #[test]
+    fn adr_0075_migration_startup_admits_only_12_and_carries_the_recorded_receipt() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = fixture(temp.path());
+        let data = temp.path().join("data");
+        fs::create_dir(&data).unwrap();
+        let path = data.join("library.sqlite");
+        let conn = Connection::open(&path).unwrap();
+        conn.pragma_update(None, "foreign_keys", false).unwrap();
+        conn.execute_batch(include_str!("db/fixtures/adr-0075-schema-11.sql"))
+            .unwrap();
+        drop(conn);
+        let config_bytes = fs::read(&config).unwrap();
+        for name in ["audio.flac", "secret-token"] {
+            fs::write(temp.path().join(name), name).unwrap();
+        }
+        let mut backend = StartupBackend::new(Some(config.clone()));
+        let CoreResult::Prepared(core) = backend.execute(CheckIntent::Initial) else {
+            panic!("current preparation required");
+        };
+        assert_eq!(core.preparation_receipt.target, 12);
+        assert_eq!(
+            core.preparation_receipt.state,
+            database::PreparationState::Upgraded
+        );
+        assert!(core
+            .preparation_receipt
+            .snapshot
+            .as_ref()
+            .unwrap()
+            .is_file());
+        assert_eq!(
+            crate::db::inspect_schema(&core.connection).unwrap(),
+            crate::db::SchemaCompatibility::Current
+        );
+        assert_eq!(fs::read(config).unwrap(), config_bytes);
+        for name in ["audio.flac", "secret-token"] {
+            assert_eq!(fs::read(temp.path().join(name)).unwrap(), name.as_bytes());
         }
     }
 

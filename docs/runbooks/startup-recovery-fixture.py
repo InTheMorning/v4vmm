@@ -1059,8 +1059,30 @@ def restore_inspect(root, manifest):
         raise SystemExit("Restore preservation inspection failed. Keep the fixture for diagnosis.")
 
 
+PROVIDER_SNAPSHOT_TABLES = (
+    "metadata_providers", "metadata_resources", "metadata_subjects", "metadata_bodies",
+    "metadata_generation", "metadata_request_slots", "metadata_observations", "metadata_coverage",
+    "metadata_facts", "metadata_snapshots", "metadata_snapshot_members", "metadata_collection_heads",
+    "metadata_field_selections", "metadata_discrepancies", "metadata_discrepancy_transitions",
+)
+
+
+def upgrade_legacy_facts(facts):
+    """Verify migration-12 rows before comparing the explicit legacy records."""
+    result = dict(facts)
+    for name in PROVIDER_SNAPSHOT_TABLES:
+        expected = [[1, 1, 0]] if name == "metadata_generation" else []
+        if result.pop(name, None) != expected:
+            raise ValueError("Unexpected migration-12 table or records: " + name)
+    ledger = result["schema_migrations"]
+    if len(ledger) != 12 or ledger[-1][1:3] != [12, "provider_metadata_snapshots"]:
+        raise ValueError("Migration 12 was not recorded exactly once")
+    result["schema_migrations"] = ledger[:-1]
+    return result
+
+
 def upgrade_facts(path):
-    """Full row evidence; omit only migration 11 when comparing preserved data."""
+    """Retain each table, row identity, value, and ledger record for comparison."""
     with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as conn:
         names = [row[0] for row in conn.execute("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
         return {name: conn.execute('SELECT rowid,* FROM "' + name.replace('"', '""') + '" ORDER BY rowid').fetchall() for name in names}
@@ -1114,6 +1136,11 @@ def upgrade_inspect(root, manifest):
         checks["unsupported_records_unchanged"] = facts == baseline["original_facts"]
         checks["no_repair_artifacts"] = not any(directory.glob("*-preservation")) and not any(directory.glob(".v4vmm-database-*"))
     else:
+        try:
+            facts = upgrade_legacy_facts(facts)
+            checks["migration_12_schema_and_empty_tables"] = True
+        except ValueError:
+            checks["migration_12_schema_and_empty_tables"] = False
         ledger = facts["schema_migrations"]
         checks["migration_11_recorded_once"] = len(ledger) == 11 and ledger[-1][1:3] == [11, "broadcast_event_selection"]
         facts["schema_migrations"] = [row for row in ledger if row[1] != 11]
@@ -1137,13 +1164,31 @@ def upgrade_inspect(root, manifest):
                 checks[name + "_repaired_candidate"] = any(len(f["schema_migrations"]) == 11 for f in snapshots)
             except (OSError, ValueError, KeyError, sqlite3.Error):
                 checks[name + "_preservation"] = False
+        preparation_backups = []
+        for folder in source.parent.glob(".v4vmm-upgrade-*"):
+            try:
+                receipt = json.loads((folder / "manifest.json").read_text())
+                if receipt["source"] != str(source):
+                    continue
+                for path in folder.glob(".v4vmm-database-*/candidate.sqlite"):
+                    saved = json.loads(json.dumps(upgrade_facts(path)))
+                    ledger = saved["schema_migrations"]
+                    valid = len(ledger) == 11 and ledger[-1][1:3] == [11, "broadcast_event_selection"]
+                    saved["schema_migrations"] = ledger[:-1]
+                    preparation_backups.append(valid and saved == baseline["original_facts"])
+            except (OSError, ValueError, KeyError, sqlite3.Error):
+                preparation_backups.append(False)
+        checks["separate_version_11_preparation_backup"] = any(preparation_backups)
         candidates = list(directory.glob(".v4vmm-database-*/candidate.sqlite"))
         older = upgrade_facts(directory / "older-backup.sqlite")
         valid_upgrades = []
         for path in candidates:
-            candidate = upgrade_facts(path)
-            candidate["schema_migrations"] = [row for row in candidate["schema_migrations"] if row[1] != 11]
-            valid_upgrades.append(candidate.pop("broadcast_event_selection", None) == [] and candidate == older)
+            try:
+                candidate = upgrade_legacy_facts(json.loads(json.dumps(upgrade_facts(path))))
+                candidate["schema_migrations"] = [row for row in candidate["schema_migrations"] if row[1] != 11]
+                valid_upgrades.append(candidate.pop("broadcast_event_selection", None) == [] and candidate == json.loads(json.dumps(older)))
+            except ValueError:
+                valid_upgrades.append(False)
         checks["explicitly_upgraded_backup_candidate"] = any(valid_upgrades)
         observations = root / "session-observations.jsonl"
         opened = [entry["generation"] for entry in map(json.loads, observations.read_text().splitlines()) if entry["state"] == "opened"] if observations.exists() else []

@@ -280,7 +280,15 @@ fn seed_database_checks(root: &Path) -> Result<()> {
         "foreign-key",
     ] {
         let path = directory.join(format!("{name}.sqlite"));
-        let conn = prepare_database(&path).map_err(|e| anyhow::anyhow!("{}", e.reason))?;
+        let conn = if name == "older" {
+            let conn = rusqlite::Connection::open(&path)?;
+            crate::db::upgrades::create_fixture(&conn, 10)?;
+            conn
+        } else {
+            prepare_database(&path)
+                .map_err(|e| anyhow::anyhow!("{}", e.reason))?
+                .connection
+        };
         conn.execute(
             "INSERT INTO playlists(name) VALUES ('Preserved fixture row')",
             [],
@@ -288,7 +296,6 @@ fn seed_database_checks(root: &Path) -> Result<()> {
         match name {
 
             "newer" => { conn.execute("INSERT INTO schema_migrations(version,name) VALUES(999, 'fixture_future')", [])?; }
-            "older" => conn.execute_batch("DELETE FROM schema_migrations WHERE version=11; DROP TABLE broadcast_event_selection;")?,
             "foreign-key" => conn.execute_batch("PRAGMA foreign_keys=OFF; INSERT INTO tracks(feed_id,item_guid) VALUES(999,'orphan');")?,
             _ => {},
         }
@@ -352,6 +359,102 @@ fn seed_tracks(conn: &rusqlite::Connection, root: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use crate::application::capability::Dependency;
+
+    #[test]
+    fn adr_0075_migration_debug_fixture_preserves_files_order_claims_and_selection() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir(root.join("data")).unwrap();
+        fs::create_dir(root.join("music")).unwrap();
+        let path = root.join("data/library.sqlite");
+        let conn = prepare_database(&path).unwrap();
+        conn.execute(
+            "INSERT INTO playlists(name) VALUES ('Startup fixture playlist')",
+            [],
+        )
+        .unwrap();
+        seed_tracks(&conn, root).unwrap();
+        drop(conn);
+        fs::write(root.join("config.toml"), b"configuration sentinel").unwrap();
+        fs::write(root.join("broadcaster-token.fixture"), b"secret sentinel").unwrap();
+        let originals: Vec<_> = [
+            "config.toml",
+            "broadcaster-token.fixture",
+            "music/a.wav",
+            "music/b.wav",
+            "music/c.wav",
+        ]
+        .map(|name| (name, fs::read(root.join(name)).unwrap()))
+        .into();
+        seed_upgrade_checks(root).unwrap();
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        assert_eq!(
+            crate::db::inspect_schema(&conn).unwrap(),
+            crate::db::SchemaCompatibility::InterruptedUpgrade
+        );
+        let playlist: Vec<i64> = conn
+            .prepare("SELECT track_id FROM playlist_tracks ORDER BY position")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(playlist, [1, 2, 3]);
+        assert_eq!(
+            conn.query_row(
+                "SELECT revision FROM broadcast_event_selection",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            7
+        );
+        let paths: Vec<String> = conn
+            .prepare("SELECT path FROM local_files ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        drop(conn);
+        let budget = crate::db::maintenance::Budget::new(std::sync::Arc::new(
+            std::sync::atomic::AtomicBool::new(false),
+        ));
+        let repaired = crate::db::maintenance::restore::repair_interrupted_upgrade(
+            crate::db::maintenance::ExclusiveDatabase::acquire(&path, &budget).unwrap(),
+            &root.join("repair"),
+            &budget,
+            false,
+        );
+        assert_eq!(repaired.target, Some(11));
+        assert!(matches!(
+            repaired.state,
+            crate::db::maintenance::restore::InstallState::Verified
+        ));
+        let prepared = prepare_database(&path).unwrap();
+        assert_eq!(prepared.receipt.target, 12);
+        assert_eq!(
+            prepared
+                .query_row(
+                    "SELECT revision FROM broadcast_event_selection",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            7
+        );
+        let after: Vec<String> = prepared
+            .prepare("SELECT path FROM local_files ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(after, paths);
+        for (name, bytes) in originals {
+            assert_eq!(fs::read(root.join(name)).unwrap(), bytes, "{name}");
+        }
+    }
 
     #[test]
     fn adr_0066_database_fixture_states_use_the_current_schema_authority() {
@@ -540,8 +643,16 @@ fn seed_upgrade_checks(root: &Path) -> Result<()> {
     let directory = root.join("upgrade");
     fs::create_dir(&directory).context("reserve fresh upgrade fixture")?;
     let source = root.join("data/library.sqlite");
+    // Retain the closed initial fixture. Build the interruption through target 10.
+    ensure!(
+        !source.with_extension("sqlite-wal").exists(),
+        "Close fixture database users before upgrade setup"
+    );
+    fs::rename(&source, directory.join("initial-current.sqlite"))?;
     let conn = rusqlite::Connection::open(&source)?;
-    conn.execute("UPDATE playlists SET description=hex(zeroblob(524288))", [])?;
+    crate::db::upgrades::create_fixture(&conn, 10)?;
+    conn.execute("INSERT INTO playlists(name, description) VALUES ('Startup fixture playlist',hex(zeroblob(524288)))", [])?;
+    seed_tracks(&conn, root)?;
     crate::db::insert_broadcast_event(
         &conn,
         &crate::db::BroadcastEventInput {
@@ -561,12 +672,12 @@ fn seed_upgrade_checks(root: &Path) -> Result<()> {
     let older = directory.join("older-backup.sqlite");
     crate::db::maintenance::backup(&source, &older, &budget)
         .map_err(|e| anyhow::anyhow!("{}: {:?}", e.operation, e.kind))?;
-    let conn = rusqlite::Connection::open(&older)?;
-    interrupt_fixture(&conn, MigrationBoundary::BeforeApply)?;
-    drop(conn);
+
     let conn = rusqlite::Connection::open(&source)?;
     interrupt_fixture(&conn, MigrationBoundary::AfterApply)?;
-    crate::db::select_broadcast_event(&conn, "upgrade-fixture-event")?;
+    for _ in 0..7 {
+        crate::db::select_broadcast_event(&conn, "upgrade-fixture-event")?;
+    }
     drop(conn);
     println!(
         "{}",

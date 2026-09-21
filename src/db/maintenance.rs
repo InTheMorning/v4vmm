@@ -18,6 +18,7 @@ use rusqlite::{
 use super::SchemaCompatibility;
 
 mod preservation;
+pub(crate) mod upgrade;
 pub(crate) use preservation::{ExclusiveDatabase, Preservation};
 pub(crate) mod restore;
 
@@ -68,6 +69,13 @@ impl Failure {
         Self::new(operation, kind)
     }
 }
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {:?}", self.operation, self.kind)
+    }
+}
+impl std::error::Error for Failure {}
 
 #[derive(Clone, Debug)]
 pub(crate) struct Budget {
@@ -580,18 +588,16 @@ mod tests {
             FailureKind::Missing
         );
         assert!(!missing.exists());
+        let source = temp.path().join("older.sqlite");
         let conn = Connection::open(&source).unwrap();
-        conn.execute("DELETE FROM schema_migrations WHERE version=11", [])
-            .unwrap();
-        conn.execute("DROP TABLE broadcast_event_selection", [])
-            .unwrap();
+        crate::db::upgrades::create_fixture(&conn, 10).unwrap();
         let before = fs::read(&source).unwrap();
         let inspection = inspect(&source, &budget());
         assert_eq!(
             inspection.schema,
             Some(Ok(SchemaCompatibility::UpgradeRequired {
                 applied: 10,
-                current: 11
+                current: 12
             }))
         );
         assert_eq!(fs::read(&source).unwrap(), before);

@@ -9,11 +9,15 @@ use rusqlite::Connection;
 use crate::application::application_query_service::ApplicationQueryService;
 use crate::application::command_bus::{ApplicationCommand, CommandOutcome, CommandResult};
 use crate::application::command_context::CommandContext;
-use crate::application::errors::command::CommandError;
+use crate::application::errors::command::{CommandError, ObservedQueryFailure};
 use crate::application::library_removal::{self, LibraryRemovalIntent, LibraryRemovalPlan};
 use crate::db::TrackRow;
 use crate::feed_service::{self, track_row_to_track_context};
 use crate::metadata::{source_text_missing, TagCompareResult, TrackContext};
+use crate::provider_observation::{
+    ObservationCommandFailure, ObservationReceipt, ObservationStorageError,
+    ObservationWriteFailure, ProviderObservationRecorder, ProviderReadError,
+};
 use crate::subscribe_service;
 use crate::view_models::library::{
     AlbumNode, ArtistNode, LibraryTrackRowVm, LibraryTree, LibraryViewModel,
@@ -36,6 +40,7 @@ pub(crate) struct AlbumIdentityHydration {
     pub(crate) identity_facts: LocalIdentityFacts,
     pub(crate) metadata_facts: FeedMetadataFacts,
     pub(crate) description: Option<String>,
+    pub(crate) observation_receipts: Vec<ObservationReceipt>,
 }
 
 /// Library track tag comparison with its resolved source context.
@@ -221,7 +226,6 @@ impl ApplicationCommand for HydrateAlbumIdentity {
             self.feed_id,
             &self.feed_guid,
         )
-        .map_err(|error| query_error(&error))
         .map(CommandOutcome::without_events)
     }
 }
@@ -229,6 +233,7 @@ impl ApplicationCommand for HydrateAlbumIdentity {
 /// Compares one downloaded library track against its source metadata.
 #[derive(Clone, Debug)]
 pub(crate) struct CompareLibraryTrack {
+    conn: SharedConnection,
     track: TrackRow,
     musicindex_endpoint: crate::config::MusicIndexEndpoint,
     music_dir: PathBuf,
@@ -238,11 +243,13 @@ impl CompareLibraryTrack {
     /// Creates a library track comparison query command.
     #[must_use]
     pub(crate) fn new(
+        conn: SharedConnection,
         track: TrackRow,
         musicindex_endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         music_dir: PathBuf,
     ) -> Self {
         Self {
+            conn,
             track,
             musicindex_endpoint: musicindex_endpoint.into(),
             music_dir,
@@ -257,9 +264,13 @@ impl ApplicationCommand for CompareLibraryTrack {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
-        compare_library_track(&self.track, &self.musicindex_endpoint, &self.music_dir)
-            .map_err(|error| query_error(&error))
-            .map(CommandOutcome::without_events)
+        compare_library_track(
+            &self.conn,
+            &self.track,
+            &self.musicindex_endpoint,
+            &self.music_dir,
+        )
+        .map(CommandOutcome::without_events)
     }
 }
 
@@ -406,18 +417,99 @@ pub(crate) fn fetch_library_track_context_with_local_fallback(
     track: &TrackRow,
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
 ) -> anyhow::Result<TrackContext> {
-    let local_context = conn
+    let local = conn
         .lock()
         .map_err(|_| anyhow::anyhow!("database lock poisoned"))
-        .and_then(|db| feed_service::track_row_to_track_context_with_local_identity(&db, track));
-    match feed_service::fetch_library_track_context(track, musicindex_endpoint) {
+        .and_then(|db| {
+            let context = feed_service::track_row_to_track_context_with_local_identity(&db, track)?;
+            let request = feed_service::local_provider_request(&db, track, &context)?;
+            Ok((context, request))
+        });
+    let (local_context, local_request) = match local {
+        Ok((context, request)) => (Ok(context), request),
+        Err(error) => (Err(error), None),
+    };
+    let recorder =
+        Arc::new(crate::provider_observation::ProviderObservationRecorder::new(Arc::clone(conn)));
+    let result = match feed_service::fetch_library_track_context_with_recorder(
+        track,
+        musicindex_endpoint,
+        Some(Arc::clone(&recorder)),
+    ) {
         Ok(mut remote_context) => {
             if let Ok(local_context) = local_context {
                 apply_local_track_metadata_defaults(&mut remote_context, &local_context);
             }
             Ok(remote_context)
         }
+        Err(error)
+            if error.is::<crate::provider_observation::ObservationWriteFailure>()
+                || error.is::<crate::provider_observation::ObservationStorageError>() =>
+        {
+            Err(error)
+        }
         Err(_) => local_context,
+    };
+    let receipts = recorder.take_receipts();
+    assemble_provider_context(conn, result, local_request.as_ref(), receipts)
+}
+
+fn assemble_provider_context(
+    conn: &SharedConnection,
+    result: anyhow::Result<TrackContext>,
+    local_request: Option<&crate::provider_observation::ProviderRequestSpec>,
+    receipts: Vec<crate::provider_observation::ObservationReceipt>,
+) -> anyhow::Result<TrackContext> {
+    use crate::provider_observation::{
+        ObservationCommandFailure, ObservationWriteFailure, ProviderReadError,
+    };
+    let request = result
+        .as_ref()
+        .ok()
+        .and_then(subscribe_service::rss_request_spec);
+    let capsule = result
+        .as_ref()
+        .err()
+        .and_then(|error| error.downcast_ref::<ObservationWriteFailure>())
+        .map(|failure| Arc::new(failure.clone()));
+    let failed_request = capsule
+        .as_ref()
+        .filter(|failure| {
+            failure.token.spec.provider == crate::provider_observation::ProviderKind::Rss
+        })
+        .map(|failure| failure.token.spec.as_ref());
+    let provider_state = conn
+        .lock()
+        .map_err(|_| anyhow::anyhow!("database lock poisoned"))
+        .and_then(|db| {
+            db::provider_observations::read_track_provider_state(
+                &db,
+                request.as_ref().or(failed_request).or(local_request),
+            )
+        });
+    let read_error = provider_state
+        .as_ref()
+        .err()
+        .map(|_| ProviderReadError::Storage);
+    match (result, provider_state) {
+        (Ok(mut context), Ok(state)) => {
+            context.provider_state = state;
+            context.observation_receipts.extend(receipts);
+            Ok(context)
+        }
+        (result, _) => Err(ObservationCommandFailure {
+            write_failure: capsule,
+            storage_error: result
+                .as_ref()
+                .err()
+                .and_then(|error| {
+                    error.downcast_ref::<crate::provider_observation::ObservationStorageError>()
+                })
+                .copied(),
+            read_error,
+            receipts: receipts.into(),
+        }
+        .into()),
     }
 }
 
@@ -447,45 +539,137 @@ fn hydrate_album_identity_facts(
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
     feed_id: i64,
     feed_guid: &str,
-) -> anyhow::Result<AlbumIdentityHydration> {
-    let client = crate::api::Client::new_with_base_url(musicindex_endpoint.clone());
-    let feed = client.fetch_feed(
-        feed_guid,
-        Some("source_links,source_ids,source_release_claims,source_contributors"),
-    )?;
-    let description = FeedView::from_api(feed.clone()).description;
-    let mut db = conn
-        .lock()
-        .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
-    if description.is_some() {
-        db::set_feed_description(&db, feed_id, description.as_deref())?;
-    }
-    crate::identity_ingest::persist_musicindex_feed(&mut db, feed_id, &feed)?;
-    let identity_facts = crate::local_identity::feed_facts(&db, feed_id)?;
-    let metadata_facts = crate::local_metadata::feed_facts(&db, feed_id)?;
-    Ok(AlbumIdentityHydration {
-        identity_facts,
-        metadata_facts,
-        description,
+) -> Result<AlbumIdentityHydration, CommandError> {
+    let recorder = Arc::new(ProviderObservationRecorder::new(Arc::clone(&conn)));
+    let result = (|| {
+        let client = crate::api::Client::new_with_base_url(musicindex_endpoint.clone())
+            .with_observation_recorder(Some(Arc::clone(&recorder)));
+        let feed = client.fetch_feed(
+            feed_guid,
+            Some("source_links,source_ids,source_release_claims,source_contributors"),
+        )?;
+        let description = FeedView::from_api(feed.clone()).description;
+        let mut db = conn
+            .lock()
+            .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
+        if description.is_some() {
+            db::set_feed_description(&db, feed_id, description.as_deref())?;
+        }
+        crate::identity_ingest::persist_musicindex_feed(&mut db, feed_id, &feed)?;
+        let identity_facts = crate::local_identity::feed_facts(&db, feed_id)?;
+        let metadata_facts = crate::local_metadata::feed_facts(&db, feed_id)?;
+        Ok(AlbumIdentityHydration {
+            identity_facts,
+            metadata_facts,
+            description,
+            observation_receipts: Vec::new(),
+        })
+    })();
+    assemble_observed_query(&recorder, result, |hydration, receipts| {
+        hydration.observation_receipts.extend(receipts);
     })
 }
 
 fn compare_library_track(
+    conn: &SharedConnection,
     track: &TrackRow,
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
     music_dir: &Path,
-) -> anyhow::Result<LibraryTrackCompare> {
-    let path = track
-        .local_path
-        .as_ref()
-        .map(|path| path.resolve(music_dir))
-        .ok_or_else(|| anyhow::anyhow!("library track has no local file"))?;
-    let context = feed_service::fetch_library_track_context(track, musicindex_endpoint)
-        .unwrap_or_else(|_| track_row_to_track_context(track));
-    let tag_compare = subscribe_service::compare_downloaded_track_path(&path, &context)?;
-    Ok(LibraryTrackCompare {
-        tag_compare,
-        track_context: context,
+) -> Result<LibraryTrackCompare, CommandError> {
+    let recorder = Arc::new(ProviderObservationRecorder::new(Arc::clone(conn)));
+    let result = (|| {
+        let path = track
+            .local_path
+            .as_ref()
+            .map(|path| path.resolve(music_dir))
+            .ok_or_else(|| anyhow::anyhow!("library track has no local file"))?;
+        let context = match feed_service::fetch_library_track_context_with_recorder(
+            track,
+            musicindex_endpoint,
+            Some(Arc::clone(&recorder)),
+        ) {
+            Ok(context) => Ok(context),
+            Err(error) if observation_storage_failure(&error).is_some() => Err(error),
+            Err(_) => Ok(track_row_to_track_context(track)),
+        };
+        let local_request = conn
+            .lock()
+            .map_err(|_| anyhow::anyhow!("database lock poisoned"))
+            .and_then(|db| {
+                feed_service::local_provider_request(&db, track, &track_row_to_track_context(track))
+            });
+        let context = match local_request {
+            Ok(request) => assemble_provider_context(conn, context, request.as_ref(), Vec::new())?,
+            Err(_) => {
+                let mut failure = context
+                    .as_ref()
+                    .err()
+                    .and_then(observation_storage_failure)
+                    .unwrap_or(ObservationCommandFailure {
+                        write_failure: None,
+                        storage_error: None,
+                        read_error: None,
+                        receipts: Arc::from([]),
+                    });
+                failure.read_error = Some(ProviderReadError::Storage);
+                return Err(failure.into());
+            }
+        };
+        let tag_compare = subscribe_service::compare_downloaded_track_path(&path, &context)?;
+        Ok(LibraryTrackCompare {
+            tag_compare,
+            track_context: context,
+        })
+    })();
+    assemble_observed_query(&recorder, result, |comparison, receipts| {
+        comparison
+            .track_context
+            .observation_receipts
+            .extend(receipts);
+    })
+}
+
+/// ADR 0075 drains receipts once after every fallible Library reader operation.
+fn assemble_observed_query<T>(
+    recorder: &ProviderObservationRecorder,
+    result: anyhow::Result<T>,
+    attach: impl FnOnce(&mut T, Vec<ObservationReceipt>),
+) -> Result<T, CommandError> {
+    let receipts = recorder.take_receipts();
+    match result {
+        Ok(mut value) => {
+            attach(&mut value, receipts);
+            Ok(value)
+        }
+        Err(error) => {
+            if let Some(mut failure) = observation_storage_failure(&error) {
+                let mut committed = failure.receipts.to_vec();
+                committed.extend(receipts);
+                failure.receipts = committed.into();
+                Err(CommandError::ObservationWriteFailure(Arc::new(failure)))
+            } else {
+                Err(CommandError::ObservedQueryFailure(Arc::new(
+                    ObservedQueryFailure::new(format!("{error:#}"), receipts),
+                )))
+            }
+        }
+    }
+}
+
+fn observation_storage_failure(error: &anyhow::Error) -> Option<ObservationCommandFailure> {
+    if let Some(failure) = error.downcast_ref::<ObservationCommandFailure>() {
+        return Some(failure.clone());
+    }
+    let write_failure = error
+        .downcast_ref::<ObservationWriteFailure>()
+        .cloned()
+        .map(Arc::new);
+    let storage_error = error.downcast_ref::<ObservationStorageError>().copied();
+    (write_failure.is_some() || storage_error.is_some()).then_some(ObservationCommandFailure {
+        write_failure,
+        storage_error,
+        receipts: Arc::from([]),
+        read_error: None,
     })
 }
 
@@ -499,7 +683,17 @@ fn fetch_local_track_context(
     let Some(track) = library_service::track_row_by_id(&db, track_id)? else {
         anyhow::bail!("local track not found: {track_id}");
     };
-    let context = feed_service::track_row_to_track_context_with_local_identity(&db, &track)?;
+    let mut context = feed_service::track_row_to_track_context_with_local_identity(&db, &track)?;
+    context.provider_state = feed_service::local_provider_request(&db, &track, &context)
+        .and_then(|request| {
+            db::provider_observations::read_track_provider_state(&db, request.as_ref())
+        })
+        .map_err(|_| crate::provider_observation::ObservationCommandFailure {
+            write_failure: None,
+            storage_error: None,
+            receipts: Arc::from([]),
+            read_error: Some(crate::provider_observation::ProviderReadError::Storage),
+        })?;
     let image_url = context
         .track
         .image_url
@@ -519,7 +713,1473 @@ fn poisoned_lock() -> CommandError {
 }
 
 fn query_error(error: &anyhow::Error) -> CommandError {
+    if let Some(failure) =
+        error.downcast_ref::<crate::provider_observation::ObservationCommandFailure>()
+    {
+        return CommandError::ObservationWriteFailure(std::sync::Arc::new(failure.clone()));
+    }
     CommandError::Query(format!("{error:#}"))
+}
+
+#[cfg(test)]
+mod observation_tests {
+    use super::*;
+    use serde_json::json;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    struct Fixture {
+        endpoint: crate::config::MusicIndexEndpoint,
+        address: String,
+        conn: SharedConnection,
+        tracks: Vec<TrackRow>,
+        mode: Arc<AtomicUsize>,
+        requests: Arc<Mutex<Vec<String>>>,
+        commits: Arc<AtomicUsize>,
+        held_response: Arc<Mutex<Option<(TcpStream, String)>>>,
+        stop: Arc<AtomicBool>,
+        worker: Option<std::thread::JoinHandle<()>>,
+    }
+    impl Fixture {
+        fn start() -> Self {
+            let conn = Connection::open_in_memory().unwrap();
+            db::upgrades::create_fixture(&conn, 12).unwrap();
+            conn.execute("INSERT INTO feeds(feed_url,feed_guid,title) VALUES('http://fixture.invalid/feed','f1','Local feed')",[]).unwrap();
+            for guid in ["t1", "t2"] {
+                conn.execute("INSERT INTO tracks(feed_id,item_guid,track_title,is_in_library) VALUES(1,?1,'Local title',1)",[guid]).unwrap();
+            }
+            let tracks = library_service::library_tracks(&conn).unwrap();
+            let commits = Arc::new(AtomicUsize::new(0));
+            let counts = Arc::clone(&commits);
+            conn.commit_hook(Some(move || {
+                counts.fetch_add(1, Ordering::SeqCst);
+                false
+            }))
+            .unwrap();
+            let conn = Arc::new(Mutex::new(conn));
+            let mode = Arc::new(AtomicUsize::new(0));
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let stop = Arc::new(AtomicBool::new(false));
+            let held_response = Arc::new(Mutex::new(None));
+            let held = Arc::clone(&held_response);
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let address = listener.local_addr().unwrap().to_string();
+            let base = format!("http://{address}");
+            let db = Arc::clone(&conn);
+            let selected = Arc::clone(&mode);
+            let received = Arc::clone(&requests);
+            let stopped = Arc::clone(&stop);
+            let url = base.clone();
+            let worker = std::thread::spawn(move || {
+                while !stopped.load(Ordering::SeqCst) {
+                    match listener.accept() {
+                        Ok((mut stream, _)) => {
+                            stream
+                                .set_read_timeout(Some(Duration::from_secs(2)))
+                                .unwrap();
+                            let mut bytes = Vec::new();
+                            let mut buffer = [0; 4096];
+                            while !bytes.windows(4).any(|w| w == b"\r\n\r\n") {
+                                match stream.read(&mut buffer) {
+                                    Ok(0) | Err(_) => break,
+                                    Ok(n) => bytes.extend_from_slice(&buffer[..n]),
+                                }
+                            }
+                            let request = String::from_utf8_lossy(&bytes);
+                            let Some(path) = request
+                                .lines()
+                                .next()
+                                .and_then(|l| l.split_whitespace().nth(1))
+                            else {
+                                continue;
+                            };
+                            received.lock().unwrap().push(path.into());
+                            let mode = selected.load(Ordering::SeqCst);
+                            if mode != 9 {
+                                // Unobserved compatibility requests have no slots.
+                                let database = db.lock().unwrap();
+                                let pending:i64=database.query_row("SELECT count(*) FROM metadata_request_slots WHERE state='pending' AND (resource_id IN (SELECT id FROM metadata_resources WHERE request_uri=?1))",[format!("{url}{path}")],|r|r.get(0)).unwrap();
+                                assert_eq!(pending, 1, "generation must commit before HTTP");
+                            }
+                            if mode == 8 || (matches!(mode, 10 | 21) && path == "/feed.xml") {
+                                db.lock().unwrap().execute_batch("CREATE TEMP TRIGGER reject_observation AFTER INSERT ON metadata_observations BEGIN SELECT RAISE(ABORT,'fixture response rejection'); END").unwrap();
+                            }
+                            if mode == 21 && path == "/feed.xml" {
+                                db.lock()
+                                    .unwrap()
+                                    .authorizer(Some(
+                                        |context: rusqlite::hooks::AuthContext<'_>| {
+                                            if matches!(
+                                                context.action,
+                                                rusqlite::hooks::AuthAction::Read {
+                                                    table_name: "feeds",
+                                                    ..
+                                                }
+                                            ) {
+                                                rusqlite::hooks::Authorization::Deny
+                                            } else {
+                                                rusqlite::hooks::Authorization::Allow
+                                            }
+                                        },
+                                    ))
+                                    .unwrap();
+                            }
+                            if mode == 11 && path.starts_with("/v1/feeds/f1?") {
+                                db.lock().unwrap().execute_batch("CREATE TEMP TRIGGER reject_next_allocation BEFORE UPDATE ON metadata_generation BEGIN SELECT RAISE(ABORT,'fixture later allocation'); END").unwrap();
+                            }
+                            if mode == 15 && path == "/feed.xml" {
+                                let committed = Arc::new(AtomicBool::new(false));
+                                let flag = Arc::clone(&committed);
+                                let database = db.lock().unwrap();
+                                database
+                                    .commit_hook(Some(move || {
+                                        flag.store(true, Ordering::SeqCst);
+                                        false
+                                    }))
+                                    .unwrap();
+                                database
+                                    .authorizer(Some(
+                                        move |context: rusqlite::hooks::AuthContext<'_>| {
+                                            if committed.load(Ordering::SeqCst)
+                                                && matches!(
+                                                    context.action,
+                                                    rusqlite::hooks::AuthAction::Read {
+                                                        table_name: "metadata_request_slots",
+                                                        ..
+                                                    }
+                                                )
+                                            {
+                                                rusqlite::hooks::Authorization::Deny
+                                            } else {
+                                                rusqlite::hooks::Authorization::Allow
+                                            }
+                                        },
+                                    ))
+                                    .unwrap();
+                            }
+                            if mode == 17 {
+                                db.lock().unwrap().execute_batch("CREATE TEMP TRIGGER reject_legacy BEFORE INSERT ON entity_identity_links BEGIN SELECT RAISE(ABORT,'fixture legacy rejection'); END").unwrap();
+                            }
+                            if mode == 18 {
+                                db.lock()
+                                    .unwrap()
+                                    .authorizer(Some(
+                                        |context: rusqlite::hooks::AuthContext<'_>| {
+                                            if matches!(
+                                                context.action,
+                                                rusqlite::hooks::AuthAction::Read {
+                                                    table_name: "entity_identity_ids",
+                                                    ..
+                                                }
+                                            ) {
+                                                rusqlite::hooks::Authorization::Deny
+                                            } else {
+                                                rusqlite::hooks::Authorization::Allow
+                                            }
+                                        },
+                                    ))
+                                    .unwrap();
+                            }
+                            let (status, body) = response(&url, path, mode);
+                            if mode == 20 && received.lock().unwrap().len() == 1 {
+                                *held.lock().unwrap() = Some((stream, format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())));
+                                continue;
+                            }
+                            write!(stream,"HTTP/1.1 {status}\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(2))
+                        }
+                        Err(e) => panic!("fixture listener: {e}"),
+                    }
+                }
+            });
+            Self {
+                endpoint: base.into(),
+                address,
+                conn,
+                tracks,
+                mode,
+                requests,
+                commits,
+                held_response,
+                stop,
+                worker: Some(worker),
+            }
+        }
+        fn load(&self, index: usize) -> Result<TrackContext, CommandError> {
+            FetchLibraryTrackContext::new(
+                Arc::clone(&self.conn),
+                self.tracks[index].clone(),
+                self.endpoint.clone(),
+            )
+            .execute(&CommandContext::next())
+            .map(|outcome| outcome.into_parts().0)
+        }
+        fn row_counts(&self) -> Vec<i64> {
+            let conn = self.conn.lock().unwrap();
+            [
+                "metadata_bodies",
+                "metadata_observations",
+                "metadata_coverage",
+                "metadata_facts",
+            ]
+            .iter()
+            .map(|table| {
+                conn.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                    .unwrap()
+            })
+            .collect()
+        }
+        fn compare(&self, root: &Path) -> Result<LibraryTrackCompare, CommandError> {
+            let mut track = self.tracks[0].clone();
+            track.local_path = Some(crate::library_path::LibraryRelativePath::for_test(
+                "track.mp3",
+            ));
+            CompareLibraryTrack::new(
+                Arc::clone(&self.conn),
+                track,
+                self.endpoint.clone(),
+                root.to_owned(),
+            )
+            .execute(&CommandContext::next())
+            .map(|outcome| outcome.into_parts().0)
+        }
+        fn hydrate(&self) -> Result<AlbumIdentityHydration, CommandError> {
+            HydrateAlbumIdentity::new(Arc::clone(&self.conn), self.endpoint.clone(), 1, "f1")
+                .execute(&CommandContext::next())
+                .map(|outcome| outcome.into_parts().0)
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+            let _ = TcpStream::connect(&self.address);
+            self.worker.take().unwrap().join().unwrap();
+        }
+    }
+    fn response(base: &str, path: &str, mode: usize) -> (&'static str, String) {
+        let path = path.split('?').next().unwrap();
+        if mode == 1 || (mode == 2 && path.contains("/tracks/") && path.contains("/feeds/")) {
+            return (
+                "503 Service Unavailable",
+                "{\"error\":\"retained failure\"}".into(),
+            );
+        }
+        if path == "/feed.xml" {
+            if mode == 14 {
+                return ("503 Service Unavailable", "retained RSS failure".into());
+            }
+            if matches!(mode, 12 | 13 | 15) {
+                let txt = if mode == 13 {
+                    ""
+                } else {
+                    "<podcast:txt purpose=\"npub\">npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqzqujme</podcast:txt>"
+                };
+                return ("200 OK",format!("<rss xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><podcast:guid>f1</podcast:guid>{txt}<item><guid>t1</guid>{txt}</item></channel></rss>"));
+            }
+            return (
+                "200 OK",
+                if mode == 5 {
+                    "<rss><broken>".into()
+                } else {
+                    format!("<rss xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>RSS feed</title><podcast:guid>f1</podcast:guid><podcast:txt purpose=\"other\">rejected-original</podcast:txt><item><guid>{}</guid><title>RSS title</title><description>RSS description</description><podcast:txt purpose=\"npub\">bad-original</podcast:txt></item><item><guid>t2</guid><title>Second</title></item></channel></rss>",if mode==6 {"other"}else{"t1"})
+                },
+            );
+        }
+        if path.contains("/tracks/") {
+            if mode == 22 {
+                return ("200 OK", json!({"data": {
+                    "track_guid":"t1", "feed_guid":"f1", "feed_url":format!("{base}/feed.xml"),
+                    "title":"Payment track",
+                    "source_contributors":[{"entity_type":"track","entity_id":"t1","name":"Payee","role":"performer","source":"rss"}],
+                    "payment_routes":[{"recipient_name":"Payee","split":100.0,"route_type":"lightning"}]
+                }}).to_string());
+            }
+            if mode == 3 {
+                return ("200 OK", "{broken JSON".into());
+            }
+            if mode == 4 {
+                return (
+                    "200 OK",
+                    "{\"data\":{\"title\":\"first\",\"title\":\"second\"}}".into(),
+                );
+            }
+            if mode == 7 {
+                return("200 OK",format!("{{\"data\":{{\"track_guid\":\"t1\",\"feed_guid\":\"f1\",\"feed_url\":\"{base}/feed.xml\",\"unknown\":1e999}}}}"));
+            }
+            return("200 OK",json!({"data":{"track_guid":path.rsplit('/').next(),"feed_guid":"f1","feed_url":format!("{base}/feed.xml"),"title":"...","description":"original Index","source_links":[],"source_ids":null,"source_contributors":[{"entity_type":"track","entity_id":"t1","name":"Artist","role_norm":"performer","source":"rss","future":"original"}]}}).to_string());
+        }
+        if matches!(mode, 16..=18) {
+            return ("200 OK", json!({"unknown_envelope":"retained", "data": {
+                "feed_guid":"f1", "feed_url":format!("{base}/feed.xml"), "title":"Hydrated feed",
+                "description":"Hydrated description", "language":"en", "release_kind":"album",
+                "source_links":[{"entity_type":"feed","entity_id":"f1","link_type":"website","url":"https://example.test/feed","source":"rss","unknown_claim":"retained"}],
+                "source_ids":[], "source_contributors":[]
+            }}).to_string());
+        }
+        ("200 OK",json!({"data":{"feed_guid":"f1","feed_url":format!("{base}/feed.xml"),"title":"Index feed","source_links":[],"source_ids":[],"source_contributors":[]}}).to_string())
+    }
+
+    fn comparison_audio() -> tempfile::TempDir {
+        use id3::TagLike;
+        let directory = tempfile::tempdir().unwrap();
+        let mut file = std::fs::File::create(directory.path().join("track.mp3")).unwrap();
+        let mut tag = id3::Tag::new();
+        tag.set_title("Embedded title");
+        tag.set_artist("Embedded artist");
+        tag.set_track(7);
+        tag.write_to(&mut file, id3::Version::Id3v24).unwrap();
+        directory
+    }
+
+    fn assert_comparison_equal(actual: &TagCompareResult, expected: &TagCompareResult) {
+        assert_eq!(format!("{:?}", actual.rows), format!("{:?}", expected.rows));
+        assert_eq!(
+            serde_json::to_value(&actual.contributors).unwrap(),
+            serde_json::to_value(&expected.contributors).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(&actual.value_routes).unwrap(),
+            serde_json::to_value(&expected.value_routes).unwrap()
+        );
+        assert_eq!(actual.path, expected.path);
+        assert_eq!(
+            format!("{:?}", actual.id3_fields),
+            format!("{:?}", expected.id3_fields)
+        );
+    }
+
+    #[test]
+    fn adr_0075_library_observation_comparison_requests_fallback_and_tags_stay_equal() {
+        let directory = comparison_audio();
+        let path = directory.path().join("track.mp3");
+        let original = std::fs::read(&path).unwrap();
+        let fixture = Fixture::start();
+        let command = CompareLibraryTrack::new(
+            Arc::clone(&fixture.conn),
+            fixture.tracks[0].clone(),
+            fixture.endpoint.clone(),
+            directory.path().to_owned(),
+        );
+        let error = command.execute(&CommandContext::next()).unwrap_err();
+        assert!(matches!(error, CommandError::ObservedQueryFailure(_)));
+        assert_eq!(
+            error.to_string(),
+            CommandError::Query("library track has no local file".into()).to_string()
+        );
+        assert!(fixture.requests.lock().unwrap().is_empty());
+        assert_eq!(fixture.commits.load(Ordering::SeqCst), 0);
+        for (mode, paths) in [
+            (
+                0,
+                vec!["/v1/feeds/f1/tracks/t1", "/v1/feeds/f1", "/feed.xml"],
+            ),
+            (
+                2,
+                vec![
+                    "/v1/feeds/f1/tracks/t1",
+                    "/v1/tracks/t1",
+                    "/v1/feeds/f1",
+                    "/feed.xml",
+                ],
+            ),
+            (
+                1,
+                vec!["/v1/feeds/f1/tracks/t1", "/v1/tracks/t1", "/v1/feeds/f1"],
+            ),
+        ] {
+            fixture.mode.store(mode, Ordering::SeqCst);
+            fixture.requests.lock().unwrap().clear();
+            let result = fixture.compare(directory.path()).unwrap();
+            assert_eq!(result.track_context.observation_receipts.len(), paths.len());
+            let expected: Vec<_> = paths.iter().map(|path| if *path == "/feed.xml" { (*path).into() } else {
+                format!("{path}?include=source_links%2Csource_ids%2Csource_release_claims%2Csource_contributors%2Cpayment_routes")
+            }).collect();
+            assert_eq!(*fixture.requests.lock().unwrap(), expected);
+            let mut local_track = fixture.tracks[0].clone();
+            local_track.local_path = Some(crate::library_path::LibraryRelativePath::for_test(
+                "track.mp3",
+            ));
+            let expected_context = if mode == 1 {
+                track_row_to_track_context(&local_track)
+            } else {
+                fixture.mode.store(9, Ordering::SeqCst);
+                feed_service::fetch_library_track_context(&local_track, &fixture.endpoint).unwrap()
+            };
+            assert_eq!(
+                serde_json::to_value((&result.track_context.track, &result.track_context.feed))
+                    .unwrap(),
+                serde_json::to_value((&expected_context.track, &expected_context.feed)).unwrap()
+            );
+            assert_comparison_equal(
+                &result.tag_compare,
+                &subscribe_service::compare_downloaded_track_path(&path, &expected_context)
+                    .unwrap(),
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), original);
+        }
+        fixture.mode.store(0, Ordering::SeqCst);
+        fixture.requests.lock().unwrap().clear();
+        let mut unscoped = fixture.tracks[0].clone();
+        unscoped.feed_guid = None;
+        unscoped.local_path = Some(crate::library_path::LibraryRelativePath::for_test(
+            "track.mp3",
+        ));
+        let result = CompareLibraryTrack::new(
+            Arc::clone(&fixture.conn),
+            unscoped,
+            fixture.endpoint.clone(),
+            directory.path().to_owned(),
+        )
+        .execute(&CommandContext::next())
+        .unwrap()
+        .into_parts()
+        .0;
+        assert_eq!(result.track_context.observation_receipts.len(), 3);
+        assert!(fixture.requests.lock().unwrap()[0].starts_with("/v1/tracks/t1?"));
+    }
+
+    #[test]
+    fn adr_0075_library_observation_hydration_repetition_counts_and_reopened_evidence() {
+        let fixture = Fixture::start();
+        fixture.mode.store(16, Ordering::SeqCst);
+        let mutations = Arc::new(Mutex::new(BTreeMap::<String, usize>::new()));
+        let observed = Arc::clone(&mutations);
+        fixture
+            .conn
+            .lock()
+            .unwrap()
+            .update_hook(Some(
+                move |_: rusqlite::hooks::Action, _: &str, table: &str, _: i64| {
+                    *observed.lock().unwrap().entry(table.into()).or_default() += 1;
+                },
+            ))
+            .unwrap();
+        for repetition in [false, true] {
+            mutations.lock().unwrap().clear();
+            fixture.commits.store(0, Ordering::SeqCst);
+            let hydration = fixture.hydrate().unwrap();
+            assert_eq!(hydration.observation_receipts.len(), 1);
+            assert_eq!(
+                hydration.description.as_deref(),
+                Some("Hydrated description")
+            );
+            assert_eq!(
+                hydration.identity_facts.source_links[0]
+                    .entity_type
+                    .as_deref(),
+                Some("feed")
+            );
+            assert_eq!(hydration.metadata_facts.language.as_deref(), Some("en"));
+            let mutations = mutations.lock().unwrap();
+            let legacy: usize = mutations
+                .iter()
+                .filter(|(table, _)| !table.starts_with("metadata_"))
+                .map(|(_, count)| count)
+                .sum();
+            let observation: usize = mutations
+                .iter()
+                .filter(|(table, _)| table.starts_with("metadata_"))
+                .map(|(_, count)| count)
+                .sum();
+            assert_eq!(legacy, if repetition { 9 } else { 5 });
+            assert_eq!(
+                fixture
+                    .conn
+                    .lock()
+                    .unwrap()
+                    .query_row("SELECT count(*) FROM metadata_snapshots", [], |row| row
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+            println!("ADR0075_LIBRARY_HYDRATION repetition={repetition} legacy_rows={legacy} observation_rows={observation} snapshot_rows=0 transactions={} tables={mutations:?}", fixture.commits.load(Ordering::SeqCst));
+        }
+        assert_eq!(*fixture.requests.lock().unwrap(), vec!["/v1/feeds/f1?include=source_links%2Csource_ids%2Csource_release_claims%2Csource_contributors"; 2]);
+        fixture.mode.store(1, Ordering::SeqCst);
+        let CommandError::ObservedQueryFailure(failure) = fixture.hydrate().unwrap_err() else {
+            panic!("ordinary failure required")
+        };
+        assert_eq!(failure.receipts().len(), 1);
+        assert_eq!(
+            failure.receipts()[0].outcome,
+            crate::provider_observation::ObservationOutcome::Failed
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("retained.sqlite");
+        {
+            let mut target = Connection::open(&path).unwrap();
+            let source = fixture.conn.lock().unwrap();
+            rusqlite::backup::Backup::new(&source, &mut target)
+                .unwrap()
+                .run_to_completion(16, Duration::from_millis(1), None)
+                .unwrap();
+        }
+        let reopened = Connection::open(path).unwrap();
+        let body: String = reopened.query_row("SELECT CAST(bytes AS TEXT) FROM metadata_bodies WHERE CAST(bytes AS TEXT) LIKE '%unknown_envelope%'", [], |row| row.get(0)).unwrap();
+        assert!(body.contains("unknown_claim"));
+        assert!(body.contains("\"entity_type\":\"feed\""));
+        assert_eq!(
+            reopened
+                .query_row(
+                    "SELECT count(*) FROM metadata_observations WHERE outcome='failed'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            reopened
+                .query_row(
+                    "SELECT occurrence_count FROM metadata_observations WHERE outcome='success'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            2
+        );
+    }
+
+    #[test]
+    fn adr_0075_library_observation_ordinary_failures_keep_receipts_and_exact_causes() {
+        let fixture = Fixture::start();
+        let directory = tempfile::tempdir().unwrap();
+        let cause = subscribe_service::compare_downloaded_track_path(
+            &directory.path().join("track.mp3"),
+            &track_row_to_track_context(&fixture.tracks[0]),
+        )
+        .unwrap_err();
+        let error = fixture.compare(directory.path()).unwrap_err();
+        let CommandError::ObservedQueryFailure(failure) = &error else {
+            panic!("ordinary failure required")
+        };
+        assert_eq!(failure.receipts().len(), 3);
+        assert_eq!(failure.message(), format!("{cause:#}"));
+        assert_eq!(
+            error.to_string(),
+            CommandError::Query(format!("{cause:#}")).to_string()
+        );
+        assert!(!format!("{error:?}").contains(&fixture.address));
+        assert!(!format!("{error:?}").contains("track.mp3"));
+        assert_eq!(error.clone(), error);
+        for mode in [17, 18] {
+            let fixture = Fixture::start();
+            fixture.mode.store(mode, Ordering::SeqCst);
+            let error = fixture.hydrate().unwrap_err();
+            let CommandError::ObservedQueryFailure(failure) = &error else {
+                panic!("ordinary legacy failure required")
+            };
+            assert_eq!(failure.receipts().len(), 1);
+            let db = fixture.conn.lock().unwrap();
+            assert_eq!(
+                db.query_row("SELECT description FROM feeds WHERE id=1", [], |row| row
+                    .get::<_, String>(
+                    0
+                ))
+                .unwrap(),
+                "Hydrated description"
+            );
+            assert_eq!(
+                db.query_row("SELECT count(*) FROM metadata_observations", [], |r| r
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                1
+            );
+            if mode == 17 {
+                assert!(failure.message().contains("fixture legacy rejection"));
+            } else {
+                assert!(failure.message().contains("prohibited"));
+                assert_eq!(
+                    db.query_row("SELECT count(*) FROM entity_identity_links", [], |r| r
+                        .get::<_, i64>(0))
+                        .unwrap(),
+                    1
+                );
+            }
+        }
+    }
+    #[test]
+    fn adr_0075_library_observation_storage_failures_stop_roots_and_keep_retry_input() {
+        let directory = comparison_audio();
+        for hydration in [false, true] {
+            let fixture = Fixture::start();
+            fixture.conn.lock().unwrap().execute_batch("CREATE TEMP TRIGGER reject_allocation BEFORE UPDATE ON metadata_generation BEGIN SELECT RAISE(ABORT,'allocation rejected'); END").unwrap();
+            let execute = || {
+                if hydration {
+                    fixture.hydrate().map(|_| ())
+                } else {
+                    fixture.compare(directory.path()).map(|_| ())
+                }
+            };
+            let CommandError::ObservationWriteFailure(failure) = execute().unwrap_err() else {
+                panic!("storage failure required")
+            };
+            assert_eq!(
+                failure.storage_error,
+                Some(ObservationStorageError::RequestAllocation)
+            );
+            assert!(fixture.requests.lock().unwrap().is_empty());
+            fixture
+                .conn
+                .lock()
+                .unwrap()
+                .execute_batch("DROP TRIGGER reject_allocation")
+                .unwrap();
+            fixture.mode.store(8, Ordering::SeqCst);
+            let CommandError::ObservationWriteFailure(failure) = execute().unwrap_err() else {
+                panic!("storage failure required")
+            };
+            assert!(failure.receipts.is_empty());
+            assert_eq!(fixture.requests.lock().unwrap().len(), 1);
+            assert_eq!(fixture.row_counts(), vec![0, 0, 0, 0]);
+            let capsule = failure.write_failure.as_ref().unwrap();
+            assert_eq!(
+                capsule.retry,
+                crate::provider_observation::StorageRetry::VerifiedRollback
+            );
+            let db = fixture.conn.lock().unwrap();
+            assert_eq!(
+                db.query_row("SELECT description FROM feeds WHERE id=1", [], |row| row
+                    .get::<_, Option<
+                    String,
+                >>(
+                    0
+                ))
+                .unwrap(),
+                None
+            );
+            db.execute_batch("DROP TRIGGER reject_observation").unwrap();
+            let receipt = db::provider_observations::record_provider_observation(
+                &db,
+                capsule.token.clone(),
+                Arc::clone(&capsule.observation),
+            )
+            .unwrap();
+            let changes = db.total_changes();
+            let commits = fixture.commits.load(Ordering::SeqCst);
+            let replay = db::provider_observations::record_provider_observation(
+                &db,
+                capsule.token.clone(),
+                Arc::clone(&capsule.observation),
+            )
+            .unwrap();
+            assert_eq!(replay, receipt);
+            assert_eq!(db.total_changes(), changes);
+            assert_eq!(fixture.commits.load(Ordering::SeqCst), commits);
+            let mut changed = (*capsule.observation).clone();
+            changed.finished_at_us += 1;
+            assert!(db::provider_observations::record_provider_observation(
+                &db,
+                capsule.token.clone(),
+                Arc::new(changed)
+            )
+            .is_err());
+            assert_eq!(db.total_changes(), changes);
+            assert_eq!(fixture.requests.lock().unwrap().len(), 1);
+        }
+    }
+
+    #[test]
+    fn adr_0075_library_observation_comparison_later_failures_preserve_receipts_and_read_errors() {
+        let directory = comparison_audio();
+        for mode in [10, 11, 15, 21] {
+            let fixture = Fixture::start();
+            fixture.mode.store(mode, Ordering::SeqCst);
+            let CommandError::ObservationWriteFailure(failure) =
+                fixture.compare(directory.path()).unwrap_err()
+            else {
+                panic!("storage failure required")
+            };
+            assert_eq!(failure.receipts.len(), if mode == 15 { 3 } else { 2 });
+            assert_eq!(failure.write_failure.is_some(), matches!(mode, 10 | 21));
+            assert_eq!(failure.storage_error.is_some(), mode == 11);
+            assert_eq!(
+                failure.read_error,
+                matches!(mode, 15 | 21).then_some(ProviderReadError::Storage)
+            );
+        }
+        let fixture = Fixture::start();
+        fixture.mode.store(10, Ordering::SeqCst);
+        let CommandError::ObservationWriteFailure(original) =
+            fixture.compare(directory.path()).unwrap_err()
+        else {
+            panic!("storage failure required")
+        };
+        let capsule = original.write_failure.as_ref().unwrap();
+        fixture
+            .conn
+            .lock()
+            .unwrap()
+            .authorizer(Some(|context: rusqlite::hooks::AuthContext<'_>| {
+                if matches!(
+                    context.action,
+                    rusqlite::hooks::AuthAction::Read {
+                        table_name: "metadata_request_slots",
+                        ..
+                    }
+                ) {
+                    rusqlite::hooks::Authorization::Deny
+                } else {
+                    rusqlite::hooks::Authorization::Allow
+                }
+            }))
+            .unwrap();
+        let result = assemble_provider_context(
+            &fixture.conn,
+            Err((**capsule).clone().into()),
+            None,
+            original.receipts.to_vec(),
+        );
+        let recorder = ProviderObservationRecorder::new(Arc::clone(&fixture.conn));
+        let error = assemble_observed_query(&recorder, result, |_, _| unreachable!()).unwrap_err();
+        let CommandError::ObservationWriteFailure(combined) = error else {
+            panic!("combined failure required")
+        };
+        assert_eq!(combined.write_failure, original.write_failure);
+        assert_eq!(combined.receipts, original.receipts);
+        assert_eq!(combined.read_error, Some(ProviderReadError::Storage));
+    }
+
+    #[test]
+    fn adr_0075_library_observation_comparison_returns_current_empty_and_failed_refresh() {
+        use crate::provider_observation::{CollectionState, RefreshState};
+        let fixture = Fixture::start();
+        let directory = comparison_audio();
+        fixture
+            .conn
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE feeds SET feed_url=?1 WHERE id=1",
+                [format!("http://{}/feed.xml", fixture.address)],
+            )
+            .unwrap();
+        fixture.mode.store(12, Ordering::SeqCst);
+        let populated = fixture.load(0).unwrap();
+        assert!(populated
+            .provider_state
+            .collections
+            .iter()
+            .all(|collection| matches!(collection.state, CollectionState::CompletePopulated(_))));
+        fixture.mode.store(13, Ordering::SeqCst);
+        let empty = fixture.compare(directory.path()).unwrap();
+        assert_eq!(empty.track_context.provider_state.collections.len(), 2);
+        assert!(empty
+            .track_context
+            .provider_state
+            .collections
+            .iter()
+            .all(|collection| matches!(collection.state, CollectionState::CompleteEmpty(_))));
+        fixture.mode.store(14, Ordering::SeqCst);
+        let failed = fixture.compare(directory.path()).unwrap();
+        assert_eq!(
+            failed.track_context.provider_state.collections,
+            empty.track_context.provider_state.collections
+        );
+        assert_eq!(
+            failed
+                .track_context
+                .provider_state
+                .request_refresh
+                .unwrap()
+                .state,
+            RefreshState::Failed
+        );
+        fixture.mode.store(1, Ordering::SeqCst);
+        let fallback = fixture.compare(directory.path()).unwrap();
+        assert_eq!(
+            fallback.track_context.provider_state.collections,
+            empty.track_context.provider_state.collections
+        );
+        assert!(fallback.track_context.track.feed_url.is_none());
+        assert!(fallback
+            .track_context
+            .feed
+            .as_ref()
+            .unwrap()
+            .feed_url
+            .is_none());
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("comparison.sqlite");
+        {
+            let mut target = Connection::open(&path).unwrap();
+            let source = fixture.conn.lock().unwrap();
+            rusqlite::backup::Backup::new(&source, &mut target)
+                .unwrap()
+                .run_to_completion(16, Duration::from_millis(1), None)
+                .unwrap();
+        }
+        let reopened = Connection::open(path).unwrap();
+        let bodies: Vec<String> = reopened
+            .prepare("SELECT CAST(bytes AS TEXT) FROM metadata_bodies")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(bodies
+            .iter()
+            .any(|body| body.contains("\"future\":\"original\"")));
+        assert!(bodies.iter().any(|body| body.contains("<podcast:txt")));
+        assert!(bodies.iter().any(|body| body == "retained RSS failure"));
+        let request = feed_service::local_provider_request(
+            &reopened,
+            &fixture.tracks[0],
+            &track_row_to_track_context(&fixture.tracks[0]),
+        )
+        .unwrap();
+        let state =
+            db::provider_observations::read_track_provider_state(&reopened, request.as_ref())
+                .unwrap();
+        assert_eq!(
+            state.collections,
+            empty.track_context.provider_state.collections
+        );
+    }
+
+    #[test]
+    fn adr_0075_library_observation_comparison_repetition_preserves_routes_and_counts_mutations() {
+        let fixture = Fixture::start();
+        let directory = comparison_audio();
+        let original = std::fs::read(directory.path().join("track.mp3")).unwrap();
+        fixture.mode.store(22, Ordering::SeqCst);
+        let mutations = Arc::new(Mutex::new(BTreeMap::<String, usize>::new()));
+        let counts = Arc::clone(&mutations);
+        fixture
+            .conn
+            .lock()
+            .unwrap()
+            .update_hook(Some(
+                move |_: rusqlite::hooks::Action, _: &str, table: &str, _: i64| {
+                    *counts.lock().unwrap().entry(table.into()).or_default() += 1;
+                },
+            ))
+            .unwrap();
+        let mut prior_rows = None;
+        for repetition in [false, true] {
+            mutations.lock().unwrap().clear();
+            fixture.commits.store(0, Ordering::SeqCst);
+            let result = fixture.compare(directory.path()).unwrap();
+            assert_eq!(
+                result.tag_compare.contributors[0].name.as_deref(),
+                Some("Payee")
+            );
+            assert_eq!(
+                result.tag_compare.value_routes[0].recipient_name.as_deref(),
+                Some("Payee")
+            );
+            assert_eq!(result.tag_compare.value_routes[0].split, Some(100.0));
+            assert_eq!(result.track_context.observation_receipts.len(), 3);
+            assert_eq!(
+                std::fs::read(directory.path().join("track.mp3")).unwrap(),
+                original
+            );
+            assert_eq!(fixture.commits.load(Ordering::SeqCst), 6);
+            let counts = mutations.lock().unwrap();
+            let legacy: usize = counts
+                .iter()
+                .filter(|(table, _)| !table.starts_with("metadata_"))
+                .map(|(_, count)| count)
+                .sum();
+            let snapshots: usize = counts
+                .iter()
+                .filter(|(table, _)| table.starts_with("metadata_snapshot"))
+                .map(|(_, count)| count)
+                .sum();
+            let heads = counts
+                .get("metadata_collection_heads")
+                .copied()
+                .unwrap_or(0);
+            let evidence: usize = counts.values().sum::<usize>() - legacy - snapshots - heads;
+            assert_eq!(legacy, 0);
+            let rows = fixture.row_counts();
+            if let Some(prior) = &prior_rows {
+                assert_eq!(&rows, prior);
+            }
+            prior_rows = Some(rows);
+            println!("ADR0075_LIBRARY_COMPARISON repetition={repetition} legacy_rows={legacy} evidence_rows={evidence} snapshot_rows={snapshots} head_rows={heads} transactions=6");
+        }
+    }
+
+    #[test]
+    fn adr_0075_library_observation_interleaved_detail_comparison_and_hydration_share_exact_slots()
+    {
+        use crate::provider_observation::ObservationRetention;
+        let fixture = Fixture::start();
+        let directory = comparison_audio();
+        fixture.mode.store(20, Ordering::SeqCst);
+        let command = FetchLibraryTrackContext::new(
+            Arc::clone(&fixture.conn),
+            fixture.tracks[0].clone(),
+            fixture.endpoint.clone(),
+        );
+        let detail = std::thread::spawn(move || {
+            command
+                .execute(&CommandContext::next())
+                .unwrap()
+                .into_parts()
+                .0
+        });
+        let start = std::time::Instant::now();
+        while fixture.held_response.lock().unwrap().is_none() {
+            assert!(
+                start.elapsed() < Duration::from_secs(3),
+                "detail request did not reach fixture"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        fixture.mode.store(1, Ordering::SeqCst);
+        let comparison = fixture.compare(directory.path()).unwrap();
+        assert_eq!(comparison.track_context.observation_receipts.len(), 3);
+        let newer_generation = comparison.track_context.observation_receipts[0].generation;
+        fixture.mode.store(16, Ordering::SeqCst);
+        let hydration = fixture.hydrate().unwrap();
+        assert_eq!(hydration.observation_receipts.len(), 1);
+        {
+            let db = fixture.conn.lock().unwrap();
+            let states: Vec<String> = db.prepare("SELECT state FROM metadata_request_slots WHERE resource_id IN (SELECT id FROM metadata_resources WHERE request_uri LIKE '%/v1/feeds/f1?%') ORDER BY generation").unwrap().query_map([], |row| row.get(0)).unwrap().collect::<Result<_, _>>().unwrap();
+            assert_eq!(states, vec!["failed", "success"]);
+        }
+        fixture.mode.store(0, Ordering::SeqCst);
+        let (mut stream, response) = fixture.held_response.lock().unwrap().take().unwrap();
+        stream.write_all(response.as_bytes()).unwrap();
+        drop(stream);
+        let older = detail.join().unwrap();
+        assert!(older.observation_receipts[0].generation < newer_generation);
+        assert_eq!(
+            older.observation_receipts[0].retention,
+            ObservationRetention::SupersededAttempt
+        );
+        let db = fixture.conn.lock().unwrap();
+        let slot: (i64, String) = db.query_row("SELECT generation,state FROM metadata_request_slots WHERE resource_id IN (SELECT id FROM metadata_resources WHERE request_uri LIKE '%/v1/feeds/f1/tracks/t1?%')", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+        assert_eq!(slot, (newer_generation, "failed".into()));
+        assert_eq!(fixture.requests.lock().unwrap().len(), 7);
+    }
+
+    #[test]
+    fn adr_0075_observation_live_library_request_bounds_receipts_and_repeated_mutations() {
+        let fixture = Fixture::start();
+        let before = fixture.conn.lock().unwrap().total_changes();
+        let context = fixture.load(0).unwrap();
+        assert_eq!(context.observation_receipts.len(), 3);
+        assert_eq!(fixture.requests.lock().unwrap().len(), 3);
+        assert_eq!(fixture.commits.load(Ordering::SeqCst), 6);
+        let first_changes = fixture.conn.lock().unwrap().total_changes() - before;
+        let rows = fixture.row_counts();
+        assert_eq!(context.track.title.as_deref(), Some("Local title"));
+        let cloned = context.clone();
+        assert_eq!(cloned.observation_receipts, context.observation_receipts);
+        let before = fixture.conn.lock().unwrap().total_changes();
+        let repeated = fixture.load(0).unwrap();
+        let repeated_changes = fixture.conn.lock().unwrap().total_changes() - before;
+        assert_eq!(repeated.observation_receipts.len(), 3);
+        assert_eq!(fixture.row_counts(), rows);
+        assert_eq!(fixture.requests.lock().unwrap().len(), 6);
+        assert_eq!(fixture.commits.load(Ordering::SeqCst), 12);
+        fixture.requests.lock().unwrap().clear();
+        let _one = fixture.load(0).unwrap();
+        let _two = fixture.load(1).unwrap();
+        assert_eq!(fixture.requests.lock().unwrap().len(), 6);
+        println!("ADR0075_OBSERVATION_COUNTS first_rows={first_changes} repeated_rows={repeated_changes} first_transactions=6 repeated_transactions=6 stable_evidence={rows:?}");
+        let conn = fixture.conn.lock().unwrap();
+        let original:Vec<u8>=conn.query_row("SELECT bytes FROM metadata_bodies WHERE CAST(bytes AS TEXT) LIKE '%original Index%' LIMIT 1",[],|r|r.get(0)).unwrap();
+        assert!(String::from_utf8(original)
+            .unwrap()
+            .contains("\"title\":\"...\""));
+        let rss_bodies: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM metadata_bodies WHERE CAST(bytes AS TEXT) LIKE '<rss%'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(rss_bodies, 1);
+    }
+    #[test]
+    fn adr_0075_observation_retained_failures_preserve_local_and_scoped_fallback() {
+        let fixture = Fixture::start();
+        fixture.mode.store(1, Ordering::SeqCst);
+        let local = fixture.load(0).unwrap();
+        assert_eq!(local.observation_receipts.len(), 3);
+        assert!(local
+            .observation_receipts
+            .iter()
+            .all(|r| r.outcome == crate::provider_observation::ObservationOutcome::Failed));
+        assert_eq!(fixture.requests.lock().unwrap().len(), 3);
+        assert_eq!(local.track.title.as_deref(), Some("Local title"));
+        fixture.requests.lock().unwrap().clear();
+        fixture.mode.store(2, Ordering::SeqCst);
+        let context = fixture.load(0).unwrap();
+        assert_eq!(context.observation_receipts.len(), 4);
+        assert_eq!(fixture.requests.lock().unwrap().len(), 4);
+        assert_eq!(
+            context.observation_receipts[0].outcome,
+            crate::provider_observation::ObservationOutcome::Failed
+        );
+    }
+    #[test]
+    fn adr_0075_observation_decode_failure_and_auxiliary_failure_keep_original_bytes() {
+        for mode in [3, 4, 5, 6, 7] {
+            let fixture = Fixture::start();
+            fixture.mode.store(mode, Ordering::SeqCst);
+            let context = fixture.load(0).unwrap();
+            let conn = fixture.conn.lock().unwrap();
+            match mode {
+                3 | 4 => {
+                    assert_eq!(
+                        context.observation_receipts[0].outcome,
+                        crate::provider_observation::ObservationOutcome::Failed
+                    );
+                    let bytes: Vec<u8> = conn
+                        .query_row(
+                            "SELECT bytes FROM metadata_bodies WHERE sha256=?1",
+                            [context.observation_receipts[0].body_key.as_ref().unwrap()],
+                            |r| r.get(0),
+                        )
+                        .unwrap();
+                    if mode == 4 {
+                        assert_eq!(
+                            String::from_utf8(bytes)
+                                .unwrap()
+                                .matches("\"title\"")
+                                .count(),
+                            2
+                        );
+                    }
+                }
+                5 => {
+                    assert_eq!(
+                        context.observation_receipts.last().unwrap().outcome,
+                        crate::provider_observation::ObservationOutcome::Failed
+                    );
+                    assert!(context.rss_observation.is_none());
+                    assert_eq!(context.track.description.as_deref(), Some("original Index"));
+                }
+                6 => {
+                    assert_eq!(
+                        context.observation_receipts.last().unwrap().outcome,
+                        crate::provider_observation::ObservationOutcome::Partial
+                    );
+                    assert!(context.rss_observation.is_some());
+                }
+                7 => {
+                    assert_eq!(
+                        context.observation_receipts[0].outcome,
+                        crate::provider_observation::ObservationOutcome::Success
+                    );
+                    assert!(conn.query_row("SELECT basis_json FROM metadata_coverage WHERE observation_id=?1 LIMIT 1",[context.observation_receipts[0].observation_id],|r|r.get::<_,String>(0)).unwrap().contains("raw_extraction_incomplete"));
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+    #[test]
+    fn adr_0075_observation_storage_failures_cross_command_boundary_and_retry_without_http() {
+        let fixture = Fixture::start();
+        fixture.conn.lock().unwrap().execute_batch("CREATE TEMP TRIGGER reject_allocation BEFORE UPDATE ON metadata_generation BEGIN SELECT RAISE(ABORT,'fixture allocation rejection'); END").unwrap();
+        let error = fixture.load(0).unwrap_err();
+        assert!(matches!(error, CommandError::ObservationWriteFailure(_)));
+        assert!(fixture.requests.lock().unwrap().is_empty());
+        fixture
+            .conn
+            .lock()
+            .unwrap()
+            .execute_batch("DROP TRIGGER reject_allocation")
+            .unwrap();
+        fixture.mode.store(8, Ordering::SeqCst);
+        let error = fixture.load(0).unwrap_err();
+        let CommandError::ObservationWriteFailure(failure) = error else {
+            panic!("typed storage failure required")
+        };
+        assert_eq!(fixture.requests.lock().unwrap().len(), 1);
+        assert_eq!(fixture.row_counts(), vec![0, 0, 0, 0]);
+        let conn = fixture.conn.lock().unwrap();
+        conn.execute_batch("DROP TRIGGER reject_observation")
+            .unwrap();
+        let receipt = db::provider_observations::record_provider_observation(
+            &conn,
+            failure.write_failure.as_ref().unwrap().token.clone(),
+            Arc::clone(&failure.write_failure.as_ref().unwrap().observation),
+        )
+        .unwrap();
+        assert_eq!(
+            receipt.generation,
+            failure.write_failure.as_ref().unwrap().token.generation()
+        );
+        assert_eq!(fixture.requests.lock().unwrap().len(), 1);
+        for rendered in [
+            format!("{failure:?}"),
+            format!("{failure}"),
+            format!(
+                "{:?}",
+                CommandError::ObservationWriteFailure(Arc::clone(&failure))
+            ),
+        ] {
+            assert!(!rendered.contains("original Index"));
+            assert!(!rendered.contains(&fixture.address));
+        }
+    }
+    #[test]
+    fn adr_0075_observation_earlier_receipts_survive_later_write_and_allocation_failures() {
+        for mode in [10, 11] {
+            let fixture = Fixture::start();
+            fixture.mode.store(mode, Ordering::SeqCst);
+            let CommandError::ObservationWriteFailure(failure) = fixture.load(0).unwrap_err()
+            else {
+                panic!("typed command failure required")
+            };
+            assert_eq!(failure.receipts.len(), 2);
+            assert!(failure
+                .receipts
+                .iter()
+                .all(|r| r.outcome == crate::provider_observation::ObservationOutcome::Success));
+            assert_eq!(failure.write_failure.is_some(), mode == 10);
+            assert_eq!(failure.storage_error.is_some(), mode == 11);
+            assert_eq!(
+                fixture.requests.lock().unwrap().len(),
+                if mode == 10 { 3 } else { 2 }
+            );
+            let mut vm = LibraryViewModel::new();
+            vm.retain_observation_failure(&CommandError::ObservationWriteFailure(failure));
+            assert!(vm.status_snapshot().is_error);
+        }
+        let fixture = Fixture::start();
+        fixture.mode.store(1, Ordering::SeqCst);
+        fixture
+            .conn
+            .lock()
+            .unwrap()
+            .authorizer(Some(|context: rusqlite::hooks::AuthContext<'_>| {
+                if matches!(context.action, rusqlite::hooks::AuthAction::Read { table_name, .. } if table_name.starts_with("entity_")) { rusqlite::hooks::Authorization::Deny } else { rusqlite::hooks::Authorization::Allow }
+            }))
+            .unwrap();
+        let CommandError::ObservationWriteFailure(failure) = fixture.load(0).unwrap_err() else {
+            panic!("retained local fallback failure required")
+        };
+        assert_eq!(failure.receipts.len(), 3);
+    }
+
+    #[test]
+    fn adr_0075_observation_unobserved_service_keeps_compatibility_requests() {
+        let fixture = Fixture::start();
+        fixture.mode.store(9, Ordering::SeqCst);
+        let context =
+            feed_service::fetch_library_track_context(&fixture.tracks[0], &fixture.endpoint)
+                .unwrap();
+        assert!(context.observation_receipts.is_empty());
+        assert_eq!(fixture.requests.lock().unwrap().len(), 3);
+        assert_eq!(fixture.row_counts(), vec![0, 0, 0, 0]);
+        assert_eq!(fixture.commits.load(Ordering::SeqCst), 0);
+    }
+    #[test]
+    fn adr_0075_snapshot_live_commands_return_empty_and_retained_failed_refresh() {
+        use crate::provider_observation::{CollectionState, RefreshState};
+        let fixture = Fixture::start();
+        fixture
+            .conn
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE feeds SET feed_url=?1 WHERE id=1",
+                [format!("http://{}/feed.xml", fixture.address)],
+            )
+            .unwrap();
+        fixture.commits.store(0, Ordering::SeqCst);
+        fixture.mode.store(12, Ordering::SeqCst);
+        let populated = fixture.load(0).unwrap();
+        assert_eq!(populated.provider_state.collections.len(), 2);
+        assert!(populated
+            .provider_state
+            .collections
+            .iter()
+            .all(|c| matches!(c.state, CollectionState::CompletePopulated(_))));
+        assert_eq!(fixture.requests.lock().unwrap().len(), 3);
+        assert_eq!(fixture.commits.load(Ordering::SeqCst), 6);
+        fixture.mode.store(13, Ordering::SeqCst);
+        let empty = fixture.load(0).unwrap();
+        assert!(empty
+            .provider_state
+            .collections
+            .iter()
+            .all(|c| matches!(c.state, CollectionState::CompleteEmpty(_))));
+        let changes = fixture.conn.lock().unwrap().total_changes();
+        let requests = fixture.requests.lock().unwrap().len();
+        let local = FetchLocalTrackContext::new(Arc::clone(&fixture.conn), fixture.tracks[0].id)
+            .execute(&CommandContext::next())
+            .unwrap()
+            .into_parts()
+            .0
+            .context;
+        assert_eq!(local.provider_state, empty.provider_state);
+        assert_eq!(fixture.conn.lock().unwrap().total_changes(), changes);
+        assert_eq!(fixture.requests.lock().unwrap().len(), requests);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("local-context.sqlite");
+        {
+            let mut target = Connection::open(&path).unwrap();
+            let source = fixture.conn.lock().unwrap();
+            let backup = rusqlite::backup::Backup::new(&source, &mut target).unwrap();
+            backup
+                .run_to_completion(16, Duration::from_millis(1), None)
+                .unwrap();
+        }
+        let reopened = Arc::new(Mutex::new(Connection::open(path).unwrap()));
+        let reopened_changes = reopened.lock().unwrap().total_changes();
+        let reopened_local =
+            FetchLocalTrackContext::new(Arc::clone(&reopened), fixture.tracks[0].id)
+                .execute(&CommandContext::next())
+                .unwrap()
+                .into_parts()
+                .0
+                .context;
+        assert_eq!(reopened_local.provider_state, empty.provider_state);
+        assert_eq!(reopened.lock().unwrap().total_changes(), reopened_changes);
+        assert_eq!(fixture.requests.lock().unwrap().len(), requests);
+        fixture.mode.store(14, Ordering::SeqCst);
+        let failed = fixture.load(0).unwrap();
+        assert_eq!(
+            failed.provider_state.collections,
+            empty.provider_state.collections
+        );
+        assert_eq!(
+            failed
+                .provider_state
+                .request_refresh
+                .as_ref()
+                .unwrap()
+                .state,
+            RefreshState::Failed
+        );
+        assert_eq!(failed.observation_receipts.len(), 3);
+    }
+
+    #[test]
+    fn adr_0075_snapshot_committed_read_failure_reaches_command_and_library_state() {
+        let fixture = Fixture::start();
+        fixture.mode.store(15, Ordering::SeqCst);
+        let CommandError::ObservationWriteFailure(failure) = fixture.load(0).unwrap_err() else {
+            panic!("typed retained failure required");
+        };
+        assert!(failure.read_error.is_some());
+        assert_eq!(failure.receipts.len(), 3);
+        assert!(failure.write_failure.is_none());
+        assert_eq!(
+            fixture
+                .conn
+                .lock()
+                .unwrap()
+                .query_row("SELECT count(*) FROM metadata_snapshots", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        let mut vm = LibraryViewModel::new();
+        vm.retain_observation_failure(&CommandError::ObservationWriteFailure(Arc::clone(&failure)));
+        assert_eq!(vm.retained_observation_evidence_counts(), (3, 0));
+        assert!(vm.status_snapshot().is_error);
+        assert!(vm
+            .status_snapshot()
+            .text
+            .contains("could not read provider state"));
+    }
+
+    #[test]
+    fn adr_0075_snapshot_read_failure_also_preserves_preceding_write_capsule() {
+        let fixture = Fixture::start();
+        fixture.mode.store(10, Ordering::SeqCst);
+        let CommandError::ObservationWriteFailure(failure) = fixture.load(0).unwrap_err() else {
+            panic!("typed retained failure required");
+        };
+        let capsule = failure.write_failure.as_ref().unwrap();
+        fixture
+            .conn
+            .lock()
+            .unwrap()
+            .authorizer(Some(|context: rusqlite::hooks::AuthContext<'_>| {
+                if matches!(
+                    context.action,
+                    rusqlite::hooks::AuthAction::Read {
+                        table_name: "metadata_request_slots",
+                        ..
+                    }
+                ) {
+                    rusqlite::hooks::Authorization::Deny
+                } else {
+                    rusqlite::hooks::Authorization::Allow
+                }
+            }))
+            .unwrap();
+        let error = assemble_provider_context(
+            &fixture.conn,
+            Err((**capsule).clone().into()),
+            None,
+            failure.receipts.to_vec(),
+        )
+        .unwrap_err();
+        let error = query_error(&error);
+        let CommandError::ObservationWriteFailure(ref combined) = error else {
+            panic!("typed combined failure required");
+        };
+        assert_eq!(combined.write_failure, failure.write_failure);
+        assert_eq!(combined.receipts, failure.receipts);
+        assert!(combined.read_error.is_some());
+        let mut vm = LibraryViewModel::new();
+        vm.retain_observation_failure(&error);
+        assert_eq!(vm.retained_observation_evidence_counts(), (2, 1));
+    }
+    fn legacy_rss_observation(
+        request: &crate::provider_observation::ProviderRequestSpec,
+        body: &str,
+        failed: bool,
+    ) -> crate::provider_observation::ProviderObservation {
+        use crate::provider_observation::{
+            CoverageEvidence, FactEvidence, ObservationOutcome, ObservationRetention,
+            PropertyPresence, ProviderObservation, SubjectKey,
+        };
+        let mut result = ProviderObservation {
+            body: Some(Arc::from(body.as_bytes())),
+            http_status: Some(200),
+            response_uri: Some(request.request_uri.clone()),
+            interpretation: json!({"version":1,"media_type":"application/json","charset":"UTF-8","retained_body_codings":[],"body_state":"complete","effective_base_uri":null}),
+            source_revision: None,
+            source_times: json!({}),
+            decoder_version: "rss-dom-v1".into(),
+            outcome: if failed {
+                ObservationOutcome::Failed
+            } else {
+                ObservationOutcome::Success
+            },
+            failure: failed.then(|| json!({"reason":"xml_decode"})),
+            finished_at_us: 2,
+            fetched_at_us: Some(1),
+            occurrence: json!({"version":1,"headers":{}}),
+            coverage: Vec::new(),
+        };
+        if failed {
+            return result;
+        }
+        let document = roxmltree::Document::parse(body).unwrap();
+        for node in document.descendants().filter(|node| {
+            node.is_element() && !matches!(node.tag_name().name(), "rss" | "channel" | "item")
+        }) {
+            let owner = node
+                .ancestors()
+                .skip(1)
+                .find(|node| matches!(node.tag_name().name(), "item" | "channel"))
+                .unwrap();
+            let item = (owner.tag_name().name() == "item").then_some("t1");
+            let subject = SubjectKey::guid("f1", item);
+            let declared_owner =
+                json!({"feed_guid":"f1","item_guid":item,"feed_resource":request.request_uri});
+            let identity = node.tag_name().name() == "txt";
+            let collection = if identity {
+                "source_ids".into()
+            } else {
+                format!(
+                    "field:xml:{{{}}}{}",
+                    node.tag_name().namespace().unwrap_or_default(),
+                    node.tag_name().name()
+                )
+            };
+            let position = document.text_pos_at(node.range().start);
+            let fact = FactEvidence {
+                subject: Some(subject.clone()),
+                declared_owner: declared_owner.clone(),
+                owner_basis: json!({"basis":"direct_xml_owner"}),
+                kind: collection.clone(),
+                assertion_source: Some("rss".into()),
+                source_position: None,
+                extraction_path: identity.then(|| {
+                    if item.is_some() {
+                        "rss/channel/item[1]/podcast:txt[1]/text()".into()
+                    } else {
+                        "rss/channel/podcast:txt[1]/text()".into()
+                    }
+                }),
+                source_observed: None,
+                representation: "structured".into(),
+                validation: if identity { "valid" } else { "unresolved" }.into(),
+                value: crate::provider_observation::contracts::rss_element_value(node),
+                raw_member: None,
+                body_locator: json!({"decoded_byte_offset":node.range().start,"line":position.row,"column":position.col}),
+            };
+            result.coverage.push(CoverageEvidence {
+                collection,
+                target: Some(subject),
+                target_owner: declared_owner,
+                request_intent: "implicit".into(),
+                presence: PropertyPresence::Populated,
+                retention: ObservationRetention::Partial,
+                basis: json!({"reason":"no_registered_completeness_contract"}),
+                facts: vec![fact],
+                proof: None,
+            });
+        }
+        result
+    }
+
+    fn retained_interpretation_rows(
+        conn: &Connection,
+        observation: i64,
+    ) -> Vec<Vec<Vec<rusqlite::types::Value>>> {
+        ["SELECT * FROM metadata_observations WHERE id=?1","SELECT * FROM metadata_coverage WHERE observation_id=?1 ORDER BY scope_ordinal","SELECT * FROM metadata_facts WHERE observation_id=?1 ORDER BY scope_ordinal,transport_ordinal"].iter().map(|query| {
+            let mut statement = conn.prepare(query).unwrap();
+            let columns = statement.column_count();
+            let rows = statement.query_map([observation],|row|(0..columns).map(|column|row.get(column)).collect()).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
+            rows
+        }).collect()
+    }
+
+    #[test]
+    fn adr_0075_snapshot_live_v2_capture_preserves_actual_v1_per_node_and_failed_rows() {
+        use crate::db::provider_observations::{
+            begin_provider_request, record_provider_observation,
+        };
+        for mode in [12, 5] {
+            let fixture = Fixture::start();
+            fixture.mode.store(mode, Ordering::SeqCst);
+            let base = format!("http://{}", fixture.address);
+            let request = crate::provider_observation::contracts::rss_request(
+                &format!("{base}/feed.xml"),
+                Some("t1"),
+                None,
+            );
+            let (_, body) = response(&base, "/feed.xml", mode);
+            let old = legacy_rss_observation(&request, &body, mode == 5);
+            if mode == 12 {
+                assert_eq!(old.coverage.len(), 4);
+                assert!(old
+                    .coverage
+                    .iter()
+                    .all(|coverage| coverage.facts.len() == 1 && coverage.proof.is_none()));
+            }
+            let (receipt, before) = {
+                let conn = fixture.conn.lock().unwrap();
+                let token = begin_provider_request(&conn, request.clone()).unwrap();
+                let receipt = record_provider_observation(&conn, token, Arc::new(old)).unwrap();
+                let before = retained_interpretation_rows(&conn, receipt.observation_id);
+                (receipt, before)
+            };
+            let context = fixture.load(0).unwrap();
+            let current = context.observation_receipts.last().unwrap();
+            assert_eq!(current.body_key, receipt.body_key);
+            assert_ne!(current.observation_id, receipt.observation_id);
+            let conn = fixture.conn.lock().unwrap();
+            assert_eq!(
+                retained_interpretation_rows(&conn, receipt.observation_id),
+                before
+            );
+            let versions:Vec<String> = conn.prepare("SELECT decoder_version FROM metadata_observations WHERE id IN (?1,?2) ORDER BY id").unwrap().query_map(rusqlite::params![receipt.observation_id,current.observation_id],|row|row.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+            assert_eq!(versions, ["rss-dom-v1", "rss-dom-v2"]);
+            let equal_inputs:bool = conn.query_row("SELECT a.requested_subject_json=b.requested_subject_json AND a.profile_json=b.profile_json AND a.interpretation_metadata_json=b.interpretation_metadata_json AND a.outcome=b.outcome FROM metadata_observations a, metadata_observations b WHERE a.id=?1 AND b.id=?2",rusqlite::params![receipt.observation_id,current.observation_id],|row|row.get(0)).unwrap();
+            assert!(equal_inputs);
+        }
+    }
 }
 
 #[cfg(test)]

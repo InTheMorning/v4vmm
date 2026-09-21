@@ -59,7 +59,7 @@ pub enum DatabaseReadiness {
     NeedsPreparation,
 }
 
-fn open(path: &Path, create: bool, wait: Duration) -> Result<Connection, DbCheckError> {
+pub(super) fn open(path: &Path, create: bool, wait: Duration) -> Result<Connection, DbCheckError> {
     let mut flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
     if create {
         flags |= OpenFlags::SQLITE_OPEN_CREATE;
@@ -107,35 +107,13 @@ pub(crate) fn check_connection(conn: &mut Connection) -> Result<DatabaseReadines
     Ok(state)
 }
 
-/// Prepare a new/recognized database through the normal migration authority.
-pub fn prepare_database(path: &Path) -> Result<Connection, DbCheckError> {
-    let absent = match fs::symlink_metadata(path) {
-        Ok(_) => false,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
-        Err(_) => {
-            return Err(DbCheckError {
-                stage: DbStage::Inspect,
-                reason: "App could not inspect the database path.",
-            })
-        }
-    };
-    if absent {
-        let parent = path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
-        fs::create_dir_all(parent).map_err(|_| DbCheckError {
-            stage: DbStage::Open,
-            reason: "App could not create the new database's parent directory.",
-        })?;
-    }
-    let mut conn = open(path, absent, STARTUP_BUSY_TIMEOUT)?;
-    check_schema(&conn)?;
-    super::init_schema(&conn).map_err(|_| DbCheckError { stage: DbStage::Initialize, reason: "App could not prepare the database tables. Earlier changes may remain; no reset was performed." })?;
-    super::migrate_schema(&conn).map_err(|_| DbCheckError { stage: DbStage::Migrate, reason: "App could not finish the database migrations. Earlier changes may remain; preserve the file before repair." })?;
-    check_schema(&conn)?;
-    probe_main_database(&mut conn)?;
-    Ok(conn)
+pub use super::maintenance::upgrade::{
+    PreparationError, PreparationReceipt, PreparationState, PreparedDatabase,
+};
+
+/// Prepare a database through guarded preservation and the normal migration registry.
+pub fn prepare_database(path: &Path) -> Result<PreparedDatabase, PreparationError> {
+    super::maintenance::upgrade::prepare(path)
 }
 
 fn check_schema(conn: &Connection) -> Result<DatabaseReadiness, DbCheckError> {
@@ -233,10 +211,14 @@ mod tests {
         super::super::migrate_schema(&conn).unwrap();
         let count: i64 = conn.query_row("SELECT count(*) FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'", [], |r| r.get(0)).unwrap();
         assert_eq!(
-            super::super::CURRENT_COLUMNS.len(),
+            (super::super::VERSION_11_COLUMNS.len()
+                + super::super::provider_snapshot_schema::COLUMNS.len()),
             usize::try_from(count).unwrap()
         );
-        for (table, columns) in super::super::CURRENT_COLUMNS {
+        for (table, columns) in super::super::VERSION_11_COLUMNS
+            .iter()
+            .chain(super::super::provider_snapshot_schema::COLUMNS)
+        {
             let statement = conn.prepare(&format!("SELECT * FROM {table}")).unwrap();
             assert_eq!(
                 statement.column_names(),
@@ -286,11 +268,9 @@ mod tests {
             Ok(DatabaseReadiness::NeedsPreparation)
         );
         assert!(!path.parent().unwrap().exists());
-        let conn = prepare_database(&path).unwrap();
-        conn.execute("DELETE FROM schema_migrations WHERE version=11", [])
-            .unwrap();
-        conn.execute("DROP TABLE broadcast_event_selection", [])
-            .unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let conn = Connection::open(&path).unwrap();
+        crate::db::upgrades::create_fixture(&conn, 10).unwrap();
         drop(conn);
         let before = fs::read(&path).unwrap();
         assert_eq!(

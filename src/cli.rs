@@ -150,7 +150,25 @@ fn open_configured_db(settings: &CliConfig) -> Result<Connection> {
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent).context("prepare database directory")?;
     }
-    db::open_db(db_path)
+    match db::open_db(db_path) {
+        Ok(prepared) => {
+            eprintln!(
+                "{}",
+                crate::view_models::startup::preparation_report(&prepared.receipt)
+            );
+            Ok(prepared.connection)
+        }
+        Err(error) => {
+            if let Some(preparation) = error.downcast_ref::<crate::db::startup::PreparationError>()
+            {
+                eprintln!(
+                    "{}",
+                    crate::view_models::startup::preparation_failure_report(preparation)
+                );
+            }
+            Err(error)
+        }
+    }
 }
 
 fn open_configured_db_with_music_dir(

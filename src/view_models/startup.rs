@@ -97,6 +97,41 @@ impl StartupReportVm {
         self.session_report = report;
     }
 
+    /// Transfer the mounted history into the next session drain (ADR 0075).
+    pub(crate) fn drain_report(
+        generation: u64,
+        previous: &str,
+        capabilities: &str,
+    ) -> session::SessionReportVm {
+        let mut report = session::SessionReportVm::new(generation);
+        report.retain_previous(previous);
+        report.retain_previous(capabilities);
+        report
+    }
+
+    /// Transfer recovery history and the new preparation receipt into the mounted session.
+    pub(crate) fn take_normal_session_report(
+        &mut self,
+        session: Option<&mut session::SessionReportVm>,
+        generation: u64,
+        preparation: &str,
+    ) -> String {
+        let mut report = std::mem::take(&mut self.session_report);
+        if let Some(session) = session {
+            session.report = report;
+            session.resumed(generation);
+            report = std::mem::take(&mut session.report);
+        }
+        for receipt in self.outcome.preparation_receipts.drain(..) {
+            report.push_str(&preparation_report(&receipt));
+        }
+        if let Some(failure) = self.outcome.preparation_failure.take() {
+            report.push_str(&preparation_failure_report(&failure));
+        }
+        report.push_str(preparation);
+        report
+    }
+
     pub fn begin(&mut self, action: StartupAction) -> Option<u64> {
         let work = match action {
             StartupAction::CheckAgain => StartupWork::Check,
@@ -130,6 +165,13 @@ impl StartupReportVm {
             return false;
         };
         self.phase = StartupPhase::Finished { work, completed_at };
+        for receipt in &self.outcome.preparation_receipts {
+            self.session_report.push_str(&preparation_report(receipt));
+        }
+        if let Some(failure) = &self.outcome.preparation_failure {
+            self.session_report
+                .push_str(&preparation_failure_report(failure));
+        }
         self.outcome = outcome;
         true
     }
@@ -277,6 +319,12 @@ pub fn format_report(outcome: &CoreCheckOutcome) -> String {
         "[{}] App recorded this startup report.\n",
         timestamp.format("%Y-%m-%d %H:%M:%S UTC")
     );
+    for receipt in &outcome.preparation_receipts {
+        text.push_str(&preparation_report(receipt));
+    }
+    if let Some(failure) = &outcome.preparation_failure {
+        text.push_str(&preparation_failure_report(failure));
+    }
     for observation in &outcome.observations {
         let timestamp: chrono::DateTime<chrono::Utc> = observation.observed_at.into();
         let _ = write!(
@@ -319,6 +367,62 @@ pub fn format_report(outcome: &CoreCheckOutcome) -> String {
     text
 }
 
+/// Format recorded preparation facts for startup and CLI consumers (ADR 0075).
+pub(crate) fn preparation_report(receipt: &crate::db::startup::PreparationReceipt) -> String {
+    use crate::db::startup::PreparationState;
+    let time = |recorded: std::time::SystemTime| {
+        let utc: chrono::DateTime<chrono::Utc> = recorded.into();
+        utc.format("%Y-%m-%d %H:%M:%S UTC").to_string()
+    };
+    let state = match receipt.state {
+        PreparationState::Unchanged => "App verified the current database. No upgrade backup was needed.",
+        PreparationState::Created => "App created and verified the current database.",
+        PreparationState::Upgraded => "App upgraded the database and verified current readiness after reopening.",
+        PreparationState::Stopped => "App stopped database preparation. Retain all completed artifacts.",
+        PreparationState::RollbackVerified => "App verified rollback against the original schema, ledger, and records. Recovery remains open.",
+        PreparationState::RollbackUnverified => "App could not verify rollback. Recovery remains open. Retain all artifacts.",
+        PreparationState::VerificationFailed => "Migration committed, but verification failed. Recovery remains open. No rollback is claimed.",
+    };
+    let mut report = format!("[{}] App started database preparation.\nDatabase: {}\nTarget schema version: {}\n[{}] {}\n", time(receipt.started_at), receipt.source.display(), receipt.target, time(receipt.finished_at), state);
+    for (label, path) in [
+        ("Preservation directory", &receipt.preservation),
+        ("File-preservation manifest", &receipt.manifest),
+        ("Original snapshot candidate", &receipt.snapshot),
+    ] {
+        if let Some(path) = path {
+            let _ = writeln!(report, "{label}: {}", path.display());
+        }
+    }
+    if let Some(recorded) = receipt.preserved_at {
+        let _ = writeln!(
+            report,
+            "[{}] App preserved the guarded database files.",
+            time(recorded)
+        );
+    }
+    if let Some(recorded) = receipt.snapshot_verified_at {
+        let _ = writeln!(
+            report,
+            "[{}] App verified the original SQLite snapshot.",
+            time(recorded)
+        );
+    }
+    report
+}
+
+pub(crate) fn preparation_failure_report(error: &crate::db::startup::PreparationError) -> String {
+    let mut report = preparation_report(&error.receipt);
+    let _ = writeln!(
+        report,
+        "Failed operation: {}. Result: {:?}.",
+        error.failure.operation, error.failure.kind
+    );
+    for path in &error.failure.remaining {
+        let _ = writeln!(report, "Retained artifact: {}", path.display());
+    }
+    report
+}
+
 fn subject(stage: StartupStage) -> &'static str {
     match stage {
         StartupStage::ConfigPath => "App could not locate its configuration",
@@ -354,6 +458,121 @@ mod tests {
     use super::*;
     use crate::startup::StartupIssue;
     use std::time::{Duration, UNIX_EPOCH};
+
+    #[test]
+    fn adr_0075_migration_receipts_keep_actual_times_and_survive_later_checks() {
+        use crate::db::maintenance::{Failure, FailureKind};
+        use crate::db::startup::{
+            DbCheckError, DbStage, PreparationError, PreparationReceipt, PreparationState,
+        };
+        let receipt = PreparationReceipt {
+            source: "/fixture/library.sqlite".into(),
+            target: 12,
+            started_at: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(10),
+            finished_at: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(20),
+            preserved_at: Some(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(11)),
+            snapshot_verified_at: Some(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(12)),
+            preservation: Some("/fixture/preserved".into()),
+            manifest: Some("/fixture/preserved/manifest.json".into()),
+            snapshot: Some("/fixture/preserved/snapshot.sqlite".into()),
+            state: PreparationState::VerificationFailed,
+        };
+        let mut outcome = CoreCheckOutcome::pending();
+        outcome.preparation_failure = Some(Box::new(PreparationError {
+            check: DbCheckError {
+                stage: DbStage::Migrate,
+                reason: "Recorded fixture failure",
+            },
+            receipt: Box::new(receipt),
+            failure: Failure {
+                operation: "Verify reopened database readiness",
+                kind: FailureKind::Validation,
+                remaining: vec!["/fixture/extra-evidence".into()],
+            },
+        }));
+        let mut vm = StartupReportVm::new(true);
+        let generation = vm.begin(StartupAction::CheckAgain).unwrap();
+        assert!(vm.complete(generation, outcome));
+        let generation = vm.begin(StartupAction::CheckAgain).unwrap();
+        assert!(vm.complete(generation, CoreCheckOutcome::pending()));
+        let report = vm.report();
+        for expected in [
+            "1970-01-01 00:00:10 UTC",
+            "1970-01-01 00:00:11 UTC",
+            "1970-01-01 00:00:12 UTC",
+            "1970-01-01 00:00:20 UTC",
+            "/fixture/preserved/snapshot.sqlite",
+            "/fixture/preserved/manifest.json",
+            "/fixture/extra-evidence",
+            "No rollback is claimed",
+        ] {
+            assert!(
+                report.contains(expected),
+                "missing retained receipt evidence {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn adr_0075_migration_receipt_survives_repeated_drain_and_resume_once() {
+        use crate::db::startup::{PreparationReceipt, PreparationState};
+        let mut receipt = PreparationReceipt {
+            source: "/fixture/library.sqlite".into(),
+            target: 12,
+            started_at: UNIX_EPOCH + Duration::from_secs(10),
+            finished_at: UNIX_EPOCH + Duration::from_secs(20),
+            preserved_at: Some(UNIX_EPOCH + Duration::from_secs(11)),
+            snapshot_verified_at: Some(UNIX_EPOCH + Duration::from_secs(12)),
+            preservation: Some("/fixture/preserved".into()),
+            manifest: Some("/fixture/preserved/manifest.json".into()),
+            snapshot: Some("/fixture/preserved/snapshot.sqlite".into()),
+            state: PreparationState::Upgraded,
+        };
+        let original = preparation_report(&receipt);
+        let mut recovery = StartupReportVm::new(true);
+        let mut mounted = recovery.take_normal_session_report(None, 1, &original);
+        for generation in 1..=3 {
+            let capabilities = format!("Capability report for session {generation}");
+            let mut drain = StartupReportVm::drain_report(generation, &mounted, &capabilities);
+            drain.released();
+            recovery.return_to_recovery(drain.report.clone());
+            let check = recovery.begin(StartupAction::CheckAgain).unwrap();
+            assert!(recovery.complete(check, CoreCheckOutcome::pending()));
+            assert_eq!(recovery.report().matches(&original).count(), 1);
+            receipt.state = PreparationState::Unchanged;
+            receipt.preservation = None;
+            receipt.manifest = None;
+            receipt.snapshot = None;
+            receipt.preserved_at = None;
+            receipt.snapshot_verified_at = None;
+            receipt.started_at = UNIX_EPOCH + Duration::from_secs(100 + generation);
+            receipt.finished_at = receipt.started_at;
+            mounted = recovery.take_normal_session_report(
+                Some(&mut drain),
+                generation + 1,
+                &preparation_report(&receipt),
+            );
+            assert!(recovery.session_report.is_empty());
+            assert!(drain.report.is_empty());
+            assert_eq!(mounted.matches(&original).count(), 1);
+            assert_eq!(
+                mounted.matches("App started ending this session").count(),
+                generation as usize
+            );
+            assert_eq!(
+                mounted.matches("App opened fresh session").count(),
+                generation as usize
+            );
+            for prior in 1..=generation {
+                assert_eq!(
+                    mounted
+                        .matches(&format!("Capability report for session {prior}"))
+                        .count(),
+                    1
+                );
+            }
+        }
+    }
 
     #[test]
     fn adr_0066_recovery_retains_session_report_and_rejects_old_mounts() {

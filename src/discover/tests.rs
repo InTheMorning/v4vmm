@@ -423,6 +423,9 @@ fn tempo_aliases_are_displayed_as_one_metadata_row() {
         ],
     };
     let track_context = TrackContext {
+        rss_observation: None,
+        observation_receipts: Vec::new(),
+        provider_state: Default::default(),
         track: Track::default(),
         feed: None,
     };
@@ -509,6 +512,9 @@ fn sort_order_aliases_are_grouped_with_primary_rows() {
         ],
     };
     let track_context = TrackContext {
+        rss_observation: None,
+        observation_receipts: Vec::new(),
+        provider_state: Default::default(),
         track: Track::default(),
         feed: None,
     };
@@ -616,6 +622,9 @@ fn contributor_related_id3_frames_roll_up_into_contributors_row() {
         ],
     };
     let track_context = TrackContext {
+        rss_observation: None,
+        observation_receipts: Vec::new(),
+        provider_state: Default::default(),
         track: Track::default(),
         feed: None,
     };
@@ -668,6 +677,9 @@ fn rss_and_musicbrainz_rows_use_semantic_groups() {
 #[test]
 fn release_date_prefers_item_then_feed_then_oldest_item_pubdate() {
     let track_context = TrackContext {
+        rss_observation: None,
+        observation_receipts: Vec::new(),
+        provider_state: Default::default(),
         track: Track {
             pub_date: Some(1_704_067_200),
             ..Default::default()
@@ -684,6 +696,9 @@ fn release_date_prefers_item_then_feed_then_oldest_item_pubdate() {
     );
 
     let track_context = TrackContext {
+        rss_observation: None,
+        observation_receipts: Vec::new(),
+        provider_state: Default::default(),
         track: Track {
             pub_date: Some(1_704_067_200),
             ..Default::default()
@@ -699,6 +714,9 @@ fn release_date_prefers_item_then_feed_then_oldest_item_pubdate() {
     );
 
     let track_context = TrackContext {
+        rss_observation: None,
+        observation_receipts: Vec::new(),
+        provider_state: Default::default(),
         track: Track::default(),
         feed: Some(Feed {
             release_date: Some(1_672_531_200),
@@ -715,6 +733,9 @@ fn release_date_prefers_item_then_feed_then_oldest_item_pubdate() {
 #[test]
 fn musicbrainz_rows_align_with_id3_and_rss_equivalents() {
     let track_context = TrackContext {
+        rss_observation: None,
+        observation_receipts: Vec::new(),
+        provider_state: Default::default(),
         track: Track {
             title: Some("Song".into()),
             track_artist: Some("Artist".into()),
@@ -1118,6 +1139,9 @@ fn id3_compare_normalizes_dates_people_and_wrapped_urls() {
 #[test]
 fn tagger_stages_transcript_url_as_sylt_and_uslt() {
     let context = TrackContext {
+        rss_observation: None,
+        observation_receipts: Vec::new(),
+        provider_state: Default::default(),
         track: Track {
             title: Some("Song".into()),
             source_links: Some(vec![SourceEntityLink {
@@ -1145,6 +1169,9 @@ fn tagger_stages_transcript_url_as_sylt_and_uslt() {
 #[test]
 fn tagger_stages_nostr_handles_as_txxx() {
     let context = TrackContext {
+        rss_observation: None,
+        observation_receipts: Vec::new(),
+        provider_state: Default::default(),
         track: Track {
             title: Some("Song".into()),
             source_ids: Some(vec![SourceEntityId {
@@ -1166,6 +1193,9 @@ fn tagger_stages_nostr_handles_as_txxx() {
 #[test]
 fn tagger_stages_musicindex_guids_as_txxx() {
     let context = TrackContext {
+        rss_observation: None,
+        observation_receipts: Vec::new(),
+        provider_state: Default::default(),
         track: Track {
             title: Some("Song".into()),
             track_guid: Some("track-guid".into()),
@@ -1294,6 +1324,9 @@ fn tmcl_rows_match_picard_like_performer_fields() {
     let rows = aligned_compare_rows(
         &result,
         &TrackContext {
+            rss_observation: None,
+            observation_receipts: Vec::new(),
+            provider_state: Default::default(),
             track: Track::default(),
             feed: None,
         },
@@ -1332,6 +1365,9 @@ fn transcript_rows_visible_even_when_content_group_collapsed() {
         }],
     };
     let track_context = TrackContext {
+        rss_observation: None,
+        observation_receipts: Vec::new(),
+        provider_state: Default::default(),
         track: Track {
             source_links: Some(vec![SourceEntityLink {
                 link_type: Some("transcript".into()),
@@ -1384,6 +1420,9 @@ fn suppressed_auto_id3_rows_are_not_reselected() {
 #[test]
 fn track_rows_show_parent_feed_total_tracks_after_track_number() {
     let track_context = TrackContext {
+        rss_observation: None,
+        observation_receipts: Vec::new(),
+        provider_state: Default::default(),
         track: Track {
             track_number: Some(4),
             ..Default::default()

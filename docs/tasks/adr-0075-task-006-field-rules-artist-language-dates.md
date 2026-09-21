@@ -1,20 +1,52 @@
 # ADR 0075 Task 006: Write The Field Rules For Artist Text, Language, Explicit State And Dates
 
-Status: Deliverable corrected - 2026-09-19. Remaining review gates are open.
+Status: Individual field policies accepted - 2026-09-21. Technical implementation and visual gates remain open.
 The parent ADR 0075 is Accepted from 2026-09-19.
 The operator released the dispatch of this packet on 2026-09-19.
 
-Correction scope: the operator accepted ADR 0075 Decisions E, F, and G.
-Only those decisions and earlier accepted rules are approved. Other policy proposals remain open.
+The operator accepted the artist, language, and explicit-state policies through individual questions on 2026-09-20.
+Feed publication-date source priority, removal, conflict, and stale-state rules are accepted.
+Feed publication dates can show valid partial dates without invented parts or timezones.
+Track publication-date source priority, removal, conflict, and stale-state rules are accepted separately.
+Track publication dates also preserve valid partial dates without invented parts or timezones.
+An absent track publication date permits a separate "Feed publication date" value.
+
+Feed and track publication timestamp display have separate acceptance.
+Show UTC and retain the source timezone and original text in metadata details.
+Partial dates and unknown timezones remain unconverted.
+
+Feed release dates require direct release-date evidence. Publication, build, and oldest-item dates remain separate.
+Proven feed release dates use the publication-date removal, conflict, and stale-state rules, with original text and evidence retained.
+Proven feed release dates prefer fresh supported RSS assertions, then MusicIndex assertions.
+Feed release dates preserve year-only and year-month precision without invented date parts.
+Feed release timestamps with a known timezone show UTC, with original source details retained.
+
+Track release dates require direct evidence and use the feed release-date source, removal, conflict, and stale-state rules.
+Track release dates also preserve year-only and year-month precision without invented date parts.
+Track release timestamps with a known timezone show UTC, with original source details retained.
+An absent track release date permits a separate "Feed release date" value.
+All four date fields require unambiguous formats with known source rules. Other text remains unresolved evidence.
+
+Duration metadata prefers fresh valid RSS iTunes duration, then MusicIndex. Measured file duration stays separate.
+Duration uses the accepted removal, conflict, and stale-state rules, with original text and source evidence retained.
+Duration retains valid fractional seconds at source precision and accepts explicitly supplied zero.
+Negative and malformed durations remain rejected source evidence.
+
+RSS duration accepts seconds, `MM:SS`, and `HH:MM:SS`, with fractional seconds and valid component ranges.
+When duration metadata is absent, show available measured file duration separately as "File duration".
+
+Source-format adapters require technical review before implementation.
 The [field inventory](../schema/adr-0075-metadata-field-inventory.md) assigns remaining coverage.
-This correction releases no code packet and closes no visual gate.
+
+The operator's orchestration authorization permits bounded code under accepted rules. Visual checks remain paused.
 
 This packet produces a document. It changes no code.
 The deliverable is [adr-0075-field-rules-artist-language-dates.md](../schema/adr-0075-field-rules-artist-language-dates.md).
+
 The correction has no structural finding in changed prose. Its local link check is Green.
 Lexical findings remain. The raw STE checker result is not Green.
 The [technical review record](../reviews/adr-0075-metadata-contract-review.md#packet-004-to-007-technical-reviews--2026-09-19)
-holds the result. A person has not walked the review gate.
+holds the earlier result. Later individual policy decisions are recorded in ADR 0075 and the deliverable.
 
 ## Goal
 

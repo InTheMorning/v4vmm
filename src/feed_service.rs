@@ -43,66 +43,77 @@ pub fn fetch_library_track_context(
     track: &TrackRow,
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
 ) -> Result<TrackContext> {
-    let (fetched_track, fetched_feed) = fetch_library_track_detail(track, musicindex_endpoint)?;
-    Ok(merge_track_context_from_detail(
-        track,
-        fetched_track,
-        fetched_feed,
-    ))
+    fetch_library_track_context_with_recorder(track, musicindex_endpoint, None)
 }
 
-fn fetch_library_track_detail(
+pub(crate) fn fetch_library_track_context_with_recorder(
     track: &TrackRow,
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
+    recorder: Option<Arc<crate::provider_observation::ProviderObservationRecorder>>,
+) -> Result<TrackContext> {
+    let (fetched_track, fetched_feed) =
+        fetch_library_track_detail_with_recorder(track, musicindex_endpoint, recorder.clone())?;
+    merge_track_context_with_recorder(track, fetched_track, fetched_feed, recorder.as_deref())
+}
+
+fn fetch_library_track_detail_with_recorder(
+    track: &TrackRow,
+    musicindex_endpoint: &crate::config::MusicIndexEndpoint,
+    recorder: Option<Arc<crate::provider_observation::ProviderObservationRecorder>>,
 ) -> Result<(Option<Track>, Option<Feed>)> {
-    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.clone());
+    use crate::provider_observation::propagate_storage_failure;
+    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.clone())
+        .with_observation_recorder(recorder);
     let include =
         Some("source_links,source_ids,source_release_claims,source_contributors,payment_routes");
-    let fetched_track = track
-        .feed_guid
-        .as_deref()
-        .and_then(|feed_guid| {
-            client
-                .fetch_feed_track(feed_guid, &track.item_guid, include)
-                .ok()
-        })
-        .or_else(|| client.fetch_track(&track.item_guid, include).ok());
+    let mut fetched_track = match track.feed_guid.as_deref() {
+        Some(feed_guid) => propagate_storage_failure(client.fetch_feed_track(
+            feed_guid,
+            &track.item_guid,
+            include,
+        ))?,
+        None => None,
+    };
+    if fetched_track.is_none() {
+        fetched_track = propagate_storage_failure(client.fetch_track(&track.item_guid, include))?;
+    }
     let feed_guid = fetched_track
         .as_ref()
         .and_then(|track| track.feed_guid.as_deref())
         .or(track.feed_guid.as_deref());
-    let fetched_feed = feed_guid.and_then(|feed_guid| client.fetch_feed(feed_guid, include).ok());
+    let fetched_feed = match feed_guid {
+        Some(guid) => propagate_storage_failure(client.fetch_feed(guid, include))?,
+        None => None,
+    };
     if fetched_track.is_none() && fetched_feed.is_none() {
         return Err(anyhow!("MusicIndex metadata unavailable"));
     }
     Ok((fetched_track, fetched_feed))
 }
 
-fn merge_track_context_from_detail(
+fn merge_track_context_with_recorder(
     track_row: &TrackRow,
     fetched_track: Option<Track>,
     fetched_feed: Option<Feed>,
-) -> TrackContext {
+    recorder: Option<&crate::provider_observation::ProviderObservationRecorder>,
+) -> Result<TrackContext> {
     let local_track = crate::subscribe_service::track_row_to_api_track(track_row);
     let local_feed = track_row_to_feed(track_row);
-    let mut feed = feed_defaults(
+    let feed = feed_defaults(
         fetched_feed.unwrap_or_else(|| local_feed.clone()),
         &local_feed,
     );
-    let mut track = crate::api::track_with_feed_defaults(
+    let track = crate::api::track_with_feed_defaults(
         track_defaults(
             fetched_track.unwrap_or_else(|| local_track.clone()),
             &local_track,
         ),
         Some(&feed),
     );
-    crate::subscribe_service::enrich_track_context_from_rss(&mut track, Some(&mut feed));
-    let mut context = TrackContext {
-        track,
-        feed: Some(feed),
-    };
+    let mut context = TrackContext::new(track, Some(feed));
+    crate::subscribe_service::enrich_track_context_from_rss_with_recorder(&mut context, recorder)?;
     sanitize_track_context_source_text(&mut context);
-    context
+    Ok(context)
 }
 
 pub fn track_row_to_feed(track: &TrackRow) -> Feed {
@@ -231,10 +242,16 @@ pub fn ensure_feed_in_db(
         .ok_or_else(|| anyhow!("subscribe completed but feed not found"))
 }
 
+/// ADR 0075 records the feed-check request and response for one local feed.
+///
+/// # Errors
+/// Returns the existing database or transport failure. A provider storage
+/// failure keeps its typed capsule so the caller can classify it.
 pub fn check_feed_staleness(
     conn: &Arc<Mutex<Connection>>,
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
     feed_id: i64,
+    recorder: &Arc<crate::provider_observation::ProviderObservationRecorder>,
 ) -> Result<Option<StaleFeed>> {
     let stored = {
         let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
@@ -243,7 +260,8 @@ pub fn check_feed_staleness(
     let Some(stored) = stored else {
         return Ok(None);
     };
-    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.clone());
+    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.clone())
+        .with_observation_recorder(Some(Arc::clone(recorder)));
     let api_feed = client.fetch_feed(&stored.feed_guid, None)?;
     let Some(api_updated_at) = api_feed.updated_at else {
         return Ok(None);
@@ -262,17 +280,35 @@ pub fn check_feed_staleness(
     }))
 }
 
+/// Reads the music directory that the feed-update loop resolves for each feed.
+///
+/// # Errors
+/// Returns the existing configuration path, read, parse or field failure.
+pub fn configured_music_dir() -> Result<std::path::PathBuf> {
+    let cfg_path = config::config_path()?;
+    let music_dir = config::ConfigSnapshot::read_existing(&cfg_path)?.music_dir?;
+    Ok(music_dir)
+}
+
+/// ADR 0075 records the feed and track requests that one feed update makes.
+///
+/// # Errors
+/// Returns the existing database, merge or transport failure. A provider
+/// storage failure stops the feed before legacy persistence or tag generation,
+/// and keeps its typed capsule for the caller.
 pub fn apply_feed_updates(
     conn: &Arc<Mutex<Connection>>,
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
     stale: &StaleFeed,
+    music_dir: &std::path::Path,
+    recorder: &Arc<crate::provider_observation::ProviderObservationRecorder>,
 ) -> Result<FeedApplyOutcome> {
-    let cfg_path = config::config_path()?;
-    let music_dir = config::ConfigSnapshot::read_existing(&cfg_path)?.music_dir?;
-    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.clone());
+    use crate::provider_observation::propagate_storage_failure;
+    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.clone())
+        .with_observation_recorder(Some(Arc::clone(recorder)));
     let include =
         Some("source_links,source_ids,source_release_claims,source_contributors,payment_routes");
-    let feed_update = client.fetch_feed(&stale.feed_guid, include).ok();
+    let feed_update = propagate_storage_failure(client.fetch_feed(&stale.feed_guid, include))?;
     if let Some(feed) = feed_update.as_ref() {
         let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
         if !source_text_missing(feed.description.as_deref()) {
@@ -294,17 +330,24 @@ pub fn apply_feed_updates(
         let Some(local_path) = track
             .local_path
             .as_ref()
-            .map(|path| path.resolve(&music_dir))
+            .map(|path| path.resolve(music_dir))
         else {
             continue;
         };
-        let Ok((fetched_track, fetched_feed)) =
-            fetch_library_track_detail(track, musicindex_endpoint)
-        else {
+        let detail = propagate_storage_failure(fetch_library_track_detail_with_recorder(
+            track,
+            musicindex_endpoint,
+            Some(Arc::clone(recorder)),
+        ))?;
+        let Some((fetched_track, fetched_feed)) = detail else {
             continue;
         };
-        let context =
-            merge_track_context_from_detail(track, fetched_track.clone(), fetched_feed.clone());
+        let context = merge_track_context_with_recorder(
+            track,
+            fetched_track.clone(),
+            fetched_feed.clone(),
+            Some(recorder.as_ref()),
+        )?;
         {
             let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
             if let Some(feed) = fetched_feed.as_ref() {
@@ -347,12 +390,26 @@ pub fn track_row_to_track_context(track: &TrackRow) -> TrackContext {
         crate::subscribe_service::track_row_to_api_track(track),
         Some(&feed),
     );
-    let mut context = TrackContext {
-        track: api_track,
-        feed: Some(feed),
-    };
+    let mut context = TrackContext::new(api_track, Some(feed));
     sanitize_track_context_source_text(&mut context);
     context
+}
+
+/// ADR 0075 resolves the local RSS resource without changing legacy DTO fields.
+pub(crate) fn local_provider_request(
+    conn: &Connection,
+    track: &TrackRow,
+    context: &TrackContext,
+) -> Result<Option<crate::provider_observation::ProviderRequestSpec>> {
+    Ok(db::feed_url_by_id(conn, track.feed_id)?
+        .filter(|url| !source_text_missing(Some(url.as_str())))
+        .map(|resource| {
+            crate::provider_observation::contracts::rss_request(
+                &resource,
+                context.track.track_guid.as_deref(),
+                context.track.enclosure_url.as_deref(),
+            )
+        }))
 }
 
 pub fn track_row_to_track_context_with_local_identity(
@@ -784,7 +841,8 @@ mod tests {
             ..Default::default()
         };
 
-        let context = merge_track_context_from_detail(&track_row, Some(track), Some(feed));
+        let context =
+            merge_track_context_with_recorder(&track_row, Some(track), Some(feed), None).unwrap();
         assert_eq!(context.track.publisher_text.as_deref(), Some("HeyCitizen"));
         assert_eq!(
             context.track.source_contributors.as_ref().map(Vec::len),
@@ -843,7 +901,8 @@ mod tests {
             ..Default::default()
         };
 
-        let context = merge_track_context_from_detail(&track_row, Some(track), Some(feed));
+        let context =
+            merge_track_context_with_recorder(&track_row, Some(track), Some(feed), None).unwrap();
 
         assert_eq!(context.track.track_guid.as_deref(), Some("track-guid"));
         assert_eq!(context.track.feed_guid.as_deref(), Some("feed-guid"));

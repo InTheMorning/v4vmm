@@ -317,10 +317,7 @@ mod tests {
         .unwrap();
         fs::write(temp.path().join("original.wav"), b"RIFF\x24\0\0\0WAVEfmt ").unwrap();
         let row = db::track_row_by_id(&conn, 1).unwrap().unwrap();
-        let context = TrackContext {
-            track: super::super::track_row_to_api_track(&row),
-            feed: None,
-        };
+        let context = TrackContext::new(super::super::track_row_to_api_track(&row), None);
         let operation = Materialization::new(
             row,
             context,
@@ -341,6 +338,57 @@ mod tests {
         fs::write(&binary, format!("#!/bin/sh\n[ \"$1\" = --version ] && exit 0\nwhile [ \"$1\" != -o ]; do shift; done\nshift\n/bin/cp '{}' \"$1\"\n", directory.join("encoded.flac").display())).unwrap();
         fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).unwrap();
         binary
+    }
+
+    #[test]
+    fn adr_0075_rss_materialization_retry_retains_the_original_observation() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::thread;
+        use std::time::Duration;
+
+        let (temp, mut cfg, conn, operation) = fixture();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/rss", listener.local_addr().unwrap());
+        let xml = b"<rss xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><item><guid>original</guid><podcast:txt purpose=\"nostr\">retained rejected evidence</podcast:txt></item></channel></rss>";
+        let worker = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = [0; 4096];
+            assert!(stream.read(&mut request).unwrap() > 0);
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                xml.len()
+            )
+            .unwrap();
+            stream.write_all(xml).unwrap();
+        });
+        let mut context = operation.context;
+        crate::rss::enrich_track_from_feed_rss(&mut context, &url).unwrap();
+        worker.join().unwrap();
+        let observation = Arc::clone(context.rss_observation.as_ref().unwrap());
+        let mut operation =
+            Materialization::new(operation.row, context, operation.edits, operation.music_dir);
+        let first = operation.run(&conn, &cfg, false, false).unwrap();
+        assert_eq!(first.conversion, ConversionOutcome::WavRetained);
+        cfg.flac_path = Ok(Some(converter(temp.path())));
+        let retried = operation.run(&conn, &cfg, true, false).unwrap();
+        assert_eq!(retried.conversion, ConversionOutcome::Flac);
+        let retained = operation.context.rss_observation.as_ref().unwrap();
+        assert!(Arc::ptr_eq(&observation, retained));
+        assert!(Arc::ptr_eq(
+            &observation.response_bytes,
+            &retained.response_bytes
+        ));
+        assert_eq!(retained.response_bytes.as_ref(), xml);
+        assert_eq!(
+            retained.txt_evidence[0].direct_text.as_deref(),
+            Some("retained rejected evidence")
+        );
+        assert!(operation.context.track.source_ids.is_none());
     }
 
     #[test]

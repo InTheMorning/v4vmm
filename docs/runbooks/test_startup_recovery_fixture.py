@@ -759,8 +759,18 @@ class UpgradePreservationTests(unittest.TestCase):
         self.repaired = json.loads(json.dumps(self.original))
         self.repaired["schema_migrations"].append([11, 11, "broadcast_event_selection", "repaired"])
         self.older = {k: v for k, v in self.original.items() if k != "broadcast_event_selection"}
-        self.upgraded = dict(self.repaired, broadcast_event_selection=[])
-        self.facts_by_path = {self.source: self.repaired, self.backup: self.older}
+        self.current = json.loads(json.dumps(self.repaired))
+        self.current["schema_migrations"].append([12, 12, "provider_metadata_snapshots", "prepared"])
+        self.current.update({name: [[1, 1, 0]] if name == "metadata_generation" else [] for name in fixture.PROVIDER_SNAPSHOT_TABLES})
+        self.upgraded = dict(self.current, broadcast_event_selection=[])
+        self.facts_by_path = {self.source: self.current, self.backup: self.older}
+        folder = self.root / "data/.v4vmm-upgrade-test"
+        folder.mkdir(mode=0o700)
+        (folder / "manifest.json").write_text(json.dumps({"source": str(self.source)}))
+        snapshot = folder / ".v4vmm-database-test/candidate.sqlite"
+        snapshot.parent.mkdir()
+        snapshot.touch()
+        self.facts_by_path[snapshot] = self.repaired
         for name in ("failed", "repaired"):
             folder = self.root / f"upgrade/{name}-preservation"
             folder.mkdir(mode=0o700)
@@ -804,10 +814,10 @@ class UpgradePreservationTests(unittest.TestCase):
         self.inspect(True)
 
     def test_adr_0066_upgrade_inspector_rejects_lost_selection_or_prior_ledger_changes(self):
-        self.repaired["broadcast_event_selection"] = []
+        self.current["broadcast_event_selection"] = []
         self.inspect(False)
-        self.repaired["broadcast_event_selection"] = self.original["broadcast_event_selection"]
-        self.repaired["schema_migrations"][0][2] = "changed"
+        self.current["broadcast_event_selection"] = self.original["broadcast_event_selection"]
+        self.current["schema_migrations"][0][2] = "changed"
         self.inspect(False)
 
     def test_adr_0066_upgrade_inspector_rejects_missing_preservation_or_changed_backup(self):
@@ -821,4 +831,17 @@ class UpgradePreservationTests(unittest.TestCase):
         (self.root / "upgrade/.v4vmm-database-upgraded/candidate.sqlite").unlink()
         self.inspect(False)
         (self.root / "session-observations.jsonl").unlink()
+        self.inspect(False)
+
+
+    def test_adr_0075_migration_inspector_requires_separate_preparation_evidence(self):
+        (self.root / "data/.v4vmm-upgrade-test/.v4vmm-database-test/candidate.sqlite").unlink()
+        self.inspect(False)
+
+    def test_adr_0075_migration_inspector_rejects_unexpected_metadata_records(self):
+        self.current["metadata_bodies"] = [[1, "unexpected"]]
+        self.inspect(False)
+
+    def test_adr_0075_migration_inspector_rejects_version_11_as_current_readiness(self):
+        self.facts_by_path[self.source] = self.repaired
         self.inspect(False)

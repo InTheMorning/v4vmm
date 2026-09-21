@@ -1,8 +1,12 @@
 # ADR 0075 Task 030: Preserve Enclosure Claim Transport
 
-Status: Draft - 2026-09-19. Dispatch is held. Implementation has not started.
-The packet needs technical review and explicit release before implementation.
-The operator's authorization to correct documents does not release this code packet.
+Status: Complete - 2026-09-20. All mechanical checks are Green.
+The parent ADR 0075 is Accepted from 2026-09-19. The operator released this
+held packet on 2026-09-20.
+
+This packet changes transport only. It needs no operator visual acceptance.
+The [implementation result](#implementation-result) records the changed files
+and the remaining losses.
 
 ## Goal
 
@@ -18,7 +22,7 @@ Keep older payloads readable. Do not invent provenance for locally constructed e
 - The corrected [Stophammer request](../plans/adr-0075-stophammer-decision-request.md#2-required-fields-and-collections).
 
 The upstream type already contains `entity_type`, `entity_id`, `position`, and `observed_at`.
-The app's `SourceEnclosure` omits them. No upstream API addition is needed for this packet.
+Before this packet, the app's `SourceEnclosure` omitted them. No upstream API addition is needed for this packet.
 The deployed revision remains unverified. This packet makes no claim about live payloads.
 
 ## Files To Inspect
@@ -124,6 +128,59 @@ For this document, run the shared link and language checks:
 python3 docs/runbooks/check-markdown-links.py docs/tasks/adr-0075-task-030-enclosure-claim-transport.md
 python3 "$HOME/.agents/skills/asd-ste100/scripts/ste_lint.py" --check --no-heuristics docs/tasks/adr-0075-task-030-enclosure-claim-transport.md
 ```
+
+## Implementation Result
+
+Completed on 2026-09-20.
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `src/api.rs` | `SourceEnclosure` holds the four new fields, each with `skip_serializing_if = "Option::is_none"`. The file holds a new `adr_0075_enclosure_transport` test module with six tests and the constructed fixture |
+
+No constructor site needed a change. Every `SourceEnclosure` literal in the
+repository already uses `..SourceEnclosure::default()`, so each one already
+sets the four new fields to `None`.
+
+### Behavior Changed
+
+Deserialization keeps `entity_type`, `entity_id`, `position`, and
+`observed_at` from a MusicIndex enclosure claim. Serialization writes each
+of these fields only when the app holds a value. The eight existing fields
+keep their previous serialization. An older payload and a locally
+constructed enclosure keep unknown provenance.
+
+### Preservation By Layer
+
+| Layer | Result |
+|---|---|
+| Transport | `SourceEnclosure` preserves all twelve fields. Tests check the round trip |
+| Storage | No file in `src/db.rs` or `src/identity_ingest.rs` names `SourceEnclosure` or an enclosure row. A track's `raw_json` capture in `src/identity_ingest.rs::track_metadata_facts` is evidence for other facts, such as `publisher_text` and `description`. It is not a dedicated enclosure record, and no typed column holds these four fields |
+| Display | `src/view_models/track.rs` reads `source_enclosures` only to pick a play URL, through `primary_source_enclosure_url` and `first_source_enclosure_url`. No screen or view model reads `entity_type`, `entity_id`, `position`, or `observed_at` |
+
+Storage and display preparation remain open for later packets. This packet
+does not complete them.
+
+### Checks
+
+| Command | Result |
+|---|---|
+| `cargo test --locked --offline --lib adr_0075_enclosure_transport` | Green. 6 tests passed |
+| `cargo test --locked --offline` | Green. 1519 unit tests, 263 architecture tests |
+| `cargo check --locked --offline` | Green |
+| `cargo fmt -- --check` | Green |
+| `cargo clippy --locked --offline -- -D warnings` | Green |
+| `cargo build --locked --offline --bin v4vmm` | Green |
+
+### Deviations
+
+None. The packet triggered no escalation. No schema, request, selection, or
+presentation change was necessary.
+
+The deployed Index revision remains unverified, as this packet's evidence
+section already states. This local result does not confirm what a live
+endpoint sends today.
 
 ## Escalation Triggers
 

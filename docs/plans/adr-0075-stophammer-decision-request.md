@@ -92,8 +92,8 @@ The inspected upstream types are in Stophammer `src/query.rs` at commit `a220f44
 | `source_links` | `SourceEntityLinkResponse` supplies owner and provenance | App fields exist. Packet 007 defines selection |
 | `source_ids` | `SourceEntityIdResponse` supplies owner and provenance | App fields exist. Packet 003 defines supported syntax |
 | `source_release_claims` | `SourceReleaseClaimResponse` supplies owner and provenance | App fields exist. Field-specific selection remains incomplete |
-| `source_enclosures` | `SourceItemEnclosureResponse`, line 427, supplies owner, position, and observation time | App `SourceEnclosure` drops `entity_type`, `entity_id`, `position`, and `observed_at`. Packet 030 owns this correction |
-| `source_transcripts` | `SourceItemTranscriptResponse`, line 413, supplies owner, position, URL, MIME type, language, relation, source, path, and observation time | App drops the complete collection. Packet 032 owns transport |
+| `source_enclosures` | `SourceItemEnclosureResponse`, line 427, supplies owner, position, and observation time | Packet 030 corrected transport. Storage and selection remain incomplete |
+| `source_transcripts` | `SourceItemTranscriptResponse`, line 413, supplies owner, position, URL, MIME type, language, relation, source, path, and observation time | Packet 032 corrected transport. Integrated checks, requests, and storage remain pending |
 | `payment_routes` | `RouteResponse` supplies payment attributes without an owner marker | Upstream ownership evidence needs a decision. Existing inheritance remains unchanged |
 
 The contributor fields are `entity_type`, `entity_id`, `position`, `name`, `role`, `role_norm`, `group_name`, `href`, `img`, and `npub`.
@@ -120,13 +120,43 @@ This supplies ADR 0075 Decisions 1 and C without changing the accepted artwork d
 
 ### Remaining Scalar And Relationship Evidence
 
-The field inventory identifies upstream platform, remote-item, publisher, and time-split collections absent from the app DTOs.
-Packets 031 and 034 must complete their rules and assign bounded transport work before dependent use.
-Their absence in the app is not a request to invent new upstream collections.
+Packet 037 preserves existing platform, remote-item, publisher, and time-split collections in the app DTOs.
+Its code review and integrated checks are Green. Durable use remains separate work.
+Packets 031 and 034 contain the remaining proposed field rules.
+These app corrections require no new upstream collection.
 
 The inspected track `release_artist` comes from `f.release_artist`. Document that feed ownership in the API contract.
 The feed artist helper can return "Unknown Artist". Clarify whether this is derived fallback text or a publisher assertion.
 Retain that distinction in any new source-fact contract. This request does not claim that a live response currently contains that text.
+
+The inspected ingest path derives feed publisher text from platform, publisher-relationship, or owner-name data.
+It copies that value into track publisher storage. The API scalar does not prove an independent track publisher assertion.
+Document the derivation and declared owner. Supply separate source evidence when the API exposes a publisher assertion.
+Keep publisher text separate from the existing structured relationship collection.
+
+Track language can inherit feed language in both parser and ingest code. Its scalar carries no inheritance marker.
+Track explicit state can also inherit a feed marker. Missing or malformed markers can instead become `false`.
+Retain raw values, presence, validation, and original ownership for both fields. A boolean alone cannot prove an explicit clean assertion.
+
+Feed publication parsing can substitute `lastBuildDate` for `pubDate` before creating a `release_date` claim labeled `feed.pub_date`.
+Retain the actual source element and derivation. A build timestamp cannot prove a publisher-supplied release date.
+The later oldest-item fallback must retain the contributing item identity, including ended live items used by the current calculation.
+
+Track publication dates retain normalized values but lose original text and invalid-versus-absent status.
+Duration conversion discards fractional precision and can accept malformed fractional suffixes or negative components.
+Retain those raw inputs and validation results. Preserve supplied source time separately from the claim's ingest-time observation.
+
+### Search Summaries
+
+The [measured baseline](../notes/adr-0075-request-and-write-baseline.md) found one detail request for every active Index search hit.
+Upstream `SearchResponseItem` supplies identity, rank, quality score, feed scope, and an optional URL at commit `a220f44`.
+It does not supply titles or the complete summary fields used by current result rows.
+
+ADR 0075 Decision 6 prohibits fetching every full detail merely to render a search page.
+The upstream decision must define a summary or batch contract that supplies the required result-row fields with bounded requests.
+Retain compatibility with older clients. Describe each summary field's owner and coverage.
+App caching alone cannot supply missing labels for a first search of previously unseen subjects.
+The app must not invent labels or claim complete detail coverage from a search summary.
 
 ## 3. Required Completeness Signal
 
@@ -232,6 +262,9 @@ The app cannot answer these questions alone.
 | How will payment routes identify their declared owner? | Upstream route rows have no owner marker. Enclosure rows already have one | Packets 011 and 020 |
 | How will separate artwork facts identify track and feed assertions? | The existing track scalar already combines both owners | Packets 011 and 020 |
 | Will the API document feed ownership of track `release_artist` and identify derived artist fallback text? | The query joins the feed value. The helper can synthesize "Unknown Artist" | Packets 006 and 020 |
+| How will publisher text identify its derivation and owner? | Ingest derives feed publisher text and copies it to tracks | Packets 005, 011, and 020 |
+| How will language and explicit state retain presence, validation, and original ownership? | Track inheritance and explicit defaults erase those distinctions | Packets 006, 011, and 020 |
+| How will dates and duration retain actual source paths, raw inputs, and derivation? | Build-date and oldest-item fallbacks, normalization, and duration conversion lose evidence | Packets 006, 011, and 020 |
 | Can one response mix track-owned and feed-owned contributor claims? | The inspected helper returns one set or the other. No contract states the future shape | Packets 013 and 020 |
 | Can a nested collection arrive truncated? | `openapi.rs` documents cursor and limit. The handler does not use them for nested collections | Packet 017 |
 | What is the deployed Stophammer revision? | Only a local checkout was inspected | Packet 028 |
@@ -268,5 +301,7 @@ The [packet](../tasks/adr-0075-task-008-stophammer-decision-request.md) records 
 No person walked the review gate of this document. That gate is open.
 A Stophammer maintainer did not read this request yet.
 No new Stophammer decision exists for this request.
+
 Code that needs a changed upstream contract waits for that decision and compatible implementation evidence.
-Existing-contract transport corrections need no unrelated upstream change. The operator's separate code dispatch hold still applies.
+Existing-contract transport corrections need no unrelated upstream change.
+The operator authorized bounded app code under accepted rules on 2026-09-20.

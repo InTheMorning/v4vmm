@@ -2,7 +2,11 @@
 
 ## Status
 
-Current disposition after the operator's correction request: see [Review Disposition](#review-disposition).
+Current orchestration: the operator authorized bounded completion work on 2026-09-20.
+The [phase plan](../plans/adr-0075-metadata-contract-phase-plan.md#active-orchestration--2026-09-20) records dispatches and code checks.
+Unaccepted product policies and paused visual gates remain open. Code reviews are reported directly to the operator.
+
+The [Review Disposition](#review-disposition) records the earlier correction request.
 The dated records below retain their original review context. Decisions E–G are now accepted in ADR 0075.
 
 Initial audit recorded - 2026-09-19. At that audit, ADR 0075 was Proposed and the first packet was Draft.
@@ -261,7 +265,8 @@ An app-only fallback change cannot restore evidence that the API response does n
 
 ### R2 — Complete The Field And Transport Inventory
 
-The accepted scope covers every metadata field. Packets 005–007 do not yet cover that scope.
+Superseded on 2026-09-21 by ADR 0075 Decision A, amended. The scope covered every metadata
+field when this review ran. Packets 005–007 did not cover that scope.
 They omit rules for existing fields such as title/name, album/feed title, track/disc number,
 release kind, raw medium and artist sort text.
 These fields appear in `src/api.rs:124`, `src/api.rs:157` and `src/views.rs:154`.
@@ -463,6 +468,7 @@ Work that the decisions create:
 
 - Packet 003 must list the supported Nostr purpose values with checked examples.
 - Packets 005, 006 and 007 must write a rule for every metadata field.
+  Superseded on 2026-09-21. Nine field policies are deferred. ADR 0075 Decision A, amended.
 - Packets 022 to 025 must build the labelled sections that Decision B selects.
 - Packet 026 must report the repair of old records before any repair runs.
 
@@ -737,43 +743,111 @@ It does not treat assigned but unwritten field rules as completed proposals.
 | E, enclosure selection | Each operation selects supported formats in primary, alternate, then scalar order |
 | F, limited source priority | Fresh direct RSS precedes corresponding Index descriptions and website/page values |
 | G, discrepancies | Retain source evidence and active/resolved state. Compare descriptions by readable text. The future update hook remains deferred |
+| Description refinements | Feed and track policies accepted separately. Use sourced claims and declared source order. Honor absence and retain stale selected states |
+| Track description placement | No description when the track has none. The proposed feed-description fallback section is rejected |
+| Website and page refinements | Policies accepted separately. Honor absence, source order, unresolved ties, and stale selected states. Direct item pages precede supported Atom alternates |
+| Artwork provider and absence rules | Feed and track policies accepted separately. Prefer fresh RSS, honor removals, and retain stale selected states. Track absence uses accepted feed fallback |
+| Feed artwork extraction | Prefer podcast image, then iTunes artwork, then RSS image. Report conflicting ties as unresolved |
+| Track artwork extraction | Prefer podcast image, then iTunes artwork. Report conflicting ties as unresolved |
+| Legacy track artwork | Keep the image for display. Report unknown ownership in metadata details without creating a track-owned fact |
+| Feed publisher text | Keep the supplied Index value and identify its source. Honor verified removals and retain evidence and stale selected states |
+| Track publisher placement | Show an available feed publisher in a separate "Feed publisher" section when the track has no proven publisher |
+| Proven track publisher text | Apply the feed publisher's Index selection, removal, evidence-retention, and stale-state rules |
+| Track artist source priority | Prefer fresh RSS author text, then MusicIndex. Keep contributor names in credits |
+| Track artist refinements | Use iTunes author before RSS author. Apply the accepted removal, conflict, and stale-state rules |
+| Track artist fallback | Show an available feed artist in a separate "Feed artist" section when track artist text is absent |
+| Feed artist source priority | Prefer fresh RSS iTunes author, then MusicIndex. Keep contributor and track names separate |
+| Feed artist refinements | Apply the track artist's removal, conflict, and stale-state rules. Retain source evidence and selected absence |
+| Feed artist placeholders | Hide only confirmed generated placeholders. Retain literal source assertions, including "Unknown Artist" |
+| Track artist placeholders | Apply the same rule. Retain literal source assertions and all rejected-value evidence |
+| Feed language | Prefer fresh RSS, then MusicIndex. Apply accepted removal, conflict, and stale-state rules |
+| Proven track language | Prefer fresh item RSS, then MusicIndex. Apply the same removal, conflict, and stale-state rules |
+| Track language fallback | Show the available feed value separately as "Feed language" when track language is absent |
+| Legacy track language | Retain values with unknown ownership in source details only. Do not present them as track-owned assertions |
+| Feed explicit state | Prefer fresh valid RSS markers. Missing or unsupported markers cannot establish clean content |
+| Feed explicit-state refinements | Apply the accepted removal, conflict, and stale-state rules. Retain source evidence and selected absence. Unknown stays distinct from clean |
+| Proven track explicit state | Prefer fresh valid item RSS. Apply the feed removal, conflict, unknown, and stale-state rules. Retain source evidence and selected absence |
+| Track explicit-state fallback | Show a known feed state separately as "Feed explicit state" when track state is unknown. Do not create a track-owned assertion |
+| Legacy feed explicit state | MusicIndex `false` without evidence of a valid clean marker stays unknown. Retain the boolean and source evidence |
+| Legacy track explicit state | Retain MusicIndex booleans with unknown ownership in source details only. Do not declare a track explicit state |
+| Feed publication-date source priority | Prefer valid fresh RSS channel `pubDate`, then MusicIndex claims that prove an actual channel publication date |
+| Feed publication-date refinements | Apply accepted removal, conflict, and stale-state rules. Retain original date text, source evidence, and selected absence |
+| Feed publication-date precision | Show valid partial dates at their supplied precision. Do not invent date parts or timezones. Retain original text and validation evidence |
+| Feed publication timestamp display | Show UTC for known instants. Metadata details retain source timezone and original text. Partial dates and unknown timezones remain unconverted |
+| Track publication-date source priority | Prefer valid fresh item RSS `pubDate`, then MusicIndex claims that prove the track's publication date |
+| Track publication-date refinements | Apply the feed date's removal, conflict, and stale-state rules. Retain original date text, source evidence, and selected absence |
+| Track publication-date precision | Apply the feed precision rule. Show valid partial dates without invented parts or timezones. Retain original text and validation evidence |
+| Track publication timestamp display | Show UTC for known instants. Metadata details retain source timezone and original text. Partial dates and unknown timezones remain unconverted |
+| Track publication-date fallback | Show the available feed date separately as "Feed publication date" when track publication date is absent. Keep feed ownership |
+| Feed release-date evidence | Require direct release-date evidence. Keep publication, build, and oldest-item dates separate. Retain derived values and derivation evidence |
+| Feed release-date refinements | Apply the publication-date removal, conflict, and stale-state rules. Retain original date text, source evidence, and selected absence |
+| Feed release-date source priority | Prefer fresh supported RSS assertions, then MusicIndex assertions. Both sources must prove an actual release date |
+| Feed release-date precision | Preserve year-only and year-month precision. Do not invent a missing day or time. Retain original text and precision |
+| Feed release timestamp display | Show UTC when the source timezone is known. Retain original text and source timezone in metadata details. Partial calendar dates stay unchanged |
+| Track release dates | Require direct evidence and apply the feed release-date source, removal, conflict, and stale-state rules. Retain original text, evidence, and selected absence |
+| Track release-date precision | Apply the feed precision rule. Preserve year-only and year-month precision, original text, and evidence without invented date parts |
+| Track release timestamp display | Show UTC when the source timezone is known. Retain original text and source timezone in metadata details. Partial calendar dates stay unchanged |
+| Track release-date fallback | Show the available feed release date separately as "Feed release date" when the track release date is absent |
+| Date format interpretation | All four date fields require unambiguous formats with known source rules. Retain other text as unresolved evidence without guessed parts or units |
+| Track duration metadata | Prefer fresh valid RSS iTunes duration, then MusicIndex. Keep measured file duration separate |
+| Track duration refinements | Apply accepted removal, conflict, and stale-state rules. Retain original text, source evidence, and selected absence |
+| Track duration precision | Retain valid fractional seconds at source precision without rounding stored values to whole seconds |
+| Track duration validation | Accept explicitly supplied zero. Reject negative and malformed durations while retaining source evidence. Missing values do not become zero |
+| RSS duration formats | Accept seconds, `MM:SS`, and `HH:MM:SS`, with fractional seconds and valid component ranges |
+| Measured duration presentation | When duration metadata is absent, show available measured file duration separately as "File duration". Preserve file ownership |
+| Track transcript source priority | Prefer fresh direct RSS claims over MusicIndex. Retain all transcript candidates and source evidence |
+| Track transcript refinements | Apply the description fields' removal, source-order, conflict, and stale-state rules. Retain evidence and the last selected state, including absence |
+| MusicIndex transcript representation | Prefer full transcript claims over legacy transcript links. Retain both forms of evidence without changing provider priority |
+| Legacy transcript recognition | Require explicit transcript, caption, or subtitle evidence. Filename-only matches remain unresolved evidence without a transcript action |
+| Transcript alternatives | Offer different language and format alternatives with their declared labels. Retain each alternative's source evidence |
+| Legacy transcript ownership | Retain unknown ownership in source details only. Do not present these links as track-owned transcripts or active track transcript actions |
+| Transcript URL actions | Allow only valid HTTP or HTTPS URLs. Retain other URLs as source evidence without a transcript action |
+| Feed website actions | Allow only valid HTTP or HTTPS URLs. Retain other schemes as source evidence without a website action |
+| Track page actions | Allow only valid HTTP or HTTPS URLs. Retain other schemes as source evidence without a page action |
+| Feed website comparison | Normalize scheme, host, and default ports. Preserve path, query, and fragment differences and the original URL |
+| Track page comparison | Apply the feed website normalization. Preserve path, query, and fragment differences and the original URL |
+| Feed title source priority | Prefer fresh direct RSS titles over MusicIndex. Retain both source assertions and original evidence |
+| Feed title refinements | Apply accepted removal, conflict, and stale-state rules. Retain original text, source evidence, and the last selected state, including absence |
+| MusicIndex feed title representation | Prefer `title`, then legacy `name`. Retain both values and their field paths without overriding verified title removal |
+| Missing feed title presentation | Keep "Unknown Feed" as a display label only. Do not store that generated label as source metadata |
+| Feed title placeholders | Hide only confirmed generated placeholders. Retain literal publisher-supplied titles such as "Unknown Feed" and preserve derivation evidence |
+| Track title rules | Apply the feed title source priority, title/name order, removal, conflict, stale-state, and placeholder rules. Preserve the track owner and evidence |
+| Missing track title presentation | Display the track GUID, then "Untitled" when no GUID exists. These labels do not create source metadata |
+| Feed-title reference fallback | Allow a track response's `feed_title` as a labeled feed reference when no separately selected feed title exists. Preserve its feed owner and source evidence |
+| Feed-title reference removal | Verified feed-title removal hides the reference. Retain the removal and reference evidence |
+| Feed-title reference refinements | Apply the feed title's conflict, stale-state, and generated-placeholder rules |
 
 ### From Packet 005, Description, Artwork And Publisher
 
 | Remaining proposal | Blocks |
 |---|---|
-| Within-provider description order, ambiguous positions, and stale-value fallback | Packets 020 and 035 |
-| Separate "Feed description" and "Feed publisher" sections for inherited values | Packets 020 and 022–023 |
-| Cross-provider artwork selection details beyond accepted track/feed fallback | Packet 020 |
+| None currently recorded | Description, artwork, and publisher selections have individual acceptance. Implementation and visual gates remain open |
 
 ### From Packet 006, Artist Text, Language, Explicit State And Dates
 
 | Remaining proposal | Blocks |
 |---|---|
-| Contributor-derived artist text and artist/album-artist selection | Packet 020 and affected RSS corrections |
-| Language, explicit-state, and date source priorities | Packet 020 |
-| Duration conflict rules and durable field representation | Packets 011 and 020 |
-| Feed release-date fallback and the existing ADR 0054 boundary | Packet 020 |
+| None currently recorded | Artist, language, explicit-state, date, and duration selections have individual acceptance. Implementation and visual gates remain open |
 
 ### From Packet 007, Links And Media
 
 | Remaining proposal | Blocks |
 |---|---|
-| Within-provider link order, stale-value fallback, and URL comparison | Packets 020 and 035 |
-| Transcript selection across full transcript facts and legacy links | Packet 020 |
+| None currently recorded | Link and media field selections have individual acceptance. Packet 035 URL rules are accepted. Implementation and visual gates remain open |
 | Supported-format capability owners for each operation | Packet 020 implementation packet. Decision E is already accepted |
-| Storage of artwork facts and support state for unknown syntax | Packet 011 schema design |
 
 ### Remaining Coverage And Upstream Work
 
 The [field inventory](../schema/adr-0075-metadata-field-inventory.md) assigns all inspected fields to rules or remaining packets.
-Packets 031 and 034 must supply their remaining field rules. Packet 035 must supply comparison details.
+Packets 031 and 034 contain the remaining proposed field rules. Packet 035 contains proposed comparison details.
 The corrected [Stophammer request](../plans/adr-0075-stophammer-decision-request.md) includes artwork ownership and separates app transport loss from upstream gaps.
 
 Enclosure ownership already exists upstream. Packet 030 preserves it in the app DTO.
 A possible update hook is separate future work.
 
 ## Review Disposition
+
+This section records the 2026-09-19 correction. The current orchestration status above supersedes its dispatch hold.
 
 Packet 001 remains complete for its transport scope.
 The operator accepted ADR 0075 Decisions E–G and authorized documentation correction.

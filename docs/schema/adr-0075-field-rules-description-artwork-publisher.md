@@ -159,6 +159,15 @@ for the placement and label proposal this section requires.
 
 ## Feed Artwork
 
+Accepted on 2026-09-20: prefer fresh direct RSS artwork before MusicIndex artwork, retaining both source facts.
+Fresh explicit absence removes the older selected artwork under the same provider priority as descriptions. Retain its evidence.
+
+When both providers expire, retain the last selected field state and report stale metadata in the metadata details.
+A retained image stays visible. A retained absence stays absent.
+The operator accepted these refinements on 2026-09-20.
+The operator separately accepted this source order: `podcast:image`, then iTunes artwork, then the RSS image.
+Report conflicting ties as unresolved and retain their evidence.
+
 `feeds.album_image_href` has one writer. `src/rss/subscribe.rs`, lines 58 to
 70, reads the RSS channel `podcast:image` attribute, then the iTunes channel
 image, then the RSS `<image><url>` element, in that order. Lines 79 to 125
@@ -176,6 +185,19 @@ line 541, read the stored scalar value through `artwork_from_url`, lines 353
 to 355.
 
 ## Track Artwork
+
+Accepted on 2026-09-20: prefer fresh RSS track-owned artwork before MusicIndex track-owned artwork.
+Then apply Decision C's feed fallback. Preserve both source observations and their owners.
+
+Accepted separately on 2026-09-20: apply the feed-artwork removal and stale-state rules to track artwork.
+Fresh verified absence removes the old track image while retaining its evidence.
+
+When both providers expire, retain the last selected track-artwork state. Report stale metadata in the metadata details.
+Use the accepted feed-artwork fallback when the track's own image is absent.
+An expired absence cannot restore a removed track image.
+
+The operator separately accepted this source order: `podcast:image`, then iTunes artwork.
+Report conflicting ties as unresolved and retain their evidence.
 
 Three sites in this repository compute the feed-to-track artwork fallback.
 
@@ -212,6 +234,9 @@ value. This document does not infer an owner from a matching URL. This
 evidence gap needs a Stophammer decision. See
 [Open Questions](#open-questions-for-later-packets).
 
+Accepted on 2026-09-20: keep this legacy image for display and report its unknown ownership in metadata details.
+The compatibility value does not become a track-owned source fact.
+
 [Decision C](../adr/0075-metadata-ownership-and-completeness.md#4-keep-fallback-out-of-stored-facts)
 is accepted. Show the track's own artwork when it has one. Otherwise, show the
 feed's artwork in the track header. This fallback needs no additional visible
@@ -222,6 +247,19 @@ This document does not propose a new artwork rule.
 It restates the accepted rule so the Field Rule Table can cite it.
 
 ## Publisher
+
+Feed publisher text, accepted on 2026-09-20: keep the supplied MusicIndex value and identify its source in metadata details.
+This rule does not invent the value's derivation evidence.
+
+Accepted separately: verified removal hides the previous feed publisher text and retains its evidence.
+Expiry retains the last selected state with a stale label. Selected absence stays absent.
+Unknown coverage and failed requests cannot establish removal.
+
+Track placement, accepted separately: show an available feed publisher in a separate "Feed publisher" section.
+Use this section when the track has no proven publisher of its own. It does not create a track assertion.
+
+Proven track publisher text, accepted separately: apply the feed publisher's Index selection, removal, and stale-state rules.
+Preserve its evidence and keep a selected absence absent after expiry.
 
 Three sites in this repository handle the feed-to-track publisher fallback.
 
@@ -246,8 +284,18 @@ value.
 the same function that writes the `description` fact discussed above. The
 three production call sites resolved for track description, in the Track
 Description section, apply to this fact by the same evidence. Current
-behavior: the typed `musicindex` track publisher fact reflects the track's own
-API value at those three sites.
+behavior: the typed `musicindex` track publisher fact reflects the supplied
+API scalar at those three sites. The scalar does not prove track ownership.
+
+Upstream inspection on 2026-09-20 found feed inheritance before the API response, at local Stophammer revision `a220f44`.
+In `src/api.rs`, feed construction selects a platform name, a linked publisher's title, or `owner_name`.
+`derive_publisher_name` reads `owner_name`. `derive_linked_publisher_name` checks a reciprocal publisher relationship before using its title.
+The ingest path then copies `feed.publisher` into each track's `publisher` field.
+The repair path can also copy publisher text to tracks.
+
+This API scalar therefore cannot establish an independent track publisher assertion.
+The deployed revision remains unverified. Retain the supplied value and its provider without inventing its derivation evidence.
+The structured `publisher` relationship collection remains separate from publisher text.
 
 See [Proposed Field Policies](#proposed-field-policies-pending-operator-review)
 for the placement and label proposal this section requires.
@@ -276,11 +324,11 @@ not change that contract or trace that call site further.
 
 | Field | Declared owner | Sources, in priority order | Conflict result | No-source result | Feed value on a track | Evidence retained | Current code | Required change |
 |---|---|---|---|---|---|---|---|---|
-| Feed description | Feed | Accepted: fresh direct RSS before MusicIndex. Proposed details appear below | Keep both observations and detect readable-text differences. Within-provider ties remain unresolved | No description | Only in a proposed feed-owned section | Original values, provider resources, paths, source times, fetch times, discrepancy state | RSS writer, typed facts, and local selector traced above | Packets 011, 018, 020, 035, and 036 |
-| Track description | Track | Accepted: fresh direct item RSS before the matching Index track value. Proposed details appear below | Keep source alternatives. Never compare feed fallback as a track assertion | No track description | Proposed separate "Feed description" section | Both original values and retained discrepancy evidence | The Track Description section traces display fallback and raw persistence separately | Packet 020 applies accepted display rules. Existing tag-write policy stays separate |
-| Feed artwork | Feed | Current RSS extraction: podcast image, iTunes image, RSS image. Cross-provider priority remains proposed work | Preserve separate artwork assertions | No artwork | Accepted Decision C fallback in the track header | Separate facts must retain the source and declared owner | The Feed Artwork section traces the scalar column | Packet 008 requests upstream artwork facts. Packet 011 designs their storage |
-| Track artwork | Track | Accepted: track artwork, then feed artwork | Same URLs do not prove the same owner | No artwork | Accepted, with no additional visible owner label | Separate track and feed facts, including absent coverage | App projections and upstream COALESCE traced above | Preserve the old API display field and add separate upstream artwork facts |
-| Publisher | Separate feed and track assertions | Current: own value, then unlabeled feed fallback. Proposed: keep own value and disclose feed publisher separately | Keep distinct owners. Placement proposal remains open | No publisher text | Proposed "Feed publisher" section | Source, owner, path, and observation time | Publisher and Generic Merge Helper Risk sections above | Packet 020 needs accepted placement. No tag-write policy change |
+| Feed description | Feed | Accepted: fresh direct RSS before MusicIndex. Sourced Index claims precede its plain field | Keep both observations and detect readable-text differences. Conflicting source-order ties remain unresolved | No description | No fallback section on a track page | Original values, provider resources, paths, source times, fetch times, discrepancy state | RSS writer, typed facts, and local selector traced above | Packets 011, 018, 020, 035, and 036 |
+| Track description | Track | Accepted: fresh direct item RSS before matching Index claims, then its plain field | Keep source alternatives. Never compare feed fallback as a track assertion | No track description | No inherited description or fallback section | Both original values and retained discrepancy evidence | The Track Description section traces display fallback and raw persistence separately | Packet 020 applies accepted display rules. Existing tag-write policy stays separate |
+| Feed artwork | Feed | Accepted: fresh direct RSS before MusicIndex. RSS order is podcast image, iTunes image, RSS image | Preserve separate artwork assertions and report conflicting ties as unresolved | No artwork | Accepted Decision C fallback in the track header | Separate facts retain source, declared owner, explicit absence, and stale state | The Feed Artwork section traces the scalar column | Packet 008 requests upstream artwork facts. Packet 011 designs their storage |
+| Track artwork | Track | Accepted: fresh direct RSS before MusicIndex track artwork, then accepted feed fallback | Same URLs do not prove the same owner | Use accepted feed artwork when the track image is absent | Accepted, with no additional visible owner label | Separate track and feed facts, including explicit absence and retained stale state | App projections and upstream COALESCE traced above | Preserve the old API display field and add separate upstream artwork facts |
+| Publisher | Separate feed and proven track assertions | Accepted: supplied Index value with its source. Verified removals hide old text. Expiry retains the selected state | Keep distinct owners and retained evidence | No publisher text for that owner | Accepted "Feed publisher" section when the track has no proven publisher | Source, owner, path, observation time, and stale state | Publisher and Generic Merge Helper Risk sections above | Packet 020 applies accepted placement. No tag-write policy change |
 
 ## Proposed Field Policies Pending Operator Review
 
@@ -292,16 +340,15 @@ selects separate, labeled sections for identities. It does not select the
 placement or the label for an inherited description or an inherited
 publisher.
 
-1. **Selection from one provider.** Use the direct channel or item `description` for the corresponding RSS owner.
+1. **Selection from one provider, accepted on 2026-09-20.** Use the direct channel or item `description` for the corresponding RSS owner.
    In one Index observation, prefer description claims in supplied position order, then the top-level description.
-   A claim retains an extraction path, which supports this proposed priority.
+   A claim retains an extraction path, which supports this accepted priority.
    Conflicting claims with missing or tied positions remain unresolved alternatives. Do not select by source label.
 
-2. **Inherited track description placement and label.** Keep the track's own description empty when it has no assertion.
-   Show an available feed description in a separate section labeled "Feed description".
-   This preserves the owner and makes the related description available.
+2. **Track description placement, accepted on 2026-09-20.** Keep the track's description absent when it has no assertion.
+   Show no description on that track page. The operator rejected the proposed fallback "Feed description" section.
 
-3. **Inherited publisher placement and label.** Keep the track's own publisher empty when it has no assertion.
+3. **Inherited publisher placement and label, accepted on 2026-09-20.** Keep the track's own publisher empty when it has no proven assertion.
    Show an available feed publisher in a separate section labeled "Feed publisher".
    This preserves the owner without treating the feed value as a track assertion.
 
@@ -330,10 +377,15 @@ Packets 011 and 036 must preserve evidence through restart and later snapshot re
 
 A possible MusicIndex update hook remains deferred. No current packet sends an update request.
 
-Proposed fallback when no fresh RSS description is available: use a current Index description for the same owner.
-If neither provider has a current usable value, retain the last selected value with its stale or failed-refresh state.
-When no source has a value, show no description.
-These fallback details and the within-provider proposal above still need operator acceptance.
+The operator accepted the remaining feed and track description selection rules separately on 2026-09-20.
+Use sourced Index descriptions before the plain field. Use declared source order and report conflicting ties as unresolved.
+Fresh verified RSS absence hides a retained Index description.
+Fresh verified Index absence hides a stale RSS description.
+
+When both providers are stale, retain the last selected field state with its stale label.
+An earlier selected absence stays absent. Expiry cannot restore a description that a verified observation removed.
+Preserve all source and discrepancy evidence.
+The [comparison contract](adr-0075-comparison-and-discrepancy-contract.md) records these accepted refinements.
 They do not change audio-tag comparison or tag-write policy.
 
 ## Open Questions For Later Packets
@@ -348,12 +400,8 @@ They do not change audio-tag comparison or tag-write policy.
   writers and no source column. Packet 011 must decide whether to add a
   source tag to that column, or retire it once the typed facts fully cover
   feed description.
-- **Feed description source priority.** See proposal 1 above. This document
-  records accepted provider priority and a concrete within-provider proposal.
-  The within-provider and stale-value details still need operator review.
-- **Inherited description and publisher placement.** See proposals 2 and 3
-  above. Packets 022 and 023 need an accepted placement and label before they
-  build the labeled sections.
+- **Description source priority.** Provider order, within-provider order, explicit absence, and stale display are accepted for feed and track descriptions.
+- **Publisher placement.** Proposal 3 is accepted. The operator separately rejected inherited-description display on a track without its own description.
 
 ## Retained Terms
 

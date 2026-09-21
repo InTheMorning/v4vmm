@@ -4,7 +4,7 @@
 
 Inventory written - 2026-09-19. This inventory assigns fields to rules and packets.
 It does not claim that each assigned rule is complete or accepted.
-The operator's code dispatch hold and visual pause remain in force.
+The operator authorized completion orchestration on 2026-09-20. Unaccepted product policies and the visual pause retain their gates.
 
 The inventory covers the inspected feed, track, contributor, artist, and publisher metadata boundaries.
 It also identifies upstream fields that the app does not decode.
@@ -23,6 +23,22 @@ Unknown extensions remain evidence governed by ADR 0075. An extension remains in
 
 The app source is at commit `d3c6ee4`. Documentation changes do not prove deployed behavior.
 No live feed or Index request supplied this inventory.
+
+## Implementation Progress — 2026-09-20
+
+The tables below retain the original audit findings. This section records subsequent corrections.
+
+| Packet | Corrected boundary | Remaining boundary |
+|---|---|---|
+| 030 | Enclosure DTOs retain owner, position, and source observation time. Complete and independently reviewed | Durable collection storage and selection |
+| 009 | Direct RSS identities retain their owner and validation result. Rejected evidence remains in the active context. Integrated checks are Green | Durable evidence storage and shared selection |
+| 010 | Direct RSS item pages reach track identity storage with raw evidence. Review and integrated checks are Green | Shared action selection |
+| 032 | Track DTOs retain all ten transcript claim fields. Review and integrated checks are Green | Requests, storage, and selection |
+| 033 | Track DTOs retain language and artist sort text. Review and integrated checks are Green | Storage and field-specific projection |
+| 037 | DTOs preserve remaining existing collections and creation times. Review and integrated checks are Green | Requests, storage, and field-specific projection |
+| 031, 034, 035 | Proposed field and comparison rules are written | Operator review of new product policies |
+
+The [orchestration register](../plans/adr-0075-metadata-contract-phase-plan.md#active-orchestration--2026-09-20) owns current assignments and integrated check results.
 
 ## Feed And Track Scalars
 
@@ -107,10 +123,10 @@ Packet 017 must identify summary coverage before packet 013 accepts a replacemen
 5. Keep an unknown source field as evidence until its typed rule exists.
 6. Update this inventory when a source adds a field.
 
-Packet 031 must supply title, number, sort-text, medium, and release-kind rules.
-Packet 034 must supply aggregate, remaining scalar, and relationship rules.
-Packet 035 must supply discrepancy comparison rules before packet 011 designs their storage.
-These are required document outputs, not permission to implement missing policies.
+Packet 031 supplies proposed title, number, sort-text, medium, and release-kind rules.
+Packet 034 supplies proposed aggregate, remaining scalar, and relationship rules.
+Packet 035 supplies proposed comparison details before packet 011 designs durable discrepancy storage.
+These documents do not establish acceptance of new product policies.
 
 ## Operator Visual Check
 

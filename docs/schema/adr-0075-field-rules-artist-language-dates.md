@@ -12,10 +12,39 @@ This document covers free-text and scalar display fields only.
 It does not merge people. It does not claim an artist identity for a track or a feed.
 [ADR 0045](../adr/0045-track-artist-binding.md) reserves identity and merge work for a later decision.
 
-A rule below is either OBSERVED current behavior or a PROPOSED policy.
+A field-matrix entry records OBSERVED behavior from the original inspection or a PROPOSED policy.
 An OBSERVED statement cites a file, a function and the read behavior.
 A PROPOSED statement needs operator acceptance before packet 020 can implement it.
-No proposal in this document is an accepted rule today.
+Accepted refinements below supersede conflicting proposals and earlier code observations.
+Other proposals retain their individual review gates.
+
+## Accepted Track Artist Rules
+
+Accepted on 2026-09-20: prefer fresh RSS author text before the corresponding MusicIndex track artist value.
+Keep contributor names in credits. Do not substitute those names for artist text.
+This display rule creates no artist identity binding.
+
+Accepted separately: use iTunes author before RSS author.
+Apply the description fields' removal, conflict, and stale-state rules. Retain source evidence and selected absence.
+Feed fallback, accepted separately: show an available feed artist in a separate "Feed artist" section.
+Use this section when the track has no artist text. It does not create a track artist assertion.
+
+Packet 020 implements the accepted selection. Packet 009 preserves existing scalar behavior during its parser correction.
+
+Track placeholders, accepted separately: hide only confirmed generated placeholders and retain literal source assertions.
+The text alone cannot prove generated-placeholder status. Keep rejected values and their source evidence.
+
+## Accepted Feed Artist Rules
+
+Accepted on 2026-09-20: prefer fresh RSS iTunes author before the corresponding MusicIndex feed artist value.
+Keep contributor and track names separate. They do not supply fallback feed artist text.
+This rule covers the feed-owned album artist field without creating an artist identity binding.
+Accepted separately: apply the track artist's removal, conflict, and stale-state rules.
+Retain source evidence and selected absence.
+
+Accepted separately: hide only confirmed generated placeholders. Retain literal source assertions, including "Unknown Artist".
+The text alone cannot prove that a value is a placeholder. Unknown derivation cannot establish generated-placeholder status.
+Keep the rejected generated value and its evidence at the source boundary.
 
 ## Evidence Base
 
@@ -27,6 +56,9 @@ No proposal in this document is an accepted rule today.
 This document records no live network request. No agent launched the app.
 
 ## Field Rule Summary
+
+This table retains the original audit and proposals. Accepted refinements supersede proposals for their named fields.
+Other field policies retain their separate review gates.
 
 | Field | Declared owner | Sources, in priority order | Conflict result | No-source result | Feed value on a track | Evidence retained | Current code | Required change |
 |---|---|---|---|---|---|---|---|---|
@@ -133,6 +165,24 @@ response returns this literal today.
 
 ## Language
 
+Feed language, accepted on 2026-09-20: prefer fresh RSS before MusicIndex.
+Apply the accepted removal, conflict, and stale-state rules. Retain source evidence and selected absence.
+Proven track language, accepted separately: prefer fresh item RSS before MusicIndex, with those same rules.
+
+Feed fallback, accepted separately: show the available feed value as a separate "Feed language" value when track language is absent.
+Legacy track language, accepted separately: retain values with unknown ownership in source details only.
+Do not present those values as track-owned assertions.
+
+Packet 033 now preserves the existing track language scalar in the app DTO.
+Upstream inspection at revision `a220f44` found feed inheritance before that scalar reaches the API.
+The parser copies feed language when track language is missing. The ingest path also supplies that fallback.
+The API scalar does not prove an independent track language assertion.
+Its ownership and absence evidence need the upstream contract described in packet 008.
+
+Feed language has a feed-owned release claim. Track language has no corresponding claim that can recover its original owner.
+
+The following audit records the transport and display paths before packet 033.
+
 `api::Track` (`src/api.rs`, line 157) carries no language field today. This is a
 current limit of the app's data transfer object, not an invented rule.
 
@@ -158,6 +208,35 @@ an open question for a transport-correction packet. It does not add the field.
 
 ## Explicit State
 
+Feed explicit state, accepted on 2026-09-20: prefer fresh valid RSS markers and keep unknown distinct from clean.
+Missing or unsupported markers cannot establish clean content. Retain raw values and their validation evidence.
+Verified source absence and unknown validation remain different observation states, even when neither supplies an explicit or clean assertion.
+
+Feed refinements, accepted separately: apply the description fields' removal, conflict, and stale-state rules.
+Retain source evidence and the last selected field state, including absence. Unknown remains distinct from clean.
+
+Proven track explicit state, accepted separately: prefer fresh valid item RSS markers.
+Apply the feed explicit-state removal, conflict, unknown, and stale-state rules. Retain source evidence and selected absence.
+Feed fallback, accepted separately: show a known feed state as a separate "Feed explicit state" value when track state is unknown.
+This fallback does not create a track-owned assertion.
+
+Legacy feed explicit state, accepted separately: MusicIndex `false` without evidence of a valid clean marker stays unknown.
+Retain the original boolean and its source evidence. That scalar alone cannot establish clean content or verified absence.
+
+Legacy track explicit state, accepted separately: retain MusicIndex booleans with unknown ownership in source details only.
+Do not present those values as track-owned explicit-state assertions.
+
+Upstream inspection on 2026-09-20 found three distinct inputs that can produce the same boolean at revision `a220f44`.
+Feed and track builders default to `false`. A missing track marker can inherit a supplied feed marker.
+The parser's `ExplicitBool` transform maps only `yes` and `true` to true.
+Every other nonempty token becomes false, including malformed input.
+
+The parser's transient `explicit_set` flag does not survive in its output.
+Neither feed nor track explicit state has a release claim that restores presence, validity, or original ownership.
+The API boolean preserves this computed result. It does not prove an explicit clean marker in the source.
+These findings require an upstream evidence contract before a scalar alone can establish verified explicit-state coverage.
+See `stophammer-parser/src/engine.rs::extract_track_fields` and `stophammer-parser/src/transform.rs::apply_transform`.
+
 `src/rss/subscribe.rs::subscribe_feed`, line 213, stores the raw iTunes
 `explicit` tag text in `tracks.itunes_explicit`.
 
@@ -179,6 +258,103 @@ local `TrackRow.explicit` value. It changes nothing when the Index value is
 already present.
 
 ## Release Date And Publication Date
+
+### Accepted Feed Release-Date Evidence
+
+Accepted on 2026-09-21: feed release dates require direct release-date evidence.
+Keep publication, build, and oldest-item dates separate. Those dates cannot supply a missing feed release date.
+Retain derived values and their derivation evidence. A `release_date` field name or claim type alone cannot prove release-date meaning.
+
+This rule preserves ADR 0054's boundary against mapping track publication dates to feed release dates.
+
+Accepted separately: apply the publication-date removal, conflict, and stale-state rules to proven feed release dates.
+Retain original date text, source evidence, and the last selected field state, including absence.
+
+Source priority, accepted separately: prefer fresh supported RSS assertions, then MusicIndex assertions.
+Both sources must prove an actual release date. This rule does not add support for an unrecognized RSS date field.
+
+Precision, accepted separately: preserve year-only and year-month feed release dates with their source precision.
+Do not invent a missing day or time. Keep the original date text and precision in the retained evidence.
+
+Timestamp display, accepted separately: show feed release timestamps in UTC when the source timezone is known.
+Metadata details retain the source timezone and original text. Partial calendar dates remain unchanged.
+
+### Accepted Track Release-Date Rules
+
+Accepted on 2026-09-21: track release dates require direct release-date evidence.
+Apply the feed release-date source priority, removal, conflict, and stale-state rules.
+Retain original date text, source evidence, and the last selected field state, including absence.
+Keep track publication dates separate. A track publication date cannot supply a missing track release date.
+
+Precision, accepted separately: apply the feed release-date precision rule to track release dates.
+Preserve year-only and year-month precision without invented date parts. Keep the original date text and source precision.
+
+Timestamp display, accepted separately: show track release timestamps in UTC when the source timezone is known.
+Metadata details retain the source timezone and original text. Partial calendar dates remain unchanged.
+
+Feed fallback, accepted separately: show the available feed release date as a separate "Feed release date" value.
+Use this value when the track release date is absent. Keep its feed ownership and source evidence.
+This presentation does not create a track-owned release-date assertion.
+
+### Accepted Feed Publication Source Priority
+
+Accepted on 2026-09-20: prefer valid fresh RSS channel `pubDate`, then MusicIndex claims that prove an actual channel publication date.
+The `feed.pub_date` claim path alone cannot prove that assertion because the upstream parser can substitute `lastBuildDate`.
+The [aggregate rules](adr-0075-field-rules-aggregates-and-relationships.md#accepted-feed-publication-source-priority) record this field separately from release dates.
+
+Accepted separately: apply the description fields' removal, conflict, and stale-state rules.
+Retain original date text, source evidence, and the last selected field state, including absence.
+
+Precision, accepted separately: show valid partial feed publication dates at their supplied precision.
+Do not invent missing date parts or timezones. Preserve original text and validation evidence.
+This rule does not make malformed source syntax valid or turn a partial date into a timestamp.
+
+Timestamp display, accepted separately: show feed publication timestamps in UTC.
+Metadata details retain the source timezone and original text. Convert only a known instant.
+Partial dates and unknown timezones remain unconverted.
+
+### Accepted Track Publication Source Priority
+
+Accepted on 2026-09-20: prefer valid fresh item RSS `pubDate`, then MusicIndex claims that prove the track's publication date.
+This rule selects track-owned publication assertions. It does not substitute a feed date for a missing track date.
+
+Accepted on 2026-09-21: apply the feed publication date's removal, conflict, and stale-state rules.
+Retain original date text, source evidence, and the last selected field state, including absence.
+
+Precision, accepted separately: show valid partial track publication dates at their supplied precision.
+Do not invent missing date parts or timezones. Preserve original text and validation evidence.
+Apply the feed publication rule's distinction between valid partial dates, malformed source syntax, and timestamps.
+
+Timestamp display, accepted separately: show track publication timestamps in UTC.
+Metadata details retain the source timezone and original text. Convert only a known instant.
+Partial dates and unknown timezones remain unconverted.
+
+Feed fallback, accepted separately: show the available feed date as a separate "Feed publication date" value.
+Use this value when the track publication date is absent. Keep its feed ownership and source evidence.
+This presentation does not create a track-owned date assertion or select a feed release date.
+
+### Accepted Date Format Interpretation
+
+Accepted on 2026-09-21 for feed and track publication and release dates: require unambiguous formats with known source rules.
+Retain other text as unresolved evidence. Do not guess date order, epoch units, missing date parts, or timezones.
+The source format must distinguish a calendar year from an epoch value. Retain the original text and interpretation evidence.
+Packet 020 must document and test each supported source format before its adapter selects a date.
+
+### Observed Date Handling
+
+Upstream inspection at revision `a220f44` found two separate feed-date fallbacks.
+`stophammer-parser/src/profile.rs` substitutes channel `lastBuildDate` when `pubDate` is absent or invalid.
+`src/api.rs` later substitutes the oldest item date when the parser supplies no date.
+That calculation includes ended live items with enclosures.
+
+The release claim distinguishes `oldest_item.pub_date` from `feed.pub_date`, but the latter can conceal the build-date substitution.
+It does not prove an original channel publication-date assertion. The oldest-item claim identifies no contributing item GUID.
+These derivations need distinct evidence before display selection can treat them as publication or release assertions.
+
+Track publication parsing reads item `pubDate` without a feed-date fallback.
+It accepts RFC 2822, RFC 3339, and signed integers, then discards the original date text.
+Missing, empty, and invalid inputs all become `None`.
+The track release claim preserves the normalized value and declared track owner, but not those distinctions.
 
 The app runs two separate rules today, one for the feed's release date and one
 for the track's publication date.
@@ -221,6 +397,36 @@ line 437, fills an Index route track's empty `pub_date` value from the matching
 local `TrackRow.pub_date` value.
 
 ## Duration
+
+### Accepted Track Duration Rules
+
+Accepted on 2026-09-21: prefer fresh valid RSS iTunes duration, then MusicIndex, for track duration metadata.
+Keep measured file duration separate.
+
+Accepted separately: apply the description fields' removal, conflict, and stale-state rules.
+Retain original duration text, source evidence, and the last selected field state, including absence.
+
+Precision, accepted separately: retain valid fractional seconds at source precision.
+Do not round the stored value to whole seconds. Keep original text and precision evidence.
+
+Validation, accepted separately: accept explicitly supplied zero as a valid duration.
+Reject negative and malformed durations while retaining their source evidence. Missing values do not become zero.
+
+RSS formats, accepted separately: accept seconds, `MM:SS`, and `HH:MM:SS`, with fractional seconds and valid component ranges.
+Only the seconds component can contain a fraction. The leading component can exceed 59.
+In colon formats, the seconds component must be less than 60. The middle component of `HH:MM:SS` must be less than 60.
+
+All components must be nonnegative. Reject malformed suffixes, signs on components, and extra components without discarding their original text.
+
+Measured duration presentation, accepted separately: when duration metadata is absent, show available measured file duration separately as "File duration".
+Keep the measurement's file ownership and source evidence. This presentation does not create an RSS or MusicIndex duration assertion.
+
+### Observed Duration Handling
+
+At upstream revision `a220f44`, `stophammer-parser/src/duration.rs` converts item duration text without a measured-audio or feed fallback.
+It truncates fractional seconds and can accept negative components or malformed fractional suffixes.
+For example, `300.bad` and `300.7` follow the same integer conversion.
+The API preserves the resulting integer. It has no duration release claim that recovers the discarded syntax or validation evidence.
 
 `api::Track.duration_secs` (`src/api.rs`, line 164) and `TrackRow.duration_seconds`
 (`src/db.rs`, line 34) are the only two current representations.
@@ -339,5 +545,5 @@ python3 "$HOME/.agents/skills/asd-ste100/scripts/ste_lint.py" \
   --check --no-heuristics docs/schema/adr-0075-field-rules-artist-language-dates.md
 ```
 
-A person has not reviewed this document's proposed rules against ADR 0075.
-That review gate stays open.
+The operator accepted the artist policies recorded above through individual field questions.
+The remaining proposed policies retain their individual review gates.

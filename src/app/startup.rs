@@ -329,10 +329,6 @@ impl StartupScreen {
                     let _ = parent.update(cx, |this, cx| this.session_action(action, window, cx));
                 });
             });
-        if let Some(report) = &mut self.session_vm {
-            let fresh = normal.read(cx).command_runner.session().generation();
-            report.resumed(fresh);
-        }
         normal.update(cx, |app, cx| {
             app.log_frames.clone_from(&self.log_frames);
             app.database_tools.clone_from(&self.database_tools);
@@ -346,10 +342,11 @@ impl StartupScreen {
                 .as_ref()
                 .map(|editor| cx.observe(editor, |_, _, cx| cx.notify()));
             app.session_callback = Some(callback);
-            app.previous_session_report = self
-                .session_vm
-                .as_ref()
-                .map_or_else(String::new, |report| report.report.clone());
+            app.previous_session_report = self.vm.take_normal_session_report(
+                self.session_vm.as_mut(),
+                app.command_runner.session().generation(),
+                &app.previous_session_report,
+            );
         });
         self.maintenance.take();
         self.draining.take();
@@ -389,14 +386,15 @@ impl StartupScreen {
                     return;
                 };
                 let previous = normal.read(cx).capability_vm.report();
+                let retained = normal.read(cx).previous_session_report.clone();
                 let Some(resources) = normal.update(cx, TopApp::begin_session_drain) else {
                     return;
                 };
-                let mut report = SessionReportVm::new(resources.drain.session.generation());
-                if let Some(prior) = &self.session_vm {
-                    report.retain_previous(&prior.report);
-                }
-                report.retain_previous(&previous);
+                let report = StartupReportVm::drain_report(
+                    resources.drain.session.generation(),
+                    &retained,
+                    &previous,
+                );
                 self.session_vm = Some(report);
                 self.draining = Some(Arc::new(Mutex::new(resources)));
                 self.suspend_maintenance_forms(true, cx);
@@ -597,7 +595,8 @@ impl StartupScreen {
                     if let Ok((session, result)) = result {
                         this.resume_after_restore = matches!(&result.outcome,
                             crate::application::commands::maintenance::DatabaseOutcome::Restored(result)
-                                if matches!(result.state, crate::db::maintenance::restore::InstallState::Verified));
+                                if matches!(result.state, crate::db::maintenance::restore::InstallState::Verified)
+                                    && matches!(result.target, Some(11 | crate::db::CURRENT_VERSION)));
                         this.maintenance = Some(session);
                         tools.update(cx, |tools, cx| {
                             tools.complete(generation, result, window, cx);

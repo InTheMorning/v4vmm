@@ -127,14 +127,43 @@ this value.
 
 ## Transcript Links
 
+### Accepted Transcript Rules
+
+Accepted on 2026-09-21: prefer fresh direct RSS track transcript claims over MusicIndex.
+Retain all transcript candidates and their source evidence. Keep each claim's declared owner, URL, MIME type, language, relation, and position.
+
+Accepted separately: apply the description fields' verified-removal, declared-source-order, unresolved-conflict, and stale-state rules.
+Retain the last selected state, including absence, and the underlying evidence. Failed or incomplete refreshes cannot prove removal.
+
+MusicIndex representation, accepted separately: prefer full `source_transcripts` claims over legacy transcript links.
+Retain both forms of evidence. This rule applies within MusicIndex and does not change the accepted provider priority.
+
+Legacy recognition, accepted separately: require explicit transcript, caption, or subtitle evidence.
+An explicit link kind or a recognized extraction path can supply that evidence. A filename extension alone cannot supply it.
+Retain filename-only matches as unresolved evidence without a transcript action.
+Packet 020 must define and test the recognized markers at the shared selection boundary.
+
+Alternatives, accepted separately: offer transcripts in different languages or formats with their declared labels.
+Retain each alternative's language, format, relation, URL, and source evidence.
+Distinct alternatives are not conflicting claims merely because their URLs differ. Apply source priority to corresponding candidates without erasing separate alternatives.
+Do not invent missing labels or infer a transcript's language from the track or feed.
+
+Legacy ownership, accepted separately: retain transcripts with unknown ownership in source details only.
+Do not present them as track-owned transcripts or active track transcript actions.
+An explicit transcript marker does not prove ownership. A verified source contract or source assertion must establish the owner.
+
+URL actions, accepted separately: allow only valid HTTP or HTTPS transcript URLs.
+Retain other URLs as source evidence without a transcript action.
+This check does not replace the accepted owner, transcript-purpose, and selection requirements.
+
 ### Existing Upstream Transcript Collection
 
 Stophammer `src/query.rs::SourceItemTranscriptResponse`, line 413, supplies a separate `source_transcripts` collection.
 Each row contains `entity_type`, `entity_id`, `position`, `url`, `mime_type`, `language`, `rel`, `source`, `extraction_path`, and `observed_at`.
 The track response include branch reads scoped transcript rows. It does not inherit feed transcripts.
 
-The app has no matching DTO field. This loss is separate from the legacy URL selectors below.
-Packet 032 must preserve that existing collection. Packets 004 and 011 must cover its completeness and durable evidence.
+The original audit found no matching app DTO field. Packet 032 now preserves this collection in transport.
+This correction is separate from the legacy URL selectors below. Coverage, durable selection, and presentation remain later work.
 
 
 ### Three Storage Sites Named In The Packet, Plus One More
@@ -169,12 +198,12 @@ correction. One conceptual value has two storage sites, `entity_identity_links`
 and `tracks.extra_json`, and three read selectors that apply two different
 match rules across `src/metadata.rs` and `src/views.rs`.
 
-### Proposed Rule
+### Shared Selection Boundary
 
-Proposed: give the closure inside `TrackView::from_api` the same match rule
-as `transcript_from_links`. This change would make the API route and the
-local route agree on which link counts as a transcript. This proposal needs
-operator acceptance before a dependent code packet changes the selector.
+The accepted recognition rule replaces the original proposal to copy `transcript_from_links` into `TrackView::from_api`.
+That helper accepts filename-only matches, which the operator rejected as sufficient evidence on 2026-09-21.
+Packet 020 must apply the accepted rule through one shared selection owner for API and local routes.
+The renderer must not infer transcript meaning from a filename.
 
 ## Enclosure Links
 
@@ -288,14 +317,17 @@ Store both providers' values and preserve a discrepancy under Decision G.
 The record keeps both URLs, resources, extraction paths, source times, and actual fetch times.
 Do not infer that a changed URL proves the Index is stale.
 
-Proposed details, pending operator acceptance:
+Selection details, accepted separately for feed websites and track pages on 2026-09-20:
 
 1. For RSS feed websites, select the channel `link`.
 2. For RSS track pages, select the item `link`, then a supported Atom alternate link.
 3. In one Index observation, select a matching owner and link kind by supplied position.
 4. Keep conflicting rows with missing or tied positions as unresolved alternatives.
-5. If no fresh RSS value exists, select a current usable Index value for that owner.
-6. If neither observation is current, retain the last selected value with its stale or failed-refresh state.
+5. Fresh verified RSS absence hides retained Index values. Fresh verified Index absence hides stale RSS values.
+6. If neither observation is current, retain the last selected field state with its stale label, including selected absence.
+
+Keep removed values and discrepancy evidence. Unknown coverage and failed requests cannot establish absence.
+Expiry cannot restore a value removed by verified absence.
 
 This order follows source structure and preserves provider evidence. It never ranks a value by its source label's spelling.
 When no source supplies a usable value, show no website or page action.
@@ -303,6 +335,18 @@ Packet 018 must define freshness. Packet 035 must define URL comparison without 
 
 Failed requests and omitted collections cannot create or resolve a value discrepancy.
 The future Index update hook remains deferred.
+
+### Accepted Website URL Actions
+
+Accepted separately on 2026-09-21: feed website actions allow only valid HTTP or HTTPS URLs.
+Retain other schemes as source evidence without a website action.
+Track page actions, accepted separately on 2026-09-21: allow only valid HTTP or HTTPS URLs.
+Retain other schemes as source evidence without a page action.
+
+Feed website comparison, accepted separately: normalize scheme, host, and default ports while preserving path, query, and fragment differences.
+Retain the original URL. The [comparison contract](adr-0075-comparison-and-discrepancy-contract.md#website-and-page-comparison-version-1) defines the technical details.
+Track page comparison, accepted separately: apply the same scheme, host, and default-port normalization.
+Preserve path, query, and fragment differences and the original URL.
 
 ## Corpus Agreement
 

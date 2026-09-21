@@ -1080,10 +1080,7 @@ impl SearchApp {
             Arc::clone(&self.conn),
             self.application_services.download_manager(),
             SubscribeTrackRequest::SearchTrack {
-                track_context: Box::new(TrackContext {
-                    track: track.clone(),
-                    feed,
-                }),
+                track_context: Box::new(TrackContext::new(track.clone(), feed)),
                 edits: Vec::new(),
                 musicindex_endpoint: self.musicindex_endpoint.clone(),
                 mark_feed_subscribed: false,

@@ -1,20 +1,36 @@
 # ADR 0075 Task 007: Write The Field Rules For Links And Media
 
-Status: Deliverable corrected - 2026-09-19. Remaining review gates are open.
+Status: Individual field policies accepted - 2026-09-21. Technical implementation and visual gates remain open.
 The parent ADR 0075 is Accepted from 2026-09-19.
 The operator released the dispatch of this packet on 2026-09-19.
 
-Correction scope: the operator accepted ADR 0075 Decisions E, F, and G.
-Only those decisions and earlier accepted rules are approved. Other policy proposals remain open.
+The operator accepted website and page selection refinements through individual questions on 2026-09-20.
+Supported enclosure selection is accepted.
+Track transcripts prefer fresh direct RSS claims over MusicIndex, with all candidates and source evidence retained.
+Transcript refinements use the description fields' removal, source-order, conflict, and stale-state rules, including retained selected absence.
+
+Within MusicIndex, prefer full transcript claims over legacy transcript links. Retain both forms of evidence.
+Legacy transcript recognition requires explicit transcript, caption, or subtitle evidence. Filename-only matches remain unresolved evidence.
+
+Transcript language and format alternatives remain available with their declared labels and source evidence.
+Legacy transcripts with unknown ownership remain in source details only, without active track transcript actions.
+Transcript actions allow only valid HTTP or HTTPS URLs. Retain other URLs as source evidence without a transcript action.
+
+Feed website actions allow only valid HTTP or HTTPS URLs. Other schemes remain source evidence without a website action.
+Track page actions also allow only valid HTTP or HTTPS URLs, with other schemes retained as source evidence.
+Feed website comparison normalizes scheme, host, and default ports while preserving path, query, and fragment differences.
+Track page comparison applies the same normalization while preserving path, query, and fragment differences.
+
 The [field inventory](../schema/adr-0075-metadata-field-inventory.md) assigns remaining coverage.
-This correction releases no code packet and closes no visual gate.
+The operator's orchestration authorization permits bounded code under accepted rules. Visual checks remain paused.
 
 This packet produces a document. It changes no code.
 The deliverable is [adr-0075-field-rules-links-and-media.md](../schema/adr-0075-field-rules-links-and-media.md).
+
 The correction has no structural finding in changed prose. Its local link check is Green.
 Lexical findings remain. The raw STE checker result is not Green.
 The [technical review record](../reviews/adr-0075-metadata-contract-review.md#packet-004-to-007-technical-reviews--2026-09-19)
-holds the result. A person has not walked the review gate.
+holds the earlier result. Later individual policy decisions are recorded in ADR 0075 and the deliverable.
 
 ## Goal
 

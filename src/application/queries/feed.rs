@@ -469,7 +469,7 @@ fn fetch_track_detail(
     entity_id: &str,
     feed_guid: Option<&str>,
 ) -> Result<InspectorDetailResult> {
-    let mut track = fetch_scoped_track(
+    let track = fetch_scoped_track(
         client,
         entity_id,
         feed_guid,
@@ -477,7 +477,7 @@ fn fetch_track_detail(
             "source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes",
         ),
     )?;
-    let mut feed = track.feed_guid.as_deref().and_then(|guid| {
+    let feed = track.feed_guid.as_deref().and_then(|guid| {
         client
             .fetch_feed(
                 guid,
@@ -487,8 +487,8 @@ fn fetch_track_detail(
             )
             .ok()
     });
-    enrich_track_context_from_rss(&mut track, feed.as_mut());
-    let mut track_context = TrackContext { track, feed };
+    let mut track_context = TrackContext::new(track, feed);
+    enrich_track_context_from_rss(&mut track_context);
     sanitize_track_context_source_text(&mut track_context);
     let image_url = track_context
         .track

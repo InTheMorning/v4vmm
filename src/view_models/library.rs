@@ -2172,6 +2172,9 @@ pub(crate) struct LibraryViewModel {
     in_flight_broadcast_route_repairs: BTreeSet<i64>,
     library_removal: LibraryRemovalConfirmationState,
     status: String,
+    observation_receipts: BTreeMap<i64, crate::provider_observation::ObservationReceipt>,
+    observation_failures:
+        BTreeMap<i64, std::sync::Arc<crate::provider_observation::ObservationWriteFailure>>,
     library_loading: bool,
     // Layout / drag state.
     split_pane: SplitPaneState,
@@ -2208,6 +2211,8 @@ impl LibraryViewModel {
             in_flight_broadcast_route_repairs: BTreeSet::new(),
             library_removal: LibraryRemovalConfirmationState::new(),
             status: String::new(),
+            observation_failures: BTreeMap::new(),
+            observation_receipts: BTreeMap::new(),
             library_loading: false,
             split_pane: SplitPaneState::new(DEFAULT_SPLIT_PANE_WIDTH),
             search_query: String::new(),
@@ -2920,6 +2925,61 @@ impl LibraryViewModel {
         self.library_loading = false;
         self.library_removal.cancel();
         self.status = format!("Error: {error:#}");
+    }
+
+    #[cfg(test)]
+    pub(crate) fn retained_observation_evidence_counts(&self) -> (usize, usize) {
+        (
+            self.observation_receipts.len(),
+            self.observation_failures.len(),
+        )
+    }
+
+    /// ADR 0075 retains all failed generations independently from track navigation.
+    pub(crate) fn retain_observation_failure(
+        &mut self,
+        error: &crate::application::errors::command::CommandError,
+    ) {
+        self.status = format!("Error: {error}");
+        self.retain_query_evidence(error);
+    }
+
+    /// ADR 0075 retains receipts without changing presentation or operation state.
+    pub(crate) fn retain_observation_receipts(
+        &mut self,
+        receipts: &[crate::provider_observation::ObservationReceipt],
+    ) {
+        self.observation_receipts.extend(
+            receipts
+                .iter()
+                .map(|receipt| (receipt.generation, receipt.clone())),
+        );
+    }
+
+    /// ADR 0075 keeps ordinary query evidence separate from error presentation.
+    pub(crate) fn retain_query_evidence(
+        &mut self,
+        error: &crate::application::errors::command::CommandError,
+    ) {
+        if let crate::application::errors::command::CommandError::ObservedQueryFailure(failure) =
+            error
+        {
+            self.retain_observation_receipts(failure.receipts());
+        }
+        if let crate::application::errors::command::CommandError::ObservedCommandFailure(failure) =
+            error
+        {
+            self.retain_observation_receipts(failure.receipts());
+        }
+        if let crate::application::errors::command::CommandError::ObservationWriteFailure(failure) =
+            error
+        {
+            self.retain_observation_receipts(&failure.receipts);
+            if let Some(capsule) = &failure.write_failure {
+                self.observation_failures
+                    .insert(capsule.token.generation(), std::sync::Arc::clone(capsule));
+            }
+        }
     }
 
     #[must_use]
@@ -7139,6 +7199,119 @@ mod tests {
     }
 
     #[test]
+    fn adr_0075_observation_failures_survive_navigation_and_preserve_operation_state() {
+        use crate::application::errors::command::CommandError;
+        use crate::provider_observation::{
+            ObservationOutcome, ObservationStorageError, ObservationWriteFailure, ProviderKind,
+            ProviderObservation, ProviderRequestSpec, RequestToken,
+        };
+        use serde_json::json;
+        use std::sync::Arc;
+        let mut vm = LibraryViewModel::new();
+        vm.selected_id = Some(42);
+        vm.busy_track = Some(99);
+        vm.busy_feed = Some(88);
+        vm.library_loading = true;
+        let plan = LibraryRemovalPlan::new(
+            LibraryRemovalTarget::Track(42),
+            LibraryRemovalImpact::Track {
+                playlist_reference_count: 1,
+            },
+        );
+        assert!(!vm.confirm_library_removal(plan));
+        let before = vm.pending_library_removal_confirmation();
+        for generation in [1, 2] {
+            let failure = ObservationWriteFailure {
+                token: RequestToken {
+                    key: "private request".into(),
+                    write_state: Arc::new(std::sync::Mutex::new(
+                        crate::provider_observation::RequestWriteState::Ready,
+                    )),
+                    generation,
+                    provider_id: 1,
+                    resource_id: 1,
+                    subject_id: None,
+                    spec: Arc::new(ProviderRequestSpec {
+                        provider: ProviderKind::MusicIndex,
+                        provider_identity: "private endpoint".into(),
+                        request_uri: "private URI".into(),
+                        requested_subject: None,
+                        requested_parameters: json!({}),
+                        profile: json!({}),
+                        started_at_us: 10,
+                    }),
+                },
+                observation: Arc::new(ProviderObservation {
+                    body: Some(Arc::from(b"private response".as_slice())),
+                    http_status: Some(200),
+                    response_uri: Some("private URI".into()),
+                    interpretation: json!({}),
+                    source_revision: None,
+                    source_times: json!({}),
+                    decoder_version: "test".into(),
+                    outcome: ObservationOutcome::Success,
+                    failure: None,
+                    finished_at_us: 20,
+                    fetched_at_us: Some(19),
+                    occurrence: json!({}),
+                    coverage: Vec::new(),
+                }),
+                operation: ObservationStorageError::ResponseWrite,
+                retry: crate::provider_observation::StorageRetry::VerifiedRollback,
+            };
+            vm.retain_observation_failure(&CommandError::ObservationWriteFailure(Arc::new(
+                crate::provider_observation::ObservationCommandFailure {
+                    read_error: None,
+                    write_failure: Some(Arc::new(failure)),
+                    storage_error: None,
+                    receipts: Arc::from([crate::provider_observation::ObservationReceipt {
+                        observation_id: generation,
+                        generation: 100 + generation,
+                        provider_id: 1,
+                        resource_id: 1,
+                        request_uri: "private URI".into(),
+                        response_uri: None,
+                        body_key: None,
+                        started_at_us: 10,
+                        finished_at_us: 20,
+                        fetched_at_us: Some(19),
+                        occurrence: json!({}),
+                        outcome: ObservationOutcome::Success,
+                        retention: crate::provider_observation::ObservationRetention::Unknown,
+                        collections: Vec::new(),
+                    }]),
+                },
+            )));
+            assert_eq!(
+                vm.observation_failures.len(),
+                usize::try_from(generation).unwrap()
+            );
+            assert_eq!(vm.busy_track, Some(99));
+            assert_eq!(vm.busy_feed, Some(88));
+            assert!(vm.library_loading);
+            assert_eq!(vm.pending_library_removal_confirmation(), before);
+            assert!(vm.status_snapshot().is_error);
+            assert!(!vm.status_snapshot().text.contains("private"));
+            assert!(!vm.status_snapshot().text.contains("unavailable"));
+            vm.selected_id = Some(43);
+        }
+        assert_eq!(vm.observation_receipts.len(), 2);
+        assert_eq!(vm.selected_id, Some(43));
+        assert_eq!(
+            vm.observation_failures[&1].observation.fetched_at_us,
+            Some(19)
+        );
+        vm.retain_observation_failure(&CommandError::Query(
+            ObservationStorageError::RequestAllocation.to_string(),
+        ));
+        assert_eq!(vm.observation_failures.len(), 2);
+        assert!(vm.library_loading);
+        vm.finish_library_reload(2);
+        assert_eq!(vm.observation_receipts.len(), 2);
+        assert_eq!(vm.observation_failures.len(), 2);
+    }
+
+    #[test]
     fn library_view_model_projects_hig_removal_confirmation_display() {
         let mut vm = LibraryViewModel::new();
         let plan = LibraryRemovalPlan::new(
@@ -7242,6 +7415,62 @@ mod tests {
         vm.begin_playlist_rename(9);
         vm.cancel_playlist_rename();
         assert_eq!(vm.renaming_playlist_id(), None);
+    }
+
+    #[test]
+    fn adr_0075_library_observation_receipt_retention_preserves_confirmation_loading_and_busy_state(
+    ) {
+        use crate::application::errors::command::{CommandError, ObservedQueryFailure};
+        use crate::provider_observation::{
+            ObservationOutcome, ObservationReceipt, ObservationRetention,
+        };
+        let mut vm = LibraryViewModel::new();
+        vm.selected_id = Some(42);
+        vm.busy_track = Some(99);
+        vm.busy_feed = Some(88);
+        vm.library_loading = true;
+        let plan = LibraryRemovalPlan::new(
+            LibraryRemovalTarget::Track(42),
+            LibraryRemovalImpact::Track {
+                playlist_reference_count: 1,
+            },
+        );
+        assert!(!vm.confirm_library_removal(plan));
+        let confirmation = vm.pending_library_removal_confirmation();
+        let status = vm.status.clone();
+        let receipt = ObservationReceipt {
+            observation_id: 1,
+            generation: 1,
+            provider_id: 1,
+            resource_id: 1,
+            request_uri: "private URI".into(),
+            response_uri: None,
+            body_key: None,
+            started_at_us: 10,
+            finished_at_us: 20,
+            fetched_at_us: Some(19),
+            occurrence: serde_json::json!({}),
+            outcome: ObservationOutcome::Success,
+            retention: ObservationRetention::Unknown,
+            collections: Vec::new(),
+        };
+        vm.retain_observation_receipts(std::slice::from_ref(&receipt));
+        let mut later = receipt.clone();
+        later.generation = 2;
+        let failure = CommandError::ObservedQueryFailure(std::sync::Arc::new(
+            ObservedQueryFailure::new("ordinary cause".into(), vec![later.clone()]),
+        ));
+        vm.retain_query_evidence(&failure);
+        vm.retain_observation_receipts(std::slice::from_ref(&receipt));
+        assert_eq!(vm.observation_receipts.len(), 2);
+        assert_eq!(vm.observation_receipts[&1], receipt);
+        assert_eq!(vm.observation_receipts[&2], later);
+        assert_eq!(vm.selected_id, Some(42));
+        assert_eq!(vm.busy_track, Some(99));
+        assert_eq!(vm.busy_feed, Some(88));
+        assert!(vm.library_loading);
+        assert_eq!(vm.pending_library_removal_confirmation(), confirmation);
+        assert_eq!(vm.status, status);
     }
 
     #[test]

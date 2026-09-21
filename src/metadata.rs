@@ -1,8 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use crate::api::*;
 use crate::audio_tags::{id3v24_edit_label_is_writable, AudioTags, Id3Field, Id3v24Edit};
 use crate::musicbrainz::{MusicBrainzCandidate, MusicBrainzLookup};
+use crate::rss::RssObservation;
 use crate::track_compare::{compare_track_tags, ComparisonRow, ComparisonStatus};
 
 // Constants
@@ -64,6 +66,21 @@ pub struct ImageBytes {
 pub struct TrackContext {
     pub track: Track,
     pub feed: Option<Feed>,
+    pub rss_observation: Option<Arc<RssObservation>>,
+    pub observation_receipts: Vec<crate::provider_observation::ObservationReceipt>,
+    pub provider_state: crate::provider_observation::ProviderTrackState,
+}
+
+impl TrackContext {
+    pub fn new(track: Track, feed: Option<Feed>) -> Self {
+        Self {
+            track,
+            feed,
+            rss_observation: None,
+            observation_receipts: Vec::new(),
+            provider_state: Default::default(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -3621,6 +3638,9 @@ mod tests {
     #[test]
     fn sanitize_track_context_source_text_clears_placeholder_display_facts() {
         let mut context = TrackContext {
+            rss_observation: None,
+            observation_receipts: Vec::new(),
+            provider_state: Default::default(),
             track: Track {
                 feed_title: Some("...".into()),
                 feed_url: Some("\u{2026}".into()),
@@ -3804,6 +3824,9 @@ mod tests {
             format: None,
         };
         let track_context = TrackContext {
+            rss_observation: None,
+            observation_receipts: Vec::new(),
+            provider_state: Default::default(),
             track: Track {
                 title: Some("The Platform".into()),
                 track_artist: Some("HeyCitizen".into()),
@@ -3851,6 +3874,9 @@ mod tests {
     #[test]
     fn track_metadata_rows_drop_markup_placeholder_source_values() {
         let track_context = TrackContext {
+            rss_observation: None,
+            observation_receipts: Vec::new(),
+            provider_state: Default::default(),
             track: Track {
                 title: Some("<p>...</p><p>...</p>".into()),
                 name: Some("Real title".into()),
@@ -3908,6 +3934,9 @@ mod tests {
     #[test]
     fn track_metadata_rows_include_local_pubdate_and_explicit_true_only() {
         let track_context = TrackContext {
+            rss_observation: None,
+            observation_receipts: Vec::new(),
+            provider_state: Default::default(),
             track: Track {
                 pub_date: Some(1_712_275_200),
                 explicit: Some(true),
@@ -3928,6 +3957,9 @@ mod tests {
         );
 
         let clean_context = TrackContext {
+            rss_observation: None,
+            observation_receipts: Vec::new(),
+            provider_state: Default::default(),
             track: Track {
                 explicit: Some(false),
                 ..Default::default()
@@ -3954,6 +3986,9 @@ mod tests {
     #[test]
     fn sanitize_track_context_strips_placeholder_contributor_names() {
         let mut context = TrackContext {
+            rss_observation: None,
+            observation_receipts: Vec::new(),
+            provider_state: Default::default(),
             track: Track {
                 source_contributors: Some(vec![
                     Contributor {
