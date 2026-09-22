@@ -200,7 +200,14 @@ impl From<anyhow::Error> for SharedFetchError {
 }
 
 /// One in-flight or just-finished request for one identity.
-struct Slot<T> {
+///
+/// Generic over the identity's key type `K`, not only `RequestKey`: packet
+/// 018 Part B's `rss::enrich` module reuses this same machinery, keyed by
+/// feed URL instead, to share an in-flight RSS fetch (P18-3's own module,
+/// closing the gap the packet's concurrent measurement found). Sharing one
+/// generic implementation, rather than a second copy of it, keeps the
+/// abandonment guarantee (`SlotCompletion` below) in one place.
+pub(crate) struct Slot<T> {
     /// The sequence value this slot's owner allocated when the request
     /// started. It is not a fetch time and not a source time (R18A-07).
     generation: i64,
@@ -234,7 +241,10 @@ impl<T: Clone> Slot<T> {
     }
 }
 
-type Registry<T> = Mutex<HashMap<RequestKey, Arc<Slot<T>>>>;
+/// A registry of in-flight or just-finished single-flight requests, keyed
+/// by `K`. `MetadataRequestOwner` below uses `RequestKey`; `rss::enrich`
+/// uses a plain feed URL `String` for its own P18-3 single-flight sharing.
+pub(crate) type Registry<K, T> = Mutex<HashMap<K, Arc<Slot<T>>>>;
 
 /// Completes an abandoned slot when the requesting thread unwinds.
 ///
@@ -243,14 +253,14 @@ type Registry<T> = Mutex<HashMap<RequestKey, Arc<Slot<T>>>>;
 /// identity would stay in the registry. This guard fails the slot, wakes
 /// every joined caller, and removes the identity, so that a later caller
 /// starts a new request.
-struct SlotCompletion<'a, T> {
-    registry: &'a Registry<T>,
-    key: &'a RequestKey,
+struct SlotCompletion<'a, K: Eq + std::hash::Hash, T> {
+    registry: &'a Registry<K, T>,
+    key: &'a K,
     slot: &'a Arc<Slot<T>>,
     finished: bool,
 }
 
-impl<T> Drop for SlotCompletion<'_, T> {
+impl<K: Eq + std::hash::Hash, T> Drop for SlotCompletion<'_, K, T> {
     fn drop(&mut self) {
         if self.finished {
             return;
@@ -284,10 +294,16 @@ impl<T> Drop for SlotCompletion<'_, T> {
 /// twice for one active identity, and it never runs while the registry
 /// lock is held: the lock is released before `fetch` starts and is
 /// re-acquired only after `fetch` returns.
-fn single_flight<T: Clone>(
-    registry: &Registry<T>,
+///
+/// Generic over the key type `K`: `MetadataRequestOwner` calls this with
+/// `RequestKey`, and `rss::enrich` calls it with a feed URL `String`
+/// (packet 018 Part B, closing the RSS active-request gap the packet's own
+/// concurrent measurement found). `pub(crate)` so `rss::enrich` can reach
+/// it from its own module.
+pub(crate) fn single_flight<K: Eq + std::hash::Hash + Clone, T: Clone>(
+    registry: &Registry<K, T>,
     sequence: &AtomicI64,
-    key: RequestKey,
+    key: K,
     refresh: RefreshIntent,
     fetch: impl FnOnce() -> Result<T, SharedFetchError>,
 ) -> (Result<T, SharedFetchError>, i64) {
@@ -452,8 +468,8 @@ impl<K: Eq + std::hash::Hash + Clone, V: Clone> RetainedCache<K, V> {
 /// cross into another test.
 pub(crate) struct MetadataRequestOwner {
     sequence: AtomicI64,
-    feeds: Registry<(Feed, Vec<ObservationReceipt>)>,
-    tracks: Registry<(Track, Vec<ObservationReceipt>)>,
+    feeds: Registry<RequestKey, (Feed, Vec<ObservationReceipt>)>,
+    tracks: Registry<RequestKey, (Track, Vec<ObservationReceipt>)>,
     retained_feeds: Mutex<RetainedCache<RequestKey, (Feed, Vec<ObservationReceipt>)>>,
     retained_tracks: Mutex<RetainedCache<RequestKey, (Track, Vec<ObservationReceipt>)>>,
     /// P18-7's index from one feed identity to every retained key that
@@ -566,6 +582,42 @@ impl MetadataRequestOwner {
             self.retain_track(key, value.clone());
         }
         (result, generation)
+    }
+
+    /// Shares an active track request without retaining its completed
+    /// response for a later reuse.
+    ///
+    /// Packet 018 Job 1 (Part B follow-up, R18B-12): the Index route asks
+    /// the owner for its track detail too, but it carries no accepted
+    /// reuse window of its own — P18-1 names a Library track detail
+    /// response only. This method gives an Index caller the same
+    /// active-request sharing `fetch_track_with_receipts` gives a Library
+    /// caller (ADR 0075 section 6), through the same registry, so a
+    /// concurrent duplicate still joins instead of sending its own
+    /// request. It never consults or updates the retained-response cache,
+    /// so an Index request is never served from, and never left in, that
+    /// cache for a later caller. The operator decides later whether an
+    /// Index track detail response earns its own window; this method
+    /// invents none.
+    pub(crate) fn fetch_track_shared(
+        &self,
+        key: RequestKey,
+        fetch: impl FnOnce() -> anyhow::Result<Track>,
+    ) -> anyhow::Result<Track> {
+        single_flight(
+            &self.tracks,
+            &self.sequence,
+            key,
+            RefreshIntent::Normal,
+            || {
+                fetch()
+                    .map(|track| (track, Vec::new()))
+                    .map_err(SharedFetchError::from)
+            },
+        )
+        .0
+        .map(|(track, _receipts)| track)
+        .map_err(SharedFetchError::into_anyhow)
     }
 
     fn retain_feed(&self, key: RequestKey, value: (Feed, Vec<ObservationReceipt>)) {

@@ -1,7 +1,9 @@
 //! RSS enrichment and observation capture for ADR 0075.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::io::Cursor;
+use std::sync::atomic::AtomicI64;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -13,8 +15,9 @@ use rss::{extension::ExtensionMap, Channel};
 use super::helpers::{clean_text, find_ext, parse_itunes_duration};
 use super::{IdentityValidation, NostrIdentity};
 use crate::api::{Feed, SourceEntityId, SourceEntityLink, Track};
-use crate::application::request_reuse::RetainedCache;
+use crate::application::request_reuse::{self, RefreshIntent, RetainedCache, SharedFetchError};
 use crate::metadata::{source_text_missing, TrackContext};
+use crate::provider_observation::ProviderObservation;
 
 /// P18-3: a parsed RSS document stays reusable for this long, keyed by feed
 /// URL. This is the one place this value appears in the code (R18B-03).
@@ -35,6 +38,13 @@ struct CachedRssDocument {
     response_url: String,
     fetched_at: DateTime<Utc>,
     response_bytes: Arc<[u8]>,
+    /// The receipt of the fetch that produced these bytes, when a
+    /// recorder observed it. A later observed call replays this receipt,
+    /// so a reused document names the observation that produced it and
+    /// creates no second observation (R18B-07). An unobserved fetch
+    /// retains `None`, and a later observed call then fetches again
+    /// rather than report evidence it does not have.
+    receipt: Option<crate::provider_observation::ObservationReceipt>,
 }
 
 static RETAINED_DOCUMENTS: OnceLock<Mutex<RetainedCache<String, CachedRssDocument>>> =
@@ -72,6 +82,35 @@ pub(crate) fn invalidate_feed_document(feed_url: &str) {
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .remove(&feed_url.to_owned());
+}
+
+/// Packet 018: shares an in-flight RSS GET across concurrent callers of the
+/// same feed URL, keyed by feed URL like the completed-response cache
+/// above. This closes the gap the packet's own concurrent measurement
+/// found: two concurrent Library track details of one track used to send
+/// two GETs for one feed, because only the completed-response cache
+/// existed, with no active-request join for a request still in flight.
+///
+/// This reuses `application::request_reuse`'s generic `single_flight`
+/// (packet 018 Part A's own machinery, generalized over its key type for
+/// this reuse) instead of a second copy of it, so the same abandonment
+/// guarantee applies here too: a panic in the fetch fails the slot, wakes
+/// every joined caller, and removes the identity.
+///
+/// The shared value is the raw captured HTTP response (`ProviderObservation`,
+/// before decoding or parsing), not a parsed, track-matched result: a
+/// concurrent caller may want a different track's enrichment from the same
+/// feed, so only the network fetch is shared. Each caller — the winner and
+/// every joiner — still decodes and parses its own clone for its own track
+/// GUID and enclosure, and still records its own observation, because an
+/// RSS observation's outcome depends on which item matched that caller's
+/// own request.
+static RSS_FETCH_SEQUENCE: AtomicI64 = AtomicI64::new(0);
+static RSS_FETCH_REGISTRY: OnceLock<request_reuse::Registry<String, ProviderObservation>> =
+    OnceLock::new();
+
+fn rss_fetch_registry() -> &'static request_reuse::Registry<String, ProviderObservation> {
+    RSS_FETCH_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 const PODCAST_NAMESPACES: [&str; 2] = [
@@ -302,6 +341,7 @@ pub fn fetch_track_enrichment_from_feed(
     fetch_track_enrichment_with_recorder(feed_url, track_guid, enclosure_url, None)
 }
 
+/// Fetches, or reuses, a feed's RSS document and parses it for one track.
 fn fetch_track_enrichment_with_recorder(
     feed_url: &str,
     track_guid: Option<&str>,
@@ -310,28 +350,75 @@ fn fetch_track_enrichment_with_recorder(
 ) -> Result<RssFetchResult> {
     // Packet 018 P18-3: a retained document reuses the last fetched bytes
     // for a different track of the same feed. Re-parsing them for this
-    // track's own GUID and enclosure is cheap, in-memory work; it sends no
-    // request and it records no observation (R18B-07: a reused response
-    // creates no new observation).
-    if let Some(cached) = retained_document(feed_url) {
-        return parse_track_enrichment_document(
-            feed_url,
-            &cached.response_url,
-            cached.fetched_at,
-            cached.response_bytes,
-            track_guid,
-            enclosure_url,
-        );
+    // track's own GUID and enclosure is cheap, in-memory work, and it
+    // sends no request.
+    //
+    // A caller with a recorder replays the receipt of the fetch that
+    // produced those bytes. A reused response names the observation that
+    // produced it, and it creates no second observation of one fetch
+    // (R18B-07). The feed and track caches in
+    // `application::request_reuse` replay their receipts the same way.
+    // The replayed receipt keeps the generation of that earlier fetch,
+    // because the evidence is older than this call. The operator decided
+    // this on 2026-09-22, against a new observation for each reuse.
+    match (retained_document(feed_url), recorder) {
+        (Some(cached), Some(recorder)) => {
+            if let Some(receipt) = cached.receipt.clone() {
+                let result = parse_track_enrichment_document(
+                    feed_url,
+                    &cached.response_url,
+                    cached.fetched_at,
+                    cached.response_bytes,
+                    track_guid,
+                    enclosure_url,
+                );
+                recorder.replay(receipt);
+                return result;
+            }
+            // An unobserved fetch retained these bytes, so no receipt
+            // exists to replay. This call fetches again and records its
+            // own observation, rather than report evidence it cannot
+            // name.
+        }
+        (Some(cached), None) => {
+            return parse_track_enrichment_document(
+                feed_url,
+                &cached.response_url,
+                cached.fetched_at,
+                cached.response_bytes,
+                track_guid,
+                enclosure_url,
+            );
+        }
+        _ => {}
     }
     if let Some(recorder) = recorder {
         use crate::provider_observation::{contracts, http, ObservationOutcome};
         let mut spec = contracts::rss_request(feed_url, track_guid, enclosure_url);
         spec.started_at_us = Utc::now().timestamp_micros();
         let token = recorder.begin(spec)?;
-        let mut observation = http::capture(
-            crate::http_client::document().get(feed_url),
-            contracts::RSS_DECODER,
+        // Packet 018: share the GET itself with a concurrent caller of the
+        // same feed URL (see `rss_fetch_registry`'s own documentation for
+        // why this shares only the fetch, not the parse or the
+        // observation). Every caller passes `Normal`: an RSS document has
+        // no explicit-refresh concept of its own at this level — P18-7's
+        // explicit refresh instead invalidates the retained document
+        // (`invalidate_feed_document`, called by `feed_service::apply_feed_updates`)
+        // before this function runs, so the lookup above already misses
+        // and this call reaches the network on its own.
+        let (captured, _generation) = request_reuse::single_flight(
+            rss_fetch_registry(),
+            &RSS_FETCH_SEQUENCE,
+            feed_url.to_owned(),
+            RefreshIntent::Normal,
+            || {
+                Ok(http::capture(
+                    crate::http_client::document().get(feed_url),
+                    contracts::RSS_DECODER,
+                ))
+            },
         );
+        let mut observation = captured.map_err(SharedFetchError::into_anyhow)?;
         let result = if observation.outcome == ObservationOutcome::Failed {
             Err(anyhow!("RSS request failed"))
         } else {
@@ -364,30 +451,34 @@ fn fetch_track_enrichment_with_recorder(
             }
             _ => {}
         }
+        let response_url = observation
+            .response_uri
+            .clone()
+            .unwrap_or_else(|| feed_url.to_owned());
+        let fetched_at = observation
+            .fetched_at_us
+            .and_then(|micros| DateTime::from_timestamp_micros(micros).map(|time| (time, micros)));
+        let response_bytes = observation.body.as_ref().map(Arc::clone);
+        // The receipt of this fetch belongs with its retained bytes, so a
+        // later observed call can replay it (R18B-07). The write happens
+        // first, because the receipt exists only after it.
+        let receipt = recorder.record(token, observation)?;
         // P18-4: never retain a failure. A malformed document still fails
         // `parse_track_enrichment_document_observed`, so it never reaches
         // `retain_document` either.
-        if result.is_ok() {
+        if let (Ok(_), Some((fetched_at, _)), Some(response_bytes)) =
+            (&result, fetched_at, response_bytes)
+        {
             retain_document(
                 feed_url,
                 CachedRssDocument {
-                    response_url: observation
-                        .response_uri
-                        .clone()
-                        .unwrap_or_else(|| feed_url.to_owned()),
-                    fetched_at: DateTime::from_timestamp_micros(
-                        observation
-                            .fetched_at_us
-                            .expect("completed response has fetch time"),
-                    )
-                    .expect("recorded UTC time is valid"),
-                    response_bytes: Arc::clone(
-                        observation.body.as_ref().expect("response has body"),
-                    ),
+                    response_url,
+                    fetched_at,
+                    response_bytes,
+                    receipt: Some(receipt),
                 },
             );
         }
-        recorder.record(token, observation)?;
         return result;
     }
     let response = crate::http_client::document()
@@ -418,6 +509,8 @@ fn fetch_track_enrichment_with_recorder(
                 response_url,
                 fetched_at,
                 response_bytes: bytes,
+                // No recorder observed this fetch, so it has no receipt.
+                receipt: None,
             },
         );
     }
@@ -1808,6 +1901,189 @@ mod tests {
             worker.join().unwrap().len(),
             1,
             "R18B-01: the second ask reuses the retained document and sends no request"
+        );
+        Ok(())
+    }
+
+    /// Packet 018 Job 3 (Part B follow-up): a reused document still
+    /// records this call's own observation from its retained bytes, with
+    /// no network request, so a repeated read of a different track from
+    /// the same feed still reports its own receipt.
+    #[test]
+    fn adr_0075_request_reuse_rss_document_reuse_replays_the_original_receipt() -> Result<()> {
+        use rusqlite::Connection;
+
+        let xml = document(
+            "<item><guid>track-a</guid><title>Track A</title></item>\
+<item><guid>track-b</guid><title>Track B</title></item>",
+        );
+        let (url, worker) = server(vec![("200 OK".into(), xml.into_bytes())]);
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::upgrades::create_fixture(&conn, 12).unwrap();
+        let recorder = crate::provider_observation::ProviderObservationRecorder::new(Arc::new(
+            Mutex::new(conn),
+        ));
+
+        // Every real caller of the observed path drains `recorder` itself
+        // once its own operation finishes (`feed_service.rs`,
+        // `library.rs`); this test does the same, one call at a time, so
+        // each drain holds exactly that one call's own receipt.
+        let mut first_context = context();
+        first_context.track.track_guid = Some("track-a".into());
+        assert!(enrich_track_from_feed_rss_observed(
+            &mut first_context,
+            &url,
+            &recorder
+        )?);
+        let first_receipts = recorder.take_receipts();
+        assert_eq!(
+            first_receipts.len(),
+            1,
+            "a fresh, observed fetch records one receipt"
+        );
+
+        let mut second_context = context();
+        second_context.track.track_guid = Some("track-b".into());
+        assert!(enrich_track_from_feed_rss_observed(
+            &mut second_context,
+            &url,
+            &recorder
+        )?);
+        let second_receipts = recorder.take_receipts();
+        assert_eq!(
+            second_receipts.len(),
+            1,
+            "the reused document still reports its evidence for a different track"
+        );
+        // R18B-07: a reused response names the observation that produced
+        // it, and it creates no second observation of one fetch. The feed
+        // and track caches replay their receipts the same way. The
+        // operator decided this on 2026-09-22, against a new observation
+        // for each reuse.
+        assert_eq!(
+            second_receipts[0].observation_id, first_receipts[0].observation_id,
+            "the reuse replays the original fetch's observation"
+        );
+        assert_eq!(
+            worker.join().unwrap().len(),
+            1,
+            "the reused document sends no request"
+        );
+        Ok(())
+    }
+
+    /// Packet 018 Job 2 (Part B follow-up): two concurrent callers of one
+    /// feed URL share the GET, closing the gap the packet's own concurrent
+    /// measurement found. The fixture accepts connections until this test
+    /// releases them, so a caller that did not join the shared fetch would
+    /// show up as a second accepted connection, not just a slower one.
+    #[test]
+    fn adr_0075_request_reuse_rss_concurrent_callers_share_one_fetch() -> Result<()> {
+        use rusqlite::Connection;
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind the RSS fixture");
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/feed", listener.local_addr().unwrap());
+        let xml = document("<item><guid>track</guid><title>Shared</title></item>");
+        let release = Arc::new(AtomicBool::new(false));
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let release_worker = Arc::clone(&release);
+        let accepted_worker = Arc::clone(&accepted);
+        let worker = thread::spawn(move || {
+            let mut streams = Vec::new();
+            loop {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(5)))
+                            .unwrap();
+                        let mut request = Vec::new();
+                        let mut buffer = [0; 1024];
+                        while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                            let count = stream.read(&mut buffer).unwrap();
+                            assert_ne!(count, 0, "RSS fixture request ended before its headers");
+                            request.extend_from_slice(&buffer[..count]);
+                        }
+                        accepted_worker.fetch_add(1, Ordering::SeqCst);
+                        streams.push(stream);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if release_worker.load(Ordering::SeqCst) {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("RSS fixture accept failed: {error}"),
+                }
+            }
+            for mut stream in streams {
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    xml.len()
+                )
+                .unwrap();
+                stream.write_all(xml.as_bytes()).unwrap();
+            }
+        });
+
+        let recorder_a = {
+            let conn = Connection::open_in_memory().unwrap();
+            crate::db::upgrades::create_fixture(&conn, 12).unwrap();
+            crate::provider_observation::ProviderObservationRecorder::new(Arc::new(Mutex::new(
+                conn,
+            )))
+        };
+        let recorder_b = {
+            let conn = Connection::open_in_memory().unwrap();
+            crate::db::upgrades::create_fixture(&conn, 12).unwrap();
+            crate::provider_observation::ProviderObservationRecorder::new(Arc::new(Mutex::new(
+                conn,
+            )))
+        };
+
+        let url_a = url.clone();
+        let first = thread::spawn(move || {
+            let mut context = context();
+            let changed = enrich_track_from_feed_rss_observed(&mut context, &url_a, &recorder_a);
+            (changed, context)
+        });
+
+        let start = Instant::now();
+        while accepted.load(Ordering::SeqCst) == 0 {
+            assert!(
+                start.elapsed() < Duration::from_secs(3),
+                "the first request did not reach the fixture"
+            );
+            thread::sleep(Duration::from_millis(2));
+        }
+
+        let url_b = url.clone();
+        let second = thread::spawn(move || {
+            let mut context = context();
+            let changed = enrich_track_from_feed_rss_observed(&mut context, &url_b, &recorder_b);
+            (changed, context)
+        });
+
+        // Give the second caller time to reach the shared fetch and join
+        // it before this test releases the held response.
+        thread::sleep(Duration::from_millis(80));
+        release.store(true, Ordering::SeqCst);
+
+        let (first_changed, first_context) = first.join().unwrap();
+        let (second_changed, second_context) = second.join().unwrap();
+        assert!(first_changed?, "the winning caller applies the enrichment");
+        assert!(second_changed?, "the joining caller applies it too");
+        assert_eq!(
+            first_context.track.title.as_deref(),
+            second_context.track.title.as_deref()
+        );
+        worker.join().unwrap();
+        assert_eq!(
+            accepted.load(Ordering::SeqCst),
+            1,
+            "R18A-03's rule, applied to RSS: one identity, one request"
         );
         Ok(())
     }

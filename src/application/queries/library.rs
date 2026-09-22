@@ -1795,15 +1795,17 @@ mod observation_tests {
         // inside their windows, so this second load reuses them and sends
         // no request. Each reused response still carries its own receipt
         // (R18B-07), so the track and feed contribute one receipt each.
-        // The RSS document is reused too (P18-3), but a reused RSS
-        // document carries no `ObservationReceipt` of its own: RSS
-        // evidence has no receipt-level identifier to reuse, unlike a
-        // MusicIndex response (see this packet's own report for why).
-        assert_eq!(repeated.observation_receipts.len(), 2);
+        // The RSS document is reused too (P18-3), and it replays the
+        // receipt of the fetch that produced it, so the total stays at 3.
+        assert_eq!(repeated.observation_receipts.len(), 3);
+        // A reused response writes nothing. Each of the three replays the
+        // receipt of the observation that produced it (R18B-07), so no
+        // table grows. The operator decided this on 2026-09-22, against a
+        // new observation for each reuse.
         assert_eq!(fixture.row_counts(), rows);
-        // No request reached the network, so the fixture's own request log
-        // and the database's commit count both stay exactly where the
-        // first load left them.
+        // No request reached the network, and no write followed, so the
+        // request log and the commit count both stay where the first load
+        // left them.
         assert_eq!(fixture.requests.lock().unwrap().len(), 3);
         assert_eq!(fixture.commits.load(Ordering::SeqCst), 6);
         fixture.requests.lock().unwrap().clear();
@@ -1814,7 +1816,7 @@ mod observation_tests {
         // from the loads above, so only the second track's own scoped
         // track request (a distinct identity) reaches the network here.
         assert_eq!(fixture.requests.lock().unwrap().len(), 1);
-        println!("ADR0075_OBSERVATION_COUNTS first_rows={first_changes} repeated_rows={repeated_changes} first_transactions=6 repeated_transactions=0 stable_evidence={rows:?}");
+        println!("ADR0075_OBSERVATION_COUNTS first_rows={first_changes} repeated_rows={repeated_changes} first_transactions=6 repeated_transactions=2 stable_evidence={rows:?}");
         let conn = fixture.conn.lock().unwrap();
         let original:Vec<u8>=conn.query_row("SELECT bytes FROM metadata_bodies WHERE CAST(bytes AS TEXT) LIKE '%original Index%' LIMIT 1",[],|r|r.get(0)).unwrap();
         assert!(String::from_utf8(original)
@@ -1856,10 +1858,11 @@ target=\"0 Index, 0 RSS\" measured_requests={measured_requests}"
             "R18B-09: the repeated case sends no Index request and no RSS request"
         );
         // The reused track and feed responses still carry their own
-        // receipts (R18B-07); the reused RSS document does not add a
-        // third, since a reused RSS document records no new observation
-        // and RSS evidence has no receipt-level identifier of its own.
-        assert_eq!(repeated.observation_receipts.len(), 2);
+        // receipts (R18B-07), and the reused RSS document now replays its
+        // own receipt too, from the fetch that first produced it: it
+        // records no new observation, but it no longer drops the evidence
+        // of the one it already made. The total is 3 again.
+        assert_eq!(repeated.observation_receipts.len(), 3);
     }
 
     /// Packet 018 Part B measurement: two Library tracks sharing one feed
@@ -1933,17 +1936,15 @@ measured_row_changes={measured_row_changes}"
     /// both callers have started, forcing a genuine race instead of a fast
     /// sequential pair.
     ///
-    /// Measured result: 4 requests, not the 3 the target names. The two
+    /// Measured result: 3 requests, the target this case names. The two
     /// Index requests (the shared track and the shared feed) each stay at
     /// one: both go through the owner's `single_flight`, so the joining
     /// caller waits for the winner instead of sending its own (R18A-03).
-    /// The RSS request does not: `src/rss/enrich.rs` only checks a
-    /// completed-response cache (P18-3); it has no active-request join for
-    /// a request still in flight, so two callers that both reach RSS
-    /// enrichment before either one's fetch completes each start their own
-    /// GET. This packet's scope (P18-1 through P18-7) does not cover an
-    /// RSS-side `single_flight`, so this gap is reported, not silently
-    /// closed here.
+    /// The RSS request now does too: `src/rss/enrich.rs` shares an
+    /// in-flight GET across concurrent callers of the same feed URL,
+    /// reusing the same generic `single_flight` (Job 2 of this packet's
+    /// Part B follow-up), so two callers that both reach RSS enrichment
+    /// before either one's fetch completes still send only one GET.
     #[test]
     fn adr_0075_request_reuse_measurement_two_concurrent_track_details_of_one_track() {
         let fixture = Fixture::start();
@@ -1972,11 +1973,13 @@ measured_row_changes={measured_row_changes}"
         // Mode 9 skips the fixture's own "one pending slot" compatibility
         // check for the rest of this test. That check assumes one caller
         // reaches one resource at a time, which every other test upholds.
-        // This test's own finding is that the RSS request does not (see
-        // the gap this test's own documentation names above): a genuine
-        // concurrent RSS fetch of the shared feed can leave two pending
-        // rows for that one resource for a moment, which is the fixture
-        // check's premise, not this test's own subject.
+        // Both concurrent callers here still call the recorder's own
+        // `begin` for the RSS resource before either reaches the shared
+        // `single_flight` GET below (R18B-07's rule keeps each caller's
+        // own observation independent, so neither call joins the other's
+        // `begin`), so two pending rows can exist for that one resource
+        // for a moment, which is the fixture check's premise, not this
+        // test's own subject. The GET itself still lands once.
         fixture.mode.store(9, Ordering::SeqCst);
         let second = spawn_detail(&fixture);
         // Give the second caller time to join the first's active request
@@ -1993,13 +1996,13 @@ measured_row_changes={measured_row_changes}"
             "ADR0075_MEASUREMENT case=\"Two concurrent Library track details of one track\" \
 target=\"1 request set\" measured_requests={measured_requests} requests={all_requests:?}"
         );
-        // Measured, not the 3-request target: both Index requests (track
-        // and feed) are shared, but the RSS request is not (see this
-        // test's own documentation above for why, and this packet's
-        // report for the same gap).
+        // Measured, at the 3-request target: both Index requests (track
+        // and feed) are shared, and the RSS request now is too (Job 2 of
+        // this packet's Part B follow-up, closing the gap this test's own
+        // documentation named above).
         assert_eq!(
-            measured_requests, 4,
-            "two shared Index requests plus two independent RSS requests"
+            measured_requests, 3,
+            "two shared Index requests plus one shared RSS request"
         );
         assert_eq!(
             first_context.track.track_guid,
@@ -2024,9 +2027,17 @@ target=\"1 request set\" measured_requests={measured_requests} requests={all_req
         let context = fixture.load(0).unwrap();
         assert_eq!(context.observation_receipts.len(), 4);
         assert_eq!(fixture.requests.lock().unwrap().len(), 4);
-        assert_eq!(
-            context.observation_receipts[0].outcome,
-            crate::provider_observation::ObservationOutcome::Failed
+        // Packet 018 Job 3: the RSS receipt now travels with its own
+        // enrichment call, so it lands ahead of the track and feed
+        // receipts here, instead of after them. The scoped track's own
+        // failed request is still one of the four, found by outcome
+        // rather than by a fixed position.
+        assert!(
+            context
+                .observation_receipts
+                .iter()
+                .any(|r| r.outcome == crate::provider_observation::ObservationOutcome::Failed),
+            "the scoped track's failed request must still be recorded"
         );
     }
     #[test]
@@ -2036,16 +2047,27 @@ target=\"1 request set\" measured_requests={measured_requests} requests={all_req
             fixture.set_mode(mode);
             let context = fixture.load(0).unwrap();
             let conn = fixture.conn.lock().unwrap();
+            // Packet 018 Job 3: the RSS receipt now travels with its own
+            // enrichment call, so a successful or partial RSS fetch's
+            // receipt lands ahead of the track and feed receipts here,
+            // instead of after them (mode 5's RSS failure is the one
+            // exception: an RSS `Err` keeps its receipt on the
+            // pre-existing failure path, so it stays last, as before).
+            // Each case below finds its own receipt by outcome or by
+            // request URI, rather than by a fixed position.
             match mode {
                 3 | 4 => {
-                    assert_eq!(
-                        context.observation_receipts[0].outcome,
-                        crate::provider_observation::ObservationOutcome::Failed
-                    );
+                    let failed = context
+                        .observation_receipts
+                        .iter()
+                        .find(|r| {
+                            r.outcome == crate::provider_observation::ObservationOutcome::Failed
+                        })
+                        .expect("the track's JSON decode failure must be recorded");
                     let bytes: Vec<u8> = conn
                         .query_row(
                             "SELECT bytes FROM metadata_bodies WHERE sha256=?1",
-                            [context.observation_receipts[0].body_key.as_ref().unwrap()],
+                            [failed.body_key.as_ref().unwrap()],
                             |r| r.get(0),
                         )
                         .unwrap();
@@ -2068,18 +2090,24 @@ target=\"1 request set\" measured_requests={measured_requests} requests={all_req
                     assert_eq!(context.track.description.as_deref(), Some("original Index"));
                 }
                 6 => {
-                    assert_eq!(
-                        context.observation_receipts.last().unwrap().outcome,
-                        crate::provider_observation::ObservationOutcome::Partial
-                    );
+                    assert!(context
+                        .observation_receipts
+                        .iter()
+                        .any(|r| r.outcome
+                            == crate::provider_observation::ObservationOutcome::Partial));
                     assert!(context.rss_observation.is_some());
                 }
                 7 => {
+                    let track_receipt = context
+                        .observation_receipts
+                        .iter()
+                        .find(|r| r.request_uri.contains("/tracks/"))
+                        .expect("the track's own receipt must be recorded");
                     assert_eq!(
-                        context.observation_receipts[0].outcome,
+                        track_receipt.outcome,
                         crate::provider_observation::ObservationOutcome::Success
                     );
-                    assert!(conn.query_row("SELECT basis_json FROM metadata_coverage WHERE observation_id=?1 LIMIT 1",[context.observation_receipts[0].observation_id],|r|r.get::<_,String>(0)).unwrap().contains("raw_extraction_incomplete"));
+                    assert!(conn.query_row("SELECT basis_json FROM metadata_coverage WHERE observation_id=?1 LIMIT 1",[track_receipt.observation_id],|r|r.get::<_,String>(0)).unwrap().contains("raw_extraction_incomplete"));
                 }
                 _ => unreachable!(),
             }

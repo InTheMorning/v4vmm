@@ -86,13 +86,14 @@ dependency cuts on 2026-09-21 and deleted sixteen packets.
 route. Its mechanical checks are Green. It changes no request, and it needs no visual
 acceptance.
 
-[Packet 018](docs/tasks/adr-0075-task-018-request-reuse-and-freshness.md) Part A is complete
-on 2026-09-21. One shared owner holds the active MusicIndex requests, and a concurrent
-duplicate request joins the active one. Its mechanical checks are Green, and it needs no
-visual acceptance.
+[Packet 018](docs/tasks/adr-0075-task-018-request-reuse-and-freshness.md) is complete on
+2026-09-22. One shared owner holds the MusicIndex requests and the retained responses. A
+concurrent duplicate request joins the active one, and a repeated request inside its window
+sends nothing. Its mechanical checks are Green, and it needs no visual acceptance.
 
-Part B is Ready. It applies the seven reuse policies that the operator accepted on
-2026-09-21, and it converts the remaining Index request sites.
+A reused response replays the receipt of the fetch that produced it. The app writes no new
+observation for a reuse. The operator accepted nine reuse policies, on 2026-09-21 and
+2026-09-22. Packet 045 is next on the committed path, and no packet document exists for it.
 The [API change request](docs/plans/musicindex-api-change-request.md) replaces packet 008
 as the request to Stophammer.
 

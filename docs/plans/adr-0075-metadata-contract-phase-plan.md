@@ -71,12 +71,13 @@ them into bounded packets. Do not give an agent a whole phase.
 | [039 feed checks and updates](../tasks/adr-0075-task-039-feed-check-and-update-observation-retention.md) | Implementation, technical review, and mechanical checks complete on 2026-09-21. Three converted roots, one dead command deleted, receipts kept across route repair. Presentation gate open and paused |
 | [017 named request profiles](../tasks/adr-0075-task-017-named-request-profiles.md) | Implementation, technical review, and mechanical checks complete on 2026-09-21. Ten named profiles, eight converted request sites, one new guard. No visual gate |
 | [018 Part A, request identity and sharing](../tasks/adr-0075-task-018-request-reuse-and-freshness.md#implementation-result-part-a---2026-09-21) | Implementation, technical review, and mechanical checks complete on 2026-09-21. One shared owner, single-flight sharing, an app sequence counter, and the explicit refresh intent. The orchestrator added an abandoned-request guard. No visual gate |
+| [018 Part B, completed response reuse](../tasks/adr-0075-task-018-request-reuse-and-freshness.md#implementation-result-part-b---2026-09-22) | Implementation, technical review, and mechanical checks complete on 2026-09-22. The accepted windows, capacity, feed-wide invalidation, RSS sharing, and the converted Index routes. Each of the four measurement targets is met. No visual gate |
 
 Code agents preserve the existing packet 030 working changes. They do not commit or run the app.
 The orchestrator reviews each diff and runs the integrated checks.
 Reviews go directly to the operator. Existing status documents record completion without a new review document.
 
-Integrated verification on 2026-09-21: 1,676 unit tests and 271 architecture tests are Green. Ten documentation examples remain ignored.
+Integrated verification on 2026-09-22: 1,695 unit tests and 273 architecture tests are Green. Ten documentation examples remain ignored.
 The final full suite used four test threads. Packets 013, 014, and 038 record earlier failures and their corrections.
 Packet 039 adds eight unit tests and one guard. Root corrected seven defects in its new test code before acceptance.
 
@@ -87,7 +88,7 @@ Packet 018 Part A adds eleven unit tests and one guard. The orchestrator added t
 A panic in a request closure had left each joined caller waiting without end.
 
 Format, compile, and strict Clippy checks are Green. The normal desktop binary build is Green after testing.
-These results cover the combined code changes through packets 009, 010, 012, 013, 014, 017, 030, 032, 033, 037, 038, and 039. They also cover packet 018 Part A.
+These results cover the combined code changes through packets 009, 010, 012, 013, 014, 017, 030, 032, 033, 037, 038, and 039. They also cover both parts of packet 018.
 
 Packet 012 also passed 42 Python fixture tests and isolated CLI verification.
 No application launch, production-data change, or visual acceptance occurred.
@@ -221,7 +222,7 @@ These five packets carry ADR 0075 to a visible result. Dispatch them in this seq
 | Packet | Kind | Outcome | Needs |
 |---|---|---|---|
 | [017](../tasks/adr-0075-task-017-named-request-profiles.md) | Code | Name the requests that the Library route and the Index route make. Complete on 2026-09-21 | 013, 014, 016, and both accepted cuts below |
-| [018](../tasks/adr-0075-task-018-request-reuse-and-freshness.md) | Code | Request identity, sharing, expiry, explicit refresh, and response order. Part A is complete on 2026-09-21. Part B is Ready, and it also converts the Index routes | 016, 017, and the seven policies that the operator accepted on 2026-09-21 |
+| [018](../tasks/adr-0075-task-018-request-reuse-and-freshness.md) | Code | Request identity, sharing, expiry, explicit refresh, and response order. Complete on 2026-09-22 | 016, 017, and nine policies that the operator accepted on 2026-09-21 and 2026-09-22 |
 | 045 | Code | Report a stale MusicIndex record and direct the operator to podping.me | 018, ADR 0075 Decision I, and packet 035's comparison rules |
 | 020 | Code | One shared projection, for the accepted field rules only | 005, 006, 007, 013, and 018 |
 | 022 | Code | The track header view model, limited to track identities | 020 |

@@ -1,7 +1,8 @@
 # ADR 0075 Task 018: Request Reuse, Freshness And Explicit Refresh
 
-Status: Part A is complete on 2026-09-21. Its mechanical checks are Green. Part B is Ready.
-The operator accepted the seven reuse policies on 2026-09-21.
+Status: Complete on 2026-09-22. Part A completed on 2026-09-21, and Part B on 2026-09-22.
+The mechanical checks of both parts are Green. The operator accepted the seven reuse policies
+on 2026-09-21, and two more decisions on 2026-09-22.
 
 This packet has two parts. Part A implements the rules that ADR 0075 already decides. It
 changes no request count except for concurrent duplicates. Part B ends the repeated fetch
@@ -64,6 +65,8 @@ The operator decided each policy separately on 2026-09-21.
 | P18-5 | Hold at most 64 feed responses, 256 track responses, and 32 RSS documents. Remove the least recently used entry first |
 | P18-6 | Hold reused responses in memory only. A restart clears them |
 | P18-7 | An explicit refresh removes every entry of the named feed and its tracks, and then sends new requests |
+| P18-8 | An Index track detail response gets no reuse window. A concurrent caller still joins an active request. Accepted 2026-09-22 |
+| P18-9 | A reused response replays the receipt of the fetch that produced it. It writes no new observation. Accepted 2026-09-22 |
 
 The minute values come from the curator workflow, not from a measurement. The operator chose
 the 30-minute track window because the existing check-for-updates control supplies a fresh
@@ -76,6 +79,15 @@ stale report and the podping.me direction.
 
 P18-6 keeps this packet away from a storage decision. A durable response store needs its own
 migration, its own backup, and its own rollback, which ADR 0075 section 5 requires.
+
+P18-8 covers the one route with no other policy. An Index track detail request sends no
+include list, and P18-1 names a Library track detail response only. The operator decided on
+2026-09-22 that this route keeps no completed response.
+
+P18-9 keeps one meaning of reuse across all three caches. The feed cache, the track cache,
+and the RSS document cache each replay the receipt of the fetch that produced the response.
+The replayed receipt keeps the generation of that earlier fetch, because the evidence is
+older than the call that reuses it.
 
 ## Part A: Request Identity And Sharing
 
@@ -367,6 +379,105 @@ Two existing guards moved with the code. Each one checks the same rule as before
 | `cargo test --lib adr_0075_request_reuse` | Green. 11 tests passed |
 | `cargo test` | Green. 1,676 unit tests and 271 architecture tests passed. Ten documentation examples stay ignored |
 | `cargo test --test architecture_tests` | Green. 271 passed |
+| `cargo fmt -- --check` | Green |
+| `cargo clippy -- -D warnings` | Green |
+| `cargo build --bin v4vmm` | Green |
+
+The full suite used four test threads. No application launch and no production-data change
+occurred.
+
+## Implementation Result, Part B - 2026-09-22
+
+Part B ran as two sessions, a core and a follow-up. The orchestrator reviewed each result and
+ran the integrated checks.
+
+### Reuse, Freshness And Capacity
+
+`RetainedCache` holds a completed response beside the `std::time::Instant` of its completion.
+The owner compares that instant against the accepted window. It reads no fetch time from
+storage and no wall-clock time, so a system clock change cannot make a retained response look
+fresh. `src/db/provider_observations.rs` is unchanged.
+
+Each window value appears once in the code. The track and feed windows live in
+`src/application/request_reuse.rs`. The RSS document window lives in `src/rss/enrich.rs`,
+because P18-3 keys that document by feed URL and not by a request identity.
+
+A failure is never retained. The caches hold at most 64 feed responses, 256 track responses,
+and 32 RSS documents, and each one removes its least recently used entry first.
+
+### Feed-Wide Invalidation
+
+The registry key holds the provider identity, the subject, and the include list. One feed
+therefore has several entries, and a scoped track names its feed in its own subject. The owner keeps a
+second index from a feed to its keys. `invalidate_feed` removes each indexed key from both
+retained caches, and `rss::invalidate_feed_document` removes that feed's RSS document. An
+unscoped track carries no feed identity, so P18-7 cannot reach it by feed. Its own window
+still bounds it.
+
+### Evidence Of A Reused Response
+
+The feed and track registries hold each response beside the receipts of the fetch that
+produced it. A retained hit and a joining caller both receive those receipts. This closed the
+limit that Part A recorded against R18A-05.
+
+`ProviderObservationRecorder::record` now returns the receipt it wrote, and `replay` adds an
+earlier receipt without a second write. The RSS document cache keeps the receipt of its fetch
+and replays it. An unobserved fetch retains no receipt, so a later observed call fetches
+again rather than report evidence it cannot name.
+
+The first Part B session recorded a new observation for each RSS reuse instead, to keep
+receipt order stable. The operator rejected that on 2026-09-22. Only tests depended on that order, and a reused
+response is genuinely older evidence. A new observation for each cache hit would also grow
+`metadata_observations` without bound.
+
+### Active RSS Requests Are Shared
+
+`src/rss/enrich.rs` calls the same generic `single_flight` that Part A built, keyed by feed
+URL. It is not a second copy of that machinery, so the abandonment guard still applies. Two
+concurrent callers for one feed URL send one request.
+
+### The Index Routes
+
+The six Index request sites in `src/application/queries/search.rs` and
+`src/application/queries/feed.rs` ask the owner. Neither file holds an observation recorder.
+Their requests carry no receipts. An Index feed detail response falls under P18-2 and
+keeps its 15-minute window. An Index track detail response falls under P18-8:
+`fetch_track_shared` joins an active request and never reads or writes the retained cache.
+
+### Measurement - 2026-09-22
+
+| Case | Target | Measured |
+|---|---|---|
+| Repeated Library track detail | 0 Index, 0 RSS | 0 Index, 0 RSS |
+| Two Library tracks sharing one feed | 3 Index, 1 RSS | 3 Index, 1 RSS |
+| Repeated Library album hydration | 0 Index, 0 row changes | 0 Index, 0 row changes |
+| Two concurrent Library track details of one track | 1 request set | 3 requests, all shared |
+
+Each target is met. The concurrent case reached its target only after the RSS single-flight,
+which the first Part B session reported as a miss at four requests.
+
+### A Recorded Limit
+
+The owner serves the whole process, and its capacity is shared by every test in the binary.
+A test that stores more than the capacity between another test's two calls could evict an
+entry and make that test fetch again. Key isolation holds. Each fixture binds its own port,
+and that port is part of the provider identity. Six full suite runs were stable. A later
+test that stores many entries could still reach this limit.
+
+### Guards
+
+`adr_0075_request_reuse_retention_never_reaches_comparison_code` proves R18B-08 structurally:
+retention code must not reach the comparison types. A second guard counts the owner calls in
+the two Index query files for R18B-12. Four existing guards moved with the code, and each one
+checks the same rule as before.
+
+### Checks - 2026-09-22
+
+| Check | Result |
+|---|---|
+| `cargo test --lib adr_0075_request_reuse` | Green. 25 tests passed |
+| `cargo test` | Green. 1,695 unit tests and 273 architecture tests passed. Ten documentation examples stay ignored |
+| `cargo test --test architecture_tests` | Green. 273 passed |
 | `cargo fmt -- --check` | Green |
 | `cargo clippy -- -D warnings` | Green |
 | `cargo build --bin v4vmm` | Green |

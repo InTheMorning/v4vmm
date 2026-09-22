@@ -19018,6 +19018,159 @@ refresh intent, so it never joins an active passive read. {FIX}"
     );
 }
 
+/// Situational — ADR 0075 packet 018 Part B, R18B-12: the Index route asks
+/// the shared request owner too, not only the Library route. A feed
+/// identity shares P18-2's window (`owner.fetch_feed_with_receipts`); a
+/// track identity carries no accepted window of its own, so it shares
+/// only an active request (`owner.fetch_track_shared`), never a retained
+/// one.
+#[test]
+fn adr_0075_request_reuse_index_routes_ask_the_owner() {
+    const FIX: &str = "ADR 0075 section 6, packet 018 R18B-12: an Index or Inspector feed or \
+track detail call must ask the shared request owner (src/application/request_reuse.rs), \
+instead of sending the request through api::Client on its own. Route a feed identity through \
+`owner.fetch_feed_with_receipts` (P18-2's window applies, exactly as for any other feed \
+identity) and a track identity through `owner.fetch_track_shared` (active-request sharing \
+only: P18-1 names a Library track detail response, not an Index or Inspector one).";
+    const DIRECT_CLIENT_CALLS: [&str; 6] = [
+        "client.fetch_feed(",
+        "client.fetch_feed_with_profile(",
+        "client.fetch_track(",
+        "client.fetch_track_with_profile(",
+        "client.fetch_feed_track(",
+        "client.fetch_feed_track_with_profile(",
+    ];
+    let mut violations = Vec::new();
+
+    let search = read_source(&manifest_path("src/application/queries/search.rs"));
+    let search_production = production_source(&search);
+    let search_owner_feed = source_between(
+        search_production,
+        "fn owner_fetch_feed(",
+        "fn fetch_index_feed_result_rows(",
+    );
+    if search_owner_feed
+        .matches(".fetch_feed_with_receipts(key,")
+        .count()
+        < 1
+    {
+        violations.push(format!(
+            "src/application/queries/search.rs: `owner_fetch_feed` must ask the shared \
+request owner. {FIX}"
+        ));
+    }
+    let search_owner_track = source_between(
+        search_production,
+        "fn fetch_index_track_detail(",
+        "pub(super) fn index_feed_display(",
+    );
+    if search_owner_track
+        .matches(".fetch_track_shared(key,")
+        .count()
+        < 2
+    {
+        violations.push(format!(
+            "src/application/queries/search.rs: `fetch_index_track_detail` must ask the \
+shared request owner for both its scoped and its unscoped identity. {FIX}"
+        ));
+    }
+    for (start, end, calls_helper) in [
+        (
+            "fn fetch_index_feed_result_rows(",
+            "fn fetch_index_track_result_rows(",
+            "owner_fetch_feed(",
+        ),
+        (
+            "fn fetch_index_track_result_rows(",
+            "fn index_artist_candidate_from_feed(",
+            "fetch_index_track_detail(",
+        ),
+    ] {
+        let body = source_between(search_production, start, end);
+        if !body.contains(calls_helper) {
+            violations.push(format!(
+                "src/application/queries/search.rs: `{start}` must call `{calls_helper}`. {FIX}"
+            ));
+        }
+        for forbidden in DIRECT_CLIENT_CALLS {
+            if body.contains(forbidden) {
+                violations.push(format!(
+                    "src/application/queries/search.rs: `{start}` must not call `{forbidden}` \
+directly. {FIX}"
+                ));
+            }
+        }
+    }
+
+    let feed = read_source(&manifest_path("src/application/queries/feed.rs"));
+    let feed_production = production_source(&feed);
+    let feed_owner_track = source_between(
+        feed_production,
+        "fn fetch_scoped_track(",
+        "fn owner_fetch_feed(",
+    );
+    if feed_owner_track.matches(".fetch_track_shared(key,").count() < 1 {
+        violations.push(format!(
+            "src/application/queries/feed.rs: `fetch_scoped_track` must ask the shared \
+request owner. {FIX}"
+        ));
+    }
+    let feed_owner_feed = source_between(
+        feed_production,
+        "fn owner_fetch_feed(",
+        "fn resolve_podroll_feeds(",
+    );
+    if feed_owner_feed
+        .matches(".fetch_feed_with_receipts(key,")
+        .count()
+        < 1
+    {
+        violations.push(format!(
+            "src/application/queries/feed.rs: `owner_fetch_feed` must ask the shared request \
+owner. {FIX}"
+        ));
+    }
+    for (start, end, calls_helper) in [
+        (
+            "fn artist_feed_for_guid(",
+            "fn fetch_feed_detail(",
+            "owner_fetch_feed(",
+        ),
+        (
+            "fn fetch_feed_detail(",
+            "fn fetch_track_detail(",
+            "owner_fetch_feed(",
+        ),
+        (
+            "fn fetch_track_detail(",
+            "fn fetch_scoped_track(",
+            "fetch_scoped_track(",
+        ),
+        (
+            "fn hydrate_feed_track_play_urls(",
+            "fn merge_track_play_fields(",
+            "fetch_scoped_track(",
+        ),
+    ] {
+        let body = source_between(feed_production, start, end);
+        if !body.contains(calls_helper) {
+            violations.push(format!(
+                "src/application/queries/feed.rs: `{start}` must call `{calls_helper}`. {FIX}"
+            ));
+        }
+        for forbidden in DIRECT_CLIENT_CALLS {
+            if body.contains(forbidden) {
+                violations.push(format!(
+                    "src/application/queries/feed.rs: `{start}` must not call `{forbidden}` \
+directly. {FIX}"
+                ));
+            }
+        }
+    }
+
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
 /// Situational — ADR 0075 packet 018 Part B: a retained response is a pure
 /// fetch-and-cache mechanism. R18B-08 requires that it never creates or
 /// resolves a discrepancy, so this guard checks structurally that the

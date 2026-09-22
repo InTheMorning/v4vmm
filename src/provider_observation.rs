@@ -415,11 +415,17 @@ impl ProviderObservationRecorder {
             .map_err(|_| ObservationStorageError::RequestAllocation)?;
         crate::db::provider_observations::begin_provider_request(&conn, spec)
     }
+    /// Writes one observation and returns its receipt.
+    ///
+    /// The receipt also stays in this recorder, for `take_receipts`. A
+    /// caller that retains a response for reuse keeps the returned receipt
+    /// and replays it later through `replay` (ADR 0075 packet 018,
+    /// R18B-07).
     pub fn record(
         &self,
         token: RequestToken,
         observation: ProviderObservation,
-    ) -> Result<(), ObservationWriteFailure> {
+    ) -> Result<ObservationReceipt, ObservationWriteFailure> {
         let observation = Arc::new(observation);
         let mut receipts = self.receipts.lock().map_err(|_| ObservationWriteFailure {
             token: token.clone(),
@@ -438,8 +444,21 @@ impl ProviderObservationRecorder {
             token,
             observation,
         )?;
-        receipts.push(receipt);
-        Ok(())
+        receipts.push(receipt.clone());
+        Ok(receipt)
+    }
+
+    /// Adds the receipt of an earlier observation to this recorder,
+    /// without a new write.
+    ///
+    /// A reused response names the observation that produced it, and it
+    /// creates no second observation of the same fetch. ADR 0075 packet
+    /// 018, R18B-07.
+    pub fn replay(&self, receipt: ObservationReceipt) {
+        self.receipts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(receipt);
     }
     pub fn take_receipts(&self) -> Vec<ObservationReceipt> {
         std::mem::take(

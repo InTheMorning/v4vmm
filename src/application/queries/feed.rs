@@ -25,6 +25,7 @@ use super::search::{index_feed_display, index_item_id, non_empty_str, INDEX_FEED
 use crate::application::request_profiles::{
     INDEX_FEED_DETAIL, INSPECTOR_TRACK_DETAIL_FEED, INSPECTOR_TRACK_DETAIL_TRACK,
 };
+use crate::application::request_reuse::{self, RefreshIntent, RequestKey, SharedFetchError};
 
 /// Fetches one remote Recent Feeds page for presentation.
 #[derive(Clone, Debug)]
@@ -166,9 +167,15 @@ impl ApplicationCommand for FetchInspectorDetail {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
+        let provider_identity = self
+            .endpoint
+            .require()
+            .map(str::to_owned)
+            .unwrap_or_default();
         let client = Client::new_with_base_url(self.endpoint);
         fetch_inspector_detail(
             &client,
+            &provider_identity,
             &self.entity_type,
             &self.entity_id,
             self.feed_guid.as_deref(),
@@ -342,14 +349,15 @@ fn recent_feed_activation_id(feed: &crate::api::Feed, index: usize) -> String {
 
 fn fetch_inspector_detail(
     client: &Client,
+    provider_identity: &str,
     entity_type: &str,
     entity_id: &str,
     feed_guid: Option<&str>,
 ) -> Result<InspectorDetailResult> {
     match entity_type {
-        "artist" => fetch_artist_detail(client, entity_id),
-        "feed" => fetch_feed_detail(client, entity_id),
-        "track" => fetch_track_detail(client, entity_id, feed_guid),
+        "artist" => fetch_artist_detail(client, provider_identity, entity_id),
+        "feed" => fetch_feed_detail(client, provider_identity, entity_id),
+        "track" => fetch_track_detail(client, provider_identity, entity_id, feed_guid),
         "publisher" => Ok(InspectorDetailResult {
             detail: InspectorDetailData::Publisher(client.fetch_publisher(entity_id)?),
             image_url: None,
@@ -360,12 +368,16 @@ fn fetch_inspector_detail(
     }
 }
 
-fn fetch_artist_detail(client: &Client, entity_id: &str) -> Result<InspectorDetailResult> {
+fn fetch_artist_detail(
+    client: &Client,
+    provider_identity: &str,
+    entity_id: &str,
+) -> Result<InspectorDetailResult> {
     let response =
         client.fetch_tracks_by_artist(entity_id, Some(crate::api::PAGE_LIMIT * 2), None)?;
     let tracks = response.data;
     let has_more_tracks = response.pagination.has_more;
-    let (feeds, image_url) = artist_feeds_and_image(client, &tracks);
+    let (feeds, image_url) = artist_feeds_and_image(client, provider_identity, &tracks);
     let artist = Artist {
         name: Some(entity_id.to_string()),
         image_url: image_url.clone(),
@@ -385,7 +397,11 @@ fn fetch_artist_detail(client: &Client, entity_id: &str) -> Result<InspectorDeta
     })
 }
 
-fn artist_feeds_and_image(client: &Client, tracks: &[Track]) -> (Vec<Feed>, Option<String>) {
+fn artist_feeds_and_image(
+    client: &Client,
+    provider_identity: &str,
+    tracks: &[Track],
+) -> (Vec<Feed>, Option<String>) {
     let mut feed_order: Vec<String> = Vec::new();
     let mut artist_track_count_by_feed: BTreeMap<String, i32> = BTreeMap::new();
     for track in tracks {
@@ -407,7 +423,15 @@ fn artist_feeds_and_image(client: &Client, tracks: &[Track]) -> (Vec<Feed>, Opti
 
     let feeds = feed_order
         .iter()
-        .map(|guid| artist_feed_for_guid(client, tracks, &artist_track_count_by_feed, guid))
+        .map(|guid| {
+            artist_feed_for_guid(
+                client,
+                provider_identity,
+                tracks,
+                &artist_track_count_by_feed,
+                guid,
+            )
+        })
         .collect::<Vec<_>>();
     let image_url = feeds
         .iter()
@@ -422,6 +446,7 @@ fn artist_feeds_and_image(client: &Client, tracks: &[Track]) -> (Vec<Feed>, Opti
 
 fn artist_feed_for_guid(
     client: &Client,
+    provider_identity: &str,
     tracks: &[Track],
     artist_track_count_by_feed: &BTreeMap<String, i32>,
     guid: &str,
@@ -430,7 +455,7 @@ fn artist_feed_for_guid(
         .get(guid)
         .copied()
         .unwrap_or_default();
-    match client.fetch_feed(guid, None).ok() {
+    match owner_fetch_feed(client, provider_identity, guid, None).ok() {
         Some(mut feed) => {
             feed.episode_count = Some(artist_tracks_in_feed);
             feed
@@ -450,9 +475,18 @@ fn artist_feed_for_guid(
     }
 }
 
-fn fetch_feed_detail(client: &Client, entity_id: &str) -> Result<InspectorDetailResult> {
-    let mut feed = client.fetch_feed_with_profile(entity_id, &INDEX_FEED_DETAIL)?;
-    hydrate_feed_track_play_urls(client, &mut feed);
+fn fetch_feed_detail(
+    client: &Client,
+    provider_identity: &str,
+    entity_id: &str,
+) -> Result<InspectorDetailResult> {
+    let mut feed = owner_fetch_feed(
+        client,
+        provider_identity,
+        entity_id,
+        Some(&INDEX_FEED_DETAIL),
+    )?;
+    hydrate_feed_track_play_urls(client, provider_identity, &mut feed);
     sanitize_feed_source_text(&mut feed);
     let image_url = feed
         .image_url
@@ -467,19 +501,25 @@ fn fetch_feed_detail(client: &Client, entity_id: &str) -> Result<InspectorDetail
 
 fn fetch_track_detail(
     client: &Client,
+    provider_identity: &str,
     entity_id: &str,
     feed_guid: Option<&str>,
 ) -> Result<InspectorDetailResult> {
     let track = fetch_scoped_track(
         client,
+        provider_identity,
         entity_id,
         feed_guid,
         INSPECTOR_TRACK_DETAIL_TRACK.include(),
     )?;
     let feed = track.feed_guid.as_deref().and_then(|guid| {
-        client
-            .fetch_feed_with_profile(guid, &INSPECTOR_TRACK_DETAIL_FEED)
-            .ok()
+        owner_fetch_feed(
+            client,
+            provider_identity,
+            guid,
+            Some(&INSPECTOR_TRACK_DETAIL_FEED),
+        )
+        .ok()
     });
     let mut track_context = TrackContext::new(track, feed);
     enrich_track_context_from_rss(&mut track_context);
@@ -496,16 +536,63 @@ fn fetch_track_detail(
     })
 }
 
+/// Packet 018 R18B-12 + Job 1: asks the shared owner for this track
+/// (ADR 0075 section 6), instead of `Client` directly.
+///
+/// The Index/Inspector route carries no accepted reuse window of its own —
+/// P18-1 names a Library track detail response only — so this shares an
+/// active request (`MetadataRequestOwner::fetch_track_shared`'s own
+/// documentation) without retaining a completed one for a later reuse. It
+/// sends no request that a concurrent duplicate could join more than once.
 fn fetch_scoped_track(
     client: &Client,
+    provider_identity: &str,
     track_guid: &str,
     feed_guid: Option<&str>,
-    include: Option<&str>,
+    include: Option<&'static str>,
 ) -> Result<Track> {
-    match feed_guid.map(str::trim).filter(|guid| !guid.is_empty()) {
+    let feed_guid = feed_guid.map(str::trim).filter(|guid| !guid.is_empty());
+    let key = match feed_guid {
+        Some(feed_guid) => {
+            RequestKey::scoped_track(provider_identity, feed_guid, track_guid, include)
+        }
+        None => RequestKey::unscoped_track(provider_identity, track_guid, include),
+    };
+    request_reuse::shared().fetch_track_shared(key, || match feed_guid {
         Some(feed_guid) => client.fetch_feed_track(feed_guid, track_guid, include),
         None => client.fetch_track(track_guid, include),
-    }
+    })
+}
+
+/// Packet 018 R18B-12: asks the shared owner for this feed (ADR 0075
+/// section 6), instead of `Client` directly. `profile` names the P18-2
+/// window this feed identity shares with every other Index feed request
+/// (`RequestKey::feed`'s own subject scoping); `None` names an unprofiled
+/// (`include=None`) request, its own distinct identity under the same
+/// window.
+///
+/// Neither this file nor `search.rs` has an observation recorder — a
+/// guard in `search.rs` forbids one — so this closure produces no
+/// receipts, and the owner's own empty list is expected and discarded.
+fn owner_fetch_feed(
+    client: &Client,
+    provider_identity: &str,
+    feed_guid: &str,
+    profile: Option<&crate::application::request_profiles::RequestProfile>,
+) -> Result<Feed> {
+    let include = profile.and_then(crate::application::request_profiles::RequestProfile::include);
+    let key = RequestKey::feed(provider_identity, feed_guid, include);
+    request_reuse::shared()
+        .fetch_feed_with_receipts(key, RefreshIntent::Normal, || {
+            let feed = match profile {
+                Some(profile) => client.fetch_feed_with_profile(feed_guid, profile)?,
+                None => client.fetch_feed(feed_guid, None)?,
+            };
+            Ok((feed, Vec::new()))
+        })
+        .0
+        .map(|(feed, _receipts)| feed)
+        .map_err(SharedFetchError::into_anyhow)
 }
 
 fn resolve_podroll_feeds(client: &Client, feed_url: &str) -> Result<Vec<Feed>> {
@@ -539,7 +626,7 @@ fn resolve_podroll_feeds(client: &Client, feed_url: &str) -> Result<Vec<Feed>> {
     Ok(feeds)
 }
 
-fn hydrate_feed_track_play_urls(client: &Client, feed: &mut Feed) {
+fn hydrate_feed_track_play_urls(client: &Client, provider_identity: &str, feed: &mut Feed) {
     let Some(tracks) = feed.tracks.as_mut() else {
         return;
     };
@@ -553,6 +640,7 @@ fn hydrate_feed_track_play_urls(client: &Client, feed: &mut Feed) {
         };
         let Ok(hydrated) = fetch_scoped_track(
             client,
+            provider_identity,
             &track_guid,
             track.feed_guid.as_deref(),
             Some("source_enclosures"),
@@ -777,8 +865,9 @@ mod adr_0075_request_profile_tests {
     fn adr_0075_request_profile_inspector_feed_detail_sends_l2() {
         let fixture = Fixture::start();
         let client = crate::api::Client::new_with_base_url(fixture.endpoint.clone());
+        let provider_identity = fixture.endpoint.require().unwrap();
 
-        let result = fetch_feed_detail(&client, "f1").unwrap();
+        let result = fetch_feed_detail(&client, provider_identity, "f1").unwrap();
 
         assert!(matches!(result.detail, InspectorDetailData::Feed(_)));
         let requests = fixture.requests.lock().unwrap().clone();
@@ -798,8 +887,9 @@ mod adr_0075_request_profile_tests {
     fn adr_0075_request_profile_inspector_track_detail_sends_l3_then_l4() {
         let fixture = Fixture::start();
         let client = crate::api::Client::new_with_base_url(fixture.endpoint.clone());
+        let provider_identity = fixture.endpoint.require().unwrap();
 
-        let result = fetch_track_detail(&client, "t1", Some("f1")).unwrap();
+        let result = fetch_track_detail(&client, provider_identity, "t1", Some("f1")).unwrap();
 
         assert!(matches!(result.detail, InspectorDetailData::Track(_)));
         let requests = fixture.requests.lock().unwrap().clone();

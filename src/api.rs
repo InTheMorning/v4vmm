@@ -900,7 +900,8 @@ impl Client {
             observation.fail("json_decode");
         }
         musicindex::extract(&mut observation, &spec, &decoded_text);
-        recorder.record(token, observation)?;
+        // This caller retains no response, so it keeps no receipt.
+        let _receipt = recorder.record(token, observation)?;
         decoded.map_err(|_| anyhow!("Metadata response could not supply the requested data"))
     }
 

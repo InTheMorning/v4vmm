@@ -849,6 +849,8 @@ Decided on 2026-09-21. The operator accepted each policy separately. No proposal
 | P18-5, capacity | 64 feeds, 256 tracks, and 32 RSS documents. Least recently used goes first |
 | P18-6, durability | Memory only. A restart clears the retained responses |
 | P18-7, explicit refresh | Removes the named feed, its RSS document, and its tracks |
+| P18-8, Index track detail | No reuse window. A concurrent caller still joins an active request. Decided 2026-09-22 |
+| P18-9, evidence of a reused response | Replays the receipt of the fetch that produced it, and writes no new observation. Decided 2026-09-22 |
 
 The minute values come from the curator workflow. No measurement supplies them.
 

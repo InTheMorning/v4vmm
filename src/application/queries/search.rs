@@ -168,12 +168,13 @@ fn fetch_index_search_result_rows(
     endpoint: &crate::config::MusicIndexEndpoint,
     query: &str,
 ) -> Result<IndexSearchResultRows> {
+    let provider_identity = endpoint.require().map(str::to_owned).unwrap_or_default();
     let client = crate::api::Client::new_with_base_url(endpoint.clone());
     let mut rows = IndexSearchResultRows::default();
     let mut artists = BTreeMap::new();
 
-    let feed_rows = fetch_index_feed_result_rows(&client, query);
-    let track_rows = fetch_index_track_result_rows(&client, query);
+    let feed_rows = fetch_index_feed_result_rows(&client, &provider_identity, query);
+    let track_rows = fetch_index_track_result_rows(&client, &provider_identity, query);
 
     match (feed_rows, track_rows) {
         (Ok(feeds), Ok(tracks)) => {
@@ -607,8 +608,38 @@ impl IndexArtistCandidate {
     }
 }
 
+/// Packet 018 R18B-12: asks the shared owner for this feed (ADR 0075
+/// section 6), instead of `Client` directly. P18-2 covers this Index feed
+/// detail response: a 15-minute window, exactly as for any other feed
+/// identity.
+///
+/// This file has no observation recorder — the guard in
+/// `tests/architecture_tests.rs` forbids one here — so this closure
+/// produces no receipts, and the owner's own empty list is expected and
+/// discarded.
+fn owner_fetch_feed(
+    client: &crate::api::Client,
+    provider_identity: &str,
+    feed_guid: &str,
+) -> Result<crate::api::Feed> {
+    use crate::application::request_reuse::{self, RefreshIntent, RequestKey, SharedFetchError};
+    let profile = &crate::application::request_profiles::INDEX_FEED_DETAIL;
+    let key = RequestKey::feed(provider_identity, feed_guid, profile.include());
+    request_reuse::shared()
+        .fetch_feed_with_receipts(key, RefreshIntent::Normal, || {
+            Ok((
+                client.fetch_feed_with_profile(feed_guid, profile)?,
+                Vec::new(),
+            ))
+        })
+        .0
+        .map(|(feed, _receipts)| feed)
+        .map_err(SharedFetchError::into_anyhow)
+}
+
 fn fetch_index_feed_result_rows(
     client: &crate::api::Client,
+    provider_identity: &str,
     query: &str,
 ) -> Result<IndexFeedSearchRows> {
     let response = client.search(
@@ -623,12 +654,7 @@ fn fetch_index_feed_result_rows(
 
     for (index, hit) in response.data.iter().enumerate() {
         let feed_guid = hit.feed_guid.as_deref().unwrap_or(&hit.entity_id);
-        let detail = client
-            .fetch_feed_with_profile(
-                feed_guid,
-                &crate::application::request_profiles::INDEX_FEED_DETAIL,
-            )
-            .ok();
+        let detail = owner_fetch_feed(client, provider_identity, feed_guid).ok();
         if let Some(feed) = detail.as_ref() {
             if let Some(candidate) = index_artist_candidate_from_feed(feed, query) {
                 artists.push(candidate);
@@ -645,6 +671,7 @@ fn fetch_index_feed_result_rows(
 
 fn fetch_index_track_result_rows(
     client: &crate::api::Client,
+    provider_identity: &str,
     query: &str,
 ) -> Result<IndexTrackSearchRows> {
     let response = client.search(
@@ -658,8 +685,13 @@ fn fetch_index_track_result_rows(
     let mut artists = Vec::new();
 
     for (index, hit) in response.data.iter().enumerate() {
-        let detail =
-            fetch_index_track_detail(client, &hit.entity_id, hit.feed_guid.as_deref()).ok();
+        let detail = fetch_index_track_detail(
+            client,
+            provider_identity,
+            &hit.entity_id,
+            hit.feed_guid.as_deref(),
+        )
+        .ok();
         if let Some(track) = detail.as_ref() {
             artists.extend(index_artist_candidates_from_track(track, query));
         }
@@ -746,19 +778,50 @@ pub(super) fn index_item_id(base: SearchResultItemId, index: usize) -> SearchRes
 /// Names the Index track detail, scoped and Index track detail, unscoped
 /// profiles (ADR 0075 packet 017). Both profiles are L0: neither sends an
 /// `include` query parameter.
+///
+/// Packet 018 R18B-12 + Job 1: asks the shared owner for this track
+/// (ADR 0075 section 6), instead of `Client` directly. The Index route
+/// carries no accepted reuse window of its own — P18-1 names a Library
+/// track detail response only — so this shares an active request
+/// (`MetadataRequestOwner::fetch_track_shared`'s own documentation)
+/// without retaining a completed one for a later reuse.
 fn fetch_index_track_detail(
     client: &crate::api::Client,
+    provider_identity: &str,
     track_guid: &str,
     feed_guid: Option<&str>,
 ) -> Result<crate::api::Track> {
     use crate::application::request_profiles::{
         INDEX_TRACK_DETAIL_SCOPED, INDEX_TRACK_DETAIL_UNSCOPED,
     };
+    use crate::application::request_reuse::{self, RequestKey};
+    let feed_guid = feed_guid.map(str::trim).filter(|guid| !guid.is_empty());
     match feed_guid {
-        Some(feed_guid) if !feed_guid.trim().is_empty() => {
-            client.fetch_feed_track_with_profile(feed_guid, track_guid, &INDEX_TRACK_DETAIL_SCOPED)
+        Some(feed_guid) => {
+            let key = RequestKey::scoped_track(
+                provider_identity,
+                feed_guid,
+                track_guid,
+                INDEX_TRACK_DETAIL_SCOPED.include(),
+            );
+            request_reuse::shared().fetch_track_shared(key, || {
+                client.fetch_feed_track_with_profile(
+                    feed_guid,
+                    track_guid,
+                    &INDEX_TRACK_DETAIL_SCOPED,
+                )
+            })
         }
-        _ => client.fetch_track_with_profile(track_guid, &INDEX_TRACK_DETAIL_UNSCOPED),
+        None => {
+            let key = RequestKey::unscoped_track(
+                provider_identity,
+                track_guid,
+                INDEX_TRACK_DETAIL_UNSCOPED.include(),
+            );
+            request_reuse::shared().fetch_track_shared(key, || {
+                client.fetch_track_with_profile(track_guid, &INDEX_TRACK_DETAIL_UNSCOPED)
+            })
+        }
     }
 }
 
@@ -1219,8 +1282,9 @@ mod adr_0075_request_profile_tests {
     fn adr_0075_request_profile_index_feed_result_rows_sends_l2() {
         let fixture = Fixture::start();
         let client = crate::api::Client::new_with_base_url(fixture.endpoint.clone());
+        let provider_identity = fixture.endpoint.require().unwrap();
 
-        let rows = fetch_index_feed_result_rows(&client, "needle").unwrap();
+        let rows = fetch_index_feed_result_rows(&client, provider_identity, "needle").unwrap();
 
         assert_eq!(rows.rows.len(), 1);
         let requests = fixture.requests.lock().unwrap().clone();

@@ -315,7 +315,7 @@ Open and paused - implementation, technical review, and mechanical checks are co
 
 ## 10. Request Reuse And Freshness Policies — ADR 0075 Task 018
 
-Closed - the operator decided all seven policies on 2026-09-21. This group requested no visual
+Closed - the operator decided all seven policies on 2026-09-21, and two more on 2026-09-22. This group requested no visual
 check and no app launch. The implementation and its checks stay with the packet.
 
 - Owner: [packet 018](tasks/adr-0075-task-018-request-reuse-and-freshness.md#accepted-policies---2026-09-21).
@@ -326,5 +326,7 @@ check and no app launch. The implementation and its checks stay with the packet.
 - P18-5: hold at most 64 feed responses, 256 track responses, and 32 RSS documents, and remove the least recently used entry first.
 - P18-6: hold reused responses in memory only, so a restart clears them.
 - P18-7: an explicit refresh removes every entry of the named feed and its tracks.
+- P18-8: an Index track detail response gets no reuse window.
+- P18-9: a reused response replays the receipt of the fetch that produced it.
 - The 30-minute track window depends on the existing check-for-updates control.
 - The 15-minute RSS window can delay stale-MusicIndex detection by 15 minutes during passive browsing.
