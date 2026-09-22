@@ -217,7 +217,7 @@ These five packets carry ADR 0075 to a visible result. Dispatch them in this seq
 | Packet | Kind | Outcome | Needs |
 |---|---|---|---|
 | [017](../tasks/adr-0075-task-017-named-request-profiles.md) | Code | Name the requests that the Library route and the Index route make. Complete on 2026-09-21 | 013, 014, 016, and both accepted cuts below |
-| 018 | Code | Cache key, expiry, explicit refresh, and response order | 016, 017, and packet 035's freshness interface |
+| [018](../tasks/adr-0075-task-018-request-reuse-and-freshness.md) | Code | Request identity, sharing, expiry, explicit refresh, and response order. Ready on 2026-09-21. Both parts are dispatchable | 016, 017, and the seven policies that the operator accepted on 2026-09-21 |
 | 045 | Code | Report a stale MusicIndex record and direct the operator to podping.me | 018, ADR 0075 Decision I, and packet 035's comparison rules |
 | 020 | Code | One shared projection, for the accepted field rules only | 005, 006, 007, 013, and 018 |
 | 022 | Code | The track header view model, limited to track identities | 020 |
@@ -226,7 +226,7 @@ Packet 017 is complete. It named ten requests and models no provider profile, be
 provider is transport and not a source. Packet 018 is the next dispatch, and it has no packet
 document yet.
 
-Packet 018 ends the repeated fetch that the baseline measured.
+Part B of packet 018 ends the repeated fetch that the baseline measured. Part A implements the accepted ADR 0075 rules and changes no sequential request count.
 Packet 020 applies the rules that the operator accepted. Packet 022 puts them on screen.
 
 Packet 020 covers accepted fields only. A field with an open policy stays unattributed.

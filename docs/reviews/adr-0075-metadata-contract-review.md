@@ -836,6 +836,22 @@ It does not treat assigned but unwritten field rules as completed proposals.
 | None currently recorded | Link and media field selections have individual acceptance. Packet 035 URL rules are accepted. Implementation and visual gates remain open |
 | Supported-format capability owners for each operation | Packet 020 implementation packet. Decision E is already accepted |
 
+### From Packet 018, Request Reuse And Freshness
+
+Decided on 2026-09-21. The operator accepted each policy separately. No proposal remains.
+
+| Decision | Result |
+|---|---|
+| P18-1, Library track detail reuse | 30 minutes. The existing check-for-updates control supplies a fresh value |
+| P18-2, feed response reuse | 15 minutes, for each distinct include list |
+| P18-3, parsed RSS reuse | 15 minutes, keyed by the feed URL |
+| P18-4, failed requests | Never reused. A failure sends a new request every time |
+| P18-5, capacity | 64 feeds, 256 tracks, and 32 RSS documents. Least recently used goes first |
+| P18-6, durability | Memory only. A restart clears the retained responses |
+| P18-7, explicit refresh | Removes the named feed, its RSS document, and its tracks |
+
+The minute values come from the curator workflow. No measurement supplies them.
+
 ### Remaining Coverage And Upstream Work
 
 The [field inventory](../schema/adr-0075-metadata-field-inventory.md) assigns all inspected fields to rules or remaining packets.

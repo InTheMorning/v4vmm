@@ -1,0 +1,262 @@
+# ADR 0075 Task 018: Request Reuse, Freshness And Explicit Refresh
+
+Status: Ready - 2026-09-21. The operator accepted the seven reuse policies on the same day.
+Part A and Part B are both dispatchable.
+
+This packet has two parts. Part A implements the rules that ADR 0075 already decides. It
+changes no request count except for concurrent duplicates. Part B ends the repeated fetch
+that the baseline measured. Part B applies the accepted policies below.
+
+## Goal
+
+Give the app one shared request identity and one owner that reuses a request. Give the app
+one explicit refresh that bypasses reuse. A caller then asks the owner for a resource. The
+owner sends a request, joins an active request, or returns a retained response.
+
+Packet 017 named each request. This packet keys those names to a subject and an endpoint, and
+it decides when a response is reusable.
+
+## Why This Packet Exists
+
+The [request baseline](../notes/adr-0075-request-and-write-baseline.md) measured the
+repetition:
+
+| Measured case | Index requests | RSS requests |
+|---|---:|---:|
+| First Library track detail | 2 | 1 |
+| Repeated Library track detail | 2 | 1 |
+| Two Library tracks sharing one feed | 4 | 2 |
+| Repeated Library album hydration | 1 | 0 |
+
+The repeated Library track detail fetched the same three resources again. Two tracks of one
+feed fetched that feed twice and its RSS document twice. The repeated album hydration deleted
+four fact rows and inserted four replacements for values that did not change.
+
+The Index route makes no detail request after a search, because it retains its search result
+model. Its requests happen during the search itself.
+
+## What ADR 0075 Already Decides
+
+These rules are accepted. Part A implements them, and they need no new review.
+
+- Reuse a completed or active request with the same endpoint, scoped identity, and request
+  profile. ADR 0075 section 6.
+- Keep caches isolated by endpoint and source revision. ADR 0075 section 6.
+- Define response ordering when the service supplies no reliable source revision. Do not use
+  the source observation time as the app's request sequence. ADR 0075 section 6.
+- RSS enrichment must report failures. ADR 0075 section 6.
+- A failed request keeps the stored facts and exposes the failed refresh state. It does not
+  become an empty collection. ADR 0075 section 2.
+- Do not resolve a discrepancy because a request failed, or because its evidence expired from
+  a cache. ADR 0075 section 4.
+- A retained value is not fresh because it exists. ADR 0075 section 4.
+
+## Accepted Policies - 2026-09-21
+
+The operator decided each policy separately on 2026-09-21.
+
+| Number | Accepted policy |
+|---|---|
+| P18-1 | Reuse a successful Library track detail response for 30 minutes |
+| P18-2 | Reuse a successful feed response for 15 minutes, for each distinct include list |
+| P18-3 | Reuse a parsed RSS document for 15 minutes, keyed by its feed URL |
+| P18-4 | Never reuse a failed request. A failure sends a new request every time |
+| P18-5 | Hold at most 64 feed responses, 256 track responses, and 32 RSS documents. Remove the least recently used entry first |
+| P18-6 | Hold reused responses in memory only. A restart clears them |
+| P18-7 | An explicit refresh removes every entry of the named feed and its tracks, and then sends new requests |
+
+The minute values come from the curator workflow, not from a measurement. The operator chose
+the 30-minute track window because the existing check-for-updates control supplies a fresh
+value at any time. P18-7 makes that control clear the feed, its RSS document, and its tracks
+together.
+
+The 15-minute RSS window can delay the detection of a stale MusicIndex record by 15 minutes
+during passive browsing. An explicit refresh removes that delay. Packet 045 owns the
+stale report and the podping.me direction.
+
+P18-6 keeps this packet away from a storage decision. A durable response store needs its own
+migration, its own backup, and its own rollback, which ADR 0075 section 5 requires.
+
+## Part A: Request Identity And Sharing
+
+Part A is Ready. It implements the accepted rules only.
+
+**One request identity.** A key holds the endpoint, the scoped subject, and the packet 017
+profile. The storage layer already builds the same identity in
+`db::provider_observations::request_identity`. The in-memory key must agree with it, so that
+one request has one name in memory and in storage.
+
+**One owner.** A shared owner holds the active requests and the retained responses. A caller
+asks the owner, and the owner sends at most one request for one identity at one time. A second
+caller with the same identity joins the active request and receives the same result.
+
+**One app request sequence.** The owner orders responses by a monotonic counter that the app
+allocates when it starts a request. A response of an older sequence value never replaces a
+newer stored response. The owner does not order by a fetch time or by a source time.
+
+**Observations stay with real requests.** A request that reaches the network records its
+observation, as packets 014, 038, and 039 require. A caller that joins an active request
+receives the receipts of that one request. A caller that receives a retained response receives
+no new receipt, and its result names the observation that produced the response.
+
+**Explicit refresh.** A typed refresh intent travels with the request. The intent bypasses
+reuse and forces a new request. Part A wires the intent through the existing feed check
+command, the existing feed update command, and the ADR 0065 combined workflow. Part A adds no
+new control to any screen.
+
+## Part B: Completed Response Reuse
+
+Part B applies the accepted policies in the table above.
+
+Part B adds the freshness test to the owner. A retained response is reusable when its age is
+below its accepted window, and when no explicit refresh intent applies. A reusable response
+returns without a request.
+
+The freshness test reads the last successful fetch time of the request identity. The storage
+layer exposes the request slot through `db::provider_observations::read_request_refresh`. That
+function returns the slot state, the generation, and the observation identifier. It does not
+return the last successful fetch time, so Part B extends that interface or reads the
+observation. The extension keeps the existing values unchanged.
+
+## Authority And Dependencies
+
+- [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md), sections 2, 4, 5, and 6,
+  and Decision I.
+- [Phase plan](../plans/adr-0075-metadata-contract-phase-plan.md#the-committed-path), the
+  committed path.
+- [Packet 016](adr-0075-task-016-request-and-write-baseline.md) and its
+  [baseline](../notes/adr-0075-request-and-write-baseline.md), the measured counts and the
+  retained fixture.
+- [Packet 017](adr-0075-task-017-named-request-profiles.md), the ten named profiles.
+- [Packet 035](adr-0075-task-035-comparison-and-discrepancy-rules.md), which assigns numeric
+  freshness and request scheduling to this packet.
+- [Packet 014](adr-0075-task-014-provider-observation-retention.md), the shared recorder and
+  its receipts.
+
+Packet 045 owns the stale MusicIndex report and the podping.me direction. This packet does not
+report staleness to the operator.
+
+## Files To Inspect
+
+- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Request profiles](../../src/application/request_profiles.rs), the ten profiles.
+- [Observation storage](../../src/db/provider_observations.rs), `request_identity`, `begin`,
+  and `read_request_refresh`.
+- [Observation types](../../src/provider_observation.rs), `ProviderRequestSpec`,
+  `RequestRefresh`, `RefreshState`, and the recorder.
+- [API client](../../src/api.rs), the three profile methods and `Client`.
+- [Feed service](../../src/feed_service.rs), the Library track detail chain and the feed
+  update.
+- [Library queries](../../src/application/queries/library.rs), the track context command and
+  the album hydration.
+- [Search queries](../../src/application/queries/search.rs), the Index search request loops.
+- [RSS enrichment](../../src/rss/enrich.rs), which parses a new document for each call.
+- [Runtime](../../src/runtime/), the ADR 0040 actors, and
+  [playback polling](../../src/runtime/playback_polling.rs) as the reference actor.
+- [Library screen](../../src/library/app_impl.rs), the composition root that builds the track
+  context command.
+
+## Files To Change
+
+| File | Permitted change |
+| --- | --- |
+| New module under `src/application/` | The request key, the owner, its typed states, and its tests |
+| `src/application/request_profiles.rs` | Nothing in Part A. Part B may add an accepted window to a profile |
+| `src/db/provider_observations.rs` | Part B only. Expose the last successful fetch time. Keep every existing value |
+| `src/feed_service.rs` | Ask the owner, not the client. Keep the requests and the fallback order |
+| `src/application/queries/library.rs` | Ask the owner. Carry the refresh intent |
+| `src/application/queries/search.rs` | Ask the owner. Carry the refresh intent |
+| `src/application/queries/feed.rs` | Ask the owner. Carry the refresh intent |
+| `src/rss/enrich.rs` | Part B only. Hold a parsed document under P18-3 |
+| `src/library/app_impl.rs` | Pass the shared owner into the command, beside the shared connection |
+| `tests/architecture_tests.rs` | Situational guards, naming ADR 0075 |
+
+Do not change `src/subscribe_service.rs`, `src/application/commands/payment_routes.rs`, or
+`src/application/commands/feed.rs` include lists. Packet 017 records why they stay outside.
+
+## Mechanical Acceptance Criteria, Part A
+
+Use the prefix `adr_0075_request_reuse_` for behavioral tests beside the owning code.
+
+| Case | Required proof |
+| --- | --- |
+| R18A-01 | A request key holds the endpoint, the scoped subject, and the profile. Two requests with different endpoints have different keys |
+| R18A-02 | The in-memory key and `request_identity` agree. A test builds both from one `ProviderRequestSpec` and compares them |
+| R18A-03 | Two concurrent callers with one identity produce one HTTP request. Both receive the same result |
+| R18A-04 | Two concurrent callers with different identities produce two HTTP requests |
+| R18A-05 | The joining caller receives the receipts of the one request. The test counts the receipts |
+| R18A-06 | A response of an older sequence value does not replace a newer stored response |
+| R18A-07 | The owner allocates its sequence value when the request starts. The test proves it is not a fetch time and not a source time |
+| R18A-08 | A failed request records its failure and returns the typed failed state. It stores no value |
+| R18A-09 | An explicit refresh intent sends a new request, and it does not join an active request that started without the intent |
+| R18A-10 | The feed check command, the feed update command, and the ADR 0065 workflow each carry the refresh intent |
+| R18A-11 | Every measured request count of the baseline is unchanged for sequential callers. The test names the counts |
+| R18A-12 | A guard fails when a metadata request reaches `Client` without the owner, in the converted routes. The guard names ADR 0075 section 6 |
+
+## Mechanical Acceptance Criteria, Part B
+
+| Case | Required proof |
+| --- | --- |
+| R18B-01 | A retained response inside its accepted window returns without an HTTP request |
+| R18B-02 | A retained response outside its window sends a new request |
+| R18B-03 | The 30-minute, 15-minute, and 15-minute windows each appear once in the code. A test reads each value from that one owner |
+| R18B-04 | A failed request is never reused. The next ask sends a new request |
+| R18B-05 | An explicit refresh removes the entries that P18-7 names, and then sends new requests |
+| R18B-06 | The owner holds at most the P18-5 limits. It removes the least recently used entry first |
+| R18B-07 | A reused response carries the identifier of the observation that produced it. It creates no new observation |
+| R18B-08 | A reused response cannot create or resolve a discrepancy. A guard names ADR 0075 section 4 |
+| R18B-09 | The repeated Library track detail case sends no Index request and no RSS request inside the windows |
+| R18B-10 | Two Library tracks of one feed send one feed request and one RSS request inside the windows |
+
+## Measurement
+
+The baseline requires a target bound before this packet claims an improvement. It also
+requires concurrent measurement before this packet claims active-request sharing.
+
+Measure with the fixtures of packet 016, in the same isolated way, without an app launch:
+
+| Case | Current | Target after Part B |
+|---|---:|---:|
+| Repeated Library track detail | 2 Index, 1 RSS | 0 Index, 0 RSS |
+| Two Library tracks sharing one feed | 4 Index, 2 RSS | 3 Index, 1 RSS |
+| Repeated Library album hydration | 1 Index, 9 row changes | 0 Index, 0 row changes |
+| Two concurrent Library track details of one track | Not measured | 1 request set |
+
+Record the measured results beside the targets. Report a target that the result does not
+reach. Do not change a target to match a result.
+
+## Exclusions
+
+- No stale MusicIndex report, and no podping.me direction. Packet 045 owns those.
+- No shared projection and no display change. Packet 020 owns those.
+- No new screen control, and no new visual gate.
+- No durable response store, under P18-6.
+- No field policy, and no comparison rule.
+- No change to the packet 017 include lists or request paths.
+
+## Checks
+
+```bash
+cargo test --lib adr_0075_request_reuse
+cargo test
+cargo test --test architecture_tests
+cargo fmt -- --check
+cargo clippy -- -D warnings
+cargo build --bin v4vmm
+```
+
+Report each result. Say "Green" for a passing check.
+
+## Rollback
+
+Part A adds one module and changes the call sites to ask the owner. Revert the working tree to
+remove it. Part B adds the freshness test and one storage read. Revert the working tree to
+remove it. No migration, no stored data, and no configuration changes.
+
+## Operator Visual Check
+
+None. Part A and Part B add no control and change no layout. A reused response can show an
+older value inside its window, and R18B-01 and R18B-02 prove that behavior mechanically.
+
+The inherited presentation gates for packets 012, 014, 038, and 039 stay open and paused. Do
+not request a visual batch for this packet.
