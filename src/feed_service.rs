@@ -48,53 +48,93 @@ pub fn fetch_library_track_context(
         musicindex_endpoint,
         None,
         crate::application::request_reuse::RefreshIntent::Normal,
+        &mut Vec::new(),
     )
 }
 
+/// `receipts_out` accumulates the track and feed detail receipts this call
+/// produces or joins (packet 018 R18B-07, R18B-11), regardless of whether
+/// this call ultimately succeeds. A caller with its own recorder-draining
+/// convention (`assemble_provider_context`, `assemble_observed_query`)
+/// keeps its existing "receipts survive a later failure" behavior only
+/// when it reads the receipts from here, not from `TrackContext`: unlike
+/// `recorder`, a `TrackContext` does not exist yet when this function
+/// fails, so a receipt cannot ride inside one on that path.
 pub(crate) fn fetch_library_track_context_with_recorder(
     track: &TrackRow,
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
     recorder: Option<Arc<crate::provider_observation::ProviderObservationRecorder>>,
     refresh: crate::application::request_reuse::RefreshIntent,
+    receipts_out: &mut Vec<crate::provider_observation::ObservationReceipt>,
 ) -> Result<TrackContext> {
     let (fetched_track, fetched_feed) = fetch_library_track_detail_with_recorder(
         track,
         musicindex_endpoint,
         recorder.clone(),
         refresh,
+        receipts_out,
     )?;
     merge_track_context_with_recorder(track, fetched_track, fetched_feed, recorder.as_deref())
 }
 
 /// Fetches a Library track's remote MusicIndex detail through the shared
-/// request owner (ADR 0075 section 6, packet 018 Part A).
+/// request owner (ADR 0075 section 6, packet 018).
 ///
 /// `refresh` travels with every request this function sends: `Normal` for
-/// a passive read, which may join an active request; `Explicit` for a
-/// caller that wants a fresh value, such as `apply_feed_updates` or a
-/// manual comparison, which always sends its own request (R18A-09,
-/// R18A-10). The owner never runs the fetch twice for one active
-/// identity, and it never holds its registry lock across the network
+/// a passive read, which may join an active request or reuse a retained
+/// response; `Explicit` for a caller that wants a fresh value, such as
+/// `apply_feed_updates` or a manual comparison, which always sends its own
+/// request and never reuses a retained response (R18A-09, R18A-10). The
+/// owner never runs the fetch twice for one active identity, and it never
+/// holds its registry lock or its retained-cache lock across the network
 /// call.
+///
+/// Packet 018 Part B routes every sub-fetch through the owner's
+/// receipts-carrying methods (R18B-07: a reused response must carry the
+/// identifier of the observation that produced it). Each sub-fetch's
+/// closure drains `recorder` immediately after its own call, before the
+/// next sub-fetch can add anything else to it, so the drained value is
+/// exactly that one call's own receipt — the same pattern
+/// `library::hydrate_album_identity_facts` already uses for its one feed
+/// fetch. This function accumulates every sub-fetch's receipts into
+/// `receipts_out`, which the caller merges with whatever `recorder` holds
+/// afterward (here, only a later RSS receipt remains undrained).
 fn fetch_library_track_detail_with_recorder(
     track: &TrackRow,
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
     recorder: Option<Arc<crate::provider_observation::ProviderObservationRecorder>>,
     refresh: crate::application::request_reuse::RefreshIntent,
+    receipts_out: &mut Vec<crate::provider_observation::ObservationReceipt>,
 ) -> Result<(Option<Track>, Option<Feed>)> {
     use crate::application::request_profiles::{
         LIBRARY_TRACK_DETAIL_FEED, LIBRARY_TRACK_DETAIL_SCOPED_TRACK,
         LIBRARY_TRACK_DETAIL_UNSCOPED_TRACK,
     };
     use crate::application::request_reuse::{self, RequestKey, SharedFetchError};
-    use crate::provider_observation::propagate_storage_failure;
+    use crate::provider_observation::{propagate_storage_failure, ProviderObservationRecorder};
     let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.clone())
-        .with_observation_recorder(recorder);
+        .with_observation_recorder(recorder.clone());
     let owner = request_reuse::shared();
     let provider_identity = musicindex_endpoint
         .require()
         .map(str::to_owned)
         .unwrap_or_default();
+
+    // Drains `recorder` right after one HTTP call, before the next
+    // sub-fetch below can add anything else to it, so the drained value is
+    // exactly that one call's own receipt. `library::hydrate_album_identity_facts`
+    // uses the same pattern for its single feed fetch. Storing the
+    // receipts on the owner's registry entry, rather than only in
+    // `recorder`, is what lets a later reused response still name the
+    // observation that produced it (R18B-07), and lets a caller that joins
+    // an in-flight request receive that request's receipts (R18A-05,
+    // R18B-11).
+    let drain = |recorder: &Option<Arc<ProviderObservationRecorder>>| {
+        recorder
+            .as_deref()
+            .map(ProviderObservationRecorder::take_receipts)
+            .unwrap_or_default()
+    };
 
     let mut fetched_track = match track.feed_guid.as_deref() {
         Some(feed_guid) => {
@@ -105,16 +145,20 @@ fn fetch_library_track_detail_with_recorder(
                 LIBRARY_TRACK_DETAIL_SCOPED_TRACK.include(),
             );
             let result = owner
-                .fetch_track(key, refresh, || {
-                    client.fetch_feed_track_with_profile(
+                .fetch_track_with_receipts(key, refresh, || {
+                    let fetched = client.fetch_feed_track_with_profile(
                         feed_guid,
                         &track.item_guid,
                         &LIBRARY_TRACK_DETAIL_SCOPED_TRACK,
-                    )
+                    )?;
+                    Ok((fetched, drain(&recorder)))
                 })
                 .0
                 .map_err(SharedFetchError::into_anyhow);
-            propagate_storage_failure(result)?
+            propagate_storage_failure(result)?.map(|(fetched, receipts)| {
+                receipts_out.extend(receipts);
+                fetched
+            })
         }
         None => None,
     };
@@ -125,15 +169,19 @@ fn fetch_library_track_detail_with_recorder(
             LIBRARY_TRACK_DETAIL_UNSCOPED_TRACK.include(),
         );
         let result = owner
-            .fetch_track(key, refresh, || {
-                client.fetch_track_with_profile(
+            .fetch_track_with_receipts(key, refresh, || {
+                let fetched = client.fetch_track_with_profile(
                     &track.item_guid,
                     &LIBRARY_TRACK_DETAIL_UNSCOPED_TRACK,
-                )
+                )?;
+                Ok((fetched, drain(&recorder)))
             })
             .0
             .map_err(SharedFetchError::into_anyhow);
-        fetched_track = propagate_storage_failure(result)?;
+        fetched_track = propagate_storage_failure(result)?.map(|(fetched, receipts)| {
+            receipts_out.extend(receipts);
+            fetched
+        });
     }
     let feed_guid = fetched_track
         .as_ref()
@@ -144,12 +192,17 @@ fn fetch_library_track_detail_with_recorder(
             let key =
                 RequestKey::feed(provider_identity, guid, LIBRARY_TRACK_DETAIL_FEED.include());
             let result = owner
-                .fetch_feed(key, refresh, || {
-                    client.fetch_feed_with_profile(guid, &LIBRARY_TRACK_DETAIL_FEED)
+                .fetch_feed_with_receipts(key, refresh, || {
+                    let fetched =
+                        client.fetch_feed_with_profile(guid, &LIBRARY_TRACK_DETAIL_FEED)?;
+                    Ok((fetched, drain(&recorder)))
                 })
                 .0
                 .map_err(SharedFetchError::into_anyhow);
-            propagate_storage_failure(result)?
+            propagate_storage_failure(result)?.map(|(fetched, receipts)| {
+                receipts_out.extend(receipts);
+                fetched
+            })
         }
         None => None,
     };
@@ -312,6 +365,16 @@ pub fn ensure_feed_in_db(
 
 /// ADR 0075 records the feed-check request and response for one local feed.
 ///
+/// Packet 018 Part B routes this request through `fetch_feed_with_receipts`,
+/// not the plain `fetch_feed`, so a caller that joins this identity's
+/// active slot (a concurrent `Normal` read of the same feed and include
+/// list) receives this request's own receipts too (R18B-11). This
+/// function's own caller still receives them through `receipts_out`,
+/// because the closure below drains `recorder` for the owner's registry
+/// entry before this function returns (see
+/// `fetch_library_track_detail_with_recorder`'s documentation for why that
+/// drain is needed and why it is safe).
+///
 /// # Errors
 /// Returns the existing database or transport failure. A provider storage
 /// failure keeps its typed capsule so the caller can classify it.
@@ -320,6 +383,7 @@ pub fn check_feed_staleness(
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
     feed_id: i64,
     recorder: &Arc<crate::provider_observation::ProviderObservationRecorder>,
+    receipts_out: &mut Vec<crate::provider_observation::ObservationReceipt>,
 ) -> Result<Option<StaleFeed>> {
     let stored = {
         let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
@@ -330,9 +394,11 @@ pub fn check_feed_staleness(
     };
     let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.clone())
         .with_observation_recorder(Some(Arc::clone(recorder)));
-    // ADR 0075 section 6, packet 018 Part A: an explicit "check for
-    // updates" request always reaches the network. It never joins an
-    // active request that started without that intent (R18A-09).
+    // ADR 0075 section 6, packet 018: an explicit "check for updates"
+    // request always reaches the network. It never joins an active
+    // request that started without that intent (R18A-09), and it never
+    // reuses a retained response (Part B, R18B-01 applies to `Normal`
+    // only).
     use crate::application::request_reuse::{self, RefreshIntent, RequestKey, SharedFetchError};
     let owner = request_reuse::shared();
     let provider_identity = musicindex_endpoint
@@ -340,12 +406,14 @@ pub fn check_feed_staleness(
         .map(str::to_owned)
         .unwrap_or_default();
     let key = RequestKey::feed(provider_identity, &stored.feed_guid, None);
-    let api_feed = owner
-        .fetch_feed(key, RefreshIntent::Explicit, || {
-            client.fetch_feed(&stored.feed_guid, None)
+    let (api_feed, receipts) = owner
+        .fetch_feed_with_receipts(key, RefreshIntent::Explicit, || {
+            let feed = client.fetch_feed(&stored.feed_guid, None)?;
+            Ok((feed, recorder.take_receipts()))
         })
         .0
         .map_err(SharedFetchError::into_anyhow)?;
+    receipts_out.extend(receipts);
     let Some(api_updated_at) = api_feed.updated_at else {
         return Ok(None);
     };
@@ -375,6 +443,20 @@ pub fn configured_music_dir() -> Result<std::path::PathBuf> {
 
 /// ADR 0075 records the feed and track requests that one feed update makes.
 ///
+/// Packet 018 P18-7: an explicit feed update is the point where the app
+/// knows a feed's content actually changed, so this function clears every
+/// retained MusicIndex response of this feed and its scoped tracks, and
+/// the feed's retained RSS document, before it sends any request. This
+/// keeps a later passive read from reusing a response that predates the
+/// update.
+///
+/// This function's own feed fetch, and each track's detail fetch inside
+/// the loop below, route through the owner's receipts-carrying methods
+/// (R18B-11). Both drain `recorder` for the owner's registry entry, so
+/// `receipts_out` accumulates every one of them; whatever the per-track
+/// RSS enrichment adds afterward stays on `recorder` for this function's
+/// own caller to drain.
+///
 /// # Errors
 /// Returns the existing database, merge or transport failure. A provider
 /// storage failure stops the feed before legacy persistence or tag generation,
@@ -385,31 +467,52 @@ pub fn apply_feed_updates(
     stale: &StaleFeed,
     music_dir: &std::path::Path,
     recorder: &Arc<crate::provider_observation::ProviderObservationRecorder>,
+    receipts_out: &mut Vec<crate::provider_observation::ObservationReceipt>,
 ) -> Result<FeedApplyOutcome> {
     use crate::application::request_profiles::LIBRARY_FEED_UPDATE_FEED;
     use crate::application::request_reuse::{self, RefreshIntent, RequestKey, SharedFetchError};
     use crate::provider_observation::propagate_storage_failure;
     let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.clone())
         .with_observation_recorder(Some(Arc::clone(recorder)));
-    // ADR 0075 section 6, packet 018 Part A: an explicit feed update always
+    // ADR 0075 section 6, packet 018: an explicit feed update always
     // reaches the network for the feed itself (R18A-09, R18A-10).
     let owner = request_reuse::shared();
     let provider_identity = musicindex_endpoint
         .require()
         .map(str::to_owned)
         .unwrap_or_default();
+
+    // P18-7: clear every retained entry of this feed before sending a new
+    // request. A missing or unreadable feed URL leaves the RSS document
+    // cache alone; it still ages out on its own window.
+    owner.invalidate_feed(&provider_identity, &stale.feed_guid);
+    let feed_url = conn
+        .lock()
+        .map_err(|_| anyhow!("database lock poisoned"))
+        .and_then(|db| db::feed_url_by_id(&db, stale.feed_id))
+        .ok()
+        .flatten();
+    if let Some(feed_url) = feed_url.as_deref() {
+        crate::rss::invalidate_feed_document(feed_url);
+    }
+
     let key = RequestKey::feed(
         provider_identity,
         &stale.feed_guid,
         LIBRARY_FEED_UPDATE_FEED.include(),
     );
     let feed_result = owner
-        .fetch_feed(key, RefreshIntent::Explicit, || {
-            client.fetch_feed_with_profile(&stale.feed_guid, &LIBRARY_FEED_UPDATE_FEED)
+        .fetch_feed_with_receipts(key, RefreshIntent::Explicit, || {
+            let feed =
+                client.fetch_feed_with_profile(&stale.feed_guid, &LIBRARY_FEED_UPDATE_FEED)?;
+            Ok((feed, recorder.take_receipts()))
         })
         .0
         .map_err(SharedFetchError::into_anyhow);
-    let feed_update = propagate_storage_failure(feed_result)?;
+    let feed_update = propagate_storage_failure(feed_result)?.map(|(feed, receipts)| {
+        receipts_out.extend(receipts);
+        feed
+    });
     if let Some(feed) = feed_update.as_ref() {
         let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
         if !source_text_missing(feed.description.as_deref()) {
@@ -440,6 +543,7 @@ pub fn apply_feed_updates(
             musicindex_endpoint,
             Some(Arc::clone(recorder)),
             crate::application::request_reuse::RefreshIntent::Explicit,
+            receipts_out,
         ))?;
         let Some((fetched_track, fetched_feed)) = detail else {
             continue;
@@ -1234,6 +1338,12 @@ mod adr_0075_request_profile_tests {
 
     impl Fixture {
         fn start() -> Self {
+            // Packet 018 Part B: the shared owner is one process-wide value
+            // (P18-6), so this and every other test share it. A fresh
+            // ephemeral port makes each fixture's `RequestKey` distinct
+            // (the key carries the endpoint), so tests never collide on a
+            // retained entry; nothing here clears the shared owner, which
+            // would race a concurrently running test's own state.
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             listener.set_nonblocking(true).unwrap();
             let address = listener.local_addr().unwrap().to_string();
@@ -1443,6 +1553,7 @@ mod adr_0075_request_profile_tests {
             &stale,
             std::path::Path::new("/tmp"),
             &recorder,
+            &mut Vec::new(),
         )
         .unwrap();
 

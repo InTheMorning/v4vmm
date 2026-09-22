@@ -2,7 +2,8 @@
 
 use std::fmt;
 use std::io::Cursor;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
@@ -12,7 +13,66 @@ use rss::{extension::ExtensionMap, Channel};
 use super::helpers::{clean_text, find_ext, parse_itunes_duration};
 use super::{IdentityValidation, NostrIdentity};
 use crate::api::{Feed, SourceEntityId, SourceEntityLink, Track};
+use crate::application::request_reuse::RetainedCache;
 use crate::metadata::{source_text_missing, TrackContext};
+
+/// P18-3: a parsed RSS document stays reusable for this long, keyed by feed
+/// URL. This is the one place this value appears in the code (R18B-03).
+const RSS_DOCUMENT_REUSE_WINDOW: Duration = Duration::from_secs(15 * 60);
+
+/// P18-5: the app holds at most this many parsed RSS documents.
+const RSS_DOCUMENT_CAPACITY: usize = 32;
+
+/// A fetched RSS response, retained so a later enrichment call for a
+/// different track of the same feed does not repeat the HTTP request.
+///
+/// Re-parsing the retained bytes for a different track is cheap, in-memory
+/// work: no network call. `parse_track_enrichment_document` already does
+/// this from the outer response fields, whether or not the response came
+/// from a retained entry.
+#[derive(Clone)]
+struct CachedRssDocument {
+    response_url: String,
+    fetched_at: DateTime<Utc>,
+    response_bytes: Arc<[u8]>,
+}
+
+static RETAINED_DOCUMENTS: OnceLock<Mutex<RetainedCache<String, CachedRssDocument>>> =
+    OnceLock::new();
+
+fn retained_documents() -> &'static Mutex<RetainedCache<String, CachedRssDocument>> {
+    RETAINED_DOCUMENTS.get_or_init(|| {
+        Mutex::new(RetainedCache::new(
+            RSS_DOCUMENT_REUSE_WINDOW,
+            RSS_DOCUMENT_CAPACITY,
+        ))
+    })
+}
+
+fn retained_document(feed_url: &str) -> Option<CachedRssDocument> {
+    retained_documents()
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(&feed_url.to_owned())
+}
+
+fn retain_document(feed_url: &str, document: CachedRssDocument) {
+    retained_documents()
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .store(feed_url.to_owned(), document);
+}
+
+/// P18-7: an explicit feed refresh removes that feed's retained RSS
+/// document, so the next enrichment call fetches and parses it again.
+/// `feed_service::apply_feed_updates` calls this before it sends any
+/// request for an explicitly refreshed feed.
+pub(crate) fn invalidate_feed_document(feed_url: &str) {
+    retained_documents()
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(&feed_url.to_owned());
+}
 
 const PODCAST_NAMESPACES: [&str; 2] = [
     "https://podcastindex.org/namespace/1.0",
@@ -248,6 +308,21 @@ fn fetch_track_enrichment_with_recorder(
     enclosure_url: Option<&str>,
     recorder: Option<&crate::provider_observation::ProviderObservationRecorder>,
 ) -> Result<RssFetchResult> {
+    // Packet 018 P18-3: a retained document reuses the last fetched bytes
+    // for a different track of the same feed. Re-parsing them for this
+    // track's own GUID and enclosure is cheap, in-memory work; it sends no
+    // request and it records no observation (R18B-07: a reused response
+    // creates no new observation).
+    if let Some(cached) = retained_document(feed_url) {
+        return parse_track_enrichment_document(
+            feed_url,
+            &cached.response_url,
+            cached.fetched_at,
+            cached.response_bytes,
+            track_guid,
+            enclosure_url,
+        );
+    }
     if let Some(recorder) = recorder {
         use crate::provider_observation::{contracts, http, ObservationOutcome};
         let mut spec = contracts::rss_request(feed_url, track_guid, enclosure_url);
@@ -289,6 +364,29 @@ fn fetch_track_enrichment_with_recorder(
             }
             _ => {}
         }
+        // P18-4: never retain a failure. A malformed document still fails
+        // `parse_track_enrichment_document_observed`, so it never reaches
+        // `retain_document` either.
+        if result.is_ok() {
+            retain_document(
+                feed_url,
+                CachedRssDocument {
+                    response_url: observation
+                        .response_uri
+                        .clone()
+                        .unwrap_or_else(|| feed_url.to_owned()),
+                    fetched_at: DateTime::from_timestamp_micros(
+                        observation
+                            .fetched_at_us
+                            .expect("completed response has fetch time"),
+                    )
+                    .expect("recorded UTC time is valid"),
+                    response_bytes: Arc::clone(
+                        observation.body.as_ref().expect("response has body"),
+                    ),
+                },
+            );
+        }
         recorder.record(token, observation)?;
         return result;
     }
@@ -304,14 +402,26 @@ fn fetch_track_enrichment_with_recorder(
         .with_context(|| format!("read body {feed_url}"))?
         .to_vec()
         .into();
-    parse_track_enrichment_document(
+    let fetched_at = Utc::now();
+    let result = parse_track_enrichment_document(
         feed_url,
         &response_url,
-        Utc::now(),
-        bytes,
+        fetched_at,
+        Arc::clone(&bytes),
         track_guid,
         enclosure_url,
-    )
+    );
+    if result.is_ok() {
+        retain_document(
+            feed_url,
+            CachedRssDocument {
+                response_url,
+                fetched_at,
+                response_bytes: bytes,
+            },
+        );
+    }
+    result
 }
 
 fn parse_track_enrichment_document(
@@ -1627,6 +1737,11 @@ mod tests {
         let observation = Arc::clone(context.rss_observation.as_ref().unwrap());
         let original = serde_json::to_value((&context.track, &context.feed))?;
         for feed_url in [url.as_str(), url.as_str(), "not a valid URL"] {
+            // Packet 018 P18-3 would otherwise reuse the first, successful
+            // response for the rest of this loop. Each iteration here
+            // means a genuinely new attempt that must reach the fixture's
+            // next queued (malformed, then failing) response.
+            invalidate_feed_document(feed_url);
             assert!(enrich_track_from_feed_rss(&mut context, feed_url).is_err());
             assert!(Arc::ptr_eq(
                 &observation,
@@ -1638,6 +1753,130 @@ mod tests {
             );
         }
         assert_eq!(worker.join().unwrap().len(), 3);
+        Ok(())
+    }
+
+    /// R18B-03: the RSS document window matches the accepted 15-minute
+    /// policy. This is the one place this value appears in the code,
+    /// beside the track and feed windows named in
+    /// `application::request_reuse`.
+    #[test]
+    fn adr_0075_rss_document_window_matches_the_accepted_policy() {
+        assert_eq!(RSS_DOCUMENT_REUSE_WINDOW, Duration::from_secs(15 * 60));
+    }
+
+    /// P18-5: the app holds at most this many parsed RSS documents. The
+    /// eviction rule itself (least recently used first) is proven once, at
+    /// the shared `RetainedCache` this module reuses
+    /// (`adr_0075_request_reuse_retained_cache_capacity_evicts_least_recently_used`
+    /// in `application::request_reuse`), rather than repeated here with 33
+    /// local servers.
+    #[test]
+    fn adr_0075_rss_document_capacity_matches_the_accepted_policy() {
+        assert_eq!(RSS_DOCUMENT_CAPACITY, 32);
+    }
+
+    /// R18B-01/P18-3: a retained RSS document is reused for a different
+    /// track of the same feed, inside its window, without a second
+    /// request. Re-parsing the retained bytes for the second track's own
+    /// GUID is what makes the reuse correct, not just cheap: each track
+    /// gets its own item match from the one fetched document.
+    #[test]
+    fn adr_0075_rss_document_reused_within_window_for_a_different_track() -> Result<()> {
+        let xml = document(
+            "<item><guid>track-a</guid><title>Track A</title></item>\
+<item><guid>track-b</guid><title>Track B</title></item>",
+        );
+        let (url, worker) = server(vec![("200 OK".into(), xml.into_bytes())]);
+        let first = fetch_track_enrichment_from_feed(&url, Some("track-a"), None)?;
+        assert_eq!(
+            first
+                .enrichment
+                .as_ref()
+                .and_then(|e| e.track_title.clone()),
+            Some("Track A".to_owned())
+        );
+        let second = fetch_track_enrichment_from_feed(&url, Some("track-b"), None)?;
+        assert_eq!(
+            second
+                .enrichment
+                .as_ref()
+                .and_then(|e| e.track_title.clone()),
+            Some("Track B".to_owned())
+        );
+        assert_eq!(
+            worker.join().unwrap().len(),
+            1,
+            "R18B-01: the second ask reuses the retained document and sends no request"
+        );
+        Ok(())
+    }
+
+    /// R18B-04: a failed RSS request is never retained. The next ask sends
+    /// its own request.
+    #[test]
+    fn adr_0075_rss_document_failure_is_never_retained() -> Result<()> {
+        let (url, worker) = server(vec![
+            ("503 Service Unavailable".into(), b"failed".to_vec()),
+            (
+                "200 OK".into(),
+                document("<item><guid>track</guid><title>Recovered</title></item>").into_bytes(),
+            ),
+        ]);
+        let first = fetch_track_enrichment_from_feed(&url, Some("track"), None);
+        assert!(first.is_err(), "the fixture's first response is a failure");
+        let second = fetch_track_enrichment_from_feed(&url, Some("track"), None)?;
+        assert_eq!(
+            second
+                .enrichment
+                .as_ref()
+                .and_then(|e| e.track_title.clone()),
+            Some("Recovered".to_owned())
+        );
+        assert_eq!(
+            worker.join().unwrap().len(),
+            2,
+            "R18B-04: the failed first request was never retained, so the second ask sends its own request"
+        );
+        Ok(())
+    }
+
+    /// R18B-05/P18-7: an explicit refresh removes the retained RSS
+    /// document of the named feed, so the next ask sends a new request.
+    #[test]
+    fn adr_0075_rss_document_explicit_refresh_clears_the_retained_document() -> Result<()> {
+        let (url, worker) = server(vec![
+            (
+                "200 OK".into(),
+                document("<item><guid>track</guid><title>First</title></item>").into_bytes(),
+            ),
+            (
+                "200 OK".into(),
+                document("<item><guid>track</guid><title>Second</title></item>").into_bytes(),
+            ),
+        ]);
+        let first = fetch_track_enrichment_from_feed(&url, Some("track"), None)?;
+        assert_eq!(
+            first
+                .enrichment
+                .as_ref()
+                .and_then(|e| e.track_title.clone()),
+            Some("First".to_owned())
+        );
+        invalidate_feed_document(&url);
+        let second = fetch_track_enrichment_from_feed(&url, Some("track"), None)?;
+        assert_eq!(
+            second
+                .enrichment
+                .as_ref()
+                .and_then(|e| e.track_title.clone()),
+            Some("Second".to_owned())
+        );
+        assert_eq!(
+            worker.join().unwrap().len(),
+            2,
+            "P18-7: the explicit refresh clears the retained document, so the second ask sends its own request"
+        );
         Ok(())
     }
 

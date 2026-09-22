@@ -102,6 +102,7 @@ impl ApplicationCommand for CheckFeedStaleness {
 
     fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
         let recorder = Arc::new(ProviderObservationRecorder::new(Arc::clone(&self.conn)));
+        let mut receipts = Vec::new();
         let result = (|| {
             if context.cancellation().is_cancelled() {
                 return Err(CommandError::Cancelled);
@@ -111,13 +112,15 @@ impl ApplicationCommand for CheckFeedStaleness {
                 &self.musicindex_endpoint,
                 self.feed_id,
                 &recorder,
+                &mut receipts,
             )
             .map_err(|error| feed_command_error(&error))?;
             Ok(CheckFeedStalenessResult::new(self.feed_id, stale))
         })();
-        let result = assemble_observed_feed_command(&recorder, result, |value, receipts| {
-            value.observation_receipts.extend(receipts);
-        })?;
+        let result =
+            assemble_observed_feed_command(&recorder, result, receipts, |value, receipts| {
+                value.observation_receipts.extend(receipts);
+            })?;
         Ok(CommandOutcome::without_events(result))
     }
 }
@@ -219,27 +222,39 @@ impl ApplicationCommand for ApplyFeedUpdates {
 
     fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
         let recorder = Arc::new(ProviderObservationRecorder::new(Arc::clone(&self.conn)));
+        let mut receipts = Vec::new();
         let result = apply_stale_feed_updates(
             &self.conn,
             &self.musicindex_endpoint,
             &self.stale,
             &recorder,
             context,
+            &mut receipts,
         );
-        let result = assemble_observed_feed_command(&recorder, result, |value, receipts| {
-            value.observation_receipts.extend(receipts);
-        })?;
+        let result =
+            assemble_observed_feed_command(&recorder, result, receipts, |value, receipts| {
+                value.observation_receipts.extend(receipts);
+            })?;
         Ok(CommandOutcome::new(result, feed_update_events()))
     }
 }
 
 /// ADR 0075 drains the recorder once, after the complete result is known.
+///
+/// Packet 018 Part B: `extra_receipts` carries receipts that
+/// `feed_service::check_feed_staleness` or `feed_service::apply_feed_updates`
+/// already drained from `recorder` earlier, to store on the shared request
+/// owner's registry entry for a joining caller (R18B-11). They are folded
+/// in on either outcome, because an ordinary later failure must not drop a
+/// receipt of a request that already succeeded.
 fn assemble_observed_feed_command<T>(
     recorder: &ProviderObservationRecorder,
     result: Result<T, CommandError>,
+    extra_receipts: Vec<ObservationReceipt>,
     attach: impl FnOnce(&mut T, Vec<ObservationReceipt>),
 ) -> Result<T, CommandError> {
-    let receipts = recorder.take_receipts();
+    let mut receipts = extra_receipts;
+    receipts.extend(recorder.take_receipts());
     match result {
         Ok(mut value) => {
             attach(&mut value, receipts);
@@ -252,20 +267,30 @@ fn assemble_observed_feed_command<T>(
 /// ADR 0075 shares one observed feed-check loop with both check roots.
 ///
 /// Ordinary check failures stay skipped. A provider storage failure stops the
-/// loop with its typed capsule.
+/// loop with its typed capsule. `receipts_out` accumulates every checked
+/// feed's own receipts (packet 018 R18B-11); see
+/// `feed_service::check_feed_staleness`'s documentation for why the receipt
+/// does not also survive on `recorder` alone.
 fn check_feed_batch_for_updates(
     conn: &SharedConnection,
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
     feeds: &[db::FeedStaleCheckRow],
     recorder: &Arc<ProviderObservationRecorder>,
     context: &CommandContext,
+    receipts_out: &mut Vec<ObservationReceipt>,
 ) -> Result<Vec<StaleFeed>, CommandError> {
     let mut stale = Vec::new();
     for feed in feeds {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
-        match feed_service::check_feed_staleness(conn, musicindex_endpoint, feed.id, recorder) {
+        match feed_service::check_feed_staleness(
+            conn,
+            musicindex_endpoint,
+            feed.id,
+            recorder,
+            receipts_out,
+        ) {
             Ok(Some(entry)) => stale.push(entry),
             Ok(None) => {}
             Err(error) => {
@@ -285,6 +310,7 @@ fn apply_stale_feed_updates(
     stale: &[StaleFeed],
     recorder: &Arc<ProviderObservationRecorder>,
     context: &CommandContext,
+    receipts_out: &mut Vec<ObservationReceipt>,
 ) -> Result<ApplyFeedUpdatesResult, CommandError> {
     apply_stale_feed_updates_from(
         conn,
@@ -293,13 +319,17 @@ fn apply_stale_feed_updates(
         recorder,
         context,
         &feed_service::configured_music_dir,
+        receipts_out,
     )
 }
 
 /// The music directory source keeps the existing configuration read for each feed.
 ///
 /// Ordinary update failures keep their per-feed message. A provider storage
-/// failure stops the loop with its typed capsule.
+/// failure stops the loop with its typed capsule. `receipts_out`
+/// accumulates every updated feed's own receipts (packet 018 R18B-11); see
+/// `feed_service::apply_feed_updates`'s documentation.
+#[allow(clippy::too_many_arguments)]
 fn apply_stale_feed_updates_from(
     conn: &SharedConnection,
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
@@ -307,6 +337,7 @@ fn apply_stale_feed_updates_from(
     recorder: &Arc<ProviderObservationRecorder>,
     context: &CommandContext,
     music_dir: MusicDirSource<'_>,
+    receipts_out: &mut Vec<ObservationReceipt>,
 ) -> Result<ApplyFeedUpdatesResult, CommandError> {
     let mut total_tracks = 0usize;
     let mut total_edits = 0usize;
@@ -317,7 +348,14 @@ fn apply_stale_feed_updates_from(
             return Err(CommandError::Cancelled);
         }
         let applied = music_dir().and_then(|music_dir| {
-            feed_service::apply_feed_updates(conn, musicindex_endpoint, entry, &music_dir, recorder)
+            feed_service::apply_feed_updates(
+                conn,
+                musicindex_endpoint,
+                entry,
+                &music_dir,
+                recorder,
+                receipts_out,
+            )
         });
         match applied {
             Ok(outcome) => {
@@ -439,6 +477,7 @@ impl ApplicationCommand for CheckFeedsAndRepairRoutes {
         let feeds_checked = self.feeds.len();
         let recorder = Arc::new(ProviderObservationRecorder::new(Arc::clone(&self.conn)));
         let mut events = Vec::new();
+        let mut receipts = Vec::new();
         let result = (|| {
             let stale = check_feed_batch_for_updates(
                 &self.conn,
@@ -446,6 +485,7 @@ impl ApplicationCommand for CheckFeedsAndRepairRoutes {
                 &self.feeds,
                 &recorder,
                 context,
+                &mut receipts,
             )?;
             let stale_feed_count = stale.len();
 
@@ -458,6 +498,7 @@ impl ApplicationCommand for CheckFeedsAndRepairRoutes {
                     &stale,
                     &recorder,
                     context,
+                    &mut receipts,
                 )?;
                 events.extend(feed_update_events());
                 Some(applied)
@@ -479,9 +520,10 @@ impl ApplicationCommand for CheckFeedsAndRepairRoutes {
                 route_repairs,
             ))
         })();
-        let result = assemble_observed_feed_command(&recorder, result, |value, receipts| {
-            value.observation_receipts.extend(receipts);
-        })?;
+        let result =
+            assemble_observed_feed_command(&recorder, result, receipts, |value, receipts| {
+                value.observation_receipts.extend(receipts);
+            })?;
         Ok(CommandOutcome::new(result, events))
     }
 }
@@ -816,6 +858,7 @@ mod tests {
             &[],
             &recorder,
             &CommandContext::next(),
+            &mut Vec::new(),
         )
         .expect("empty batch succeeds");
 
@@ -1022,6 +1065,12 @@ mod observation_tests {
 
     impl Fixture {
         fn start() -> Self {
+            // Packet 018 Part B: the shared owner is one process-wide value
+            // (P18-6), so this and every other test share it. A fresh
+            // ephemeral port makes each fixture's `RequestKey` distinct
+            // (the key carries the endpoint), so tests never collide on a
+            // retained entry; nothing here clears the shared owner, which
+            // would race a concurrently running test's own state.
             let conn = Connection::open_in_memory().unwrap();
             db::upgrades::create_fixture(&conn, 12).unwrap();
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1179,6 +1228,7 @@ mod observation_tests {
         fn apply(&self, music_dir: &Path) -> Result<ApplyFeedUpdatesResult, CommandError> {
             let recorder = Arc::new(ProviderObservationRecorder::new(Arc::clone(&self.conn)));
             let music_dir = music_dir.to_owned();
+            let mut receipts = Vec::new();
             let result = apply_stale_feed_updates_from(
                 &self.conn,
                 &self.endpoint,
@@ -1186,8 +1236,9 @@ mod observation_tests {
                 &recorder,
                 &self.context(),
                 &move || Ok(music_dir.clone()),
+                &mut receipts,
             );
-            assemble_observed_feed_command(&recorder, result, |value, receipts| {
+            assemble_observed_feed_command(&recorder, result, receipts, |value, receipts| {
                 value.observation_receipts.extend(receipts);
             })
         }
@@ -1589,6 +1640,7 @@ mod observation_tests {
             &fixture.feed_rows(),
             &recorder,
             &fixture.context(),
+            &mut Vec::new(),
         )
         .unwrap();
         assert!(stale.is_empty());
@@ -1627,6 +1679,7 @@ mod observation_tests {
             &recorder,
             &fixture.context(),
             &|| Err(anyhow::anyhow!("configuration unreadable")),
+            &mut Vec::new(),
         )
         .unwrap();
         assert_eq!(
@@ -1663,6 +1716,7 @@ mod observation_tests {
         let fixture = Fixture::start();
         fixture.cancel_after.store(1, Ordering::SeqCst);
         let recorder = Arc::new(ProviderObservationRecorder::new(Arc::clone(&fixture.conn)));
+        let mut receipts = Vec::new();
         let result = check_feed_batch_for_updates(
             &fixture.conn,
             &fixture.endpoint,
@@ -1672,12 +1726,17 @@ mod observation_tests {
             ],
             &recorder,
             &fixture.context(),
+            &mut receipts,
         );
-        let error =
-            assemble_observed_feed_command(&recorder, result, |value: &mut Vec<StaleFeed>, _| {
+        let error = assemble_observed_feed_command(
+            &recorder,
+            result,
+            receipts,
+            |value: &mut Vec<StaleFeed>, _| {
                 value.clear();
-            })
-            .unwrap_err();
+            },
+        )
+        .unwrap_err();
         let CommandError::ObservedCommandFailure(failure) = &error else {
             panic!("cancellation wrapper required, found {error:?}")
         };

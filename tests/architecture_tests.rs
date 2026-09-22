@@ -18547,7 +18547,13 @@ fn adr_0075_library_observation_callers_and_consumers_are_guarded() {
     assert!(comparison.contains("fetch_library_track_context_with_recorder("));
     assert!(comparison.contains("local_provider_request("));
     assert!(comparison.contains("assemble_provider_context("));
-    assert!(comparison.contains("assemble_observed_query(&recorder, result"));
+    // Packet 018 Part B: the call now also passes `detail_receipts`, so
+    // `cargo fmt` wraps it across lines. The check reads past the call's
+    // start instead of matching one contiguous, formatting-sensitive line.
+    let query_call = comparison
+        .find("assemble_observed_query(")
+        .map(|start| &comparison[start..]);
+    assert!(query_call.is_some_and(|text| text.contains("&recorder,") && text.contains("result,")));
     assert!(!comparison.contains("fetch_library_track_context_with_local_fallback"));
     let assembly = source_between(
         &query,
@@ -18681,7 +18687,7 @@ under an explicit refresh intent.";
     for required in [
         "with_observation_recorder(Some(Arc::clone(recorder)))",
         "client.fetch_feed(&stored.feed_guid, None)",
-        ".fetch_feed(key, RefreshIntent::Explicit, || {",
+        ".fetch_feed_with_receipts(key, RefreshIntent::Explicit, || {",
     ] {
         if !staleness.contains(required) {
             violations.push(format!(
@@ -18697,7 +18703,7 @@ under an explicit refresh intent.";
     for required in [
         "with_observation_recorder(Some(Arc::clone(recorder)))",
         "client.fetch_feed_with_profile(&stale.feed_guid, &LIBRARY_FEED_UPDATE_FEED)",
-        ".fetch_feed(key, RefreshIntent::Explicit, || {",
+        ".fetch_feed_with_receipts(key, RefreshIntent::Explicit, || {",
         "propagate_storage_failure(fetch_library_track_detail_with_recorder(",
         "RefreshIntent::Explicit,",
         "merge_track_context_with_recorder(",
@@ -18931,8 +18937,9 @@ fn adr_0075_request_reuse_converted_routes_ask_the_owner() {
     const FIX: &str = "ADR 0075 section 6: a caller asks the shared request owner \
 (src/application/request_reuse.rs) for a MusicIndex resource, instead of sending the request \
 through api::Client on its own. That way, a concurrent duplicate request for the same \
-endpoint, scoped identity and profile joins one HTTP request. Route the call through \
-`owner.fetch_feed`, `owner.fetch_track`, or `owner.fetch_feed_with_receipts`.";
+endpoint, scoped identity and profile joins one HTTP request, and packet 018 Part B can \
+retain and reuse the response. Route the call through `owner.fetch_feed_with_receipts` or \
+`owner.fetch_track_with_receipts`.";
     let mut violations = Vec::new();
 
     let service = read_source(&manifest_path("src/feed_service.rs"));
@@ -18954,10 +18961,13 @@ endpoint, scoped identity and profile joins one HTTP request. Route the call thr
         ),
     ] {
         let body = source_between(&service, start, end);
-        let owner_calls = [".fetch_feed(key,", ".fetch_track(key,"]
-            .iter()
-            .map(|pattern| body.matches(pattern).count())
-            .sum::<usize>();
+        let owner_calls = [
+            ".fetch_feed_with_receipts(key,",
+            ".fetch_track_with_receipts(key,",
+        ]
+        .iter()
+        .map(|pattern| body.matches(pattern).count())
+        .sum::<usize>();
         if owner_calls < minimum_owner_calls {
             violations.push(format!(
                 "src/feed_service.rs: `{start}` must ask the shared request owner at least \
@@ -19006,6 +19016,42 @@ refresh intent, so it never joins an active passive read. {FIX}"
         "ADR 0075 packet 018 Part A request-owner violations:\n{}",
         violations.join("\n")
     );
+}
+
+/// Situational — ADR 0075 packet 018 Part B: a retained response is a pure
+/// fetch-and-cache mechanism. R18B-08 requires that it never creates or
+/// resolves a discrepancy, so this guard checks structurally that the
+/// retention code never reaches comparison code at all.
+#[test]
+fn adr_0075_request_reuse_retention_never_reaches_comparison_code() {
+    const FIX: &str = "ADR 0075 section 4, packet 018 R18B-08: a reused response must not \
+create or resolve a discrepancy. src/application/request_reuse.rs and the retention code in \
+src/rss/enrich.rs must not import or call track_compare or a comparison entry point such as \
+compare_downloaded_track_path. Keep retention a pure fetch-and-cache mechanism; comparison \
+stays a separate concern owned elsewhere.";
+    let mut violations = Vec::new();
+
+    let owner = read_source(&manifest_path("src/application/request_reuse.rs"));
+    let enrich = read_source(&manifest_path("src/rss/enrich.rs"));
+
+    for (path, source) in [
+        ("src/application/request_reuse.rs", &owner),
+        ("src/rss/enrich.rs", &enrich),
+    ] {
+        for forbidden in [
+            "track_compare",
+            "compare_downloaded_track_path",
+            "TagCompareResult",
+        ] {
+            if source.contains(forbidden) {
+                violations.push(format!(
+                    "{path}: retention code must not reference `{forbidden}`. {FIX}"
+                ));
+            }
+        }
+    }
+
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
 }
 
 /// Situational — ADR 0075 packet 017: request profiles own the include

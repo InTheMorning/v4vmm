@@ -431,11 +431,13 @@ pub(crate) fn fetch_library_track_context_with_local_fallback(
     };
     let recorder =
         Arc::new(crate::provider_observation::ProviderObservationRecorder::new(Arc::clone(conn)));
+    let mut detail_receipts = Vec::new();
     let result = match feed_service::fetch_library_track_context_with_recorder(
         track,
         musicindex_endpoint,
         Some(Arc::clone(&recorder)),
         crate::application::request_reuse::RefreshIntent::Normal,
+        &mut detail_receipts,
     ) {
         Ok(mut remote_context) => {
             if let Ok(local_context) = local_context {
@@ -451,7 +453,12 @@ pub(crate) fn fetch_library_track_context_with_local_fallback(
         }
         Err(_) => local_context,
     };
-    let receipts = recorder.take_receipts();
+    // `detail_receipts` carries the track and feed receipts (packet 018
+    // R18B-07, R18B-11); `recorder` still holds only the RSS receipt, since
+    // `fetch_library_track_context_with_recorder` already drained the rest
+    // for `detail_receipts` (see its own documentation).
+    let mut receipts = detail_receipts;
+    receipts.extend(recorder.take_receipts());
     assemble_provider_context(conn, result, local_request.as_ref(), receipts)
 }
 
@@ -566,8 +573,8 @@ fn hydrate_album_identity_facts(
         // own recorder right after the fetch, and every caller — the winner
         // and a caller that joins it — receives that one request's exact
         // receipts (R18A-05). No caller records a second observation.
-        let (feed, receipts) = owner
-            .fetch_feed_with_receipts(key, RefreshIntent::Normal, {
+        let (fetch_result, generation) =
+            owner.fetch_feed_with_receipts(key, RefreshIntent::Normal, {
                 let recorder = Arc::clone(&recorder);
                 move || {
                     let feed = client.fetch_feed_with_profile(
@@ -576,18 +583,25 @@ fn hydrate_album_identity_facts(
                     )?;
                     Ok((feed, recorder.take_receipts()))
                 }
-            })
-            .0
-            .map_err(SharedFetchError::into_anyhow)?;
+            });
+        let (feed, receipts) = fetch_result.map_err(SharedFetchError::into_anyhow)?;
         *owner_receipts.borrow_mut() = receipts;
         let description = FeedView::from_api(feed.clone()).description;
         let mut db = conn
             .lock()
             .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
-        if description.is_some() {
-            db::set_feed_description(&db, feed_id, description.as_deref())?;
+        // Packet 018 R18B-01/R18B-07: a retained response returns without a
+        // request and names the observation that already produced it. This
+        // local write cascade only belongs to a genuinely new response;
+        // repeating it for a reused one would write the same facts again
+        // for no new evidence (the packet's measurement target: zero row
+        // changes on a repeated, reused hydration).
+        if generation != crate::application::request_reuse::REUSED_GENERATION {
+            if description.is_some() {
+                db::set_feed_description(&db, feed_id, description.as_deref())?;
+            }
+            crate::identity_ingest::persist_musicindex_feed(&mut db, feed_id, &feed)?;
         }
-        crate::identity_ingest::persist_musicindex_feed(&mut db, feed_id, &feed)?;
         let identity_facts = crate::local_identity::feed_facts(&db, feed_id)?;
         let metadata_facts = crate::local_metadata::feed_facts(&db, feed_id)?;
         Ok(AlbumIdentityHydration {
@@ -614,20 +628,30 @@ fn compare_library_track(
     music_dir: &Path,
 ) -> Result<LibraryTrackCompare, CommandError> {
     let recorder = Arc::new(ProviderObservationRecorder::new(Arc::clone(conn)));
+    // `fetch_library_track_context_with_recorder` drains its own track and
+    // feed receipts into an out-parameter, not into `recorder` (packet 018
+    // R18B-07, R18B-11): see its documentation. Holding them here, outside
+    // the closure below, keeps them from being dropped if a later step in
+    // this same operation fails; `assemble_observed_query` folds them in on
+    // either outcome, alongside whatever `recorder` still holds (the RSS
+    // receipt).
+    let detail_receipts = std::cell::RefCell::new(Vec::new());
     let result = (|| {
         let path = track
             .local_path
             .as_ref()
             .map(|path| path.resolve(music_dir))
             .ok_or_else(|| anyhow::anyhow!("library track has no local file"))?;
-        // ADR 0075 section 6, packet 018 Part A: a manual comparison wants a
-        // fresh value, so it always sends its own request. It never joins
-        // an active passive read (R18A-09, R18A-10).
+        // ADR 0075 section 6, packet 018: a manual comparison wants a fresh
+        // value, so it always sends its own request. It never joins an
+        // active passive read, and it never reuses a retained response
+        // (R18A-09, R18A-10).
         let context = match feed_service::fetch_library_track_context_with_recorder(
             track,
             musicindex_endpoint,
             Some(Arc::clone(&recorder)),
             crate::application::request_reuse::RefreshIntent::Explicit,
+            &mut detail_receipts.borrow_mut(),
         ) {
             Ok(context) => Ok(context),
             Err(error) if observation_storage_failure(&error).is_some() => Err(error),
@@ -662,12 +686,17 @@ fn compare_library_track(
             track_context: context,
         })
     })();
-    assemble_observed_query(&recorder, result, Vec::new(), |comparison, receipts| {
-        comparison
-            .track_context
-            .observation_receipts
-            .extend(receipts);
-    })
+    assemble_observed_query(
+        &recorder,
+        result,
+        detail_receipts.into_inner(),
+        |comparison, receipts| {
+            comparison
+                .track_context
+                .observation_receipts
+                .extend(receipts);
+        },
+    )
 }
 
 /// ADR 0075 drains receipts once after every fallible Library reader operation.
@@ -793,6 +822,12 @@ mod observation_tests {
     }
     impl Fixture {
         fn start() -> Self {
+            // Packet 018 Part B: the shared owner is one process-wide value
+            // (P18-6), so this and every other test share it. A fresh
+            // ephemeral port makes each fixture's `RequestKey` distinct
+            // (the key carries the endpoint), so tests never collide on a
+            // retained entry; nothing here clears the shared owner, which
+            // would race a concurrently running test's own state.
             let conn = Connection::open_in_memory().unwrap();
             db::upgrades::create_fixture(&conn, 12).unwrap();
             conn.execute("INSERT INTO feeds(feed_url,feed_guid,title) VALUES('http://fixture.invalid/feed','f1','Local feed')",[]).unwrap();
@@ -958,6 +993,16 @@ mod observation_tests {
                 stop,
                 worker: Some(worker),
             }
+        }
+        /// Selects the fixture's next response mode. Packet 018 P18-3
+        /// retains a parsed RSS document by feed URL, and every fixture
+        /// mode shares the same feed URL, so this also clears that
+        /// retained document: each mode's request-count and content
+        /// expectations below are about that mode's own response, not
+        /// about a still-fresh document an earlier mode's call retained.
+        fn set_mode(&self, mode: usize) {
+            self.mode.store(mode, Ordering::SeqCst);
+            crate::rss::invalidate_feed_document(&format!("http://{}/feed.xml", self.address));
         }
         fn load(&self, index: usize) -> Result<TrackContext, CommandError> {
             FetchLibraryTrackContext::new(
@@ -1141,7 +1186,7 @@ mod observation_tests {
                 vec!["/v1/feeds/f1/tracks/t1", "/v1/tracks/t1", "/v1/feeds/f1"],
             ),
         ] {
-            fixture.mode.store(mode, Ordering::SeqCst);
+            fixture.set_mode(mode);
             fixture.requests.lock().unwrap().clear();
             let result = fixture.compare(directory.path()).unwrap();
             assert_eq!(result.track_context.observation_receipts.len(), paths.len());
@@ -1156,7 +1201,7 @@ mod observation_tests {
             let expected_context = if mode == 1 {
                 track_row_to_track_context(&local_track)
             } else {
-                fixture.mode.store(9, Ordering::SeqCst);
+                fixture.set_mode(9);
                 feed_service::fetch_library_track_context(&local_track, &fixture.endpoint).unwrap()
             };
             assert_eq!(
@@ -1171,7 +1216,7 @@ mod observation_tests {
             );
             assert_eq!(std::fs::read(&path).unwrap(), original);
         }
-        fixture.mode.store(0, Ordering::SeqCst);
+        fixture.set_mode(0);
         fixture.requests.lock().unwrap().clear();
         let mut unscoped = fixture.tracks[0].clone();
         unscoped.feed_guid = None;
@@ -1195,7 +1240,7 @@ mod observation_tests {
     #[test]
     fn adr_0075_library_observation_hydration_repetition_counts_and_reopened_evidence() {
         let fixture = Fixture::start();
-        fixture.mode.store(16, Ordering::SeqCst);
+        fixture.set_mode(16);
         let mutations = Arc::new(Mutex::new(BTreeMap::<String, usize>::new()));
         let observed = Arc::clone(&mutations);
         fixture
@@ -1235,7 +1280,13 @@ mod observation_tests {
                 .filter(|(table, _)| table.starts_with("metadata_"))
                 .map(|(_, count)| count)
                 .sum();
-            assert_eq!(legacy, if repetition { 9 } else { 5 });
+            // Packet 018 R18B-01/R18B-07: the second, repeated hydration is
+            // a retained-response reuse (well inside its 15-minute window).
+            // It sends no request, records no new observation, and writes
+            // no legacy row again: the packet's measurement target for
+            // "Repeated Library album hydration" is 0 Index requests and 0
+            // row changes, matched here at 0 legacy rows.
+            assert_eq!(legacy, if repetition { 0 } else { 5 });
             assert_eq!(
                 fixture
                     .conn
@@ -1248,8 +1299,16 @@ mod observation_tests {
             );
             println!("ADR0075_LIBRARY_HYDRATION repetition={repetition} legacy_rows={legacy} observation_rows={observation} snapshot_rows=0 transactions={} tables={mutations:?}", fixture.commits.load(Ordering::SeqCst));
         }
-        assert_eq!(*fixture.requests.lock().unwrap(), vec!["/v1/feeds/f1?include=source_links%2Csource_ids%2Csource_release_claims%2Csource_contributors"; 2]);
-        fixture.mode.store(1, Ordering::SeqCst);
+        // Only the first pass reached the network; the second reused its
+        // retained response (R18B-01).
+        assert_eq!(*fixture.requests.lock().unwrap(), vec!["/v1/feeds/f1?include=source_links%2Csource_ids%2Csource_release_claims%2Csource_contributors"; 1]);
+        fixture.set_mode(1);
+        // This call means a genuinely new attempt, so it must reach the
+        // fixture's now-failing response rather than reuse the retained
+        // success from above (P18-7's own mechanism, used here to keep the
+        // test's own premise intact under packet 018 Part B's reuse).
+        crate::application::request_reuse::shared()
+            .invalidate_feed(fixture.endpoint.require().unwrap(), "f1");
         let CommandError::ObservedQueryFailure(failure) = fixture.hydrate().unwrap_err() else {
             panic!("ordinary failure required")
         };
@@ -1290,7 +1349,8 @@ mod observation_tests {
                     |row| row.get::<_, i64>(0)
                 )
                 .unwrap(),
-            2
+            1,
+            "packet 018 Part B: the retained-response reuse on the second pass recorded no second observation"
         );
     }
 
@@ -1318,7 +1378,7 @@ mod observation_tests {
         assert_eq!(error.clone(), error);
         for mode in [17, 18] {
             let fixture = Fixture::start();
-            fixture.mode.store(mode, Ordering::SeqCst);
+            fixture.set_mode(mode);
             let error = fixture.hydrate().unwrap_err();
             let CommandError::ObservedQueryFailure(failure) = &error else {
                 panic!("ordinary legacy failure required")
@@ -1379,7 +1439,7 @@ mod observation_tests {
                 .unwrap()
                 .execute_batch("DROP TRIGGER reject_allocation")
                 .unwrap();
-            fixture.mode.store(8, Ordering::SeqCst);
+            fixture.set_mode(8);
             let CommandError::ObservationWriteFailure(failure) = execute().unwrap_err() else {
                 panic!("storage failure required")
             };
@@ -1438,7 +1498,7 @@ mod observation_tests {
         let directory = comparison_audio();
         for mode in [10, 11, 15, 21] {
             let fixture = Fixture::start();
-            fixture.mode.store(mode, Ordering::SeqCst);
+            fixture.set_mode(mode);
             let CommandError::ObservationWriteFailure(failure) =
                 fixture.compare(directory.path()).unwrap_err()
             else {
@@ -1453,7 +1513,7 @@ mod observation_tests {
             );
         }
         let fixture = Fixture::start();
-        fixture.mode.store(10, Ordering::SeqCst);
+        fixture.set_mode(10);
         let CommandError::ObservationWriteFailure(original) =
             fixture.compare(directory.path()).unwrap_err()
         else {
@@ -1509,14 +1569,14 @@ mod observation_tests {
                 [format!("http://{}/feed.xml", fixture.address)],
             )
             .unwrap();
-        fixture.mode.store(12, Ordering::SeqCst);
+        fixture.set_mode(12);
         let populated = fixture.load(0).unwrap();
         assert!(populated
             .provider_state
             .collections
             .iter()
             .all(|collection| matches!(collection.state, CollectionState::CompletePopulated(_))));
-        fixture.mode.store(13, Ordering::SeqCst);
+        fixture.set_mode(13);
         let empty = fixture.compare(directory.path()).unwrap();
         assert_eq!(empty.track_context.provider_state.collections.len(), 2);
         assert!(empty
@@ -1525,7 +1585,7 @@ mod observation_tests {
             .collections
             .iter()
             .all(|collection| matches!(collection.state, CollectionState::CompleteEmpty(_))));
-        fixture.mode.store(14, Ordering::SeqCst);
+        fixture.set_mode(14);
         let failed = fixture.compare(directory.path()).unwrap();
         assert_eq!(
             failed.track_context.provider_state.collections,
@@ -1540,7 +1600,7 @@ mod observation_tests {
                 .state,
             RefreshState::Failed
         );
-        fixture.mode.store(1, Ordering::SeqCst);
+        fixture.set_mode(1);
         let fallback = fixture.compare(directory.path()).unwrap();
         assert_eq!(
             fallback.track_context.provider_state.collections,
@@ -1597,7 +1657,7 @@ mod observation_tests {
         let fixture = Fixture::start();
         let directory = comparison_audio();
         let original = std::fs::read(directory.path().join("track.mp3")).unwrap();
-        fixture.mode.store(22, Ordering::SeqCst);
+        fixture.set_mode(22);
         let mutations = Arc::new(Mutex::new(BTreeMap::<String, usize>::new()));
         let counts = Arc::clone(&mutations);
         fixture
@@ -1614,6 +1674,10 @@ mod observation_tests {
         for repetition in [false, true] {
             mutations.lock().unwrap().clear();
             fixture.commits.store(0, Ordering::SeqCst);
+            // Packet 018 P18-3 would otherwise reuse the first repetition's
+            // retained RSS document on the second pass. This test measures
+            // two independent observations, so each pass clears it first.
+            crate::rss::invalidate_feed_document(&format!("http://{}/feed.xml", fixture.address));
             let result = fixture.compare(directory.path()).unwrap();
             assert_eq!(
                 result.tag_compare.contributors[0].name.as_deref(),
@@ -1662,7 +1726,7 @@ mod observation_tests {
         use crate::provider_observation::ObservationRetention;
         let fixture = Fixture::start();
         let directory = comparison_audio();
-        fixture.mode.store(20, Ordering::SeqCst);
+        fixture.set_mode(20);
         let command = FetchLibraryTrackContext::new(
             Arc::clone(&fixture.conn),
             fixture.tracks[0].clone(),
@@ -1683,11 +1747,11 @@ mod observation_tests {
             );
             std::thread::sleep(Duration::from_millis(2));
         }
-        fixture.mode.store(1, Ordering::SeqCst);
+        fixture.set_mode(1);
         let comparison = fixture.compare(directory.path()).unwrap();
         assert_eq!(comparison.track_context.observation_receipts.len(), 3);
         let newer_generation = comparison.track_context.observation_receipts[0].generation;
-        fixture.mode.store(16, Ordering::SeqCst);
+        fixture.set_mode(16);
         let hydration = fixture.hydrate().unwrap();
         assert_eq!(hydration.observation_receipts.len(), 1);
         {
@@ -1695,7 +1759,7 @@ mod observation_tests {
             let states: Vec<String> = db.prepare("SELECT state FROM metadata_request_slots WHERE resource_id IN (SELECT id FROM metadata_resources WHERE request_uri LIKE '%/v1/feeds/f1?%') ORDER BY generation").unwrap().query_map([], |row| row.get(0)).unwrap().collect::<Result<_, _>>().unwrap();
             assert_eq!(states, vec!["failed", "success"]);
         }
-        fixture.mode.store(0, Ordering::SeqCst);
+        fixture.set_mode(0);
         let (mut stream, response) = fixture.held_response.lock().unwrap().take().unwrap();
         stream.write_all(response.as_bytes()).unwrap();
         drop(stream);
@@ -1727,15 +1791,30 @@ mod observation_tests {
         let before = fixture.conn.lock().unwrap().total_changes();
         let repeated = fixture.load(0).unwrap();
         let repeated_changes = fixture.conn.lock().unwrap().total_changes() - before;
-        assert_eq!(repeated.observation_receipts.len(), 3);
+        // Packet 018 R18B-01: the track and feed responses are both still
+        // inside their windows, so this second load reuses them and sends
+        // no request. Each reused response still carries its own receipt
+        // (R18B-07), so the track and feed contribute one receipt each.
+        // The RSS document is reused too (P18-3), but a reused RSS
+        // document carries no `ObservationReceipt` of its own: RSS
+        // evidence has no receipt-level identifier to reuse, unlike a
+        // MusicIndex response (see this packet's own report for why).
+        assert_eq!(repeated.observation_receipts.len(), 2);
         assert_eq!(fixture.row_counts(), rows);
-        assert_eq!(fixture.requests.lock().unwrap().len(), 6);
-        assert_eq!(fixture.commits.load(Ordering::SeqCst), 12);
+        // No request reached the network, so the fixture's own request log
+        // and the database's commit count both stay exactly where the
+        // first load left them.
+        assert_eq!(fixture.requests.lock().unwrap().len(), 3);
+        assert_eq!(fixture.commits.load(Ordering::SeqCst), 6);
         fixture.requests.lock().unwrap().clear();
         let _one = fixture.load(0).unwrap();
         let _two = fixture.load(1).unwrap();
-        assert_eq!(fixture.requests.lock().unwrap().len(), 6);
-        println!("ADR0075_OBSERVATION_COUNTS first_rows={first_changes} repeated_rows={repeated_changes} first_transactions=6 repeated_transactions=6 stable_evidence={rows:?}");
+        // R18B-10: two Library tracks of one feed send one feed request and
+        // one RSS request inside the windows. Both are already retained
+        // from the loads above, so only the second track's own scoped
+        // track request (a distinct identity) reaches the network here.
+        assert_eq!(fixture.requests.lock().unwrap().len(), 1);
+        println!("ADR0075_OBSERVATION_COUNTS first_rows={first_changes} repeated_rows={repeated_changes} first_transactions=6 repeated_transactions=0 stable_evidence={rows:?}");
         let conn = fixture.conn.lock().unwrap();
         let original:Vec<u8>=conn.query_row("SELECT bytes FROM metadata_bodies WHERE CAST(bytes AS TEXT) LIKE '%original Index%' LIMIT 1",[],|r|r.get(0)).unwrap();
         assert!(String::from_utf8(original)
@@ -1750,10 +1829,188 @@ mod observation_tests {
             .unwrap();
         assert_eq!(rss_bodies, 1);
     }
+
+    /// Packet 018 Part B measurement: repeated Library track detail
+    /// (R18B-09). Target: 0 Index requests and 0 RSS requests inside the
+    /// windows. Isolated in this test, no app launch, packet 016 fixture
+    /// style.
+    #[test]
+    fn adr_0075_request_reuse_measurement_repeated_track_detail() {
+        let fixture = Fixture::start();
+        let first = fixture.load(0).unwrap();
+        assert_eq!(
+            fixture.requests.lock().unwrap().len(),
+            3,
+            "the first load sends 2 Index requests and 1 RSS request"
+        );
+        assert_eq!(first.observation_receipts.len(), 3);
+        fixture.requests.lock().unwrap().clear();
+        let repeated = fixture.load(0).unwrap();
+        let measured_requests = fixture.requests.lock().unwrap().len();
+        println!(
+            "ADR0075_MEASUREMENT case=\"Repeated Library track detail\" \
+target=\"0 Index, 0 RSS\" measured_requests={measured_requests}"
+        );
+        assert_eq!(
+            measured_requests, 0,
+            "R18B-09: the repeated case sends no Index request and no RSS request"
+        );
+        // The reused track and feed responses still carry their own
+        // receipts (R18B-07); the reused RSS document does not add a
+        // third, since a reused RSS document records no new observation
+        // and RSS evidence has no receipt-level identifier of its own.
+        assert_eq!(repeated.observation_receipts.len(), 2);
+    }
+
+    /// Packet 018 Part B measurement: two Library tracks sharing one feed
+    /// (R18B-10). Target: 3 Index requests and 1 RSS request total. Fresh
+    /// fixture, isolated in this test.
+    #[test]
+    fn adr_0075_request_reuse_measurement_two_tracks_sharing_one_feed() {
+        let fixture = Fixture::start();
+        let _first = fixture.load(0).unwrap();
+        let _second = fixture.load(1).unwrap();
+        let requests = fixture.requests.lock().unwrap().clone();
+        let rss_requests = requests
+            .iter()
+            .filter(|request| request.starts_with("/feed.xml"))
+            .count();
+        let index_requests = requests.len() - rss_requests;
+        println!(
+            "ADR0075_MEASUREMENT case=\"Two Library tracks sharing one feed\" \
+target=\"3 Index, 1 RSS\" measured_index={index_requests} measured_rss={rss_requests} \
+requests={requests:?}"
+        );
+        assert_eq!(
+            index_requests, 3,
+            "R18B-10: two Library tracks of one feed send one feed request and each \
+track's own scoped track request"
+        );
+        assert_eq!(
+            rss_requests, 1,
+            "R18B-10: two Library tracks of one feed send one RSS request"
+        );
+    }
+
+    /// Packet 018 Part B measurement: repeated Library album hydration.
+    /// Target: 0 Index requests and 0 row changes. Isolated in this test.
+    #[test]
+    fn adr_0075_request_reuse_measurement_repeated_album_hydration() {
+        let fixture = Fixture::start();
+        fixture.set_mode(16);
+        let mutations = Arc::new(Mutex::new(BTreeMap::<String, usize>::new()));
+        let observed = Arc::clone(&mutations);
+        fixture
+            .conn
+            .lock()
+            .unwrap()
+            .update_hook(Some(
+                move |_: rusqlite::hooks::Action, _: &str, table: &str, _: i64| {
+                    *observed.lock().unwrap().entry(table.into()).or_default() += 1;
+                },
+            ))
+            .unwrap();
+        let _first = fixture.hydrate().unwrap();
+        assert_eq!(fixture.requests.lock().unwrap().len(), 1);
+        mutations.lock().unwrap().clear();
+        fixture.requests.lock().unwrap().clear();
+        let _repeated = fixture.hydrate().unwrap();
+        let measured_requests = fixture.requests.lock().unwrap().len();
+        let measured_row_changes: usize = mutations.lock().unwrap().values().sum();
+        println!(
+            "ADR0075_MEASUREMENT case=\"Repeated Library album hydration\" \
+target=\"0 Index, 0 row changes\" measured_index={measured_requests} \
+measured_row_changes={measured_row_changes}"
+        );
+        assert_eq!(measured_requests, 0);
+        assert_eq!(measured_row_changes, 0);
+    }
+
+    /// Packet 018 Part B measurement: two concurrent Library track details
+    /// of one track. Target: one request set (Part A measured active
+    /// sharing at the owner; this measures it against the packet 016
+    /// fixtures). The fixture holds the first request reaching it until
+    /// both callers have started, forcing a genuine race instead of a fast
+    /// sequential pair.
+    ///
+    /// Measured result: 4 requests, not the 3 the target names. The two
+    /// Index requests (the shared track and the shared feed) each stay at
+    /// one: both go through the owner's `single_flight`, so the joining
+    /// caller waits for the winner instead of sending its own (R18A-03).
+    /// The RSS request does not: `src/rss/enrich.rs` only checks a
+    /// completed-response cache (P18-3); it has no active-request join for
+    /// a request still in flight, so two callers that both reach RSS
+    /// enrichment before either one's fetch completes each start their own
+    /// GET. This packet's scope (P18-1 through P18-7) does not cover an
+    /// RSS-side `single_flight`, so this gap is reported, not silently
+    /// closed here.
+    #[test]
+    fn adr_0075_request_reuse_measurement_two_concurrent_track_details_of_one_track() {
+        let fixture = Fixture::start();
+        fixture.set_mode(20);
+        let spawn_detail = |fixture: &Fixture| {
+            let conn = Arc::clone(&fixture.conn);
+            let track = fixture.tracks[0].clone();
+            let endpoint = fixture.endpoint.clone();
+            std::thread::spawn(move || {
+                FetchLibraryTrackContext::new(conn, track, endpoint)
+                    .execute(&CommandContext::next())
+                    .unwrap()
+                    .into_parts()
+                    .0
+            })
+        };
+        let first = spawn_detail(&fixture);
+        let start = std::time::Instant::now();
+        while fixture.held_response.lock().unwrap().is_none() {
+            assert!(
+                start.elapsed() < Duration::from_secs(3),
+                "the first request did not reach the fixture"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        // Mode 9 skips the fixture's own "one pending slot" compatibility
+        // check for the rest of this test. That check assumes one caller
+        // reaches one resource at a time, which every other test upholds.
+        // This test's own finding is that the RSS request does not (see
+        // the gap this test's own documentation names above): a genuine
+        // concurrent RSS fetch of the shared feed can leave two pending
+        // rows for that one resource for a moment, which is the fixture
+        // check's premise, not this test's own subject.
+        fixture.mode.store(9, Ordering::SeqCst);
+        let second = spawn_detail(&fixture);
+        // Give the second caller time to join the first's active request
+        // before the held response is released.
+        std::thread::sleep(Duration::from_millis(50));
+        let (mut stream, response) = fixture.held_response.lock().unwrap().take().unwrap();
+        stream.write_all(response.as_bytes()).unwrap();
+        drop(stream);
+        let first_context = first.join().unwrap();
+        let second_context = second.join().unwrap();
+        let all_requests = fixture.requests.lock().unwrap().clone();
+        let measured_requests = all_requests.len();
+        println!(
+            "ADR0075_MEASUREMENT case=\"Two concurrent Library track details of one track\" \
+target=\"1 request set\" measured_requests={measured_requests} requests={all_requests:?}"
+        );
+        // Measured, not the 3-request target: both Index requests (track
+        // and feed) are shared, but the RSS request is not (see this
+        // test's own documentation above for why, and this packet's
+        // report for the same gap).
+        assert_eq!(
+            measured_requests, 4,
+            "two shared Index requests plus two independent RSS requests"
+        );
+        assert_eq!(
+            first_context.track.track_guid,
+            second_context.track.track_guid
+        );
+    }
+
     #[test]
     fn adr_0075_observation_retained_failures_preserve_local_and_scoped_fallback() {
         let fixture = Fixture::start();
-        fixture.mode.store(1, Ordering::SeqCst);
+        fixture.set_mode(1);
         let local = fixture.load(0).unwrap();
         assert_eq!(local.observation_receipts.len(), 3);
         assert!(local
@@ -1763,7 +2020,7 @@ mod observation_tests {
         assert_eq!(fixture.requests.lock().unwrap().len(), 3);
         assert_eq!(local.track.title.as_deref(), Some("Local title"));
         fixture.requests.lock().unwrap().clear();
-        fixture.mode.store(2, Ordering::SeqCst);
+        fixture.set_mode(2);
         let context = fixture.load(0).unwrap();
         assert_eq!(context.observation_receipts.len(), 4);
         assert_eq!(fixture.requests.lock().unwrap().len(), 4);
@@ -1776,7 +2033,7 @@ mod observation_tests {
     fn adr_0075_observation_decode_failure_and_auxiliary_failure_keep_original_bytes() {
         for mode in [3, 4, 5, 6, 7] {
             let fixture = Fixture::start();
-            fixture.mode.store(mode, Ordering::SeqCst);
+            fixture.set_mode(mode);
             let context = fixture.load(0).unwrap();
             let conn = fixture.conn.lock().unwrap();
             match mode {
@@ -1841,7 +2098,7 @@ mod observation_tests {
             .unwrap()
             .execute_batch("DROP TRIGGER reject_allocation")
             .unwrap();
-        fixture.mode.store(8, Ordering::SeqCst);
+        fixture.set_mode(8);
         let error = fixture.load(0).unwrap_err();
         let CommandError::ObservationWriteFailure(failure) = error else {
             panic!("typed storage failure required")
@@ -1878,7 +2135,7 @@ mod observation_tests {
     fn adr_0075_observation_earlier_receipts_survive_later_write_and_allocation_failures() {
         for mode in [10, 11] {
             let fixture = Fixture::start();
-            fixture.mode.store(mode, Ordering::SeqCst);
+            fixture.set_mode(mode);
             let CommandError::ObservationWriteFailure(failure) = fixture.load(0).unwrap_err()
             else {
                 panic!("typed command failure required")
@@ -1899,7 +2156,7 @@ mod observation_tests {
             assert!(vm.status_snapshot().is_error);
         }
         let fixture = Fixture::start();
-        fixture.mode.store(1, Ordering::SeqCst);
+        fixture.set_mode(1);
         fixture
             .conn
             .lock()
@@ -1917,7 +2174,7 @@ mod observation_tests {
     #[test]
     fn adr_0075_observation_unobserved_service_keeps_compatibility_requests() {
         let fixture = Fixture::start();
-        fixture.mode.store(9, Ordering::SeqCst);
+        fixture.set_mode(9);
         let context =
             feed_service::fetch_library_track_context(&fixture.tracks[0], &fixture.endpoint)
                 .unwrap();
@@ -1940,7 +2197,7 @@ mod observation_tests {
             )
             .unwrap();
         fixture.commits.store(0, Ordering::SeqCst);
-        fixture.mode.store(12, Ordering::SeqCst);
+        fixture.set_mode(12);
         let populated = fixture.load(0).unwrap();
         assert_eq!(populated.provider_state.collections.len(), 2);
         assert!(populated
@@ -1950,7 +2207,7 @@ mod observation_tests {
             .all(|c| matches!(c.state, CollectionState::CompletePopulated(_))));
         assert_eq!(fixture.requests.lock().unwrap().len(), 3);
         assert_eq!(fixture.commits.load(Ordering::SeqCst), 6);
-        fixture.mode.store(13, Ordering::SeqCst);
+        fixture.set_mode(13);
         let empty = fixture.load(0).unwrap();
         assert!(empty
             .provider_state
@@ -1990,7 +2247,7 @@ mod observation_tests {
         assert_eq!(reopened_local.provider_state, empty.provider_state);
         assert_eq!(reopened.lock().unwrap().total_changes(), reopened_changes);
         assert_eq!(fixture.requests.lock().unwrap().len(), requests);
-        fixture.mode.store(14, Ordering::SeqCst);
+        fixture.set_mode(14);
         let failed = fixture.load(0).unwrap();
         assert_eq!(
             failed.provider_state.collections,
@@ -2011,7 +2268,7 @@ mod observation_tests {
     #[test]
     fn adr_0075_snapshot_committed_read_failure_reaches_command_and_library_state() {
         let fixture = Fixture::start();
-        fixture.mode.store(15, Ordering::SeqCst);
+        fixture.set_mode(15);
         let CommandError::ObservationWriteFailure(failure) = fixture.load(0).unwrap_err() else {
             panic!("typed retained failure required");
         };
@@ -2041,7 +2298,7 @@ mod observation_tests {
     #[test]
     fn adr_0075_snapshot_read_failure_also_preserves_preceding_write_capsule() {
         let fixture = Fixture::start();
-        fixture.mode.store(10, Ordering::SeqCst);
+        fixture.set_mode(10);
         let CommandError::ObservationWriteFailure(failure) = fixture.load(0).unwrap_err() else {
             panic!("typed retained failure required");
         };
@@ -2192,7 +2449,7 @@ mod observation_tests {
         };
         for mode in [12, 5] {
             let fixture = Fixture::start();
-            fixture.mode.store(mode, Ordering::SeqCst);
+            fixture.set_mode(mode);
             let base = format!("http://{}", fixture.address);
             let request = crate::provider_observation::contracts::rss_request(
                 &format!("{base}/feed.xml"),

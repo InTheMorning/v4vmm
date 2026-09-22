@@ -79,7 +79,7 @@ migration, its own backup, and its own rollback, which ADR 0075 section 5 requir
 
 ## Part A: Request Identity And Sharing
 
-Part A is Ready. It implements the accepted rules only.
+Part A is complete on 2026-09-21. It implements the accepted rules only.
 
 **One request identity.** A key holds the endpoint, the scoped subject, and the packet 017
 profile. The storage layer already builds the same identity in
@@ -112,11 +112,18 @@ Part B adds the freshness test to the owner. A retained response is reusable whe
 below its accepted window, and when no explicit refresh intent applies. A reusable response
 returns without a request.
 
-The freshness test reads the last successful fetch time of the request identity. The storage
-layer exposes the request slot through `db::provider_observations::read_request_refresh`. That
-function returns the slot state, the generation, and the observation identifier. It does not
-return the last successful fetch time, so Part B extends that interface or reads the
-observation. The extension keeps the existing values unchanged.
+The owner measures the age of a retained response with a monotonic instant that it records
+when the response completes. It does not read a fetch time from storage, and it does not read
+a wall-clock time. P18-6 keeps each retained response in memory, so a restart empties the
+owner and the first request after a restart always reaches the network. A monotonic instant
+also stays correct when the system clock moves.
+
+This replaces the earlier plan to extend `db::provider_observations::read_request_refresh`.
+That extension is not necessary, and `src/db/provider_observations.rs` stays unchanged.
+
+Part B also converts the remaining Index request sites in
+`src/application/queries/search.rs` and `src/application/queries/feed.rs`. The operator moved
+that conversion here on 2026-09-21.
 
 ## Authority And Dependencies
 
@@ -162,7 +169,7 @@ report staleness to the operator.
 | --- | --- |
 | New module under `src/application/` | The request key, the owner, its typed states, and its tests |
 | `src/application/request_profiles.rs` | Nothing in Part A. Part B may add an accepted window to a profile |
-| `src/db/provider_observations.rs` | Part B only. Expose the last successful fetch time. Keep every existing value |
+| `src/db/provider_observations.rs` | Not needed. The owner records its own completion instant under P18-6 |
 | `src/feed_service.rs` | Ask the owner, not the client. Keep the requests and the fallback order |
 | `src/application/queries/library.rs` | Ask the owner. Carry the refresh intent |
 | `src/application/queries/search.rs` | Part B only. Ask the owner. Carry the refresh intent |
@@ -172,8 +179,10 @@ report staleness to the operator.
 | `src/library/app_impl.rs` | Not needed. The owner is one process-wide value, as `src/remote_media.rs` and `src/ui/icons.rs` already do |
 | `tests/architecture_tests.rs` | Situational guards, naming ADR 0075 |
 
-Do not change `src/subscribe_service.rs`, `src/application/commands/payment_routes.rs`, or
-`src/application/commands/feed.rs` include lists. Packet 017 records why they stay outside.
+Do not change the include lists in `src/subscribe_service.rs`,
+`src/application/commands/payment_routes.rs`, or `src/application/commands/feed.rs`. Packet
+017 records why those lists stay outside. Part B may change the receipt assembly in
+`src/application/commands/feed.rs` when R18B-11 needs it.
 
 ## Mechanical Acceptance Criteria, Part A
 
@@ -208,6 +217,8 @@ Use the prefix `adr_0075_request_reuse_` for behavioral tests beside the owning 
 | R18B-08 | A reused response cannot create or resolve a discrepancy. A guard names ADR 0075 section 4 |
 | R18B-09 | The repeated Library track detail case sends no Index request and no RSS request inside the windows |
 | R18B-10 | Two Library tracks of one feed send one feed request and one RSS request inside the windows |
+| R18B-11 | A caller that joins a `check_feed_staleness` or `apply_feed_updates` request receives the receipts of that request. This closes the recorded limit of R18A-05 |
+| R18B-12 | Each converted Index request site asks the owner. The guard counts the owner calls in `search.rs` and `feed.rs` |
 
 ## Measurement
 
@@ -326,8 +337,7 @@ R18A-05 holds for `hydrate_album_identity_facts`, which shares its receipts with
 caller. A caller that joins a `check_feed_staleness` or `apply_feed_updates` request receives
 the data without a receipt of its own. Those two functions send an explicit intent, so they
 never join another request, and only a `Normal` caller of the same identity can join theirs.
-The sequential behavior is unchanged. Part B closes this gap when it converts the remaining
-routes.
+The sequential behavior is unchanged. R18B-11 closes this gap.
 
 ### The Index Routes Are Part B
 
