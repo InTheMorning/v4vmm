@@ -1,7 +1,7 @@
 # ADR 0075 Task 018: Request Reuse, Freshness And Explicit Refresh
 
-Status: Ready - 2026-09-21. The operator accepted the seven reuse policies on the same day.
-Part A and Part B are both dispatchable.
+Status: Part A is complete on 2026-09-21. Its mechanical checks are Green. Part B is Ready.
+The operator accepted the seven reuse policies on 2026-09-21.
 
 This packet has two parts. Part A implements the rules that ADR 0075 already decides. It
 changes no request count except for concurrent duplicates. Part B ends the repeated fetch
@@ -165,10 +165,11 @@ report staleness to the operator.
 | `src/db/provider_observations.rs` | Part B only. Expose the last successful fetch time. Keep every existing value |
 | `src/feed_service.rs` | Ask the owner, not the client. Keep the requests and the fallback order |
 | `src/application/queries/library.rs` | Ask the owner. Carry the refresh intent |
-| `src/application/queries/search.rs` | Ask the owner. Carry the refresh intent |
-| `src/application/queries/feed.rs` | Ask the owner. Carry the refresh intent |
+| `src/application/queries/search.rs` | Part B only. Ask the owner. Carry the refresh intent |
+| `src/application/queries/feed.rs` | Part B only. Ask the owner. Carry the refresh intent |
 | `src/rss/enrich.rs` | Part B only. Hold a parsed document under P18-3 |
-| `src/library/app_impl.rs` | Pass the shared owner into the command, beside the shared connection |
+| `src/application/mod.rs` | One line. Register each new module |
+| `src/library/app_impl.rs` | Not needed. The owner is one process-wide value, as `src/remote_media.rs` and `src/ui/icons.rs` already do |
 | `tests/architecture_tests.rs` | Situational guards, naming ADR 0075 |
 
 Do not change `src/subscribe_service.rs`, `src/application/commands/payment_routes.rs`, or
@@ -220,7 +221,7 @@ Measure with the fixtures of packet 016, in the same isolated way, without an ap
 | Repeated Library track detail | 2 Index, 1 RSS | 0 Index, 0 RSS |
 | Two Library tracks sharing one feed | 4 Index, 2 RSS | 3 Index, 1 RSS |
 | Repeated Library album hydration | 1 Index, 9 row changes | 0 Index, 0 row changes |
-| Two concurrent Library track details of one track | Not measured | 1 request set |
+| Two concurrent Library track details of one track | Not measured | 1 request set. Part A measured this at the owner. Part B measures it against the packet 016 fixtures |
 
 Record the measured results beside the targets. Report a target that the result does not
 reach. Do not change a target to match a result.
@@ -252,6 +253,116 @@ Report each result. Say "Green" for a passing check.
 Part A adds one module and changes the call sites to ask the owner. Revert the working tree to
 remove it. Part B adds the freshness test and one storage read. Revert the working tree to
 remove it. No migration, no stored data, and no configuration changes.
+
+## Implementation Result, Part A - 2026-09-21
+
+`src/application/request_reuse.rs` holds the request key, the owner, and its typed states.
+
+`RequestKey` holds the provider identity, the subject, and the include list. `RequestSubject`
+separates a feed, a scoped track, and an unscoped track. `MetadataRequestOwner` holds three
+typed registries and one sequence counter. `request_reuse::shared` returns the one
+process-wide owner. A test builds its own owner, so one test cannot reach another test's
+active requests.
+
+`RefreshIntent` has the values `Normal` and `Explicit`. `SharedFetchError` holds an
+`Arc<anyhow::Error>`, because `anyhow::Error` is not `Clone`. Its `into_anyhow` restores an
+`ObservationWriteFailure` or an `ObservationStorageError` to its own type, so
+`propagate_storage_failure` still classifies a storage failure after the round trip.
+
+### The Sequence Counter
+
+The owner holds an `AtomicI64` and increments it once for each request start. It does not use
+the storage `metadata_generation` allocation. That allocation is reachable only through
+`begin_provider_request`, which runs inside the private `Client::get_observed_json`. A call to
+it before the join decision would also write to the database on every check. The in-memory
+counter orders the owner's own entries for one run of the process, which matches P18-6.
+
+### The Lock And The Request
+
+`single_flight` holds the registry lock only to find or insert a slot. It releases the lock
+before a joined caller waits, and before the winning caller sends its request. It takes the
+lock again after the request returns. It removes the slot only while that slot is still the
+registry entry for its identity. A superseded slot that finishes late cannot remove a
+newer one.
+
+### An Abandoned Request
+
+The orchestrator added `SlotCompletion` during review. A panic in the request closure left the
+slot `Pending`, so each joined caller waited without end, and the identity stayed in the
+registry. The guard now fails the slot, wakes each joined caller, and removes the identity. A
+later caller then starts a new request. `adr_0075_request_reuse_abandoned_request_releases_a_joined_caller`
+proves it.
+
+### Converted Call Sites And Their Intents
+
+| File | Function | Intent |
+|---|---|---|
+| `src/feed_service.rs` | `fetch_library_track_detail_with_recorder` | From its caller |
+| `src/feed_service.rs` | `fetch_library_track_context` | `Normal` |
+| `src/feed_service.rs` | `check_feed_staleness` | `Explicit` |
+| `src/feed_service.rs` | `apply_feed_updates`, and its track loop | `Explicit` |
+| `src/application/queries/library.rs` | `fetch_library_track_context_with_local_fallback` | `Normal` |
+| `src/application/queries/library.rs` | `compare_library_track` | `Explicit` |
+| `src/application/queries/library.rs` | `hydrate_album_identity_facts` | `Normal` |
+
+The ADR 0065 combined workflow calls `check_feed_staleness` and `apply_feed_updates`, so it
+carries the explicit intent without code of its own.
+
+The operator accepted the explicit intent for `compare_library_track` on 2026-09-21. A
+comparison against the source always sends a new request. It never joins another caller's
+request, and Part B never reuses a retained response for it. That keeps the two independent
+observations that packet 038 accepted for a concurrent detail read and comparison.
+
+### Two Recorded Limits
+
+R18A-02 asks for a test that builds the in-memory key and the storage identity from one
+`ProviderRequestSpec`. `request_identity` is private, and `src/db/provider_observations.rs` is
+a Part B file. The test instead drives the storage identity through the public
+`begin_provider_request`. It then proves that both agree on which requests are the same, and
+on which requests are different, for each pair it checks. It proves agreement as a relation, not by one call
+on one input.
+
+R18A-05 holds for `hydrate_album_identity_facts`, which shares its receipts with a joined
+caller. A caller that joins a `check_feed_staleness` or `apply_feed_updates` request receives
+the data without a receipt of its own. Those two functions send an explicit intent, so they
+never join another request, and only a `Normal` caller of the same identity can join theirs.
+The sequential behavior is unchanged. Part B closes this gap when it converts the remaining
+routes.
+
+### The Index Routes Are Part B
+
+`src/application/queries/search.rs` and `src/application/queries/feed.rs` keep their direct
+client calls. Six request sites remain. The operator moved this conversion to Part B on
+2026-09-21. The Index search loops are sequential, and Part A changes behavior only for two
+callers that ask at the same time. The reuse windows of Part B make the conversion
+useful, and they touch the same lines.
+
+### Guards
+
+The new guard is `adr_0075_request_reuse_converted_routes_ask_the_owner`. It counts the owner
+calls in each converted `feed_service` function. Its failure message names ADR 0075 section 6
+and the three owner methods.
+
+Two existing guards moved with the code. Each one checks the same rule as before:
+
+- `adr_0075_feed_observation_roots_and_consumers_are_guarded`, for the two explicit feed
+  requests.
+- `adr_0075_library_observation_callers_and_consumers_are_guarded`, for the album hydration
+  call, which `cargo fmt` now wraps across lines.
+
+### Checks - 2026-09-21
+
+| Check | Result |
+|---|---|
+| `cargo test --lib adr_0075_request_reuse` | Green. 11 tests passed |
+| `cargo test` | Green. 1,676 unit tests and 271 architecture tests passed. Ten documentation examples stay ignored |
+| `cargo test --test architecture_tests` | Green. 271 passed |
+| `cargo fmt -- --check` | Green |
+| `cargo clippy -- -D warnings` | Green |
+| `cargo build --bin v4vmm` | Green |
+
+The full suite used four test threads. No application launch and no production-data change
+occurred.
 
 ## Operator Visual Check
 

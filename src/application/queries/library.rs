@@ -435,6 +435,7 @@ pub(crate) fn fetch_library_track_context_with_local_fallback(
         track,
         musicindex_endpoint,
         Some(Arc::clone(&recorder)),
+        crate::application::request_reuse::RefreshIntent::Normal,
     ) {
         Ok(mut remote_context) => {
             if let Ok(local_context) = local_context {
@@ -540,14 +541,45 @@ fn hydrate_album_identity_facts(
     feed_id: i64,
     feed_guid: &str,
 ) -> Result<AlbumIdentityHydration, CommandError> {
+    use crate::application::request_reuse::{self, RefreshIntent, RequestKey, SharedFetchError};
     let recorder = Arc::new(ProviderObservationRecorder::new(Arc::clone(&conn)));
+    let owner = request_reuse::shared();
+    let provider_identity = musicindex_endpoint
+        .require()
+        .map(str::to_owned)
+        .unwrap_or_default();
+    let key = RequestKey::feed(
+        provider_identity,
+        feed_guid,
+        crate::application::request_profiles::LIBRARY_ALBUM_HYDRATION_FEED.include(),
+    );
+    // Holds the winning request's receipts as soon as the fetch succeeds, so
+    // a later, ordinary failure in this function (for example local
+    // persistence) does not drop them. `assemble_observed_query` folds them
+    // in on either outcome.
+    let owner_receipts = std::cell::RefCell::new(Vec::new());
     let result = (|| {
         let client = crate::api::Client::new_with_base_url(musicindex_endpoint.clone())
             .with_observation_recorder(Some(Arc::clone(&recorder)));
-        let feed = client.fetch_feed_with_profile(
-            feed_guid,
-            &crate::application::request_profiles::LIBRARY_ALBUM_HYDRATION_FEED,
-        )?;
+        // ADR 0075 section 6, packet 018 Part A: the owner shares this feed
+        // request with a concurrent duplicate. The winning caller drains its
+        // own recorder right after the fetch, and every caller — the winner
+        // and a caller that joins it — receives that one request's exact
+        // receipts (R18A-05). No caller records a second observation.
+        let (feed, receipts) = owner
+            .fetch_feed_with_receipts(key, RefreshIntent::Normal, {
+                let recorder = Arc::clone(&recorder);
+                move || {
+                    let feed = client.fetch_feed_with_profile(
+                        feed_guid,
+                        &crate::application::request_profiles::LIBRARY_ALBUM_HYDRATION_FEED,
+                    )?;
+                    Ok((feed, recorder.take_receipts()))
+                }
+            })
+            .0
+            .map_err(SharedFetchError::into_anyhow)?;
+        *owner_receipts.borrow_mut() = receipts;
         let description = FeedView::from_api(feed.clone()).description;
         let mut db = conn
             .lock()
@@ -565,9 +597,14 @@ fn hydrate_album_identity_facts(
             observation_receipts: Vec::new(),
         })
     })();
-    assemble_observed_query(&recorder, result, |hydration, receipts| {
-        hydration.observation_receipts.extend(receipts);
-    })
+    assemble_observed_query(
+        &recorder,
+        result,
+        owner_receipts.into_inner(),
+        |hydration, receipts| {
+            hydration.observation_receipts.extend(receipts);
+        },
+    )
 }
 
 fn compare_library_track(
@@ -583,10 +620,14 @@ fn compare_library_track(
             .as_ref()
             .map(|path| path.resolve(music_dir))
             .ok_or_else(|| anyhow::anyhow!("library track has no local file"))?;
+        // ADR 0075 section 6, packet 018 Part A: a manual comparison wants a
+        // fresh value, so it always sends its own request. It never joins
+        // an active passive read (R18A-09, R18A-10).
         let context = match feed_service::fetch_library_track_context_with_recorder(
             track,
             musicindex_endpoint,
             Some(Arc::clone(&recorder)),
+            crate::application::request_reuse::RefreshIntent::Explicit,
         ) {
             Ok(context) => Ok(context),
             Err(error) if observation_storage_failure(&error).is_some() => Err(error),
@@ -621,7 +662,7 @@ fn compare_library_track(
             track_context: context,
         })
     })();
-    assemble_observed_query(&recorder, result, |comparison, receipts| {
+    assemble_observed_query(&recorder, result, Vec::new(), |comparison, receipts| {
         comparison
             .track_context
             .observation_receipts
@@ -630,12 +671,20 @@ fn compare_library_track(
 }
 
 /// ADR 0075 drains receipts once after every fallible Library reader operation.
+///
+/// `extra_receipts` carries receipts a packet 018 owner call already drained
+/// from `recorder` earlier in the same operation, to share with a joining
+/// caller (R18A-05). They are folded in on either outcome, because an
+/// ordinary later failure — for example a local persistence error — must
+/// not drop the receipt of a request that already succeeded.
 fn assemble_observed_query<T>(
     recorder: &ProviderObservationRecorder,
     result: anyhow::Result<T>,
+    extra_receipts: Vec<ObservationReceipt>,
     attach: impl FnOnce(&mut T, Vec<ObservationReceipt>),
 ) -> Result<T, CommandError> {
-    let receipts = recorder.take_receipts();
+    let mut receipts = extra_receipts;
+    receipts.extend(recorder.take_receipts());
     match result {
         Ok(mut value) => {
             attach(&mut value, receipts);
@@ -1436,7 +1485,8 @@ mod observation_tests {
             original.receipts.to_vec(),
         );
         let recorder = ProviderObservationRecorder::new(Arc::clone(&fixture.conn));
-        let error = assemble_observed_query(&recorder, result, |_, _| unreachable!()).unwrap_err();
+        let error = assemble_observed_query(&recorder, result, Vec::new(), |_, _| unreachable!())
+            .unwrap_err();
         let CommandError::ObservationWriteFailure(combined) = error else {
             panic!("combined failure required")
         };

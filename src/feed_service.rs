@@ -43,52 +43,114 @@ pub fn fetch_library_track_context(
     track: &TrackRow,
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
 ) -> Result<TrackContext> {
-    fetch_library_track_context_with_recorder(track, musicindex_endpoint, None)
+    fetch_library_track_context_with_recorder(
+        track,
+        musicindex_endpoint,
+        None,
+        crate::application::request_reuse::RefreshIntent::Normal,
+    )
 }
 
 pub(crate) fn fetch_library_track_context_with_recorder(
     track: &TrackRow,
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
     recorder: Option<Arc<crate::provider_observation::ProviderObservationRecorder>>,
+    refresh: crate::application::request_reuse::RefreshIntent,
 ) -> Result<TrackContext> {
-    let (fetched_track, fetched_feed) =
-        fetch_library_track_detail_with_recorder(track, musicindex_endpoint, recorder.clone())?;
+    let (fetched_track, fetched_feed) = fetch_library_track_detail_with_recorder(
+        track,
+        musicindex_endpoint,
+        recorder.clone(),
+        refresh,
+    )?;
     merge_track_context_with_recorder(track, fetched_track, fetched_feed, recorder.as_deref())
 }
 
+/// Fetches a Library track's remote MusicIndex detail through the shared
+/// request owner (ADR 0075 section 6, packet 018 Part A).
+///
+/// `refresh` travels with every request this function sends: `Normal` for
+/// a passive read, which may join an active request; `Explicit` for a
+/// caller that wants a fresh value, such as `apply_feed_updates` or a
+/// manual comparison, which always sends its own request (R18A-09,
+/// R18A-10). The owner never runs the fetch twice for one active
+/// identity, and it never holds its registry lock across the network
+/// call.
 fn fetch_library_track_detail_with_recorder(
     track: &TrackRow,
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
     recorder: Option<Arc<crate::provider_observation::ProviderObservationRecorder>>,
+    refresh: crate::application::request_reuse::RefreshIntent,
 ) -> Result<(Option<Track>, Option<Feed>)> {
     use crate::application::request_profiles::{
         LIBRARY_TRACK_DETAIL_FEED, LIBRARY_TRACK_DETAIL_SCOPED_TRACK,
         LIBRARY_TRACK_DETAIL_UNSCOPED_TRACK,
     };
+    use crate::application::request_reuse::{self, RequestKey, SharedFetchError};
     use crate::provider_observation::propagate_storage_failure;
     let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.clone())
         .with_observation_recorder(recorder);
+    let owner = request_reuse::shared();
+    let provider_identity = musicindex_endpoint
+        .require()
+        .map(str::to_owned)
+        .unwrap_or_default();
+
     let mut fetched_track = match track.feed_guid.as_deref() {
-        Some(feed_guid) => propagate_storage_failure(client.fetch_feed_track_with_profile(
-            feed_guid,
-            &track.item_guid,
-            &LIBRARY_TRACK_DETAIL_SCOPED_TRACK,
-        ))?,
+        Some(feed_guid) => {
+            let key = RequestKey::scoped_track(
+                provider_identity.clone(),
+                feed_guid,
+                &track.item_guid,
+                LIBRARY_TRACK_DETAIL_SCOPED_TRACK.include(),
+            );
+            let result = owner
+                .fetch_track(key, refresh, || {
+                    client.fetch_feed_track_with_profile(
+                        feed_guid,
+                        &track.item_guid,
+                        &LIBRARY_TRACK_DETAIL_SCOPED_TRACK,
+                    )
+                })
+                .0
+                .map_err(SharedFetchError::into_anyhow);
+            propagate_storage_failure(result)?
+        }
         None => None,
     };
     if fetched_track.is_none() {
-        fetched_track = propagate_storage_failure(
-            client.fetch_track_with_profile(&track.item_guid, &LIBRARY_TRACK_DETAIL_UNSCOPED_TRACK),
-        )?;
+        let key = RequestKey::unscoped_track(
+            provider_identity.clone(),
+            &track.item_guid,
+            LIBRARY_TRACK_DETAIL_UNSCOPED_TRACK.include(),
+        );
+        let result = owner
+            .fetch_track(key, refresh, || {
+                client.fetch_track_with_profile(
+                    &track.item_guid,
+                    &LIBRARY_TRACK_DETAIL_UNSCOPED_TRACK,
+                )
+            })
+            .0
+            .map_err(SharedFetchError::into_anyhow);
+        fetched_track = propagate_storage_failure(result)?;
     }
     let feed_guid = fetched_track
         .as_ref()
         .and_then(|track| track.feed_guid.as_deref())
         .or(track.feed_guid.as_deref());
     let fetched_feed = match feed_guid {
-        Some(guid) => propagate_storage_failure(
-            client.fetch_feed_with_profile(guid, &LIBRARY_TRACK_DETAIL_FEED),
-        )?,
+        Some(guid) => {
+            let key =
+                RequestKey::feed(provider_identity, guid, LIBRARY_TRACK_DETAIL_FEED.include());
+            let result = owner
+                .fetch_feed(key, refresh, || {
+                    client.fetch_feed_with_profile(guid, &LIBRARY_TRACK_DETAIL_FEED)
+                })
+                .0
+                .map_err(SharedFetchError::into_anyhow);
+            propagate_storage_failure(result)?
+        }
         None => None,
     };
     if fetched_track.is_none() && fetched_feed.is_none() {
@@ -268,7 +330,22 @@ pub fn check_feed_staleness(
     };
     let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.clone())
         .with_observation_recorder(Some(Arc::clone(recorder)));
-    let api_feed = client.fetch_feed(&stored.feed_guid, None)?;
+    // ADR 0075 section 6, packet 018 Part A: an explicit "check for
+    // updates" request always reaches the network. It never joins an
+    // active request that started without that intent (R18A-09).
+    use crate::application::request_reuse::{self, RefreshIntent, RequestKey, SharedFetchError};
+    let owner = request_reuse::shared();
+    let provider_identity = musicindex_endpoint
+        .require()
+        .map(str::to_owned)
+        .unwrap_or_default();
+    let key = RequestKey::feed(provider_identity, &stored.feed_guid, None);
+    let api_feed = owner
+        .fetch_feed(key, RefreshIntent::Explicit, || {
+            client.fetch_feed(&stored.feed_guid, None)
+        })
+        .0
+        .map_err(SharedFetchError::into_anyhow)?;
     let Some(api_updated_at) = api_feed.updated_at else {
         return Ok(None);
     };
@@ -310,12 +387,29 @@ pub fn apply_feed_updates(
     recorder: &Arc<crate::provider_observation::ProviderObservationRecorder>,
 ) -> Result<FeedApplyOutcome> {
     use crate::application::request_profiles::LIBRARY_FEED_UPDATE_FEED;
+    use crate::application::request_reuse::{self, RefreshIntent, RequestKey, SharedFetchError};
     use crate::provider_observation::propagate_storage_failure;
     let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.clone())
         .with_observation_recorder(Some(Arc::clone(recorder)));
-    let feed_update = propagate_storage_failure(
-        client.fetch_feed_with_profile(&stale.feed_guid, &LIBRARY_FEED_UPDATE_FEED),
-    )?;
+    // ADR 0075 section 6, packet 018 Part A: an explicit feed update always
+    // reaches the network for the feed itself (R18A-09, R18A-10).
+    let owner = request_reuse::shared();
+    let provider_identity = musicindex_endpoint
+        .require()
+        .map(str::to_owned)
+        .unwrap_or_default();
+    let key = RequestKey::feed(
+        provider_identity,
+        &stale.feed_guid,
+        LIBRARY_FEED_UPDATE_FEED.include(),
+    );
+    let feed_result = owner
+        .fetch_feed(key, RefreshIntent::Explicit, || {
+            client.fetch_feed_with_profile(&stale.feed_guid, &LIBRARY_FEED_UPDATE_FEED)
+        })
+        .0
+        .map_err(SharedFetchError::into_anyhow);
+    let feed_update = propagate_storage_failure(feed_result)?;
     if let Some(feed) = feed_update.as_ref() {
         let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
         if !source_text_missing(feed.description.as_deref()) {
@@ -345,6 +439,7 @@ pub fn apply_feed_updates(
             track,
             musicindex_endpoint,
             Some(Arc::clone(recorder)),
+            crate::application::request_reuse::RefreshIntent::Explicit,
         ))?;
         let Some((fetched_track, fetched_feed)) = detail else {
             continue;

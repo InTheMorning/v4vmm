@@ -20,6 +20,7 @@ pub mod paged_track_list;
 pub mod ports;
 pub mod queries;
 pub(crate) mod request_profiles;
+pub(crate) mod request_reuse;
 pub mod session_lifecycle;
 
 pub use application_event_bus::{ApplicationEventBus, ApplicationEventSubscriber};

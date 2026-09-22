@@ -18533,7 +18533,8 @@ fn adr_0075_library_observation_callers_and_consumers_are_guarded() {
         "fn compare_library_track(",
     );
     assert!(hydration.contains("with_observation_recorder(Some(Arc::clone(&recorder)))"));
-    assert!(hydration.contains("assemble_observed_query(&recorder, result"));
+    assert!(hydration.contains("assemble_observed_query("));
+    assert!(hydration.contains("owner_receipts.into_inner()"));
     assert!(
         hydration.find("fetch_feed_with_profile(").unwrap()
             < hydration.find("persist_musicindex_feed(").unwrap()
@@ -18659,7 +18660,9 @@ fn adr_0075_snapshot_registry_transaction_and_local_read_boundaries() {
 #[test]
 fn adr_0075_feed_observation_roots_and_consumers_are_guarded() {
     const FIX: &str = "ADR 0075 packet 039: the four feed roots own one recorder, drain it once, \
-and the Library callbacks retain evidence before any result reduction.";
+and the Library callbacks retain evidence before any result reduction. Packet 018 Part A adds \
+that this recorder-bearing client reaches the network only through the shared request owner, \
+under an explicit refresh intent.";
     let mut violations = Vec::new();
     let service = read_source(&manifest_path("src/feed_service.rs"));
     let commands = read_source(&manifest_path("src/application/commands/feed.rs"));
@@ -18667,7 +18670,9 @@ and the Library callbacks retain evidence before any result reduction.";
     let app = read_source(&manifest_path("src/library/app_impl.rs"));
     let vm = read_source(&manifest_path("src/view_models/library.rs"));
 
-    // The provider client reaches the recorder only through the feed service.
+    // The provider client reaches the recorder only through the feed service,
+    // and reaches the network only through the shared request owner, under
+    // an explicit refresh intent (ADR 0075 packet 018 Part A).
     let staleness = source_between(
         &service,
         "pub fn check_feed_staleness(",
@@ -18675,11 +18680,12 @@ and the Library callbacks retain evidence before any result reduction.";
     );
     for required in [
         "with_observation_recorder(Some(Arc::clone(recorder)))",
-        "client.fetch_feed(&stored.feed_guid, None)?",
+        "client.fetch_feed(&stored.feed_guid, None)",
+        ".fetch_feed(key, RefreshIntent::Explicit, || {",
     ] {
         if !staleness.contains(required) {
             violations.push(format!(
-                "src/feed_service.rs: check_feed_staleness must keep its observed request; missing `{required}`. {FIX}"
+                "src/feed_service.rs: check_feed_staleness must keep its observed, owner-routed, explicit request; missing `{required}`. {FIX}"
             ));
         }
     }
@@ -18691,13 +18697,15 @@ and the Library callbacks retain evidence before any result reduction.";
     for required in [
         "with_observation_recorder(Some(Arc::clone(recorder)))",
         "client.fetch_feed_with_profile(&stale.feed_guid, &LIBRARY_FEED_UPDATE_FEED)",
+        ".fetch_feed(key, RefreshIntent::Explicit, || {",
         "propagate_storage_failure(fetch_library_track_detail_with_recorder(",
+        "RefreshIntent::Explicit,",
         "merge_track_context_with_recorder(",
         "set_feed_musicindex_updated_at(&db, stale.feed_id, stale.new_updated_at)?",
     ] {
         if !update.contains(required) {
             violations.push(format!(
-                "src/feed_service.rs: apply_feed_updates must keep observed requests before legacy writes; missing `{required}`. {FIX}"
+                "src/feed_service.rs: apply_feed_updates must keep observed, owner-routed, explicit requests before legacy writes; missing `{required}`. {FIX}"
             ));
         }
     }
@@ -18910,6 +18918,92 @@ and the Library callbacks retain evidence before any result reduction.";
     assert!(
         violations.is_empty(),
         "ADR 0075 packet 039 feed observation violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational — ADR 0075 section 6, packet 018 Part A (R18A-12): a
+/// converted route asks the shared request owner for a MusicIndex
+/// resource. It does not send a metadata request through `api::Client`
+/// on its own.
+#[test]
+fn adr_0075_request_reuse_converted_routes_ask_the_owner() {
+    const FIX: &str = "ADR 0075 section 6: a caller asks the shared request owner \
+(src/application/request_reuse.rs) for a MusicIndex resource, instead of sending the request \
+through api::Client on its own. That way, a concurrent duplicate request for the same \
+endpoint, scoped identity and profile joins one HTTP request. Route the call through \
+`owner.fetch_feed`, `owner.fetch_track`, or `owner.fetch_feed_with_receipts`.";
+    let mut violations = Vec::new();
+
+    let service = read_source(&manifest_path("src/feed_service.rs"));
+    for (start, end, minimum_owner_calls) in [
+        (
+            "fn fetch_library_track_detail_with_recorder(",
+            "fn merge_track_context_with_recorder(",
+            3,
+        ),
+        (
+            "pub fn check_feed_staleness(",
+            "pub fn configured_music_dir(",
+            1,
+        ),
+        (
+            "pub fn apply_feed_updates(",
+            "pub fn track_row_to_track_context(",
+            1,
+        ),
+    ] {
+        let body = source_between(&service, start, end);
+        let owner_calls = [".fetch_feed(key,", ".fetch_track(key,"]
+            .iter()
+            .map(|pattern| body.matches(pattern).count())
+            .sum::<usize>();
+        if owner_calls < minimum_owner_calls {
+            violations.push(format!(
+                "src/feed_service.rs: `{start}` must ask the shared request owner at least \
+{minimum_owner_calls} time(s); found {owner_calls}. {FIX}"
+            ));
+        }
+        if !body.contains("request_reuse::") {
+            violations.push(format!(
+                "src/feed_service.rs: `{start}` must reach the shared request owner module. {FIX}"
+            ));
+        }
+    }
+
+    let library_query = read_source(&manifest_path("src/application/queries/library.rs"));
+    let hydration = source_between(
+        &library_query,
+        "fn hydrate_album_identity_facts(",
+        "fn compare_library_track(",
+    );
+    if hydration.matches(".fetch_feed_with_receipts(key,").count() != 1 {
+        violations.push(format!(
+            "src/application/queries/library.rs: hydrate_album_identity_facts must ask the \
+shared request owner exactly once. {FIX}"
+        ));
+    }
+    if !hydration.contains("request_reuse::") {
+        violations.push(format!(
+            "src/application/queries/library.rs: hydrate_album_identity_facts must reach the \
+shared request owner module. {FIX}"
+        ));
+    }
+    let comparison = source_between(
+        &library_query,
+        "fn compare_library_track(",
+        "fn assemble_observed_query<",
+    );
+    if !comparison.contains("RefreshIntent::Explicit") {
+        violations.push(format!(
+            "src/application/queries/library.rs: compare_library_track must carry an explicit \
+refresh intent, so it never joins an active passive read. {FIX}"
+        ));
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0075 packet 018 Part A request-owner violations:\n{}",
         violations.join("\n")
     );
 }
