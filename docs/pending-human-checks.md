@@ -330,3 +330,24 @@ check and no app launch. The implementation and its checks stay with the packet.
 - P18-9: a reused response replays the receipt of the fetch that produced it.
 - The 30-minute track window depends on the existing check-for-updates control.
 - The 15-minute RSS window can delay stale-MusicIndex detection by 15 minutes during passive browsing.
+
+## 11. MusicIndex API Change Request — ADR 0075
+
+Open - the operator sent the request on 2026-09-22, and the fixes are live on 2026-09-23.
+Changes 1, 2, and 3 are verified against the deployed API. Two questions stay open, and each
+landed change still needs its own packet. This group needs no visual check and no app
+launch.
+
+- Owner: the [API change request](plans/musicindex-api-change-request.md).
+- Change 1: return summary fields with search results.
+- Change 2: return track and feed artwork as separate fields.
+- Change 3: record which element supplied a feed publication date.
+- Change 4: never rename a response field without a version.
+- The request also asks which revision is deployed. The inspected revision is `a220f44` in a local checkout.
+- Changes 1, 2, and 3 are live, and the [verification](plans/musicindex-api-change-request.md#verification-against-the-deployed-api) records the evidence.
+- Change 4 is a release policy. No external check can prove it.
+- Open question: the new `last_build_date` claim type has no accepted field rule in this app.
+- Open question: `Feed.name`, `Track.name`, `Track.artist_credit`, and `Track.feed_url` no longer arrive. Ask Stophammer whether they were removed, renamed, or null in every sampled row.
+- The deployed revision stays unconfirmed. The published contract declares a static version string.
+- This client implements none of the three landed changes. Each one needs its own packet.
+- The [answer table](plans/musicindex-api-change-request.md#what-each-answer-changes-here) records the work that each landed change releases.

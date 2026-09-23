@@ -46,6 +46,15 @@ same day.
 The [API change request](musicindex-api-change-request.md) replaces packet 008 as the
 request to Stophammer. It asks for four changes. Three of them need no reingestion.
 
+The operator sent that request on 2026-09-22, and its fixes are live on 2026-09-23.
+Changes 1, 2, and 3 are
+[verified](musicindex-api-change-request.md#verification-against-the-deployed-api) against the
+deployed API. The deployed revision stays unconfirmed.
+
+This client implements none of the three landed changes. The
+[answer table](musicindex-api-change-request.md#what-each-answer-changes-here) records the
+work that each one releases. Two upstream questions stay open.
+
 Phases 002–006 below are outcomes, not instructions. The packet register divides
 them into bounded packets. Do not give an agent a whole phase.
 

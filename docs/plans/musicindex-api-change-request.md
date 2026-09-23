@@ -1,5 +1,19 @@
 # MusicIndex API Change Request
 
+## Status
+
+Sent to Stophammer on 2026-09-22. The operator reports the fixes live on 2026-09-23.
+
+Changes 1, 2, and 3 are verified live on 2026-09-23. See "Verification Against The
+Deployed API". Change 4 is a release policy, and no external check can prove it.
+
+The deployed revision stays unconfirmed. The published contract declares the static version
+`0.1.0`, which names no build. Each source reference below still describes commit `a220f44`
+in a local checkout.
+
+This client implements none of the three landed changes. Each one needs its own packet, and
+the verification section records two new questions for the operator.
+
 ## Purpose
 
 This document requests four changes to the MusicIndex API and its parser.
@@ -153,9 +167,78 @@ These items are deliberately excluded:
 What revision is deployed? Every statement above describes commit `a220f44` in a local
 checkout. No live endpoint was inspected.
 
+## Verification Against The Deployed API
+
+Checked on 2026-09-23 with read-only GET requests to `https://api.musicindex.org`. No write
+request and no app launch occurred. Each response is untrusted input, and this section
+records field names and claim labels only.
+
+| Change | Result |
+|---|---|
+| 1, summary fields | Landed. A search hit returns `title`, `feed_title`, `feed_image_url`, `track_image_url`, `pub_date`, `feed_guid`, and `href` |
+| 2, separate artwork | Landed. A track detail returns `image_url`, `track_image_url`, and `feed_image_url` together. `track_image_url` is an explicit null when the track has no image of its own |
+| 3, a true path label | Landed, and differently from both options this request offered |
+| 4, no silent rename | Not provable from outside. One observation below needs an answer |
+
+Change 2 keeps the old `image_url` field, so an older client still works. A feed detail
+returns `image_url` alone, which is correct, because a feed image has one owner.
+
+Change 3 arrived as a third option. `lastBuildDate` now has its own claim type,
+`last_build_date`, with the extraction path `feed.last_build_date`. A `release_date` claim
+carries `feed.pub_date` or `oldest_item.pub_date`. Twelve sampled feeds produced seven
+`last_build_date` claims, nine `oldest_item.pub_date` release claims, and three
+`feed.pub_date` release claims.
+
+### Two Questions For The Operator
+
+**A new claim type has no rule here.** A `last_build_date` claim is new to this client. No
+accepted field policy covers it. The app needs a rule before any screen reads it. A build
+timestamp is not a publication date, so it does not belong in the accepted release-date or
+publication-date rules.
+
+**Four decoded fields do not arrive.** The app decodes `Feed.name`, `Track.name`,
+`Track.artist_credit`, and `Track.feed_url`. None of them appears in the deployed contract,
+and none appeared in any sampled response. The app decodes each one as optional, so each
+reads as absent rather than as an error. That is the exact failure that change 4 exists to
+prevent.
+
+Ask Stophammer whether these fields were removed, renamed, or null in every sampled row. The
+accepted feed-title rule already treats `name` as a legacy fallback, so its retirement may be
+deliberate.
+
+### Limits Of This Check
+
+The sample is small: two feed searches, one track search, twelve feed details, two track
+details, and one embedded track list. It proves that a field or a label exists. It does not
+measure how often each one appears.
+
+The reingest state of each sampled feed is unknown. A `feed.pub_date` claim in a row that
+predates the parser change could still hold a `lastBuildDate` value. The mixed-label rule
+below therefore stays in force.
+
+No live check can confirm the deployed revision, because the contract carries a static
+version string.
+
+## What Each Answer Changes Here
+
+| Change | The work it releases here |
+|---|---|
+| 1, summary fields | A search list can draw a row without a detail request for each hit. The [baseline](../notes/adr-0075-request-and-write-baseline.md) records the current bound of 42 request calls for one full search. This needs its own packet and its own measurement against the packet 016 fixtures |
+| 2, separate artwork fields | The app can name the owner of a track image, and it no longer records unknown ownership for a row that carries the new fields. The accepted legacy-artwork rule keeps its meaning for data that arrived before the change. Packet 020 owns the projection |
+| 3, a true path label | The app can trust a fresh `feed.pub_date` claim. It also needs a rule for the new `last_build_date` claim type, which no accepted policy covers |
+| 4, no silent rename | No code change. The app keeps its own decode contract and its typed absence. The four missing fields above need an upstream answer |
+
+A rejected change needs no work here. The app already treats each defect as a source
+limit, and it records unknown ownership rather than an invented fact.
+
+Change 3 corrects a feed only when that feed is ingested again. The app therefore reads
+old and new path labels together for as long as the reingest takes. A rule for change 3
+must accept both labels at one time. It must not assume one cutover date.
+
 ## Checks
 
-The language check ran on this document. No Stophammer maintainer has read it.
-No Stophammer decision exists for this request.
+The language check ran on this document. The operator sent it to Stophammer on 2026-09-22,
+and reports the fixes live on 2026-09-23. This repository verified no live endpoint and no
+deployed revision.
 No agent wrote in the Stophammer checkout. The measured counts came from read-only
 queries against a local database file.

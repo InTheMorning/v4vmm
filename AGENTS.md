@@ -97,6 +97,14 @@ observation for a reuse. The operator accepted nine reuse policies, on 2026-09-2
 The [API change request](docs/plans/musicindex-api-change-request.md) replaces packet 008
 as the request to Stophammer.
 
+The operator sent that request on 2026-09-22, and its fixes are live on 2026-09-23.
+Summary search fields, separate track artwork, and a truthful publication-date label are
+[verified](docs/plans/musicindex-api-change-request.md#verification-against-the-deployed-api)
+against the deployed API.
+
+This client implements none of the three landed changes. Each one needs its own packet. A new
+`last_build_date` claim type has no field rule yet, and four decoded fields no longer arrive.
+
 Storage, shared projections, remaining field policies, and upstream changes remain open. Visual checks stay paused.
 
 Do not request another visual batch during this pause. Existing acceptance gates
