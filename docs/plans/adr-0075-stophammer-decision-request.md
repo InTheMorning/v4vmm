@@ -221,7 +221,7 @@ The generated API contract in `openapi.rs` must match the deployed routes and fi
 Do not use a manual change to generated JSON as the source of the API contract.
 ADR 0075 Decision 6.
 
-The deployed Stophammer revision remains unverified. Packet 028 must establish it.
+The deployed Stophammer revision remains unverified. The operator deleted packet 028 on 2026-09-21. The [API change request](musicindex-api-change-request.md) asks this question.
 
 ## 6. Recrawl Requirement
 
@@ -267,7 +267,7 @@ The app cannot answer these questions alone.
 | How will dates and duration retain actual source paths, raw inputs, and derivation? | Build-date and oldest-item fallbacks, normalization, and duration conversion lose evidence | Packets 006, 011, and 020 |
 | Can one response mix track-owned and feed-owned contributor claims? | The inspected helper returns one set or the other. No contract states the future shape | Packets 013 and 020 |
 | Can a nested collection arrive truncated? | `openapi.rs` documents cursor and limit. The handler does not use them for nested collections | Packet 017 |
-| What is the deployed Stophammer revision? | Only a local checkout was inspected | Packet 028 |
+| What is the deployed Stophammer revision? | Only a local checkout was inspected | No packet. The API change request asks this question |
 
 ## 9. Discrepancy Evidence And Future Updates
 

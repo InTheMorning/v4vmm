@@ -103,7 +103,17 @@ Summary search fields, separate track artwork, and a truthful publication-date l
 against the deployed API.
 
 This client implements none of the three landed changes. Each one needs its own packet. A new
-`last_build_date` claim type has no field rule yet, and four decoded fields no longer arrive.
+`last_build_date` claim type has no field rule yet, and three decoded fields no longer arrive.
+
+[ADR 0076](docs/adr/0076-playlist-rss-check-for-stale-musicindex-records.md) is Proposed on
+2026-09-23. It replaces the per-field source selection of ADR 0075 with an RSS check of the
+feeds in a playlist, which also runs when a show selects that playlist. Do not dispatch
+packet 045 or packet 020 until the operator accepts or rejects ADR 0076.
+
+The [publisher relationship request](docs/plans/stophammer-publisher-relationship-request.md)
+records the operator's decisions of 2026-09-23 for Stophammer. Its Stophammer ADR comes first.
+Stophammer removed artist identifiers on 2026-04-08, so the v4vmm artist binding of ADR 0045
+receives none.
 
 Storage, shared projections, remaining field policies, and upstream changes remain open. Visual checks stay paused.
 

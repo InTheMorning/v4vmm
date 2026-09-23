@@ -28,7 +28,7 @@ This packet does not complete active identity display, field selection, or obser
 - [Packet 009](adr-0075-task-009-rss-owner-and-nostr-extraction.md) and the [identity syntax contract](../schema/adr-0075-identity-syntax-contract.md).
 - [Packet 012](adr-0075-task-012-provider-snapshot-migration.md), completed schema 12 and preservation.
 - [Packet 014](adr-0075-task-014-provider-observation-retention.md), the existing writer and selected Library caller.
-- [Phase plan](../plans/adr-0075-metadata-contract-phase-plan.md#phase-003-storage), storage order and later projections.
+- [Phase plan](../plans/adr-0075-metadata-contract-phase-plan.md#packet-register), storage order and later projections.
 
 Inspection used app revision `a12521e7510b3d05cd4fc097a370f1f965145aad` plus the current uncommitted ADR 0075 implementation.
 The packet depends on packet 014's final working-tree implementation, not that revision alone.
@@ -261,7 +261,7 @@ The reader must not expose malformed or unsupported evidence as an active `Sourc
 
 Legacy DTO fields, existing scalar defaults, and field selection remain unchanged.
 Packet 020 owns shared display and action projection. Carrying provider state does not complete that projection.
-Packet 036 owns discrepancies. This packet does not create or resolve them.
+No packet owns discrepancies after the operator deleted packet 036 on 2026-09-21. This packet does not create or resolve them.
 
 ## Mechanical Acceptance Criteria
 

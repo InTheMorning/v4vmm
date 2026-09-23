@@ -267,7 +267,7 @@ This mutation API prevents a caller from ignoring a returned evidence object.
 
 On no match, preserve the observation and leave existing track and feed values unchanged.
 On a failed request or parse, preserve any prior successful observation and existing facts.
-Packet 019 owns the separate typed RSS refresh-failure state. This packet must not claim that failure reporting is complete.
+No packet owns the separate typed RSS refresh-failure state. The operator deleted packet 019 on 2026-09-21. This packet must not claim that failure reporting is complete.
 Packet 018 owns cache ordering and freshness.
 
 Generate active `SourceEntityId` values only from the validated variants of eligible direct-owner evidence.
@@ -476,7 +476,7 @@ Lexical findings remain for technical wording. The raw STE result is not Green.
 ### Remaining Boundaries
 
 This packet preserves evidence in memory. Packet 014 owns durable evidence after restart.
-Packet 018 owns cache ordering and freshness. Packet 019 owns typed RSS refresh-failure state.
+Packet 018 owns cache ordering and freshness. No packet owns typed RSS refresh-failure state.
 
 Existing invalid Index or stored identity facts remain outside this packet's repair scope.
 The current metadata and view selectors still exclude profiles from `nostr_npub` output.

@@ -417,7 +417,7 @@ The Library view model keeps failed capsules by request generation for the curre
 Navigation and later failures do not discard earlier capsules. Session teardown ends this in-memory retention without claiming persistence.
 
 Debug output and status text must not include response bodies or raw provider values.
-The existing Library error status reports the storage failure. Packet 019 supplies the separate explicit storage-retry action.
+The existing Library error status reports the storage failure. No packet supplies the separate explicit storage-retry action. The operator deleted packet 019 on 2026-09-21.
 Retry uses the retained token and observation. It does not refetch the response or allocate a new request generation.
 
 The observation input retains request intent, raw property presence, contract proof, and typed validation separately.
@@ -622,7 +622,7 @@ Fixture cleanup removes only paths created by the test. No production database i
 | Provider snapshot writes | `src/identity_ingest.rs::{persist_musicindex_context_by_feed_url, persist_musicindex_feed, persist_musicindex_track}`. Replace source-label grouping only when observed request envelopes reach these calls. |
 | Direct RSS observation writes | `src/rss/subscribe.rs::{subscribe_feed, persist_rss_feed_identity, persist_rss_track_identity}` and `src/rss/enrich.rs::fetch_track_enrichment_from_feed`. Reuse the parsed observation and shared body. |
 | Request propagation | `src/subscribe_service.rs`, `src/feed_service.rs`, `src/application/queries/feed.rs`, and `src/application/queries/library.rs`. Carry observations through `TrackContext` and handle receipts at persistence calls. |
-| Durable reads and comparison | Packet 020's shared metadata projection and packet 036's discrepancy owner consume current heads plus retained evidence. A renderer must not reconstruct provider ownership. |
+| Durable reads and comparison | Packet 020's shared metadata projection consumes current heads plus retained evidence. The operator deleted packet 036, the discrepancy owner, on 2026-09-21. No packet owns discrepancy reads now. A renderer must not reconstruct provider ownership. |
 
 Packets 012, 013, and 014 separate migration, replacement, and raw observation integration.
 Delivery order is 012, 014, then 013.

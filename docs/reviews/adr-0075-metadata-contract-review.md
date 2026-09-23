@@ -470,7 +470,9 @@ Work that the decisions create:
 - Packets 005, 006 and 007 must write a rule for every metadata field.
   Superseded on 2026-09-21. Nine field policies are deferred. ADR 0075 Decision A, amended.
 - Packets 022 to 025 must build the labelled sections that Decision B selects.
+  Reduced on 2026-09-21. The operator deleted packets 023 to 025. Packet 022 builds the track header only.
 - Packet 026 must report the repair of old records before any repair runs.
+  Superseded on 2026-09-21. The operator dropped phase 006 and deleted packet 026. No repair is planned.
 
 ## First-Packet Corrections — 2026-09-19
 
@@ -858,7 +860,9 @@ The minute values come from the curator workflow. No measurement supplies them.
 
 The [field inventory](../schema/adr-0075-metadata-field-inventory.md) assigns all inspected fields to rules or remaining packets.
 Packets 031 and 034 contain the remaining proposed field rules. Packet 035 contains proposed comparison details.
-The corrected [Stophammer request](../plans/adr-0075-stophammer-decision-request.md) includes artwork ownership and separates app transport loss from upstream gaps.
+The [API change request](../plans/musicindex-api-change-request.md) is the request to Stophammer.
+The earlier [Stophammer request](../plans/adr-0075-stophammer-decision-request.md) is its annex.
+The [phase plan](../plans/adr-0075-metadata-contract-phase-plan.md#unassigned-work) lists the upstream changes that the app does not use.
 
 Enclosure ownership already exists upstream. Packet 030 preserves it in the app DTO.
 A possible update hook is separate future work.

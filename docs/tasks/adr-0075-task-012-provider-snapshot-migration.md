@@ -201,8 +201,8 @@ The current binary's older-backup preparation upgrades to 12. It is not a downgr
 
 Packet 013 owns atomic provider replacement and complete-empty collections.
 Packet 014 owns durable raw observations and reachable evidence writes.
-Packet 015 owns the combined isolation, restart, rollback, and superseded-response tests.
-The [plan](../plans/adr-0075-metadata-contract-phase-plan.md#phase-003-storage) records their dependencies.
+The operator deleted packet 015 on 2026-09-21. No packet owns the combined isolation, restart, rollback, and superseded-response tests.
+The [plan](../plans/adr-0075-metadata-contract-phase-plan.md#unassigned-work) lists them as unassigned work.
 Passing this packet does not complete schema cases S11-06 through S11-23.
 
 ## Escalation Triggers

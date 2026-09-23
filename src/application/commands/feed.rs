@@ -412,8 +412,8 @@ impl CheckFeedsAndRepairRoutesResult {
 
     /// Returns the feed receipts that this combined command committed.
     ///
-    /// Packet 044 owns route-repair request retention, so these receipts cover
-    /// the feed check and the feed updates only.
+    /// Route-repair requests retain no observation, so these receipts cover the
+    /// feed check and the feed updates only.
     pub(crate) fn observation_receipts(&self) -> &[ObservationReceipt] {
         &self.observation_receipts
     }
@@ -1143,7 +1143,7 @@ mod observation_tests {
                                 received.len()
                             };
                             let mode = selected.load(Ordering::SeqCst);
-                            // Packet 044 owns route-repair request retention. These
+                            // Route-repair requests retain no observation. These
                             // requests allocate no generation. The repair holds the
                             // database lock during its HTTP work. This fixture must not
                             // use the database for these requests.
@@ -1768,15 +1768,15 @@ mod observation_tests {
         assert_eq!(
             result.observation_receipts().len(),
             1,
-            "packet 044 still owns route-repair request retention"
+            "route-repair requests retain no observation (ADR 0075 dependency cut 2)"
         );
         assert_eq!(
             result.observation_receipts()[0].outcome,
             ObservationOutcome::Success
         );
         // ADR 0065 repairs payment routes after the check. The track request and its
-        // feed fallback keep their existing profiles. Packet 044 owns their retention,
-        // so neither request allocates a generation here.
+        // feed fallback keep their existing profiles. Under ADR 0075 dependency cut 2
+        // they retain no observation, so neither request allocates a generation here.
         assert_eq!(
             fixture.taken_requests(),
             vec![

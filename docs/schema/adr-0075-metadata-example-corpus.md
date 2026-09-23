@@ -967,7 +967,7 @@ Each implementation packet must convert its applicable scenario into a test at t
 | Case | Input or transition | Required result and owner |
 |---|---|---|
 | C19 | Primary `application/pdf` enclosure, then `audio/mpeg` alternate. The selecting operation supports MP3 only | Select the MP3 with its own MIME type and byte count. No action is available when all collection and scalar candidates are unsupported. Packet 020, Decision E |
-| C20 | RSS description `<p>Hello <b>world</b></p>` and Index description `Hello world` | Equal readable text creates no discrepancy. Preserve both original strings. Packet 035 defines normalization, packet 036 implements it |
+| C20 | RSS description `<p>Hello <b>world</b></p>` and Index description `Hello world` | Equal readable text creates no discrepancy. Preserve both original strings. Packet 035 defines normalization. No packet implements it. See the phase plan's unassigned work |
 | C21 | Same-owner RSS description `New text` and Index description `Old text`. Repeat the pair, restart, then observe `New text` from both | Fresh RSS supplies display text. One active discrepancy survives repeat and restart. Agreement resolves it and retains its evidence. Packets 011 and 036 |
 | C22 | An active description or website discrepancy followed by HTTP 503, an omitted include, or unknown owner coverage | Preserve facts and discrepancy evidence. Do not create or resolve a mismatch from missing evidence. Packets 004, 017, and 036 |
 | C23 | A track has no artwork while its feed has an image. Later both owners assert the same URL | Preserve separate owner facts and absent track coverage. URL equality never establishes ownership. Packet 008 upstream request and packet 011 storage |

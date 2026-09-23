@@ -24,7 +24,7 @@ No collection head, selected field, discrepancy, or legacy source fact changes i
 - [Packet 009](adr-0075-task-009-rss-owner-and-nostr-extraction.md), the existing RSS observation and single document parse.
 - [Packet 011](adr-0075-task-011-provider-snapshot-schema.md), reviewed storage design.
 - [Packet 012](adr-0075-task-012-provider-snapshot-migration.md), completed schema-12 implementation and technical checks.
-- [Phase plan](../plans/adr-0075-metadata-contract-phase-plan.md#phase-003-storage), storage order 012, 014, then 013.
+- [Phase plan](../plans/adr-0075-metadata-contract-phase-plan.md#packet-register), storage order 012, 014, then 013.
 
 Packet 013 later extends this writer's transaction with verified complete snapshot replacement and local reads.
 It owns the minimum collection-contract registry. Packet 017 later adds named request profiles through that registry.
@@ -337,7 +337,7 @@ A commit error, failed rollback, or poisoned state lock leaves retry blocked.
 The writer makes no rollback claim for these uncertain states.
 
 The writer's existing record operation supports explicit retry of a retained capsule.
-A separately bounded packet 019 follow-up owns the visible retry action and capsule removal after verified persistence.
+No packet owns the visible retry action and capsule removal after verified persistence. The operator deleted packet 019 on 2026-09-21.
 This packet adds no retry screen, global cache, filesystem spool, or automatic retry policy.
 The changed error-status presentation requires operator acceptance after the visual pause ends.
 
@@ -434,7 +434,11 @@ Each needs its own reviewed task file before dispatch. This packet does not auth
 Each caller packet must identify its exact success and failure receipt consumers.
 Packet 013 supplies verified replacement inside the same writer when a converted caller has the required completeness contract.
 Its local reads must not treat a legacy DTO or source label as a provider snapshot.
-Broad ADR 0075 retention stays open until these live paths have their own completed packets.
+
+The operator deleted packets 019 and 040 to 043 on 2026-09-21.
+In dependency cut 2 in the phase plan, the callers of packets 040 to 043 keep their current behavior.
+Those callers retain no observation, and no packet converts them.
+The phase plan lists the explicit storage retry action as unassigned work.
 
 ## Do Not Touch
 

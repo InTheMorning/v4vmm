@@ -111,9 +111,9 @@ Reduce repeated requests after automated checks cover the contract.
 ## Scope And Non-Goals
 
 Begin with websites, Nostr identifiers, contributor credits and their provenance.
-Provenance records a value's owner, source, extraction path and observation time.
+Provenance is the element in the RSS document that asserted a value. ADR 0075 Decision I.
 
-The contract then covers every other metadata field. The operator selected that scope.
+The contract then covers each field with an accepted rule. ADR 0075 Decision A, amended on 2026-09-21, sets that scope.
 
 Before you change the fallback of a field, audit the current rule and write a new rule.
 Cover description, artwork, publisher, artist text, language, explicit state, dates,
@@ -237,8 +237,8 @@ These five packets carry ADR 0075 to a visible result. Dispatch them in this seq
 | 022 | Code | The track header view model, limited to track identities | 020 |
 
 Packet 017 is complete. It named ten requests and models no provider profile, because a
-provider is transport and not a source. Packet 018 is the next dispatch, and it has no packet
-document yet.
+provider is transport and not a source. Packet 018 is complete. Packet 045 is the next
+dispatch, and it has no packet document yet.
 
 Part B of packet 018 ends the repeated fetch that the baseline measured. Part A implements the accepted ADR 0075 rules and changes no sequential request count.
 Packet 020 applies the rules that the operator accepted. Packet 022 puts them on screen.
@@ -271,6 +271,14 @@ The operator accepted both cuts on 2026-09-21.
 |---|---|
 | The evidence store has no retention limit and no history expiry | No packet |
 | Five `Option<i32>` count fields narrow an upstream `i64` in `src/api.rs` | No packet |
+| The retained discrepancy record of ADR 0075 Decision G. Deleted packet 036 implemented it, and Decision G stays binding | No packet. The operator decides whether packet 045 includes it or a new decision reduces Decision G |
+| A visible retry action for the capsules that packet 014 retains after a storage failure. Deleted packet 019 owned it | No packet. The storage-failure presentation gate of packet 014 depends on it |
+| A field rule for the new upstream `last_build_date` claim type | No packet and no rule. The accepted release-date rule keeps build dates separate from release dates |
+| `Feed.name`, `Track.name`, and `Track.feed_url` no longer arrive from the deployed API. The app continues to read each one | No packet. Delete each reader when its removal is confirmed. See the [API change request](musicindex-api-change-request.md#two-questions-for-the-operator) |
+| Stophammer removed its public artist credits on 2026-04-08, in commit `a16a720`. The ADR 0045 artist binding in `src/identity_ingest.rs` receives no artist identifier since then | No packet. It needs a new ADR 0045 decision |
+| Search rows from the new upstream summary fields, without a detail request for each hit | No packet |
+| A typed RSS refresh-failure state. ADR 0075 §2 and §6 require the app to report a failed refresh. Deleted packet 019 owned it | No packet |
+| Combined isolation, restart, rollback, and superseded-response tests for provider snapshots. Deleted packet 015 owned them | No packet |
 
 ## Requirements Before Dispatch
 

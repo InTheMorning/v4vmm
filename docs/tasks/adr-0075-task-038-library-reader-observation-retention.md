@@ -18,7 +18,7 @@ MusicIndex hydration retains evidence without provider snapshot replacement. Mus
 ## Authority And Dependencies
 
 - [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md), provider evidence, ownership, collection state, and atomic replacement.
-- [Phase plan](../plans/adr-0075-metadata-contract-phase-plan.md#additional-packets-from-the-correction), the bounded Library reader assignment.
+- [Phase plan](../plans/adr-0075-metadata-contract-phase-plan.md#packet-register), the bounded Library reader assignment.
 - [Packet 014](adr-0075-task-014-provider-observation-retention.md), capture, request generations, receipts, storage failures, and retry certainty.
 - [Packet 013](adr-0075-task-013-verified-snapshot-replacement.md), registered RSS coverage and the shared writer's final result types.
 - [Storage design](../schema/adr-0075-provider-snapshot-storage.md), provider/request identity and durable observation boundaries.
@@ -31,7 +31,7 @@ The visual pause does not prevent this packet's mechanical work after dispatch.
 
 Root approved the application-owned ordinary failure boundary below.
 This packet accepts no new comparison, hydration, field, or presentation policy.
-Packet 017 owns named request profiles. Packet 019 owns visible storage retry. Packet 020 owns shared metadata projection.
+Packet 017 owns named request profiles. No packet owns visible storage retry. The operator deleted packet 019 on 2026-09-21. Packet 020 owns shared metadata projection.
 
 ## Files To Inspect
 

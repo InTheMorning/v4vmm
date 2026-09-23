@@ -360,7 +360,7 @@ No application test applies to this document packet.
 | The selected track when a search hit supplies no feed GUID | C17 |
 
 The corpus records each of these limits in the affected case.
-Packet 028 must establish the deployed revision.
+No packet establishes the deployed revision. The operator deleted packet 028 on 2026-09-21.
 
 ### Open Review Gate
 

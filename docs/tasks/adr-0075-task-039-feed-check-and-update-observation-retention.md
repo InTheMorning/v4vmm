@@ -12,14 +12,14 @@ Keep committed receipts through batch reduction, ordinary failures, storage fail
 Preserve existing requests, field values, tag edits, update markers, and command presentation.
 
 The converted roots are `CheckFeedStaleness`, `CheckSubscribedFeeds`, `ApplyFeedUpdates`, and `CheckFeedsAndRepairRoutes`.
-Packet 044 separately owns observation retention for payment-route repair requests.
+Payment-route repair requests retain no observation. The operator deleted packet 044 on 2026-09-21.
 This packet preserves earlier feed receipts through that existing repair command. It does not convert its requests.
 
 ## Authority And Dependencies
 
 - [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md), separate provider evidence and preservation before projection.
 - [ADR 0065](../adr/0065-payment-route-tag-repair.md), the authorized combined check, update, and route-repair workflow.
-- [Phase plan](../plans/adr-0075-metadata-contract-phase-plan.md#additional-packets-from-the-correction), caller assignments and dependencies.
+- [Phase plan](../plans/adr-0075-metadata-contract-phase-plan.md#packet-register), caller assignments and dependencies.
 - [Packet 013](adr-0075-task-013-verified-snapshot-replacement.md), completed RSS completeness registry, replacement, and typed reads.
 - [Packet 014](adr-0075-task-014-provider-observation-retention.md), the shared recorder, writer, receipts, and storage capsules.
 - [Packet 038](adr-0075-task-038-library-reader-observation-retention.md), application error ownership and separate Library evidence retention.
@@ -178,11 +178,12 @@ Run the existing repair command inside the outer result assembly after the obser
 Keep earlier feed receipts through repair success, ordinary failure, typed failure, and cancellation.
 Retain existing feed-update and route-repair result fields and event ordering on success.
 
-Packet 044 must convert the repair's own requests separately.
 The current repair holds its database mutex across HTTP work. Attaching a recorder there would deadlock.
 Do not edit that request path or release its locks.
 Do not change repair eligibility or its tag-only edit filter in this packet.
-Do not claim full combined-command observation coverage until packet 044 passes review.
+
+Do not claim full combined-command observation coverage.
+The operator deleted packet 044 on 2026-09-21. The repair's own requests keep their current behavior and retain no observation.
 
 ## Callback And View-Model Ownership
 
@@ -276,7 +277,7 @@ Report changed files, exact converted roots, request profiles, and result/error 
 Map F39-01 through F39-16 to behavioral tests and record commands, exits, and available output paths.
 Report request counts, row mutations, and committed transactions separately.
 Distinguish inherited writer coverage from new command and callback coverage.
-State that payment-route request retention remains assigned to packet 044.
+State that payment-route requests retain no observation.
 Record prospective visual steps, document links, language-check limits, and every remaining gate.
 
 ## Preparation Checks
@@ -395,7 +396,7 @@ the feed profile, the track profile, the track feed profile, and the RSS body.
 Their include string is unchanged.
 
 The route repair keeps its own profile with the single `payment_routes` include.
-It allocates no generation. Packet 044 still owns its retention.
+It allocates no generation and retains no observation.
 The repair holds the database lock during its HTTP work.
 The behavioral fixture does not use the database while it answers those requests.
 

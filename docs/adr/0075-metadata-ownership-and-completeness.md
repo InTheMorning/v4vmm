@@ -3,24 +3,15 @@
 ## Status
 
 Accepted - 2026-09-19. The operator accepted this decision and answered its two open questions.
-Packet 001 is complete on 2026-09-19. It preserves contributor claim transport.
-Document packets 002 to 008 contain corrected deliverables. Their remaining review gates stay open.
-
-The field inventory assigns uncovered fields to additional packets. Full field-rule coverage is not complete.
-Packet 030 is complete and passed independent review on 2026-09-20.
-
-Code packets 009, 010, 032, 033, and 037 are complete on 2026-09-20.
-Their technical review, integrated checks, and normal desktop binary build are Green.
-These packets correct direct RSS identity extraction, item-page storage, and existing API transport losses.
-
-Packet 012 implementation, technical review, and mechanical checks are complete on 2026-09-20.
-It adds the preserved migration to schema 12. Its presentation gate remains open and paused.
-Durable snapshots, shared projections, remaining field policies, upstream changes, and visual acceptance remain open.
+Amended 2026-09-19 with Decisions D to G, and 2026-09-20 with Decision H.
 
 Amended 2026-09-21. The operator recorded Decision I: MusicIndex is a cache of RSS, and
 RSS is the only provenance. The operator also reduced the field scope in Decision A and
 deferred nine field policies. Provider-ownership display work is superseded.
 The app reports a stale MusicIndex record and directs the operator to podping.me.
+
+This section records the decision only.
+The [phase plan](../plans/adr-0075-metadata-contract-phase-plan.md) records packets, checks, and open gates.
 
 The operator authorized orchestration of the remaining work on 2026-09-20.
 The orchestrator dispatches bounded tasks under accepted rules. Unaccepted policies and visual gates remain open.
@@ -68,7 +59,7 @@ Repeated observations update the same discrepancy. A later matching observation 
 
 Compare descriptions by readable text. HTML formatting and equivalent whitespace alone do not create a discrepancy.
 An omitted collection or a failed request is not a conflicting value.
-A discrepancy does not prove that MusicIndex is stale.
+Decision I amends this rule. A discrepancy with a fresh RSS value identifies a stale MusicIndex record.
 
 Retain evidence for a possible future update hook. This decision authorizes no hook implementation or outbound update request.
 
@@ -361,8 +352,8 @@ explicit in the shared code that prepares data for display.
 | Fact | A recorded source value, with its owner and supporting evidence |
 | Subject | The feed, track or contributor that a fact describes |
 | Claim | An assertion that a source makes about a subject |
-| Provenance | Evidence of a value's owner, source, extraction path and observation time |
-| Provider | The service or RSS resource that delivered the facts |
+| Provenance | The element in the RSS document that asserted a value: the channel, the item, or a person. Decision I |
+| Provider | The service or RSS resource that delivered the facts. This is transport evidence, not provenance |
 | Collection | A set of related facts in a response |
 | Snapshot | A stored copy of a provider's collection from one observation |
 | Coverage state | Whether the request returned the complete collection |
@@ -440,7 +431,7 @@ validated identifiers for identity actions.
 The Podcast Namespace lets each service define its `txt` purpose values.
 The parser packet must list the exact purpose values that it supports.
 It must include checked examples. It must cover existing `purpose="npub"` support.
-It must decide compatibility for `purpose="nostr"` before implementation.
+Decision D rejects compatibility for `purpose="nostr"`.
 It must identify unsupported syntax explicitly.
 
 This decision does not claim that the

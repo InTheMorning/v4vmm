@@ -36,7 +36,8 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 
 | ADR | Scope | Status |
 |---|---|---|
-| [0075](0075-metadata-ownership-and-completeness.md) | Shared metadata rules cover ownership, response completeness, storage by provider, all metadata fields, and labeled identity sections. Packet 001 preserves contributor claim transport. Documents 002–008 are corrected with remaining review gates open. Decisions E–G accept supported enclosures, limited RSS priority, and retained discrepancies. The field inventory assigns incomplete coverage. Each code dispatch remains held | Accepted |
+| [0075](0075-metadata-ownership-and-completeness.md) | Shared metadata rules cover ownership, response completeness, storage by provider, each field with an accepted rule, and labeled identity sections. Decision I makes RSS the only provenance and MusicIndex a cache of RSS. The phase plan records packets and gates | Accepted |
+| [0076](0076-playlist-rss-check-for-stale-musicindex-records.md) | MusicIndex stays the normal checker. A playlist RSS check, also run when a show selects the playlist, applies and reports RSS differences. Tags and payment routes in files change only on operator confirmation. Supersedes the ADR 0075 source-selection rules on acceptance | Proposed |
 | [0004](0004-format-neutral-audio-tag-boundary.md) | Format-neutral audio tag boundary | Accepted |
 | [0005](0005-musicbrainz-metadata-lookup.md) | Metadata-based MusicBrainz lookup. No fingerprinting | Accepted |
 | [0006](0006-musicbrainz-release-detail-enrichment.md) | MusicBrainz release detail enrichment | Accepted |

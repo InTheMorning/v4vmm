@@ -165,7 +165,8 @@ These items are deliberately excluded:
 ## One Question For The Operator
 
 What revision is deployed? Every statement above describes commit `a220f44` in a local
-checkout. No live endpoint was inspected.
+checkout. The verification section below inspected the live endpoint on 2026-09-23. That
+check could not identify the deployed revision.
 
 ## Verification Against The Deployed API
 
@@ -206,6 +207,10 @@ Ask Stophammer whether these fields were removed, renamed, or null in every samp
 accepted feed-title rule already treats `name` as a legacy fallback, so its retirement may be
 deliberate.
 
+Stophammer history answers this for `Track.artist_credit`. Commit `a16a720`, "Drop public
+artist_credit from source reads", removed it on 2026-04-08 with the artist layer. That removal
+is deliberate and is not part of the 2026-09-23 deployment. The other three fields stay unconfirmed.
+
 ### Limits Of This Check
 
 The sample is small: two feed searches, one track search, twelve feed details, two track
@@ -238,7 +243,7 @@ must accept both labels at one time. It must not assume one cutover date.
 ## Checks
 
 The language check ran on this document. The operator sent it to Stophammer on 2026-09-22,
-and reports the fixes live on 2026-09-23. This repository verified no live endpoint and no
-deployed revision.
+and reports the fixes live on 2026-09-23. Read-only GET requests verified changes 1, 2, and 3
+on the live endpoint on 2026-09-23. No check verified the deployed revision.
 No agent wrote in the Stophammer checkout. The measured counts came from read-only
 queries against a local database file.
