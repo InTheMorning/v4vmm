@@ -10,7 +10,7 @@ release date, publication date and duration.
 
 This document covers free-text and scalar display fields only.
 It does not merge people. It does not claim an artist identity for a track or a feed.
-[ADR 0045](../adr/0045-track-artist-binding.md) reserves identity and merge work for a later decision.
+[ADR 0077](../adr/0077-publisher-feed-artist-binding.md) owns artist identity. It keys an artist page on a publisher feed GUID.
 
 A field-matrix entry records OBSERVED behavior from the original inspection or a PROPOSED policy.
 An OBSERVED statement cites a file, a function and the read behavior.
@@ -62,7 +62,7 @@ Other field policies retain their separate review gates.
 
 | Field | Declared owner | Sources, in priority order | Conflict result | No-source result | Feed value on a track | Evidence retained | Current code | Required change |
 |---|---|---|---|---|---|---|---|---|
-| Artist text | Track. A free-text claim, separate from the ADR 0045 artist binding. | RSS ingest chain: iTunes author, RSS author, contributor credit, feed artist.<br>RSS enrichment chain: iTunes author, RSS author, contributor credit. Fills only an empty value.<br>Index display: `track.track_artist` only.<br>Local display: `artist_name`, then `album_artist_name`. | OBSERVED: the first non-empty source in each chain wins. No source tag survives the chain. PROPOSED, pending operator review: keep the first non-empty source and record the discarded candidates as evidence. | No artist text shows. | Yes, through `TrackView::from_api`, not through `track_with_feed_defaults`. It shows `release_artist` when `track_artist` is empty. Upstream, `release_artist` is the feed's own text. No owner label today. PROPOSED label, pending operator review: "Feed artist". | None today. No source tag. No extraction path. No observation time. | `src/rss/subscribe.rs::subscribe_feed`, lines 188 to 198.<br>`src/rss/enrich.rs::fetch_track_enrichment_from_feed`, line 144, and `apply_track_enrichment`, line 195.<br>`src/metadata.rs::source_value_for_metadata_field`, the "Artist" arm, line 1884.<br>`src/views.rs::TrackView::from_api`, line 651.<br>`src/views.rs::TrackView::from_local_with_facts`, line 703.<br>Upstream `src/query.rs`, lines 524 and 542, and `build_track_response`, line 829. | PROPOSED, pending operator review: stop deriving artist text from a contributor credit. Add a source tag and an extraction path to the stored value. |
+| Artist text | Track. A free-text claim, separate from the ADR 0077 artist binding. | RSS ingest chain: iTunes author, RSS author, contributor credit, feed artist.<br>RSS enrichment chain: iTunes author, RSS author, contributor credit. Fills only an empty value.<br>Index display: `track.track_artist` only.<br>Local display: `artist_name`, then `album_artist_name`. | OBSERVED: the first non-empty source in each chain wins. No source tag survives the chain. PROPOSED, pending operator review: keep the first non-empty source and record the discarded candidates as evidence. | No artist text shows. | Yes, through `TrackView::from_api`, not through `track_with_feed_defaults`. It shows `release_artist` when `track_artist` is empty. Upstream, `release_artist` is the feed's own text. No owner label today. PROPOSED label, pending operator review: "Feed artist". | None today. No source tag. No extraction path. No observation time. | `src/rss/subscribe.rs::subscribe_feed`, lines 188 to 198.<br>`src/rss/enrich.rs::fetch_track_enrichment_from_feed`, line 144, and `apply_track_enrichment`, line 195.<br>`src/metadata.rs::source_value_for_metadata_field`, the "Artist" arm, line 1884.<br>`src/views.rs::TrackView::from_api`, line 651.<br>`src/views.rs::TrackView::from_local_with_facts`, line 703.<br>Upstream `src/query.rs`, lines 524 and 542, and `build_track_response`, line 829. | PROPOSED, pending operator review: stop deriving artist text from a contributor credit. Add a source tag and an extraction path to the stored value. |
 | Album artist text | Feed. Both the API route and the local route trace this value back to the feed today. | API display: `track.release_artist`, then `feed.release_artist`.<br>Local ingest: `feed_artist` (channel author or a person credit), else the track's own computed artist text.<br>Feed display: the first track's own artist text, a derived value. | OBSERVED: the API route and the local route can disagree, because each reads a different stored column. PROPOSED, pending operator review: the feed's own declared value takes priority. The per-track candidate is a fallback only. | No album artist text shows. | Yes, through `track_with_feed_defaults`. It copies `feed.release_artist` onto `track.release_artist` when the track value is empty. No owner label today. PROPOSED label, pending operator review: "Feed album artist". | None today. No source tag. No extraction path. | `src/api.rs::track_with_feed_defaults`, line 210.<br>`src/metadata.rs::source_value_for_metadata_field`, the "Album artist" arm, lines 1885 to 1889.<br>`src/views.rs::FeedView::from_local_with_facts`, line 585.<br>`src/rss/subscribe.rs::subscribe_feed`, line 200.<br>Upstream `src/query.rs`, lines 524, 542 and 829. | PROPOSED, pending operator review: apply the "Feed album artist" label wherever this copied value reaches a track. |
 | Language | Feed. `api::Track` carries no language field today. | MusicIndex fact, key `language`, source `musicindex`, from the top-level `Feed.language` field.<br>Legacy `feeds.language` column, from the RSS `<language>` tag. No later MusicIndex fetch overwrites this column. | OBSERVED: the MusicIndex fact wins over the RSS column, with no rule that states this order as a decision. PROPOSED, pending operator review: accept the MusicIndex fact as the higher-priority source. | No language text shows. | Not applicable today. The app stores no track-level language value. See the open question below about the lost upstream track language field. | For the MusicIndex fact: source label, extraction path `$.language`, raw JSON. For the RSS column: none. | `src/api.rs::Feed`, line 136.<br>`src/api.rs::Track`, line 157, has no `language` field.<br>`src/rss/subscribe.rs::subscribe_feed`, lines 45 and 116.<br>`src/identity_ingest.rs::feed_metadata_facts_by_source`, lines 371 to 379.<br>`src/views.rs::FeedView::from_local_with_facts`, line 592. | Packet 033 must preserve the existing upstream track language field. Packet 011 must design its fact key. PROPOSED, pending operator review: apply the MusicIndex-over-RSS order to that new field too. |
 | Explicit state | Feed and track are separate fields in the API data transfer object. | Local track display: MusicIndex fact, key `explicit`, source `musicindex`.<br>Parsed RSS `itunes_explicit` text, through `parse_itunes_explicit`.<br>Index route: `Track.explicit` directly, with a local fallback only when the Index value is empty. | OBSERVED: the MusicIndex fact wins over the parsed RSS text, with no rule that states this order as a decision. PROPOSED, pending operator review: keep this order and treat it as the accepted rule. | No explicit marker shows. | No. `track_with_feed_defaults` does not copy `explicit` from feed to track. | The raw iTunes tag text stays in `tracks.itunes_explicit`. The MusicIndex fact keeps a source label, extraction path `$.explicit`, and raw JSON. | `src/rss/subscribe.rs::subscribe_feed`, line 213.<br>`src/db.rs::parse_itunes_explicit`, line 1276.<br>`src/identity_ingest.rs::feed_metadata_facts_by_source`, lines 380 to 391, and `track_metadata_facts`, lines 451 to 459.<br>`src/views.rs::TrackView::from_local_with_facts`, line 709.<br>`src/application/queries/library.rs::apply_local_track_metadata_defaults`, line 440. | None. PROPOSED, pending operator review: confirm this order as the accepted rule so packet 020 can rely on it. |
@@ -102,28 +102,20 @@ source collection under ADR 0075. Using it to fill a free-text artist field
 blends two different field kinds. This document records that blend as a
 candidate defect against ADR 0075's ownership rules. It does not fix the blend.
 
-## Artist Text: The ADR 0045 Boundary
+## Artist Text: The ADR 0077 Boundary
 
-`src/identity_ingest.rs::persist_track_artist_bindings`, line 121, writes an
-explicit, source-scoped `track_artist_source_bindings` row only when
-`artist_credit.artist_id` is present, through `explicit_artist_credit_id`,
-line 135, and `db::replace_track_artist_source_bindings_for_source`, line 146.
-When no explicit id is present, the function replaces the binding rows with an
-empty list and stores no free-text guess.
+[ADR 0077](../adr/0077-publisher-feed-artist-binding.md) binds an album feed to
+the publisher feed that the album names. The binding uses the publisher feed GUID.
+It is a separate structure from the free-text `track_artist` and `artist_name`
+fields that this document rules on. The free-text fields name no identity.
 
-This binding is a separate structure from the free-text `track_artist` and
-`artist_name` fields this document rules on. The binding names an explicit
-MusicIndex artist identifier. The free-text fields do not.
+This document's rule for Artist text and Album artist text creates no artist
+binding. It rules on display text only.
+[ADR 0077 Decision 1](../adr/0077-publisher-feed-artist-binding.md#1-a-publisher-feed-guid-identifies-an-artist-page)
+forbids an artist identity from name text. This document adds no identity rule.
 
-This document's rule for Artist text and Album artist text does not create,
-imply or extend a `track_artist_source_bindings` row. It rules on display text
-only. [ADR 0045's Decision](../adr/0045-track-artist-binding.md#decision) allows
-a binding only from an explicit source artist id, never from a name match. Its
-[Invariants](../adr/0045-track-artist-binding.md#invariants) forbid a name-only,
-fuzzy, or tag-only binding. Its
-[Non-Goals](../adr/0045-track-artist-binding.md#non-goals) exclude a canonical
-artist graph and a cross-source priority policy beyond the explicit bindings.
-This document adds none of those.
+The superseded ADR 0045 binding in `src/identity_ingest.rs` receives no identifier
+after 2026-04-08. ADR 0077 Decision 7 deletes it.
 
 ## Album Artist Text: The Current Sites
 
@@ -523,7 +515,7 @@ The shared STE checker reports lexical findings for these technical names.
 | source order | The ranked list of sources the app reads for one field |
 | provenance | Evidence of a value's owner, source, extraction path and observation time |
 | fact key | The named column that groups one kind of stored metadata fact |
-| binding | The ADR 0045 explicit, source-scoped link from a track to an artist subject |
+| binding | The ADR 0077 link from an album feed to the publisher feed that it names |
 | chain | The ordered set of fallback steps the code runs for one field |
 | placeholder | Source text that replaces an absent value. It does not name a real value |
 

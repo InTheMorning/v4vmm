@@ -25,8 +25,6 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0012](0012-root-desktop-crate.md) | One root desktop crate | Accepted |
 | [0016](0016-schema-migration-discipline.md) | New tables and columns go through the migration registry | Accepted |
 | [0028](0028-local-identity-source-fact-persistence.md) | Source links, ids, and contributors persist as source facts. ADR 0075 replaces its replacement key | Implemented |
-| [0029](0029-artist-person-identity-persistence.md) | Artist subject facts persist. Person identity deferred | Implemented |
-| [0045](0045-track-artist-binding.md) | Track to artist binding for library artist views | Implemented |
 | [0052](0052-library-index-data-parity-triage.md) | Triage of Library versus Index detail gaps | Implemented |
 | [0053](0053-local-detail-source-fact-parity.md) | Source-fact route for parity gaps not locally durable | Accepted |
 | [0054](0054-local-metadata-source-fact-persistence.md) | Feed and track metadata facts persist by source; hydration visual checks remain open. ADR 0075 replaces its replacement key | Accepted, partial |
@@ -38,6 +36,9 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 |---|---|---|
 | [0075](0075-metadata-ownership-and-completeness.md) | Shared metadata rules cover ownership, response completeness, storage by provider, each field with an accepted rule, and labeled identity sections. Decision I makes RSS the only provenance and MusicIndex a cache of RSS. The phase plan records packets and gates | Accepted |
 | [0076](0076-playlist-rss-check-for-stale-musicindex-records.md) | MusicIndex stays the normal checker. A playlist RSS check, also run when a show selects the playlist, applies and reports RSS differences. Tags and payment routes in files change only on operator confirmation. Supersedes the ADR 0075 source-selection rules on acceptance | Proposed |
+| [0077](0077-publisher-feed-artist-binding.md) | An artist page is keyed on the publisher feed GUID that an album names. Supersedes ADR 0045. Each proposal needs individual operator review. ADR 0078 supersedes its Decision 4 | Accepted |
+| [0078](0078-publisher-page-type-from-stated-role.md) | A publisher page is a label page only when a feed states a label role. The artist count is derived information and never selects the page type. Supersedes ADR 0077 Decision 4 | Accepted |
+| [0079](0079-remove-musicindex-artist-subject-storage.md) | MusicIndex artist subject storage is deleted. The publisher feed is the only artist identity. Person identity stays deferred. Supersedes ADR 0029 | Accepted |
 | [0004](0004-format-neutral-audio-tag-boundary.md) | Format-neutral audio tag boundary | Accepted |
 | [0005](0005-musicbrainz-metadata-lookup.md) | Metadata-based MusicBrainz lookup. No fingerprinting | Accepted |
 | [0006](0006-musicbrainz-release-detail-enrichment.md) | MusicBrainz release detail enrichment | Accepted |

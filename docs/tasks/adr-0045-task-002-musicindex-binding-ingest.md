@@ -9,7 +9,7 @@ Status: Implemented - 2026-05-08.
 
 ## Files to Inspect
 
-- `docs/adr/0045-track-artist-binding.md`
+- `docs/adr/archive/0045-track-artist-binding.md`
 - `docs/tasks/adr-0045-task-001-track-artist-binding-schema.md`
 - `src/api.rs`
 - `src/identity_ingest.rs`
@@ -80,7 +80,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0045-track-artist-binding.md`
+- `docs/adr/archive/0045-track-artist-binding.md`
 - `src/identity_ingest.rs`
 - `src/search/app_impl.rs`
 - `src/search/tests.rs`

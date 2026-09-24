@@ -2,9 +2,11 @@
 
 ## Status
 
-Draft - 2026-09-23. The operator gave the decisions below on 2026-09-23.
+Live - 2026-09-24. The operator gave the decisions below on 2026-09-23.
 This document is a request from the v4vmm client. Stophammer records its own decision in its own ADR.
-It binds nothing until that Stophammer ADR is accepted.
+The live contract names Stophammer ADR 0049 as the owner of each new field.
+
+The operator reports the fields live on 2026-09-24. See "Verification Against The Deployed API".
 
 The [research note](../notes/2026-09-23-publisher-feed-artist-research.md) holds the evidence.
 
@@ -99,8 +101,55 @@ Later passes send conditional requests for new or changed feeds only.
 - The retention of a resolution after the album feed changes or disappears.
 - The API names and ADR 0044 schemas for the new fields.
 
+## Verification Against The Deployed API
+
+Checked on 2026-09-24 with read-only GET requests to `https://api.musicindex.org`.
+No write request and no app launch occurred. Each response is untrusted input.
+
+The contract at `/openapi.json` describes each field below. v4vmm uses this contract as its specification.
+Some text in the Stophammer `docs/API.md` file is not correct until Stophammer task 013 is complete.
+
+| Field | Contract | Live sample |
+|---|---|---|
+| `include=publisher` on `/v1/feeds/{guid}` | `PublisherResponse` array | 24 of 25 recent album feeds have one entry |
+| `publisher_feed_guid` | Required string | Each entry has it. It matched the fetched publisher feed |
+| `music_names_publisher`, `publisher_lists_music` | Required booleans | Each entry sets the two fields to `true` |
+| `publisher_link_resolution` | `guid`, `feed_url` or `unresolved` | 21 `feed_url`, 3 `guid` |
+| `role`, `role_source` | `role` is null when the two sides disagree | Each entry is `artist` with `default` |
+| `release_artist`, `release_artist_source` | Source is `itunes_author`, `itunes_owner` or `placeholder` | All 25 are `itunes_author` |
+| `publisher_text` | `itunes:owner` name | 23 of 25 have it. Each Wavlake album gives "Wavlake" |
+| `publisher_feed_title` | Derived. Null when unresolved | 24 of 25 have it |
+| `distinct_release_artist_count`, `distinct_release_artists` | Derived. Only on a publisher feed | Two publisher feeds give 1 and one name. An album feed omits the two fields |
+
+`/v1/publisher-links/stats` reports 8,249 listed links on 2026-09-24.
+Of these links, 767 resolve by GUID, 6,323 by `feedUrl`, and 1,159 stay unresolved.
+
+### Findings For The Operator
+
+**The track publisher view is empty.** `/v1/tracks/{guid}?include=publisher` returns an empty array.
+The feed-scoped track route gives the same result. Fifteen tracks from eight feeds were checked.
+The feed of each track has one publisher entry.
+
+Ask Stophammer if tracks inherit the album relationship.
+Until Stophammer answers, v4vmm reads the relationship from the feed route only.
+
+**The publisher list groups by `itunes:owner`.** `/v1/publishers` groups feeds by `publisher_text`.
+On 2026-09-24, "Wavlake" holds 7,352 feeds. Thus, that list gives feed writers, not artists or labels.
+v4vmm must not make an artist page or a label page from that list.
+
+**The sample does not show a stated role.** All sampled albums are on Wavlake and give no `rel`.
+No sample shows `role_source` with `publisher_rel`, `music_rel` or `conflict`.
+The Sir Libre Records label feed is a known `rel="label"` case for a later check.
+
+### Limits Of This Check
+
+The sample is 25 recent album feeds, two publisher feeds and fifteen tracks. All are on Wavlake.
+It proves that each field exists and has the contract shape. It does not measure how often each value occurs.
+The deployed revision is unconfirmed. The contract carries the static version `0.1.0`.
+
 ## What v4vmm Does After This Change
 
 v4vmm keys an artist page on the publisher feed GUID.
 It shows `role` and uses the artist count to select an artist page or a label page.
-A separate v4vmm ADR replaces the dead artist-identifier binding of v4vmm ADR 0045.
+v4vmm ADR 0077 replaces the dead artist-identifier binding of v4vmm ADR 0045.
+No v4vmm code reads these fields yet. [ADR 0077](../adr/0077-publisher-feed-artist-binding.md) is Accepted on 2026-09-24. Implementation has not started.

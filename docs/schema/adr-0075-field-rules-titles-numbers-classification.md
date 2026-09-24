@@ -195,7 +195,7 @@ The current omission cannot establish that the publisher supplied no season.
 Raw author and owner facts identify what a source said about its publication object.
 They do not establish a person, contributor occurrence, publisher relationship, or artist binding.
 Owner text alone cannot supply a verified publisher relationship.
-[ADR 0045](../adr/0045-track-artist-binding.md) continues to require explicit artist binding.
+[ADR 0077](../adr/0077-publisher-feed-artist-binding.md) owns artist binding. It uses the publisher feed GUID and never name text.
 
 Packet 006's accepted artist selection remains separate: select declared artist text before any labeled feed fallback.
 Do not derive new artist identities from owner text, contributor names, or platform URL slugs in v4vmm.

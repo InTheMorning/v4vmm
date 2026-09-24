@@ -111,9 +111,23 @@ feeds in a playlist, which also runs when a show selects that playlist. Do not d
 packet 045 or packet 020 until the operator accepts or rejects ADR 0076.
 
 The [publisher relationship request](docs/plans/stophammer-publisher-relationship-request.md)
-records the operator's decisions of 2026-09-23 for Stophammer. Its Stophammer ADR comes first.
-Stophammer removed artist identifiers on 2026-04-08, so the v4vmm artist binding of ADR 0045
-receives none.
+records the operator's decisions of 2026-09-23 for Stophammer. Stophammer ADR 0049 owns the result.
+Its fields are [verified](docs/plans/stophammer-publisher-relationship-request.md#verification-against-the-deployed-api)
+against the deployed API on 2026-09-24. The contract at `/openapi.json` is the specification.
+The track publisher view returned an empty array in each sample. That question is open with Stophammer.
+
+[ADR 0077](docs/adr/0077-publisher-feed-artist-binding.md) is Accepted on 2026-09-24. It keys an
+artist page on the publisher feed GUID and supersedes ADR 0045, which is archived. Implementation
+has not started, and no v4vmm code reads the publisher fields.
+[ADR 0078](docs/adr/0078-publisher-page-type-from-stated-role.md) is Accepted on 2026-09-24. It
+supersedes ADR 0077 Decision 4: only a stated label role gives a label page.
+[ADR 0079](docs/adr/0079-remove-musicindex-artist-subject-storage.md) is Accepted on 2026-09-24. It
+supersedes ADR 0029 and deletes the stale MusicIndex artist subject storage. Person identity stays
+deferred. The operator reviewed each ADR 0077 proposal on 2026-09-24, and none is open.
+Implementation of ADRs 0077 to 0079 has not started. The
+[phase plan](docs/plans/adr-0077-publisher-artist-phase-plan.md) registers four packets. Packets 001
+and 002 are Ready. Packets 003 and 004 are Held on the unsent
+[album summary request](docs/plans/stophammer-publisher-album-summary-request.md) to Stophammer.
 
 Storage, shared projections, remaining field policies, and upstream changes remain open. Visual checks stay paused.
 

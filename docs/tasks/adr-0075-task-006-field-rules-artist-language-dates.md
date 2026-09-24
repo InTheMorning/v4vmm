@@ -67,10 +67,10 @@ merge people. It does not claim an artist identity for a track or a feed.
 - [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md), decision
   3 and decision 4
 
-- [ADR 0045](../adr/0045-track-artist-binding.md), the
-  [Decision](../adr/0045-track-artist-binding.md#decision),
-  [Invariants](../adr/0045-track-artist-binding.md#invariants) and
-  [Non-Goals](../adr/0045-track-artist-binding.md#non-goals) sections
+- [ADR 0045](../adr/archive/0045-track-artist-binding.md), the
+  [Decision](../adr/archive/0045-track-artist-binding.md#decision),
+  [Invariants](../adr/archive/0045-track-artist-binding.md#invariants) and
+  [Non-Goals](../adr/archive/0045-track-artist-binding.md#non-goals) sections
 
 - [ADR 0054](../adr/0054-local-metadata-source-fact-persistence.md), the
   [Decision](../adr/0054-local-metadata-source-fact-persistence.md#decision)

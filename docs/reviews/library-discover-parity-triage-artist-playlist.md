@@ -119,8 +119,8 @@ Triage - 2026-05-17.
 ## Open questions
 
 - Should `FrameNavigationEntry::IndexArtistDetail` become a real remote artist detail page, or is the current scoped Index feed result list the intended behavior? Evidence: `src/app.rs:875` renders `SearchResultsHeaderMode::Scoped` with `SearchResultsTab::Feeds`.
-- How should name-derived Library artists with multiple bound source subjects expose source ids without implying a canonical artist merge? ADR 0045 forbids collapsing subjects into one canonical artist, `docs/adr/0045-track-artist-binding.md:42`.
-- If artist contributors are desired, which future ADR owns durable person keys and merge policy? ADR 0029 explicitly defers global person identity, `docs/adr/0029-artist-person-identity-persistence.md:160`.
+- How should name-derived Library artists with multiple bound source subjects expose source ids without implying a canonical artist merge? ADR 0045 forbids collapsing subjects into one canonical artist, `docs/adr/archive/0045-track-artist-binding.md:42`.
+- If artist contributors are desired, which future ADR owns durable person keys and merge policy? ADR 0029 explicitly defers global person identity, `docs/adr/archive/0029-artist-person-identity-persistence.md:160`.
 
 ---
 

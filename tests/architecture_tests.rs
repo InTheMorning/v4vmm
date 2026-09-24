@@ -6006,34 +6006,27 @@ fn screens_do_not_call_migrated_subscription_remove_paths() {
     );
 }
 
+/// Durable renderer portability (ADR 0061): screens do not read artist source facts.
+/// ADR 0079 deletes this guard with the artist source fact storage.
 #[test]
-fn screens_do_not_access_track_artist_binding_storage() {
-    let forbidden = [
-        "track_artist_source_bindings",
-        "TrackArtistSourceBinding",
-        "track_artist_source_bindings_for_track(",
-        "replace_track_artist_source_bindings",
-        "db::artist_source_fact(",
-    ];
+fn screens_do_not_read_artist_source_facts() {
     let mut violations = Vec::new();
     for file_name in screen_enforcement_files() {
         let file = file_name.as_str();
         let path = manifest_path(file);
         let source = read_source(&path);
         for (line_number, line) in code_lines(&source) {
-            for pattern in forbidden {
-                if line.contains(pattern) {
-                    violations.push(format!(
-                        "{file}:{line_number}: ADR 0045 binding storage and artist-source fact lookups must stay in DB/ingest/read-model helpers, not screens/UI: `{line}`"
-                    ));
-                }
+            if line.contains("db::artist_source_fact(") {
+                violations.push(format!(
+                    "{file}:{line_number}: ADR 0061 renderer portability: a screen must not read artist source facts. Read them in src/sources.rs and pass the result through the view model: `{line}`"
+                ));
             }
         }
     }
 
     assert!(
         violations.is_empty(),
-        "ADR 0045 screen binding-storage violations:\n{}",
+        "ADR 0061 screen artist-source fact violations:\n{}",
         violations.join("\n")
     );
 }
@@ -6233,54 +6226,6 @@ fn metadata_source_fact_keys_stay_owner_scoped() {
             "ADR 0054 metadata fact view projection missing `{required}`"
         );
     }
-}
-
-#[test]
-fn track_artist_binding_storage_is_owned_by_db_ingest_and_read_models() {
-    let mut violations = Vec::new();
-    for path in rust_files_under("src") {
-        let file = rel_path(&path);
-        let source = read_source(&path);
-        for (line_number, line) in code_lines(&source) {
-            let raw_table_access = line.contains("FROM track_artist_source_bindings")
-                || line.contains("INTO track_artist_source_bindings")
-                || line.contains("UPDATE track_artist_source_bindings")
-                || line.contains("CREATE TABLE IF NOT EXISTS track_artist_source_bindings")
-                || line.contains("ON track_artist_source_bindings");
-            if raw_table_access && file != "src/db.rs" {
-                violations.push(format!(
-                    "{file}:{line_number}: raw ADR 0045 binding table access belongs in src/db.rs: `{line}`"
-                ));
-            }
-            if (line.contains("replace_track_artist_source_bindings(")
-                || line.contains("replace_track_artist_source_bindings_for_source("))
-                && !matches!(
-                    file.as_str(),
-                    "src/db.rs" | "src/identity_ingest.rs" | "src/sources.rs"
-                )
-            {
-                violations.push(format!(
-                    "{file}:{line_number}: ADR 0045 binding writes belong in DB/ingest helpers: `{line}`"
-                ));
-            }
-            if line.contains("track_artist_source_bindings_for_track(")
-                && !matches!(
-                    file.as_str(),
-                    "src/db.rs" | "src/identity_ingest.rs" | "src/sources.rs"
-                )
-            {
-                violations.push(format!(
-                    "{file}:{line_number}: ADR 0045 binding reads belong in DB/source read-model helpers: `{line}`"
-                ));
-            }
-        }
-    }
-
-    assert!(
-        violations.is_empty(),
-        "ADR 0045 binding storage ownership violations:\n{}",
-        violations.join("\n")
-    );
 }
 
 #[test]

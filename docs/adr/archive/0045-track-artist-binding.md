@@ -2,6 +2,9 @@
 
 ## Status
 
+Superseded by ADR 0077 - 2026-09-24. ADR 0077 keys an artist page on the publisher feed GUID.
+Stophammer removed `artist_credit` on 2026-04-08, so this binding received no identifier after that date.
+
 Implemented - 2026-05-11. Tasks 001-004 complete.
 
 Follows ADR 0029, which persisted explicit artist source facts but

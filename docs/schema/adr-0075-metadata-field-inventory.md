@@ -106,8 +106,8 @@ Packet 017 must identify summary coverage before packet 013 accepts a replacemen
 
 | Boundary | Fields and governing rule |
 |---|---|
-| Artist subject | `artist_id`, name, sort name, area, begin/end years, URL, aliases, tags, image, update time, feed/track counts. [ADR 0029](../adr/0029-artist-person-identity-persistence.md) retains separate subject facts. Packet 034 covers derived counts |
-| Artist binding | `artist_credit.artist_id` and `display_name`. [ADR 0045](../adr/0045-track-artist-binding.md) requires explicit binding. No name inference |
+| Artist subject | `artist_id`, name, sort name, area, begin/end years, URL, aliases, tags, image, update time, feed/track counts. The API sends none of these after 2026-04-08. [ADR 0079](../adr/0079-remove-musicindex-artist-subject-storage.md) deletes the stored subject facts |
+| Artist binding | `publisher_feed_guid` of an album feed. [ADR 0077](../adr/0077-publisher-feed-artist-binding.md) owns the binding. No name inference. The API sends no `artist_credit` after 2026-04-08 |
 | Publisher search | Text, feed/track counts, and feed/track result lists. Packet 005 owns text. Packet 034 owns aggregates and collection coverage |
 | Embedded tags | Format-specific fields and artwork remain separate governed by [ADR 0004](../adr/0004-format-neutral-audio-tag-boundary.md). [ADR 0008](../adr/0008-explicit-id3v24-write-boundary.md) governs writes |
 | MusicBrainz | Lookup and release facts remain separate governed by [ADR 0005](../adr/0005-musicbrainz-metadata-lookup.md) and [ADR 0006](../adr/0006-musicbrainz-release-detail-enrichment.md) |

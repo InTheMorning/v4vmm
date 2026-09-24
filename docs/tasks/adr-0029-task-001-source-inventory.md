@@ -11,7 +11,7 @@ and existing projections before designing ADR 0029 schema.
 
 ## Read
 
-- `docs/adr/0029-artist-person-identity-persistence.md`
+- `docs/adr/archive/0029-artist-person-identity-persistence.md`
 - `docs/plans/adr-0029-artist-person-identity-persistence-phase-plan.md`
 - `../musicindex/api.json`
 - `src/api.rs`
@@ -92,7 +92,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0029-artist-person-identity-persistence.md`
+- `docs/adr/archive/0029-artist-person-identity-persistence.md`
 - `docs/plans/adr-0029-artist-person-identity-persistence-phase-plan.md`
 - `docs/tasks/adr-0029-task-001-source-inventory.md`
 - `../musicindex/api.json`

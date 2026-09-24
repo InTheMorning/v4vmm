@@ -4,6 +4,8 @@
 
 Implemented - 2026-05-17. Documentation-only triage complete.
 
+Amended 2026-09-24: ADR 0079 supersedes ADR 0029. Artist identity routes to ADR 0077, and person identity routes to ADR 0079.
+
 ## Context
 
 `docs/plans/deferred-architecture-work-index.md` item #2 tracks
@@ -37,7 +39,7 @@ these buckets:
   deliberately omitted by an existing contract. Document the invariant and do
   not create implementation work.
 
-Artist/person identity reconciliation remains owned by ADR 0029. If a parity
+Artist identity is owned by ADR 0077, and person identity by ADR 0079. If a parity
 gap requires matching remote artists or contributors to durable local person
 identity, this triage records it as an open question instead of routing it to
 ADR 0024 or source-fact work.
@@ -61,7 +63,7 @@ Runtime implementation is out of scope for this ADR.
   this triage.
 - Loading-shape fixes route to ADR 0024 follow-up work.
 - Persistence fixes route to source-fact ADR work.
-- Identity reconciliation routes to ADR 0029 or a future person-identity ADR.
+- Identity reconciliation routes to ADR 0077 for artists, or to ADR 0079 and a future person-identity ADR for persons.
 - Intentional asymmetries must name the contract that makes the asymmetry
   deliberate.
 

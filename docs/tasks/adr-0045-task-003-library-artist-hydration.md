@@ -9,7 +9,7 @@ Status: Implemented - 2026-05-11.
 
 ## Files to Inspect
 
-- `docs/adr/0045-track-artist-binding.md`
+- `docs/adr/archive/0045-track-artist-binding.md`
 - `docs/tasks/adr-0045-task-001-track-artist-binding-schema.md`
 - `docs/tasks/adr-0045-task-002-musicindex-binding-ingest.md`
 - `src/sources.rs`
@@ -86,7 +86,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0045-track-artist-binding.md`
+- `docs/adr/archive/0045-track-artist-binding.md`
 - `src/sources.rs`
 - `src/views.rs`
 - `src/view_models/artist.rs`

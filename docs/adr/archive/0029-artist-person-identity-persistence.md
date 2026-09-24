@@ -2,6 +2,8 @@
 
 ## Status
 
+Superseded by ADR 0079 - 2026-09-24. Stophammer removed its artist records on 2026-04-08. ADR 0079 deletes this storage and keeps the person identity rule.
+
 Implemented - 2026-05-01. Tasks 001-005 complete; ADR runtime scope
 closed. Person/global identity persistence is deferred; see
 `docs/plans/deferred-architecture-work-index.md` priority item 1.

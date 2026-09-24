@@ -2,7 +2,7 @@
 
 ## Reviewed Artifacts
 
-- `docs/adr/0045-track-artist-binding.md`
+- `docs/adr/archive/0045-track-artist-binding.md`
 - `docs/plans/adr-0045-track-artist-binding-phase-plan.md`
 - `docs/tasks/adr-0045-task-001-track-artist-binding-schema.md`
 - `docs/tasks/adr-0045-task-002-musicindex-binding-ingest.md`

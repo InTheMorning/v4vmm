@@ -30,7 +30,7 @@ provenance-first data used by Discover. Person identity remains deferred.
 
 ## Affected Modules
 
-- `docs/adr/0029-artist-person-identity-persistence.md`
+- `docs/adr/archive/0029-artist-person-identity-persistence.md`
 - `src/views.rs`
 - `src/sources.rs`
 - `src/local_identity.rs`

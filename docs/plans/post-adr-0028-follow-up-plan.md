@@ -68,6 +68,6 @@ reconciliation.
 
 - Durable artist/person identity persistence, matching rules, and conflict
   policy are routed to
-  `docs/adr/0029-artist-person-identity-persistence.md`.
+  `docs/adr/archive/0029-artist-person-identity-persistence.md`.
 - Broader Library/Discover visual parity remains tracked outside ADR 0028; this
   plan only closed the contributor identity visibility gap.

@@ -11,7 +11,7 @@ already has an explicit MusicIndex artist id.
 
 ## Read
 
-- `docs/adr/0029-artist-person-identity-persistence.md`
+- `docs/adr/archive/0029-artist-person-identity-persistence.md`
 - `docs/tasks/adr-0029-task-003-musicindex-artist-ingest.md`
 - `src/views.rs`
 - `src/sources.rs`
@@ -83,7 +83,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0029-artist-person-identity-persistence.md`
+- `docs/adr/archive/0029-artist-person-identity-persistence.md`
 - `docs/tasks/adr-0029-task-004-local-artist-source-hydration.md`
 - `src/views.rs`
 - `src/sources.rs`

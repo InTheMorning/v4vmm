@@ -135,7 +135,7 @@ The operator has not decided these values. Each one needs individual acceptance 
 
 Stophammer removed its public artist credits on 2026-04-08, in commit `a16a720`.
 Since then, the artist binding of ADR 0045 (`src/identity_ingest.rs`) receives no artist identifier.
-That is a question for ADR 0045, not for this decision.
+ADR 0077 replaces that binding. It is not part of this decision.
 
 The deployed API also sends no `Feed.name`, `Track.name`, or `Track.feed_url`.
 The app deletes the code that reads each field when its removal is confirmed.

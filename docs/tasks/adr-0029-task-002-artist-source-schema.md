@@ -11,7 +11,7 @@ by `(source, source_artist_id)`.
 
 ## Read
 
-- `docs/adr/0029-artist-person-identity-persistence.md`
+- `docs/adr/archive/0029-artist-person-identity-persistence.md`
 - `docs/plans/adr-0029-artist-person-identity-persistence-phase-plan.md`
 - `docs/tasks/adr-0029-task-001-source-inventory.md`
 - `docs/reviews/adr-0029-task-001-source-inventory-review.md`
@@ -100,7 +100,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0029-artist-person-identity-persistence.md`
+- `docs/adr/archive/0029-artist-person-identity-persistence.md`
 - `docs/plans/adr-0029-artist-person-identity-persistence-phase-plan.md`
 - `docs/tasks/adr-0029-task-002-artist-source-schema.md`
 - `docs/reviews/adr-0029-task-001-source-inventory-review.md`
