@@ -2,7 +2,11 @@
 
 ## Status
 
-Implemented - 2026-09-10.
+Accepted - 2026-09-24. Implemented on 2026-09-10 before the ADR 0076 amendment. The amendment is not implemented.
+
+Amended 2026-09-24 by [ADR 0076](0076-playlist-rss-check-for-stale-musicindex-records.md) Decision 9.
+Each write of a payment route to a file uses the route stored in the database.
+The repair asks MusicIndex only when the database has no route for that track. It never replaces a route that the RSS check set.
 
 Reconciled 2026-09-10: the operator confirmed Show action feedback task 001 tested
 and passed, closing the final feed-result readability gate. Tag-repair

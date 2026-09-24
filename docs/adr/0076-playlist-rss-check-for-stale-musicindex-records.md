@@ -2,9 +2,10 @@
 
 ## Status
 
-Proposed - 2026-09-23. The operator gave each decision below on 2026-09-23.
-The values in "Proposals for operator review" are not decided.
-This ADR is not binding until the operator accepts it.
+Accepted - 2026-09-24. The operator gave each decision below on 2026-09-23 and accepted this ADR on 2026-09-24.
+Implementation has not started.
+The operator reviewed each decision on 2026-09-24. The review changed Decisions 3, 5 and 7.
+"Accepted Values" records the three numeric values that the operator accepted on 2026-09-24.
 
 ## Context
 
@@ -61,8 +62,12 @@ They also include artist text, `podcast:person` credits, the Nostr `podcast:txt`
 
 A track that RSS adds or removes also makes the MusicIndex record stale.
 
+The check also compares the album's own `<podcast:publisher>` remote item, its `feedGuid` and its `feedUrl`.
+The album states this element. ADR 0077 treats it as RSS. A difference updates the stored `music_to_publisher` relationship of that album.
+The operator added this element on 2026-09-24.
+
 MusicIndex computes some values that RSS does not state directly.
-These are the publisher, a release date from the oldest item, and counts.
+These are the publisher link state, the publisher role, a release date from the oldest item, and counts.
 The check does not compare them. The app keeps the MusicIndex value for them.
 
 Each compared element uses a written comparison rule. Descriptions compare as readable text.
@@ -85,7 +90,11 @@ An automatic update therefore keeps the earlier value as evidence.
 
 After an RSS value replaces a MusicIndex value, a later MusicIndex fetch does not overwrite that field.
 The field returns to normal MusicIndex updates when MusicIndex supplies the same value as the last RSS check.
+It also returns when MusicIndex supplies a record that it updated after the last RSS check.
 Without this rule, each MusicIndex fetch would write the stale value back.
+
+The operator added the second condition on 2026-09-24. It covers an RSS change that MusicIndex receives before the next playlist check.
+The packet for this rule confirms that the MusicIndex `updated_at` value records the ingest of the RSS document. If it does not, the packet stops and reports.
 
 ### 6. A New Track Is Stored And Offered For Download
 
@@ -97,6 +106,10 @@ It downloads nothing. The report lists the track with the existing download acti
 When RSS no longer contains a stored track, the app marks the track "removed from feed" with the time of the check.
 The app keeps the track, its file, its playlist entries, and its cue entries.
 The report lists the track. The mark clears if the track returns to RSS.
+
+A track with this mark in a show playlist is not ready for the show.
+The artist removed it, so its payment route can be incorrect.
+The operator removes the track from the playlist, or confirms that the show plays it. The operator added this rule on 2026-09-24.
 
 ### 8. Audio Tags Change Only On Operator Confirmation
 
@@ -121,11 +134,11 @@ A playlist track whose file route differs from the stored route is not ready for
 The track stays not ready until the operator confirms "Update n file(s)".
 The operator therefore cannot go live with a known wrong payment route without a warning.
 
-## Proposals For Operator Review
+## Accepted Values
 
-The operator has not decided these values. Each one needs individual acceptance before its code packet.
+The operator accepted each value below on 2026-09-24.
 
-| Detail | Proposal |
+| Detail | Value |
 |---|---|
 | Minimum interval between requests to one host | 2 seconds, the same as the Stophammer Wavlake import |
 | Parallel hosts | At most four hosts at the same time |
@@ -142,7 +155,7 @@ The app deletes the code that reads each field when its removal is confirmed.
 
 ## Relationship To Other Decisions
 
-On acceptance, this ADR supersedes these parts of ADR 0075:
+This ADR supersedes these parts of ADR 0075 from 2026-09-24:
 
 - Decisions F, G, and H.
 - The Decision I rule that fresh RSS always supplies a value.
@@ -156,12 +169,12 @@ These parts of ADR 0075 stay in force:
 - The extraction orders, placeholder rules, date precision and display rules, duration formats, URL action rules, and fallback sections in the field refinements.
 - Sections 1, 2, 3, 4, 5, and 7.
 
-On acceptance, this ADR also amends two decisions:
+This ADR also amends two decisions from 2026-09-24:
 
 - ADR 0065. The route repair uses the stored route and asks MusicIndex only when no stored route exists.
-- ADR 0059. A difference between the file route and the stored route makes a track not ready.
+- ADR 0059. A difference between the file route and the stored route makes a track not ready. A track with the "removed from feed" mark is also not ready until the operator confirms it or removes it.
 
-In the same change as acceptance:
+The acceptance change of 2026-09-24 did these items. The new packets are not written yet:
 
 - ADRs 0075, 0065, and 0059 record the change in their Status sections.
 - The ADR index, `AGENTS.md`, and the ADR 0075 phase plan change.
@@ -183,6 +196,9 @@ Mechanical criteria, phrased at the owning layer:
 - A later equal MusicIndex value returns the field to normal MusicIndex updates.
 - A failed RSS request changes no stored value.
 - A new RSS track creates a stored track with no file. A missing RSS track sets the removed mark and deletes nothing.
+- The readiness view model reports a track with the removed mark as not ready, until the operator confirms it or removes it from the playlist.
+- A changed `<podcast:publisher>` remote item updates the stored `music_to_publisher` relationship. A changed link state or role that MusicIndex derives causes no difference.
+- A MusicIndex record updated after the last RSS check returns a held field to normal MusicIndex updates.
 - The check writes no audio tag.
 - The tag update skips a file that the show plays or holds in its cue, and keeps it in the count.
 - The route repair uses a stored route and does not replace a route that the RSS check set.
@@ -193,7 +209,7 @@ Visual criteria, for an operator check after the visual pause ends:
 
 - The report is readable in Light and Dark themes at normal and narrow widths.
 - The "Check RSS" button, the "Update n file(s)" button, and its popup show the correct state, count, and file list.
-- The "removed from feed" mark and the not-ready state are clear on the playlist and on the Show surface.
+- The "removed from feed" mark, its not-ready state and its confirmation are clear on the playlist and on the Show surface.
 - A view that is open during a check updates in place.
 
 ## Alternatives Considered

@@ -1,5 +1,10 @@
 # ADR 0075 Field Rules For Links And Media
 
+> Superseded in part by [ADR 0076](../adr/0076-playlist-rss-check-for-stale-musicindex-records.md) on 2026-09-24.
+> The provider priority, freshness, expiry, stale-label and retained-discrepancy parts of this document are not in force.
+> The app stores one value for each field, and the ADR 0076 playlist RSS check replaces it.
+> The extraction orders, placeholder rules, date and duration rules, URL action rules, fallback sections and the readable-text comparison stay in force.
+
 ## Scope
 
 This document states the field rule for six link and media fields.

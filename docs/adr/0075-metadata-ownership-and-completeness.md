@@ -10,6 +10,10 @@ RSS is the only provenance. The operator also reduced the field scope in Decisio
 deferred nine field policies. Provider-ownership display work is superseded.
 The app reports a stale MusicIndex record and directs the operator to podping.me.
 
+Amended 2026-09-24: [ADR 0076](0076-playlist-rss-check-for-stale-musicindex-records.md) supersedes Decisions F, G and H.
+It also supersedes two Decision I rules. One rule gives fresh RSS the value. The other rule limits MusicIndex to a feed that the app has not fetched.
+It supersedes the provider priority, freshness, expiry and stale-label parts of each field refinement. The other parts stay in force.
+
 This section records the decision only.
 The [phase plan](../plans/adr-0075-metadata-contract-phase-plan.md) records packets, checks, and open gates.
 
@@ -46,11 +50,15 @@ Decision E, supported enclosures. Each operation selects only a format that it s
 Select the first supported primary enclosure, then the first supported enclosure, then a supported direct enclosure.
 The priority order is shared. Different operation capabilities can produce different selections.
 
+ADR 0076 supersedes Decision F on 2026-09-24.
+
 Decision F, description and website priority. Prefer a fresh, successful direct RSS observation over the corresponding MusicIndex value.
 Compare the same declared owner and field. This rule covers feed and track descriptions, feed websites, and track page links.
 Keep both providers' facts. This rule selects display values only.
 
 Other fields retain their separate rules.
+
+ADR 0076 supersedes Decision G on 2026-09-24.
 
 Decision G, retained discrepancies. Preserve a structured discrepancy when comparable RSS and MusicIndex values differ.
 Keep both original values, the owner, the field, provider resources, and available source observation times.
@@ -70,6 +78,8 @@ They tighten field handling without changing ownership or releasing code dispatc
 Field-rule review. Document agents propose unresolved source priorities and conflict rules.
 The operator reviews those proposals before the dependent code packets run.
 
+ADR 0076 supersedes Decision H on 2026-09-24.
+
 Decision H, explicit RSS absence. Fresh verified RSS absence hides the retained MusicIndex description or track page value.
 This rule covers feed descriptions, track descriptions, feed websites, and track page links.
 Retain the earlier values and discrepancy evidence. Unknown coverage or a failed request cannot establish absence.
@@ -82,7 +92,7 @@ value: the channel, the item, or a person.
 The provider that delivered a value is transport evidence. It is not provenance, and it is
 not a display concern. A screen does not label a value with the provider that carried it.
 
-A fresh, successful direct RSS observation always supplies the value. MusicIndex supplies a
+ADR 0076 supersedes this paragraph on 2026-09-24: A fresh, successful direct RSS observation always supplies the value. MusicIndex supplies a
 value only for a feed that the app has not fetched.
 
 A MusicIndex value that disagrees with a fresh RSS value is a stale cache record, and it is
@@ -481,6 +491,8 @@ and [link rules](../schema/adr-0075-field-rules-links-and-media.md#accepted-sour
 define their scope and proposed details. Unaccepted details remain held.
 
 ### 4a. Keep Discrepancy Evidence Separate From Display Selection
+
+Superseded by ADR 0076 on 2026-09-24. ADR 0076 Decision 4 keeps the original responses as evidence.
 
 Decision G applies to comparable values covered by Decision F.
 Match the feed scope, track scope when applicable, field, and provider pair before comparison.

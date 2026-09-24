@@ -48,6 +48,9 @@ Implementation and mechanical checks are complete on 2026-09-24. Its visual gate
 [Packet 002](../tasks/adr-0077-task-002-publisher-relationship-transport-and-storage.md) stores the publisher relationship.
 Implementation and mechanical checks are complete on 2026-09-24. It needs no visual acceptance.
 
+[ADR 0076](../adr/0076-playlist-rss-check-for-stale-musicindex-records.md) is Accepted on 2026-09-24. It amends the ADR 0059 readiness rule.
+A track is not ready for a show when its file payment route differs from the stored route, or when it has the "removed from feed" mark. No packet implements this yet.
+
 The orchestrator dispatches bounded work under accepted rules and reviews each result.
 New product policies retain their acceptance gate. Visual checks remain paused.
 

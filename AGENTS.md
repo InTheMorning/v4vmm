@@ -29,7 +29,7 @@ The [field inventory](docs/schema/adr-0075-metadata-field-inventory.md) assigns 
 Those proposed rules are written. Their product-policy review remains open. Full metadata coverage is not complete.
 
 The operator accepted ADR 0075 Decisions D through G.
-They cover supported Nostr purposes, supported enclosures, fresh RSS priority for descriptions and websites, and retained discrepancy evidence.
+Decisions D and E cover supported Nostr purposes and supported enclosures. ADR 0076 supersedes Decisions F to H.
 Description comparison uses readable text. A possible MusicIndex update hook remains deferred.
 
 [Packet 030](docs/tasks/adr-0075-task-030-enclosure-claim-transport.md) is complete on
@@ -105,10 +105,12 @@ against the deployed API.
 This client implements none of the three landed changes. Each one needs its own packet. A new
 `last_build_date` claim type has no field rule yet, and three decoded fields no longer arrive.
 
-[ADR 0076](docs/adr/0076-playlist-rss-check-for-stale-musicindex-records.md) is Proposed on
-2026-09-23. It replaces the per-field source selection of ADR 0075 with an RSS check of the
-feeds in a playlist, which also runs when a show selects that playlist. Do not dispatch
-packet 045 or packet 020 until the operator accepts or rejects ADR 0076.
+[ADR 0076](docs/adr/0076-playlist-rss-check-for-stale-musicindex-records.md) is Accepted on
+2026-09-24, after the operator reviewed each decision. It replaces the per-field source
+selection of ADR 0075 with an RSS check of the feeds in a playlist, which also runs when a show
+selects that playlist. It supersedes ADR 0075 Decisions F to H and amends ADRs 0059 and 0065.
+Its packets replace packet 045, and packet 020 projects stored values without source selection.
+No packet document exists for them yet. The operator accepted its three numeric values on 2026-09-24.
 
 The [publisher relationship request](docs/plans/stophammer-publisher-relationship-request.md)
 records the operator's decisions of 2026-09-23 for Stophammer. Stophammer ADR 0049 owns the result.

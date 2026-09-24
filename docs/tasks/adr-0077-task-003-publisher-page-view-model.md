@@ -22,17 +22,20 @@ The orchestrator releases this packet when each condition is true:
 
 1. Stophammer answers the album summary request. The orchestrator records the answer in that request document.
 2. The deployed API sends the summary fields, or the operator selects a new route for album titles.
-3. The operator confirms the Library page scope below.
 
 The orchestrator then corrects the "Index Query" section to the deployed fields before a session starts.
 
-## Library Page Scope - Operator Confirmation Required
+## Library Page Scope
 
-This packet proposes that a Library publisher page shows only Library albums, and sends no request.
-The albums are the local feeds with a stored `music_to_publisher` row for the publisher feed GUID.
-An Index publisher page shows each album that the publisher relationship lists.
+The operator accepted this scope on 2026-09-24.
 
-This scope is a product policy. The operator has not accepted it.
+A Library publisher page shows two groups:
+
+- Library albums: the local feeds with a stored `music_to_publisher` row for the publisher feed GUID. They come from local data.
+- Albums that are not in the Library: the other albums that the publisher relationship lists. They come from one `INDEX_PUBLISHER_PAGE` request.
+
+The Library group shows without the request. When the request fails, the page keeps the Library group and reports the failure for the other group.
+An Index publisher page shows each album that the publisher relationship lists, and marks each album that is in the Library.
 
 ## Required Changes
 
@@ -52,8 +55,9 @@ With the summary fields, it sends no request for an album.
 
 ### Library Query
 
-The query reads `feed_publisher_relationships` rows for the GUID and the local feeds that they name. It sends no request.
+The query reads `feed_publisher_relationships` rows for the GUID and the local feeds that they name.
 The page title comes from the stored `publisher_feed_title`.
+The query then sends the one `INDEX_PUBLISHER_PAGE` request for the albums that are not in the Library.
 
 ### View Model
 
@@ -79,7 +83,9 @@ Use the prefix `adr_0077_publisher_page_` for behavioral tests beside the owning
 | Case | Required proof |
 |---|---|
 | R3-01 | The Index query sends one request with `INDEX_PUBLISHER_PAGE`, and no request for an album |
-| R3-02 | The Library query sends no request, and returns only local feeds with a stored row for the GUID |
+| R3-02 | The Library query returns the local feeds with a stored row for the GUID without a request. It sends one `INDEX_PUBLISHER_PAGE` request for the other albums, and puts them in a separate group |
+| R3-02a | When that request fails, the Library group stays, and the view model reports the failure for the other group |
+| R3-02b | The Index page marks each album that is in the Library |
 | R3-03 | One owned album with a stated `label` role gives `Label`. ADR 0078 |
 | R3-04 | A count of 5 with each role `default` gives `Artist`. ADR 0078 |
 | R3-05 | A "listed by" album with a stated `label` role does not give `Label` |

@@ -2,7 +2,11 @@
 
 ## Status
 
-Implemented - 2026-09-10.
+Accepted - 2026-09-24. Implemented on 2026-09-10 before the ADR 0076 amendment. The amendment is not implemented.
+
+Amended 2026-09-24 by [ADR 0076](0076-playlist-rss-check-for-stale-musicindex-records.md) Decisions 7 and 9.
+A playlist track is not ready for a show when its file payment route differs from the stored route.
+A track with the "removed from feed" mark is not ready until the operator confirms it or removes it from the playlist.
 
 Tasks 001-017 are complete, including compact event controls, badges,
 diagnostics, operator acceptance, and fixture cleanup.

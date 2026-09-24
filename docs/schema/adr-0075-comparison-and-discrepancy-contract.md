@@ -1,5 +1,10 @@
 # ADR 0075 Comparison And Discrepancy Contract
 
+> Superseded in part by [ADR 0076](../adr/0076-playlist-rss-check-for-stale-musicindex-records.md) on 2026-09-24.
+> The provider priority, freshness, expiry, stale-label and retained-discrepancy parts of this document are not in force.
+> The app stores one value for each field, and the ADR 0076 playlist RSS check replaces it.
+> The extraction orders, placeholder rules, date and duration rules, URL action rules, fallback sections and the readable-text comparison stay in force.
+
 ## Status
 
 Technical review passed - 2026-09-20. URL comparison and action policies have individual acceptance on 2026-09-21.

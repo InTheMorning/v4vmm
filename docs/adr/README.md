@@ -34,8 +34,8 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 
 | ADR | Scope | Status |
 |---|---|---|
-| [0075](0075-metadata-ownership-and-completeness.md) | Shared metadata rules cover ownership, response completeness, storage by provider, each field with an accepted rule, and labeled identity sections. Decision I makes RSS the only provenance and MusicIndex a cache of RSS. The phase plan records packets and gates | Accepted |
-| [0076](0076-playlist-rss-check-for-stale-musicindex-records.md) | MusicIndex stays the normal checker. A playlist RSS check, also run when a show selects the playlist, applies and reports RSS differences. Tags and payment routes in files change only on operator confirmation. Supersedes the ADR 0075 source-selection rules on acceptance | Proposed |
+| [0075](0075-metadata-ownership-and-completeness.md) | Shared metadata rules cover ownership, response completeness, storage by provider, each field with an accepted rule, and labeled identity sections. Decision I makes RSS the only provenance and MusicIndex a cache of RSS. The phase plan records packets and gates. ADR 0076 supersedes Decisions F to H and the source-selection rules | Accepted |
+| [0076](0076-playlist-rss-check-for-stale-musicindex-records.md) | MusicIndex stays the normal checker. A playlist RSS check, also run when a show selects the playlist, applies and reports RSS differences. Tags and payment routes in files change only on operator confirmation. Supersedes ADR 0075 Decisions F to H and its source-selection rules. Amends ADRs 0059 and 0065 | Accepted |
 | [0077](0077-publisher-feed-artist-binding.md) | An artist page is keyed on the publisher feed GUID that an album names. Supersedes ADR 0045. Each proposal needs individual operator review. ADR 0078 supersedes its Decision 4 | Accepted |
 | [0078](0078-publisher-page-type-from-stated-role.md) | A publisher page is a label page only when a feed states a label role. The artist count is derived information and never selects the page type. Supersedes ADR 0077 Decision 4 | Accepted |
 | [0079](0079-remove-musicindex-artist-subject-storage.md) | MusicIndex artist subject storage is deleted. The publisher feed is the only artist identity. Person identity stays deferred. Supersedes ADR 0029 | Accepted |
@@ -67,7 +67,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0014](0014-playback-session-authoritative-state.md) | `PlaybackSession` is the authoritative now-playing state | Accepted |
 | [0020](0020-simulated-playlist-playback.md) | Simulated playlist transport for relay smoke tests | Accepted |
 | [0021](0021-mpv-playback-driver.md) | mpv driver behind the `PlaybackDriver` trait | Implemented |
-| [0059](0059-broadcast-control-surface.md) | External publisher control, saved event selection, configured-target readiness; tasks 001-017 complete | Implemented |
+| [0059](0059-broadcast-control-surface.md) | External publisher control, saved event selection, configured-target readiness; tasks 001-017 complete. ADR 0076 amends its readiness rule | Accepted |
 | [0068](0068-show-cue-and-audition-isolation.md) | Persisted Show cue, explicit Show transport, independent audition state/audio/publication boundaries; implementation not started | Proposed |
 
 ## UI Architecture
@@ -92,7 +92,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0062](0062-music-content-surface.md) | Five Music packets are complete. The default Index order returns releases. Broader mixed-row search/expansion still needs an evidence review. | Accepted |
 | [0063](0063-show-dashboard-layout.md) | Show cards and diagnostics; [shared log frames and following](../tasks/adr-0063-task-005-shared-log-frames-and-following.md) complete with operator acceptance, preservation and cleanup | Implemented |
 | [0064](0064-local-file-addressing.md) | Downloaded files live under music_dir and store a relative path | Accepted |
-| [0065](0065-payment-route-tag-repair.md) | A tag repair is gated on the file, not on feed staleness | Implemented |
+| [0065](0065-payment-route-tag-repair.md) | A tag repair is gated on the file, not on feed staleness. ADR 0076 amends it: files take the stored route | Accepted |
 | [0067](0067-platform-shortcut-modifiers.md) | Ctrl app shortcuts on Linux; Command and native Hide actions on macOS | Implemented |
 | [0069](0069-grouped-settings-and-selective-presets.md) | Grouped Settings, live metadata resource selection, independent audio configuration and selective preset snapshots. Task 001 is complete. [Task 002 is Ready](../tasks/adr-0069-task-002-shared-guarded-editor.md). Implementation of task 002 has not started. | Accepted |
 | [0070](0070-show-log-space-priority.md) | Open Show logs take height before scrolling cards; sidebar actions remain reachable; ADR 0063 task 005 implementation, acceptance and cleanup complete | Implemented |

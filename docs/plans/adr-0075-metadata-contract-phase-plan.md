@@ -232,13 +232,13 @@ These five packets carry ADR 0075 to a visible result. Dispatch them in this seq
 |---|---|---|---|
 | [017](../tasks/adr-0075-task-017-named-request-profiles.md) | Code | Name the requests that the Library route and the Index route make. Complete on 2026-09-21 | 013, 014, 016, and both accepted cuts below |
 | [018](../tasks/adr-0075-task-018-request-reuse-and-freshness.md) | Code | Request identity, sharing, expiry, explicit refresh, and response order. Complete on 2026-09-22 | 016, 017, and nine policies that the operator accepted on 2026-09-21 and 2026-09-22 |
-| 045 | Code | Report a stale MusicIndex record and direct the operator to podping.me | 018, ADR 0075 Decision I, and packet 035's comparison rules |
-| 020 | Code | One shared projection, for the accepted field rules only | 005, 006, 007, 013, and 018 |
+| 045 | Code | Replaced on 2026-09-24 by the ADR 0076 packets: the playlist check, the comparison and report, the tag update button, and the readiness rule. No packet document exists yet | 018 and ADR 0076 |
+| 020 | Code | One shared projection of the stored values with their owners. ADR 0076 removes source selection from it | 005, 006, 007, 013, 018, and ADR 0076 |
 | 022 | Code | The track header view model, limited to track identities | 020 |
 
 Packet 017 is complete. It named ten requests and models no provider profile, because a
-provider is transport and not a source. Packet 018 is complete. Packet 045 is the next
-dispatch, and it has no packet document yet.
+provider is transport and not a source. Packet 018 is complete. ADR 0076 is Accepted on
+2026-09-24. Its packets replace packet 045. No packet document exists for them yet.
 
 Part B of packet 018 ends the repeated fetch that the baseline measured. Part A implements the accepted ADR 0075 rules and changes no sequential request count.
 Packet 020 applies the rules that the operator accepted. Packet 022 puts them on screen.
@@ -271,11 +271,11 @@ The operator accepted both cuts on 2026-09-21.
 |---|---|
 | The evidence store has no retention limit and no history expiry | No packet |
 | Five `Option<i32>` count fields narrow an upstream `i64` in `src/api.rs` | No packet |
-| The retained discrepancy record of ADR 0075 Decision G. Deleted packet 036 implemented it, and Decision G stays binding | No packet. The operator decides whether packet 045 includes it or a new decision reduces Decision G |
+| The retained discrepancy tables of ADR 0075 Decision G. Deleted packet 036 implemented them. ADR 0076 supersedes Decision G on 2026-09-24 | No packet. The ADR 0076 comparison packet uses the tables or deletes them |
 | A visible retry action for the capsules that packet 014 retains after a storage failure. Deleted packet 019 owned it | No packet. The storage-failure presentation gate of packet 014 depends on it |
 | A field rule for the new upstream `last_build_date` claim type | No packet and no rule. The accepted release-date rule keeps build dates separate from release dates |
 | `Feed.name`, `Track.name`, and `Track.feed_url` no longer arrive from the deployed API. The app continues to read each one | No packet. Delete each reader when its removal is confirmed. See the [API change request](musicindex-api-change-request.md#two-questions-for-the-operator) |
-| Stophammer removed its public artist credits on 2026-04-08, in commit `a16a720`. The ADR 0045 artist binding in `src/identity_ingest.rs` receives no artist identifier since then | No packet. It needs a new ADR 0045 decision |
+| Stophammer removed its public artist credits on 2026-04-08, in commit `a16a720` | Closed. ADR 0077 packet 001 deleted the ADR 0045 binding on 2026-09-24 |
 | Search rows from the new upstream summary fields, without a detail request for each hit | No packet |
 | A typed RSS refresh-failure state. ADR 0075 §2 and §6 require the app to report a failed refresh. Deleted packet 019 owned it | No packet |
 | Combined isolation, restart, rollback, and superseded-response tests for provider snapshots. Deleted packet 015 owned them | No packet |
