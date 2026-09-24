@@ -230,7 +230,7 @@ fn prepare_inner(
         };
         return Err(error.downcast::<Failure>().unwrap_or_else(|_| {
             Failure::new(
-                "Apply migration 12 and verify legacy records",
+                "Apply migrations 12 to 14 and verify retained records",
                 FailureKind::Validation,
             )
         }));
@@ -373,6 +373,7 @@ mod tests {
         for cli in [false, true] {
             let (_temp, path) = frozen("DELETE");
             let before = upgrades::legacy_digest(&Connection::open(&path).unwrap()).unwrap();
+            let retained = upgrades::retained_digest(&Connection::open(&path).unwrap()).unwrap();
             let prepared = if cli {
                 crate::db::open_db(&path).unwrap()
             } else {
@@ -380,18 +381,18 @@ mod tests {
             };
             assert_eq!(prepared.receipt.state, PreparationState::Upgraded);
             let receipt = &prepared.receipt;
-            assert_eq!(receipt.target, 12);
+            assert_eq!(receipt.target, 14);
             assert!(receipt.started_at <= receipt.preserved_at.unwrap());
             assert!(receipt.preserved_at <= receipt.snapshot_verified_at);
             assert!(receipt.snapshot_verified_at.unwrap() <= receipt.finished_at);
             let original = Connection::open(receipt.snapshot.as_ref().unwrap()).unwrap();
             upgrades::verify_target(&original, 11).unwrap();
             assert_eq!(upgrades::legacy_digest(&original).unwrap(), before);
-            assert_eq!(upgrades::legacy_digest(&prepared).unwrap(), before);
+            assert_eq!(upgrades::retained_digest(&prepared).unwrap(), retained);
             assert!(receipt.manifest.as_ref().unwrap().is_file());
             let report = crate::view_models::startup::preparation_report(receipt);
             assert!(report.contains(&receipt.snapshot.as_ref().unwrap().display().to_string()));
-            assert!(report.contains("Target schema version: 12"));
+            assert!(report.contains("Target schema version: 14"));
         }
     }
 
@@ -459,8 +460,8 @@ mod tests {
             .unwrap();
             let original = Connection::open(prepared.receipt.snapshot.unwrap()).unwrap();
             assert_eq!(
-                upgrades::legacy_digest(&original).unwrap(),
-                upgrades::legacy_digest(&prepared.connection).unwrap()
+                upgrades::retained_digest(&original).unwrap(),
+                upgrades::retained_digest(&prepared.connection).unwrap()
             );
             if mode == "WAL" {
                 assert_eq!(
@@ -483,6 +484,12 @@ mod tests {
             Boundary::Migration(12, MigrationBoundary::BeforeApply),
             Boundary::Migration(12, MigrationBoundary::AfterApply),
             Boundary::Migration(12, MigrationBoundary::AfterRecord),
+            Boundary::Migration(13, MigrationBoundary::BeforeApply),
+            Boundary::Migration(13, MigrationBoundary::AfterApply),
+            Boundary::Migration(13, MigrationBoundary::AfterRecord),
+            Boundary::Migration(14, MigrationBoundary::BeforeApply),
+            Boundary::Migration(14, MigrationBoundary::AfterApply),
+            Boundary::Migration(14, MigrationBoundary::AfterRecord),
             Boundary::AfterCommit,
             Boundary::BeforeReopen,
         ] {
@@ -508,7 +515,7 @@ mod tests {
                 }
             );
             let conn = Connection::open(&path).unwrap();
-            upgrades::verify_target(&conn, if committed { 12 } else { 11 }).unwrap();
+            upgrades::verify_target(&conn, if committed { 14 } else { 11 }).unwrap();
             assert!(error.receipt.snapshot.as_ref().unwrap().is_file());
             assert!(error.receipt.manifest.as_ref().unwrap().is_file());
             let report = crate::view_models::startup::preparation_failure_report(&error);
@@ -567,7 +574,7 @@ mod tests {
                     .query_row("SELECT count(*) FROM schema_migrations", [], |r| r
                         .get::<_, i64>(0))
                     .unwrap(),
-                12
+                14
             );
             assert_eq!(
                 prepared

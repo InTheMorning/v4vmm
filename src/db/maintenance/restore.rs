@@ -820,7 +820,7 @@ mod tests {
     }
 
     #[test]
-    fn adr_0075_migration_repair_11_requires_separate_preserved_preparation_to_12() {
+    fn adr_0075_migration_repair_11_requires_separate_preserved_preparation_to_current() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("interrupted.sqlite");
         let conn = Connection::open(&path).unwrap();
@@ -856,7 +856,7 @@ mod tests {
         let separate = prepared.receipt.snapshot.as_ref().unwrap();
         assert_ne!(&backup, separate);
         crate::db::upgrades::verify_target(&open_source(separate, &budget()).unwrap(), 11).unwrap();
-        crate::db::upgrades::verify_target(&prepared, 12).unwrap();
+        crate::db::upgrades::verify_target(&prepared, crate::db::CURRENT_VERSION).unwrap();
         assert_eq!(
             prepared
                 .query_row(
@@ -871,14 +871,14 @@ mod tests {
     }
 
     #[test]
-    fn adr_0075_migration_older_backup_creates_private_12_candidate_without_changing_source() {
+    fn adr_0075_migration_older_backup_creates_private_current_candidate_without_changing_source() {
         let (temp, _, destination) = files("DELETE");
         let backup = temp.path().join("frozen-11.sqlite");
         let conn = Connection::open(&backup).unwrap();
         conn.pragma_update(None, "foreign_keys", false).unwrap();
         conn.execute_batch(include_str!("../fixtures/adr-0075-schema-11.sql"))
             .unwrap();
-        let before = crate::db::upgrades::legacy_digest(&conn).unwrap();
+        let before = crate::db::upgrades::retained_digest(&conn).unwrap();
         drop(conn);
         let bytes = fs::read(&backup).unwrap();
         let destination_bytes = fs::read(&destination).unwrap();
@@ -889,11 +889,11 @@ mod tests {
             &budget(),
         )
         .unwrap();
-        assert_eq!(review.target, 12);
+        assert_eq!(review.target, crate::db::CURRENT_VERSION);
         let candidate = open_source(review.candidate_path(), &budget()).unwrap();
-        crate::db::upgrades::verify_target(&candidate, 12).unwrap();
+        crate::db::upgrades::verify_target(&candidate, crate::db::CURRENT_VERSION).unwrap();
         assert_eq!(
-            crate::db::upgrades::legacy_digest(&candidate).unwrap(),
+            crate::db::upgrades::retained_digest(&candidate).unwrap(),
             before
         );
         assert_eq!(fs::read(&backup).unwrap(), bytes);
@@ -943,14 +943,14 @@ mod tests {
             &budget(),
         )
         .unwrap();
-        assert_eq!(review.target, 12);
+        assert_eq!(review.target, crate::db::CURRENT_VERSION);
         let result = review.install(
             ExclusiveDatabase::acquire(&destination, &budget()).unwrap(),
             &budget(),
             false,
         );
         assert!(matches!(result.state, InstallState::Verified));
-        assert_eq!(result.target, Some(12));
+        assert_eq!(result.target, Some(crate::db::CURRENT_VERSION));
         let conn = Connection::open(&destination).unwrap();
         assert_eq!(content_digest(&conn, &budget()).unwrap(), expected);
         assert_eq!(
@@ -1388,5 +1388,47 @@ mod tests {
             .unwrap(),
             damaged
         );
+    }
+
+    /// R1-04: an interrupted version-11 upgrade still repairs, and the separate
+    /// preparation then reaches the current version without artist storage.
+    #[test]
+    fn adr_0077_remove_artist_storage_interrupted_11_repairs_then_prepares_current() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("interrupted.sqlite");
+        let conn = Connection::open(&path).unwrap();
+        conn.pragma_update(None, "foreign_keys", false).unwrap();
+        conn.execute_batch(include_str!("../fixtures/adr-0075-interrupted-11.sql"))
+            .unwrap();
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
+        assert_eq!(
+            crate::db::inspect_schema(&conn).unwrap(),
+            SchemaCompatibility::InterruptedUpgrade
+        );
+        drop(conn);
+        let result = repair_interrupted_upgrade(
+            ExclusiveDatabase::acquire(&path, &budget()).unwrap(),
+            &temp.path().join("repair"),
+            &budget(),
+            false,
+        );
+        assert!(matches!(result.state, InstallState::Verified));
+        assert_eq!(result.target, Some(11));
+        let prepared = crate::db::startup::prepare_database(&path).unwrap();
+        assert_eq!(prepared.receipt.target, crate::db::CURRENT_VERSION);
+        crate::db::upgrades::verify_target(&prepared, crate::db::CURRENT_VERSION).unwrap();
+        for table in crate::db::ARTIST_STORAGE_TABLES {
+            assert_eq!(
+                prepared
+                    .query_row(
+                        "SELECT count(*) FROM sqlite_schema WHERE name=?1",
+                        [table],
+                        |row| row.get::<_, i64>(0)
+                    )
+                    .unwrap(),
+                0,
+                "{table}"
+            );
+        }
     }
 }

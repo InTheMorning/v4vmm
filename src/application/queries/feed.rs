@@ -836,7 +836,8 @@ mod adr_0075_request_profile_tests {
     }
 
     /// R17-05: the Index feed detail profile serves
-    /// `fetch_recent_feed_result_rows`, and this call site sends L2.
+    /// `fetch_recent_feed_result_rows`, and this call site sends L2. ADR 0077
+    /// Decision 5 adds `publisher` to that include list.
     #[test]
     fn adr_0075_request_profile_recent_feed_result_rows_sends_l2() {
         let fixture = Fixture::start();
@@ -855,12 +856,13 @@ mod adr_0075_request_profile_tests {
                 "/v1/feeds/f1?include={}",
                 encoded_include(INDEX_FEED_DETAIL)
             )),
-            "R17-05: the Recent Feeds feed detail call site must send L2. Got: {requests:?}"
+            "R17-05: the Recent Feeds feed detail call site must send L2 and publisher (ADR 0077 Decision 5). Got: {requests:?}"
         );
     }
 
     /// R17-05: the Index feed detail profile serves `fetch_feed_detail`,
-    /// and this call site sends L2.
+    /// and this call site sends L2. ADR 0077 Decision 5 adds `publisher` to
+    /// that include list.
     #[test]
     fn adr_0075_request_profile_inspector_feed_detail_sends_l2() {
         let fixture = Fixture::start();
@@ -877,8 +879,38 @@ mod adr_0075_request_profile_tests {
                 "/v1/feeds/f1?include={}",
                 encoded_include(INDEX_FEED_DETAIL)
             )],
-            "R17-05: the inspector feed detail call site must send L2"
+            "R17-05: the inspector feed detail call site must send L2 and publisher (ADR 0077 Decision 5)"
         );
+    }
+
+    /// R2-05: the Index feed detail sends the same number of requests as
+    /// before ADR 0077 packet 002, and each feed detail request asks for
+    /// `publisher` (ADR 0077 Decision 5).
+    #[test]
+    fn adr_0077_publisher_relationship_index_feed_detail_request_count_is_unchanged() {
+        let fixture = Fixture::start();
+        let client = crate::api::Client::new_with_base_url(fixture.endpoint.clone());
+        let provider_identity = fixture.endpoint.require().unwrap();
+
+        fetch_feed_detail(&client, provider_identity, "f1").unwrap();
+        let detail = fixture.requests.lock().unwrap().clone();
+        assert_eq!(detail.len(), 1, "one inspector feed detail request");
+
+        let recent = Fixture::start();
+        fetch_recent_feed_result_rows(&recent.endpoint, None, 0).unwrap();
+        let listed = recent.requests.lock().unwrap().clone();
+        assert_eq!(
+            listed.len(),
+            2,
+            "one recent-feeds request, one feed detail request"
+        );
+
+        for request in [&detail[0], &listed[1]] {
+            assert!(
+                request.starts_with("/v1/feeds/f1?include=") && request.contains("%2Cpublisher"),
+                "the Index feed detail must ask for publisher. Got: {request}"
+            );
+        }
     }
 
     /// R17-06: the inspector track detail route sends L3 for its track

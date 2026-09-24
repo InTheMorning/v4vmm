@@ -158,6 +158,21 @@ pub struct Feed {
     pub remote_items: Option<Vec<RemoteItem>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub publisher: Option<Vec<PublisherRelationship>>,
+    /// The title of the publisher feed that this album names (ADR 0077 Decision 5).
+    /// MusicIndex derives it. It is null when the album names no publisher.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher_feed_title: Option<String>,
+    /// The source of `release_artist`, as MusicIndex sends it (ADR 0077).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release_artist_source: Option<String>,
+    /// The number of distinct album artists of a publisher feed. MusicIndex
+    /// derives it, and it is present only on a publisher feed (ADR 0077).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub distinct_release_artist_count: Option<i64>,
+    /// One raw `release_artist` value for each count in
+    /// `distinct_release_artist_count` (ADR 0077).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub distinct_release_artists: Option<Vec<String>>,
     pub payment_routes: Option<Vec<PaymentRoute>>,
     pub updated_at: Option<i64>,
 }
@@ -424,7 +439,105 @@ pub struct RemoteItem {
     pub source: Option<String>,
 }
 
-/// One publisher relationship from an API response (ADR 0075).
+/// How MusicIndex resolved the publisher feed that carries
+/// `publisher_lists_music` (ADR 0077 Decision 5).
+///
+/// An unrecognized value keeps its raw text. It does not fail the response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+pub enum PublisherLinkResolution {
+    Guid,
+    FeedUrl,
+    Unresolved,
+    Unknown(String),
+}
+
+impl PublisherLinkResolution {
+    /// Returns the wire text of this value.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Guid => "guid",
+            Self::FeedUrl => "feed_url",
+            Self::Unresolved => "unresolved",
+            Self::Unknown(raw) => raw,
+        }
+    }
+}
+
+impl From<String> for PublisherLinkResolution {
+    fn from(raw: String) -> Self {
+        match raw.as_str() {
+            "guid" => Self::Guid,
+            "feed_url" => Self::FeedUrl,
+            "unresolved" => Self::Unresolved,
+            _ => Self::Unknown(raw),
+        }
+    }
+}
+
+impl From<PublisherLinkResolution> for String {
+    fn from(value: PublisherLinkResolution) -> Self {
+        match value {
+            PublisherLinkResolution::Unknown(raw) => raw,
+            known => known.as_str().to_owned(),
+        }
+    }
+}
+
+/// The source of the `role` of a publisher relationship (ADR 0077 Decision 3).
+///
+/// `Default` means that no feed states a role. An unrecognized value keeps
+/// its raw text. It does not fail the response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+pub enum RoleSource {
+    PublisherRel,
+    MusicRel,
+    Default,
+    Conflict,
+    Unknown(String),
+}
+
+impl RoleSource {
+    /// Returns the wire text of this value.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::PublisherRel => "publisher_rel",
+            Self::MusicRel => "music_rel",
+            Self::Default => "default",
+            Self::Conflict => "conflict",
+            Self::Unknown(raw) => raw,
+        }
+    }
+}
+
+impl From<String> for RoleSource {
+    fn from(raw: String) -> Self {
+        match raw.as_str() {
+            "publisher_rel" => Self::PublisherRel,
+            "music_rel" => Self::MusicRel,
+            "default" => Self::Default,
+            "conflict" => Self::Conflict,
+            _ => Self::Unknown(raw),
+        }
+    }
+}
+
+impl From<RoleSource> for String {
+    fn from(value: RoleSource) -> Self {
+        match value {
+            RoleSource::Unknown(raw) => raw,
+            known => known.as_str().to_owned(),
+        }
+    }
+}
+
+/// One publisher relationship from an API response (ADRs 0075 and 0077).
+///
+/// The fields follow the live `PublisherResponse` contract of 2026-09-24.
+/// The legacy fields stay, because the live contract still sends them.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct PublisherRelationship {
@@ -450,6 +563,28 @@ pub struct PublisherRelationship {
     pub reciprocal_medium: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub two_way_validated: Option<bool>,
+    /// `true` when the album names this publisher feed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub music_names_publisher: Option<bool>,
+    /// `true` when the publisher feed lists this album.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher_lists_music: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher_link_resolution: Option<PublisherLinkResolution>,
+    /// The time of the URL observation behind `publisher_link_resolution`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher_link_observed_at: Option<i64>,
+    /// The raw `rel` of the publisher feed item that lists this album.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher_rel: Option<String>,
+    /// The raw `rel` of the album feed item that names this publisher.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub music_rel: Option<String>,
+    /// The stated role, or the assumed default. Null on a conflict.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role_source: Option<RoleSource>,
 }
 
 /// One value time split from an API response (ADR 0075).
@@ -621,9 +756,6 @@ impl Client {
 
     pub fn fetch_detail(&self, entity_type: &str, entity_id: &str) -> Result<EntityDetail> {
         match entity_type {
-            "artist" => Ok(EntityDetail::Artist(
-                self.fetch_wrapped(&["v1", "artists", entity_id])?,
-            )),
             "release" => {
                 let params = [("include", "tracks".to_string())];
                 Ok(EntityDetail::Release(self.fetch_wrapped_with_query(
@@ -1030,7 +1162,7 @@ fn response_text_with_status(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
 
     #[test]
     fn adr_0066_invalid_endpoint_rejects_requests_before_transport() {
@@ -2555,6 +2687,446 @@ mod tests {
             assert!(hydrated.remote_items.is_none());
             assert!(hydrated.publisher.is_none());
             assert!(hydrated.value_time_splits.is_none());
+        }
+    }
+
+    /// ADR 0077 packet 002: the live publisher relationship contract.
+    pub(crate) mod adr_0077_publisher_relationship {
+        use crate::api::{DetailResponse, Feed, PublisherLinkResolution, RoleSource};
+
+        /// Recorded on 2026-09-24 from
+        /// `GET https://api.musicindex.org/v1/feeds/1ac44a3c-e148-54db-9d12-72191222888f?include=publisher`.
+        /// Trimmed to the fields that the test needs. The `publisher` entry is unchanged.
+        const RECORDED_ALBUM_RESPONSE: &str = r#"{
+            "data": {
+                "feed_guid": "1ac44a3c-e148-54db-9d12-72191222888f",
+                "feed_url": "https://wavlake.com/feed/music/80288280-09a0-4d6e-bdfb-cdef4e987b63",
+                "title": "Genesis 2",
+                "raw_medium": "music",
+                "release_artist": "Liberthea Anadara",
+                "release_artist_source": "itunes_author",
+                "publisher_text": "Wavlake",
+                "publisher_feed_title": "Liberthea Anadara",
+                "explicit": false,
+                "created_at": 1788982326,
+                "updated_at": 1790216976,
+                "publisher": [
+                    {
+                        "direction": "music_to_publisher",
+                        "remote_feed_guid": "bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "remote_feed_url": "https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "remote_feed_medium": "publisher",
+                        "publisher_feed_guid": "bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "publisher_feed_url": "https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "music_feed_guid": "1ac44a3c-e148-54db-9d12-72191222888f",
+                        "music_feed_url": "https://wavlake.com/feed/music/80288280-09a0-4d6e-bdfb-cdef4e987b63",
+                        "music_names_publisher": true,
+                        "publisher_lists_music": true,
+                        "publisher_link_resolution": "feed_url",
+                        "publisher_link_observed_at": 1788982326,
+                        "reciprocal_declared": true,
+                        "reciprocal_medium": "music",
+                        "two_way_validated": true,
+                        "publisher_rel": null,
+                        "music_rel": null,
+                        "role": "artist",
+                        "role_source": "default"
+                    }
+                ]
+            },
+            "pagination": {"cursor": null, "has_more": false}
+        }"#;
+
+        /// Recorded on 2026-09-24 from
+        /// `GET https://api.musicindex.org/v1/feeds/bcbe7207-9338-474e-ba18-09e6b1b69979?include=publisher`.
+        /// Trimmed to the feed fields that the tests need. The nine
+        /// `publisher_to_music` entries are unchanged.
+        pub(crate) const RECORDED_PUBLISHER_RESPONSE: &str = r#"{
+            "data": {
+                "feed_guid": "bcbe7207-9338-474e-ba18-09e6b1b69979",
+                "feed_url": "https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979",
+                "title": "Liberthea Anadara",
+                "raw_medium": "publisher",
+                "release_artist": "Unknown Artist",
+                "release_artist_source": "placeholder",
+                "publisher_text": null,
+                "publisher_feed_title": null,
+                "distinct_release_artist_count": 1,
+                "distinct_release_artists": [
+                    "Liberthea Anadara"
+                ],
+                "explicit": false,
+                "created_at": 1790239904,
+                "updated_at": 1790253973,
+                "publisher": [
+                    {
+                        "direction": "publisher_to_music",
+                        "remote_feed_guid": "74e70e30-5852-4217-a7ea-c7dbec9ea09a",
+                        "remote_feed_url": "https://wavlake.com/feed/music/74e70e30-5852-4217-a7ea-c7dbec9ea09a",
+                        "remote_feed_medium": null,
+                        "publisher_feed_guid": "bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "publisher_feed_url": "https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "music_feed_guid": "7c94444d-6074-5fec-a841-72ade85b3fb0",
+                        "music_feed_url": "https://wavlake.com/feed/music/74e70e30-5852-4217-a7ea-c7dbec9ea09a",
+                        "music_names_publisher": true,
+                        "publisher_lists_music": true,
+                        "publisher_link_resolution": "feed_url",
+                        "publisher_link_observed_at": 1776628950,
+                        "reciprocal_declared": true,
+                        "reciprocal_medium": "publisher",
+                        "two_way_validated": true,
+                        "publisher_rel": null,
+                        "music_rel": null,
+                        "role": "artist",
+                        "role_source": "default"
+                    },
+                    {
+                        "direction": "publisher_to_music",
+                        "remote_feed_guid": "75bdcdb1-b4c4-4f28-8c04-67ade3d1dd2d",
+                        "remote_feed_url": "https://wavlake.com/feed/music/75bdcdb1-b4c4-4f28-8c04-67ade3d1dd2d",
+                        "remote_feed_medium": null,
+                        "publisher_feed_guid": "bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "publisher_feed_url": "https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "music_feed_guid": "9f2d9ec8-4115-5206-adfb-f4af078ed5cd",
+                        "music_feed_url": "https://wavlake.com/feed/music/75bdcdb1-b4c4-4f28-8c04-67ade3d1dd2d",
+                        "music_names_publisher": true,
+                        "publisher_lists_music": true,
+                        "publisher_link_resolution": "feed_url",
+                        "publisher_link_observed_at": 1776628949,
+                        "reciprocal_declared": true,
+                        "reciprocal_medium": "publisher",
+                        "two_way_validated": true,
+                        "publisher_rel": null,
+                        "music_rel": null,
+                        "role": "artist",
+                        "role_source": "default"
+                    },
+                    {
+                        "direction": "publisher_to_music",
+                        "remote_feed_guid": "8ae40c2b-c8ed-423d-b499-e96cbc7dd85d",
+                        "remote_feed_url": "https://wavlake.com/feed/music/8ae40c2b-c8ed-423d-b499-e96cbc7dd85d",
+                        "remote_feed_medium": null,
+                        "publisher_feed_guid": "bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "publisher_feed_url": "https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "music_feed_guid": "0d17637c-45a4-5cf4-a8b7-0c6ed2828b70",
+                        "music_feed_url": "https://wavlake.com/feed/music/8ae40c2b-c8ed-423d-b499-e96cbc7dd85d",
+                        "music_names_publisher": true,
+                        "publisher_lists_music": true,
+                        "publisher_link_resolution": "feed_url",
+                        "publisher_link_observed_at": 1776628950,
+                        "reciprocal_declared": true,
+                        "reciprocal_medium": "publisher",
+                        "two_way_validated": true,
+                        "publisher_rel": null,
+                        "music_rel": null,
+                        "role": "artist",
+                        "role_source": "default"
+                    },
+                    {
+                        "direction": "publisher_to_music",
+                        "remote_feed_guid": "14ecf918-26f9-4f72-aef1-ae811cce563d",
+                        "remote_feed_url": "https://wavlake.com/feed/music/14ecf918-26f9-4f72-aef1-ae811cce563d",
+                        "remote_feed_medium": null,
+                        "publisher_feed_guid": "bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "publisher_feed_url": "https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "music_feed_guid": "65e6cb77-c7d5-55bf-a747-a76f09ff1255",
+                        "music_feed_url": "https://wavlake.com/feed/music/14ecf918-26f9-4f72-aef1-ae811cce563d",
+                        "music_names_publisher": true,
+                        "publisher_lists_music": true,
+                        "publisher_link_resolution": "feed_url",
+                        "publisher_link_observed_at": 1776628951,
+                        "reciprocal_declared": true,
+                        "reciprocal_medium": "publisher",
+                        "two_way_validated": true,
+                        "publisher_rel": null,
+                        "music_rel": null,
+                        "role": "artist",
+                        "role_source": "default"
+                    },
+                    {
+                        "direction": "publisher_to_music",
+                        "remote_feed_guid": "1895f73b-0262-4b22-a6ee-19fc58a8fd87",
+                        "remote_feed_url": "https://wavlake.com/feed/music/1895f73b-0262-4b22-a6ee-19fc58a8fd87",
+                        "remote_feed_medium": null,
+                        "publisher_feed_guid": "bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "publisher_feed_url": "https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "music_feed_guid": "9c59b4bb-1597-5949-ad01-ba04f4952508",
+                        "music_feed_url": "https://wavlake.com/feed/music/1895f73b-0262-4b22-a6ee-19fc58a8fd87",
+                        "music_names_publisher": true,
+                        "publisher_lists_music": true,
+                        "publisher_link_resolution": "feed_url",
+                        "publisher_link_observed_at": 1776628952,
+                        "reciprocal_declared": true,
+                        "reciprocal_medium": "publisher",
+                        "two_way_validated": true,
+                        "publisher_rel": null,
+                        "music_rel": null,
+                        "role": "artist",
+                        "role_source": "default"
+                    },
+                    {
+                        "direction": "publisher_to_music",
+                        "remote_feed_guid": "c0e99622-1559-4011-b292-d54f302fb396",
+                        "remote_feed_url": "https://wavlake.com/feed/music/c0e99622-1559-4011-b292-d54f302fb396",
+                        "remote_feed_medium": null,
+                        "publisher_feed_guid": "bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "publisher_feed_url": "https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "music_feed_guid": "8861620d-555b-5280-abf7-71a516094c2a",
+                        "music_feed_url": "https://wavlake.com/feed/music/c0e99622-1559-4011-b292-d54f302fb396",
+                        "music_names_publisher": true,
+                        "publisher_lists_music": true,
+                        "publisher_link_resolution": "feed_url",
+                        "publisher_link_observed_at": 1781464203,
+                        "reciprocal_declared": true,
+                        "reciprocal_medium": "publisher",
+                        "two_way_validated": true,
+                        "publisher_rel": null,
+                        "music_rel": null,
+                        "role": "artist",
+                        "role_source": "default"
+                    },
+                    {
+                        "direction": "publisher_to_music",
+                        "remote_feed_guid": "80288280-09a0-4d6e-bdfb-cdef4e987b63",
+                        "remote_feed_url": "https://wavlake.com/feed/music/80288280-09a0-4d6e-bdfb-cdef4e987b63",
+                        "remote_feed_medium": null,
+                        "publisher_feed_guid": "bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "publisher_feed_url": "https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "music_feed_guid": "1ac44a3c-e148-54db-9d12-72191222888f",
+                        "music_feed_url": "https://wavlake.com/feed/music/80288280-09a0-4d6e-bdfb-cdef4e987b63",
+                        "music_names_publisher": true,
+                        "publisher_lists_music": true,
+                        "publisher_link_resolution": "feed_url",
+                        "publisher_link_observed_at": 1788982326,
+                        "reciprocal_declared": true,
+                        "reciprocal_medium": "publisher",
+                        "two_way_validated": true,
+                        "publisher_rel": null,
+                        "music_rel": null,
+                        "role": "artist",
+                        "role_source": "default"
+                    },
+                    {
+                        "direction": "publisher_to_music",
+                        "remote_feed_guid": "e975a870-d325-4960-b89e-c6e60634057a",
+                        "remote_feed_url": "https://wavlake.com/feed/music/e975a870-d325-4960-b89e-c6e60634057a",
+                        "remote_feed_medium": null,
+                        "publisher_feed_guid": "bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "publisher_feed_url": "https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "music_feed_guid": "2471eceb-e522-5718-b896-2658bb073d23",
+                        "music_feed_url": "https://wavlake.com/feed/music/e975a870-d325-4960-b89e-c6e60634057a",
+                        "music_names_publisher": true,
+                        "publisher_lists_music": true,
+                        "publisher_link_resolution": "feed_url",
+                        "publisher_link_observed_at": 1781464334,
+                        "reciprocal_declared": true,
+                        "reciprocal_medium": "publisher",
+                        "two_way_validated": true,
+                        "publisher_rel": null,
+                        "music_rel": null,
+                        "role": "artist",
+                        "role_source": "default"
+                    },
+                    {
+                        "direction": "publisher_to_music",
+                        "remote_feed_guid": "50dbc8ab-0d79-49a1-9b49-6651687cf168",
+                        "remote_feed_url": "https://wavlake.com/feed/music/50dbc8ab-0d79-49a1-9b49-6651687cf168",
+                        "remote_feed_medium": null,
+                        "publisher_feed_guid": "bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "publisher_feed_url": "https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979",
+                        "music_feed_guid": "478639b6-ff12-574b-9756-74ddd0add8dd",
+                        "music_feed_url": "https://wavlake.com/feed/music/50dbc8ab-0d79-49a1-9b49-6651687cf168",
+                        "music_names_publisher": true,
+                        "publisher_lists_music": true,
+                        "publisher_link_resolution": "feed_url",
+                        "publisher_link_observed_at": 1788982592,
+                        "reciprocal_declared": true,
+                        "reciprocal_medium": "publisher",
+                        "two_way_validated": true,
+                        "publisher_rel": null,
+                        "music_rel": null,
+                        "role": "artist",
+                        "role_source": "default"
+                    }
+                ]
+            },
+            "pagination": {
+                "cursor": null,
+                "has_more": false
+            }
+        }"#;
+
+        /// R2-01: the recorded album response decodes each `PublisherResponse` field.
+        #[test]
+        fn adr_0077_publisher_relationship_recorded_album_decodes_each_field() {
+            let response: DetailResponse<Feed> = serde_json::from_str(RECORDED_ALBUM_RESPONSE)
+                .expect("the recorded album response should decode");
+            let feed = response.data;
+            assert_eq!(
+                feed.publisher_feed_title.as_deref(),
+                Some("Liberthea Anadara")
+            );
+            assert_eq!(feed.release_artist_source.as_deref(), Some("itunes_author"));
+            assert_eq!(feed.distinct_release_artist_count, None);
+            assert_eq!(feed.distinct_release_artists, None);
+
+            let entries = feed.publisher.expect("the album should carry publisher");
+            assert_eq!(entries.len(), 1);
+            let entry = &entries[0];
+            assert_eq!(entry.direction.as_deref(), Some("music_to_publisher"));
+            assert_eq!(
+                entry.remote_feed_guid.as_deref(),
+                Some("bcbe7207-9338-474e-ba18-09e6b1b69979")
+            );
+            assert_eq!(
+                entry.remote_feed_url.as_deref(),
+                Some("https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979")
+            );
+            assert_eq!(entry.remote_feed_medium.as_deref(), Some("publisher"));
+            assert_eq!(
+                entry.publisher_feed_guid.as_deref(),
+                Some("bcbe7207-9338-474e-ba18-09e6b1b69979")
+            );
+            assert_eq!(
+                entry.publisher_feed_url.as_deref(),
+                Some("https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979")
+            );
+            assert_eq!(
+                entry.music_feed_guid.as_deref(),
+                Some("1ac44a3c-e148-54db-9d12-72191222888f")
+            );
+            assert_eq!(
+                entry.music_feed_url.as_deref(),
+                Some("https://wavlake.com/feed/music/80288280-09a0-4d6e-bdfb-cdef4e987b63")
+            );
+            assert_eq!(entry.music_names_publisher, Some(true));
+            assert_eq!(entry.publisher_lists_music, Some(true));
+            assert_eq!(
+                entry.publisher_link_resolution,
+                Some(PublisherLinkResolution::FeedUrl)
+            );
+            assert_eq!(entry.publisher_link_observed_at, Some(1_788_982_326));
+            assert_eq!(entry.reciprocal_declared, Some(true));
+            assert_eq!(entry.reciprocal_medium.as_deref(), Some("music"));
+            assert_eq!(entry.two_way_validated, Some(true));
+            assert_eq!(entry.publisher_rel, None);
+            assert_eq!(entry.music_rel, None);
+            assert_eq!(entry.role.as_deref(), Some("artist"));
+            assert_eq!(entry.role_source, Some(RoleSource::Default));
+
+            let recorded: serde_json::Value =
+                serde_json::from_str(RECORDED_ALBUM_RESPONSE).unwrap();
+            let recorded_entry = recorded["data"]["publisher"][0]
+                .as_object()
+                .unwrap()
+                .clone();
+            let serialized = serde_json::to_value(entry).unwrap();
+            for (key, value) in recorded_entry {
+                if value.is_null() {
+                    assert!(serialized.get(&key).is_none(), "{key} should stay absent");
+                } else {
+                    assert_eq!(serialized[&key], value, "{key} should round trip");
+                }
+            }
+        }
+
+        /// R2-02: the recorded publisher feed response decodes the artist count,
+        /// the artist list and each `publisher_to_music` entry.
+        #[test]
+        fn adr_0077_publisher_relationship_recorded_publisher_feed_decodes_entries() {
+            let response: DetailResponse<Feed> = serde_json::from_str(RECORDED_PUBLISHER_RESPONSE)
+                .expect("the recorded publisher response should decode");
+            let feed = response.data;
+            assert_eq!(feed.distinct_release_artist_count, Some(1));
+            assert_eq!(
+                feed.distinct_release_artists,
+                Some(vec!["Liberthea Anadara".to_owned()])
+            );
+            assert_eq!(feed.release_artist_source.as_deref(), Some("placeholder"));
+            assert_eq!(feed.publisher_feed_title, None);
+
+            let entries = feed
+                .publisher
+                .expect("the publisher feed should carry publisher");
+            let music_feeds = entries
+                .iter()
+                .map(|entry| entry.music_feed_guid.as_deref())
+                .collect::<Vec<_>>();
+            assert_eq!(music_feeds.len(), 9);
+            assert_eq!(music_feeds[0], Some("7c94444d-6074-5fec-a841-72ade85b3fb0"));
+            assert_eq!(music_feeds[6], Some("1ac44a3c-e148-54db-9d12-72191222888f"));
+            for entry in &entries {
+                assert_eq!(entry.direction.as_deref(), Some("publisher_to_music"));
+                assert_eq!(
+                    entry.publisher_feed_guid.as_deref(),
+                    Some("bcbe7207-9338-474e-ba18-09e6b1b69979")
+                );
+                assert_eq!(entry.remote_feed_medium, None);
+                assert_eq!(entry.music_names_publisher, Some(true));
+                assert_eq!(entry.publisher_lists_music, Some(true));
+                assert_eq!(
+                    entry.publisher_link_resolution,
+                    Some(PublisherLinkResolution::FeedUrl)
+                );
+                assert!(entry.publisher_link_observed_at.is_some());
+                assert_eq!(entry.reciprocal_medium.as_deref(), Some("publisher"));
+                assert_eq!(entry.role.as_deref(), Some("artist"));
+                assert_eq!(entry.role_source, Some(RoleSource::Default));
+            }
+            assert_eq!(entries[0].publisher_link_observed_at, Some(1_776_628_950));
+            assert_eq!(entries[6].publisher_link_observed_at, Some(1_788_982_326));
+        }
+
+        /// R2-03: an unknown `role_source` or `publisher_link_resolution` value
+        /// decodes to the unknown variant with its raw text.
+        #[test]
+        fn adr_0077_publisher_relationship_unknown_enum_values_keep_raw_text() {
+            let feed: Feed = serde_json::from_str(
+                r#"{"publisher": [{
+                    "direction": "music_to_publisher",
+                    "publisher_feed_guid": "publisher-feed-1",
+                    "publisher_link_resolution": "future_resolution",
+                    "role_source": "future_source",
+                    "role": null
+                }]}"#,
+            )
+            .expect("unknown enum values must not fail the response");
+            let entry = &feed.publisher.unwrap()[0];
+            assert_eq!(
+                entry.publisher_link_resolution,
+                Some(PublisherLinkResolution::Unknown(
+                    "future_resolution".to_owned()
+                ))
+            );
+            assert_eq!(
+                entry.role_source,
+                Some(RoleSource::Unknown("future_source".to_owned()))
+            );
+            assert_eq!(entry.role, None);
+            let serialized = serde_json::to_value(entry).unwrap();
+            assert_eq!(serialized["publisher_link_resolution"], "future_resolution");
+            assert_eq!(serialized["role_source"], "future_source");
+
+            for (raw, expected) in [
+                ("guid", PublisherLinkResolution::Guid),
+                ("feed_url", PublisherLinkResolution::FeedUrl),
+                ("unresolved", PublisherLinkResolution::Unresolved),
+            ] {
+                assert_eq!(PublisherLinkResolution::from(raw.to_owned()), expected);
+                assert_eq!(expected.as_str(), raw);
+            }
+            for (raw, expected) in [
+                ("publisher_rel", RoleSource::PublisherRel),
+                ("music_rel", RoleSource::MusicRel),
+                ("default", RoleSource::Default),
+                ("conflict", RoleSource::Conflict),
+            ] {
+                assert_eq!(RoleSource::from(raw.to_owned()), expected);
+                assert_eq!(expected.as_str(), raw);
+            }
+            assert!(
+                serde_json::from_str::<Feed>(r#"{"publisher": [{"role_source": 7}]}"#).is_err()
+            );
         }
     }
 }

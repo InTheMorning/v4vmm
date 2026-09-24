@@ -43,6 +43,11 @@ Implementation, technical review, and mechanical checks are complete on 2026-09-
 [Packet 039](../tasks/adr-0075-task-039-feed-check-and-update-observation-retention.md) covers feed checks, explicit feed updates, and the combined ADR 0065 workflow.
 Implementation, technical review, and mechanical checks are complete on 2026-09-21. Its presentation gate remains open and paused.
 
+[ADR 0077 packet 001](../tasks/adr-0077-task-001-remove-dead-artist-storage.md) deletes the dead artist storage.
+Implementation and mechanical checks are complete on 2026-09-24. Its visual gate remains open and paused.
+[Packet 002](../tasks/adr-0077-task-002-publisher-relationship-transport-and-storage.md) stores the publisher relationship.
+Implementation and mechanical checks are complete on 2026-09-24. It needs no visual acceptance.
+
 The orchestrator dispatches bounded work under accepted rules and reviews each result.
 New product policies retain their acceptance gate. Visual checks remain paused.
 

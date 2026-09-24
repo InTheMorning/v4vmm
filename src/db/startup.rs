@@ -211,14 +211,10 @@ mod tests {
         super::super::migrate_schema(&conn).unwrap();
         let count: i64 = conn.query_row("SELECT count(*) FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'", [], |r| r.get(0)).unwrap();
         assert_eq!(
-            (super::super::VERSION_11_COLUMNS.len()
-                + super::super::provider_snapshot_schema::COLUMNS.len()),
+            super::super::schema_contract(super::super::CURRENT_VERSION).count(),
             usize::try_from(count).unwrap()
         );
-        for (table, columns) in super::super::VERSION_11_COLUMNS
-            .iter()
-            .chain(super::super::provider_snapshot_schema::COLUMNS)
-        {
+        for (table, columns) in super::super::schema_contract(super::super::CURRENT_VERSION) {
             let statement = conn.prepare(&format!("SELECT * FROM {table}")).unwrap();
             assert_eq!(
                 statement.column_names(),

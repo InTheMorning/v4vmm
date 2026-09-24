@@ -1276,8 +1276,33 @@ mod adr_0075_request_profile_tests {
             .unwrap_or_default()
     }
 
+    /// R2-05: the Index search feed rows send the same number of requests as
+    /// before ADR 0077 packet 002. The feed detail request asks for
+    /// `publisher` (ADR 0077 Decision 5).
+    #[test]
+    fn adr_0077_publisher_relationship_index_feed_rows_request_count_is_unchanged() {
+        let fixture = Fixture::start();
+        let client = crate::api::Client::new_with_base_url(fixture.endpoint.clone());
+        let provider_identity = fixture.endpoint.require().unwrap();
+
+        fetch_index_feed_result_rows(&client, provider_identity, "needle").unwrap();
+
+        let requests = fixture.requests.lock().unwrap().clone();
+        assert_eq!(
+            requests.len(),
+            2,
+            "one search request, one feed detail request"
+        );
+        assert!(
+            requests[1].starts_with("/v1/feeds/f1?include=")
+                && requests[1].contains("%2Cpublisher"),
+            "the Index feed detail must ask for publisher. Got: {requests:?}"
+        );
+    }
+
     /// R17-05: the Index feed detail profile serves
-    /// `fetch_index_feed_result_rows`, and this call site sends L2.
+    /// `fetch_index_feed_result_rows`, and this call site sends L2. ADR 0077
+    /// Decision 5 adds `publisher` to that include list.
     #[test]
     fn adr_0075_request_profile_index_feed_result_rows_sends_l2() {
         let fixture = Fixture::start();
@@ -1298,7 +1323,7 @@ mod adr_0075_request_profile_tests {
                 "/v1/feeds/f1?include={}",
                 encoded_include(request_profiles::INDEX_FEED_DETAIL)
             )),
-            "R17-05: the Index feed detail call site must send L2. Got: {requests:?}"
+            "R17-05: the Index feed detail call site must send L2 and publisher (ADR 0077 Decision 5). Got: {requests:?}"
         );
     }
 }

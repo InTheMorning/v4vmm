@@ -261,63 +261,6 @@ pub struct LocalMetadataFactRow {
     pub raw_json: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct ArtistSourceFactInput {
-    pub name: Option<String>,
-    pub sort_name: Option<String>,
-    pub image_url: Option<String>,
-    pub website_url: Option<String>,
-    pub aliases: Vec<String>,
-    pub tags: Vec<String>,
-    pub area: Option<String>,
-    pub begin_year: Option<i64>,
-    pub end_year: Option<i64>,
-    pub observed_at: Option<i64>,
-    pub raw_json: Option<String>,
-    pub source_links: Vec<LocalIdentityLinkInput>,
-    pub source_ids: Vec<LocalIdentityIdInput>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ArtistSourceFactRow {
-    pub source: String,
-    pub source_artist_id: String,
-    pub name: Option<String>,
-    pub sort_name: Option<String>,
-    pub image_url: Option<String>,
-    pub website_url: Option<String>,
-    pub aliases: Vec<String>,
-    pub tags: Vec<String>,
-    pub area: Option<String>,
-    pub begin_year: Option<i64>,
-    pub end_year: Option<i64>,
-    pub observed_at: Option<i64>,
-    pub raw_json: Option<String>,
-    pub source_links: Vec<LocalIdentityLinkRow>,
-    pub source_ids: Vec<LocalIdentityIdRow>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct TrackArtistSourceBindingInput {
-    pub role: String,
-    pub source: String,
-    pub source_artist_id: String,
-    pub confidence: Option<f64>,
-    pub provenance: Option<String>,
-    pub observed_at: Option<i64>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct TrackArtistSourceBindingRow {
-    pub track_id: i64,
-    pub role: String,
-    pub source: String,
-    pub source_artist_id: String,
-    pub confidence: Option<f64>,
-    pub provenance: Option<String>,
-    pub observed_at: Option<i64>,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BroadcastEventStatus {
@@ -1365,21 +1308,6 @@ fn explicit_fact_key(fact_key: &str) -> Result<&str> {
     Ok(fact_key)
 }
 
-fn explicit_source_artist_id(source_artist_id: &str) -> Result<&str> {
-    let source_artist_id = source_artist_id.trim();
-    anyhow::ensure!(
-        !source_artist_id.is_empty(),
-        "source artist id cannot be empty"
-    );
-    Ok(source_artist_id)
-}
-
-fn explicit_artist_role(role: &str) -> Result<&str> {
-    let role = role.trim();
-    anyhow::ensure!(!role.is_empty(), "artist binding role cannot be empty");
-    Ok(role)
-}
-
 pub fn replace_local_identity_links(
     conn: &mut Connection,
     owner: LocalIdentityOwner,
@@ -1789,272 +1717,6 @@ pub fn local_metadata_fact(
     .context("query local metadata fact")
 }
 
-pub fn replace_artist_source_fact(
-    conn: &mut Connection,
-    source: &str,
-    source_artist_id: &str,
-    fact: &ArtistSourceFactInput,
-) -> Result<()> {
-    let source = explicit_source_token(source)?;
-    let source_artist_id = explicit_source_artist_id(source_artist_id)?;
-    let aliases_json = serde_json::to_string(&fact.aliases).context("serialize artist aliases")?;
-    let tags_json = serde_json::to_string(&fact.tags).context("serialize artist tags")?;
-    let tx = conn.transaction().context("start transaction")?;
-
-    tx.execute(
-        "INSERT INTO artist_source_facts (
-             source, source_artist_id, name, sort_name, image_url, website_url,
-             aliases_json, tags_json, area, begin_year, end_year, observed_at, raw_json
-         )
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
-         ON CONFLICT(source, source_artist_id) DO UPDATE SET
-             name = excluded.name,
-             sort_name = excluded.sort_name,
-             image_url = excluded.image_url,
-             website_url = excluded.website_url,
-             aliases_json = excluded.aliases_json,
-             tags_json = excluded.tags_json,
-             area = excluded.area,
-             begin_year = excluded.begin_year,
-             end_year = excluded.end_year,
-             observed_at = excluded.observed_at,
-             raw_json = excluded.raw_json,
-             updated_at = datetime('now')",
-        rusqlite::params![
-            source,
-            source_artist_id,
-            fact.name.as_deref(),
-            fact.sort_name.as_deref(),
-            fact.image_url.as_deref(),
-            fact.website_url.as_deref(),
-            aliases_json,
-            tags_json,
-            fact.area.as_deref(),
-            fact.begin_year,
-            fact.end_year,
-            fact.observed_at,
-            fact.raw_json.as_deref(),
-        ],
-    )
-    .context("upsert artist source fact")?;
-
-    let artist_source_fact_id: i64 = tx
-        .query_row(
-            "SELECT id FROM artist_source_facts
-             WHERE source = ?1 AND source_artist_id = ?2",
-            rusqlite::params![source, source_artist_id],
-            |row| row.get(0),
-        )
-        .context("query artist source fact id")?;
-
-    tx.execute(
-        "DELETE FROM artist_source_links WHERE artist_source_fact_id = ?1",
-        [artist_source_fact_id],
-    )
-    .context("delete artist source links")?;
-    tx.execute(
-        "DELETE FROM artist_source_ids WHERE artist_source_fact_id = ?1",
-        [artist_source_fact_id],
-    )
-    .context("delete artist source ids")?;
-
-    for link in &fact.source_links {
-        tx.execute(
-            "INSERT INTO artist_source_links (
-                 artist_source_fact_id, entity_type, entity_id, position,
-                 link_type, url, extraction_path, observed_at, raw_json
-             )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            rusqlite::params![
-                artist_source_fact_id,
-                link.entity_type.as_deref(),
-                link.entity_id.as_deref(),
-                link.position,
-                link.link_type.as_deref(),
-                link.url.as_deref(),
-                link.extraction_path.as_deref(),
-                link.observed_at,
-                link.raw_json.as_deref(),
-            ],
-        )
-        .context("insert artist source link")?;
-    }
-
-    for id in &fact.source_ids {
-        tx.execute(
-            "INSERT INTO artist_source_ids (
-                 artist_source_fact_id, entity_type, entity_id, position,
-                 scheme, value, extraction_path, observed_at, raw_json
-             )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            rusqlite::params![
-                artist_source_fact_id,
-                id.entity_type.as_deref(),
-                id.entity_id.as_deref(),
-                id.position,
-                id.scheme.as_deref(),
-                id.value.as_deref(),
-                id.extraction_path.as_deref(),
-                id.observed_at,
-                id.raw_json.as_deref(),
-            ],
-        )
-        .context("insert artist source id")?;
-    }
-
-    tx.commit().context("commit transaction")?;
-    Ok(())
-}
-
-pub fn artist_source_fact(
-    conn: &Connection,
-    source: &str,
-    source_artist_id: &str,
-) -> Result<Option<ArtistSourceFactRow>> {
-    let source = explicit_source_token(source)?;
-    let source_artist_id = explicit_source_artist_id(source_artist_id)?;
-    let Some(sql_row) = conn
-        .query_row(
-            "SELECT id, source, source_artist_id, name, sort_name, image_url,
-                    website_url, aliases_json, tags_json, area, begin_year,
-                    end_year, observed_at, raw_json
-             FROM artist_source_facts
-             WHERE source = ?1 AND source_artist_id = ?2",
-            rusqlite::params![source, source_artist_id],
-            artist_source_fact_sql_row_from_sql,
-        )
-        .optional()
-        .context("query artist_source_fact")?
-    else {
-        return Ok(None);
-    };
-
-    let source_links = artist_source_links(conn, sql_row.id, &sql_row.source)?;
-    let source_ids = artist_source_ids(conn, sql_row.id, &sql_row.source)?;
-    let aliases = parse_string_array(&sql_row.aliases_json, "artist aliases")?;
-    let tags = parse_string_array(&sql_row.tags_json, "artist tags")?;
-
-    Ok(Some(ArtistSourceFactRow {
-        source: sql_row.source,
-        source_artist_id: sql_row.source_artist_id,
-        name: sql_row.name,
-        sort_name: sql_row.sort_name,
-        image_url: sql_row.image_url,
-        website_url: sql_row.website_url,
-        aliases,
-        tags,
-        area: sql_row.area,
-        begin_year: sql_row.begin_year,
-        end_year: sql_row.end_year,
-        observed_at: sql_row.observed_at,
-        raw_json: sql_row.raw_json,
-        source_links,
-        source_ids,
-    }))
-}
-
-pub fn replace_track_artist_source_bindings(
-    conn: &mut Connection,
-    track_id: i64,
-    bindings: &[TrackArtistSourceBindingInput],
-) -> Result<()> {
-    let tx = conn.transaction().context("start transaction")?;
-
-    tx.execute(
-        "DELETE FROM track_artist_source_bindings WHERE track_id = ?1",
-        [track_id],
-    )
-    .context("delete track artist source bindings")?;
-
-    insert_track_artist_source_bindings(&tx, track_id, bindings)?;
-
-    tx.commit().context("commit transaction")?;
-    Ok(())
-}
-
-pub fn replace_track_artist_source_bindings_for_source(
-    conn: &mut Connection,
-    track_id: i64,
-    source: &str,
-    bindings: &[TrackArtistSourceBindingInput],
-) -> Result<()> {
-    let source = explicit_source_token(source)?;
-    for binding in bindings {
-        let binding_source = explicit_source_token(&binding.source)?;
-        anyhow::ensure!(
-            binding_source == source,
-            "artist binding source must match replacement source"
-        );
-    }
-
-    let tx = conn.transaction().context("start transaction")?;
-
-    tx.execute(
-        "DELETE FROM track_artist_source_bindings WHERE track_id = ?1 AND source = ?2",
-        rusqlite::params![track_id, source],
-    )
-    .context("delete source track artist source bindings")?;
-
-    insert_track_artist_source_bindings(&tx, track_id, bindings)?;
-
-    tx.commit().context("commit transaction")?;
-    Ok(())
-}
-
-fn insert_track_artist_source_bindings(
-    tx: &rusqlite::Transaction<'_>,
-    track_id: i64,
-    bindings: &[TrackArtistSourceBindingInput],
-) -> Result<()> {
-    for binding in bindings {
-        let role = explicit_artist_role(&binding.role)?;
-        let source = explicit_source_token(&binding.source)?;
-        let source_artist_id = explicit_source_artist_id(&binding.source_artist_id)?;
-
-        tx.execute(
-            "INSERT INTO track_artist_source_bindings (
-                 track_id, role, source, source_artist_id,
-                 confidence, provenance, observed_at
-             )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params![
-                track_id,
-                role,
-                source,
-                source_artist_id,
-                binding.confidence,
-                binding.provenance.as_deref(),
-                binding.observed_at,
-            ],
-        )
-        .context("insert track artist source binding")?;
-    }
-
-    Ok(())
-}
-
-pub fn track_artist_source_bindings_for_track(
-    conn: &Connection,
-    track_id: i64,
-) -> Result<Vec<TrackArtistSourceBindingRow>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT track_id, role, source, source_artist_id,
-                    confidence, provenance, observed_at
-             FROM track_artist_source_bindings
-             WHERE track_id = ?1
-             ORDER BY role COLLATE NOCASE, source COLLATE NOCASE, source_artist_id COLLATE NOCASE",
-        )
-        .context("prepare track_artist_source_bindings_for_track")?;
-
-    let rows = stmt
-        .query_map([track_id], track_artist_source_binding_row_from_sql)
-        .context("query track_artist_source_bindings_for_track")?
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .context("collect track_artist_source_bindings_for_track")?;
-    Ok(rows)
-}
-
 pub fn insert_broadcast_event(conn: &Connection, event: &BroadcastEventInput) -> Result<i64> {
     let event_id = explicit_broadcast_event_id(&event.event_id)?;
     let endpoint = explicit_broadcast_endpoint(&event.endpoint)?;
@@ -2316,131 +1978,6 @@ fn local_metadata_fact_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<Loc
         observed_at: row.get(6)?,
         raw_json: row.get(7)?,
     })
-}
-
-#[derive(Debug)]
-struct ArtistSourceFactSqlRow {
-    id: i64,
-    source: String,
-    source_artist_id: String,
-    name: Option<String>,
-    sort_name: Option<String>,
-    image_url: Option<String>,
-    website_url: Option<String>,
-    aliases_json: String,
-    tags_json: String,
-    area: Option<String>,
-    begin_year: Option<i64>,
-    end_year: Option<i64>,
-    observed_at: Option<i64>,
-    raw_json: Option<String>,
-}
-
-fn artist_source_fact_sql_row_from_sql(
-    row: &rusqlite::Row,
-) -> rusqlite::Result<ArtistSourceFactSqlRow> {
-    Ok(ArtistSourceFactSqlRow {
-        id: row.get(0)?,
-        source: row.get(1)?,
-        source_artist_id: row.get(2)?,
-        name: row.get(3)?,
-        sort_name: row.get(4)?,
-        image_url: row.get(5)?,
-        website_url: row.get(6)?,
-        aliases_json: row.get(7)?,
-        tags_json: row.get(8)?,
-        area: row.get(9)?,
-        begin_year: row.get(10)?,
-        end_year: row.get(11)?,
-        observed_at: row.get(12)?,
-        raw_json: row.get(13)?,
-    })
-}
-
-fn track_artist_source_binding_row_from_sql(
-    row: &rusqlite::Row,
-) -> rusqlite::Result<TrackArtistSourceBindingRow> {
-    Ok(TrackArtistSourceBindingRow {
-        track_id: row.get(0)?,
-        role: row.get(1)?,
-        source: row.get(2)?,
-        source_artist_id: row.get(3)?,
-        confidence: row.get(4)?,
-        provenance: row.get(5)?,
-        observed_at: row.get(6)?,
-    })
-}
-
-fn artist_source_links(
-    conn: &Connection,
-    artist_source_fact_id: i64,
-    source: &str,
-) -> Result<Vec<LocalIdentityLinkRow>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT entity_type, entity_id, position, link_type, url,
-                    extraction_path, observed_at, raw_json
-             FROM artist_source_links
-             WHERE artist_source_fact_id = ?1
-             ORDER BY position, id",
-        )
-        .context("prepare artist_source_links")?;
-    let rows = stmt
-        .query_map([artist_source_fact_id], |row| {
-            Ok(LocalIdentityLinkRow {
-                entity_type: row.get(0)?,
-                entity_id: row.get(1)?,
-                position: row.get(2)?,
-                link_type: row.get(3)?,
-                url: row.get(4)?,
-                source: source.to_owned(),
-                extraction_path: row.get(5)?,
-                observed_at: row.get(6)?,
-                raw_json: row.get(7)?,
-            })
-        })
-        .context("query artist_source_links")?
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .context("collect artist_source_links")?;
-    Ok(rows)
-}
-
-fn artist_source_ids(
-    conn: &Connection,
-    artist_source_fact_id: i64,
-    source: &str,
-) -> Result<Vec<LocalIdentityIdRow>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT entity_type, entity_id, position, scheme, value,
-                    extraction_path, observed_at, raw_json
-             FROM artist_source_ids
-             WHERE artist_source_fact_id = ?1
-             ORDER BY position, id",
-        )
-        .context("prepare artist_source_ids")?;
-    let rows = stmt
-        .query_map([artist_source_fact_id], |row| {
-            Ok(LocalIdentityIdRow {
-                entity_type: row.get(0)?,
-                entity_id: row.get(1)?,
-                position: row.get(2)?,
-                scheme: row.get(3)?,
-                value: row.get(4)?,
-                source: source.to_owned(),
-                extraction_path: row.get(5)?,
-                observed_at: row.get(6)?,
-                raw_json: row.get(7)?,
-            })
-        })
-        .context("query artist_source_ids")?
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .context("collect artist_source_ids")?;
-    Ok(rows)
-}
-
-fn parse_string_array(raw_json: &str, label: &str) -> Result<Vec<String>> {
-    serde_json::from_str(raw_json).with_context(|| format!("parse {label}"))
 }
 
 fn playback_session_from_sql(row: &rusqlite::Row) -> rusqlite::Result<PlaybackSessionRow> {
@@ -2843,6 +2380,7 @@ pub fn open_db(db_path: &Path) -> Result<startup::PreparedDatabase> {
 pub(crate) mod maintenance;
 pub mod provider_observations;
 mod provider_snapshot_schema;
+pub(crate) mod publisher_relationships;
 pub mod startup;
 pub(crate) mod upgrades;
 
@@ -2852,7 +2390,7 @@ struct Migration {
     apply: fn(&Connection) -> Result<()>,
 }
 
-pub(crate) const CURRENT_VERSION: i64 = 12;
+pub(crate) const CURRENT_VERSION: i64 = 14;
 
 const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -2915,6 +2453,16 @@ const MIGRATIONS: &[Migration] = &[
         name: "provider_metadata_snapshots",
         apply: provider_snapshot_schema::apply,
     },
+    Migration {
+        version: 13,
+        name: "drop_artist_storage",
+        apply: migration_drop_artist_storage,
+    },
+    Migration {
+        version: 14,
+        name: "feed_publisher_relationships",
+        apply: publisher_relationships::apply,
+    },
 ];
 
 /// Read compatibility facts share the migration authority (ADRs 0016, 0066).
@@ -2967,6 +2515,20 @@ pub(crate) fn inspect_schema(conn: &Connection) -> rusqlite::Result<SchemaCompat
         return Ok(SchemaCompatibility::Unknown);
     }
     if versions.len() < MIGRATIONS.len() {
+        // Migrations 12 and later commit with their ledger records, so a
+        // version at or after 12 has no partial state. It must match the
+        // read contract of its own version.
+        if versions.len() >= 12 {
+            let applied = i64::try_from(versions.len()).unwrap_or(i64::MAX);
+            return Ok(if matches_contract(conn, applied)? {
+                SchemaCompatibility::UpgradeRequired {
+                    applied: versions.len(),
+                    current: MIGRATIONS.len(),
+                }
+            } else {
+                SchemaCompatibility::Unknown
+            });
+        }
         if tables.iter().any(|table| table.starts_with("metadata_")) {
             return Ok(SchemaCompatibility::Unknown);
         }
@@ -2985,22 +2547,50 @@ pub(crate) fn inspect_schema(conn: &Connection) -> rusqlite::Result<SchemaCompat
             current: MIGRATIONS.len(),
         });
     }
-    for (table, columns) in VERSION_11_COLUMNS
-        .iter()
-        .chain(provider_snapshot_schema::COLUMNS)
-    {
+    Ok(if matches_contract(conn, CURRENT_VERSION)? {
+        SchemaCompatibility::Current
+    } else {
+        SchemaCompatibility::Unknown
+    })
+}
+
+/// Check that each table of the version contract can be read with its columns.
+fn matches_contract(conn: &Connection, version: i64) -> rusqlite::Result<bool> {
+    for (table, columns) in schema_contract(version) {
         let sql = format!("SELECT * FROM main.{table} LIMIT 0");
         let Ok(statement) = conn.prepare(&sql) else {
-            return Ok(SchemaCompatibility::Unknown);
+            return Ok(false);
         };
         if !columns
             .iter()
             .all(|column| statement.column_names().contains(column))
         {
-            return Ok(SchemaCompatibility::Unknown);
+            return Ok(false);
         }
     }
-    Ok(SchemaCompatibility::Current)
+    Ok(true)
+}
+
+/// The read contract of each table after migration `version` (ADRs 0016, 0066).
+/// Version 11 is frozen. Migration 12 adds the provider snapshot tables,
+/// migration 13 removes the artist storage tables (ADR 0079), and migration
+/// 14 adds the feed publisher relationship table (ADR 0077 Decision 5).
+pub(crate) fn schema_contract(
+    version: i64,
+) -> impl Iterator<Item = &'static (&'static str, &'static [&'static str])> {
+    VERSION_11_COLUMNS
+        .iter()
+        .filter(move |(table, _)| version < 13 || !ARTIST_STORAGE_TABLES.contains(table))
+        .chain(if version >= 12 {
+            provider_snapshot_schema::COLUMNS
+        } else {
+            &[]
+        })
+        .chain(if version >= 14 {
+            publisher_relationships::COLUMNS
+        } else {
+            &[]
+        })
 }
 
 const BASE_READS: &[&str] = &[
@@ -3261,6 +2851,14 @@ const VERSION_11_COLUMNS: &[(&str, &[&str])] = &[
     ),
 ];
 
+/// Migration 13 drops these version-11 tables in this order (ADR 0079, ADR 0077 Decision 7).
+pub(crate) const ARTIST_STORAGE_TABLES: [&str; 4] = [
+    "track_artist_source_bindings",
+    "artist_source_ids",
+    "artist_source_links",
+    "artist_source_facts",
+];
+
 pub(crate) fn migrate_schema_to(conn: &Connection, target: i64) -> Result<()> {
     migrate_schema_with(conn, target, |_, _| Ok(()))
 }
@@ -3293,6 +2891,9 @@ fn migrate_schema_internal(
         "Unsupported migration target"
     );
     ensure_schema_migrations_table(conn)?;
+    // Migrations 12 and later share one transaction with their ledger records.
+    // A failure rolls back every pending guarded migration together.
+    let mut transaction = None;
     for migration in MIGRATIONS
         .iter()
         .filter(|migration| migration.version <= target)
@@ -3300,13 +2901,13 @@ fn migrate_schema_internal(
         if migration_applied(conn, migration.version)? {
             continue;
         }
-        let transaction = (migration.version == 12)
-            .then(|| conn.unchecked_transaction())
-            .transpose()?;
-        let baseline = if migration.version == 12 && verify {
-            Some(upgrades::legacy_digest(conn)?)
-        } else {
-            None
+        if migration.version >= 12 && transaction.is_none() {
+            transaction = Some(conn.unchecked_transaction()?);
+        }
+        let baseline = match migration.version {
+            12 if verify => Some(upgrades::legacy_digest(conn)?),
+            13 | 14 if verify => Some(upgrades::retained_digest(conn)?),
+            _ => None,
         };
         boundary(migration.version, MigrationBoundary::BeforeApply)?;
         (migration.apply)(conn)
@@ -3314,8 +2915,31 @@ fn migrate_schema_internal(
         boundary(migration.version, MigrationBoundary::AfterApply)?;
         record_migration(conn, migration.version, migration.name)?;
         boundary(migration.version, MigrationBoundary::AfterRecord)?;
-        if let Some(before) = baseline {
-            upgrades::verify_target(conn, target)?;
+        if let (14, Some(before)) = (migration.version, baseline.as_ref()) {
+            upgrades::verify_target(conn, 14)?;
+            anyhow::ensure!(
+                upgrades::retained_digest(conn)? == *before,
+                "Migration changed retained records"
+            );
+            let count: i64 = conn.query_row(
+                "SELECT count(*) FROM feed_publisher_relationships",
+                [],
+                |row| row.get(0),
+            )?;
+            anyhow::ensure!(
+                count == 0,
+                "Migration created unexpected relationship records"
+            );
+        }
+        if let (13, Some(before)) = (migration.version, baseline.as_ref()) {
+            upgrades::verify_target(conn, 13)?;
+            anyhow::ensure!(
+                upgrades::retained_digest(conn)? == *before,
+                "Migration changed retained records"
+            );
+        }
+        if let (12, Some(before)) = (migration.version, baseline) {
+            upgrades::verify_target(conn, 12)?;
             for (table, _) in provider_snapshot_schema::COLUMNS {
                 let count: i64 =
                     conn.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
@@ -3339,9 +2963,9 @@ fn migrate_schema_internal(
                 "Migration changed legacy records"
             );
         }
-        if let Some(transaction) = transaction {
-            transaction.commit()?;
-        }
+    }
+    if let Some(transaction) = transaction {
+        transaction.commit()?;
     }
     Ok(())
 }
@@ -3397,6 +3021,16 @@ fn migration_artist_source_facts(conn: &Connection) -> Result<()> {
 
 fn migration_track_artist_source_bindings(conn: &Connection) -> Result<()> {
     create_track_artist_source_binding_tables(conn)
+}
+
+/// ADR 0079 and ADR 0077 Decision 7: no entry point reads the artist storage.
+/// SQLite removes the indexes of each table with the table.
+fn migration_drop_artist_storage(conn: &Connection) -> Result<()> {
+    for table in ARTIST_STORAGE_TABLES {
+        conn.execute_batch(&format!("DROP TABLE IF EXISTS {table}"))
+            .with_context(|| format!("drop table {table}"))?;
+    }
+    Ok(())
 }
 
 fn migration_cleanup_placeholder_source_text(conn: &Connection) -> Result<()> {
@@ -4723,7 +4357,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
             "fresh schema should record all registry migrations"
         );
 
@@ -5057,7 +4691,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
             "cleanup migration should be recorded exactly once"
         );
 
@@ -5384,464 +5018,6 @@ mod tests {
         assert!(
             local_metadata_facts(&conn, LocalMetadataOwner::Feed(feed_id))?.is_empty(),
             "deleting a feed should delete feed metadata facts"
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_artist_source_fact_schema_creates_tables() -> Result<()> {
-        let conn = setup_test_db()?;
-
-        assert!(
-            table_exists(&conn, "artist_source_facts")?,
-            "schema should include artist_source_facts"
-        );
-        assert!(
-            table_exists(&conn, "artist_source_links")?,
-            "schema should include artist_source_links"
-        );
-        assert!(
-            table_exists(&conn, "artist_source_ids")?,
-            "schema should include artist_source_ids"
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_artist_source_facts_round_trip() -> Result<()> {
-        let mut conn = setup_test_db()?;
-
-        replace_artist_source_fact(
-            &mut conn,
-            "musicindex",
-            "artist-123",
-            &ArtistSourceFactInput {
-                name: Some("Alice".to_owned()),
-                sort_name: Some("Alice, The".to_owned()),
-                image_url: Some("https://example.test/artist.jpg".to_owned()),
-                website_url: Some("https://example.test/artist".to_owned()),
-                aliases: vec!["A. Example".to_owned()],
-                tags: vec!["rock".to_owned()],
-                area: Some("Montreal".to_owned()),
-                begin_year: Some(2020),
-                end_year: Some(2025),
-                observed_at: Some(1_714_000_000),
-                raw_json: Some(r#"{"artist_id":"artist-123"}"#.to_owned()),
-                source_links: vec![LocalIdentityLinkInput {
-                    entity_type: Some("artist".to_owned()),
-                    entity_id: Some("artist-123".to_owned()),
-                    position: Some(0),
-                    link_type: Some("website".to_owned()),
-                    url: Some("https://example.test/artist".to_owned()),
-                    extraction_path: Some("$.url".to_owned()),
-                    observed_at: Some(1_714_000_001),
-                    raw_json: Some(r#"{"url":"https://example.test/artist"}"#.to_owned()),
-                }],
-                source_ids: vec![LocalIdentityIdInput {
-                    entity_type: Some("artist".to_owned()),
-                    entity_id: Some("artist-123".to_owned()),
-                    position: Some(0),
-                    scheme: Some("musicindex_artist_id".to_owned()),
-                    value: Some("artist-123".to_owned()),
-                    extraction_path: Some("$.artist_id".to_owned()),
-                    observed_at: Some(1_714_000_002),
-                    raw_json: Some(r#"{"artist_id":"artist-123"}"#.to_owned()),
-                }],
-            },
-        )?;
-
-        let row = artist_source_fact(&conn, "musicindex", "artist-123")?
-            .context("artist source fact should exist")?;
-
-        assert_eq!(row.source, "musicindex");
-        assert_eq!(row.source_artist_id, "artist-123");
-        assert_eq!(row.name.as_deref(), Some("Alice"));
-        assert_eq!(row.sort_name.as_deref(), Some("Alice, The"));
-        assert_eq!(
-            row.image_url.as_deref(),
-            Some("https://example.test/artist.jpg")
-        );
-        assert_eq!(
-            row.website_url.as_deref(),
-            Some("https://example.test/artist")
-        );
-        assert_eq!(row.aliases, vec!["A. Example"]);
-        assert_eq!(row.tags, vec!["rock"]);
-        assert_eq!(row.area.as_deref(), Some("Montreal"));
-        assert_eq!(row.begin_year, Some(2020));
-        assert_eq!(row.end_year, Some(2025));
-        assert_eq!(row.observed_at, Some(1_714_000_000));
-        assert_eq!(
-            row.raw_json.as_deref(),
-            Some(r#"{"artist_id":"artist-123"}"#)
-        );
-        assert_eq!(row.source_links.len(), 1);
-        assert_eq!(row.source_links[0].source, "musicindex");
-        assert_eq!(
-            row.source_links[0].url.as_deref(),
-            Some("https://example.test/artist")
-        );
-        assert_eq!(row.source_ids.len(), 1);
-        assert_eq!(row.source_ids[0].source, "musicindex");
-        assert_eq!(
-            row.source_ids[0].scheme.as_deref(),
-            Some("musicindex_artist_id")
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_artist_source_facts_replace_source_scoped_rows() -> Result<()> {
-        let mut conn = setup_test_db()?;
-
-        replace_artist_source_fact(
-            &mut conn,
-            "musicindex",
-            "artist-123",
-            &ArtistSourceFactInput {
-                name: Some("Old".to_owned()),
-                source_links: vec![LocalIdentityLinkInput {
-                    url: Some("https://old.example".to_owned()),
-                    ..LocalIdentityLinkInput::default()
-                }],
-                ..ArtistSourceFactInput::default()
-            },
-        )?;
-        replace_artist_source_fact(
-            &mut conn,
-            "rss",
-            "artist-123",
-            &ArtistSourceFactInput {
-                name: Some("RSS".to_owned()),
-                ..ArtistSourceFactInput::default()
-            },
-        )?;
-        replace_artist_source_fact(
-            &mut conn,
-            "musicindex",
-            "artist-123",
-            &ArtistSourceFactInput {
-                name: Some("New".to_owned()),
-                source_links: vec![LocalIdentityLinkInput {
-                    url: Some("https://new.example".to_owned()),
-                    ..LocalIdentityLinkInput::default()
-                }],
-                ..ArtistSourceFactInput::default()
-            },
-        )?;
-
-        let musicindex_row = artist_source_fact(&conn, "musicindex", "artist-123")?
-            .context("musicindex artist source fact should exist")?;
-        let rss_row = artist_source_fact(&conn, "rss", "artist-123")?
-            .context("rss artist source fact should exist")?;
-
-        assert_eq!(musicindex_row.name.as_deref(), Some("New"));
-        assert_eq!(musicindex_row.source_links.len(), 1);
-        assert_eq!(
-            musicindex_row.source_links[0].url.as_deref(),
-            Some("https://new.example")
-        );
-        assert_eq!(rss_row.name.as_deref(), Some("RSS"));
-        assert_eq!(table_row_count(&conn, "artist_source_facts")?, 2);
-        assert_eq!(table_row_count(&conn, "artist_source_links")?, 1);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_artist_source_fact_requires_explicit_keys() -> Result<()> {
-        let mut conn = setup_test_db()?;
-        let fact = ArtistSourceFactInput::default();
-
-        assert!(
-            replace_artist_source_fact(&mut conn, "", "artist-123", &fact).is_err(),
-            "artist source facts require a non-empty source"
-        );
-        assert!(
-            replace_artist_source_fact(&mut conn, "musicindex", "", &fact).is_err(),
-            "artist source facts require a non-empty source artist id"
-        );
-
-        let invalid = conn.execute(
-            "INSERT INTO artist_source_facts (source, source_artist_id)
-             VALUES ('musicindex', '')",
-            [],
-        );
-        assert!(
-            invalid.is_err(),
-            "schema should reject empty source artist ids"
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_track_artist_source_binding_schema_creates_tables() -> Result<()> {
-        let conn = setup_test_db()?;
-
-        assert!(
-            table_exists(&conn, "track_artist_source_bindings")?,
-            "schema should include track_artist_source_bindings"
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_track_artist_source_bindings_round_trip_and_replace() -> Result<()> {
-        let mut conn = setup_test_db()?;
-        let feed_id = create_test_feed(&conn)?;
-        let track_id = create_test_track(&conn, feed_id)?;
-        replace_artist_source_fact(
-            &mut conn,
-            "musicindex",
-            "artist-123",
-            &ArtistSourceFactInput {
-                name: Some("Alice".to_owned()),
-                ..ArtistSourceFactInput::default()
-            },
-        )?;
-        replace_artist_source_fact(
-            &mut conn,
-            "musicindex",
-            "artist-456",
-            &ArtistSourceFactInput {
-                name: Some("Bob".to_owned()),
-                ..ArtistSourceFactInput::default()
-            },
-        )?;
-
-        replace_track_artist_source_bindings(
-            &mut conn,
-            track_id,
-            &[TrackArtistSourceBindingInput {
-                role: "artist".to_owned(),
-                source: "musicindex".to_owned(),
-                source_artist_id: "artist-123".to_owned(),
-                confidence: Some(1.0),
-                provenance: Some("musicindex.track.artist_id".to_owned()),
-                observed_at: Some(1_714_000_000),
-            }],
-        )?;
-
-        let bindings = track_artist_source_bindings_for_track(&conn, track_id)?;
-        assert_eq!(bindings.len(), 1);
-        assert_eq!(bindings[0].track_id, track_id);
-        assert_eq!(bindings[0].role, "artist");
-        assert_eq!(bindings[0].source, "musicindex");
-        assert_eq!(bindings[0].source_artist_id, "artist-123");
-        assert_eq!(bindings[0].confidence, Some(1.0));
-        assert_eq!(
-            bindings[0].provenance.as_deref(),
-            Some("musicindex.track.artist_id")
-        );
-        assert_eq!(bindings[0].observed_at, Some(1_714_000_000));
-
-        replace_track_artist_source_bindings(
-            &mut conn,
-            track_id,
-            &[TrackArtistSourceBindingInput {
-                role: "album_artist".to_owned(),
-                source: "musicindex".to_owned(),
-                source_artist_id: "artist-456".to_owned(),
-                confidence: Some(0.9),
-                provenance: Some("musicindex.track.album_artist_id".to_owned()),
-                observed_at: Some(1_714_000_001),
-            }],
-        )?;
-
-        let bindings = track_artist_source_bindings_for_track(&conn, track_id)?;
-        assert_eq!(
-            bindings,
-            vec![TrackArtistSourceBindingRow {
-                track_id,
-                role: "album_artist".to_owned(),
-                source: "musicindex".to_owned(),
-                source_artist_id: "artist-456".to_owned(),
-                confidence: Some(0.9),
-                provenance: Some("musicindex.track.album_artist_id".to_owned()),
-                observed_at: Some(1_714_000_001),
-            }]
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_track_artist_source_bindings_require_explicit_keys() -> Result<()> {
-        let mut conn = setup_test_db()?;
-        let feed_id = create_test_feed(&conn)?;
-        let track_id = create_test_track(&conn, feed_id)?;
-        replace_artist_source_fact(
-            &mut conn,
-            "musicindex",
-            "artist-123",
-            &ArtistSourceFactInput::default(),
-        )?;
-
-        for binding in [
-            TrackArtistSourceBindingInput {
-                role: "".to_owned(),
-                source: "musicindex".to_owned(),
-                source_artist_id: "artist-123".to_owned(),
-                confidence: None,
-                provenance: None,
-                observed_at: None,
-            },
-            TrackArtistSourceBindingInput {
-                role: "artist".to_owned(),
-                source: "".to_owned(),
-                source_artist_id: "artist-123".to_owned(),
-                confidence: None,
-                provenance: None,
-                observed_at: None,
-            },
-            TrackArtistSourceBindingInput {
-                role: "artist".to_owned(),
-                source: "musicindex".to_owned(),
-                source_artist_id: "".to_owned(),
-                confidence: None,
-                provenance: None,
-                observed_at: None,
-            },
-        ] {
-            assert!(
-                replace_track_artist_source_bindings(&mut conn, track_id, &[binding]).is_err(),
-                "track artist bindings require explicit role, source, and source artist id"
-            );
-        }
-
-        let invalid = conn.execute(
-            "INSERT INTO track_artist_source_bindings (
-                 track_id, role, source, source_artist_id
-             )
-             VALUES (?1, 'artist', 'musicindex', '')",
-            [track_id],
-        );
-        assert!(
-            invalid.is_err(),
-            "schema should reject empty source artist ids"
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_track_artist_source_bindings_track_delete_cascades_only_bindings() -> Result<()> {
-        let mut conn = setup_test_db()?;
-        let feed_id = create_test_feed(&conn)?;
-        let track_id = create_test_track(&conn, feed_id)?;
-        replace_artist_source_fact(
-            &mut conn,
-            "musicindex",
-            "artist-123",
-            &ArtistSourceFactInput {
-                name: Some("Alice".to_owned()),
-                ..ArtistSourceFactInput::default()
-            },
-        )?;
-        replace_track_artist_source_bindings(
-            &mut conn,
-            track_id,
-            &[TrackArtistSourceBindingInput {
-                role: "artist".to_owned(),
-                source: "musicindex".to_owned(),
-                source_artist_id: "artist-123".to_owned(),
-                confidence: Some(1.0),
-                provenance: Some("musicindex.track.artist_id".to_owned()),
-                observed_at: Some(1_714_000_000),
-            }],
-        )?;
-
-        conn.execute("DELETE FROM tracks WHERE id = ?1", [track_id])?;
-
-        assert!(
-            track_artist_source_bindings_for_track(&conn, track_id)?.is_empty(),
-            "deleting a track should delete only its local artist bindings"
-        );
-        assert!(
-            artist_source_fact(&conn, "musicindex", "artist-123")?.is_some(),
-            "deleting a track must not delete artist source facts"
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_track_artist_source_bindings_source_replace_preserves_other_sources() -> Result<()> {
-        let mut conn = setup_test_db()?;
-        let feed_id = create_test_feed(&conn)?;
-        let track_id = create_test_track(&conn, feed_id)?;
-        replace_artist_source_fact(
-            &mut conn,
-            "musicindex",
-            "artist-123",
-            &ArtistSourceFactInput::default(),
-        )?;
-        replace_artist_source_fact(
-            &mut conn,
-            "other",
-            "artist-999",
-            &ArtistSourceFactInput::default(),
-        )?;
-        replace_track_artist_source_bindings(
-            &mut conn,
-            track_id,
-            &[
-                TrackArtistSourceBindingInput {
-                    role: "artist".to_owned(),
-                    source: "musicindex".to_owned(),
-                    source_artist_id: "artist-123".to_owned(),
-                    confidence: Some(1.0),
-                    provenance: Some("musicindex.track.artist_credit.artist_id".to_owned()),
-                    observed_at: Some(1),
-                },
-                TrackArtistSourceBindingInput {
-                    role: "artist".to_owned(),
-                    source: "other".to_owned(),
-                    source_artist_id: "artist-999".to_owned(),
-                    confidence: Some(0.8),
-                    provenance: Some("other.track.artist_id".to_owned()),
-                    observed_at: Some(2),
-                },
-            ],
-        )?;
-
-        replace_track_artist_source_bindings_for_source(&mut conn, track_id, "musicindex", &[])?;
-
-        let bindings = track_artist_source_bindings_for_track(&conn, track_id)?;
-        assert_eq!(
-            bindings,
-            vec![TrackArtistSourceBindingRow {
-                track_id,
-                role: "artist".to_owned(),
-                source: "other".to_owned(),
-                source_artist_id: "artist-999".to_owned(),
-                confidence: Some(0.8),
-                provenance: Some("other.track.artist_id".to_owned()),
-                observed_at: Some(2),
-            }]
-        );
-
-        let mismatched_source = replace_track_artist_source_bindings_for_source(
-            &mut conn,
-            track_id,
-            "musicindex",
-            &[TrackArtistSourceBindingInput {
-                role: "artist".to_owned(),
-                source: "other".to_owned(),
-                source_artist_id: "artist-999".to_owned(),
-                confidence: None,
-                provenance: None,
-                observed_at: None,
-            }],
-        );
-        assert!(
-            mismatched_source.is_err(),
-            "source-scoped replacement should reject bindings for other sources"
         );
 
         Ok(())
@@ -6225,6 +5401,152 @@ mod tests {
 
         assert!(result.is_err());
 
+        Ok(())
+    }
+
+    /// Version 12 rows for the ADR 0079 migration tests: each retained table
+    /// family and each artist storage table holds at least one row.
+    fn adr_0077_version_12_with_artist_rows() -> Result<Connection> {
+        let conn = Connection::open_in_memory()?;
+        upgrades::create_fixture(&conn, 12)?;
+        conn.execute_batch(
+            r#"
+            INSERT INTO feeds(id, feed_url, feed_guid, title)
+                VALUES (1, 'https://example.test/feed.xml', 'feed-guid', 'Album');
+            INSERT INTO tracks(id, feed_id, item_guid, track_title, artist_name, is_in_library)
+                VALUES (1, 1, 'track-guid', 'Song', 'Alice', 1);
+            INSERT INTO local_files(path, track_id) VALUES ('Alice/Album/Song.mp3', 1);
+            INSERT INTO playlists(id, name) VALUES (1, 'Show');
+            INSERT INTO playlist_tracks(playlist_id, track_id, position) VALUES (1, 1, 0);
+            INSERT INTO artist_source_facts(id, source, source_artist_id, name, aliases_json, area, begin_year)
+                VALUES (1, 'musicindex', 'artist-123', 'Alice', '["A. Example"]', 'Montreal', 2020);
+            INSERT INTO artist_source_links(artist_source_fact_id, url)
+                VALUES (1, 'https://example.test/alice');
+            INSERT INTO artist_source_ids(artist_source_fact_id, scheme, value)
+                VALUES (1, 'musicbrainz', 'mbid-1');
+            INSERT INTO track_artist_source_bindings(track_id, role, source, source_artist_id)
+                VALUES (1, 'artist', 'musicindex', 'artist-123');
+            "#,
+        )?;
+        conn.execute_batch(provider_snapshot_schema::RETAINED_ROWS)?;
+        conn.execute_batch("INSERT INTO metadata_facts(id,observation_id,scope_ordinal,transport_ordinal,declared_subject_id,declared_owner_json,owner_basis_json,fact_kind,representation,validation,value_json,body_locator_json) VALUES(1,2,0,0,1,'{}','{}','description','plain_text','valid','\"kept\"','{}'); INSERT INTO metadata_snapshots VALUES(2,2,1,'field:description','populated',2,0,1); INSERT INTO metadata_snapshot_members VALUES(2,0,1); INSERT INTO metadata_collection_heads VALUES(2,1,'field:description',2,2,2,0,40,'{}',2,'success',2,NULL);")?;
+        Ok(conn)
+    }
+
+    fn adr_0077_table_rows(
+        conn: &Connection,
+        table: &str,
+    ) -> Result<Vec<Vec<rusqlite::types::Value>>> {
+        let filter = if table == "schema_migrations" {
+            " WHERE version <= 12"
+        } else {
+            ""
+        };
+        let mut statement =
+            conn.prepare(&format!("SELECT * FROM {table}{filter} ORDER BY rowid"))?;
+        let count = statement.column_count();
+        let rows = statement
+            .query_map([], |row| {
+                (0..count)
+                    .map(|index| row.get::<_, rusqlite::types::Value>(index))
+                    .collect::<rusqlite::Result<Vec<_>>>()
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// R1-01: migration 13 removes the four artist storage tables and their rows.
+    #[test]
+    fn adr_0077_remove_artist_storage_version_12_rows_migrate_to_13_without_artist_tables(
+    ) -> Result<()> {
+        let conn = adr_0077_version_12_with_artist_rows()?;
+        for table in ARTIST_STORAGE_TABLES {
+            assert_eq!(table_row_count(&conn, table)?, 1, "{table} fixture row");
+        }
+        assert_eq!(
+            inspect_schema(&conn)?,
+            SchemaCompatibility::UpgradeRequired {
+                applied: 12,
+                current: MIGRATIONS.len()
+            }
+        );
+
+        migrate_schema_to(&conn, 13)?;
+
+        for table in ARTIST_STORAGE_TABLES {
+            assert!(!table_exists(&conn, table)?, "{table} must be dropped");
+        }
+        assert_eq!(
+            applied_migration_versions(&conn)?,
+            (1..=13).collect::<Vec<i64>>()
+        );
+        assert_eq!(
+            inspect_schema(&conn)?,
+            SchemaCompatibility::UpgradeRequired {
+                applied: 13,
+                current: MIGRATIONS.len()
+            }
+        );
+        upgrades::verify_target(&conn, 13)?;
+        Ok(())
+    }
+
+    /// R1-02: migration 13 keeps every row of each retained table.
+    #[test]
+    fn adr_0077_remove_artist_storage_migration_13_keeps_retained_rows() -> Result<()> {
+        let conn = adr_0077_version_12_with_artist_rows()?;
+        let retained = schema_contract(13)
+            .map(|(table, _)| *table)
+            .collect::<Vec<_>>();
+        for table in [
+            "feeds",
+            "tracks",
+            "local_files",
+            "playlists",
+            "playlist_tracks",
+            "metadata_observations",
+            "metadata_facts",
+            "metadata_snapshots",
+            "metadata_discrepancies",
+        ] {
+            assert!(retained.contains(&table), "{table} is retained");
+            assert!(table_row_count(&conn, table)? > 0, "{table} fixture row");
+        }
+        let before = retained
+            .iter()
+            .map(|table| adr_0077_table_rows(&conn, table))
+            .collect::<Result<Vec<_>>>()?;
+
+        migrate_schema_to(&conn, 13)?;
+
+        let after = retained
+            .iter()
+            .map(|table| adr_0077_table_rows(&conn, table))
+            .collect::<Result<Vec<_>>>()?;
+        for ((table, before), after) in retained.iter().zip(&before).zip(&after) {
+            assert_eq!(before, after, "{table} rows changed");
+        }
+        Ok(())
+    }
+
+    /// R1-03: a fresh database runs migrations 4, 5 and 13 and keeps no artist table.
+    #[test]
+    fn adr_0077_remove_artist_storage_fresh_database_has_no_artist_tables() -> Result<()> {
+        let conn = setup_test_db()?;
+        let versions = applied_migration_versions(&conn)?;
+        for version in [4, 5, 13] {
+            assert!(versions.contains(&version), "migration {version} recorded");
+        }
+        assert_eq!(versions.last(), Some(&CURRENT_VERSION));
+        for table in ARTIST_STORAGE_TABLES {
+            assert!(!table_exists(&conn, table)?, "{table} must be absent");
+            assert!(
+                schema_contract(CURRENT_VERSION).all(|(name, _)| *name != table),
+                "current schema contract names {table}"
+            );
+        }
+        assert_eq!(inspect_schema(&conn)?, SchemaCompatibility::Current);
+        upgrades::verify_target(&conn, CURRENT_VERSION)?;
         Ok(())
     }
 }

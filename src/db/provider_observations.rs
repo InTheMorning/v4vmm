@@ -1391,9 +1391,6 @@ mod tests {
             .unwrap();
         conn.execute_batch("INSERT INTO metadata_facts(id,observation_id,scope_ordinal,transport_ordinal,declared_subject_id,declared_owner_json,owner_basis_json,fact_kind,representation,validation,value_json,body_locator_json) VALUES(1,2,0,0,1,'{}','{}','description','plain_text','valid','\"kept\"','{}'); INSERT INTO metadata_snapshots VALUES(2,2,1,'field:description','populated',2,0,1); INSERT INTO metadata_snapshot_members VALUES(2,0,1); INSERT INTO metadata_collection_heads VALUES(2,1,'field:description',2,2,2,0,40,'{}',2,'success',2,NULL);").unwrap();
         let names = [
-            "artist_source_facts",
-            "artist_source_ids",
-            "artist_source_links",
             "broadcast_event_selection",
             "broadcast_events",
             "entity_contributors",
@@ -1408,7 +1405,6 @@ mod tests {
             "playlists",
             "schema_migrations",
             "schema_version",
-            "track_artist_source_bindings",
             "tracks",
             "metadata_providers",
             "metadata_resources",

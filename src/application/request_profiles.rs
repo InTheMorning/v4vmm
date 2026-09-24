@@ -67,8 +67,9 @@ impl RequestProfile {
 /// L1. Five collections. Used by the three Library track detail profiles
 /// and the Library feed update profile.
 const L1: &str = "source_links,source_ids,source_release_claims,source_contributors,payment_routes";
-/// L2. Seven collections. Used by the Index feed detail profile.
-const L2: &str = "tracks,source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes";
+/// L2 and `publisher`. Eight collections. Used by the Index feed detail
+/// profile. ADR 0077 Decision 5 added `publisher` to L2.
+const L2_PUBLISHER: &str = "tracks,source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes,publisher";
 /// L3. Six collections. Used by the inspector track detail profile's
 /// track request.
 const L3: &str =
@@ -77,8 +78,10 @@ const L3: &str =
 /// feed request.
 const L4: &str =
     "tracks,source_enclosures,source_links,source_ids,source_release_claims,payment_routes";
-/// L5. Four collections. Used by the Library album hydration profile.
-const L5: &str = "source_links,source_ids,source_release_claims,source_contributors";
+/// L5 and `publisher`. Five collections. Used by the Library album
+/// hydration profile. ADR 0077 Decision 5 added `publisher` to L5.
+const L5_PUBLISHER: &str =
+    "source_links,source_ids,source_release_claims,source_contributors,publisher";
 
 /// Library track detail, scoped track. First. Used only when the row has
 /// a feed GUID. Owner: `feed_service::fetch_library_track_detail_with_recorder`.
@@ -101,13 +104,13 @@ pub(crate) const LIBRARY_FEED_UPDATE_FEED: RequestProfile =
 /// Library album hydration, feed. The only request of
 /// `library::hydrate_album_identity_facts`.
 pub(crate) const LIBRARY_ALBUM_HYDRATION_FEED: RequestProfile =
-    RequestProfile::new(RequestPathShape::Feed, Some(L5));
+    RequestProfile::new(RequestPathShape::Feed, Some(L5_PUBLISHER));
 
 /// Index feed detail. The only request of each of its three call sites:
 /// `search::fetch_index_feed_result_rows`, `feed::fetch_recent_feed_result_rows`,
 /// and `feed::fetch_feed_detail`.
 pub(crate) const INDEX_FEED_DETAIL: RequestProfile =
-    RequestProfile::new(RequestPathShape::Feed, Some(L2));
+    RequestProfile::new(RequestPathShape::Feed, Some(L2_PUBLISHER));
 
 /// Index track detail, scoped. Used when the hit has a nonempty feed GUID.
 /// Owner: `search::fetch_index_track_detail`.
@@ -200,6 +203,10 @@ mod tests {
     /// character for character. These constants are retyped from the
     /// packet's literal table, independent of this module's own `L1`
     /// through `L5` constants, so the comparison is not circular.
+    ///
+    /// ADR 0077 Decision 5 changes this test on purpose. The Library album
+    /// hydration sends L5 and `publisher`, and the Index feed detail sends
+    /// L2 and `publisher` (packet ADR 0077 002, R2-04).
     #[test]
     fn adr_0075_request_profile_include_strings_match_recorded_literals() {
         const RECORDED_L1: &str =
@@ -210,6 +217,8 @@ mod tests {
             "tracks,source_enclosures,source_links,source_ids,source_release_claims,payment_routes";
         const RECORDED_L5: &str =
             "source_links,source_ids,source_release_claims,source_contributors";
+        let recorded_l2_publisher = format!("{RECORDED_L2},publisher");
+        let recorded_l5_publisher = format!("{RECORDED_L5},publisher");
 
         assert_eq!(
             LIBRARY_TRACK_DETAIL_SCOPED_TRACK.include(),
@@ -221,8 +230,16 @@ mod tests {
         );
         assert_eq!(LIBRARY_TRACK_DETAIL_FEED.include(), Some(RECORDED_L1));
         assert_eq!(LIBRARY_FEED_UPDATE_FEED.include(), Some(RECORDED_L1));
-        assert_eq!(LIBRARY_ALBUM_HYDRATION_FEED.include(), Some(RECORDED_L5));
-        assert_eq!(INDEX_FEED_DETAIL.include(), Some(RECORDED_L2));
+        assert_eq!(
+            LIBRARY_ALBUM_HYDRATION_FEED.include(),
+            Some(recorded_l5_publisher.as_str()),
+            "ADR 0077 Decision 5: the Library album hydration sends L5 and publisher"
+        );
+        assert_eq!(
+            INDEX_FEED_DETAIL.include(),
+            Some(recorded_l2_publisher.as_str()),
+            "ADR 0077 Decision 5: the Index feed detail sends L2 and publisher"
+        );
         assert_eq!(INDEX_TRACK_DETAIL_SCOPED.include(), None);
         assert_eq!(INDEX_TRACK_DETAIL_UNSCOPED.include(), None);
         assert_eq!(INSPECTOR_TRACK_DETAIL_TRACK.include(), Some(RECORDED_L3));
@@ -252,6 +269,10 @@ mod tests {
     }
 
     /// R17-12: the registry reports the collection count of each profile.
+    ///
+    /// ADR 0077 Decision 5 changes this test on purpose. `publisher` makes
+    /// the Library album hydration five collections and the Index feed
+    /// detail eight collections.
     #[test]
     fn adr_0075_request_profile_reports_collection_counts() {
         fn collection_count(profile: &RequestProfile) -> usize {
@@ -264,12 +285,68 @@ mod tests {
         assert_eq!(collection_count(&LIBRARY_TRACK_DETAIL_UNSCOPED_TRACK), 5);
         assert_eq!(collection_count(&LIBRARY_TRACK_DETAIL_FEED), 5);
         assert_eq!(collection_count(&LIBRARY_FEED_UPDATE_FEED), 5);
-        assert_eq!(collection_count(&LIBRARY_ALBUM_HYDRATION_FEED), 4);
-        assert_eq!(collection_count(&INDEX_FEED_DETAIL), 7);
+        assert_eq!(collection_count(&LIBRARY_ALBUM_HYDRATION_FEED), 5);
+        assert_eq!(collection_count(&INDEX_FEED_DETAIL), 8);
         assert_eq!(collection_count(&INDEX_TRACK_DETAIL_SCOPED), 0);
         assert_eq!(collection_count(&INDEX_TRACK_DETAIL_UNSCOPED), 0);
         assert_eq!(collection_count(&INSPECTOR_TRACK_DETAIL_TRACK), 6);
         assert_eq!(collection_count(&INSPECTOR_TRACK_DETAIL_FEED), 6);
+    }
+
+    /// R2-04 (ADR 0077 Decision 5): the Library album hydration sends L5
+    /// and `publisher`, and the Index feed detail sends L2 and `publisher`.
+    /// No other profile requests `publisher`, and each other include list
+    /// keeps its packet 017 literal.
+    #[test]
+    fn adr_0077_publisher_relationship_profiles_add_publisher_to_two_include_lists() {
+        assert_eq!(
+            LIBRARY_ALBUM_HYDRATION_FEED.include(),
+            Some("source_links,source_ids,source_release_claims,source_contributors,publisher")
+        );
+        assert_eq!(
+            INDEX_FEED_DETAIL.include(),
+            Some("tracks,source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes,publisher")
+        );
+        let unchanged = [
+            (
+                LIBRARY_TRACK_DETAIL_SCOPED_TRACK,
+                Some("source_links,source_ids,source_release_claims,source_contributors,payment_routes"),
+            ),
+            (
+                LIBRARY_TRACK_DETAIL_UNSCOPED_TRACK,
+                Some("source_links,source_ids,source_release_claims,source_contributors,payment_routes"),
+            ),
+            (
+                LIBRARY_TRACK_DETAIL_FEED,
+                Some("source_links,source_ids,source_release_claims,source_contributors,payment_routes"),
+            ),
+            (
+                LIBRARY_FEED_UPDATE_FEED,
+                Some("source_links,source_ids,source_release_claims,source_contributors,payment_routes"),
+            ),
+            (INDEX_TRACK_DETAIL_SCOPED, None),
+            (INDEX_TRACK_DETAIL_UNSCOPED, None),
+            (
+                INSPECTOR_TRACK_DETAIL_TRACK,
+                Some("source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes"),
+            ),
+            (
+                INSPECTOR_TRACK_DETAIL_FEED,
+                Some("tracks,source_enclosures,source_links,source_ids,source_release_claims,payment_routes"),
+            ),
+        ];
+        for (profile, include) in unchanged {
+            assert_eq!(profile.include(), include, "{profile:?} must not change");
+        }
+        let requesting = ALL
+            .iter()
+            .filter(|profile| {
+                profile
+                    .include()
+                    .is_some_and(|include| include.split(',').any(|c| c == "publisher"))
+            })
+            .count();
+        assert_eq!(requesting, 2, "only two profiles request publisher");
     }
 
     /// R17-13: no profile requests `source_transcripts`. A later addition

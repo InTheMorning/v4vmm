@@ -3,7 +3,9 @@
 ## Status
 
 Accepted - 2026-09-24. The operator gave this decision on 2026-09-24, during the review of the ADR 0077 proposals.
-Implementation has not started.
+Implementation partial: packet 001 is implemented on 2026-09-24 with mechanical checks Green. Its visual gate is open and paused.
+
+Amended 2026-09-24: Decision 1 named "the decode of the MusicIndex artist search entity". Implementation showed that the Index artist rows come from name text, not from an artist route. The corrected text names the `/v1/artists` decode.
 
 This ADR supersedes [ADR 0029](archive/0029-artist-person-identity-persistence.md).
 It keeps the ADR 0029 rule for person identity as its own rule.
@@ -40,7 +42,7 @@ One packet deletes these items together:
 - the three tables, through an ADR 0016 migration,
 - `ArtistRef::Musicindex` and each reader of the rows,
 - `persist_musicindex_artist`, `persist_musicindex_artist_facts` and `ensure_musicindex_artist_source_fact`,
-- the decode of the MusicIndex artist search entity,
+- the `"artist"` arm of `Client::fetch_detail`, which decodes the removed `/v1/artists` route. The Index search artist rows come from feed and track name text, and ADR 0077 packet 004 changes them,
 - the guard `screens_do_not_read_artist_source_facts`, because no function that it names remains.
 
 The app keeps no data that no entry point reads.

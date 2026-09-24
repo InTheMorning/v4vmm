@@ -35,11 +35,7 @@ pub(crate) fn verify_target(conn: &Connection, target: i64) -> anyhow::Result<()
         objects(conn)? == objects(&expected)?,
         "Database schema differs from its target"
     );
-    for (table, _) in super::VERSION_11_COLUMNS.iter().chain(if target == 12 {
-        super::provider_snapshot_schema::COLUMNS
-    } else {
-        &[]
-    }) {
+    for (table, _) in super::schema_contract(target) {
         anyhow::ensure!(
             columns(conn, table)? == columns(&expected, table)?,
             "Database columns differ from their target"
@@ -79,9 +75,26 @@ pub(super) fn verify_integrity(conn: &Connection) -> anyhow::Result<()> {
 
 /// Hash every version-11 row identity and value, including its complete ledger.
 pub(super) fn legacy_digest(conn: &Connection) -> anyhow::Result<String> {
+    version_11_digest(conn, super::VERSION_11_COLUMNS.iter())
+}
+
+/// Hash the version-11 rows that migration 13 keeps (ADR 0079).
+pub(super) fn retained_digest(conn: &Connection) -> anyhow::Result<String> {
+    version_11_digest(
+        conn,
+        super::VERSION_11_COLUMNS
+            .iter()
+            .filter(|(table, _)| !super::ARTIST_STORAGE_TABLES.contains(table)),
+    )
+}
+
+fn version_11_digest<'a>(
+    conn: &Connection,
+    tables: impl Iterator<Item = &'a (&'a str, &'a [&'a str])>,
+) -> anyhow::Result<String> {
     use sha2::{Digest, Sha256};
     let mut hash = Sha256::new();
-    for (table, _) in super::VERSION_11_COLUMNS {
+    for (table, _) in tables {
         hash.update((table.len() as u64).to_le_bytes());
         hash.update(table.as_bytes());
         let filter = if *table == "schema_migrations" {
@@ -112,7 +125,7 @@ pub(crate) fn create_fixture(conn: &Connection, target: i64) -> anyhow::Result<(
         "Fixture database must be empty"
     );
     anyhow::ensure!(
-        matches!(target, 10..=12),
+        matches!(target, 10..=14),
         "Unsupported fixture schema target"
     );
     conn.pragma_update(None, "foreign_keys", true)?;
@@ -222,10 +235,10 @@ mod tests {
             inspect_schema(&conn).unwrap(),
             SchemaCompatibility::UpgradeRequired {
                 applied: 11,
-                current: 12
+                current: 14
             }
         );
-        migrate_schema(&conn).unwrap();
+        crate::db::migrate_schema_to(&conn, 12).unwrap();
         verify_target(&conn, 12).unwrap();
         assert_eq!(legacy_digest(&conn).unwrap(), before);
         for (table, _) in crate::db::provider_snapshot_schema::COLUMNS {
@@ -416,12 +429,12 @@ mod tests {
                 match boundary {
                     MigrationBoundary::BeforeApply => SchemaCompatibility::UpgradeRequired {
                         applied: 10,
-                        current: 12
+                        current: 14
                     },
                     MigrationBoundary::AfterApply => SchemaCompatibility::InterruptedUpgrade,
                     MigrationBoundary::AfterRecord => SchemaCompatibility::UpgradeRequired {
                         applied: 11,
-                        current: 12
+                        current: 14
                     },
                 }
             );
@@ -489,6 +502,64 @@ mod tests {
             assert_ne!(inspect_schema(&conn).ok(), Some(SchemaCompatibility::InterruptedUpgrade), "{change}");
             drop(conn);
             assert_eq!(std::fs::read(path).unwrap(), before);
+        }
+    }
+
+    fn adr_0077_artist_tables(conn: &Connection) -> Vec<String> {
+        crate::db::ARTIST_STORAGE_TABLES
+            .iter()
+            .filter(|table| {
+                conn.query_row(
+                    "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name=?1",
+                    [table],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap()
+                    > 0
+            })
+            .map(|table| (*table).to_owned())
+            .collect()
+    }
+
+    /// R1-04: the frozen version-11 fixture migrates to the current version.
+    /// A failure in migration 13 rolls migration 12 back with it.
+    #[test]
+    fn adr_0077_remove_artist_storage_version_11_fixture_migrates_to_current() {
+        let frozen = || {
+            let conn = Connection::open_in_memory().unwrap();
+            conn.pragma_update(None, "foreign_keys", false).unwrap();
+            conn.execute_batch(include_str!("fixtures/adr-0075-schema-11.sql"))
+                .unwrap();
+            conn.pragma_update(None, "foreign_keys", true).unwrap();
+            conn
+        };
+        let conn = frozen();
+        assert_eq!(adr_0077_artist_tables(&conn).len(), 4);
+        let retained = retained_digest(&conn).unwrap();
+        migrate_schema(&conn).unwrap();
+        assert_eq!(inspect_schema(&conn).unwrap(), SchemaCompatibility::Current);
+        verify_target(&conn, crate::db::CURRENT_VERSION).unwrap();
+        assert_eq!(retained_digest(&conn).unwrap(), retained);
+        assert!(adr_0077_artist_tables(&conn).is_empty());
+
+        for boundary in [
+            MigrationBoundary::BeforeApply,
+            MigrationBoundary::AfterApply,
+            MigrationBoundary::AfterRecord,
+        ] {
+            let conn = frozen();
+            let before = legacy_digest(&conn).unwrap();
+            let result = crate::db::migrate_schema_with(&conn, 13, |version, reached| {
+                anyhow::ensure!(
+                    version != 13 || reached != boundary,
+                    "Injected migration failure"
+                );
+                Ok(())
+            });
+            assert!(result.is_err());
+            assert!(conn.is_autocommit());
+            verify_target(&conn, 11).unwrap();
+            assert_eq!(legacy_digest(&conn).unwrap(), before);
         }
     }
 }

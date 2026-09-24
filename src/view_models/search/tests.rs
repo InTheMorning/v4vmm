@@ -1974,3 +1974,62 @@ fn search_view_model_clamps_split_pane_width() {
     vm.resize_split_pane(420.0, 200.0, 800.0);
     assert_width_eq(vm.split_pane_width(), 420.0);
 }
+
+/// R1-08: the Index search builds artist rows from feed and track name text.
+/// ADR 0079 removes no input of this projection, so the count and order stay.
+#[test]
+fn adr_0077_remove_artist_storage_index_artist_rows_keep_count_and_order() {
+    let track = |id: &str, track_artist: &str, release_artist: &str| {
+        ResultRow::musicindex_track(
+            id.to_owned(),
+            None,
+            Some(EntityDetail::Track(Track {
+                track_artist: Some(track_artist.into()),
+                release_artist: Some(release_artist.into()),
+                ..Track::default()
+            })),
+        )
+    };
+    let feed = |id: &str, release_artist: &str| {
+        ResultRow::new(
+            "feed",
+            id,
+            Some(EntityDetail::Feed(Feed {
+                release_artist: Some(release_artist.into()),
+                ..Feed::default()
+            })),
+        )
+    };
+    let rows = vec![
+        track("track-1", "Gamma", "Beta Band"),
+        feed("feed-1", "alpha"),
+        track("track-2", "Alpha", "Alpha"),
+        feed("feed-2", "Beta Band"),
+    ];
+
+    let artist_rows = artist_rows_from_result_rows(&rows, None);
+
+    let summary = artist_rows
+        .iter()
+        .map(|row| {
+            let Some(EntityDetail::Artist(artist)) = &row.detail else {
+                panic!("artist rows carry an artist detail");
+            };
+            (
+                row.entity_type.as_str(),
+                row.entity_id.as_str(),
+                artist.artist_id.clone(),
+                artist.feed_count,
+                artist.track_count,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summary,
+        vec![
+            ("artist", "alpha", None, Some(1), Some(1)),
+            ("artist", "Beta Band", None, Some(1), Some(1)),
+            ("artist", "Gamma", None, None, Some(1)),
+        ]
+    );
+}

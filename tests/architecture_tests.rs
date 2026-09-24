@@ -6006,29 +6006,90 @@ fn screens_do_not_call_migrated_subscription_remove_paths() {
     );
 }
 
-/// Durable renderer portability (ADR 0061): screens do not read artist source facts.
-/// ADR 0079 deletes this guard with the artist source fact storage.
+/// Situational ADR 0079 and ADR 0077 Decision 7: the MusicIndex artist subject
+/// storage and the ADR 0045 track artist binding stay deleted. Delete this guard
+/// when ADR 0079 is superseded.
+///
+/// The schema history in `src/db.rs` keeps the table names: the migration
+/// registry, the frozen version-11 contract, the migration 13 table list, and
+/// the DDL of migrations 4 and 5. Unit test modules are not production code.
 #[test]
-fn screens_do_not_read_artist_source_facts() {
+fn adr_0079_removed_artist_storage_stays_deleted() {
+    const FIX: &str = "ADR 0079: MusicIndex artist subject storage is deleted. Use ArtistRef::LocalArtistName for a name grouping, or the ADR 0077 publisher feed GUID for an artist identity.";
+    let forbidden = [
+        "track_artist_source_bindings",
+        "artist_source_ids",
+        "artist_source_links",
+        "artist_source_facts",
+        "ArtistRef::Musicindex",
+        "persist_musicindex_artist",
+        "source_subjects",
+    ];
+    let schema_history = [
+        (
+            "const MIGRATIONS: &[Migration] = &[",
+            "/// Read compatibility facts",
+        ),
+        (
+            "const VERSION_11_COLUMNS",
+            "pub(crate) fn migrate_schema_to(",
+        ),
+        (
+            "fn migration_artist_source_facts(",
+            "fn migration_cleanup_placeholder_source_text(",
+        ),
+        (
+            "fn create_artist_source_fact_tables(",
+            "fn create_broadcast_event_tables(",
+        ),
+    ];
     let mut violations = Vec::new();
-    for file_name in screen_enforcement_files() {
-        let file = file_name.as_str();
-        let path = manifest_path(file);
-        let source = read_source(&path);
+    for path in rust_files_under("src") {
+        if path.file_name().is_some_and(|name| name == "tests.rs") {
+            continue;
+        }
+        let file = rel_path(&path);
+        let mut source = without_unit_test_module(&read_source(&path));
+        if file == "src/db.rs" {
+            for (start, end) in schema_history {
+                let span = source_between(&source, start, end).to_owned();
+                let blank = span
+                    .chars()
+                    .map(|ch| if ch == '\n' { ch } else { ' ' })
+                    .collect::<String>();
+                source = source.replacen(&span, &blank, 1);
+            }
+        }
         for (line_number, line) in code_lines(&source) {
-            if line.contains("db::artist_source_fact(") {
-                violations.push(format!(
-                    "{file}:{line_number}: ADR 0061 renderer portability: a screen must not read artist source facts. Read them in src/sources.rs and pass the result through the view model: `{line}`"
-                ));
+            for pattern in forbidden {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: names `{pattern}`: `{line}`\n  {FIX}"
+                    ));
+                }
             }
         }
     }
 
     assert!(
         violations.is_empty(),
-        "ADR 0061 screen artist-source fact violations:\n{}",
+        "ADR 0079 and ADR 0077 Decision 7 removed artist storage violations:\n{}",
         violations.join("\n")
     );
+}
+
+/// Source text before the `#[cfg(test)] mod name {` block at the end of a file.
+fn without_unit_test_module(source: &str) -> String {
+    let lines = source.lines().collect::<Vec<_>>();
+    let end = lines
+        .windows(2)
+        .position(|pair| {
+            pair[0].trim() == "#[cfg(test)]"
+                && pair[1].trim_start().starts_with("mod ")
+                && pair[1].trim_end().ends_with('{')
+        })
+        .unwrap_or(lines.len());
+    lines[..end].join("\n")
 }
 
 #[test]
@@ -7729,7 +7790,7 @@ fn entity_detail_pages_render_through_shell_helper_and_page_vm() {
         (
             "Library artist detail",
             "src/ui/shells/library/feed_list.rs",
-            "LibraryArtistDetailVm::with_view(",
+            "LibraryArtistDetailVm::new(",
             ".page()",
             "render_artist_detail_shell(",
         ),
@@ -19210,6 +19271,153 @@ src/application/request_profiles.rs, not as an inline string. {FIX}"
     assert!(
         violations.is_empty(),
         "ADR 0075 packet 017 request profile violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational — ADR 0077 Decision 2, packet 002 (R2-12): the publisher
+/// binding stays on the feed. No track table stores a publisher value, and
+/// the feed publisher relationship table has no track column.
+#[test]
+fn adr_0077_publisher_relationship_no_track_table_stores_a_publisher() {
+    const FIX: &str = "ADR 0077 Decision 2: an album binds to the publisher that it names. \
+The app stores no publisher value on a track, and a feed value never becomes a track value. \
+Store the relationship in `feed_publisher_relationships`, keyed by `feed_id`. A track reaches \
+its publisher through its album feed.";
+
+    fn table_columns(body: &str) -> Vec<String> {
+        let mut columns = Vec::new();
+        let mut depth = 0usize;
+        let mut current = String::new();
+        for character in body.chars() {
+            match character {
+                '(' => depth += 1,
+                ')' => depth = depth.saturating_sub(1),
+                ',' if depth == 0 => {
+                    columns.push(std::mem::take(&mut current));
+                    continue;
+                }
+                _ => {}
+            }
+            current.push(character);
+        }
+        columns.push(current);
+        columns
+            .iter()
+            .filter_map(|definition| definition.split_whitespace().next())
+            .map(|name| name.trim_matches(|c| c == '"' || c == '`').to_string())
+            .filter(|name| {
+                !matches!(
+                    name.as_str(),
+                    "primary" | "unique" | "check" | "foreign" | "constraint"
+                )
+            })
+            .collect()
+    }
+
+    fn created_tables(source: &str) -> Vec<(String, Vec<String>)> {
+        let mut tables = Vec::new();
+        let mut rest = source;
+        while let Some(index) = rest.find("create table") {
+            rest = &rest[index + "create table".len()..];
+            let mut header = rest.trim_start();
+            if let Some(stripped) = header.strip_prefix("if not exists") {
+                header = stripped.trim_start();
+            }
+            let name: String = header
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '.')
+                .collect();
+            let Some(open) = header.find('(') else {
+                continue;
+            };
+            let mut depth = 0usize;
+            let mut end = None;
+            for (offset, character) in header[open..].char_indices() {
+                match character {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = Some(open + offset);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let Some(end) = end else {
+                continue;
+            };
+            tables.push((name, table_columns(&header[open + 1..end])));
+        }
+        tables
+    }
+
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let relative = path
+            .strip_prefix(manifest_path(""))
+            .unwrap_or(&path)
+            .display()
+            .to_string();
+        let source = read_source(&path);
+        let production = code_only(production_source(&source)).to_lowercase();
+
+        for (table, columns) in created_tables(&production) {
+            let table = table.rsplit('.').next().unwrap_or(&table).to_string();
+            if table.contains("track") {
+                for column in columns.iter().filter(|column| column.contains("publisher")) {
+                    violations.push(format!(
+                        "{relative}: track table `{table}` has the publisher column `{column}`. {FIX}"
+                    ));
+                }
+            }
+            if table == "feed_publisher_relationships" {
+                for column in columns.iter().filter(|column| column.contains("track")) {
+                    violations.push(format!(
+                        "{relative}: `feed_publisher_relationships` has the track column `{column}`. {FIX}"
+                    ));
+                }
+            }
+        }
+
+        let compact = compact_source(&production);
+        let mut rest = compact.as_str();
+        while let Some(index) = rest.find("add_column_if_missing(") {
+            rest = &rest[index + "add_column_if_missing(".len()..];
+            let arguments = rest
+                .split(')')
+                .next()
+                .unwrap_or_default()
+                .split(',')
+                .map(|argument| argument.trim_matches('"').to_string())
+                .collect::<Vec<_>>();
+            if let [_, table, column, ..] = arguments.as_slice() {
+                if table.contains("track") && column.contains("publisher") {
+                    violations.push(format!(
+                        "{relative}: track table `{table}` gains the publisher column `{column}`. {FIX}"
+                    ));
+                }
+            }
+        }
+        let mut rest = compact.as_str();
+        while let Some(index) = rest.find("altertable") {
+            rest = &rest[index + "altertable".len()..];
+            let statement = rest.split(';').next().unwrap_or_default();
+            if let Some((table, column)) = statement.split_once("addcolumn") {
+                if table.contains("track") && column.contains("publisher") {
+                    violations.push(format!(
+                        "{relative}: an ALTER TABLE statement adds a publisher column to a track table. {FIX}"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0077 Decision 2 publisher binding violations:\n{}",
         violations.join("\n")
     );
 }

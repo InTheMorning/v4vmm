@@ -112,22 +112,11 @@ pub(crate) fn extract(
                 "not_requested"
             }
             .into(),
-            presence: if field == "publisher" {
-                match value {
-                    Some(Value::Object(v)) => {
-                        if v.is_empty() {
-                            PropertyPresence::Empty
-                        } else {
-                            PropertyPresence::Populated
-                        }
-                    }
-                    None => PropertyPresence::Missing,
-                    Some(Value::Null) => PropertyPresence::Null,
-                    Some(_) => PropertyPresence::Invalid,
-                }
-            } else {
-                PropertyPresence::from_json(value, collection)
-            },
+            // `publisher` is a collection like the others. The live contract
+            // (`/openapi.json`, `FeedResponse.publisher` and
+            // `TrackResponse.publisher`) declares an array of
+            // `PublisherResponse` or null (ADR 0077 packet 002).
+            presence: PropertyPresence::from_json(value, collection),
             retention: if observation.outcome == ObservationOutcome::Failed {
                 ObservationRetention::Failed
             } else if value.is_some() {
@@ -286,27 +275,41 @@ mod tests {
             .iter()
             .find(|c| c.collection == "publisher")
             .unwrap();
-        assert_eq!(publisher.presence, PropertyPresence::Populated);
+        // The live contract sends an array or null. An object is invalid.
+        assert_eq!(publisher.presence, PropertyPresence::Invalid);
         assert_eq!(
             publisher.facts[0].body_locator["json_pointer"],
             "/data/publisher"
         );
-        for value in [json!([]), json!([{}]), json!(false)] {
+        for (value, presence, pointer) in [
+            (
+                json!([{"remote_feed_guid":"publisher-feed"}]),
+                PropertyPresence::Populated,
+                Some("/data/publisher/0"),
+            ),
+            (json!([]), PropertyPresence::Empty, None),
+            (json!(null), PropertyPresence::Null, None),
+            (
+                json!(false),
+                PropertyPresence::Invalid,
+                Some("/data/publisher"),
+            ),
+        ] {
             observation.coverage.clear();
             extract(
                 &mut observation,
                 &spec,
                 &json!({"data":{"publisher":value,"source_ids":false}}).to_string(),
             );
-            assert_eq!(
-                observation
-                    .coverage
-                    .iter()
-                    .find(|c| c.collection == "publisher")
-                    .unwrap()
-                    .presence,
-                PropertyPresence::Invalid
-            );
+            let coverage = observation
+                .coverage
+                .iter()
+                .find(|c| c.collection == "publisher")
+                .unwrap();
+            assert_eq!(coverage.presence, presence, "{value}");
+            if let Some(pointer) = pointer {
+                assert_eq!(coverage.facts[0].body_locator["json_pointer"], pointer);
+            }
         }
         let invalid = observation
             .coverage

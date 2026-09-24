@@ -585,6 +585,13 @@ fn hydrate_album_identity_facts(
                 }
             });
         let (feed, receipts) = fetch_result.map_err(SharedFetchError::into_anyhow)?;
+        // ADR 0077 Decision 5: a relationship row keeps the time of the
+        // observation that supplied it, in Unix seconds.
+        let observed_at = receipts
+            .iter()
+            .rev()
+            .find_map(|receipt| receipt.fetched_at_us)
+            .map(|fetched_at_us| fetched_at_us.div_euclid(1_000_000));
         *owner_receipts.borrow_mut() = receipts;
         let description = FeedView::from_api(feed.clone()).description;
         let mut db = conn
@@ -601,6 +608,25 @@ fn hydrate_album_identity_facts(
                 db::set_feed_description(&db, feed_id, description.as_deref())?;
             }
             crate::identity_ingest::persist_musicindex_feed(&mut db, feed_id, &feed)?;
+            // ADR 0077 Decision 5 and packet 013: each entry inserts or
+            // updates its row. An omitted entry keeps its row, and an empty,
+            // absent or null collection changes no row.
+            if feed
+                .publisher
+                .as_deref()
+                .is_some_and(|entries| !entries.is_empty())
+            {
+                let observed_at = observed_at.ok_or_else(|| {
+                    anyhow::anyhow!("the publisher relationship response has no observation time")
+                })?;
+                crate::db::publisher_relationships::upsert_feed_publisher_relationships(
+                    &mut db,
+                    feed_id,
+                    feed.publisher_feed_title.as_deref(),
+                    feed.publisher.as_deref(),
+                    observed_at,
+                )?;
+            }
         }
         let identity_facts = crate::local_identity::feed_facts(&db, feed_id)?;
         let metadata_facts = crate::local_metadata::feed_facts(&db, feed_id)?;
@@ -829,7 +855,7 @@ mod observation_tests {
             // retained entry; nothing here clears the shared owner, which
             // would race a concurrently running test's own state.
             let conn = Connection::open_in_memory().unwrap();
-            db::upgrades::create_fixture(&conn, 12).unwrap();
+            db::upgrades::create_fixture(&conn, db::CURRENT_VERSION).unwrap();
             conn.execute("INSERT INTO feeds(feed_url,feed_guid,title) VALUES('http://fixture.invalid/feed','f1','Local feed')",[]).unwrap();
             for guid in ["t1", "t2"] {
                 conn.execute("INSERT INTO tracks(feed_id,item_guid,track_title,is_in_library) VALUES(1,?1,'Local title',1)",[guid]).unwrap();
@@ -1107,6 +1133,9 @@ mod observation_tests {
             }
             return("200 OK",json!({"data":{"track_guid":path.rsplit('/').next(),"feed_guid":"f1","feed_url":format!("{base}/feed.xml"),"title":"...","description":"original Index","source_links":[],"source_ids":null,"source_contributors":[{"entity_type":"track","entity_id":"t1","name":"Artist","role_norm":"performer","source":"rss","future":"original"}]}}).to_string());
         }
+        if matches!(mode, 23..=26) {
+            return ("200 OK", publisher_relationship_response(base, mode));
+        }
         if matches!(mode, 16..=18) {
             return ("200 OK", json!({"unknown_envelope":"retained", "data": {
                 "feed_guid":"f1", "feed_url":format!("{base}/feed.xml"), "title":"Hydrated feed",
@@ -1116,6 +1145,356 @@ mod observation_tests {
             }}).to_string());
         }
         ("200 OK",json!({"data":{"feed_guid":"f1","feed_url":format!("{base}/feed.xml"),"title":"Index feed","source_links":[],"source_ids":[],"source_contributors":[]}}).to_string())
+    }
+
+    /// ADR 0077 packet 002 responses for the Library album hydration.
+    ///
+    /// Mode 23 holds the `publisher` entry that `GET /v1/feeds/1ac44a3c-e148-54db-9d12-72191222888f?include=publisher`
+    /// returned on 2026-09-24, and a second entry with a role conflict.
+    /// Mode 24 changes the first entry and omits the second entry. Mode 25
+    /// sends an empty array, and mode 26 sends null. Mode 0 omits the value.
+    fn publisher_relationship_response(base: &str, mode: usize) -> String {
+        let recorded = json!({
+            "direction": "music_to_publisher",
+            "remote_feed_guid": "bcbe7207-9338-474e-ba18-09e6b1b69979",
+            "remote_feed_url": "https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979",
+            "remote_feed_medium": "publisher",
+            "publisher_feed_guid": "bcbe7207-9338-474e-ba18-09e6b1b69979",
+            "publisher_feed_url": "https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979",
+            "music_feed_guid": "1ac44a3c-e148-54db-9d12-72191222888f",
+            "music_feed_url": "https://wavlake.com/feed/music/80288280-09a0-4d6e-bdfb-cdef4e987b63",
+            "music_names_publisher": true,
+            "publisher_lists_music": true,
+            "publisher_link_resolution": "feed_url",
+            "publisher_link_observed_at": 1_788_982_326,
+            "reciprocal_declared": true,
+            "reciprocal_medium": "music",
+            "two_way_validated": true,
+            "publisher_rel": null,
+            "music_rel": null,
+            "role": "artist",
+            "role_source": "default"
+        });
+        let conflict = json!({
+            "direction": "music_to_publisher",
+            "remote_feed_guid": "publisher-b",
+            "publisher_feed_guid": "publisher-b",
+            "music_feed_guid": "f1",
+            "music_names_publisher": true,
+            "publisher_lists_music": false,
+            "publisher_link_resolution": "unresolved",
+            "publisher_link_observed_at": null,
+            "reciprocal_declared": false,
+            "two_way_validated": false,
+            "publisher_rel": "label",
+            "music_rel": "artist",
+            "role": null,
+            "role_source": "conflict"
+        });
+        let publisher = match mode {
+            23 => json!([recorded, conflict]),
+            24 => {
+                let mut changed = recorded;
+                changed["role"] = json!("label");
+                changed["role_source"] = json!("publisher_rel");
+                changed["publisher_rel"] = json!("label");
+                changed["publisher_link_resolution"] = json!("guid");
+                json!([changed])
+            }
+            25 => json!([]),
+            _ => serde_json::Value::Null,
+        };
+        json!({"data": {
+            "feed_guid": "f1",
+            "feed_url": format!("{base}/feed.xml"),
+            "title": "Genesis 2",
+            "release_artist_source": "itunes_author",
+            "publisher_feed_title": if mode == 24 { "Renamed publisher" } else { "Liberthea Anadara" },
+            "source_links": [], "source_ids": [], "source_contributors": [],
+            "publisher": publisher
+        }})
+        .to_string()
+    }
+
+    fn relationship_rows(fixture: &Fixture) -> Vec<Vec<(String, rusqlite::types::Value)>> {
+        db::publisher_relationships::test_support::rows(&fixture.conn.lock().unwrap(), 1)
+    }
+
+    fn invalidate_hydration(fixture: &Fixture) {
+        crate::application::request_reuse::shared()
+            .invalidate_feed(fixture.endpoint.require().unwrap(), "f1");
+    }
+
+    /// R2-05: the Library album hydration sends one request, as before this
+    /// packet. That request asks for `publisher` (ADR 0077 Decision 5).
+    #[test]
+    fn adr_0077_publisher_relationship_album_hydration_sends_one_request() {
+        let fixture = Fixture::start();
+        fixture.set_mode(23);
+
+        fixture.hydrate().unwrap();
+
+        let requests = fixture.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 1, "one Library album hydration request");
+        assert!(
+            requests[0].starts_with("/v1/feeds/f1?include=")
+                && requests[0].ends_with("%2Cpublisher"),
+            "the request must ask for publisher. Got: {requests:?}"
+        );
+    }
+
+    /// R2-07: the hydration stores each entry with each field, the publisher
+    /// feed title and the observation time. `role_source` keeps its value, and
+    /// a null `role` stays null.
+    #[test]
+    fn adr_0077_publisher_relationship_hydration_stores_each_field() {
+        use rusqlite::types::Value;
+        let fixture = Fixture::start();
+        fixture.set_mode(23);
+
+        let hydration = fixture.hydrate().unwrap();
+
+        let fetched_at_us = hydration
+            .observation_receipts
+            .iter()
+            .rev()
+            .find_map(|receipt| receipt.fetched_at_us)
+            .expect("the hydration keeps its receipt");
+        let observed_at = Value::Integer(fetched_at_us.div_euclid(1_000_000));
+        let text = |value: &str| Value::Text(value.to_owned());
+        let rows = relationship_rows(&fixture);
+        assert_eq!(rows.len(), 2);
+        let expected_recorded = vec![
+            ("feed_id", Value::Integer(1)),
+            ("direction", text("music_to_publisher")),
+            (
+                "publisher_feed_guid",
+                text("bcbe7207-9338-474e-ba18-09e6b1b69979"),
+            ),
+            (
+                "remote_feed_guid",
+                text("bcbe7207-9338-474e-ba18-09e6b1b69979"),
+            ),
+            (
+                "music_feed_guid",
+                text("1ac44a3c-e148-54db-9d12-72191222888f"),
+            ),
+            (
+                "remote_feed_url",
+                text("https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979"),
+            ),
+            ("remote_feed_medium", text("publisher")),
+            (
+                "publisher_feed_url",
+                text("https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979"),
+            ),
+            (
+                "music_feed_url",
+                text("https://wavlake.com/feed/music/80288280-09a0-4d6e-bdfb-cdef4e987b63"),
+            ),
+            ("music_names_publisher", Value::Integer(1)),
+            ("publisher_lists_music", Value::Integer(1)),
+            ("publisher_link_resolution", text("feed_url")),
+            ("publisher_link_observed_at", Value::Integer(1_788_982_326)),
+            ("reciprocal_declared", Value::Integer(1)),
+            ("reciprocal_medium", text("music")),
+            ("two_way_validated", Value::Integer(1)),
+            ("publisher_rel", Value::Null),
+            ("music_rel", Value::Null),
+            ("role", text("artist")),
+            ("role_source", text("default")),
+            ("publisher_feed_title", text("Liberthea Anadara")),
+            ("observed_at", observed_at.clone()),
+        ]
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect::<Vec<_>>();
+        assert_eq!(rows[0], expected_recorded);
+        let expected_conflict = vec![
+            ("feed_id", Value::Integer(1)),
+            ("direction", text("music_to_publisher")),
+            ("publisher_feed_guid", text("publisher-b")),
+            ("remote_feed_guid", text("publisher-b")),
+            ("music_feed_guid", text("f1")),
+            ("remote_feed_url", Value::Null),
+            ("remote_feed_medium", Value::Null),
+            ("publisher_feed_url", Value::Null),
+            ("music_feed_url", Value::Null),
+            ("music_names_publisher", Value::Integer(1)),
+            ("publisher_lists_music", Value::Integer(0)),
+            ("publisher_link_resolution", text("unresolved")),
+            ("publisher_link_observed_at", Value::Null),
+            ("reciprocal_declared", Value::Integer(0)),
+            ("reciprocal_medium", Value::Null),
+            ("two_way_validated", Value::Integer(0)),
+            ("publisher_rel", text("label")),
+            ("music_rel", text("artist")),
+            ("role", Value::Null),
+            ("role_source", text("conflict")),
+            ("publisher_feed_title", text("Liberthea Anadara")),
+            ("observed_at", observed_at),
+        ]
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect::<Vec<_>>();
+        assert_eq!(rows[1], expected_conflict);
+    }
+
+    /// R2-08: a second response with a changed entry updates that row. A
+    /// second response that omits an entry keeps its row.
+    #[test]
+    fn adr_0077_publisher_relationship_changed_entry_updates_and_omitted_entry_stays() {
+        use db::publisher_relationships::test_support::value;
+        use rusqlite::types::Value;
+        let fixture = Fixture::start();
+        fixture.set_mode(23);
+        fixture.hydrate().unwrap();
+        let before = relationship_rows(&fixture);
+
+        invalidate_hydration(&fixture);
+        fixture.set_mode(24);
+        fixture.hydrate().unwrap();
+
+        assert_eq!(fixture.requests.lock().unwrap().len(), 2);
+        let after = relationship_rows(&fixture);
+        assert_eq!(after.len(), 2);
+        assert_eq!(value(&after[0], "role"), Value::Text("label".into()));
+        assert_eq!(
+            value(&after[0], "role_source"),
+            Value::Text("publisher_rel".into())
+        );
+        assert_eq!(
+            value(&after[0], "publisher_rel"),
+            Value::Text("label".into())
+        );
+        assert_eq!(
+            value(&after[0], "publisher_link_resolution"),
+            Value::Text("guid".into())
+        );
+        assert_eq!(
+            value(&after[0], "publisher_feed_title"),
+            Value::Text("Renamed publisher".into())
+        );
+        assert_eq!(after[1], before[1], "the omitted entry keeps its row");
+    }
+
+    /// R2-09: an empty array, an absent value and a null value each change no row.
+    #[test]
+    fn adr_0077_publisher_relationship_empty_absent_and_null_change_no_row() {
+        let fixture = Fixture::start();
+        fixture.set_mode(23);
+        fixture.hydrate().unwrap();
+        let before = relationship_rows(&fixture);
+        assert_eq!(before.len(), 2);
+
+        for mode in [25, 0, 26] {
+            invalidate_hydration(&fixture);
+            fixture.set_mode(mode);
+            fixture.requests.lock().unwrap().clear();
+            fixture.hydrate().unwrap();
+            assert_eq!(
+                fixture.requests.lock().unwrap().len(),
+                1,
+                "mode {mode} sends a new request"
+            );
+            assert_eq!(
+                relationship_rows(&fixture),
+                before,
+                "mode {mode} changed a row"
+            );
+        }
+    }
+
+    /// R2-10: a reused response writes no row.
+    #[test]
+    fn adr_0077_publisher_relationship_reused_response_writes_no_row() {
+        let fixture = Fixture::start();
+        fixture.set_mode(23);
+        fixture.hydrate().unwrap();
+        assert_eq!(relationship_rows(&fixture).len(), 2);
+        fixture
+            .conn
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM feed_publisher_relationships", [])
+            .unwrap();
+        fixture.requests.lock().unwrap().clear();
+
+        fixture.hydrate().unwrap();
+
+        assert!(
+            fixture.requests.lock().unwrap().is_empty(),
+            "the second hydration reuses the retained response"
+        );
+        assert!(relationship_rows(&fixture).is_empty());
+    }
+
+    /// R2-12: the hydration writes no publisher value for a track. Each row
+    /// belongs to the feed, and no track-owned row changes.
+    #[test]
+    fn adr_0077_publisher_relationship_hydration_writes_no_track_row() {
+        let fixture = Fixture::start();
+        // Each table with a `track_id` column, and `tracks` itself, keeps
+        // its track-owned row count.
+        let track_rows = |fixture: &Fixture| -> Vec<(String, i64)> {
+            let conn = fixture.conn.lock().unwrap();
+            let tables: Vec<String> = conn
+                .prepare(
+                    "SELECT m.name FROM sqlite_schema m WHERE m.type = 'table' AND EXISTS \
+                     (SELECT 1 FROM pragma_table_info(m.name) p WHERE p.name = 'track_id') \
+                     ORDER BY m.name",
+                )
+                .unwrap()
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap();
+            assert!(!tables.is_empty());
+            tables
+                .into_iter()
+                .map(|table| {
+                    let sql = format!("SELECT count(*) FROM {table} WHERE track_id IS NOT NULL");
+                    let count = conn.query_row(&sql, [], |row| row.get(0)).unwrap();
+                    (table, count)
+                })
+                .chain(std::iter::once((
+                    "tracks".to_owned(),
+                    conn.query_row("SELECT count(*) FROM tracks", [], |row| row.get(0))
+                        .unwrap(),
+                )))
+                .collect()
+        };
+        let before = track_rows(&fixture);
+        fixture.set_mode(23);
+
+        fixture.hydrate().unwrap();
+
+        assert_eq!(track_rows(&fixture), before);
+        let conn = fixture.conn.lock().unwrap();
+        let columns: Vec<String> = conn
+            .prepare("SELECT name FROM pragma_table_info('feed_publisher_relationships')")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert!(columns.iter().all(|column| !column.contains("track")));
+        let tracks: Vec<String> = conn
+            .prepare("SELECT name FROM pragma_table_info('tracks')")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert!(tracks.iter().all(|column| !column.contains("publisher")));
+        let feeds: i64 = conn
+            .query_row(
+                "SELECT count(DISTINCT feed_id) FROM feed_publisher_relationships WHERE feed_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(feeds, 1);
     }
 
     fn comparison_audio() -> tempfile::TempDir {
@@ -1300,8 +1679,9 @@ mod observation_tests {
             println!("ADR0075_LIBRARY_HYDRATION repetition={repetition} legacy_rows={legacy} observation_rows={observation} snapshot_rows=0 transactions={} tables={mutations:?}", fixture.commits.load(Ordering::SeqCst));
         }
         // Only the first pass reached the network; the second reused its
-        // retained response (R18B-01).
-        assert_eq!(*fixture.requests.lock().unwrap(), vec!["/v1/feeds/f1?include=source_links%2Csource_ids%2Csource_release_claims%2Csource_contributors"; 1]);
+        // retained response (R18B-01). ADR 0077 Decision 5 adds `publisher`
+        // to the include list.
+        assert_eq!(*fixture.requests.lock().unwrap(), vec!["/v1/feeds/f1?include=source_links%2Csource_ids%2Csource_release_claims%2Csource_contributors%2Cpublisher"; 1]);
         fixture.set_mode(1);
         // This call means a genuinely new attempt, so it must reach the
         // fixture's now-failing response rather than reuse the retained
@@ -2516,7 +2896,8 @@ target=\"1 request set\" measured_requests={measured_requests} requests={all_req
         }
     }
 
-    /// R17-07: the Library album hydration request sends L5.
+    /// R17-07: the Library album hydration request sends L5. ADR 0077
+    /// Decision 5 adds `publisher` to that include list.
     #[test]
     fn adr_0075_request_profile_library_album_hydration_sends_l5() {
         let fixture = Fixture::start();
@@ -2533,7 +2914,7 @@ target=\"1 request set\" measured_requests={measured_requests} requests={all_req
                 "/v1/feeds/f1?include={}",
                 include.replace(',', "%2C")
             )],
-            "R17-07: the Library album hydration request must send L5"
+            "R17-07: the Library album hydration request must send L5 and publisher (ADR 0077 Decision 5)"
         );
     }
 

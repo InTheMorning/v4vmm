@@ -29,7 +29,7 @@ pub(crate) fn render_library_feed_list(
     chrome: &LibraryChromeDisplay,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let vm = LibraryArtistDetailVm::with_view(&detail.name, &detail.view, &detail.tracks);
+    let vm = LibraryArtistDetailVm::new(&detail.name, &detail.tracks);
     let page = vm.page();
     let artist_image = detail
         .view

@@ -432,7 +432,7 @@ mod tests {
             crate::db::maintenance::restore::InstallState::Verified
         ));
         let prepared = prepare_database(&path).unwrap();
-        assert_eq!(prepared.receipt.target, 12);
+        assert_eq!(prepared.receipt.target, crate::db::CURRENT_VERSION);
         assert_eq!(
             prepared
                 .query_row(

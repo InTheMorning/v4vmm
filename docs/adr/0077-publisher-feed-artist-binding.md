@@ -9,7 +9,8 @@ It keys an artist page on the publisher feed GUID, shows `role`, and selects the
 Decisions 2, 5, 6 and 7 and the text of each decision came with the draft of 2026-09-24.
 
 The operator reviewed each proposal on 2026-09-24. "Accepted Refinements" records the results.
-Implementation has not started.
+Implementation partial: packet 001 completes Decision 7 on 2026-09-24 with mechanical checks Green. Its visual gate is open and paused.
+Packet 002 completes the storage of Decision 5 on 2026-09-24 with mechanical checks Green. Packets 003 and 004 remain.
 
 This ADR supersedes [ADR 0045](archive/0045-track-artist-binding.md).
 

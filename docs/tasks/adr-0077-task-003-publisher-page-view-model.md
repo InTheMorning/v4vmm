@@ -95,7 +95,7 @@ Use the prefix `adr_0077_publisher_page_` for behavioral tests beside the owning
 
 - No screen, no navigation and no breadcrumb. Packet 004 owns them.
 - No change to the name search. Packet 004 owns it.
-- No paged album fetch. The operator selected the Stophammer route on 2026-09-24.
+- No paged album fetch. The orchestrator recommended the Stophammer route on 2026-09-24. The operator can change it.
 
 ## Files To Inspect
 

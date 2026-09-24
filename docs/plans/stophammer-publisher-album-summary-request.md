@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft - 2026-09-24. The operator selected this request on 2026-09-24. The operator has not sent it.
+Draft - 2026-09-24. The orchestrator recommended this request on 2026-09-24, when the operator asked which route is better. The operator has not sent it.
 This document is a request from the v4vmm client. Stophammer records its own decision.
 It binds nothing in Stophammer.
 

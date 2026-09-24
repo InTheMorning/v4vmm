@@ -10,6 +10,7 @@ Groups 6 and 7 record the metadata migration and storage-failure presentation ga
 
 Group 8 records the Library comparison and hydration presentation gate.
 Group 9 records the feed check and feed update presentation gate.
+Group 12 records the Library artist view gate of the ADR 0079 artist storage removal.
 
 The operator accepted ADR 0075 on 2026-09-19. Its placement decision adds future
 visual checks for the labelled identity sections on a track page. Phase 005 owns
@@ -351,3 +352,14 @@ launch.
 - The deployed revision stays unconfirmed. The published contract declares a static version string.
 - This client implements none of the three landed changes. Each one needs its own packet.
 - The [answer table](plans/musicindex-api-change-request.md#what-each-answer-changes-here) records the work that each landed change releases.
+
+## 12. Library Artist View Without Artist Storage — ADR 0077 Task 001
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-24. Operator inspection is pending.
+
+- Owner: [packet 001](tasks/adr-0077-task-001-remove-dead-artist-storage.md#operator-visual-check).
+- Check: a Library artist view shows its tracks and albums, with no aliases, area, active years or source subjects.
+- A missing track, an empty view, or an error report is wrong.
+- Migration 13 deletes the stored artist rows. Make the SQLite backup in the packet procedure before the first run of the new build.
+- Run the procedure only after the operator resumes visual checks.
+- Keep the backup until acceptance. The packet gives the restore and cleanup commands.

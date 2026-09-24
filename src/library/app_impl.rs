@@ -44,7 +44,6 @@ use crate::metadata::{
 };
 use crate::presentation::{bridge_watch, present_command};
 use crate::runtime::musicbrainz_feed_saga::{MusicBrainzFeedSagaState, StartFeedLookup};
-use crate::sources;
 use crate::subscribe_service::{self, SubscribeFeedRequest, SubscribeTrackRequest};
 use crate::ui::composites::{
     DisclosureIndicator, DisclosureIndicatorDisplay, DisclosureSupplementDisplay,
@@ -1567,12 +1566,7 @@ impl LibraryApp {
                 break;
             }
         }
-        let view = self
-            .conn
-            .lock()
-            .map_err(|_| anyhow::anyhow!("database lock poisoned"))
-            .and_then(|conn| sources::local_artist_view_from_tracks(&conn, name, &tracks))
-            .unwrap_or_else(|_| crate::views::ArtistView::from_local_rows(name, &tracks));
+        let view = crate::views::ArtistView::from_local_rows(name, &tracks);
         self.vm.clear_library_selection();
         self.detail = LibraryDetail::Artist(Box::new(LibraryArtistDetail {
             name: name.to_string(),

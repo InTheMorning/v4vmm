@@ -626,7 +626,7 @@ mod tests {
     }
 
     #[test]
-    fn adr_0075_migration_startup_admits_only_12_and_carries_the_recorded_receipt() {
+    fn adr_0075_migration_startup_admits_only_current_and_carries_the_recorded_receipt() {
         let temp = tempfile::tempdir().unwrap();
         let config = fixture(temp.path());
         let data = temp.path().join("data");
@@ -645,7 +645,7 @@ mod tests {
         let CoreResult::Prepared(core) = backend.execute(CheckIntent::Initial) else {
             panic!("current preparation required");
         };
-        assert_eq!(core.preparation_receipt.target, 12);
+        assert_eq!(core.preparation_receipt.target, crate::db::CURRENT_VERSION);
         assert_eq!(
             core.preparation_receipt.state,
             database::PreparationState::Upgraded

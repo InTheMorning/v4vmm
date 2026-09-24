@@ -695,7 +695,7 @@ mod tests {
             },
         );
         assert!(text.contains("repaired schema version 11"));
-        assert!(text.contains("separate guarded preparation to version 12"));
+        assert!(text.contains("separate guarded preparation to version 14"));
         assert!(text.contains("/fixture/repair/original.sqlite"));
         assert!(!text.contains("App will open a new session"));
     }

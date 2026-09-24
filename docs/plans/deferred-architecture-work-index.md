@@ -147,9 +147,8 @@ prioritized, and routed to the right governance artifact.
   contracts, VM consolidation, dark-mode parity, accessibility labels,
   PageVm generalization, screen decomposition, and final sweep are all
   complete. ADR 0038 added no new deferred items.
-- ADR 0029 explicit artist identity persistence is complete for its runtime
-  scope. It persists explicit MusicIndex artist source facts and hydrates
-  `ArtistRef::Musicindex` locally without name matching.
+- ADR 0029 is superseded by ADR 0079 on 2026-09-24. ADR 0077 packet 001
+  deleted its artist source facts and `ArtistRef::Musicindex`.
 - Library contributor identity visibility is no longer deferred. It was
   completed by `docs/tasks/post-adr-0028-task-001-library-contributor-panel.md`.
 - ADR 0027 action-state parity is implemented and should not be reopened for

@@ -29,7 +29,6 @@ use crate::application::{ApplicationServices, AsyncCommandRunner, CommandContext
 use crate::audio_tags::Id3v24Edit;
 use crate::db;
 use crate::feed_service;
-use crate::identity_ingest;
 use crate::library_service;
 use crate::media::ImageCache;
 use crate::metadata::*;
@@ -54,9 +53,9 @@ use crate::ui::tokens::FontSize;
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::search::{
     normalized_search_query, DeferredPanelKind, LazyPanel, PlaylistAppendIntent,
-    PlaylistAppendOutcome, ResultRow, SearchBatch, SearchLibraryMembership,
-    SearchLibraryMembershipDisplay, SearchRemovalOrigin, SearchResultSource,
-    SearchSubscriptionCommand, SearchViewModel, TrackRowActionVm,
+    PlaylistAppendOutcome, ResultRow, SearchLibraryMembership, SearchLibraryMembershipDisplay,
+    SearchRemovalOrigin, SearchResultSource, SearchSubscriptionCommand, SearchViewModel,
+    TrackRowActionVm,
 };
 use crate::view_models::workspace::ContentFilter;
 use crate::views::ContributorView;
@@ -252,13 +251,6 @@ impl SearchApp {
             CommandContext::next(),
             cx,
             move |this, results, cx| {
-                if let Some(batch) = results.index_batch.as_ref() {
-                    if let Err(error) = persist_musicindex_artist_facts(&this.conn, batch) {
-                        this.vm.fail_search_load(error);
-                        cx.notify();
-                        return;
-                    }
-                }
                 this.vm.finish_global_search_load(
                     results.library_rows,
                     results.index_batch,
@@ -2192,18 +2184,4 @@ fn local_subscription_for_detail(
         | InspectorDetail::Artist(_)
         | InspectorDetail::Publisher(_) => Ok(None),
     }
-}
-
-pub(super) fn persist_musicindex_artist_facts(
-    conn: &Arc<Mutex<Connection>>,
-    batch: &SearchBatch,
-) -> Result<()> {
-    let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-    for row in &batch.rows {
-        let Some(EntityDetail::Artist(artist)) = &row.detail else {
-            continue;
-        };
-        identity_ingest::persist_musicindex_artist(&mut db, artist)?;
-    }
-    Ok(())
 }

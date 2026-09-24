@@ -28,7 +28,7 @@ use crate::ui::shells::discover::track_inspector_metadata_grid::{
 };
 #[cfg(test)]
 use crate::view_models::search::{
-    artist_rows_from_result_rows, search_result_type_is_visible, ResultRow, SearchBatch,
+    artist_rows_from_result_rows, search_result_type_is_visible, ResultRow,
 };
 
 #[derive(Clone, Debug)]
@@ -165,10 +165,7 @@ pub(crate) type FeedTrackListContext<'a> = (&'a str, Option<&'a str>, &'a [db::P
 mod app_impl;
 
 #[cfg(test)]
-use app_impl::{
-    feed_rss_url, merge_track_play_fields, persist_musicindex_artist_facts,
-    should_show_inspector_back,
-};
+use app_impl::{feed_rss_url, merge_track_play_fields, should_show_inspector_back};
 
 pub(crate) use crate::ui::shells::discover::actions::{
     discover_inspector_action_row, render_play_icon_button_with_id, render_track_download_button,

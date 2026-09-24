@@ -1121,4 +1121,26 @@ mod tests {
             "Score difference should be 5 (3 for Digital Media + 2 for XW)"
         );
     }
+
+    /// R1-09: MusicBrainz lookup reads artist credit text. It reads no artist
+    /// binding, so ADR 0079 does not change it.
+    #[test]
+    fn adr_0077_remove_artist_storage_musicbrainz_reads_artist_credit_text() {
+        let credits = [
+            super::MbArtistCredit {
+                name: Some("Alice".into()),
+            },
+            super::MbArtistCredit {
+                name: Some("Bob".into()),
+            },
+        ];
+        assert_eq!(
+            super::artist_credit_name(&credits).as_deref(),
+            Some("Alice Bob")
+        );
+        assert_eq!(
+            super::artist_credit_name(&[super::MbArtistCredit { name: None }]),
+            None
+        );
+    }
 }

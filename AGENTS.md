@@ -124,9 +124,14 @@ supersedes ADR 0077 Decision 4: only a stated label role gives a label page.
 [ADR 0079](docs/adr/0079-remove-musicindex-artist-subject-storage.md) is Accepted on 2026-09-24. It
 supersedes ADR 0029 and deletes the stale MusicIndex artist subject storage. Person identity stays
 deferred. The operator reviewed each ADR 0077 proposal on 2026-09-24, and none is open.
-Implementation of ADRs 0077 to 0079 has not started. The
-[phase plan](docs/plans/adr-0077-publisher-artist-phase-plan.md) registers four packets. Packets 001
-and 002 are Ready. Packets 003 and 004 are Held on the unsent
+The [phase plan](docs/plans/adr-0077-publisher-artist-phase-plan.md) registers four packets.
+[Packet 001](docs/tasks/adr-0077-task-001-remove-dead-artist-storage.md) is implemented on 2026-09-24.
+It deletes the ADR 0045 binding and the ADR 0029 artist storage, and schema version 13 drops the four
+tables. Its mechanical checks are Green. Its visual gate is open and paused.
+[Packet 002](docs/tasks/adr-0077-task-002-publisher-relationship-transport-and-storage.md) is
+implemented on 2026-09-24. It decodes the publisher relationship, requests it on the Library album
+hydration and the Index feed detail, and stores it in schema version 14. Its mechanical checks are
+Green, and it needs no visual acceptance. Packets 003 and 004 are Held on the unsent
 [album summary request](docs/plans/stophammer-publisher-album-summary-request.md) to Stophammer.
 
 Storage, shared projections, remaining field policies, and upstream changes remain open. Visual checks stay paused.
