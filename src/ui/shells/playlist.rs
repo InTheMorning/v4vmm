@@ -15,7 +15,7 @@ use gpui_component::input::{Input, InputState};
 use gpui_component::Size;
 
 use crate::ui::composites::{
-    DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow, DetailTextRow, EntityKind,
+    DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow, DetailTextRow, EntityKind, StatusRole,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::{Icon, IconName, IconSize};
@@ -33,8 +33,14 @@ use crate::view_models::library::{
     PlaylistTrackControlsDisplay, PlaylistTrackMenuItemDisplay, PlaylistTrackRowDisplay,
 };
 use crate::view_models::playlist_detail::PlaylistDetailPageVm;
+use crate::view_models::playlist_rss_check::{
+    PlaylistRemovedFromFeedDisplay, PlaylistRemovedTrackActionDisplay,
+    PlaylistRssCheckReportDisplay, PlaylistRssFeedRowRole,
+};
 
-type PlaylistClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+pub(crate) type PlaylistClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+/// ADR 0076 Decision 6: downloads the added track with this id.
+pub(crate) type PlaylistTrackIdHandler = Rc<dyn Fn(i64, &mut Window, &mut App) + 'static>;
 type PlaylistCommandHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 type PlaylistReorderHandler = Rc<dyn Fn(&(i64, i64), &mut Window, &mut App) + 'static>;
 
@@ -46,6 +52,10 @@ pub(crate) struct PlaylistDetailBehaviorSlots {
     pub(crate) on_submit_rename: Option<PlaylistClickHandler>,
     pub(crate) on_cancel_rename: Option<PlaylistClickHandler>,
     pub(crate) on_delete: Option<PlaylistClickHandler>,
+    /// ADR 0076 Decision 2: starts the RSS check of the playlist.
+    pub(crate) on_check_rss: Option<PlaylistClickHandler>,
+    /// ADR 0076 Decision 6: the existing download action of an added track.
+    pub(crate) on_download_added_track: Option<PlaylistTrackIdHandler>,
     pub(crate) on_reorder: Option<PlaylistReorderHandler>,
     pub(crate) track_rows: Vec<PlaylistShellRow>,
 }
@@ -77,6 +87,8 @@ pub(crate) struct PlaylistTrackRowSlot {
     pub(crate) on_move_up: Option<PlaylistCommandHandler>,
     pub(crate) on_move_down: Option<PlaylistCommandHandler>,
     pub(crate) on_remove: Option<PlaylistCommandHandler>,
+    /// ADR 0076 Decision 7: "Remove from all playlists" of a removed track.
+    pub(crate) on_remove_from_all_playlists: Option<PlaylistClickHandler>,
 }
 
 struct PlaylistActionSlots {
@@ -86,6 +98,7 @@ struct PlaylistActionSlots {
     on_submit_rename: Option<PlaylistClickHandler>,
     on_cancel_rename: Option<PlaylistClickHandler>,
     on_delete: Option<PlaylistClickHandler>,
+    on_check_rss: Option<PlaylistClickHandler>,
 }
 
 #[must_use]
@@ -126,6 +139,8 @@ pub(crate) fn render_playlist_detail_shell(
         on_submit_rename,
         on_cancel_rename,
         on_delete,
+        on_check_rss,
+        on_download_added_track,
         on_reorder,
         track_rows: rows,
     } = slots;
@@ -172,9 +187,15 @@ pub(crate) fn render_playlist_detail_shell(
                 on_submit_rename,
                 on_cancel_rename,
                 on_delete,
+                on_check_rss,
             },
             cx,
         ))
+        .children(
+            page.rss_check_report().map(|report| {
+                render_rss_check_report(report, on_download_added_track.as_ref(), cx)
+            }),
+        )
         .child(
             div()
                 .flex()
@@ -253,6 +274,166 @@ fn render_playlist_actions(
             .a11y_label(actions.delete_a11y_label),
             slots.on_delete,
         ))
+        .child(apply_click_handler(
+            UiButton::styled(
+                SharedString::from(actions.check_rss.button_id),
+                ControlStyle::Ghost,
+            )
+            .label(actions.check_rss.label)
+            .a11y_label(actions.check_rss.a11y_label)
+            .tooltip(actions.check_rss.a11y_label)
+            .disabled(!actions.check_rss.enabled),
+            actions
+                .check_rss
+                .enabled
+                .then_some(slots.on_check_rss)
+                .flatten(),
+        ))
+        .into_any_element()
+}
+
+/// The report of the latest RSS check of the playlist (ADR 0076 Decision 2).
+///
+/// The view model owns each text. Each row states its result in words, so
+/// the row color is never the only signal.
+fn render_rss_check_report(
+    report: PlaylistRssCheckReportDisplay,
+    on_download_added_track: Option<&PlaylistTrackIdHandler>,
+    cx: &App,
+) -> AnyElement {
+    let row_text = FontSize::Caption.scaled(cx);
+    let lines = std::iter::once(report.summary)
+        .chain(report.counts)
+        .chain(report.error)
+        .chain(report.stopped_hosts)
+        .chain(report.differences_summary);
+    let differences = report
+        .differences
+        .into_iter()
+        .map(|row| render_rss_difference_row(row, on_download_added_track.cloned(), cx));
+    let podping_links = report.podping_links.into_iter().map(|link| {
+        let url = link.url;
+        div()
+            .id(SharedString::from(link.id.clone()))
+            .flex()
+            .flex_col()
+            .gap(spacing::XXS)
+            .child(
+                div()
+                    .text_size(row_text)
+                    .text_color(color::text_primary())
+                    .child(link.text),
+            )
+            .child(
+                UiButton::styled(
+                    SharedString::from(format!("{}-open", link.id)),
+                    ControlStyle::Ghost,
+                )
+                .label(link.label)
+                .a11y_label(link.a11y_label.clone())
+                .tooltip(link.a11y_label)
+                .on_click(move |_, _, _| {
+                    let _ = open::that(url);
+                }),
+            )
+    });
+    div()
+        .id(SharedString::from(report.id))
+        .flex()
+        .flex_col()
+        .gap(spacing::XS)
+        .child(
+            div()
+                .text_size(FontSize::Headline.scaled(cx))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(color::text_primary())
+                .child(report.heading),
+        )
+        .children(lines.map(|line| {
+            div()
+                .text_size(row_text)
+                .text_color(color::text_muted())
+                .child(line)
+        }))
+        .children(report.rows.into_iter().map(|row| {
+            let result_color = match row.role {
+                PlaylistRssFeedRowRole::Failed => StatusRole::Danger.color(cx),
+                PlaylistRssFeedRowRole::Waiting
+                | PlaylistRssFeedRowRole::Document
+                | PlaylistRssFeedRowRole::NotModified
+                | PlaylistRssFeedRowRole::NotChecked => color::text_muted(),
+            };
+            div()
+                .id(SharedString::from(row.id))
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .text_size(row_text)
+                        .text_color(color::text_primary())
+                        .child(row.feed),
+                )
+                .child(
+                    div()
+                        .text_size(row_text)
+                        .text_color(result_color)
+                        .child(row.result),
+                )
+        }))
+        .children(differences)
+        .children(podping_links)
+        .into_any_element()
+}
+
+/// One applied difference: the subject, the field, the change in words and
+/// the check time. An added track also gets the download action.
+fn render_rss_difference_row(
+    row: crate::view_models::playlist_rss_check::PlaylistRssDifferenceRowDisplay,
+    on_download_added_track: Option<PlaylistTrackIdHandler>,
+    cx: &App,
+) -> AnyElement {
+    let row_text = FontSize::Caption.scaled(cx);
+    let download = row.download.map(|download| {
+        let handler = download
+            .enabled
+            .then_some(on_download_added_track)
+            .flatten()
+            .zip(download.track_id)
+            .map(|(handler, track_id)| {
+                click_slot(move |_, window, cx| handler(track_id, window, cx))
+            });
+        apply_click_handler(
+            UiButton::styled(SharedString::from(download.button_id), ControlStyle::Ghost)
+                .label(download.label)
+                .a11y_label(download.a11y_label.clone())
+                .tooltip(download.a11y_label)
+                .disabled(!download.enabled),
+            handler,
+        )
+    });
+    div()
+        .id(SharedString::from(row.id))
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .text_size(row_text)
+                .text_color(color::text_primary())
+                .child(format!("{}. {}", row.field, row.subject)),
+        )
+        .child(
+            div()
+                .text_size(row_text)
+                .text_color(color::text_muted())
+                .child(row.change),
+        )
+        .child(
+            div()
+                .text_size(row_text)
+                .text_color(color::text_muted())
+                .child(row.time),
+        )
+        .children(download)
         .into_any_element()
 }
 
@@ -438,6 +619,7 @@ fn render_playlist_track_row(
         from_position: display.position,
         title: SharedString::from(display.title.clone()),
     };
+    let removed_from_feed = render_removed_from_feed(&display, &slot, cx);
     let PlaylistTrackRowSlot {
         thumbnail,
         on_select,
@@ -445,6 +627,7 @@ fn render_playlist_track_row(
         on_move_up,
         on_move_down,
         on_remove,
+        on_remove_from_all_playlists: _,
     } = slot;
 
     let mut row = div()
@@ -478,7 +661,8 @@ fn render_playlist_track_row(
                 remove: on_remove,
             },
             cx,
-        ));
+        ))
+        .when_some(removed_from_feed, ParentElement::child);
 
     if let Some(on_reorder) = on_reorder {
         row = row
@@ -701,6 +885,7 @@ fn render_playlist_track_body(
         title,
         artist,
         availability_label,
+        removed_from_feed: _,
         duration_label,
         thumb_url: _,
         controls,
@@ -768,18 +953,12 @@ fn render_playlist_track_body(
                         .child(SharedString::from(artist)),
                 )
                 .when_some(availability_label, |el, label| {
-                    el.child(
-                        div()
-                            .mt(Spacing::XXS.scaled(cx))
-                            .rounded(Radius::SM.scaled(cx))
-                            .border_1()
-                            .border_color(color::border_strong())
-                            .px(Spacing::XS.scaled(cx))
-                            .py(Spacing::XXS.scaled(cx))
-                            .text_size(row_text)
-                            .text_color(color::text_muted())
-                            .child(label),
-                    )
+                    el.child(render_row_badge(
+                        SharedString::from(label),
+                        color::border_strong(),
+                        color::text_muted(),
+                        cx,
+                    ))
                 }),
         )
         .child(
@@ -791,6 +970,91 @@ fn render_playlist_track_body(
                 .child(SharedString::from(duration_label)),
         )
         .into_any_element()
+}
+
+/// The row error and the two removal actions of a track with an unconfirmed
+/// "removed from feed" mark (ADR 0076 Decision 7). The block takes the full
+/// row width below the row controls. The error text states the condition, so
+/// its color is never the only signal. The text wraps and is not truncated
+/// (ADR 0063).
+fn render_removed_from_feed(
+    display: &PlaylistTrackRowDisplay,
+    slot: &PlaylistTrackRowSlot,
+    cx: &App,
+) -> Option<AnyElement> {
+    let removed = display.removed_from_feed.clone()?;
+    let on_remove = slot.on_remove.clone();
+    let on_remove_from_all_playlists = slot.on_remove_from_all_playlists.clone();
+    let PlaylistRemovedFromFeedDisplay {
+        error,
+        remove_from_playlist,
+        remove_from_all_playlists,
+    } = removed;
+    let on_remove: Option<PlaylistClickHandler> = on_remove.map(|handler| {
+        let handler: PlaylistClickHandler = Rc::new(move |_, window, cx| handler(window, cx));
+        handler
+    });
+    div()
+        .w_full()
+        .min_w_0()
+        .flex()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .gap(Spacing::SM.scaled(cx))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .text_size(FontSize::Caption.scaled(cx))
+                .text_color(StatusRole::Danger.color(cx))
+                .child(SharedString::from(error)),
+        )
+        .child(render_removed_track_action(remove_from_playlist, on_remove))
+        .child(render_removed_track_action(
+            remove_from_all_playlists,
+            on_remove_from_all_playlists,
+        ))
+        .into_any_element()
+        .into()
+}
+
+fn render_removed_track_action(
+    action: PlaylistRemovedTrackActionDisplay,
+    handler: Option<PlaylistClickHandler>,
+) -> UiButton {
+    let disabled = action.availability.disabled();
+    let button = UiButton::styled(SharedString::from(action.id), ControlStyle::RowAction)
+        .label(action.label)
+        .a11y_label(action.a11y_label)
+        .disabled(disabled);
+    if disabled {
+        button
+    } else {
+        apply_click_handler(button, handler)
+    }
+}
+
+/// A bordered text badge under the title and artist of a playlist row.
+/// The badge text states the condition, so its color is never the only
+/// signal.
+fn render_row_badge(
+    label: SharedString,
+    border: gpui::Rgba,
+    text: gpui::Rgba,
+    cx: &App,
+) -> gpui::Div {
+    div()
+        .mt(Spacing::XXS.scaled(cx))
+        .rounded(Radius::SM.scaled(cx))
+        .border_1()
+        .border_color(border)
+        .px(Spacing::XS.scaled(cx))
+        .py(Spacing::XXS.scaled(cx))
+        .text_size(FontSize::Caption.scaled(cx))
+        .text_color(text)
+        .child(label)
 }
 
 fn render_playlist_thumb_placeholder(cx: &App) -> AnyElement {

@@ -230,7 +230,7 @@ fn prepare_inner(
         };
         return Err(error.downcast::<Failure>().unwrap_or_else(|_| {
             Failure::new(
-                "Apply migrations 12 to 14 and verify retained records",
+                "Apply migrations 12 to 17 and verify retained records",
                 FailureKind::Validation,
             )
         }));
@@ -381,7 +381,7 @@ mod tests {
             };
             assert_eq!(prepared.receipt.state, PreparationState::Upgraded);
             let receipt = &prepared.receipt;
-            assert_eq!(receipt.target, 14);
+            assert_eq!(receipt.target, 17);
             assert!(receipt.started_at <= receipt.preserved_at.unwrap());
             assert!(receipt.preserved_at <= receipt.snapshot_verified_at);
             assert!(receipt.snapshot_verified_at.unwrap() <= receipt.finished_at);
@@ -392,7 +392,7 @@ mod tests {
             assert!(receipt.manifest.as_ref().unwrap().is_file());
             let report = crate::view_models::startup::preparation_report(receipt);
             assert!(report.contains(&receipt.snapshot.as_ref().unwrap().display().to_string()));
-            assert!(report.contains("Target schema version: 14"));
+            assert!(report.contains("Target schema version: 17"));
         }
     }
 
@@ -490,6 +490,15 @@ mod tests {
             Boundary::Migration(14, MigrationBoundary::BeforeApply),
             Boundary::Migration(14, MigrationBoundary::AfterApply),
             Boundary::Migration(14, MigrationBoundary::AfterRecord),
+            Boundary::Migration(15, MigrationBoundary::BeforeApply),
+            Boundary::Migration(15, MigrationBoundary::AfterApply),
+            Boundary::Migration(15, MigrationBoundary::AfterRecord),
+            Boundary::Migration(16, MigrationBoundary::BeforeApply),
+            Boundary::Migration(16, MigrationBoundary::AfterApply),
+            Boundary::Migration(16, MigrationBoundary::AfterRecord),
+            Boundary::Migration(17, MigrationBoundary::BeforeApply),
+            Boundary::Migration(17, MigrationBoundary::AfterApply),
+            Boundary::Migration(17, MigrationBoundary::AfterRecord),
             Boundary::AfterCommit,
             Boundary::BeforeReopen,
         ] {
@@ -515,7 +524,7 @@ mod tests {
                 }
             );
             let conn = Connection::open(&path).unwrap();
-            upgrades::verify_target(&conn, if committed { 14 } else { 11 }).unwrap();
+            upgrades::verify_target(&conn, if committed { 17 } else { 11 }).unwrap();
             assert!(error.receipt.snapshot.as_ref().unwrap().is_file());
             assert!(error.receipt.manifest.as_ref().unwrap().is_file());
             let report = crate::view_models::startup::preparation_failure_report(&error);
@@ -574,7 +583,7 @@ mod tests {
                     .query_row("SELECT count(*) FROM schema_migrations", [], |r| r
                         .get::<_, i64>(0))
                     .unwrap(),
-                14
+                17
             );
             assert_eq!(
                 prepared

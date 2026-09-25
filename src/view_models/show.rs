@@ -14,6 +14,7 @@ pub(crate) use event_report::{EventCheckResponse, EventReportOperation};
 use std::collections::HashMap;
 use std::time::Instant;
 
+use crate::application::queries::broadcast::BroadcastReadinessSummary;
 use crate::broadcast::{
     control::ServiceState,
     encoder::{AudioSignalState, EncoderState, ListenerCount, RecordingState},
@@ -2206,11 +2207,7 @@ impl SourceReadinessDisplay {
             return Self::checking();
         };
 
-        let total = report.summary.ready
-            + report.summary.no_route_tag
-            + report.summary.no_routes_upstream
-            + report.summary.file_missing
-            + report.summary.not_downloaded;
+        let total = report.summary.ready + report.problem_count();
         if total == 0 {
             return Self {
                 id: Self::ID,
@@ -2235,12 +2232,7 @@ impl SourceReadinessDisplay {
         Self {
             id: Self::ID,
             count_label: format!("{} not ready", track_count_label(problem_count)),
-            detail: readiness_detail_label(
-                report.summary.no_route_tag,
-                report.summary.no_routes_upstream,
-                report.summary.file_missing,
-                report.summary.not_downloaded,
-            ),
+            detail: readiness_detail_label(&report.summary),
             state: SourceReadinessState::NeedsAttention,
             action: Self::action(SourceReadinessActionAvailability::Available),
         }
@@ -2749,14 +2741,27 @@ fn stream_listeners_display(listeners: ListenerCount) -> StreamListenersDisplay 
 /// Names each reason a track is not ready, and drops a reason with no tracks.
 ///
 /// A library row with no download is not a missing file. The operator fixes the
-/// two with different actions, so the two never share a phrase.
-fn readiness_detail_label(
-    no_route_tag: usize,
-    no_routes_upstream: usize,
-    file_missing: usize,
-    not_downloaded: usize,
-) -> String {
+/// two with different actions, so the two never share a phrase. ADR 0076
+/// Decisions 7 and 9 add the removed track and the out-of-date route.
+fn readiness_detail_label(summary: &BroadcastReadinessSummary) -> String {
+    let BroadcastReadinessSummary {
+        no_route_tag,
+        no_routes_upstream,
+        file_missing,
+        not_downloaded,
+        route_out_of_date,
+        removed_from_feed,
+        ready: _,
+    } = *summary;
     let mut parts = Vec::new();
+    if removed_from_feed > 0 {
+        parts.push(format!("{removed_from_feed} removed from feed"));
+    }
+    if route_out_of_date > 0 {
+        parts.push(format!(
+            "{route_out_of_date} with an out-of-date payment route"
+        ));
+    }
     if no_route_tag > 0 {
         parts.push(format!("{no_route_tag} without payment routes"));
     }
@@ -3952,6 +3957,7 @@ mod tests {
                     no_routes_upstream: 1,
                     file_missing: 1,
                     not_downloaded: 0,
+                    ..BroadcastReadinessSummary::default()
                 },
                 tracks: vec![readiness_track(7, BroadcastReadinessState::NoRouteTag)],
             }),
@@ -3974,6 +3980,52 @@ mod tests {
         assert_eq!(
             readiness.detail,
             "1 without payment routes, 1 need publisher routes, 1 with a missing file."
+        );
+        assert_eq!(readiness.state, SourceReadinessState::NeedsAttention);
+        assert!(!readiness.action.disabled());
+    }
+
+    /// R3-09: the Source card counts both new states as not ready and names
+    /// them in its detail.
+    #[test]
+    fn adr_0076_route_readiness_source_card_names_both_new_states() {
+        let snapshot = publisher_snapshot([(
+            PublisherServiceRole::Publisher,
+            "musicindex-live-publisher@mixxx.service",
+            ServiceState::Active,
+        )]);
+        let readiness = BroadcastReadinessSnapshot {
+            report: Some(BroadcastReadinessReport {
+                summary: BroadcastReadinessSummary {
+                    ready: 2,
+                    route_out_of_date: 2,
+                    removed_from_feed: 1,
+                    ..BroadcastReadinessSummary::default()
+                },
+                tracks: vec![
+                    readiness_track(7, BroadcastReadinessState::RouteOutOfDate),
+                    readiness_track(8, BroadcastReadinessState::RemovedFromFeed),
+                ],
+            }),
+            error: None,
+        };
+
+        let vm = ShowPageVm::from_queue_publisher_and_readiness(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&snapshot),
+            ShowLogPaneDisplay::closed(),
+            Some(&readiness),
+        );
+        let readiness = vm
+            .source
+            .expect("source section")
+            .readiness
+            .expect("readiness display");
+
+        assert_eq!(readiness.count_label, "3 tracks not ready");
+        assert_eq!(
+            readiness.detail,
+            "1 removed from feed, 2 with an out-of-date payment route."
         );
         assert_eq!(readiness.state, SourceReadinessState::NeedsAttention);
         assert!(!readiness.action.disabled());

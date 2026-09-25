@@ -3,10 +3,10 @@ use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 
 use crate::api;
+use crate::application::queries::stored_values;
 use crate::db;
 use crate::library_service;
 use crate::local_identity;
-use crate::local_metadata;
 use crate::views::{ArtistRef, ArtistView, FeedRef, FeedView, TrackRef, TrackView};
 
 #[derive(Clone, Copy, Debug)]
@@ -98,8 +98,8 @@ impl LocalSource {
 
 fn local_track_view(conn: &Connection, row: db::TrackRow) -> Result<TrackView> {
     let facts = local_identity::track_facts(conn, row.id)?;
-    let metadata_facts = local_metadata::track_facts(conn, row.id)?;
-    Ok(TrackView::from_local_with_facts(row, facts, metadata_facts))
+    let values = stored_values::track_values(conn, &row)?;
+    Ok(TrackView::from_local_with_facts(row, facts, values))
 }
 
 fn local_feed_view(
@@ -112,12 +112,12 @@ fn local_feed_view(
         .map(|row| local_track_view(conn, row))
         .collect::<Result<Vec<_>>>()?;
     let facts = local_identity::feed_facts(conn, feed_row.id)?;
-    let metadata_facts = local_metadata::feed_facts(conn, feed_row.id)?;
+    let values = stored_values::feed_values(conn, feed_row.id)?;
     Ok(FeedView::from_local_with_facts(
         feed_row,
         track_views,
         facts,
-        metadata_facts,
+        values,
     ))
 }
 

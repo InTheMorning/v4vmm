@@ -6,16 +6,16 @@ use rusqlite::Connection;
 use crate::api::{
     Client as MusicIndexClient, Contributor, Feed, SourceEntityId, SourceEntityLink, Track,
 };
-use crate::audio_tags::{read_audio_tags, write_id3v24_edits, AudioTags, Id3v24Edit};
+use crate::application::queries::stored_values::{self, TrackStoredValues};
+use crate::audio_tags::{read_audio_tags, AudioTags, Id3v24Edit};
 use crate::config;
 use crate::db::{self, TrackRow};
 use crate::identity_ingest;
 use crate::library_service;
-use crate::local_metadata;
 use crate::metadata::{
     sanitize_track_context_source_text, source_text_missing, MusicBrainzLookupResult, TrackContext,
 };
-use crate::metadata_service::{id3_edits_for_track_context, musicbrainz_lookup_metadata};
+use crate::metadata_service::musicbrainz_lookup_metadata;
 use crate::musicbrainz::{lookup_recordings, MusicBrainzCandidate, MusicBrainzLookup};
 
 #[derive(Clone, Debug)]
@@ -26,11 +26,13 @@ pub struct StaleFeed {
     pub new_updated_at: i64,
 }
 
+/// The result of one feed update. ADR 0076 Decision 8: a feed update
+/// changes the database only, so the outcome counts stored track records and
+/// no file write.
 #[derive(Default, Debug, Clone)]
 pub struct FeedApplyOutcome {
-    pub tracks_updated: usize,
-    pub edits_written: usize,
-    pub id3_errors: Vec<String>,
+    /// The tracks whose `MusicIndex` record the update stored.
+    pub tracks_refreshed: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -431,16 +433,6 @@ pub fn check_feed_staleness(
     }))
 }
 
-/// Reads the music directory that the feed-update loop resolves for each feed.
-///
-/// # Errors
-/// Returns the existing configuration path, read, parse or field failure.
-pub fn configured_music_dir() -> Result<std::path::PathBuf> {
-    let cfg_path = config::config_path()?;
-    let music_dir = config::ConfigSnapshot::read_existing(&cfg_path)?.music_dir?;
-    Ok(music_dir)
-}
-
 /// ADR 0075 records the feed and track requests that one feed update makes.
 ///
 /// Packet 018 P18-7: an explicit feed update is the point where the app
@@ -459,13 +451,15 @@ pub fn configured_music_dir() -> Result<std::path::PathBuf> {
 ///
 /// # Errors
 /// Returns the existing database, merge or transport failure. A provider
-/// storage failure stops the feed before legacy persistence or tag generation,
-/// and keeps its typed capsule for the caller.
+/// storage failure stops the feed before legacy persistence, and keeps its
+/// typed capsule for the caller.
+///
+/// ADR 0076 Decision 8 and ADR 0075 section 7: the update writes no audio
+/// tag. It changes the database only.
 pub fn apply_feed_updates(
     conn: &Arc<Mutex<Connection>>,
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
     stale: &StaleFeed,
-    music_dir: &std::path::Path,
     recorder: &Arc<crate::provider_observation::ProviderObservationRecorder>,
     receipts_out: &mut Vec<crate::provider_observation::ObservationReceipt>,
 ) -> Result<FeedApplyOutcome> {
@@ -515,7 +509,19 @@ pub fn apply_feed_updates(
     });
     if let Some(feed) = feed_update.as_ref() {
         let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-        if !source_text_missing(feed.description.as_deref()) {
+        // ADR 0076 Decision 5: a held RSS description stays until
+        // MusicIndex agrees or supplies a newer record.
+        if !source_text_missing(feed.description.as_deref())
+            && db::rss_field_holds::musicindex_gate(
+                &db,
+                db::rss_field_holds::MusicIndexClaim::feed_description(
+                    stale.feed_id,
+                    feed.description.as_deref(),
+                    feed.updated_at,
+                ),
+            )?
+            .writes()
+        {
             db::set_feed_description(&db, stale.feed_id, feed.description.as_deref())?;
         }
         identity_ingest::persist_musicindex_feed(&mut db, stale.feed_id, feed)?;
@@ -525,19 +531,14 @@ pub fn apply_feed_updates(
         let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
         library_service::tracks_for_feed(&db, stale.feed_id)?
     };
-    let mut outcome = FeedApplyOutcome {
-        tracks_updated: 0,
-        edits_written: 0,
-        id3_errors: Vec::new(),
-    };
+    let mut outcome = FeedApplyOutcome::default();
     for track in &tracks {
-        let Some(local_path) = track
-            .local_path
-            .as_ref()
-            .map(|path| path.resolve(music_dir))
-        else {
+        // The update reads the tracks with a downloaded file, as before.
+        // ADR 0076 Decision 8: it writes no audio tag. The tag update scan
+        // of packet 004 offers the file write after this update.
+        if track.local_path.is_none() {
             continue;
-        };
+        }
         let detail = propagate_storage_failure(fetch_library_track_detail_with_recorder(
             track,
             musicindex_endpoint,
@@ -548,39 +549,21 @@ pub fn apply_feed_updates(
         let Some((fetched_track, fetched_feed)) = detail else {
             continue;
         };
-        let context = merge_track_context_with_recorder(
+        // ADR 0075 packet 039: the RSS enrichment of the merge retains its
+        // observation. The merged context is not used for a tag write.
+        merge_track_context_with_recorder(
             track,
             fetched_track.clone(),
             fetched_feed.clone(),
             Some(recorder.as_ref()),
         )?;
-        {
-            let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-            if let Some(feed) = fetched_feed.as_ref() {
-                identity_ingest::persist_musicindex_feed(&mut db, stale.feed_id, feed)?;
-            }
-            if let Some(fetched_track) = fetched_track.as_ref() {
-                identity_ingest::persist_musicindex_track(&mut db, track.id, fetched_track)?;
-            }
+        let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+        if let Some(feed) = fetched_feed.as_ref() {
+            identity_ingest::persist_musicindex_feed(&mut db, stale.feed_id, feed)?;
         }
-        let edits = id3_edits_for_track_context(&context);
-        if edits.is_empty() {
-            continue;
-        }
-        match write_id3v24_edits(&local_path, &edits) {
-            Ok(written) => {
-                if written > 0 {
-                    outcome.tracks_updated += 1;
-                    outcome.edits_written += written;
-                }
-            }
-            Err(error) => {
-                let label = track
-                    .track_title
-                    .clone()
-                    .unwrap_or_else(|| local_path.display().to_string());
-                outcome.id3_errors.push(format!("{label}: {error:#}"));
-            }
+        if let Some(fetched_track) = fetched_track.as_ref() {
+            identity_ingest::persist_musicindex_track(&mut db, track.id, fetched_track)?;
+            outcome.tracks_refreshed += 1;
         }
     }
     {
@@ -590,12 +573,32 @@ pub fn apply_feed_updates(
     Ok(outcome)
 }
 
+/// The tag frame context of a track row without a database connection. It
+/// reads the column step of the stored value projection (ADR 0075 packet
+/// 020). A caller with a connection uses
+/// [`track_row_to_track_context_with_local_identity`], which reads the full
+/// projection.
 pub fn track_row_to_track_context(track: &TrackRow) -> TrackContext {
-    let feed = track_row_to_feed(track);
-    let api_track = crate::api::track_with_feed_defaults(
-        crate::subscribe_service::track_row_to_api_track(track),
-        Some(&feed),
-    );
+    track_context_with_values(track, &stored_values::track_values_from_columns(track))
+}
+
+/// ADR 0076 Decision 1: the tag frame context shows the stored value of each
+/// field. The stored value projection selects it. This function selects no
+/// source.
+fn track_context_with_values(track: &TrackRow, values: &TrackStoredValues) -> TrackContext {
+    let mut feed = track_row_to_feed(track);
+    feed.title = drop_placeholder(values.album_title.value.clone());
+    let mut api_track = crate::subscribe_service::track_row_to_api_track(track);
+    api_track.title = drop_placeholder(values.title.value.clone());
+    api_track.track_artist = drop_placeholder(values.artist.value.clone());
+    api_track.release_artist = drop_placeholder(values.album_artist.value.clone());
+    api_track.feed_title = drop_placeholder(values.album_title.value.clone());
+    api_track.image_url = drop_placeholder(values.artwork.value.clone());
+    api_track.pub_date = values.pub_date.value;
+    api_track.explicit = values.explicit.value;
+    api_track.description = values.description.value.clone();
+    api_track.publisher_text = values.publisher_text.value.clone();
+    let api_track = crate::api::track_with_feed_defaults(api_track, Some(&feed));
     let mut context = TrackContext::new(api_track, Some(feed));
     sanitize_track_context_source_text(&mut context);
     context
@@ -622,14 +625,14 @@ pub fn track_row_to_track_context_with_local_identity(
     conn: &Connection,
     track: &TrackRow,
 ) -> Result<TrackContext> {
-    let mut context = track_row_to_track_context(track);
+    let values = stored_values::track_values(conn, track)?;
+    let mut context = track_context_with_values(track, &values);
     context.feed = Some(hydrate_feed_identity(
         conn,
         track.feed_id,
         context.feed.take(),
     )?);
     context.track = hydrate_track_identity(conn, track.id, context.track)?;
-    context.track = hydrate_track_metadata(conn, track.id, context.track)?;
     sanitize_track_context_source_text(&mut context);
     Ok(context)
 }
@@ -676,23 +679,6 @@ fn hydrate_track_identity(conn: &Connection, track_id: i64, mut track: Track) ->
             .map(contributor_from_local)
             .collect(),
     );
-    Ok(track)
-}
-
-fn hydrate_track_metadata(conn: &Connection, track_id: i64, mut track: Track) -> Result<Track> {
-    let facts = local_metadata::track_facts(conn, track_id)?;
-    if facts.publisher_text.is_some() {
-        track.publisher_text = facts.publisher_text;
-    }
-    if facts.description.is_some() {
-        track.description = facts.description;
-    }
-    if facts.pub_date.is_some() {
-        track.pub_date = facts.pub_date;
-    }
-    if facts.explicit.is_some() {
-        track.explicit = facts.explicit;
-    }
     Ok(track)
 }
 
@@ -1424,12 +1410,23 @@ mod adr_0075_request_profile_tests {
             );
         }
         if bare.contains("/tracks/") {
+            // `mode` 2: the track response carries a MusicIndex payment
+            // route that differs from the stored route (ADR 0076 packet 003).
+            let routes = if mode == 2 {
+                serde_json::json!([{
+                    "recipient_name": "MusicIndex", "route_type": "node",
+                    "split": 100.0, "fee": false, "address": "03abcdef"
+                }])
+            } else {
+                serde_json::Value::Null
+            };
             return (
                 "200 OK",
                 serde_json::json!({"data": {
                     "track_guid": bare.rsplit('/').next(),
                     "feed_guid": "f1",
-                    "source_links": [], "source_ids": [], "source_contributors": []
+                    "source_links": [], "source_ids": [], "source_contributors": [],
+                    "payment_routes": routes
                 }})
                 .to_string(),
             );
@@ -1528,7 +1525,7 @@ mod adr_0075_request_profile_tests {
     fn adr_0075_request_profile_library_feed_update_sends_l1() {
         let fixture = Fixture::start();
         let db_conn = Connection::open_in_memory().unwrap();
-        db::upgrades::create_fixture(&db_conn, 12).unwrap();
+        db::upgrades::create_fixture(&db_conn, db::CURRENT_VERSION).unwrap();
         db_conn
             .execute(
                 "INSERT INTO feeds(feed_url,feed_guid,title,is_subscribed) \
@@ -1547,17 +1544,11 @@ mod adr_0075_request_profile_tests {
             new_updated_at: 100,
         };
 
-        let outcome = apply_feed_updates(
-            &conn,
-            &fixture.endpoint,
-            &stale,
-            std::path::Path::new("/tmp"),
-            &recorder,
-            &mut Vec::new(),
-        )
-        .unwrap();
+        let outcome =
+            apply_feed_updates(&conn, &fixture.endpoint, &stale, &recorder, &mut Vec::new())
+                .unwrap();
 
-        assert_eq!(outcome.tracks_updated, 0);
+        assert_eq!(outcome.tracks_refreshed, 0);
         let requests = fixture.requests.lock().unwrap().clone();
         assert_eq!(
             requests,
@@ -1567,5 +1558,81 @@ mod adr_0075_request_profile_tests {
             )],
             "R17-07: the Library feed update request must send L1"
         );
+    }
+
+    /// ADR 0076 Decision 8 (packet 004): a feed update changes the database
+    /// only. It stores the `MusicIndex` track record and writes no tag. The
+    /// file bytes and the stored route stay the same.
+    #[test]
+    fn adr_0076_tag_update_feed_update_writes_no_tag() {
+        let fixture = Fixture::start();
+        fixture.mode.store(2, Ordering::SeqCst);
+        let music = tempfile::tempdir().unwrap();
+        let path = music.path().join("song.mp3");
+        std::fs::write(&path, b"not really an mp3").unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let stored = serde_json::json!([{
+            "recipient_name": "Stored", "route_type": "node",
+            "split": 100.0, "fee": false, "address": "03abcdef"
+        }])
+        .to_string();
+        let db_conn = Connection::open_in_memory().unwrap();
+        db::upgrades::create_fixture(&db_conn, db::CURRENT_VERSION).unwrap();
+        db_conn
+            .execute_batch(
+                "INSERT INTO feeds(id,feed_url,feed_guid,title,is_subscribed) \
+                 VALUES(1,'http://fixture.invalid/feed.xml','f1','Feed',1);",
+            )
+            .unwrap();
+        db_conn
+            .execute(
+                "INSERT INTO tracks(id,feed_id,item_guid,track_title,is_in_library,payment_routes_json) \
+                 VALUES(1,1,'t1','Song',1,?1)",
+                [&stored],
+            )
+            .unwrap();
+        db_conn
+            .execute(
+                "INSERT INTO local_files(path,track_id) VALUES('song.mp3',1)",
+                [],
+            )
+            .unwrap();
+        let conn = Arc::new(Mutex::new(db_conn));
+        let recorder = Arc::new(
+            crate::provider_observation::ProviderObservationRecorder::new(Arc::clone(&conn)),
+        );
+        let stale = StaleFeed {
+            feed_id: 1,
+            feed_guid: "f1".into(),
+            title: None,
+            new_updated_at: 100,
+        };
+
+        let outcome =
+            apply_feed_updates(&conn, &fixture.endpoint, &stale, &recorder, &mut Vec::new())
+                .unwrap();
+
+        assert_eq!(outcome.tracks_refreshed, 1);
+        assert!(fixture
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|request| request.contains("/tracks/t1")));
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "ADR 0076 Decision 8: a feed update writes no audio tag"
+        );
+        let route: String = conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT payment_routes_json FROM tracks WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(route, stored, "the stored route stays the same");
     }
 }

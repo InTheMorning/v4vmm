@@ -13,6 +13,7 @@ use crate::config::DownloadConfig;
 use crate::db::{self, TrackRow};
 use crate::library_path::LibraryRelativePath;
 use crate::metadata::TrackContext;
+use crate::metadata_service::{with_stored_route_frame, RouteFrameWrite};
 use crate::track_compare::retained::{stage_existing, RetainedArtifact};
 use crate::track_compare::{download_track, select_audio_enclosure, SelectedEnclosure};
 
@@ -121,6 +122,16 @@ impl Materialization {
         {
             let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
             self.validate_subject(&db, cfg)?;
+            // ADR 0076 Decision 9: the route frame comes from the stored route.
+            // The MusicIndex route of the download goes into the database only
+            // when the track has no stored route.
+            self.edits = with_stored_route_frame(
+                &db,
+                self.row.id,
+                self.context.track.payment_routes.as_deref(),
+                std::mem::take(&mut self.edits),
+                RouteFrameWrite::Always,
+            )?;
         }
         if retry && !redownload {
             self.validate_input()?;
@@ -513,5 +524,69 @@ mod tests {
                 .as_stored(),
             "original.wav"
         );
+    }
+
+    /// R3-03 (download write): the download writes the stored route. The
+    /// MusicIndex route of the download context differs, and the file does
+    /// not get it.
+    #[test]
+    fn adr_0076_route_readiness_download_writes_the_stored_route() {
+        use crate::api::PaymentRoute;
+        use crate::metadata::{
+            audio_tags_value_routes, parse_value_routes, MUSICINDEX_VALUE_ROUTES_FRAME,
+        };
+
+        let route = |name: &str| PaymentRoute {
+            recipient_name: Some(name.into()),
+            route_type: Some("node".into()),
+            split: Some(100.0),
+            fee: Some(false),
+            address: Some("03abcdef".into()),
+            ..PaymentRoute::default()
+        };
+        let (temp, cfg, conn, _operation) = fixture();
+        let path = temp.path().join("song.mp3");
+        fs::write(&path, b"not really an mp3").unwrap();
+        write_id3v24_edits(
+            &path,
+            &[Id3v24Edit {
+                frame_label: "TIT2".into(),
+                value: "Song".into(),
+            }],
+        )
+        .unwrap();
+        let row = {
+            let db = conn.lock().unwrap();
+            db.execute(
+                "INSERT INTO tracks (id, feed_id, item_guid, track_title, enclosure_url, enclosure_type, is_in_library, payment_routes_json)
+                 VALUES (2, 1, 'song', 'Song', 'https://example.test/song.mp3', 'audio/mpeg', 1, ?1)",
+                [serde_json::to_string(&[route("Stored")]).unwrap()],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO local_files (path, track_id) VALUES ('song.mp3', 2)",
+                [],
+            )
+            .unwrap();
+            db::track_row_by_id(&db, 2).unwrap().unwrap()
+        };
+        let mut api_track = super::super::track_row_to_api_track(&row);
+        api_track.payment_routes = Some(vec![route("MusicIndex")]);
+        let context = TrackContext::new(api_track, None);
+        let edits = crate::metadata_service::id3_edits_for_track_context(&context);
+        assert!(edits
+            .iter()
+            .any(|edit| edit.frame_label == MUSICINDEX_VALUE_ROUTES_FRAME));
+
+        let mut operation = Materialization::new(row, context, edits, cfg.music_dir.clone());
+        let outcome = operation.run(&conn, &cfg, false, false).unwrap();
+
+        let tags = crate::audio_tags::read_audio_tags(&outcome.path).unwrap();
+        let names = parse_value_routes(audio_tags_value_routes(&tags).unwrap())
+            .unwrap()
+            .into_iter()
+            .map(|route| route.recipient_name)
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec![Some("Stored".to_owned())]);
     }
 }

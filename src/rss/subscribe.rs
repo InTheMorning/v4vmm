@@ -1,3 +1,10 @@
+//! RSS subscribe: fetch, parse and persist one feed.
+//!
+//! ADR 0076 packet 002 splits the command into a parse step and a persist
+//! step. The playlist RSS check (`check_apply.rs`) uses the same parse step
+//! and the same column mapping, so both write equal column values from one
+//! document.
+
 use anyhow::{Context, Result};
 use rss::extension::{Extension, ExtensionMap};
 use rss::Channel;
@@ -8,22 +15,89 @@ use super::helpers::*;
 use crate::api::Client as MusicIndexClient;
 use crate::db;
 
-pub fn subscribe_feed(
-    conn: &mut Connection,
-    feed_url: &str,
-    musicindex_endpoint: &crate::config::MusicIndexEndpoint,
-) -> Result<()> {
-    // --- fetch ---
-    let body = crate::http_client::document()
-        .get(feed_url)
-        .send()
-        .with_context(|| format!("GET {feed_url}"))?
-        .error_for_status()
-        .with_context(|| format!("HTTP error for {feed_url}"))?
-        .bytes()
-        .with_context(|| format!("read body {feed_url}"))?;
+/// One parsed RSS document: the channel values and one item for each RSS
+/// item with a GUID (ADR 0076 packet 002).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ParsedFeedDocument {
+    pub(crate) channel: ParsedChannel,
+    pub(crate) items: Vec<ParsedItem>,
+}
 
-    // --- parse ---
+/// The channel values of one document. Column values have the form that
+/// the `feeds` columns store.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ParsedChannel {
+    pub(crate) feed_guid: Option<String>,
+    pub(crate) title: String,
+    pub(crate) link: Option<String>,
+    pub(crate) language: Option<String>,
+    pub(crate) description: Option<String>,
+    pub(crate) podcast_medium: Option<String>,
+    pub(crate) album_image_href: Option<String>,
+    pub(crate) album_image_mime: Option<String>,
+    pub(crate) people_json: Option<String>,
+    pub(crate) podcast_value_json: Option<String>,
+    /// Channel `itunes:author`, then a channel person with an artist role.
+    pub(crate) album_artist: Option<String>,
+    /// The `itunes:owner` name.
+    pub(crate) owner_name: Option<String>,
+    /// The channel `itunes:explicit` text.
+    pub(crate) explicit: Option<String>,
+    pub(crate) contributors: Vec<db::LocalContributorInput>,
+    /// Valid Nostr identities of direct `podcast:txt purpose="npub"` elements.
+    pub(crate) nostr_ids: Vec<ParsedNostrId>,
+    /// The `podcast:publisher` remote item of the album.
+    pub(crate) publisher: Option<ParsedPublisher>,
+}
+
+/// One item of a document. Column values have the form that the `tracks`
+/// columns store.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ParsedItem {
+    pub(crate) item_guid: String,
+    pub(crate) enclosure_url: Option<String>,
+    pub(crate) enclosure_type: Option<String>,
+    pub(crate) link: Option<String>,
+    pub(crate) pub_date: Option<String>,
+    pub(crate) track_title: Option<String>,
+    pub(crate) artist_name: Option<String>,
+    pub(crate) album_title: Option<String>,
+    pub(crate) album_artist_name: Option<String>,
+    pub(crate) disc_number: Option<i64>,
+    pub(crate) track_number: Option<i64>,
+    pub(crate) duration_seconds: Option<i64>,
+    pub(crate) itunes_duration_raw: Option<String>,
+    pub(crate) itunes_explicit: Option<String>,
+    pub(crate) track_image_href: Option<String>,
+    pub(crate) track_image_mime: Option<String>,
+    pub(crate) people_json: Option<String>,
+    pub(crate) item_value_json: Option<String>,
+    pub(crate) extra_json: String,
+    pub(crate) description: Option<String>,
+    pub(crate) contributors: Vec<db::LocalContributorInput>,
+    pub(crate) links: Vec<db::LocalIdentityLinkInput>,
+    pub(crate) nostr_ids: Vec<ParsedNostrId>,
+}
+
+/// One valid Nostr identity of a `podcast:txt purpose="npub"` element.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ParsedNostrId {
+    /// `nostr_npub` or `nostr_nprofile`, as the identity validation names it.
+    pub(crate) scheme: String,
+    pub(crate) value: String,
+    pub(crate) position: i64,
+}
+
+/// The `podcast:remoteItem` of the channel `podcast:publisher` element.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ParsedPublisher {
+    pub(crate) feed_guid: Option<String>,
+    pub(crate) feed_url: Option<String>,
+}
+
+/// Parse one RSS document. The subscribe command and the playlist RSS
+/// check call this one function.
+pub(crate) fn parse_feed_document(body: &[u8]) -> Result<ParsedFeedDocument> {
     let feed = Channel::read_from(Cursor::new(body)).context("parse RSS")?;
 
     // --- feed-level fields (RSS channel + podcast extensions) ---
@@ -42,18 +116,12 @@ pub fn subscribe_feed(
         }
     };
 
-    let language = feed.language().map(|s| s.to_string());
-
     let desc = feed.description().trim();
     let description = if desc.is_empty() {
         None
     } else {
         Some(desc.to_string())
     };
-
-    // Podcasting 2.0 extensions: rss crate stores keys without prefix (guid, medium, value, ...)
-    let feed_guid = find_ext_text(feed.extensions(), "podcast", "guid");
-    let podcast_medium = find_ext_text(feed.extensions(), "podcast", "medium");
 
     // Album image (prefer podcast:image/@href; fall back to itunes channel image; then <image><url>)
     let mut album_image_href = find_ext_attr(feed.extensions(), "podcast", "image", "href")
@@ -67,15 +135,276 @@ pub fn subscribe_feed(
             album_image_href = Some(img.url().to_string());
         }
     }
-    let album_image_mime: Option<String> = None;
 
-    // People at feed level (podcast:person); ok if None
-    let feed_people_json = collect_people_json(feed.extensions());
+    let channel = ParsedChannel {
+        // Podcasting 2.0 extensions: rss crate stores keys without prefix (guid, medium, value, ...)
+        feed_guid: find_ext_text(feed.extensions(), "podcast", "guid"),
+        title: feed_title.clone(),
+        link: feed_link,
+        language: feed.language().map(|s| s.to_string()),
+        description,
+        podcast_medium: find_ext_text(feed.extensions(), "podcast", "medium"),
+        album_image_href,
+        album_image_mime: None,
+        // People at feed level (podcast:person); ok if None
+        people_json: collect_people_json(feed.extensions()),
+        // Full value block (including recipients) as JSON
+        podcast_value_json: value_block_json(feed.extensions(), "podcast", "value"),
+        album_artist: feed_artist.clone(),
+        owner_name: feed
+            .itunes_ext()
+            .and_then(|it| it.owner())
+            .and_then(|owner| clean_text(owner.name())),
+        explicit: feed
+            .itunes_ext()
+            .and_then(|it| it.explicit())
+            .map(ToOwned::to_owned),
+        contributors: contributor_inputs_from_extensions(feed.extensions()),
+        nostr_ids: nostr_ids_from_extensions(feed.extensions()),
+        publisher: publisher_from_extensions(feed.extensions()),
+    };
 
-    // Full value block (including recipients) as JSON
-    let podcast_value_json = value_block_json(feed.extensions(), "podcast", "value");
+    let mut items = Vec::new();
+    for item in feed.items() {
+        // Stable identity: item <guid>. If missing, skip (we need stable IDs).
+        let item_guid = match item.guid() {
+            Some(g) => g.value().to_string(),
+            None => continue,
+        };
 
-    // --- upsert feed row (always mark subscribed) ---
+        let (enclosure_url, enclosure_type) = selected_enclosure(item);
+        let item_link = item.link().map(|s| s.to_string());
+
+        // Provisional music fields (ID3 will become canonical once downloaded)
+        let artist_name = item
+            .itunes_ext()
+            .and_then(|it| clean_text(it.author()))
+            .or_else(|| clean_text(item.author()))
+            .or_else(|| {
+                first_person_by_role(
+                    item.extensions(),
+                    &["artist", "creator", "composer", "performer"],
+                )
+            })
+            .or_else(|| feed_artist.clone());
+
+        // iTunes item tags are NOT in extensions; rss crate exposes them via itunes_ext()
+        let itunes = item.itunes_ext();
+        let itunes_duration_raw = itunes.and_then(|it| it.duration()).map(|s| s.to_string());
+
+        // Item-level people/value/transcript (podcast:* extensions)
+        let transcript_url = find_ext_attr(item.extensions(), "podcast", "transcript", "url");
+        let transcript_type = find_ext_attr(item.extensions(), "podcast", "transcript", "type");
+
+        items.push(ParsedItem {
+            enclosure_url,
+            enclosure_type,
+            link: item_link.clone(),
+            pub_date: item.pub_date().map(|s| s.to_string()),
+            track_title: item.title().map(|s| s.to_string()),
+            album_title: Some(feed_title.clone()),
+            album_artist_name: feed_artist.clone().or_else(|| artist_name.clone()),
+            artist_name,
+            disc_number: None,
+            // Canonical ordering: podcast:episode
+            track_number: find_ext_text(item.extensions(), "podcast", "episode")
+                .and_then(|s| s.trim().parse::<i64>().ok()),
+            duration_seconds: itunes_duration_raw
+                .as_deref()
+                .and_then(parse_itunes_duration),
+            itunes_duration_raw,
+            itunes_explicit: itunes.and_then(|it| it.explicit()).map(|s| s.to_string()),
+            track_image_href: itunes.and_then(|it| it.image()).map(|s| s.to_string()),
+            track_image_mime: None,
+            people_json: collect_people_json(item.extensions()),
+            item_value_json: value_block_json(item.extensions(), "podcast", "value"),
+            extra_json: track_extra_json(transcript_url.as_deref(), transcript_type.as_deref()),
+            description: item.description().map(ToOwned::to_owned),
+            contributors: contributor_inputs_from_extensions(item.extensions()),
+            links: rss_track_link_inputs(
+                &item_guid,
+                item_link.as_deref(),
+                transcript_url.as_deref(),
+                transcript_type.as_deref(),
+            ),
+            nostr_ids: nostr_ids_from_extensions(item.extensions()),
+            item_guid,
+        });
+    }
+
+    Ok(ParsedFeedDocument { channel, items })
+}
+
+/// ADR 0075 Decision E: the first supported primary enclosure, then the
+/// first supported enclosure. The direct `<enclosure>` and each
+/// `podcast:alternateEnclosure` with `default="true"` are primary. When no
+/// candidate is supported, the direct enclosure stays the stored value, as
+/// before this packet.
+fn selected_enclosure(item: &rss::Item) -> (Option<String>, Option<String>) {
+    let direct = item.enclosure().map(|enclosure| {
+        let mime = enclosure.mime_type().trim();
+        (
+            enclosure.url().to_string(),
+            (!mime.is_empty()).then(|| mime.to_string()),
+            true,
+        )
+    });
+    let alternates = item
+        .extensions()
+        .get("podcast")
+        .and_then(|podcast| podcast.get("alternateEnclosure"))
+        .map(|alternates| {
+            alternates
+                .iter()
+                .filter_map(|alternate| {
+                    let url = alternate
+                        .children
+                        .get("source")?
+                        .iter()
+                        .find_map(|source| clean_attr(source, "uri"))?;
+                    let primary = alternate
+                        .attrs
+                        .get("default")
+                        .is_some_and(|value| value.trim().eq_ignore_ascii_case("true"));
+                    Some((url, clean_attr(alternate, "type"), primary))
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let candidates = direct.iter().cloned().chain(alternates).collect::<Vec<_>>();
+    let supported = |(url, mime, _): &&(String, Option<String>, bool)| {
+        crate::track_compare::enclosure_supported(mime.as_deref(), url)
+    };
+    candidates
+        .iter()
+        .filter(|candidate| candidate.2)
+        .find(supported)
+        .or_else(|| candidates.iter().find(supported))
+        .or(direct.as_ref())
+        .map_or((None, None), |(url, mime, _)| {
+            (Some(url.clone()), mime.clone())
+        })
+}
+
+/// Direct `podcast:txt purpose="npub"` elements with a valid identity.
+fn nostr_ids_from_extensions(exts: &ExtensionMap) -> Vec<ParsedNostrId> {
+    let Some(texts) = exts.get("podcast").and_then(|podcast| podcast.get("txt")) else {
+        return Vec::new();
+    };
+    texts
+        .iter()
+        .enumerate()
+        .filter(|(_, text)| {
+            text.attrs
+                .get("purpose")
+                .is_some_and(|purpose| purpose.trim() == "npub")
+        })
+        .filter_map(|(position, text)| {
+            let value = clean_text(text.value.as_deref())?;
+            match super::validate_nostr_identity(&value) {
+                super::IdentityValidation::Valid(identity) => Some(ParsedNostrId {
+                    scheme: identity.scheme().to_owned(),
+                    value: identity.original().to_owned(),
+                    position: i64::try_from(position).unwrap_or_default(),
+                }),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+fn publisher_from_extensions(exts: &ExtensionMap) -> Option<ParsedPublisher> {
+    let publisher = find_ext(exts, "podcast", "publisher")?;
+    let remote = publisher.children.get("remoteItem")?.first()?;
+    let parsed = ParsedPublisher {
+        feed_guid: clean_attr(remote, "feedGuid"),
+        feed_url: clean_attr(remote, "feedUrl"),
+    };
+    (parsed.feed_guid.is_some() || parsed.feed_url.is_some()).then_some(parsed)
+}
+
+pub fn subscribe_feed(
+    conn: &mut Connection,
+    feed_url: &str,
+    musicindex_endpoint: &crate::config::MusicIndexEndpoint,
+) -> Result<()> {
+    // --- fetch ---
+    let body = crate::http_client::document()
+        .get(feed_url)
+        .send()
+        .with_context(|| format!("GET {feed_url}"))?
+        .error_for_status()
+        .with_context(|| format!("HTTP error for {feed_url}"))?
+        .bytes()
+        .with_context(|| format!("read body {feed_url}"))?;
+
+    // --- parse ---
+    let document = parse_feed_document(&body)?;
+
+    // --- persist the channel (always mark subscribed), the items, and the
+    // RSS values of the compared slots ---
+    let (feed_id, upserted) =
+        persist_subscribed_document(conn, feed_url, &document, unix_now_us())?;
+    let feed_guid = document.channel.feed_guid.clone();
+
+    // Best-effort: capture MusicIndex feed `updated_at` so freshly-subscribed
+    // feeds aren't immediately marked stale by the auto-update checker.
+    // ADR 0076 Decision 5 and ADR 0075 packet 020: a subscribe reads RSS, so
+    // it writes no MusicIndex value into a compared slot. The feed
+    // description stays the RSS value, and its hold decides later
+    // MusicIndex writes.
+    if let (Some(guid), Ok(endpoint)) = (feed_guid.as_deref(), musicindex_endpoint.require()) {
+        let client = MusicIndexClient::new_with_base_url(endpoint);
+        match client.fetch_feed(guid, None) {
+            Ok(api_feed) => {
+                if let Some(updated_at) = api_feed.updated_at {
+                    if let Err(err) = db::set_feed_musicindex_updated_at(conn, feed_id, updated_at)
+                    {
+                        eprintln!("set baseline musicindex_updated_at: {err:#}");
+                    }
+                }
+            }
+            Err(err) => eprintln!("fetch MusicIndex feed for baseline updated_at: {err:#}"),
+        }
+    }
+
+    eprintln!(
+        "App subscribed or updated RSS feed {}; stored {upserted} track updates.",
+        document.channel.title
+    );
+    Ok(())
+}
+
+/// The persist step of one parsed document: the channel, the items, and the
+/// `rss` fact rows and holds of the compared slots (ADR 0076 Decision 5,
+/// ADR 0075 packet 020). Returns the feed id and the number of track updates.
+pub(crate) fn persist_subscribed_document(
+    conn: &mut Connection,
+    feed_url: &str,
+    document: &ParsedFeedDocument,
+    subscribed_at_us: i64,
+) -> Result<(i64, usize)> {
+    let feed_id = persist_channel(conn, feed_url, &document.channel)?;
+    let upserted = persist_items(conn, feed_url, feed_id, &document.items)?;
+    super::check_apply::record_subscribed_document(conn, feed_id, document, subscribed_at_us)?;
+    Ok((feed_id, upserted))
+}
+
+fn unix_now_us() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            i64::try_from(elapsed.as_micros()).unwrap_or(i64::MAX)
+        })
+}
+
+/// The persist step of the channel: the `feeds` row and the RSS
+/// contributors and links of the feed. It marks the feed subscribed.
+pub(crate) fn persist_channel(
+    conn: &mut Connection,
+    feed_url: &str,
+    channel: &ParsedChannel,
+) -> Result<i64> {
     conn.execute(
         r#"
         INSERT INTO feeds (
@@ -90,10 +419,11 @@ pub fn subscribe_feed(
             album_image_mime,
             people_json,
             podcast_value_json,
+            album_artist,
             is_subscribed,
             last_fetched_at
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, datetime('now'))
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, datetime('now'))
         ON CONFLICT(feed_url) DO UPDATE SET
             feed_guid          = excluded.feed_guid,
             title              = excluded.title,
@@ -105,21 +435,23 @@ pub fn subscribe_feed(
             album_image_mime   = excluded.album_image_mime,
             people_json        = excluded.people_json,
             podcast_value_json = excluded.podcast_value_json,
+            album_artist       = excluded.album_artist,
             is_subscribed      = 1,
             last_fetched_at    = datetime('now')
         "#,
         rusqlite::params![
             feed_url,
-            feed_guid,
-            feed_title,
-            feed_link,
-            language,
-            description,
-            podcast_medium,
-            album_image_href,
-            album_image_mime,
-            feed_people_json,
-            podcast_value_json,
+            channel.feed_guid,
+            channel.title,
+            channel.link,
+            channel.language,
+            channel.description,
+            channel.podcast_medium,
+            channel.album_image_href,
+            channel.album_image_mime,
+            channel.people_json,
+            channel.podcast_value_json,
+            channel.album_artist,
         ],
     )
     .context("upsert feed")?;
@@ -131,187 +463,139 @@ pub fn subscribe_feed(
             |row| row.get(0),
         )
         .context("lookup feed_id")?;
+    // ADR 0076 Decision 9: the canonical route follows each raw block write.
+    crate::db::payment_routes::refresh_feed_route(
+        conn,
+        feed_id,
+        channel.podcast_value_json.as_deref(),
+    )?;
     persist_rss_feed_identity(
         conn,
         feed_id,
-        feed_guid.as_deref(),
-        feed_link.as_deref(),
-        feed.extensions(),
+        channel.feed_guid.as_deref(),
+        channel.link.as_deref(),
+        &channel.contributors,
     )?;
+    Ok(feed_id)
+}
 
-    // Best-effort: capture MusicIndex feed `updated_at` so freshly-subscribed
-    // feeds aren't immediately marked stale by the auto-update checker.
-    if let (Some(guid), Ok(endpoint)) = (feed_guid.as_deref(), musicindex_endpoint.require()) {
-        let client = MusicIndexClient::new_with_base_url(endpoint);
-        match client.fetch_feed(guid, None) {
-            Ok(api_feed) => {
-                if let Some(updated_at) = api_feed.updated_at {
-                    if let Err(err) = db::set_feed_musicindex_updated_at(conn, feed_id, updated_at)
-                    {
-                        eprintln!("set baseline musicindex_updated_at: {err:#}");
-                    }
-                }
-                if !crate::metadata::source_text_missing(api_feed.description.as_deref()) {
-                    db::set_feed_description(conn, feed_id, api_feed.description.as_deref())?;
-                }
-            }
-            Err(err) => eprintln!("fetch MusicIndex feed for baseline updated_at: {err:#}"),
-        }
-    }
-
-    // --- tracks: upsert all items in one transaction ---
+/// The persist step of the items: one `tracks` row for each item, in one
+/// transaction, and the RSS contributors and links of each track.
+pub(crate) fn persist_items(
+    conn: &mut Connection,
+    feed_url: &str,
+    feed_id: i64,
+    items: &[ParsedItem],
+) -> Result<usize> {
     let tx = conn.transaction().context("begin transaction")?;
     let mut upserted = 0usize;
-    let mut rss_track_facts = Vec::new();
-
-    for item in feed.items() {
-        // Stable identity: item <guid>. If missing, skip (we need stable IDs).
-        let item_guid = match item.guid() {
-            Some(g) => g.value().to_string(),
-            None => continue,
-        };
-
-        let enclosure_url = item.enclosure().map(|e| e.url().to_string());
-        let enclosure_type = item.enclosure().and_then(|e| {
-            let mime = e.mime_type().trim();
-            if mime.is_empty() {
-                None
-            } else {
-                Some(mime.to_string())
-            }
-        });
-        let item_link = item.link().map(|s| s.to_string());
-        let pub_date = item.pub_date().map(|s| s.to_string());
-
-        // Provisional music fields (ID3 will become canonical once downloaded)
-        let track_title = item.title().map(|s| s.to_string());
-        let artist_name = item
-            .itunes_ext()
-            .and_then(|it| clean_text(it.author()))
-            .or_else(|| clean_text(item.author()))
-            .or_else(|| {
-                first_person_by_role(
-                    item.extensions(),
-                    &["artist", "creator", "composer", "performer"],
-                )
-            })
-            .or_else(|| feed_artist.clone());
-        let album_title = Some(feed_title.clone());
-        let album_artist_name = feed_artist.clone().or_else(|| artist_name.clone());
-        let disc_number: Option<i64> = None;
-
-        // Canonical ordering: podcast:episode
-        let track_number: Option<i64> = find_ext_text(item.extensions(), "podcast", "episode")
-            .and_then(|s| s.trim().parse::<i64>().ok());
-
-        // iTunes item tags are NOT in extensions; rss crate exposes them via itunes_ext()
-        let itunes = item.itunes_ext();
-        let itunes_duration_raw = itunes.and_then(|it| it.duration()).map(|s| s.to_string());
-        let duration_seconds: Option<i64> = itunes_duration_raw
-            .as_deref()
-            .and_then(parse_itunes_duration);
-        let itunes_explicit = itunes.and_then(|it| it.explicit()).map(|s| s.to_string());
-        let track_image_href = itunes.and_then(|it| it.image()).map(|s| s.to_string());
-        let track_image_mime: Option<String> = None;
-
-        // Item-level people/value/transcript (podcast:* extensions)
-        let people_json = collect_people_json(item.extensions());
-        let item_value_json = value_block_json(item.extensions(), "podcast", "value");
-        let transcript_url = find_ext_attr(item.extensions(), "podcast", "transcript", "url");
-        let transcript_type = find_ext_attr(item.extensions(), "podcast", "transcript", "type");
-        let extra_json = track_extra_json(transcript_url.as_deref(), transcript_type.as_deref());
-        rss_track_facts.push(RssTrackIdentityFacts {
-            item_guid: item_guid.clone(),
-            contributors: contributor_inputs_from_extensions(item.extensions()),
-            links: rss_track_link_inputs(
-                &item_guid,
-                item_link.as_deref(),
-                transcript_url.as_deref(),
-                transcript_type.as_deref(),
-            ),
-        });
-
-        let changed = tx.execute(
-            r#"
-            INSERT INTO tracks (
-                feed_id,
-                item_guid,
-                enclosure_url,
-                enclosure_type,
-                link,
-                pub_date,
-                track_title,
-                artist_name,
-                album_title,
-                album_artist_name,
-                disc_number,
-                track_number,
-                duration_seconds,
-                itunes_duration_raw,
-                itunes_explicit,
-                track_image_href,
-                track_image_mime,
-                people_json,
-                item_value_json,
-                extra_json
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
-            ON CONFLICT(feed_id, item_guid) DO UPDATE SET
-                enclosure_url       = excluded.enclosure_url,
-                enclosure_type      = excluded.enclosure_type,
-                link                = excluded.link,
-                pub_date            = excluded.pub_date,
-                track_title         = excluded.track_title,
-                artist_name         = excluded.artist_name,
-                album_title         = excluded.album_title,
-                album_artist_name   = excluded.album_artist_name,
-                disc_number         = excluded.disc_number,
-                track_number        = excluded.track_number,
-                duration_seconds    = excluded.duration_seconds,
-                itunes_duration_raw = excluded.itunes_duration_raw,
-                itunes_explicit     = excluded.itunes_explicit,
-                track_image_href    = excluded.track_image_href,
-                track_image_mime    = excluded.track_image_mime,
-                people_json         = excluded.people_json,
-                item_value_json     = excluded.item_value_json,
-                extra_json          = excluded.extra_json
-            "#,
-            rusqlite::params![
-                feed_id,
-                item_guid,
-                enclosure_url,
-                enclosure_type,
-                item_link,
-                pub_date,
-                track_title,
-                artist_name,
-                album_title,
-                album_artist_name,
-                disc_number,
-                track_number,
-                duration_seconds,
-                itunes_duration_raw,
-                itunes_explicit,
-                track_image_href,
-                track_image_mime,
-                people_json,
-                item_value_json,
-                extra_json,
-            ],
-        )?;
-
-        if changed > 0 {
+    for item in items {
+        if upsert_item_columns(&tx, feed_id, item)? > 0 {
             upserted += 1;
         }
     }
-
     tx.commit().context("commit tracks")?;
-    for facts in &rss_track_facts {
-        persist_rss_track_identity(conn, feed_url, facts)?;
+    for item in items {
+        persist_rss_track_identity(
+            conn,
+            feed_url,
+            &RssTrackIdentityFacts {
+                item_guid: item.item_guid.clone(),
+                contributors: item.contributors.clone(),
+                links: item.links.clone(),
+            },
+        )?;
     }
+    Ok(upserted)
+}
 
-    eprintln!("App subscribed or updated RSS feed {feed_title}; stored {upserted} track updates.");
-    Ok(())
+/// The column mapping of one item. The subscribe command and the playlist
+/// RSS check insert a track with this one statement.
+///
+/// The statement also writes the canonical route of the raw block (ADR 0076
+/// Decision 9). A row with no raw block before and after the write keeps its
+/// canonical column, because that column can hold a `MusicIndex` route.
+pub(crate) fn upsert_item_columns(
+    conn: &Connection,
+    feed_id: i64,
+    item: &ParsedItem,
+) -> Result<usize> {
+    conn.execute(
+        r#"
+        INSERT INTO tracks (
+            feed_id,
+            item_guid,
+            enclosure_url,
+            enclosure_type,
+            link,
+            pub_date,
+            track_title,
+            artist_name,
+            album_title,
+            album_artist_name,
+            disc_number,
+            track_number,
+            duration_seconds,
+            itunes_duration_raw,
+            itunes_explicit,
+            track_image_href,
+            track_image_mime,
+            people_json,
+            item_value_json,
+            extra_json,
+            payment_routes_json
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)
+        ON CONFLICT(feed_id, item_guid) DO UPDATE SET
+            enclosure_url       = excluded.enclosure_url,
+            enclosure_type      = excluded.enclosure_type,
+            link                = excluded.link,
+            pub_date            = excluded.pub_date,
+            track_title         = excluded.track_title,
+            artist_name         = excluded.artist_name,
+            album_title         = excluded.album_title,
+            album_artist_name   = excluded.album_artist_name,
+            disc_number         = excluded.disc_number,
+            track_number        = excluded.track_number,
+            duration_seconds    = excluded.duration_seconds,
+            itunes_duration_raw = excluded.itunes_duration_raw,
+            itunes_explicit     = excluded.itunes_explicit,
+            track_image_href    = excluded.track_image_href,
+            track_image_mime    = excluded.track_image_mime,
+            people_json         = excluded.people_json,
+            item_value_json     = excluded.item_value_json,
+            extra_json          = excluded.extra_json,
+            payment_routes_json = CASE
+                WHEN excluded.item_value_json IS NULL AND tracks.item_value_json IS NULL
+                THEN tracks.payment_routes_json
+                ELSE excluded.payment_routes_json
+            END
+        "#,
+        rusqlite::params![
+            feed_id,
+            item.item_guid,
+            item.enclosure_url,
+            item.enclosure_type,
+            item.link,
+            item.pub_date,
+            item.track_title,
+            item.artist_name,
+            item.album_title,
+            item.album_artist_name,
+            item.disc_number,
+            item.track_number,
+            item.duration_seconds,
+            item.itunes_duration_raw,
+            item.itunes_explicit,
+            item.track_image_href,
+            item.track_image_mime,
+            item.people_json,
+            item.item_value_json,
+            item.extra_json,
+            crate::rss::value_routes::canonical_routes_json(item.item_value_json.as_deref()),
+        ],
+    )
+    .context("upsert track")
 }
 
 fn track_extra_json(transcript_url: Option<&str>, transcript_type: Option<&str>) -> String {
@@ -349,13 +633,13 @@ fn persist_rss_feed_identity(
     feed_id: i64,
     feed_guid: Option<&str>,
     feed_link: Option<&str>,
-    extensions: &ExtensionMap,
+    contributors: &[db::LocalContributorInput],
 ) -> Result<()> {
     db::replace_local_contributors(
         conn,
         db::LocalEntityOwner::Feed(feed_id),
         "rss",
-        &contributor_inputs_from_extensions(extensions),
+        contributors,
     )?;
     db::replace_local_identity_links(
         conn,
@@ -606,7 +890,7 @@ mod tests {
             feed_id,
             Some("feed-guid"),
             Some("https://example.test"),
-            &podcast_person_extensions(),
+            &contributor_inputs_from_extensions(&podcast_person_extensions()),
         )?;
 
         let contributors = db::local_contributors(&conn, db::LocalEntityOwner::Feed(feed_id))?;
@@ -681,7 +965,7 @@ mod tests {
             feed_id,
             Some("feed-guid"),
             Some("https://example.test/feed"),
-            &ExtensionMap::new(),
+            &[],
         )?;
 
         for item_link in [None, Some(" \t ")] {

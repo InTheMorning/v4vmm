@@ -597,7 +597,7 @@ mod tests {
             inspection.schema,
             Some(Ok(SchemaCompatibility::UpgradeRequired {
                 applied: 10,
-                current: 14
+                current: 17
             }))
         );
         assert_eq!(fs::read(&source).unwrap(), before);

@@ -1,4 +1,5 @@
 use crate::api;
+use crate::application::queries::stored_values::{self, FeedStoredValues, TrackStoredValues};
 use crate::db;
 use crate::metadata::drop_placeholder_source_text;
 
@@ -149,6 +150,9 @@ pub struct TrackView {
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
+    /// The album artist. A local track reads `feeds.album_artist`, a channel
+    /// value (ADR 0075 packet 020).
+    pub album_artist: Option<String>,
     pub track_number: Option<i32>,
     pub disc_number: Option<i32>,
     pub duration_secs: Option<i32>,
@@ -455,43 +459,48 @@ impl FeedView {
         tracks: Vec<TrackView>,
         facts: LocalIdentityFacts,
     ) -> Self {
-        Self::from_local_with_facts(f, tracks, facts, FeedMetadataFacts::default())
+        let values = stored_values::feed_values_from_columns(&f);
+        Self::from_local_with_facts(f, tracks, facts, values)
     }
 
+    /// A local feed view. Each metadata value comes from the stored value
+    /// projection, which owns the order of hold, `MusicIndex` fact and column
+    /// (ADR 0076 Decision 1). This view selects no source.
     pub fn from_local_with_facts(
         f: db::FeedRow,
         tracks: Vec<TrackView>,
         facts: LocalIdentityFacts,
-        metadata_facts: FeedMetadataFacts,
+        values: FeedStoredValues,
     ) -> Self {
-        let artist = tracks.first().and_then(|t| t.artist.clone());
-        let image_url = f.album_image_href;
+        // The album artist is a channel value. A feed without one shows the
+        // artist of its first track.
+        let artist = values
+            .album_artist
+            .value
+            .or_else(|| tracks.first().and_then(|t| t.artist.clone()));
+        let image_url = values.artwork.value;
         let identity = EntityIdentityLinks::from_source_facts(
             image_url.clone(),
             facts.source_links,
             facts.source_ids,
         );
-        let language = metadata_facts
-            .language
-            .or_else(|| nonempty_owned(f.language));
-        let description = metadata_facts.description.or(f.description);
 
         Self {
             id: Some(FeedRef::LocalFeedId(f.id)),
             feed_guid: f.feed_guid,
             feed_url: Some(f.feed_url),
-            title: f.title,
+            title: values.title.value,
             artist,
             image_url: image_url.clone(),
             artwork: artwork_from_url(&image_url),
             identity,
-            release_date: metadata_facts.release_date,
-            language,
-            explicit: metadata_facts.explicit,
+            release_date: values.release_date.value,
+            language: values.language.value,
+            explicit: values.explicit.value,
             episode_count: Some(tracks.len() as i32),
-            release_kind: nonempty_owned(metadata_facts.release_kind),
-            publisher_text: nonempty_owned(metadata_facts.publisher_text),
-            description,
+            release_kind: nonempty_owned(values.release_kind.value),
+            publisher_text: nonempty_owned(values.owner_name.value),
+            description: values.description.value,
             payment_routes: Vec::new(),
             contributors: facts.contributors,
             tracks,
@@ -530,8 +539,10 @@ impl TrackView {
             feed_title: nonempty_owned(t.feed_title.clone()),
             feed_url: nonempty_owned(t.feed_url),
             title: nonempty_owned(t.title).or_else(|| nonempty_owned(t.name)),
-            artist: nonempty_owned(t.track_artist).or_else(|| nonempty_owned(t.release_artist)),
+            artist: nonempty_owned(t.track_artist)
+                .or_else(|| nonempty_owned(t.release_artist.clone())),
             album: nonempty_owned(t.feed_title),
+            album_artist: nonempty_owned(t.release_artist),
             track_number: t.track_number,
             disc_number: None,
             duration_secs: t.duration_secs,
@@ -561,42 +572,50 @@ impl TrackView {
     }
 
     pub fn from_local_with_identity(t: db::TrackRow, facts: LocalIdentityFacts) -> Self {
-        Self::from_local_with_facts(t, facts, TrackMetadataFacts::default())
+        let values = stored_values::track_values_from_columns(&t);
+        Self::from_local_with_facts(t, facts, values)
     }
 
+    /// A local track view. Each metadata value comes from the stored value
+    /// projection, which owns the order of hold, `MusicIndex` fact and column
+    /// (ADR 0076 Decision 1). This view selects no source. Audio URL, type,
+    /// duration and numbers have no fact, and they come from the row.
     pub fn from_local_with_facts(
         t: db::TrackRow,
         facts: LocalIdentityFacts,
-        metadata_facts: TrackMetadataFacts,
+        values: TrackStoredValues,
     ) -> Self {
-        let image_url = t.track_image_href.or(t.album_image_href);
+        let image_url = values.artwork.value;
         let identity = EntityIdentityLinks::from_source_facts(
             image_url.clone(),
             facts.source_links,
             facts.source_ids,
         );
+        let album_artist = values.album_artist.value;
         Self {
             id: Some(TrackRef::LocalTrackId(t.id)),
             track_guid: Some(t.item_guid),
             feed_guid: t.feed_guid,
-            feed_title: t.feed_title.clone(),
+            feed_title: t.feed_title,
             feed_url: None,
-            title: t.track_title,
-            artist: t.artist_name.or(t.album_artist_name),
-            album: t.album_title.or(t.feed_title),
+            title: values.title.value,
+            // A track without its own artist shows the album artist.
+            artist: values.artist.value.or_else(|| album_artist.clone()),
+            album: values.album_title.value,
+            album_artist,
             track_number: t.track_number.and_then(|v| v.try_into().ok()),
             disc_number: t.disc_number.and_then(|v| v.try_into().ok()),
             duration_secs: t.duration_seconds.and_then(|v| v.try_into().ok()),
-            pub_date: metadata_facts.pub_date.or(t.pub_date),
-            explicit: metadata_facts.explicit.or(t.explicit),
-            description: nonempty_owned(metadata_facts.description),
+            pub_date: values.pub_date.value,
+            explicit: values.explicit.value,
+            description: nonempty_owned(values.description.value),
             image_url: image_url.clone(),
             artwork: artwork_from_url(&image_url),
             identity,
             audio_url: t.enclosure_url,
             mime: t.enclosure_type,
             bytes: None,
-            publisher_text: nonempty_owned(metadata_facts.publisher_text),
+            publisher_text: nonempty_owned(values.publisher_text.value),
             contributors: facts.contributors,
             payment_routes: Vec::new(),
             transcript_url: t.transcript_url,
@@ -845,24 +864,44 @@ mod tests {
     }
 
     #[test]
-    fn from_local_track_hydrates_metadata_facts() {
+    fn from_local_track_shows_projected_stored_values() {
+        use crate::application::queries::stored_values::{Owned, ValueOwner};
+        let item = |value: &str| Owned {
+            value: Some(value.to_owned()),
+            owner: ValueOwner::Item,
+        };
         let track = db::TrackRow {
             id: 42,
             item_guid: "g".into(),
+            track_title: Some("Column title".into()),
             pub_date: Some(1),
             explicit: Some(false),
             ..Default::default()
         };
-        let metadata_facts = TrackMetadataFacts {
-            publisher_text: Some("Example Publisher".into()),
-            description: Some("Track description".into()),
-            pub_date: Some(1_712_275_200),
-            explicit: Some(true),
+        let values = TrackStoredValues {
+            title: item("Projected title"),
+            album_artist: Owned {
+                value: Some("Channel artist".into()),
+                owner: ValueOwner::Channel,
+            },
+            publisher_text: item("Example Publisher"),
+            description: item("Track description"),
+            pub_date: Owned {
+                value: Some(1_712_275_200),
+                owner: ValueOwner::Item,
+            },
+            explicit: Owned {
+                value: Some(true),
+                owner: ValueOwner::Item,
+            },
+            ..TrackStoredValues::default()
         };
 
-        let view =
-            TrackView::from_local_with_facts(track, LocalIdentityFacts::default(), metadata_facts);
+        let view = TrackView::from_local_with_facts(track, LocalIdentityFacts::default(), values);
 
+        assert_eq!(view.title.as_deref(), Some("Projected title"));
+        assert_eq!(view.album_artist.as_deref(), Some("Channel artist"));
+        assert_eq!(view.artist.as_deref(), Some("Channel artist"));
         assert_eq!(view.publisher_text.as_deref(), Some("Example Publisher"));
         assert_eq!(view.description.as_deref(), Some("Track description"));
         assert_eq!(view.pub_date, Some(1_712_275_200));
@@ -982,7 +1021,12 @@ mod tests {
     }
 
     #[test]
-    fn from_local_feed_projects_metadata_facts() {
+    fn from_local_feed_shows_projected_stored_values() {
+        use crate::application::queries::stored_values::{Owned, ValueOwner};
+        let channel = |value: &str| Owned {
+            value: Some(value.to_owned()),
+            owner: ValueOwner::Channel,
+        };
         let feed = db::FeedRow {
             id: 1,
             feed_url: "http://example.com".into(),
@@ -990,20 +1034,28 @@ mod tests {
             description: Some("Scalar description".into()),
             ..Default::default()
         };
-        let metadata_facts = FeedMetadataFacts {
-            publisher_text: Some("Example Publisher".into()),
-            release_kind: Some("album".into()),
-            release_date: Some(1_700_000_000),
-            language: Some("en".into()),
-            explicit: Some(true),
-            description: Some("Fact description".into()),
+        let values = FeedStoredValues {
+            owner_name: channel("Example Publisher"),
+            release_kind: channel("album"),
+            release_date: Owned {
+                value: Some(1_700_000_000),
+                owner: ValueOwner::Channel,
+            },
+            language: channel("en"),
+            explicit: Owned {
+                value: Some(true),
+                owner: ValueOwner::Channel,
+            },
+            description: channel("Fact description"),
+            album_artist: channel("Channel artist"),
+            ..FeedStoredValues::default()
         };
 
         let view = FeedView::from_local_with_facts(
             feed,
             Vec::new(),
             LocalIdentityFacts::default(),
-            metadata_facts,
+            values,
         );
 
         assert_eq!(view.publisher_text.as_deref(), Some("Example Publisher"));
@@ -1012,6 +1064,7 @@ mod tests {
         assert_eq!(view.language.as_deref(), Some("en"));
         assert_eq!(view.explicit, Some(true));
         assert_eq!(view.description.as_deref(), Some("Fact description"));
+        assert_eq!(view.artist.as_deref(), Some("Channel artist"));
     }
 
     #[test]
@@ -1024,12 +1077,8 @@ mod tests {
             ..Default::default()
         };
 
-        let view = FeedView::from_local_with_facts(
-            feed,
-            Vec::new(),
-            LocalIdentityFacts::default(),
-            FeedMetadataFacts::default(),
-        );
+        let view =
+            FeedView::from_local_with_identity(feed, Vec::new(), LocalIdentityFacts::default());
 
         assert_eq!(view.language.as_deref(), Some("en"));
         assert_eq!(view.description.as_deref(), Some("Scalar description"));

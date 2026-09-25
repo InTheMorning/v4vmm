@@ -1,6 +1,9 @@
 //! Metadata command family.
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+use rusqlite::Connection;
 
 use crate::api::Client;
 use crate::application::command_bus::{ApplicationCommand, CommandOutcome, CommandResult};
@@ -12,6 +15,7 @@ use crate::audio_tags::{write_id3v24_edits, Id3v24Edit};
 use crate::db::TrackRow;
 use crate::feed_service::{self, StagedMusicBrainzLookup};
 use crate::metadata::{MusicBrainzLookupResult, TagCompareResult, TrackContext};
+use crate::metadata_service::{with_stored_route_frame, RouteFrameWrite};
 use crate::musicbrainz::{lookup_releases, LookupMetadata, MusicBrainzCandidate};
 use crate::subscribe_service;
 
@@ -179,6 +183,7 @@ pub(crate) struct ApplyTrackId3Edits {
     path: PathBuf,
     edits: Vec<Id3v24Edit>,
     track_context: TrackContext,
+    stored_route: Option<(Arc<Mutex<Connection>>, i64)>,
 }
 
 impl ApplyTrackId3Edits {
@@ -193,7 +198,16 @@ impl ApplyTrackId3Edits {
             path,
             edits,
             track_context,
+            stored_route: None,
         }
+    }
+
+    /// ADR 0076 Decision 9: a selected route frame edit of a Library track
+    /// uses the route stored in the database.
+    #[must_use]
+    pub(crate) fn with_stored_route(mut self, conn: Arc<Mutex<Connection>>, track_id: i64) -> Self {
+        self.stored_route = Some((conn, track_id));
+        self
     }
 }
 
@@ -204,8 +218,23 @@ impl ApplicationCommand for ApplyTrackId3Edits {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
-        write_id3v24_edits(&self.path, &self.edits)
-            .map_err(|error| metadata_command_error(&error))?;
+        let edits = match &self.stored_route {
+            Some((conn, track_id)) => {
+                let db = conn
+                    .lock()
+                    .map_err(|_| CommandError::Metadata("database lock poisoned".to_owned()))?;
+                with_stored_route_frame(
+                    &db,
+                    *track_id,
+                    self.track_context.track.payment_routes.as_deref(),
+                    self.edits,
+                    RouteFrameWrite::WhenSelected,
+                )
+                .map_err(|error| metadata_command_error(&error))?
+            }
+            None => self.edits,
+        };
+        write_id3v24_edits(&self.path, &edits).map_err(|error| metadata_command_error(&error))?;
         let comparison =
             subscribe_service::compare_downloaded_track_path(&self.path, &self.track_context)
                 .map_err(|error| metadata_command_error(&error))?;

@@ -3,7 +3,7 @@
 ## Status
 
 Accepted - 2026-09-24. The operator gave each decision below on 2026-09-23 and accepted this ADR on 2026-09-24.
-Implementation has not started.
+Implementation partial: packets 001 to 004 and ADR 0075 packet 020 are implemented on 2026-09-24 with mechanical checks Green. Their visual gates are open and paused.
 The operator reviewed each decision on 2026-09-24. The review changed Decisions 3, 5 and 7.
 "Accepted Values" records the three numeric values that the operator accepted on 2026-09-24.
 
@@ -174,7 +174,7 @@ This ADR also amends two decisions from 2026-09-24:
 - ADR 0065. The route repair uses the stored route and asks MusicIndex only when no stored route exists.
 - ADR 0059. A difference between the file route and the stored route makes a track not ready. A track with the "removed from feed" mark is also not ready until the operator confirms it or removes it.
 
-The acceptance change of 2026-09-24 did these items. The new packets are not written yet:
+The acceptance change of 2026-09-24 did these items. The [phase plan](../plans/adr-0076-playlist-rss-check-phase-plan.md) registers the packets, written on 2026-09-24:
 
 - ADRs 0075, 0065, and 0059 record the change in their Status sections.
 - The ADR index, `AGENTS.md`, and the ADR 0075 phase plan change.

@@ -928,7 +928,7 @@ mod tests {
     }
 
     #[test]
-    fn adr_0075_migration_current_restore_preserves_bodies_absence_and_discrepancy_history() {
+    fn adr_0075_migration_current_restore_preserves_bodies_and_absence() {
         let (temp, backup, destination) = files("DELETE");
         let conn = Connection::open(&backup).unwrap();
         conn.execute_batch(crate::db::provider_snapshot_schema::RETAINED_ROWS)
@@ -959,24 +959,18 @@ mod tests {
                 .unwrap(),
             [0, 255, 66]
         );
-        assert_eq!(
-            conn.query_row(
-                "SELECT selection_state,value_json FROM metadata_field_selections",
-                [],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-            )
-            .unwrap(),
-            ("absent".into(), None)
-        );
-        assert_eq!(
-            conn.query_row(
-                "SELECT count(*) FROM metadata_discrepancy_transitions",
-                [],
-                |row| row.get::<_, i64>(0)
-            )
-            .unwrap(),
-            1
-        );
+        // ADR 0076 packet 002: migration 16 dropped the selection and
+        // discrepancy tables, so a current backup has none of them.
+        for table in crate::db::rss_field_holds::SUPERSEDED_SELECTION_TABLES {
+            assert!(
+                !conn
+                    .prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name=?1")
+                    .unwrap()
+                    .exists([table])
+                    .unwrap(),
+                "{table}"
+            );
+        }
         assert_eq!(fs::read(backup).unwrap(), bytes);
     }
 

@@ -8,7 +8,7 @@
 
 use std::rc::Rc;
 
-use gpui::{div, prelude::*, App, SharedString, Window};
+use gpui::{div, prelude::*, App, FontWeight, SharedString, Window};
 use gpui_component::{dialog::Dialog, WindowExt};
 
 use crate::ui::control_styles::ControlStyle;
@@ -28,6 +28,20 @@ pub struct ConfirmationDialogDisplay {
     pub confirm_label: SharedString,
     pub confirm_a11y_label: SharedString,
     pub destructive: bool,
+    /// The items that the choice affects. The dialog lists them in a
+    /// scrolling column below the message. An empty list shows no column.
+    pub items: Vec<ConfirmationDialogItem>,
+}
+
+/// One affected item of a confirmation. The screen supplies display-ready
+/// text. The mark text states its meaning, so its color is never the only
+/// signal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConfirmationDialogItem {
+    pub title: SharedString,
+    pub subtitle: Option<SharedString>,
+    pub mark: Option<(SharedString, SemanticColor)>,
+    pub lines: Vec<SharedString>,
 }
 
 #[derive(Clone)]
@@ -88,6 +102,9 @@ pub fn confirmation_dialog(
                         .variant(LabelVariant::Body)
                         .color(SemanticColor::SecondaryLabel),
                 )
+                .when(!display.items.is_empty(), |el| {
+                    el.child(confirmation_items(display.items, cx))
+                })
                 .child(
                     div()
                         .flex()
@@ -118,6 +135,51 @@ pub fn confirmation_dialog(
         )
 }
 
+/// The scrolling item column. Stacked text uses `overflow_hidden()` and no
+/// truncation (ADR 0063).
+fn confirmation_items(items: Vec<ConfirmationDialogItem>, cx: &App) -> impl IntoElement {
+    div()
+        .id("confirmation-dialog-items")
+        .flex()
+        .flex_col()
+        .gap(Spacing::SM.scaled(cx))
+        .max_h(Size::ColumnRegular.scaled(cx))
+        .overflow_y_scroll()
+        .children(items.into_iter().map(|item| {
+            div()
+                .flex()
+                .flex_col()
+                .gap(Spacing::XXS.scaled(cx))
+                .min_w_0()
+                .overflow_hidden()
+                .child(
+                    Label::new(item.title)
+                        .variant(LabelVariant::Body)
+                        .weight(FontWeight::SEMIBOLD),
+                )
+                .when_some(item.subtitle, |el, subtitle| {
+                    el.child(
+                        Label::new(subtitle)
+                            .variant(LabelVariant::Caption)
+                            .color(SemanticColor::SecondaryLabel),
+                    )
+                })
+                .when_some(item.mark, |el, (mark, color)| {
+                    el.child(
+                        Label::new(mark)
+                            .variant(LabelVariant::Caption)
+                            .weight(FontWeight::SEMIBOLD)
+                            .color(color),
+                    )
+                })
+                .children(item.lines.into_iter().map(|line| {
+                    Label::new(line)
+                        .variant(LabelVariant::Caption)
+                        .color(SemanticColor::TertiaryLabel)
+                }))
+        }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,6 +196,7 @@ mod tests {
             confirm_label: SharedString::from("Remove"),
             confirm_a11y_label: SharedString::from("Remove track from library"),
             destructive: true,
+            items: Vec::new(),
         };
 
         assert_eq!(display.cancel_label, "Cancel");

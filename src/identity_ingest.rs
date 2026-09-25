@@ -5,12 +5,14 @@ use rusqlite::Connection;
 use serde::Serialize;
 
 use crate::api::{Contributor, Feed, SourceEntityId, SourceEntityLink, Track};
+use crate::db::rss_field_holds::{self, HoldOwner, MusicIndexClaim, RssField};
 use crate::db::{
     self, LocalContributorInput, LocalEntityOwner, LocalIdentityIdInput, LocalIdentityLinkInput,
     LocalIdentityOwner, LocalMetadataFactInput, LocalMetadataOwner, LocalMetadataValue,
 };
 
 const MUSICINDEX_SOURCE: &str = "musicindex";
+const RSS_SOURCE: &str = "rss";
 
 pub(crate) fn persist_musicindex_context_by_feed_url(
     conn: &mut Connection,
@@ -49,7 +51,9 @@ pub(crate) fn persist_musicindex_feed(
     persist_source_ids(
         conn,
         LocalIdentityOwner::Feed(feed_id),
+        HoldOwner::Feed(feed_id),
         feed.source_ids.as_deref(),
+        feed.updated_at,
     )?;
     persist_contributors(
         conn,
@@ -64,6 +68,12 @@ pub(crate) fn persist_musicindex_track(
     track_id: i64,
     track: &Track,
 ) -> Result<()> {
+    let feed_id: i64 = conn.query_row(
+        "SELECT feed_id FROM tracks WHERE id = ?1",
+        [track_id],
+        |row| row.get(0),
+    )?;
+    let hold_owner = HoldOwner::Track { feed_id, track_id };
     persist_source_links(
         conn,
         LocalIdentityOwner::Track(track_id),
@@ -72,14 +82,16 @@ pub(crate) fn persist_musicindex_track(
     persist_source_ids(
         conn,
         LocalIdentityOwner::Track(track_id),
+        hold_owner,
         track.source_ids.as_deref(),
+        track.updated_at,
     )?;
     persist_contributors(
         conn,
         LocalEntityOwner::Track(track_id),
         track.source_contributors.as_deref(),
     )?;
-    persist_track_metadata_facts(conn, track_id, track)
+    persist_track_metadata_facts(conn, track_id, hold_owner, track)
 }
 
 fn persist_source_links(
@@ -119,7 +131,9 @@ fn persist_source_links(
 fn persist_source_ids(
     conn: &mut Connection,
     owner: LocalIdentityOwner,
+    hold_owner: HoldOwner,
     source_ids: Option<&[SourceEntityId]>,
+    updated_at: Option<i64>,
 ) -> Result<()> {
     let Some(source_ids) = source_ids else {
         return Ok(());
@@ -143,11 +157,58 @@ fn persist_source_ids(
             });
     }
 
-    for (source, ids) in grouped {
+    // ADR 0076 Decision 5: the RSS Nostr identities are a compared slot.
+    // A held RSS value keeps its rows until `MusicIndex` agrees or supplies
+    // a newer record. The other rows of the source are still written.
+    let nostr_claim = grouped
+        .get(RSS_SOURCE)
+        .map(|ids| {
+            ids.iter()
+                .filter(|id| is_nostr_scheme(id.scheme.as_deref()))
+                .filter_map(|id| {
+                    Some(serde_json::json!({
+                        "scheme": id.scheme.as_deref()?,
+                        "value": id.value.as_deref()?,
+                    }))
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let nostr_gate = rss_field_holds::musicindex_gate(
+        conn,
+        MusicIndexClaim {
+            owner: hold_owner,
+            field: RssField::Nostr,
+            value: (!nostr_claim.is_empty()).then(|| serde_json::Value::Array(nostr_claim)),
+            updated_at,
+        },
+    )?;
+    for (source, mut ids) in grouped {
+        if source == RSS_SOURCE && !nostr_gate.writes() {
+            let held = db::local_identity_ids(conn, owner)?
+                .into_iter()
+                .filter(|row| row.source == RSS_SOURCE && is_nostr_scheme(row.scheme.as_deref()))
+                .map(|row| LocalIdentityIdInput {
+                    entity_type: row.entity_type,
+                    entity_id: row.entity_id,
+                    position: row.position,
+                    scheme: row.scheme,
+                    value: row.value,
+                    extraction_path: row.extraction_path,
+                    observed_at: row.observed_at,
+                    raw_json: row.raw_json,
+                });
+            ids.retain(|id| !is_nostr_scheme(id.scheme.as_deref()));
+            ids.extend(held);
+        }
         db::replace_local_identity_ids(conn, owner, &source, &ids)?;
     }
 
     Ok(())
+}
+
+fn is_nostr_scheme(scheme: Option<&str>) -> bool {
+    matches!(scheme, Some("nostr_npub" | "nostr_nprofile"))
 }
 
 fn persist_contributors(
@@ -181,8 +242,48 @@ fn persist_contributors(
 fn persist_feed_metadata_facts(conn: &mut Connection, feed_id: i64, feed: &Feed) -> Result<()> {
     let grouped = feed_metadata_facts_by_source(feed);
     let owner = LocalMetadataOwner::Feed(feed_id);
+    let hold_owner = HoldOwner::Feed(feed_id);
+
+    // ADR 0076 Decision 5: the gate of each compared fact-backed field. The
+    // `musicindex` fact rows are evidence, so they are always written. A
+    // held field keeps its `rss` fact row.
+    let mut held = Vec::new();
+    for (field, value) in [
+        (
+            RssField::Description,
+            feed.description.clone().map(serde_json::Value::String),
+        ),
+        (
+            RssField::Language,
+            feed.language.clone().map(serde_json::Value::String),
+        ),
+        (
+            RssField::Explicit,
+            feed.explicit.map(serde_json::Value::Bool),
+        ),
+        (
+            RssField::Owner,
+            feed.publisher_text.clone().map(serde_json::Value::String),
+        ),
+    ] {
+        let decision = rss_field_holds::musicindex_gate(
+            conn,
+            MusicIndexClaim {
+                owner: hold_owner,
+                field,
+                value,
+                updated_at: feed.updated_at,
+            },
+        )?;
+        if !decision.writes() {
+            held.push(field);
+        }
+    }
 
     for (source, mut facts) in grouped {
+        if source == RSS_SOURCE && held.contains(&RssField::Description) {
+            facts.retain(|fact| fact.fact_key != "description");
+        }
         if source != MUSICINDEX_SOURCE {
             facts = merge_existing_metadata_facts_for_partial_source(conn, owner, &source, facts)?;
         }
@@ -192,7 +293,40 @@ fn persist_feed_metadata_facts(conn: &mut Connection, feed_id: i64, feed: &Feed)
     Ok(())
 }
 
-fn persist_track_metadata_facts(conn: &mut Connection, track_id: i64, track: &Track) -> Result<()> {
+fn persist_track_metadata_facts(
+    conn: &mut Connection,
+    track_id: i64,
+    hold_owner: HoldOwner,
+    track: &Track,
+) -> Result<()> {
+    // ADR 0076 Decision 5: the gate of each compared fact-backed field. The
+    // `musicindex` fact rows are evidence, so they are always written.
+    for (field, value) in [
+        (
+            RssField::Description,
+            track.description.clone().map(serde_json::Value::String),
+        ),
+        (
+            RssField::Date,
+            track
+                .pub_date
+                .map(|instant| serde_json::json!({ "instant": instant })),
+        ),
+        (
+            RssField::Explicit,
+            track.explicit.map(serde_json::Value::Bool),
+        ),
+    ] {
+        rss_field_holds::musicindex_gate(
+            conn,
+            MusicIndexClaim {
+                owner: hold_owner,
+                field,
+                value,
+                updated_at: track.updated_at,
+            },
+        )?;
+    }
     let facts = track_metadata_facts(track);
     db::replace_local_metadata_facts(
         conn,

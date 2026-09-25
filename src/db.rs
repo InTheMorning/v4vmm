@@ -1,4 +1,5 @@
 // src/db.rs
+use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -415,6 +416,36 @@ pub fn set_feed_description(
     )
     .context("set_feed_description")?;
     Ok(())
+}
+
+/// The stored `feeds` columns that the stored value projection reads
+/// (ADR 0075 packet 020, ADR 0076 Decision 1).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StoredFeedColumns {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub language: Option<String>,
+    pub album_image_href: Option<String>,
+    pub album_artist: Option<String>,
+}
+
+pub fn stored_feed_columns(conn: &Connection, feed_id: i64) -> Result<Option<StoredFeedColumns>> {
+    conn.query_row(
+        "SELECT title, description, language, album_image_href, album_artist
+         FROM feeds WHERE id = ?1",
+        [feed_id],
+        |row| {
+            Ok(StoredFeedColumns {
+                title: row.get(0)?,
+                description: row.get(1)?,
+                language: row.get(2)?,
+                album_image_href: row.get(3)?,
+                album_artist: row.get(4)?,
+            })
+        },
+    )
+    .optional()
+    .context("stored_feed_columns")
 }
 
 pub fn library_tracks_for_feed(conn: &Connection, feed_id: i64) -> Result<Vec<TrackRow>> {
@@ -1314,8 +1345,21 @@ pub fn replace_local_identity_links(
     source: &str,
     links: &[LocalIdentityLinkInput],
 ) -> Result<()> {
-    let source = explicit_source_token(source)?;
     let tx = conn.transaction().context("start transaction")?;
+    write_local_identity_links(&tx, owner, source, links)?;
+    tx.commit().context("commit transaction")?;
+    Ok(())
+}
+
+/// Replace the links of one owner and source inside the caller's
+/// transaction (ADR 0076 packet 002 applies a feed in one transaction).
+pub(crate) fn write_local_identity_links(
+    tx: &Connection,
+    owner: LocalIdentityOwner,
+    source: &str,
+    links: &[LocalIdentityLinkInput],
+) -> Result<()> {
+    let source = explicit_source_token(source)?;
     let (owner_kind, feed_id, track_id, contributor_position) = owner.sql_parts();
 
     tx.execute(
@@ -1355,8 +1399,6 @@ pub fn replace_local_identity_links(
         )
         .context("insert local identity link")?;
     }
-
-    tx.commit().context("commit transaction")?;
     Ok(())
 }
 
@@ -1366,18 +1408,42 @@ pub fn replace_local_identity_ids(
     source: &str,
     ids: &[LocalIdentityIdInput],
 ) -> Result<()> {
-    let source = explicit_source_token(source)?;
     let tx = conn.transaction().context("start transaction")?;
+    write_local_identity_ids(&tx, owner, source, None, ids)?;
+    tx.commit().context("commit transaction")?;
+    Ok(())
+}
+
+/// Replace the identity ids of one owner and source inside the caller's
+/// transaction. With `schemes`, only the rows of those schemes change
+/// (ADR 0076 packet 002 replaces the RSS Nostr identities).
+pub(crate) fn write_local_identity_ids(
+    tx: &Connection,
+    owner: LocalIdentityOwner,
+    source: &str,
+    schemes: Option<&[&str]>,
+    ids: &[LocalIdentityIdInput],
+) -> Result<()> {
+    let source = explicit_source_token(source)?;
     let (owner_kind, feed_id, track_id, contributor_position) = owner.sql_parts();
 
+    let schemes_json = schemes.map(|schemes| serde_json::json!(schemes).to_string());
     tx.execute(
         "DELETE FROM entity_identity_ids
          WHERE owner_kind = ?1
            AND feed_id IS ?2
            AND track_id IS ?3
            AND contributor_position IS ?4
-           AND source = ?5",
-        rusqlite::params![owner_kind, feed_id, track_id, contributor_position, source],
+           AND source = ?5
+           AND (?6 IS NULL OR scheme IN (SELECT value FROM json_each(?6)))",
+        rusqlite::params![
+            owner_kind,
+            feed_id,
+            track_id,
+            contributor_position,
+            source,
+            schemes_json
+        ],
     )
     .context("delete local identity ids for source")?;
 
@@ -1407,8 +1473,6 @@ pub fn replace_local_identity_ids(
         )
         .context("insert local identity id")?;
     }
-
-    tx.commit().context("commit transaction")?;
     Ok(())
 }
 
@@ -1418,8 +1482,21 @@ pub fn replace_local_contributors(
     source: &str,
     contributors: &[LocalContributorInput],
 ) -> Result<()> {
-    let source = explicit_source_token(source)?;
     let tx = conn.transaction().context("start transaction")?;
+    write_local_contributors(&tx, owner, source, contributors)?;
+    tx.commit().context("commit transaction")?;
+    Ok(())
+}
+
+/// Replace the contributors of one owner and source inside the caller's
+/// transaction (ADR 0076 packet 002 applies a feed in one transaction).
+pub(crate) fn write_local_contributors(
+    tx: &Connection,
+    owner: LocalEntityOwner,
+    source: &str,
+    contributors: &[LocalContributorInput],
+) -> Result<()> {
+    let source = explicit_source_token(source)?;
     let (owner_kind, feed_id, track_id) = owner.sql_parts();
 
     tx.execute(
@@ -1458,8 +1535,6 @@ pub fn replace_local_contributors(
         )
         .context("insert local contributor")?;
     }
-
-    tx.commit().context("commit transaction")?;
     Ok(())
 }
 
@@ -1687,6 +1762,30 @@ pub fn replace_local_metadata_fact(
         ],
     )
     .context("insert local metadata fact")?;
+    Ok(())
+}
+
+/// Delete the fact row of one owner, source and key (ADR 0076 packet 002
+/// clears the `rss` fact of a field that RSS no longer states).
+pub(crate) fn delete_local_metadata_fact(
+    conn: &Connection,
+    owner: LocalMetadataOwner,
+    source: &str,
+    fact_key: &str,
+) -> Result<()> {
+    let source = explicit_source_token(source)?;
+    let fact_key = explicit_fact_key(fact_key)?;
+    let (owner_kind, feed_id, track_id) = owner.sql_parts();
+    conn.execute(
+        "DELETE FROM entity_metadata_facts
+         WHERE owner_kind = ?1
+           AND feed_id IS ?2
+           AND track_id IS ?3
+           AND source = ?4
+           AND fact_key = ?5",
+        rusqlite::params![owner_kind, feed_id, track_id, source, fact_key],
+    )
+    .context("delete local metadata fact")?;
     Ok(())
 }
 
@@ -2150,6 +2249,70 @@ pub fn playlist_remove_at(conn: &mut Connection, playlist_id: i64, position: i64
     Ok(())
 }
 
+/// The playlists that hold a track, with their names, in name order
+/// (ADR 0076 Decision 7).
+pub fn playlists_holding_track(conn: &Connection, track_id: i64) -> Result<Vec<(i64, String)>> {
+    let mut statement = conn
+        .prepare(
+            "SELECT DISTINCT p.id, p.name FROM playlists p
+             JOIN playlist_tracks pt ON pt.playlist_id = p.id
+             WHERE pt.track_id = ?1
+             ORDER BY p.name COLLATE NOCASE, p.id",
+        )
+        .context("prepare playlists holding track")?;
+    let rows = statement
+        .query_map([track_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .context("query playlists holding track")?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .context("collect playlists holding track")?;
+    Ok(rows)
+}
+
+/// Removes each entry of a track from each playlist in one transaction
+/// (ADR 0076 Decision 7). Each playlist keeps a gapless position order. The
+/// function returns the ids of the changed playlists.
+pub fn playlist_remove_track_everywhere(conn: &mut Connection, track_id: i64) -> Result<Vec<i64>> {
+    let tx = conn.transaction().context("start transaction")?;
+    let entries = tx
+        .prepare(
+            "SELECT playlist_id, position FROM playlist_tracks
+             WHERE track_id = ?1
+             ORDER BY playlist_id, position DESC",
+        )
+        .context("prepare track entries")?
+        .query_map([track_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+        })
+        .context("query track entries")?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .context("collect track entries")?;
+    let mut changed = Vec::new();
+    for (playlist_id, position) in entries {
+        tx.execute(
+            "DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND position = ?2",
+            rusqlite::params![playlist_id, position],
+        )
+        .context("delete track entry")?;
+        tx.execute(
+            "UPDATE playlist_tracks SET position = position - 1 WHERE playlist_id = ?1 AND position > ?2",
+            rusqlite::params![playlist_id, position],
+        )
+        .context("shift positions")?;
+        if changed.last() != Some(&playlist_id) {
+            changed.push(playlist_id);
+        }
+    }
+    for playlist_id in &changed {
+        tx.execute(
+            "UPDATE playlists SET updated_at = strftime('%s','now') WHERE id = ?1",
+            [playlist_id],
+        )
+        .context("update playlist timestamp")?;
+    }
+    tx.commit().context("commit transaction")?;
+    Ok(changed)
+}
+
 pub fn playlist_reorder(conn: &mut Connection, playlist_id: i64, from: i64, to: i64) -> Result<()> {
     let tx = conn.transaction().context("start transaction")?;
 
@@ -2373,14 +2536,45 @@ pub fn stop_playback_session(conn: &Connection, session_id: &str) -> Result<Play
     playback_session(conn, session_id)?.context("playback session missing after stop")
 }
 
+/// The tracks that the show plays or holds (ADR 0076 Decision 8).
+///
+/// ADR 0068 is Proposed. Until it is accepted, the playback session defines
+/// the tracks in use. A session with a state other than `stopped` holds its
+/// own track and each track of its playlist.
+///
+/// # Errors
+///
+/// Returns an error when the playback sessions cannot be read.
+pub(crate) fn tracks_in_use_by_show(conn: &Connection) -> Result<BTreeSet<i64>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT local_track_id FROM playback_sessions WHERE state <> 'stopped'
+             UNION
+             SELECT pt.track_id
+             FROM playlist_tracks pt
+             JOIN playback_sessions s ON s.playlist_id = pt.playlist_id
+             WHERE s.state <> 'stopped'",
+        )
+        .context("prepare the tracks in use by the show")?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, i64>(0))
+        .context("query the tracks in use by the show")?
+        .collect::<std::result::Result<BTreeSet<_>, _>>()
+        .context("collect the tracks in use by the show")?;
+    Ok(rows)
+}
+
 pub fn open_db(db_path: &Path) -> Result<startup::PreparedDatabase> {
     startup::prepare_database(db_path).map_err(Into::into)
 }
 
 pub(crate) mod maintenance;
+pub(crate) mod payment_routes;
 pub mod provider_observations;
 mod provider_snapshot_schema;
 pub(crate) mod publisher_relationships;
+pub mod rss_check_runs;
+pub(crate) mod rss_field_holds;
 pub mod startup;
 pub(crate) mod upgrades;
 
@@ -2390,7 +2584,7 @@ struct Migration {
     apply: fn(&Connection) -> Result<()>,
 }
 
-pub(crate) const CURRENT_VERSION: i64 = 14;
+pub(crate) const CURRENT_VERSION: i64 = 17;
 
 const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -2462,6 +2656,21 @@ const MIGRATIONS: &[Migration] = &[
         version: 14,
         name: "feed_publisher_relationships",
         apply: publisher_relationships::apply,
+    },
+    Migration {
+        version: 15,
+        name: "playlist_rss_check_runs",
+        apply: rss_check_runs::apply,
+    },
+    Migration {
+        version: 16,
+        name: "rss_field_holds_and_differences",
+        apply: rss_field_holds::apply,
+    },
+    Migration {
+        version: 17,
+        name: "stored_payment_routes",
+        apply: payment_routes::apply,
     },
 ];
 
@@ -2573,21 +2782,52 @@ fn matches_contract(conn: &Connection, version: i64) -> rusqlite::Result<bool> {
 
 /// The read contract of each table after migration `version` (ADRs 0016, 0066).
 /// Version 11 is frozen. Migration 12 adds the provider snapshot tables,
-/// migration 13 removes the artist storage tables (ADR 0079), and migration
-/// 14 adds the feed publisher relationship table (ADR 0077 Decision 5).
+/// migration 13 removes the artist storage tables (ADR 0079), migration 14
+/// adds the feed publisher relationship table (ADR 0077 Decision 5),
+/// migration 15 adds the playlist RSS check run tables (ADR 0076 Decision 2),
+/// migration 16 adds the RSS hold and difference tables and columns and
+/// drops the three superseded selection tables (ADR 0076 packet 002), and
+/// migration 17 adds the stored payment route columns (ADR 0076 packet 003).
 pub(crate) fn schema_contract(
     version: i64,
 ) -> impl Iterator<Item = &'static (&'static str, &'static [&'static str])> {
     VERSION_11_COLUMNS
         .iter()
         .filter(move |(table, _)| version < 13 || !ARTIST_STORAGE_TABLES.contains(table))
-        .chain(if version >= 12 {
-            provider_snapshot_schema::COLUMNS
+        .map(move |entry| {
+            let extended = match version {
+                ..=15 => return entry,
+                16 => rss_field_holds::EXTENDED_COLUMNS,
+                _ => payment_routes::EXTENDED_COLUMNS,
+            };
+            extended
+                .iter()
+                .find(|(table, _)| *table == entry.0)
+                .unwrap_or(entry)
+        })
+        .chain(
+            if version >= 12 {
+                provider_snapshot_schema::COLUMNS
+            } else {
+                &[]
+            }
+            .iter()
+            .filter(move |(table, _)| {
+                version < 16 || !rss_field_holds::SUPERSEDED_SELECTION_TABLES.contains(table)
+            }),
+        )
+        .chain(if version >= 14 {
+            publisher_relationships::COLUMNS
         } else {
             &[]
         })
-        .chain(if version >= 14 {
-            publisher_relationships::COLUMNS
+        .chain(if version >= 15 {
+            rss_check_runs::COLUMNS
+        } else {
+            &[]
+        })
+        .chain(if version >= 16 {
+            rss_field_holds::COLUMNS
         } else {
             &[]
         })
@@ -2906,7 +3146,7 @@ fn migrate_schema_internal(
         }
         let baseline = match migration.version {
             12 if verify => Some(upgrades::legacy_digest(conn)?),
-            13 | 14 if verify => Some(upgrades::retained_digest(conn)?),
+            13..=17 if verify => Some(upgrades::retained_digest(conn)?),
             _ => None,
         };
         boundary(migration.version, MigrationBoundary::BeforeApply)?;
@@ -2915,6 +3155,47 @@ fn migrate_schema_internal(
         boundary(migration.version, MigrationBoundary::AfterApply)?;
         record_migration(conn, migration.version, migration.name)?;
         boundary(migration.version, MigrationBoundary::AfterRecord)?;
+        if let (17, Some(before)) = (migration.version, baseline.as_ref()) {
+            upgrades::verify_target(conn, 17)?;
+            anyhow::ensure!(
+                upgrades::retained_digest(conn)? == *before,
+                "Migration changed retained records"
+            );
+        }
+        if let (16, Some(before)) = (migration.version, baseline.as_ref()) {
+            upgrades::verify_target(conn, 16)?;
+            anyhow::ensure!(
+                upgrades::retained_digest(conn)? == *before,
+                "Migration changed retained records"
+            );
+            for (table, _) in rss_field_holds::COLUMNS {
+                let count: i64 =
+                    conn.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                        row.get(0)
+                    })?;
+                anyhow::ensure!(count == 0, "Migration created unexpected RSS hold records");
+            }
+            let marked: i64 = conn.query_row(
+                "SELECT count(*) FROM tracks WHERE removed_from_feed_at IS NOT NULL OR removed_from_feed_confirmed_at IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )?;
+            anyhow::ensure!(marked == 0, "Migration marked unexpected removed tracks");
+        }
+        if let (15, Some(before)) = (migration.version, baseline.as_ref()) {
+            upgrades::verify_target(conn, 15)?;
+            anyhow::ensure!(
+                upgrades::retained_digest(conn)? == *before,
+                "Migration changed retained records"
+            );
+            for (table, _) in rss_check_runs::COLUMNS {
+                let count: i64 =
+                    conn.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                        row.get(0)
+                    })?;
+                anyhow::ensure!(count == 0, "Migration created unexpected RSS check records");
+            }
+        }
         if let (14, Some(before)) = (migration.version, baseline.as_ref()) {
             upgrades::verify_target(conn, 14)?;
             anyhow::ensure!(
@@ -4357,7 +4638,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
             "fresh schema should record all registry migrations"
         );
 
@@ -4691,7 +4972,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
             "cleanup migration should be recorded exactly once"
         );
 
@@ -5429,6 +5710,7 @@ mod tests {
             "#,
         )?;
         conn.execute_batch(provider_snapshot_schema::RETAINED_ROWS)?;
+        conn.execute_batch(provider_snapshot_schema::SUPERSEDED_ROWS)?;
         conn.execute_batch("INSERT INTO metadata_facts(id,observation_id,scope_ordinal,transport_ordinal,declared_subject_id,declared_owner_json,owner_basis_json,fact_kind,representation,validation,value_json,body_locator_json) VALUES(1,2,0,0,1,'{}','{}','description','plain_text','valid','\"kept\"','{}'); INSERT INTO metadata_snapshots VALUES(2,2,1,'field:description','populated',2,0,1); INSERT INTO metadata_snapshot_members VALUES(2,0,1); INSERT INTO metadata_collection_heads VALUES(2,1,'field:description',2,2,2,0,40,'{}',2,'success',2,NULL);")?;
         Ok(conn)
     }

@@ -32,6 +32,50 @@ const HEADERS: &[&str] = &[
 pub(crate) fn capture(request: RequestBuilder, decoder: &str) -> ProviderObservation {
     capture_with_timeout(request, decoder, crate::http_client::document_timeout())
 }
+/// Capture a conditional request of the playlist RSS check (ADR 0076).
+///
+/// A `304 Not Modified` response is not a failure. The observation keeps
+/// `http_status` 304 and the response headers, with outcome `success`, no
+/// body and the body state `absent`. Each other status keeps the rule of
+/// `capture`.
+pub(crate) fn capture_conditional(request: RequestBuilder, decoder: &str) -> ProviderObservation {
+    not_modified_is_success(capture(request, decoder))
+}
+
+/// Build the conditional GET of the playlist RSS check (ADR 0076).
+///
+/// The request carries `If-None-Match` for a stored `ETag` and
+/// `If-Modified-Since` for a stored `Last-Modified`. Without a stored
+/// validator it carries neither header.
+pub(crate) fn conditional_request(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    validators: Option<&super::RequestValidators>,
+) -> RequestBuilder {
+    let mut request = client.get(url);
+    if let Some(validators) = validators {
+        if let Some(etag) = validators.etag.as_deref() {
+            request = request.header(reqwest::header::IF_NONE_MATCH, etag);
+        }
+        if let Some(last_modified) = validators.last_modified.as_deref() {
+            request = request.header(reqwest::header::IF_MODIFIED_SINCE, last_modified);
+        }
+    }
+    request
+}
+
+fn not_modified_is_success(mut observation: ProviderObservation) -> ProviderObservation {
+    if observation.http_status == Some(304)
+        && observation.failure == Some(json!({"reason": "http_status"}))
+    {
+        observation.outcome = ObservationOutcome::Success;
+        observation.failure = None;
+        observation.body = None;
+        observation.interpretation["body_state"] = json!("absent");
+    }
+    observation
+}
+
 fn capture_with_timeout(
     request: RequestBuilder,
     decoder: &str,
@@ -156,6 +200,27 @@ mod tests {
             }
         });
         (url, handle)
+    }
+    #[test]
+    fn adr_0076_playlist_check_not_modified_is_a_success_without_body() {
+        let response =
+            b"HTTP/1.1 304 Not Modified\r\nETag: \"v2\"\r\nConnection: close\r\n\r\n".to_vec();
+        let (url, worker) = server(response, 1);
+        let observation = capture_conditional(crate::http_client::document().get(url), "test-v1");
+        worker.join().unwrap();
+        assert_eq!(observation.http_status, Some(304));
+        assert_eq!(observation.outcome, ObservationOutcome::Success);
+        assert_eq!(observation.failure, None);
+        assert_eq!(observation.body, None);
+        assert_eq!(observation.interpretation["body_state"], "absent");
+        assert!(observation.occurrence["headers"].get("etag").is_some());
+        let response =
+            b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                .to_vec();
+        let (url, worker) = server(response, 1);
+        let failed = capture_conditional(crate::http_client::document().get(url), "test-v1");
+        worker.join().unwrap();
+        assert_eq!(failed.outcome, ObservationOutcome::Failed);
     }
     #[test]
     fn adr_0075_observation_charset_matches_locked_reqwest_text_decoder() {

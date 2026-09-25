@@ -36,6 +36,7 @@ pub(crate) fn render_library_detail(
     rename_playlist_input: Entity<InputState>,
     renaming_playlist_id: Option<i64>,
     playlist_actor: Option<&PlaylistActorState>,
+    playlist_rss_check: Option<&crate::runtime::PlaylistRssCheckSnapshot>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     match detail {
@@ -75,6 +76,7 @@ pub(crate) fn render_library_detail(
             rename_playlist_input,
             renaming_playlist_id,
             playlist_actor,
+            playlist_rss_check,
             cx,
         ),
     }

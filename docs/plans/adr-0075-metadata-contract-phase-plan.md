@@ -232,13 +232,13 @@ These five packets carry ADR 0075 to a visible result. Dispatch them in this seq
 |---|---|---|---|
 | [017](../tasks/adr-0075-task-017-named-request-profiles.md) | Code | Name the requests that the Library route and the Index route make. Complete on 2026-09-21 | 013, 014, 016, and both accepted cuts below |
 | [018](../tasks/adr-0075-task-018-request-reuse-and-freshness.md) | Code | Request identity, sharing, expiry, explicit refresh, and response order. Complete on 2026-09-22 | 016, 017, and nine policies that the operator accepted on 2026-09-21 and 2026-09-22 |
-| 045 | Code | Replaced on 2026-09-24 by the ADR 0076 packets: the playlist check, the comparison and report, the tag update button, and the readiness rule. No packet document exists yet | 018 and ADR 0076 |
-| 020 | Code | One shared projection of the stored values with their owners. ADR 0076 removes source selection from it | 005, 006, 007, 013, 018, and ADR 0076 |
+| 045 | Code | Replaced on 2026-09-24 by the ADR 0076 packets. The [ADR 0076 phase plan](adr-0076-playlist-rss-check-phase-plan.md) registers them | 018 and ADR 0076 |
+| [020](../tasks/adr-0075-task-020-stored-value-projection.md) | Code | One shared projection of the stored values with their owners. Implemented on 2026-09-24. Visual gate open and paused | ADR 0076 packet 002 |
 | 022 | Code | The track header view model, limited to track identities | 020 |
 
 Packet 017 is complete. It named ten requests and models no provider profile, because a
 provider is transport and not a source. Packet 018 is complete. ADR 0076 is Accepted on
-2026-09-24. Its packets replace packet 045. No packet document exists for them yet.
+2026-09-24. Its packets replace packet 045. The ADR 0076 phase plan registers them and packet 020.
 
 Part B of packet 018 ends the repeated fetch that the baseline measured. Part A implements the accepted ADR 0075 rules and changes no sequential request count.
 Packet 020 applies the rules that the operator accepted. Packet 022 puts them on screen.

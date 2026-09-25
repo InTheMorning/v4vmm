@@ -84,6 +84,78 @@ pub(crate) fn invalidate_feed_document(feed_url: &str) {
         .remove(&feed_url.to_owned());
 }
 
+/// ADR 0076 packet 001: check that a playlist-check response holds a
+/// readable RSS document before the check records and retains it.
+///
+/// The check uses the decode and root rules of the track enrichment parse.
+/// It compares nothing. A failure marks the observation `xml_decode`, as
+/// the enrichment fetch does, so a malformed document never becomes the
+/// retained document and never supplies a validator.
+pub(crate) fn check_rss_document(observation: &mut ProviderObservation) -> Result<()> {
+    observation.decoder_version = crate::provider_observation::contracts::RSS_DECODER.into();
+    let result = match observation.body.clone() {
+        None => Err(anyhow!("RSS response has no body")),
+        Some(body) => crate::provider_observation::contracts::decode_rss_body(
+            &body,
+            Some(&mut observation.interpretation["charset"]),
+        )
+        .and_then(|_| {
+            // The enrichment parse without a track applies the same XML and
+            // root rules, and it keeps one DOM parser for RSS (ADR 0075).
+            let url = observation.response_uri.clone().unwrap_or_default();
+            parse_track_enrichment_document(&url, &url, Utc::now(), body, None, None).map(|_| ())
+        }),
+    };
+    if result.is_err() {
+        observation.fail("xml_decode");
+    }
+    result
+}
+
+/// ADR 0076 packet 001: a `200` response of the playlist check replaces the
+/// retained document of its feed URL, with the receipt of that fetch. A
+/// later enrichment call for a track of this feed then reuses the checked
+/// bytes and replays this receipt (R18B-07).
+///
+/// The caller passes only an observation that `check_rss_document` accepted.
+/// This function retains nothing for a failed, empty or incomplete response.
+pub(crate) fn retain_checked_document(
+    feed_url: &str,
+    observation: &ProviderObservation,
+    receipt: crate::provider_observation::ObservationReceipt,
+) -> bool {
+    use crate::provider_observation::ObservationOutcome;
+    let (Some(body), Some(fetched_at)) = (
+        observation.body.as_ref(),
+        observation
+            .fetched_at_us
+            .and_then(DateTime::from_timestamp_micros),
+    ) else {
+        return false;
+    };
+    if observation.outcome != ObservationOutcome::Success
+        || !observation
+            .http_status
+            .is_some_and(|status| (200..300).contains(&status))
+        || observation.interpretation["body_state"] != "complete"
+    {
+        return false;
+    }
+    retain_document(
+        feed_url,
+        CachedRssDocument {
+            response_url: observation
+                .response_uri
+                .clone()
+                .unwrap_or_else(|| feed_url.to_owned()),
+            fetched_at,
+            response_bytes: Arc::clone(body),
+            receipt: Some(receipt),
+        },
+    );
+    true
+}
+
 /// Packet 018: shares an in-flight RSS GET across concurrent callers of the
 /// same feed URL, keyed by feed URL like the completed-response cache
 /// above. This closes the gap the packet's own concurrent measurement
@@ -733,6 +805,17 @@ fn retain_dom_evidence(
         });
     }
     scope
+}
+
+/// The retained bytes and receipt of a feed URL, for tests of other modules.
+#[cfg(test)]
+pub(crate) fn retained_document_for_test(
+    feed_url: &str,
+) -> Option<(
+    Arc<[u8]>,
+    Option<crate::provider_observation::ObservationReceipt>,
+)> {
+    retained_document(feed_url).map(|document| (document.response_bytes, document.receipt))
 }
 
 #[cfg(test)]

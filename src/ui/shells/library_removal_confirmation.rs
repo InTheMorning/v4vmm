@@ -52,6 +52,7 @@ fn confirmation_display(display: LibraryRemovalConfirmationDisplay) -> Confirmat
         confirm_label: SharedString::from(display.remove_label),
         confirm_a11y_label: SharedString::from(display.remove_a11y_label),
         destructive: true,
+        items: Vec::new(),
     }
 }
 

@@ -37,6 +37,11 @@ When you need to look something up, consult this map first to find the right fil
 | Session actions and recorded reports; shared maintenance forms | `src/view_models/startup/session.rs`, `src/ui/composites/maintenance_forms.rs` |
 | MusicIndex HTTP client | `src/api.rs` |
 | RSS fetch + Podcasting 2.0 parse | `src/rss/` |
+| Playlist RSS check: actor, comparison, apply, holds, report (ADR 0076) | `src/runtime/playlist_rss_check.rs`, `src/rss/compare.rs`, `src/rss/check_apply.rs`, `src/db/rss_check_runs.rs`, `src/db/rss_field_holds.rs`, `src/view_models/playlist_rss_check.rs` |
+| Publisher relationship storage (ADR 0077) | `src/db/publisher_relationships.rs` |
+| Stored value projection: hold, then MusicIndex fact, then column (ADR 0076) | `src/application/queries/stored_values.rs` |
+| Stored payment route and route converter (ADR 0076) | `src/db/payment_routes.rs`, `src/rss/value_routes.rs`, `metadata_service::with_stored_route_frame` |
+| Tag update scan, confirmation and write (ADR 0076) | `src/application/queries/tag_update.rs`, `src/application/commands/tag_update.rs`, `src/runtime/tag_update.rs`, `src/view_models/tag_update.rs`, `src/ui/shells/tag_update_confirmation.rs` |
 | ID3v2.4 read/write, `AudioTags`, `Id3v24Edit`, `apply_id3v24_edits` | `src/audio_tags.rs` |
 | File-byte format detection, `AudioFormat`, existing FLAC/ffmpeg fallback | `src/audio_format.rs` |
 | Fresh bounded converter probes and shared setup reports | `src/audio_format/probe.rs`, `src/view_models/startup/converter.rs`, shared correction command/editor (ADR 0066 task 008) |

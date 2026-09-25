@@ -627,7 +627,7 @@ fn parse_involved_people_list(value: &str) -> InvolvedPeopleList {
     InvolvedPeopleList { items }
 }
 
-fn sanitize_title_text(value: &str) -> String {
+pub(crate) fn sanitize_title_text(value: &str) -> String {
     value
         .trim_start()
         .strip_prefix("- ")

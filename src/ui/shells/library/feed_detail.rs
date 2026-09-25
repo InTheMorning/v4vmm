@@ -61,17 +61,25 @@ pub(crate) fn render_library_feed_detail(
         album_image_href: album.image_href.clone(),
         is_subscribed: false,
     };
-    let feed_view = FeedView::from_local_with_facts(
-        feed_row,
-        album
-            .tracks
-            .clone()
-            .into_iter()
-            .map(TrackView::from_local)
-            .collect(),
-        album.identity_facts.clone(),
-        (*album.metadata_facts).clone(),
-    );
+    let track_views = album
+        .tracks
+        .clone()
+        .into_iter()
+        .map(TrackView::from_local)
+        .collect();
+    // ADR 0075 packet 020: the query layer projects the stored values of the
+    // feed. An album without a feed row has only its columns.
+    let feed_view = match album.stored_values.as_deref() {
+        Some(values) => FeedView::from_local_with_facts(
+            feed_row,
+            track_views,
+            album.identity_facts.clone(),
+            values.clone(),
+        ),
+        None => {
+            FeedView::from_local_with_identity(feed_row, track_views, album.identity_facts.clone())
+        }
+    };
 
     let thumb_image = album
         .image_href

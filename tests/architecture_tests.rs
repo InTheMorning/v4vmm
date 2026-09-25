@@ -10187,10 +10187,11 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
     }
 
     let rss_subscribe_source = read_source(&manifest_path("src/rss/subscribe.rs"));
+    // ADR 0075 packet 020: the subscribe command writes no MusicIndex feed
+    // description, so it cannot persist a placeholder one.
     assert!(
-        rss_subscribe_source
-            .contains("if !crate::metadata::source_text_missing(api_feed.description.as_deref())"),
-        "RSS subscribe must not persist placeholder MusicIndex feed descriptions"
+        !production_source(&rss_subscribe_source).contains("set_feed_description("),
+        "RSS subscribe must not persist a MusicIndex feed description. ADR 0076 Decision 5 and ADR 0075 packet 020: a subscribe writes the RSS value and hold of each compared slot. Remove the MusicIndex description write from src/rss/subscribe.rs."
     );
     for required in [
         "name: \"cleanup_placeholder_source_text\"",
@@ -12347,6 +12348,8 @@ fn adr_0064_local_file_paths_resolve_only_through_library_path() {
 }
 
 /// Situational ADR 0065: payment-route tag repair stays an explicit command.
+/// ADR 0076 Decision 9 amended the route source on 2026-09-24: the repair
+/// writes the stored route, not a frame built from a `MusicIndex` track.
 #[test]
 fn adr_0065_payment_route_repair_stays_in_command_boundary() {
     const OWNER: &str = "src/application/commands/payment_routes.rs";
@@ -12369,7 +12372,6 @@ fn adr_0065_payment_route_repair_stays_in_command_boundary() {
     for required in [
         "Client::new_with_base_url",
         "const PAYMENT_ROUTES_INCLUDE: &str = \"payment_routes\"",
-        "id3_edits_for_track_context",
         "write_id3v24_edits",
         "NoRoutesUpstream",
     ] {
@@ -12378,6 +12380,26 @@ fn adr_0065_payment_route_repair_stays_in_command_boundary() {
                 "{OWNER}: ADR 0065 payment-route repair owner is missing `{required}`"
             ));
         }
+    }
+    let owner_production = production_source(&owner_source);
+    for required in [
+        "db::payment_routes::stored_route(",
+        "with_stored_route_frame(",
+    ] {
+        if !owner_production.contains(required) {
+            violations.push(format!(
+                "{OWNER}: ADR 0076 Decision 9 amends ADR 0065: the repair writes the route stored in \
+                 the database and asks MusicIndex only when the database has none. The owner is \
+                 missing `{required}`. Read the stored route first, and build the frame with \
+                 metadata_service::with_stored_route_frame."
+            ));
+        }
+    }
+    if owner_production.contains("id3_edits_for_track_context") {
+        violations.push(format!(
+            "{OWNER}: ADR 0076 Decision 9 amends ADR 0065: the repair must not build the route \
+             frame from a MusicIndex track context. Use metadata_service::with_stored_route_frame."
+        ));
     }
 
     let feed_source = read_source(&manifest_path("src/feed_service.rs"));
@@ -12422,6 +12444,296 @@ fn adr_0065_payment_route_repair_stays_in_command_boundary() {
     );
 }
 
+const ROUTE_SOURCE_FIX: &str = "ADR 0076 Decision 9: each write of the payment route frame uses the route stored in the database. Pass the edits through metadata_service::with_stored_route_frame before the tag write. That function reads the stored route and stores a MusicIndex route only when the database has none. Do not write a route frame that a MusicIndex response built.";
+
+/// The tag write calls that can carry the payment route frame.
+const TAG_WRITE_CALLS: [&str; 2] = ["write_id3v24_edits(", "apply_id3_edits_nonfatal("];
+
+/// Each production function that writes audio tags must pass its edits
+/// through `with_stored_route_frame` before the write. The tag writer and
+/// its one non-fatal wrapper are the exceptions. The callers of the wrapper
+/// are checked.
+fn route_source_violations(file: &str, source: &str) -> Vec<String> {
+    if file == "src/audio_tags.rs" {
+        return Vec::new();
+    }
+    let production = code_only(&without_unit_test_module(source));
+    let starts = production
+        .match_indices("fn ")
+        .map(|(index, _)| index)
+        .filter(|index| {
+            *index == 0
+                || !production.as_bytes()[index - 1].is_ascii_alphanumeric()
+                    && production.as_bytes()[index - 1] != b'_'
+        })
+        .collect::<Vec<_>>();
+    let mut violations = Vec::new();
+    for (position, start) in starts.iter().enumerate() {
+        let end = starts
+            .get(position + 1)
+            .copied()
+            .unwrap_or(production.len());
+        let section = &production[*start..end];
+        let name = section[3..]
+            .split(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+            .next()
+            .unwrap_or_default();
+        if file == "src/subscribe_service.rs" && name == "apply_id3_edits_nonfatal" {
+            continue;
+        }
+        let Some(write) = TAG_WRITE_CALLS
+            .iter()
+            .filter_map(|call| section.find(call))
+            .min()
+        else {
+            continue;
+        };
+        match section.find("with_stored_route_frame(") {
+            Some(stored) if stored < write => {}
+            _ => violations.push(format!(
+                "{file}: `fn {name}` writes audio tags without a stored route read before the write.\n  {ROUTE_SOURCE_FIX}"
+            )),
+        }
+    }
+    violations
+}
+
+/// Situational ADR 0076 Decision 9 (packet 003): no site builds the payment
+/// route frame of a file from an API response. Each tag write reads the
+/// stored route first.
+///
+/// The Discover tag comparison writes a file with no track row, so the
+/// database can have no route for it. Its command carries no stored route,
+/// and the packet 003 result records this case.
+#[test]
+fn adr_0076_route_readiness_route_frame_writes_read_the_stored_route() {
+    // The guard fails on a site that builds the frame from an API response.
+    const API_FRAME_WRITE: &str = "fn tag_download(track: &api::Track, path: &Path) -> Result<()> {\n    let edits = id3_edits_for_track_context(&TrackContext::new(track.clone(), None));\n    write_id3v24_edits(path, &edits)?;\n    Ok(())\n}\n";
+    const LATE_STORED_READ: &str = "fn tag_download(conn: &Connection, track: &api::Track, path: &Path) -> Result<()> {\n    let edits = id3_edits_for_track_context(&TrackContext::new(track.clone(), None));\n    write_id3v24_edits(path, &edits)?;\n    let _ = with_stored_route_frame(conn, 1, None, edits, RouteFrameWrite::Always)?;\n    Ok(())\n}\n";
+    const STORED_WRITE: &str = "fn tag_download(conn: &Connection, track: &api::Track, path: &Path) -> Result<()> {\n    let edits = with_stored_route_frame(conn, 1, track.payment_routes.as_deref(), Vec::new(), RouteFrameWrite::Always)?;\n    write_id3v24_edits(path, &edits)?;\n    Ok(())\n}\n";
+    assert_eq!(
+        route_source_violations("src/example.rs", API_FRAME_WRITE).len(),
+        1
+    );
+    assert_eq!(
+        route_source_violations("src/example.rs", LATE_STORED_READ).len(),
+        1
+    );
+    assert!(route_source_violations("src/example.rs", STORED_WRITE).is_empty());
+
+    let mut violations = Vec::new();
+    let mut writers = BTreeSet::new();
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        let production = code_only(&without_unit_test_module(&source));
+        if file != "src/audio_tags.rs"
+            && TAG_WRITE_CALLS.iter().any(|call| production.contains(call))
+        {
+            writers.insert(file.clone());
+        }
+        violations.extend(route_source_violations(&file, &source));
+    }
+    // The write sites of packet 003 and the Library tag apply. ADR 0076
+    // Decision 8 removed the feed update write of `src/feed_service.rs`, and
+    // packet 004 added the confirmed tag update.
+    for expected in [
+        "src/subscribe_service/materialization.rs",
+        "src/application/commands/tag_update.rs",
+        "src/application/commands/payment_routes.rs",
+        "src/application/commands/metadata.rs",
+    ] {
+        assert!(
+            writers.contains(expected),
+            "{expected} no longer writes audio tags. Update this guard and the packet 003 result.\n  {ROUTE_SOURCE_FIX}"
+        );
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0076 Decision 9 route source violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+const TAG_UPDATE_FIX: &str = "ADR 0076 Decision 8: the RSS check, the tag update scan and the feed update change the database only. They write no audio tag and no stored route. Move the write into application::commands::tag_update, which runs only when the operator confirms the \"Update n file(s)\" popup.";
+
+/// The calls that write a file tag or store a route for a tag write.
+const NO_TAG_WRITE_CALLS: [&str; 5] = [
+    "write_id3v24_edits(",
+    "apply_id3_edits_nonfatal(",
+    "with_stored_route_frame(",
+    "route_for_write(",
+    "store_musicindex_route(",
+];
+
+fn tag_write_violations(label: &str, production: &str) -> Vec<String> {
+    NO_TAG_WRITE_CALLS
+        .iter()
+        .filter(|call| production.contains(*call))
+        .map(|call| format!("{label}: found `{call}`.\n  {TAG_UPDATE_FIX}"))
+        .collect()
+}
+
+/// Situational ADR 0076 Decision 8 (packet 004, R4-09 and R4-10): the check
+/// modules of packet 002, the tag update scan and `apply_feed_updates` call
+/// no tag write. The scan and the confirmed write run in the runtime actor,
+/// off the render thread. Delete this guard when ADR 0076 is superseded.
+#[test]
+fn adr_0076_tag_update_checks_and_scans_write_no_tag() {
+    // The guard fails on a synthetic check that writes a tag.
+    assert_eq!(
+        tag_write_violations(
+            "src/example.rs",
+            "fn apply(path: &Path) { write_id3v24_edits(path, &[]).unwrap(); }"
+        )
+        .len(),
+        1
+    );
+
+    let mut violations = Vec::new();
+    for file in [
+        "src/rss/check_apply.rs",
+        "src/rss/compare.rs",
+        "src/runtime/playlist_rss_check.rs",
+        "src/application/queries/tag_update.rs",
+    ] {
+        let source = read_source(&manifest_path(file));
+        violations.extend(tag_write_violations(
+            file,
+            &code_only(&without_unit_test_module(&source)),
+        ));
+    }
+    let service = read_source(&manifest_path("src/feed_service.rs"));
+    let update = source_between(
+        &service,
+        "pub fn apply_feed_updates(",
+        "pub fn track_row_to_track_context(",
+    );
+    violations.extend(tag_write_violations(
+        "src/feed_service.rs: apply_feed_updates",
+        &code_only(update),
+    ));
+
+    // R4-10: the scan and the write run on the blocking pool of the
+    // runtime actor. The Music screen and the view model only read its
+    // snapshot.
+    let actor = read_source(&manifest_path("src/runtime/tag_update.rs"));
+    for required in [
+        "tokio::task::spawn_blocking(move || {\n                write_tag_updates(",
+        "plan_tag_update_scan(&conn, &music_dir)",
+        "bus.publish(VmEvent::TrackChanged { track_id })",
+    ] {
+        if !actor.contains(required) {
+            violations.push(format!(
+                "src/runtime/tag_update.rs: missing `{required}`. ADR 0040 and ADR 0076 Decision 8: the runtime actor owns the scan and the write, off the render thread."
+            ));
+        }
+    }
+    for file in [
+        "src/library/app_impl.rs",
+        "src/view_models/tag_update.rs",
+        "src/ui/shells/tag_update_confirmation.rs",
+    ] {
+        let source = code_only(&without_unit_test_module(&read_source(&manifest_path(
+            file,
+        ))));
+        for forbidden in [
+            "read_audio_tags(",
+            "plan_tag_update_scan(",
+            "compare_planned_files(",
+            "write_tag_updates(",
+        ] {
+            if source.contains(forbidden) {
+                violations.push(format!(
+                    "{file}: found `{forbidden}`. ADR 0040 and ADR 0076 Decision 8: send the scan or the confirm to the tag update actor through its handle, and read its snapshot."
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0076 Decision 8 tag write violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0076 Decision 7 (packet 003, operator decision
+/// 2026-09-24): the removal actions of a removed track reuse the existing
+/// removal flows. "Remove from library" is the ADR 0044 Library removal with
+/// its confirmation. "Remove from playlist" is the existing playlist entry
+/// removal. The playlist row actions come from the view model.
+#[test]
+fn adr_0076_route_readiness_removal_actions_reuse_existing_flows() {
+    const FIX: &str = "ADR 0076 Decision 7: the removal actions of a removed track reuse the existing flows. Dispatch \"Remove from library\" to LibraryApp::remove_track, which runs the ADR 0044 removal plan and its confirmation. Wire \"Remove from playlist\" to the on_remove slot of the row. Add no second removal path.";
+    let app = read_source(&manifest_path("src/library/app_impl.rs"));
+    let shell = read_source(&manifest_path("src/ui/shells/playlist.rs"));
+    let mut violations = Vec::new();
+
+    let dispatch = code_only(source_between(
+        &app,
+        "pub(crate) fn run_content_list_row_action(",
+        "fn confirm_removed_track(",
+    ));
+    if !compact_source(&dispatch)
+        .contains("ContentListRowActionKind::RemoveFromLibrary{track_id}=>{self.remove_track(track_id,window,cx);")
+    {
+        violations.push(format!(
+            "src/library/app_impl.rs: the RemoveFromLibrary row action must call self.remove_track(track_id, window, cx).\n  {FIX}"
+        ));
+    }
+    let remove_track = code_only(source_between(
+        &app,
+        "pub(crate) fn remove_track(",
+        "fn request_library_removal(",
+    ));
+    if !remove_track.contains(
+        "self.request_library_removal(LibraryRemovalIntent::TrackId(track_id), window, cx)",
+    ) {
+        violations.push(format!(
+            "src/library/app_impl.rs: remove_track must request the ADR 0044 removal plan.\n  {FIX}"
+        ));
+    }
+    let removed_block = code_only(source_between(
+        &shell,
+        "fn render_removed_from_feed(",
+        "fn render_removed_track_action(",
+    ));
+    for required in [
+        "let on_remove = slot.on_remove.clone();",
+        "slot.on_remove_from_all_playlists.clone()",
+        "remove_from_playlist",
+        "remove_from_all_playlists",
+    ] {
+        if !removed_block.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/playlist.rs: the removed-from-feed row block is missing `{required}`.\n  {FIX}"
+            ));
+        }
+    }
+    let action_button = code_only(source_between(
+        &shell,
+        "fn render_removed_track_action(",
+        "/// A bordered text badge",
+    ));
+    for required in [
+        "action.label",
+        "action.a11y_label",
+        "action.availability.disabled()",
+    ] {
+        if !action_button.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/playlist.rs: the removed-track action renders from its view model display; missing `{required}`.\n  {FIX}"
+            ));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0076 Decision 7 removal action violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Situational ADR 0065: readiness row state labels are not actions.
 #[test]
 fn adr_0065_readiness_rows_keep_state_labels_separate_from_actions() {
@@ -12432,7 +12744,9 @@ fn adr_0065_readiness_rows_keep_state_labels_separate_from_actions() {
     let mut violations = Vec::new();
 
     for required in [
-        "pub(crate) action: Option<ContentListRowActionDisplay>",
+        // ADR 0076 packet 003 (operator decision 2026-09-24) gives a removed
+        // track two row actions, so the row carries an action list.
+        "pub(crate) actions: Vec<ContentListRowActionDisplay>",
         "pub(crate) activation: ContentListRowActivation",
         "ContentListRowActionKind::RepairBroadcastRoutes",
         "BROADCAST_ROUTE_REPAIR_AVAILABLE_LABEL",
@@ -12477,7 +12791,7 @@ fn adr_0065_readiness_rows_keep_state_labels_separate_from_actions() {
     let state_label_block = source_between(
         render_row,
         "if let Some(state_label) = row.state_label",
-        "if let Some(action) = row.action.as_ref()",
+        "for action in &row.actions",
     );
     for forbidden in [".on_click", "UiButton::styled", ".cursor_pointer()"] {
         if state_label_block.contains(forbidden) {
@@ -12496,7 +12810,7 @@ fn adr_0065_readiness_rows_keep_state_labels_separate_from_actions() {
         "action.label.clone()",
         "action.a11y_label.clone()",
         "action.disabled()",
-        "this.run_content_list_row_action(kind, cx)",
+        "this.run_content_list_row_action(kind, window, cx)",
     ] {
         if !render_action.contains(required) {
             violations.push(format!(
@@ -18484,11 +18798,7 @@ fn adr_0075_migration_registry_preservation_and_receipts_have_live_callers() {
 fn adr_0075_observation_writer_and_library_retention_have_one_owner() {
     let writer = read_source(&manifest_path("src/db/provider_observations.rs"));
     let writer = production_source(&writer);
-    for forbidden in [
-        "INSERT INTO metadata_field_selections",
-        "INSERT INTO metadata_discrepancies",
-        "DELETE FROM",
-    ] {
+    for forbidden in ["DELETE FROM"] {
         assert!(
             !writer.contains(forbidden),
             "ADR 0075 observation writer exceeded its packet: {forbidden}"
@@ -18688,7 +18998,7 @@ under an explicit refresh intent.";
     let staleness = source_between(
         &service,
         "pub fn check_feed_staleness(",
-        "pub fn configured_music_dir(",
+        "pub fn apply_feed_updates(",
     );
     for required in [
         "with_observation_recorder(Some(Arc::clone(recorder)))",
@@ -18730,8 +19040,12 @@ under an explicit refresh intent.";
             "merge_track_context_with_recorder(",
             "persist_musicindex_track(",
         ),
-        ("persist_musicindex_track(", "write_id3v24_edits("),
-        ("write_id3v24_edits(", "set_feed_musicindex_updated_at("),
+        // ADR 0076 Decision 8: the update writes no tag. The guard
+        // `adr_0076_tag_update_checks_and_scans_write_no_tag` rejects a write.
+        (
+            "persist_musicindex_track(",
+            "set_feed_musicindex_updated_at(",
+        ),
     ] {
         match (update.find(earlier), update.find(later)) {
             (Some(first), Some(second)) if first < second => {}
@@ -18957,7 +19271,7 @@ retain and reuse the response. Route the call through `owner.fetch_feed_with_rec
         ),
         (
             "pub fn check_feed_staleness(",
-            "pub fn configured_music_dir(",
+            "pub fn apply_feed_updates(",
             1,
         ),
         (
@@ -19418,6 +19732,211 @@ its publisher through its album feed.";
     assert!(
         violations.is_empty(),
         "ADR 0077 Decision 2 publisher binding violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational: ADR 0076 Decision 5 (packet 002). Each `MusicIndex` writer of
+/// a compared slot calls the one hold gate before it writes the slot. Delete
+/// this guard when ADR 0076 is superseded.
+#[test]
+fn adr_0076_rss_comparison_musicindex_writers_call_the_hold_gate() {
+    const FIX: &str = "ADR 0076 Decision 5: a MusicIndex write of a compared slot must first call db::rss_field_holds::musicindex_gate and write the slot only when the gate returns Write. Add the gate call before the write, and list the site in this guard and in the packet 002 result. The subscribe command is not a MusicIndex writer (ADR 0075 packet 020): it must write no MusicIndex value into a compared slot.";
+    const GATE: &str = "musicindex_gate(";
+    // (file, section start, section end, slot write)
+    // ADR 0075 packet 020: `rss::subscribe::subscribe_feed` is not a site. A
+    // subscribe reads RSS, writes the RSS value and hold of each compared
+    // slot, and writes no MusicIndex value into a compared slot.
+    let sites = [
+        (
+            "src/feed_service.rs",
+            "pub fn apply_feed_updates(",
+            "pub fn track_row_to_track_context(",
+            "db::set_feed_description(",
+        ),
+        (
+            "src/application/queries/library.rs",
+            "fn hydrate_album_identity_facts(",
+            "fn compare_library_track(",
+            "db::set_feed_description(",
+        ),
+        (
+            "src/application/queries/library.rs",
+            "fn hydrate_album_identity_facts(",
+            "fn compare_library_track(",
+            "upsert_feed_publisher_relationships(",
+        ),
+        (
+            "src/identity_ingest.rs",
+            "fn persist_source_ids(",
+            "fn is_nostr_scheme(",
+            "db::replace_local_identity_ids(",
+        ),
+        (
+            "src/identity_ingest.rs",
+            "fn persist_feed_metadata_facts(",
+            "fn persist_track_metadata_facts(",
+            "db::replace_local_metadata_facts(",
+        ),
+        (
+            "src/identity_ingest.rs",
+            "fn persist_track_metadata_facts(",
+            "fn merge_existing_metadata_facts_for_partial_source(",
+            "db::replace_local_metadata_facts(",
+        ),
+    ];
+    let mut violations = Vec::new();
+    for (file, start, end, write) in sites {
+        let source = read_source(&manifest_path(file));
+        let section = code_only(source_between(production_source(&source), start, end));
+        match (section.find(GATE), section.find(write)) {
+            (Some(gate), Some(slot)) if gate < slot => {}
+            (_, None) => violations.push(format!(
+                "{file}: the listed site `{start}` no longer writes `{write}`. Update the site list.\n  {FIX}"
+            )),
+            _ => violations.push(format!(
+                "{file}: `{start}` writes `{write}` without a gate call before it.\n  {FIX}"
+            )),
+        }
+    }
+    // Each production writer of a gated column slot is a listed site.
+    for (write, allowed) in [
+        (
+            "set_feed_description(",
+            &[
+                "src/db.rs",
+                "src/feed_service.rs",
+                "src/application/queries/library.rs",
+            ][..],
+        ),
+        (
+            "upsert_feed_publisher_relationships(",
+            &[
+                "src/db/publisher_relationships.rs",
+                "src/application/queries/library.rs",
+            ][..],
+        ),
+    ] {
+        for path in rust_files_under("src") {
+            let file = rel_path(&path);
+            let source = read_source(&path);
+            let production = without_unit_test_module(&source);
+            for (line_number, line) in code_lines(&production) {
+                if line.contains(write) && !allowed.contains(&file.as_str()) {
+                    violations.push(format!(
+                        "{file}:{line_number}: an unlisted MusicIndex write site calls `{write}`: `{line}`\n  {FIX}"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0076 Decision 5 hold gate violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational: ADR 0076 Decision 8 (packet 002). The playlist RSS check
+/// changes the database only. Delete this guard when ADR 0076 is superseded.
+#[test]
+fn adr_0076_rss_comparison_check_writes_no_audio_tag() {
+    const FIX: &str = "ADR 0076 Decision 8: the playlist RSS check writes no audio tag. Only the operator-confirmed \"Update n file(s)\" action of packet 004 writes tags. Remove the tag write from the check.";
+    let mut violations = Vec::new();
+    for file in [
+        "src/rss/check_apply.rs",
+        "src/rss/compare.rs",
+        "src/db/rss_field_holds.rs",
+        "src/runtime/playlist_rss_check.rs",
+    ] {
+        let source = read_source(&manifest_path(file));
+        for (line_number, line) in code_lines(&source) {
+            for forbidden in ["write_id3v24_edits", "audio_tags::"] {
+                if line.contains(forbidden) {
+                    violations.push(format!(
+                        "{file}:{line_number}: the check calls `{forbidden}`: `{line}`\n  {FIX}"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0076 Decision 8 audio tag violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational: ADR 0076 Decision 1 (ADR 0075 packet 020, R20-07). The app
+/// shows the stored value of each field. The stored value projection in
+/// `src/application/queries/stored_values.rs` is the one owner of the order
+/// of hold, `MusicIndex` fact and column. Delete this guard when ADR 0076 is
+/// superseded.
+#[test]
+fn adr_0075_projection_views_combine_no_fact_and_column() {
+    const FIX: &str = "ADR 0076 Decision 1: the app shows the stored value and selects no source at display time. Read the value from `stored_values::feed_values` or `stored_values::track_values` in src/application/queries/stored_values.rs, and pass `FeedStoredValues` or `TrackStoredValues` to the view. Do not read a metadata fact field in a view or a view model.";
+    const FACT_FIELDS: [&str; 7] = [
+        "description",
+        "language",
+        "explicit",
+        "pub_date",
+        "publisher_text",
+        "release_date",
+        "release_kind",
+    ];
+    let mut files = vec!["src/views.rs".to_owned()];
+    files.extend(
+        rust_files_under("src/view_models")
+            .into_iter()
+            .map(|path| rel_path(&path)),
+    );
+    let mut violations = Vec::new();
+    for file in &files {
+        let source = read_source(&manifest_path(file));
+        for (line_number, line) in code_lines(production_source(&source)) {
+            for field in FACT_FIELDS {
+                let pattern = format!("facts.{field}");
+                if line.contains(&pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: reads the fact field `{pattern}` and can combine it with a column: `{line}`\n  {FIX}"
+                    ));
+                }
+            }
+        }
+    }
+
+    let views = production_source(&read_source(&manifest_path("src/views.rs"))).to_owned();
+    for required in ["values: FeedStoredValues", "values: TrackStoredValues"] {
+        if !views.contains(required) {
+            violations.push(format!(
+                "src/views.rs: a local view constructor must take the projection, `{required}`.\n  {FIX}"
+            ));
+        }
+    }
+
+    let projection = read_source(&manifest_path("src/application/queries/stored_values.rs"));
+    if production_source(&projection)
+        .matches("pub(crate) fn select<T>(")
+        .count()
+        != 1
+    {
+        violations.push(format!(
+            "src/application/queries/stored_values.rs: the order must have one owner, `pub(crate) fn select<T>(`.\n  {FIX}"
+        ));
+    }
+    let check = read_source(&manifest_path("src/rss/check_apply.rs"));
+    let check = production_source(&check);
+    if !check.contains("stored_values::compared_slot(")
+        || check.contains("db::local_metadata_fact(")
+    {
+        violations.push(format!(
+            "src/rss/check_apply.rs: the playlist RSS check must read a fact-backed slot through `stored_values::compared_slot(`, not its own fact read.\n  {FIX}"
+        ));
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0076 Decision 1 stored value projection violations:\n{}",
         violations.join("\n")
     );
 }

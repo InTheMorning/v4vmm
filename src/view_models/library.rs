@@ -26,6 +26,7 @@ use crate::application::library_removal::{LibraryRemovalPlan, LibraryRemovalTarg
 use crate::application::queries::broadcast::{
     BroadcastReadinessReport, BroadcastReadinessState, BroadcastReadinessTrack,
 };
+use crate::application::queries::stored_values::FeedStoredValues;
 use crate::db::{self, TrackRow};
 use crate::feed_service;
 use crate::metadata::MusicBrainzLookupResult;
@@ -61,6 +62,12 @@ const BROADCAST_ROUTE_REPAIR_AVAILABLE_LABEL: &str = "Fix routes";
 const BROADCAST_ROUTE_REPAIR_WORKING_LABEL: &str = "Fixing...";
 const BROADCAST_ROUTE_REPAIRING_STATE_LABEL: &str = "Repairing routes";
 const BROADCAST_ROUTE_PUBLISHER_DETAIL: &str = "Publisher must add payment routes.";
+/// ADR 0076 Decision 9: packet 004 owns the write of an out-of-date route.
+/// The row has no repair action, and it names that fix.
+const BROADCAST_ROUTE_OUT_OF_DATE_DETAIL: &str =
+    "Payment route in file is out of date. The \"Update n file(s)\" button writes the stored route.";
+const BROADCAST_REMOVED_CONFIRM_LABEL: &str = "Confirm";
+const BROADCAST_REMOVED_REMOVE_FROM_LIBRARY_LABEL: &str = "Remove from library";
 
 /// Rendered-line threshold before descriptions start collapsed.
 pub(crate) const DESCRIPTION_AUTO_COLLAPSE_LINES: usize = 5;
@@ -343,6 +350,9 @@ pub(crate) struct AlbumNode {
     pub(crate) image_href: Option<String>,
     pub(crate) identity_facts: LocalIdentityFacts,
     pub(crate) metadata_facts: Box<FeedMetadataFacts>,
+    /// The stored values of the feed from the stored value projection
+    /// (ADR 0075 packet 020). `None` for an album without a feed row.
+    pub(crate) stored_values: Option<Box<FeedStoredValues>>,
     pub(crate) tracks: Vec<TrackRow>,
 }
 
@@ -896,6 +906,18 @@ pub(crate) enum ContentListRowActionKind {
         /// Local track database id.
         track_id: i64,
     },
+    /// Confirm that the show plays a track with the "removed from feed" mark
+    /// (ADR 0076 Decision 7).
+    ConfirmRemovedFromFeed {
+        /// Local track database id.
+        track_id: i64,
+    },
+    /// Remove a track from the library through the ADR 0044 removal flow and
+    /// its confirmation (ADR 0076 Decision 7, operator decision 2026-09-24).
+    RemoveFromLibrary {
+        /// Local track database id.
+        track_id: i64,
+    },
 }
 
 /// Typed availability for a mixed Music content row action.
@@ -952,6 +974,28 @@ impl ContentListRowActionDisplay {
                 format!("Fix payment routes for {title}")
             },
             availability,
+        }
+    }
+
+    fn confirm_removed_from_feed(track_id: i64, title: &str) -> Self {
+        Self {
+            kind: ContentListRowActionKind::ConfirmRemovedFromFeed { track_id },
+            id: format!("broadcast-readiness-confirm-removed-{track_id}"),
+            label: BROADCAST_REMOVED_CONFIRM_LABEL.to_owned(),
+            a11y_label: format!(
+                "Confirm that the show plays {title}, which was removed from its feed"
+            ),
+            availability: ContentListRowActionAvailability::Available,
+        }
+    }
+
+    fn remove_from_library(track_id: i64, title: &str) -> Self {
+        Self {
+            kind: ContentListRowActionKind::RemoveFromLibrary { track_id },
+            id: format!("broadcast-readiness-remove-from-library-{track_id}"),
+            label: BROADCAST_REMOVED_REMOVE_FROM_LIBRARY_LABEL.to_owned(),
+            a11y_label: format!("Remove {title} from the library"),
+            availability: ContentListRowActionAvailability::Available,
         }
     }
 
@@ -1124,8 +1168,9 @@ pub(crate) struct ContentListRowDisplay {
     pub(crate) state_label: Option<&'static str>,
     /// Whole-row activation behavior.
     pub(crate) activation: ContentListRowActivation,
-    /// Optional explicit row action.
-    pub(crate) action: Option<ContentListRowActionDisplay>,
+    /// Explicit row actions, in display order. A row can have no action.
+    /// ADR 0076 Decision 7 gives a removed track two actions.
+    pub(crate) actions: Vec<ContentListRowActionDisplay>,
 }
 
 impl ContentListRowDisplay {
@@ -1238,7 +1283,7 @@ impl ContentListRowDisplay {
         let mut row = Self::from_track_result(display);
         row.state_label = Some(broadcast_readiness_row_state_label(track.state, repairing));
         row.activation = ContentListRowActivation::None;
-        row.action = broadcast_readiness_row_action(track, repairing);
+        row.actions = broadcast_readiness_row_actions(track, repairing);
         row
     }
 
@@ -1296,7 +1341,7 @@ impl ContentListRowDisplay {
             expansion: ContentListRowExpansionDisplay::for_kind(entity_kind, expanded),
             state_label: row_state_label_for_source(source),
             activation: ContentListRowActivation::OpenContentRow,
-            action: None,
+            actions: Vec::new(),
         }
     }
 
@@ -1308,7 +1353,7 @@ impl ContentListRowDisplay {
     }
 
     fn has_available_broadcast_route_repair(&self, track_id: i64) -> bool {
-        self.action.as_ref().is_some_and(|action| {
+        self.actions.iter().any(|action| {
             action.kind == (ContentListRowActionKind::RepairBroadcastRoutes { track_id })
                 && !action.disabled()
         })
@@ -1318,16 +1363,13 @@ impl ContentListRowDisplay {
         if self.id != track_id.to_string() {
             return;
         }
-        let Some(action) = self.action.as_ref() else {
+        let repair = ContentListRowActionKind::RepairBroadcastRoutes { track_id };
+        let Some(index) = self.actions.iter().position(|action| action.kind == repair) else {
             return;
         };
-        if action.kind != (ContentListRowActionKind::RepairBroadcastRoutes { track_id }) {
-            return;
-        }
         let title = self.title().to_owned();
-        self.action = Some(ContentListRowActionDisplay::repair_broadcast_routes(
-            track_id, &title, repairing,
-        ));
+        self.actions[index] =
+            ContentListRowActionDisplay::repair_broadcast_routes(track_id, &title, repairing);
         self.state_label = Some(if repairing {
             BROADCAST_ROUTE_REPAIRING_STATE_LABEL
         } else {
@@ -1341,6 +1383,8 @@ fn broadcast_readiness_row_reason(track: &BroadcastReadinessTrack, repairing: bo
         "Repairing payment-route tag."
     } else if track.state == BroadcastReadinessState::NoRoutesUpstream {
         BROADCAST_ROUTE_PUBLISHER_DETAIL
+    } else if track.state == BroadcastReadinessState::RouteOutOfDate {
+        BROADCAST_ROUTE_OUT_OF_DATE_DETAIL
     } else {
         &track.reason
     }
@@ -1357,17 +1401,31 @@ const fn broadcast_readiness_row_state_label(
     }
 }
 
-fn broadcast_readiness_row_action(
+fn broadcast_readiness_row_actions(
     track: &BroadcastReadinessTrack,
     repairing: bool,
-) -> Option<ContentListRowActionDisplay> {
-    (track.state == BroadcastReadinessState::NoRouteTag).then(|| {
-        ContentListRowActionDisplay::repair_broadcast_routes(
-            track.track_id,
-            &track.title,
-            repairing,
-        )
-    })
+) -> Vec<ContentListRowActionDisplay> {
+    // ADR 0076: a RouteOutOfDate row has no repair action, because packet
+    // 004 owns that file write. The operator decided on 2026-09-24 that a
+    // removed track has Confirm and "Remove from library".
+    match track.state {
+        BroadcastReadinessState::NoRouteTag => {
+            vec![ContentListRowActionDisplay::repair_broadcast_routes(
+                track.track_id,
+                &track.title,
+                repairing,
+            )]
+        }
+        BroadcastReadinessState::RemovedFromFeed => vec![
+            ContentListRowActionDisplay::confirm_removed_from_feed(track.track_id, &track.title),
+            ContentListRowActionDisplay::remove_from_library(track.track_id, &track.title),
+        ],
+        BroadcastReadinessState::Ready
+        | BroadcastReadinessState::NoRoutesUpstream
+        | BroadcastReadinessState::NotDownloaded
+        | BroadcastReadinessState::FileMissing
+        | BroadcastReadinessState::RouteOutOfDate => Vec::new(),
+    }
 }
 
 /// Empty-state display for a filtered content-list frame.
@@ -2287,6 +2345,27 @@ impl LibraryViewModel {
         updated
     }
 
+    /// Replace the projected stored values of each album of one feed.
+    pub(crate) fn update_album_stored_values(
+        &mut self,
+        feed_id: i64,
+        values: &FeedStoredValues,
+    ) -> bool {
+        let mut updated = false;
+        for album in self
+            .snapshot
+            .tree
+            .artists
+            .iter_mut()
+            .flat_map(|artist| artist.albums.iter_mut())
+            .filter(|album| album.feed_id == Some(feed_id))
+        {
+            album.stored_values = Some(Box::new(values.clone()));
+            updated = true;
+        }
+        updated
+    }
+
     pub(crate) fn update_album_description(
         &mut self,
         feed_id: i64,
@@ -2685,6 +2764,11 @@ impl LibraryViewModel {
 
     pub(crate) fn fail_playlist_track_reorder(&mut self, error: impl std::fmt::Display) {
         self.status = format!("Error reordering: {error:#}");
+    }
+
+    /// ADR 0076 Decision 2: the RSS check command did not start a check.
+    pub(crate) fn fail_playlist_rss_check(&mut self, error: impl std::fmt::Display) {
+        self.status = format!("Error starting the RSS check: {error:#}");
     }
 
     #[must_use]
@@ -3554,6 +3638,7 @@ fn filter_tree(tree: &LibraryTree, query: &str) -> LibraryTree {
                     image_href: album.image_href.clone(),
                     identity_facts: album.identity_facts.clone(),
                     metadata_facts: album.metadata_facts.clone(),
+                    stored_values: album.stored_values.clone(),
                     tracks,
                 });
             }
@@ -4101,6 +4186,9 @@ pub(crate) struct PlaylistTrackRowDisplay {
     pub(crate) title: String,
     pub(crate) artist: String,
     pub(crate) availability_label: Option<&'static str>,
+    /// ADR 0076 Decision 7: the row error and the two removal actions of a
+    /// track with an unconfirmed "removed from feed" mark.
+    pub(crate) removed_from_feed: Option<super::playlist_rss_check::PlaylistRemovedFromFeedDisplay>,
     pub(crate) duration_label: String,
     pub(crate) thumb_url: Option<String>,
     pub(crate) controls: PlaylistTrackControlsDisplay,
@@ -4146,6 +4234,8 @@ pub(crate) struct PlaylistDetailActionsDisplay {
     pub(crate) delete_button_id: String,
     pub(crate) delete_label: &'static str,
     pub(crate) delete_a11y_label: &'static str,
+    /// ADR 0076 Decision 2: the "Check RSS" action with typed availability.
+    pub(crate) check_rss: super::playlist_rss_check::PlaylistCheckRssActionDisplay,
 }
 
 impl PlaylistDetailActionsDisplay {
@@ -4318,6 +4408,7 @@ impl<'a> PlaylistTrackRowVm<'a> {
             title: self.title(),
             artist: self.artist(),
             availability_label: self.availability_label(),
+            removed_from_feed: None,
             duration_label: self.duration_label(),
             thumb_url: self.thumb_url().map(str::to_string),
             controls: self.controls_display(playlist_id),
@@ -4334,6 +4425,7 @@ pub(crate) struct PlaylistDetailVm<'a> {
     playlist: &'a db::Playlist,
     tracks: &'a [TrackRow],
     text_filter: Option<String>,
+    rss_check: Option<&'a crate::runtime::PlaylistRssCheckSnapshot>,
 }
 
 impl<'a> PlaylistDetailVm<'a> {
@@ -4343,7 +4435,27 @@ impl<'a> PlaylistDetailVm<'a> {
             playlist,
             tracks,
             text_filter: None,
+            rss_check: None,
         }
+    }
+
+    /// Attach the playlist RSS check snapshot (ADR 0076 Decision 2).
+    /// `None` means that the check actor is not available.
+    #[must_use]
+    pub(crate) fn with_rss_check(
+        mut self,
+        snapshot: Option<&'a crate::runtime::PlaylistRssCheckSnapshot>,
+    ) -> Self {
+        self.rss_check = snapshot;
+        self
+    }
+
+    /// The report of the latest RSS check of this playlist.
+    #[must_use]
+    pub(crate) fn rss_check_report(
+        &self,
+    ) -> Option<super::playlist_rss_check::PlaylistRssCheckReportDisplay> {
+        super::playlist_rss_check::report(self.playlist.id, self.rss_check)
     }
 
     #[must_use]
@@ -4452,6 +4564,14 @@ impl<'a> PlaylistDetailVm<'a> {
             delete_button_id: format!("playlist-delete-{playlist_id}"),
             delete_label: "Delete",
             delete_a11y_label: "Delete playlist",
+            check_rss: super::playlist_rss_check::PlaylistCheckRssActionDisplay::new(
+                playlist_id,
+                super::playlist_rss_check::availability(
+                    playlist_id,
+                    self.tracks.len(),
+                    self.rss_check,
+                ),
+            ),
         }
     }
 
@@ -5865,8 +5985,54 @@ mod tests {
                 delete_button_id: "playlist-delete-42".into(),
                 delete_label: "Delete",
                 delete_a11y_label: "Delete playlist",
+                check_rss: crate::view_models::playlist_rss_check::PlaylistCheckRssActionDisplay {
+                    button_id: "playlist-check-rss-42".into(),
+                    label: "Check RSS",
+                    a11y_label: "The RSS check is not available because the background runtime did not start",
+                    availability: crate::view_models::playlist_rss_check::PlaylistRssCheckAvailability::RuntimeUnavailable,
+                    enabled: false,
+                },
             }
         );
+    }
+
+    /// R1-13: the "Check RSS" action is unavailable during a run and for an
+    /// empty playlist (ADR 0076 Decision 2).
+    #[test]
+    fn adr_0076_playlist_check_action_unavailable_while_running_or_empty() {
+        use crate::runtime::playlist_rss_check::test_support::running_snapshot;
+        use crate::view_models::playlist_rss_check::PlaylistRssCheckAvailability;
+
+        let mut pl = playlist("Show");
+        pl.id = 7;
+        let tracks = vec![row()];
+        let idle = crate::runtime::PlaylistRssCheckSnapshot::default();
+        let running = running_snapshot(7);
+
+        let action = PlaylistDetailVm::new(&pl, &tracks)
+            .with_rss_check(Some(&idle))
+            .actions_display()
+            .check_rss;
+        assert_eq!(action.availability, PlaylistRssCheckAvailability::Available);
+        assert!(action.enabled);
+
+        let vm = PlaylistDetailVm::new(&pl, &tracks).with_rss_check(Some(&running));
+        let action = vm.actions_display().check_rss;
+        assert_eq!(action.availability, PlaylistRssCheckAvailability::Running);
+        assert!(!action.enabled);
+        let report = vm.rss_check_report().expect("running report");
+        assert!(report.running);
+        assert_eq!(report.rows.len(), 1);
+
+        let action = PlaylistDetailVm::new(&pl, &[])
+            .with_rss_check(Some(&idle))
+            .actions_display()
+            .check_rss;
+        assert_eq!(
+            action.availability,
+            PlaylistRssCheckAvailability::EmptyPlaylist
+        );
+        assert!(!action.enabled);
     }
 
     #[test]
@@ -6102,6 +6268,7 @@ mod tests {
                 title: "Song".into(),
                 artist: "Artist".into(),
                 availability_label: None,
+                removed_from_feed: None,
                 duration_label: "2:05".into(),
                 thumb_url: Some("track".into()),
                 controls: PlaylistTrackControlsDisplay {
@@ -6234,6 +6401,7 @@ mod tests {
                             image_href: Some("saw.jpg".into()),
                             identity_facts: LocalIdentityFacts::default(),
                             metadata_facts: Box::<FeedMetadataFacts>::default(),
+                            stored_values: None,
                             tracks: vec![rhubarb, cliffs],
                         },
                         AlbumNode {
@@ -6246,6 +6414,7 @@ mod tests {
                             image_href: None,
                             identity_facts: LocalIdentityFacts::default(),
                             metadata_facts: Box::<FeedMetadataFacts>::default(),
+                            stored_values: None,
                             tracks: vec![windowlicker],
                         },
                     ],
@@ -6262,6 +6431,7 @@ mod tests {
                         image_href: None,
                         identity_facts: LocalIdentityFacts::default(),
                         metadata_facts: Box::<FeedMetadataFacts>::default(),
+                        stored_values: None,
                         tracks: vec![tri_repetae],
                     }],
                 },
@@ -6558,6 +6728,7 @@ mod tests {
                 no_routes_upstream: 0,
                 file_missing: 1,
                 not_downloaded: 0,
+                ..Default::default()
             },
             tracks: vec![
                 broadcast_readiness_track(
@@ -6587,11 +6758,11 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].title(), "Missing Routes");
         assert_eq!(rows[0].state_label, Some("Missing routes"));
-        assert!(rows[0].action.is_some());
+        assert!(!rows[0].actions.is_empty());
         assert!(!rows[0].accepts_row_click());
         assert_eq!(rows[1].title(), "Missing File");
         assert_eq!(rows[1].state_label, Some("Missing file"));
-        assert!(rows[1].action.is_none());
+        assert!(rows[1].actions.is_empty());
         assert!(!rows[1].accepts_row_click());
     }
 
@@ -6608,8 +6779,8 @@ mod tests {
         );
 
         let action = row
-            .action
-            .as_ref()
+            .actions
+            .first()
             .expect("NoRouteTag row carries a repair action");
         assert_eq!(
             action.kind,
@@ -6620,6 +6791,69 @@ mod tests {
         assert_eq!(action.a11y_label, "Fix payment routes for Missing Routes");
         assert!(!action.disabled());
         assert!(!row.accepts_row_click());
+    }
+
+    /// R3-10 and R3-12: the row of a removed track exposes a typed confirm
+    /// action and a typed "Remove from library" action, each with an
+    /// accessibility label. The row of a `RouteOutOfDate` track exposes no
+    /// repair action, and it names the "Update n file(s)" button.
+    #[test]
+    fn adr_0076_route_readiness_rows_expose_confirm_and_no_repair() {
+        use crate::application::queries::broadcast::BroadcastReadinessState;
+
+        let removed = ContentListRowDisplay::from_broadcast_readiness_track(
+            &broadcast_readiness_track(
+                9,
+                "Gone Song",
+                BroadcastReadinessState::RemovedFromFeed,
+                "Removed from feed on 2026-09-24 10:00 UTC. Confirm to play it, or remove it from the playlist.",
+            ),
+            false,
+        );
+        assert_eq!(removed.state_label, Some("Removed from feed"));
+        let confirm = removed.actions.first().expect("confirm action");
+        assert_eq!(
+            confirm.kind,
+            ContentListRowActionKind::ConfirmRemovedFromFeed { track_id: 9 }
+        );
+        assert_eq!(confirm.id, "broadcast-readiness-confirm-removed-9");
+        assert_eq!(confirm.label, "Confirm");
+        assert_eq!(
+            confirm.a11y_label,
+            "Confirm that the show plays Gone Song, which was removed from its feed"
+        );
+        assert!(!confirm.disabled());
+        // R3-12: the second action is "Remove from library".
+        assert_eq!(removed.actions.len(), 2);
+        let remove = &removed.actions[1];
+        assert_eq!(
+            remove.kind,
+            ContentListRowActionKind::RemoveFromLibrary { track_id: 9 }
+        );
+        assert_eq!(remove.id, "broadcast-readiness-remove-from-library-9");
+        assert_eq!(remove.label, "Remove from library");
+        assert_eq!(remove.a11y_label, "Remove Gone Song from the library");
+        assert!(!remove.disabled());
+        assert!(removed
+            .secondary_text()
+            .contains("Removed from feed on 2026-09-24"));
+        assert!(!removed.accepts_row_click());
+
+        let old = ContentListRowDisplay::from_broadcast_readiness_track(
+            &broadcast_readiness_track(
+                10,
+                "Old Route",
+                BroadcastReadinessState::RouteOutOfDate,
+                "Payment route in file is out of date.",
+            ),
+            false,
+        );
+        assert_eq!(old.state_label, Some("Route out of date"));
+        assert!(old.actions.is_empty());
+        assert!(old
+            .secondary_text()
+            .contains("Payment route in file is out of date."));
+        assert!(old.secondary_text().contains("\"Update n file(s)\""));
     }
 
     #[test]
@@ -6635,7 +6869,7 @@ mod tests {
         );
 
         assert_eq!(row.state_label, Some("No upstream routes"));
-        assert_eq!(row.action, None);
+        assert!(row.actions.is_empty());
         assert!(
             row.secondary_text()
                 .contains("Publisher must add payment routes."),
@@ -6654,6 +6888,7 @@ mod tests {
                 no_routes_upstream: 0,
                 file_missing: 0,
                 not_downloaded: 0,
+                ..Default::default()
             },
             tracks: vec![broadcast_readiness_track(
                 7,
@@ -6669,8 +6904,8 @@ mod tests {
         let rows = vm.content_list_page.visible_rows();
         assert_eq!(rows[0].state_label, Some("Repairing routes"));
         let action = rows[0]
-            .action
-            .as_ref()
+            .actions
+            .first()
             .expect("repair action remains visible");
         assert_eq!(action.label, "Fixing...");
         assert!(action.disabled());

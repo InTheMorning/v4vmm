@@ -116,6 +116,23 @@ pub(crate) fn rss_request(
     }
 }
 
+/// The request slot of the playlist RSS check (ADR 0076 Decision 2).
+///
+/// One slot for each feed URL holds the latest document fetch of the check.
+/// It has no track parameters, so it stays separate from the track
+/// enrichment slot of `rss_request`.
+pub(crate) fn rss_document(resource: &str) -> ProviderRequestSpec {
+    ProviderRequestSpec {
+        provider: ProviderKind::Rss,
+        provider_identity: resource.into(),
+        request_uri: resource.into(),
+        requested_subject: None,
+        requested_parameters: json!({}),
+        profile: json!({"version":1,"operation":"rss_playlist_check"}),
+        started_at_us: 0,
+    }
+}
+
 fn ordinary(node: Node<'_, '_>, name: &str) -> bool {
     node.is_element()
         && node.tag_name().name() == name

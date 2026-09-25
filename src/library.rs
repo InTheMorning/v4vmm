@@ -176,6 +176,18 @@ pub struct LibraryApp {
     /// Feed-level MusicBrainz lookup saga actor. Dropping the handle
     /// closes the inbox and lets the runtime task exit.
     musicbrainz_feed_saga: Option<MusicBrainzFeedSagaHandle>,
+    /// Playlist RSS check actor (ADR 0076 Decision 2). Dropping the handle
+    /// closes the inbox and lets the runtime task exit.
+    playlist_rss_check: Option<crate::runtime::PlaylistRssCheckHandle>,
+    /// Latest RSS check snapshot. `None` while no check actor runs.
+    playlist_rss_snapshot: Option<crate::runtime::PlaylistRssCheckSnapshot>,
+    /// Tag update actor (ADR 0076 Decision 8). Dropping the handle closes
+    /// the inbox and lets the runtime task exit.
+    tag_update: Option<crate::runtime::TagUpdateHandle>,
+    /// Latest tag update snapshot. `None` while no tag update actor runs.
+    tag_update_snapshot: Option<crate::runtime::TagUpdateSnapshot>,
+    /// `true` when the actor did not accept the latest confirm.
+    tag_update_request_failed: bool,
     /// Existing Recent Feeds pager consumed by the default Music content region.
     recent_music_page: RecentFeedsPageVm,
     /// Scroll state for default Music recency pagination.

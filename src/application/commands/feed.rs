@@ -26,9 +26,6 @@ use feed_service::StaleFeed;
 
 type SharedConnection = Arc<Mutex<Connection>>;
 
-/// Resolves the music directory that each feed update reads.
-type MusicDirSource<'a> = &'a dyn Fn() -> anyhow::Result<PathBuf>;
-
 /// Command result for checking one feed for remote updates.
 #[derive(Clone, Debug)]
 pub struct CheckFeedStalenessResult {
@@ -126,11 +123,12 @@ impl ApplicationCommand for CheckFeedStaleness {
 }
 
 /// Command result for applying remote feed updates to local tracks.
+///
+/// ADR 0076 Decision 8: a feed update changes the database only. The result
+/// counts stored track records and writes no audio tag.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApplyFeedUpdatesResult {
-    tracks_updated: usize,
-    edits_written: usize,
-    id3_errors: Vec<String>,
+    tracks_refreshed: usize,
     feed_errors: Vec<String>,
     message: String,
     /// ADR 0075 keeps committed receipts outside the business value.
@@ -140,17 +138,10 @@ pub struct ApplyFeedUpdatesResult {
 impl ApplyFeedUpdatesResult {
     /// Creates a feed-update result.
     #[must_use]
-    pub fn new(
-        tracks_updated: usize,
-        edits_written: usize,
-        id3_errors: Vec<String>,
-        feed_errors: Vec<String>,
-    ) -> Self {
-        let message = feed_apply_message(tracks_updated, edits_written, &id3_errors, &feed_errors);
+    pub fn new(tracks_refreshed: usize, feed_errors: Vec<String>) -> Self {
+        let message = feed_apply_message(tracks_refreshed, &feed_errors);
         Self {
-            tracks_updated,
-            edits_written,
-            id3_errors,
+            tracks_refreshed,
             feed_errors,
             message,
             observation_receipts: Vec::new(),
@@ -162,22 +153,10 @@ impl ApplyFeedUpdatesResult {
         &self.observation_receipts
     }
 
-    /// Returns how many tracks had tag edits written.
+    /// Returns how many tracks had their `MusicIndex` record stored.
     #[must_use]
-    pub const fn tracks_updated(&self) -> usize {
-        self.tracks_updated
-    }
-
-    /// Returns how many ID3 edits were written.
-    #[must_use]
-    pub const fn edits_written(&self) -> usize {
-        self.edits_written
-    }
-
-    /// Returns ID3 write error messages.
-    #[must_use]
-    pub fn id3_errors(&self) -> &[String] {
-        &self.id3_errors
+    pub const fn tracks_refreshed(&self) -> usize {
+        self.tracks_refreshed
     }
 
     /// Returns feed update error messages.
@@ -304,6 +283,11 @@ fn check_feed_batch_for_updates(
 }
 
 /// ADR 0075 shares one observed update loop with both update roots.
+///
+/// Ordinary update failures keep their per-feed message. A provider storage
+/// failure stops the loop with its typed capsule. `receipts_out`
+/// accumulates every updated feed's own receipts (packet 018 R18B-11); see
+/// `feed_service::apply_feed_updates`'s documentation.
 fn apply_stale_feed_updates(
     conn: &SharedConnection,
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
@@ -312,56 +296,22 @@ fn apply_stale_feed_updates(
     context: &CommandContext,
     receipts_out: &mut Vec<ObservationReceipt>,
 ) -> Result<ApplyFeedUpdatesResult, CommandError> {
-    apply_stale_feed_updates_from(
-        conn,
-        musicindex_endpoint,
-        stale,
-        recorder,
-        context,
-        &feed_service::configured_music_dir,
-        receipts_out,
-    )
-}
-
-/// The music directory source keeps the existing configuration read for each feed.
-///
-/// Ordinary update failures keep their per-feed message. A provider storage
-/// failure stops the loop with its typed capsule. `receipts_out`
-/// accumulates every updated feed's own receipts (packet 018 R18B-11); see
-/// `feed_service::apply_feed_updates`'s documentation.
-#[allow(clippy::too_many_arguments)]
-fn apply_stale_feed_updates_from(
-    conn: &SharedConnection,
-    musicindex_endpoint: &crate::config::MusicIndexEndpoint,
-    stale: &[StaleFeed],
-    recorder: &Arc<ProviderObservationRecorder>,
-    context: &CommandContext,
-    music_dir: MusicDirSource<'_>,
-    receipts_out: &mut Vec<ObservationReceipt>,
-) -> Result<ApplyFeedUpdatesResult, CommandError> {
     let mut total_tracks = 0usize;
-    let mut total_edits = 0usize;
-    let mut id3_errors = Vec::new();
     let mut feed_errors = Vec::new();
     for entry in stale {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
-        let applied = music_dir().and_then(|music_dir| {
-            feed_service::apply_feed_updates(
-                conn,
-                musicindex_endpoint,
-                entry,
-                &music_dir,
-                recorder,
-                receipts_out,
-            )
-        });
+        let applied = feed_service::apply_feed_updates(
+            conn,
+            musicindex_endpoint,
+            entry,
+            recorder,
+            receipts_out,
+        );
         match applied {
             Ok(outcome) => {
-                total_tracks += outcome.tracks_updated;
-                total_edits += outcome.edits_written;
-                id3_errors.extend(outcome.id3_errors);
+                total_tracks += outcome.tracks_refreshed;
             }
             Err(error) => {
                 if let Some(failure) = observation_storage_failure(&error) {
@@ -375,12 +325,7 @@ fn apply_stale_feed_updates_from(
             }
         }
     }
-    Ok(ApplyFeedUpdatesResult::new(
-        total_tracks,
-        total_edits,
-        id3_errors,
-        feed_errors,
-    ))
+    Ok(ApplyFeedUpdatesResult::new(total_tracks, feed_errors))
 }
 
 /// Result for checking feeds, applying updates, and repairing route tags.
@@ -765,25 +710,18 @@ fn plural(count: usize) -> &'static str {
     }
 }
 
-fn feed_apply_message(
-    tracks_updated: usize,
-    edits_written: usize,
-    id3_errors: &[String],
-    feed_errors: &[String],
-) -> String {
+/// ADR 0076 Decision 8: the message states that the update changed no audio
+/// file. The "Update n file(s)" button offers the file write.
+fn feed_apply_message(tracks_refreshed: usize, feed_errors: &[String]) -> String {
     let mut parts = Vec::new();
-    parts.push(if tracks_updated == 0 {
-        "No edits written".into()
+    parts.push(if tracks_refreshed == 0 {
+        "Stored no MusicIndex track record. No audio file changed".to_owned()
     } else {
-        format!("Applied {edits_written} edit(s) to {tracks_updated} track(s)")
+        format!(
+            "Stored the MusicIndex record of {tracks_refreshed} track{}. No audio file changed",
+            plural(tracks_refreshed)
+        )
     });
-    if !id3_errors.is_empty() {
-        parts.push(format!(
-            "Tag write errors ({}): {}",
-            id3_errors.len(),
-            id3_errors.join("; ")
-        ));
-    }
     if !feed_errors.is_empty() {
         parts.push(format!(
             "Feed errors ({}): {}",
@@ -870,7 +808,7 @@ mod tests {
 
     #[test]
     fn check_feeds_and_repair_routes_result_exposes_counts() {
-        let feed_updates = ApplyFeedUpdatesResult::new(1, 2, vec!["tag failed".into()], Vec::new());
+        let feed_updates = ApplyFeedUpdatesResult::new(1, vec!["Feed: offline".into()]);
         let route_repairs = PaymentRouteRepairBatchResult {
             summary: crate::application::commands::payment_routes::PaymentRouteRepairSummary {
                 repaired: 2,
@@ -888,7 +826,7 @@ mod tests {
         assert_eq!(
             result
                 .feed_updates()
-                .map(|updates| updates.id3_errors().len()),
+                .map(|updates| updates.feed_errors().len()),
             Some(1)
         );
         assert_eq!(result.route_repairs().summary.repaired, 2);
@@ -904,11 +842,13 @@ mod tests {
             &CommandContext::next(),
         )?;
 
-        assert_eq!(outcome.value().tracks_updated(), 0);
-        assert_eq!(outcome.value().edits_written(), 0);
-        assert!(outcome.value().id3_errors().is_empty());
+        assert_eq!(outcome.value().tracks_refreshed(), 0);
         assert!(outcome.value().feed_errors().is_empty());
-        assert_eq!(outcome.value().message(), "No edits written");
+        // ADR 0076 Decision 8: the message does not claim a file write.
+        assert_eq!(
+            outcome.value().message(),
+            "Stored no MusicIndex track record. No audio file changed"
+        );
         assert_eq!(outcome.events(), feed_update_events());
 
         Ok(())
@@ -1072,7 +1012,7 @@ mod observation_tests {
             // retained entry; nothing here clears the shared owner, which
             // would race a concurrently running test's own state.
             let conn = Connection::open_in_memory().unwrap();
-            db::upgrades::create_fixture(&conn, 12).unwrap();
+            db::upgrades::create_fixture(&conn, db::CURRENT_VERSION).unwrap();
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             listener.set_nonblocking(true).unwrap();
             let address = listener.local_addr().unwrap().to_string();
@@ -1225,17 +1165,15 @@ mod observation_tests {
                 .map(|outcome| outcome.into_parts().0)
         }
 
-        fn apply(&self, music_dir: &Path) -> Result<ApplyFeedUpdatesResult, CommandError> {
+        fn apply(&self) -> Result<ApplyFeedUpdatesResult, CommandError> {
             let recorder = Arc::new(ProviderObservationRecorder::new(Arc::clone(&self.conn)));
-            let music_dir = music_dir.to_owned();
             let mut receipts = Vec::new();
-            let result = apply_stale_feed_updates_from(
+            let result = apply_stale_feed_updates(
                 &self.conn,
                 &self.endpoint,
                 &[self.stale_entry()],
                 &recorder,
                 &self.context(),
-                &move || Ok(music_dir.clone()),
                 &mut receipts,
             );
             assemble_observed_feed_command(&recorder, result, receipts, |value, receipts| {
@@ -1395,16 +1333,17 @@ mod observation_tests {
             ))
             .unwrap();
 
+        let before = std::fs::read(&path).unwrap();
         for repetition in [false, true] {
             mutations.lock().unwrap().clear();
             fixture.commits.store(0, Ordering::SeqCst);
-            let result = fixture.apply(directory.path()).unwrap();
+            let result = fixture.apply().unwrap();
             assert!(
                 result.feed_errors().is_empty(),
                 "{:?}",
                 result.feed_errors()
             );
-            assert!(result.id3_errors().is_empty(), "{:?}", result.id3_errors());
+            assert_eq!(result.tracks_refreshed(), 1);
             assert_eq!(
                 fixture.taken_requests(),
                 vec![
@@ -1449,17 +1388,14 @@ mod observation_tests {
             "a repeated response records another occurrence"
         );
 
+        // ADR 0076 Decision 8: the explicit update changes the database only.
+        // It writes no tag. The tag update button of packet 004 offers the
+        // file write.
         let tag = id3::Tag::read_from_path(&path).unwrap();
-        // The explicit update writes the source values into the file. The feed view
-        // below makes no file change. That difference is the existing behavior.
-        assert_eq!(tag.title(), Some("Index title"));
-        assert!(
-            tag.frames().any(|frame| frame.id() == "TXXX"),
-            "the explicit update writes its generated edits"
-        );
+        assert_eq!(tag.title(), Some("Embedded title"));
+        assert_eq!(std::fs::read(&path).unwrap(), before);
 
         // Viewing a feed never writes tags.
-        let before = std::fs::read(&path).unwrap();
         fixture.check_one().unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), before);
     }
@@ -1468,8 +1404,7 @@ mod observation_tests {
     #[test]
     fn adr_0075_feed_observation_retained_bodies_survive_a_database_reopen() {
         let fixture = Fixture::start();
-        let directory = audio_directory();
-        fixture.apply(directory.path()).unwrap();
+        fixture.apply().unwrap();
         fixture.mode.store(4, Ordering::SeqCst);
         fixture.check_one().unwrap_err();
         fixture.mode.store(1, Ordering::SeqCst);
@@ -1549,7 +1484,7 @@ mod observation_tests {
         let fixture = Fixture::start();
         let directory = audio_directory();
         fixture.mode.store(2, Ordering::SeqCst);
-        let error = fixture.apply(directory.path()).unwrap_err();
+        let error = fixture.apply().unwrap_err();
         let CommandError::ObservationWriteFailure(failure) = &error else {
             panic!("typed storage failure required, found {error:?}")
         };
@@ -1575,12 +1510,12 @@ mod observation_tests {
             "a stopped feed keeps its marker"
         );
 
-        // Response-write failure stops legacy persistence and tag generation.
+        // Response-write failure stops legacy persistence.
         let fixture = Fixture::start();
         let path = directory.path().join("track.mp3");
         let before = std::fs::read(&path).unwrap();
         fixture.mode.store(3, Ordering::SeqCst);
-        let error = fixture.apply(directory.path()).unwrap_err();
+        let error = fixture.apply().unwrap_err();
         let CommandError::ObservationWriteFailure(failure) = &error else {
             panic!("typed storage failure required, found {error:?}")
         };
@@ -1601,7 +1536,7 @@ mod observation_tests {
         // A later response-write failure keeps every earlier receipt.
         let fixture = Fixture::start();
         fixture.mode.store(6, Ordering::SeqCst);
-        let error = fixture.apply(directory.path()).unwrap_err();
+        let error = fixture.apply().unwrap_err();
         let CommandError::ObservationWriteFailure(failure) = &error else {
             panic!("typed storage failure required, found {error:?}")
         };
@@ -1612,7 +1547,7 @@ mod observation_tests {
         // An RSS storage failure stops the track before its legacy write.
         let fixture = Fixture::start();
         fixture.mode.store(7, Ordering::SeqCst);
-        let error = fixture.apply(directory.path()).unwrap_err();
+        let error = fixture.apply().unwrap_err();
         let CommandError::ObservationWriteFailure(failure) = &error else {
             panic!("typed storage failure required, found {error:?}")
         };
@@ -1658,8 +1593,8 @@ mod observation_tests {
         assert_eq!(error.clone(), error);
 
         // An ordinary update failure keeps its per-feed message and continues.
-        let result = fixture.apply(directory.path()).unwrap();
-        assert_eq!(result.tracks_updated(), 0);
+        let result = fixture.apply().unwrap();
+        assert_eq!(result.tracks_refreshed(), 0);
         assert_eq!(result.feed_errors().len(), 0);
         // The update sequence keeps its four requests. Each failed response leaves
         // its own receipt.
@@ -1670,35 +1605,18 @@ mod observation_tests {
             "ordinary skips still advance the marker"
         );
 
-        // A configuration failure keeps the existing per-feed message.
-        let recorder = Arc::new(ProviderObservationRecorder::new(Arc::clone(&fixture.conn)));
-        let result = apply_stale_feed_updates_from(
-            &fixture.conn,
-            &fixture.endpoint,
-            &[fixture.stale_entry()],
-            &recorder,
-            &fixture.context(),
-            &|| Err(anyhow::anyhow!("configuration unreadable")),
-            &mut Vec::new(),
-        )
-        .unwrap();
-        assert_eq!(
-            result.feed_errors(),
-            ["Local feed: configuration unreadable"]
-        );
-        assert_eq!(
-            result.message(),
-            "No edits written — Feed errors (1): Local feed: configuration unreadable"
-        );
-        assert!(recorder.take_receipts().is_empty());
-
-        // A missing physical file still incurs requests before its tag error.
-        let empty = tempfile::tempdir().unwrap();
+        // ADR 0076 Decision 8: the update reads and writes no audio file, so
+        // a missing file gives no error. The requests stay the same.
+        std::fs::remove_file(directory.path().join("track.mp3")).unwrap();
         fixture.mode.store(0, Ordering::SeqCst);
         let _ = fixture.taken_requests();
-        let result = fixture.apply(empty.path()).unwrap();
-        assert_eq!(result.id3_errors().len(), 1);
-        assert_eq!(result.tracks_updated(), 0);
+        let result = fixture.apply().unwrap();
+        assert!(result.feed_errors().is_empty());
+        assert_eq!(result.tracks_refreshed(), 1);
+        assert_eq!(
+            result.message(),
+            "Stored the MusicIndex record of 1 track. No audio file changed"
+        );
         assert_eq!(fixture.taken_requests().len(), 4);
         assert_eq!(result.observation_receipts().len(), 4);
         assert_eq!(fixture.marker(), Some(200));

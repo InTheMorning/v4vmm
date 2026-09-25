@@ -12,7 +12,8 @@ use crate::provider_observation::{
     CollectionState, CoverageEvidence, FactEvidence, ObservationOutcome, ObservationReceipt,
     ObservationRetention, ObservationStorageError, ObservationWriteFailure, ProviderBinding,
     ProviderCollection, ProviderObservation, ProviderRequestSpec, ProviderTrackState, RefreshState,
-    RequestRefresh, RequestToken, RequestWriteState, StorageRetry, StoredFact, SubjectKey,
+    RequestRefresh, RequestToken, RequestValidators, RequestWriteState, StorageRetry, StoredFact,
+    SubjectKey,
 };
 
 fn identity(domain: &str, parts: &[String]) -> String {
@@ -993,6 +994,53 @@ pub fn read_request_refresh(
     }))
 }
 
+/// Read the `ETag` and `Last-Modified` values of the latest successful
+/// observation of a request slot (ADR 0076 accepted values).
+///
+/// Only an observation with a 2xx status counts. A `304` observation is
+/// also `success`, but it carries no representation and its headers can
+/// omit a validator. Thus a `304` response never changes the validators.
+/// The reader returns `None` when the slot has no such observation, or when
+/// that observation has neither header.
+pub fn read_request_validators(
+    conn: &Connection,
+    spec: &ProviderRequestSpec,
+) -> Result<Option<RequestValidators>> {
+    let (_, descriptor, profile) = request_identity(spec);
+    let occurrence: Option<String> = conn
+        .query_row(
+            "SELECT o.last_occurrence_metadata_json FROM metadata_observations o JOIN metadata_providers p ON p.id=o.provider_id JOIN metadata_resources r ON r.id=o.resource_id AND r.provider_id=o.provider_id WHERE p.kind=?1 AND p.identity=?2 AND r.request_uri=?3 AND o.requested_subject_json=?4 AND o.profile_json=?5 AND o.outcome='success' AND o.http_status BETWEEN 200 AND 299 ORDER BY o.last_generation DESC, o.id DESC LIMIT 1",
+            params![
+                spec.provider.token(),
+                spec.provider_identity,
+                spec.request_uri,
+                descriptor,
+                profile
+            ],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let Some(occurrence) = occurrence else {
+        return Ok(None);
+    };
+    let occurrence: Value = serde_json::from_str(&occurrence)?;
+    let header = |name: &str| -> Option<String> {
+        use base64::Engine;
+        let encoded = occurrence["headers"][name].get(0)?.as_str()?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .ok()?;
+        let text = String::from_utf8(bytes).ok()?;
+        let text = text.trim();
+        (!text.is_empty()).then(|| text.to_owned())
+    };
+    let validators = RequestValidators {
+        etag: header("etag"),
+        last_modified: header("last-modified"),
+    };
+    Ok((validators.etag.is_some() || validators.last_modified.is_some()).then_some(validators))
+}
+
 /// Bind collections only through exact retained RSS request evidence.
 pub fn read_track_provider_state(
     conn: &Connection,
@@ -1417,9 +1465,6 @@ mod tests {
             "metadata_snapshots",
             "metadata_snapshot_members",
             "metadata_collection_heads",
-            "metadata_field_selections",
-            "metadata_discrepancies",
-            "metadata_discrepancy_transitions",
         ];
         let limits = names
             .iter()

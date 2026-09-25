@@ -230,7 +230,7 @@ fn render_content_list_row(
         );
     }
 
-    if let Some(action) = row.action.as_ref() {
+    for action in &row.actions {
         list_row = list_row.child(render_content_list_row_action(action, cx));
     }
 
@@ -290,7 +290,7 @@ fn render_content_list_tile(
         })
         .child(render_content_list_tile_badges(row, entity_kind, cx));
 
-    if let Some(action) = row.action.as_ref() {
+    for action in &row.actions {
         tile = tile.child(render_content_list_row_action(action, cx));
     }
 
@@ -418,8 +418,8 @@ fn render_content_list_row_action(
     .label(action.label.clone())
     .a11y_label(action.a11y_label.clone())
     .disabled(action.disabled())
-    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-        this.run_content_list_row_action(kind, cx);
+    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+        this.run_content_list_row_action(kind, window, cx);
     }))
     .into_any_element()
 }

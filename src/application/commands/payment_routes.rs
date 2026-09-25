@@ -1,4 +1,8 @@
 //! Payment-route tag repair commands for ADR 0065.
+//!
+//! ADR 0076 Decision 9 amends the source of the route: the repair writes the
+//! route stored in the database. It asks `MusicIndex` only when the database
+//! has no route for the track, and it stores that response before the write.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -14,14 +18,15 @@ use crate::application::command_context::CommandContext;
 use crate::application::errors::command::CommandError;
 use crate::application::events::metadata::MetadataEvent;
 use crate::application::events::ApplicationEvent;
+use crate::application::queries::broadcast::NO_RSS_RECIPIENTS_REASON;
 use crate::application::queries::broadcast::{self, BroadcastReadinessState};
-use crate::audio_tags::{read_audio_tags, write_id3v24_edits, Id3v24Edit};
+use crate::audio_tags::{read_audio_tags, write_id3v24_edits};
 use crate::db::{self, LocalMetadataFactInput, LocalMetadataOwner, LocalMetadataValue, TrackRow};
 use crate::metadata::{
-    audio_tags_have_ready_value_routes, TrackContext, MUSICINDEX_METADATA_SOURCE,
-    MUSICINDEX_PAYMENT_ROUTES_ABSENT_FACT_KEY, MUSICINDEX_VALUE_ROUTES_FRAME,
+    audio_tags_have_ready_value_routes, MUSICINDEX_METADATA_SOURCE,
+    MUSICINDEX_PAYMENT_ROUTES_ABSENT_FACT_KEY,
 };
-use crate::metadata_service::id3_edits_for_track_context;
+use crate::metadata_service::{with_stored_route_frame, RouteFrameWrite};
 
 type SharedConnection = Arc<Mutex<Connection>>;
 
@@ -74,6 +79,16 @@ impl PaymentRouteRepairTrackResult {
             status: PaymentRouteRepairStatus::NoRoutesUpstream,
             frames_written: 0,
             reason: Some("MusicIndex has no payment routes for this track or feed.".to_owned()),
+        }
+    }
+
+    fn no_routes_in_rss(track_id: i64, title: Option<String>) -> Self {
+        Self {
+            track_id,
+            title,
+            status: PaymentRouteRepairStatus::NoRoutesUpstream,
+            frames_written: 0,
+            reason: Some(NO_RSS_RECIPIENTS_REASON.to_owned()),
         }
     }
 
@@ -279,7 +294,11 @@ fn repair_missing_payment_routes_with_client<C: PaymentRouteApi>(
     let mut results = Vec::new();
     for track in report.problem_tracks() {
         match track.state {
-            BroadcastReadinessState::Ready => {}
+            // ADR 0076 packet 003: a removed track waits for the operator, and
+            // packet 004 owns the write of an out-of-date route.
+            BroadcastReadinessState::Ready
+            | BroadcastReadinessState::RemovedFromFeed
+            | BroadcastReadinessState::RouteOutOfDate => {}
             BroadcastReadinessState::NoRoutesUpstream => {
                 results.push(PaymentRouteRepairTrackResult::no_routes_upstream(
                     track.track_id,
@@ -373,6 +392,23 @@ fn repair_loaded_payment_routes_track<C: PaymentRouteApi>(
         }
     }
 
+    // ADR 0076 Decision 9: a stored route is the source of the write, and the
+    // repair then asks MusicIndex nothing.
+    match db::payment_routes::stored_route(conn, track.id) {
+        Ok(Some(routes)) if routes.is_empty() => {
+            return PaymentRouteRepairTrackResult::no_routes_in_rss(track.id, title);
+        }
+        Ok(Some(_)) => return write_stored_route(conn, &path, track, None),
+        Ok(None) => {}
+        Err(error) => {
+            return PaymentRouteRepairTrackResult::failed(
+                track.id,
+                title,
+                format!("read stored payment route: {error:#}"),
+            );
+        }
+    }
+
     match broadcast::track_has_no_upstream_payment_routes(conn, track) {
         // Trust the recorded answer only for a batch run. Without the second
         // arm, a track recorded once could never be retried, not even by an
@@ -390,7 +426,7 @@ fn repair_loaded_payment_routes_track<C: PaymentRouteApi>(
         }
     }
 
-    let (fetched_track, fetched_feed) = match fetch_musicindex_payment_routes(client, track) {
+    let (fetched_track, _fetched_feed) = match fetch_musicindex_payment_routes(client, track) {
         Ok(context) => context,
         Err(error) => {
             return PaymentRouteRepairTrackResult::failed(
@@ -416,25 +452,56 @@ fn repair_loaded_payment_routes_track<C: PaymentRouteApi>(
         return PaymentRouteRepairTrackResult::no_routes_upstream(track.id, title);
     }
 
-    let context = TrackContext::new(fetched_track.clone(), fetched_feed);
-    let edits = payment_route_edits(&context);
-    if edits.is_empty() {
-        return PaymentRouteRepairTrackResult::failed(
-            track.id,
-            title,
-            "MusicIndex value-routes edit was not generated",
-        );
-    }
+    // The database has no route, so the MusicIndex response goes into the
+    // database first. The frame then uses the stored value.
+    write_stored_route(conn, &path, track, Some(&fetched_track))
+}
 
-    match write_id3v24_edits(&path, &edits) {
+/// Writes the route frame from the stored route (ADR 0076 Decision 9). A
+/// `MusicIndex` track is stored first when the database has no route.
+fn write_stored_route(
+    conn: &Connection,
+    path: &Path,
+    track: &TrackRow,
+    musicindex: Option<&Track>,
+) -> PaymentRouteRepairTrackResult {
+    let title = track_title(track);
+    let edits = match with_stored_route_frame(
+        conn,
+        track.id,
+        musicindex.and_then(|fetched| fetched.payment_routes.as_deref()),
+        Vec::new(),
+        RouteFrameWrite::Always,
+    ) {
+        Ok(edits) if edits.is_empty() => {
+            return PaymentRouteRepairTrackResult::failed(
+                track.id,
+                title,
+                "the stored payment route gave no value-routes edit",
+            );
+        }
+        Ok(edits) => edits,
+        Err(error) => {
+            return PaymentRouteRepairTrackResult::failed(
+                track.id,
+                title,
+                format!("read stored payment route: {error:#}"),
+            );
+        }
+    };
+
+    match write_id3v24_edits(path, &edits) {
         Ok(frames_written) if frames_written > 0 => {
-            if let Err(error) = record_payment_routes_absent(conn, track.id, false, &fetched_track)
-            {
-                return PaymentRouteRepairTrackResult::failed(
-                    track.id,
-                    title,
-                    format!("record repaired route state: {error:#}"),
-                );
+            if let Some(fetched_track) = musicindex {
+                if let Err(error) =
+                    record_payment_routes_absent(conn, track.id, false, fetched_track)
+                {
+                    return PaymentRouteRepairTrackResult::failed(
+                        track.id,
+                        title,
+                        format!("record repaired route state: {error:#}"),
+                    );
+                }
             }
             PaymentRouteRepairTrackResult::repaired(track, frames_written)
         }
@@ -474,13 +541,6 @@ fn fetch_musicindex_payment_routes<C: PaymentRouteApi>(
     };
     let fetched_track = api::track_with_feed_defaults(fetched_track, fetched_feed.as_ref());
     Ok((fetched_track, fetched_feed))
-}
-
-fn payment_route_edits(track_context: &TrackContext) -> Vec<Id3v24Edit> {
-    id3_edits_for_track_context(track_context)
-        .into_iter()
-        .filter(|edit| edit.frame_label == MUSICINDEX_VALUE_ROUTES_FRAME)
-        .collect()
 }
 
 fn record_payment_routes_absent(
@@ -529,9 +589,10 @@ mod tests {
     use anyhow::Context;
 
     use crate::api::PaymentRoute;
-    use crate::audio_tags::read_audio_tags;
+    use crate::audio_tags::{read_audio_tags, Id3v24Edit};
     use crate::library_path::LibraryRelativePath;
     use crate::metadata::audio_tags_have_ready_value_routes;
+    use crate::metadata::MUSICINDEX_VALUE_ROUTES_FRAME;
 
     use super::*;
 
@@ -1026,5 +1087,146 @@ mod tests {
                 track_id: 7
             })]
         );
+    }
+
+    fn named_route(name: &str, split: f64) -> PaymentRoute {
+        PaymentRoute {
+            recipient_name: Some(name.into()),
+            route_type: Some("node".into()),
+            split: Some(split),
+            fee: Some(false),
+            address: Some("03abcdef".into()),
+            ..PaymentRoute::default()
+        }
+    }
+
+    fn file_route_names(path: &Path) -> Vec<Option<String>> {
+        let tags = read_audio_tags(path).unwrap();
+        let value = crate::metadata::audio_tags_value_routes(&tags).unwrap();
+        crate::metadata::parse_value_routes(value)
+            .unwrap()
+            .into_iter()
+            .map(|route| route.recipient_name)
+            .collect()
+    }
+
+    fn set_stored_route(conn: &Connection, track_id: i64, routes: &[PaymentRoute]) {
+        conn.execute(
+            "UPDATE tracks SET payment_routes_json = ?2 WHERE id = ?1",
+            rusqlite::params![track_id, serde_json::to_string(routes).unwrap()],
+        )
+        .unwrap();
+    }
+
+    fn musicindex_client(name: &str) -> FakePaymentRouteClient {
+        FakePaymentRouteClient::with_track_and_feed(
+            Track {
+                track_guid: Some("track-guid".into()),
+                feed_guid: Some("feed-guid".into()),
+                payment_routes: Some(vec![named_route(name, 100.0)]),
+                ..Track::default()
+            },
+            None,
+        )
+    }
+
+    /// R3-03 (repair write) and R3-05: with a stored route, the repair
+    /// writes the stored route and sends no MusicIndex request, also when
+    /// MusicIndex has a different route.
+    #[test]
+    fn adr_0076_route_readiness_repair_writes_stored_route_without_request() {
+        let conn = setup_test_db().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let (track_id, path) = create_track_with_file(
+            &conn,
+            temp.path(),
+            "track-guid",
+            "track.mp3",
+            b"not really an mp3",
+        )
+        .unwrap();
+        set_stored_route(&conn, track_id, &[named_route("Stored", 100.0)]);
+        let client = musicindex_client("MusicIndex");
+
+        let result = repair_payment_routes_for_track_with_client(
+            &conn,
+            temp.path(),
+            track_id,
+            &client,
+            RecheckUpstream::Ask,
+        );
+
+        assert_eq!(result.status, PaymentRouteRepairStatus::Repaired);
+        assert_eq!(file_route_names(&path), vec![Some("Stored".to_owned())]);
+        assert!(client.calls().is_empty(), "{:?}", client.calls());
+    }
+
+    /// R3-04: with no stored route, the repair asks MusicIndex once, stores
+    /// the response, and writes the stored value.
+    #[test]
+    fn adr_0076_route_readiness_repair_stores_musicindex_route_before_write() {
+        let conn = setup_test_db().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let (track_id, path) = create_track_with_file(
+            &conn,
+            temp.path(),
+            "track-guid",
+            "track.mp3",
+            b"not really an mp3",
+        )
+        .unwrap();
+        let client = musicindex_client("MusicIndex");
+
+        let result = repair_payment_routes_for_track_with_client(
+            &conn,
+            temp.path(),
+            track_id,
+            &client,
+            RecheckUpstream::Ask,
+        );
+
+        assert_eq!(result.status, PaymentRouteRepairStatus::Repaired);
+        assert_eq!(client.calls().len(), 1, "{:?}", client.calls());
+        let stored = db::payment_routes::stored_route(&conn, track_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored[0].recipient_name.as_deref(), Some("MusicIndex"));
+        assert_eq!(file_route_names(&path), vec![Some("MusicIndex".to_owned())]);
+    }
+
+    /// A stored route with no recipient is a known answer: RSS has no route.
+    /// The repair writes nothing and asks nobody.
+    #[test]
+    fn adr_0076_route_readiness_repair_of_empty_stored_route_asks_nobody() {
+        let conn = setup_test_db().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let (track_id, path) = create_track_with_file(
+            &conn,
+            temp.path(),
+            "track-guid",
+            "track.mp3",
+            b"not really an mp3",
+        )
+        .unwrap();
+        set_stored_route(&conn, track_id, &[]);
+        let client = musicindex_client("MusicIndex");
+
+        let result = repair_payment_routes_for_track_with_client(
+            &conn,
+            temp.path(),
+            track_id,
+            &client,
+            RecheckUpstream::Ask,
+        );
+
+        assert_eq!(result.status, PaymentRouteRepairStatus::NoRoutesUpstream);
+        assert_eq!(
+            result.reason.as_deref(),
+            Some(crate::application::queries::broadcast::NO_RSS_RECIPIENTS_REASON)
+        );
+        assert!(client.calls().is_empty());
+        assert!(!audio_tags_have_ready_value_routes(
+            &read_audio_tags(&path).unwrap()
+        ));
     }
 }

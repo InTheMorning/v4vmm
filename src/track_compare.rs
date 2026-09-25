@@ -516,6 +516,12 @@ fn selected_track_enclosure(track: &Track) -> Option<SelectedEnclosure> {
     })
 }
 
+/// ADR 0075 Decision E: `true` when the download capability supports the
+/// enclosure. The RSS parse of ADR 0076 packet 002 uses the same check.
+pub(crate) fn enclosure_supported(mime_type: Option<&str>, url: &str) -> bool {
+    classify_enclosure(mime_type, url).is_some()
+}
+
 fn classify_enclosure(mime_type: Option<&str>, url: &str) -> Option<AudioFormat> {
     let from_mime = mime_type
         .map(str::trim)

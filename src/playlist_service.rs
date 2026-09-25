@@ -46,6 +46,16 @@ pub fn remove_track_at(conn: &mut Connection, playlist_id: i64, position: i64) -
     db::playlist_remove_at(conn, playlist_id, position)
 }
 
+/// The playlists that hold a track, with their names (ADR 0076 Decision 7).
+pub fn playlists_holding_track(conn: &Connection, track_id: i64) -> Result<Vec<(i64, String)>> {
+    db::playlists_holding_track(conn, track_id)
+}
+
+/// Removes a track from each playlist that holds it (ADR 0076 Decision 7).
+pub fn remove_track_everywhere(conn: &mut Connection, track_id: i64) -> Result<Vec<i64>> {
+    db::playlist_remove_track_everywhere(conn, track_id)
+}
+
 pub fn reorder(conn: &mut Connection, playlist_id: i64, from: i64, to: i64) -> Result<()> {
     ensure_non_negative_position(from)?;
     ensure_non_negative_position(to)?;

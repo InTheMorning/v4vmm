@@ -94,7 +94,7 @@ fn version_11_digest<'a>(
 ) -> anyhow::Result<String> {
     use sha2::{Digest, Sha256};
     let mut hash = Sha256::new();
-    for (table, _) in tables {
+    for (table, columns) in tables {
         hash.update((table.len() as u64).to_le_bytes());
         hash.update(table.as_bytes());
         let filter = if *table == "schema_migrations" {
@@ -102,8 +102,11 @@ fn version_11_digest<'a>(
         } else {
             ""
         };
+        // The named version-11 columns only: migrations 16 and 17 add columns to
+        // `feeds` and `tracks`, and it must not change the digest of a row.
+        let columns = columns.join(",");
         let mut statement = conn.prepare(&format!(
-            "SELECT rowid,* FROM {table}{filter} ORDER BY rowid"
+            "SELECT rowid,{columns} FROM {table}{filter} ORDER BY rowid"
         ))?;
         let count = statement.column_count();
         let mut rows = statement.query([])?;
@@ -125,7 +128,7 @@ pub(crate) fn create_fixture(conn: &Connection, target: i64) -> anyhow::Result<(
         "Fixture database must be empty"
     );
     anyhow::ensure!(
-        matches!(target, 10..=14),
+        matches!(target, 10..=17),
         "Unsupported fixture schema target"
     );
     conn.pragma_update(None, "foreign_keys", true)?;
@@ -235,7 +238,7 @@ mod tests {
             inspect_schema(&conn).unwrap(),
             SchemaCompatibility::UpgradeRequired {
                 applied: 11,
-                current: 14
+                current: 17
             }
         );
         crate::db::migrate_schema_to(&conn, 12).unwrap();
@@ -429,12 +432,12 @@ mod tests {
                 match boundary {
                     MigrationBoundary::BeforeApply => SchemaCompatibility::UpgradeRequired {
                         applied: 10,
-                        current: 14
+                        current: 17
                     },
                     MigrationBoundary::AfterApply => SchemaCompatibility::InterruptedUpgrade,
                     MigrationBoundary::AfterRecord => SchemaCompatibility::UpgradeRequired {
                         applied: 11,
-                        current: 14
+                        current: 17
                     },
                 }
             );

@@ -192,6 +192,100 @@ pub(crate) fn upsert_feed_publisher_relationships(
     Ok(written)
 }
 
+/// The RSS-stated remote of the first `music_to_publisher` row of a feed:
+/// the remote feed GUID and the remote feed URL (ADR 0076 packet 002).
+///
+/// # Errors
+///
+/// Returns an error when the database query fails.
+pub(crate) fn music_to_publisher_remote(
+    conn: &Connection,
+    feed_id: i64,
+) -> Result<Option<(String, Option<String>)>> {
+    use rusqlite::OptionalExtension as _;
+    conn.query_row(
+        "SELECT remote_feed_guid, remote_feed_url FROM feed_publisher_relationships
+         WHERE feed_id = ?1 AND direction = 'music_to_publisher'
+         ORDER BY publisher_feed_guid, remote_feed_guid LIMIT 1",
+        [feed_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+    .context("Read music_to_publisher remote")
+}
+
+/// Write the `podcast:publisher` remote item of a checked RSS document
+/// (ADR 0076 Decision 3, packet 002).
+///
+/// With a remote, the first `music_to_publisher` row gets the remote feed
+/// GUID and URL. On this direction the publisher feed GUID is the same
+/// value, so it changes with the remote GUID. The derived columns stay until
+/// `MusicIndex` ingests the feed again. A feed without such a row gets a new
+/// row with no derived value. Without a remote, the `music_to_publisher`
+/// rows of the feed are deleted.
+///
+/// # Errors
+///
+/// Returns an error when the database write fails.
+pub(crate) fn set_music_to_publisher_remote(
+    conn: &Connection,
+    feed_id: i64,
+    remote: Option<(&str, Option<&str>)>,
+    observed_at: i64,
+) -> Result<()> {
+    let Some((remote_feed_guid, remote_feed_url)) = remote else {
+        conn.execute(
+            "DELETE FROM feed_publisher_relationships
+             WHERE feed_id = ?1 AND direction = 'music_to_publisher'",
+            [feed_id],
+        )
+        .context("Delete music_to_publisher rows")?;
+        return Ok(());
+    };
+    let current = conn
+        .query_row(
+            "SELECT publisher_feed_guid, remote_feed_guid FROM feed_publisher_relationships
+             WHERE feed_id = ?1 AND direction = 'music_to_publisher'
+             ORDER BY publisher_feed_guid, remote_feed_guid LIMIT 1",
+            [feed_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .map(Some)
+        .or_else(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            error => Err(error),
+        })
+        .context("Read music_to_publisher row")?;
+    match current {
+        Some((publisher_feed_guid, current_remote)) => {
+            conn.execute(
+                "UPDATE OR REPLACE feed_publisher_relationships
+                 SET publisher_feed_guid = ?4, remote_feed_guid = ?4, remote_feed_url = ?5
+                 WHERE feed_id = ?1 AND direction = 'music_to_publisher'
+                   AND publisher_feed_guid = ?2 AND remote_feed_guid = ?3",
+                params![
+                    feed_id,
+                    publisher_feed_guid,
+                    current_remote,
+                    remote_feed_guid,
+                    remote_feed_url
+                ],
+            )
+            .context("Update music_to_publisher remote")?;
+        }
+        None => {
+            conn.execute(
+                "INSERT INTO feed_publisher_relationships(
+                     feed_id, direction, publisher_feed_guid, remote_feed_guid, remote_feed_url, observed_at
+                 ) VALUES (?1, 'music_to_publisher', ?2, ?2, ?3, ?4)",
+                params![feed_id, remote_feed_guid, remote_feed_url, observed_at],
+            )
+            .context("Insert music_to_publisher remote")?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 pub(crate) mod test_support {
     //! Test-only reads. Packets 003 and 004 add the production readers.
@@ -280,7 +374,6 @@ mod tests {
 
         crate::db::migrate_schema_to(&conn, 14).unwrap();
 
-        assert_eq!(CURRENT_VERSION, 14);
         assert_eq!(table_count(&conn), 1);
         let rows: i64 = conn
             .query_row(
@@ -298,7 +391,14 @@ mod tests {
             )
             .unwrap();
         assert_eq!(name, "feed_publisher_relationships");
-        assert_eq!(inspect_schema(&conn).unwrap(), SchemaCompatibility::Current);
+        // Migration 15 (ADR 0076) follows, so version 14 is not current.
+        assert_eq!(
+            inspect_schema(&conn).unwrap(),
+            SchemaCompatibility::UpgradeRequired {
+                applied: 14,
+                current: MIGRATIONS.len()
+            }
+        );
         upgrades::verify_target(&conn, 14).unwrap();
         let columns = conn
             .prepare("SELECT * FROM feed_publisher_relationships")

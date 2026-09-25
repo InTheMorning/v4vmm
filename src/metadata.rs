@@ -3179,6 +3179,59 @@ pub fn value_routes_json_is_ready(value: &str) -> bool {
     serde_json::from_str::<Vec<PaymentRoute>>(value).is_ok_and(|routes| !routes.is_empty())
 }
 
+/// The route list of a value-routes frame, or `None` when the frame is not a
+/// route list.
+#[must_use]
+pub fn parse_value_routes(value: &str) -> Option<Vec<PaymentRoute>> {
+    serde_json::from_str::<Vec<PaymentRoute>>(value).ok()
+}
+
+/// ADR 0076 Decision 9: a file route differs from the stored route when the
+/// recipient sets differ in any field. The recipient name counts, as the
+/// operator decided on 2026-09-24. The recipient order does not count.
+/// A missing `fee` is the namespace default `false`.
+#[must_use]
+pub fn payment_routes_equal(left: &[PaymentRoute], right: &[PaymentRoute]) -> bool {
+    left.len() == right.len() && route_set(left) == route_set(right)
+}
+
+type RouteKey = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<u64>,
+    bool,
+    Option<String>,
+    Option<String>,
+);
+
+fn route_set(routes: &[PaymentRoute]) -> Vec<RouteKey> {
+    let text = |value: &Option<String>| {
+        value
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+    };
+    let mut keys = routes
+        .iter()
+        .map(|route| {
+            (
+                text(&route.recipient_name),
+                text(&route.route_type).map(|route_type| route_type.to_ascii_lowercase()),
+                text(&route.address),
+                // Adding zero makes -0.0 equal to 0.0 before the bit compare.
+                route.split.map(|split| (split + 0.0).to_bits()),
+                route.fee.unwrap_or(false),
+                text(&route.custom_key),
+                text(&route.custom_value),
+            )
+        })
+        .collect::<Vec<_>>();
+    keys.sort();
+    keys
+}
+
 fn canonical_musicindex_key(key: &str) -> Option<&'static str> {
     let normalized = normalize_key(frame_match_key(key));
     (normalize_key(frame_match_key(MUSICINDEX_VALUE_ROUTES_FRAME)) == normalized)

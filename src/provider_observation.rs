@@ -329,6 +329,15 @@ pub struct RequestRefresh {
     pub failure_id: Option<i64>,
 }
 
+/// The cache validators of the latest successful document fetch of a
+/// request slot (ADR 0076 accepted values). The playlist RSS check sends
+/// them as `If-None-Match` and `If-Modified-Since`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RequestValidators {
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ObservationStorageError {
     RequestAllocation,

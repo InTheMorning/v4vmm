@@ -110,7 +110,15 @@ This client implements none of the three landed changes. Each one needs its own 
 selection of ADR 0075 with an RSS check of the feeds in a playlist, which also runs when a show
 selects that playlist. It supersedes ADR 0075 Decisions F to H and amends ADRs 0059 and 0065.
 Its packets replace packet 045, and packet 020 projects stored values without source selection.
-No packet document exists for them yet. The operator accepted its three numeric values on 2026-09-24.
+The [ADR 0076 phase plan](docs/plans/adr-0076-playlist-rss-check-phase-plan.md) registers five
+packets in dispatch order: 001, 002, 020, 003, 004. All five are implemented on 2026-09-24, with
+mechanical checks Green and their visual gates open and paused. A feed update no longer writes audio
+tags. The "Update n files" confirmation owns each metadata tag write. A Confirm in the readiness
+list does not clear a playlist row error in place yet. The phase plan records this open defect.
+Schema version 17 is current, and each route write to a file reads the stored route. One projection in
+`src/application/queries/stored_values.rs` owns the order of stored values.
+Packet 002 dropped the unused ADR 0075 discrepancy and field-selection tables. The operator accepted the
+three numeric values and three packet details on 2026-09-24. The plan records the trigger mapping.
 
 The [publisher relationship request](docs/plans/stophammer-publisher-relationship-request.md)
 records the operator's decisions of 2026-09-23 for Stophammer. Stophammer ADR 0049 owns the result.

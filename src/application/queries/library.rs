@@ -11,6 +11,7 @@ use crate::application::command_bus::{ApplicationCommand, CommandOutcome, Comman
 use crate::application::command_context::CommandContext;
 use crate::application::errors::command::{CommandError, ObservedQueryFailure};
 use crate::application::library_removal::{self, LibraryRemovalIntent, LibraryRemovalPlan};
+use crate::application::queries::stored_values::{self, FeedStoredValues};
 use crate::db::TrackRow;
 use crate::feed_service::{self, track_row_to_track_context};
 use crate::metadata::{source_text_missing, TagCompareResult, TrackContext};
@@ -39,6 +40,8 @@ pub(crate) struct LibraryTracksTree {
 pub(crate) struct AlbumIdentityHydration {
     pub(crate) identity_facts: LocalIdentityFacts,
     pub(crate) metadata_facts: FeedMetadataFacts,
+    /// The stored values of the feed after the hydration writes.
+    pub(crate) stored_values: FeedStoredValues,
     pub(crate) description: Option<String>,
     pub(crate) observation_receipts: Vec<ObservationReceipt>,
 }
@@ -359,11 +362,15 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
                             |feed| Some(feed.feed_url.clone()),
                         )
                     });
-                    let description = feed_id.and_then(|fid| {
-                        subscribed_feeds.get(&fid).and_then(|feed| {
-                            LibraryViewModel::display_description_text(feed.description.as_deref())
-                                .map(str::to_owned)
-                        })
+                    // ADR 0075 packet 020: the album page shows the stored
+                    // values of the feed from the stored value projection.
+                    let stored_values =
+                        feed_id.and_then(|fid| stored_values::feed_values(conn, fid).ok());
+                    let description = stored_values.as_ref().and_then(|values| {
+                        LibraryViewModel::display_description_text(
+                            values.description.value.as_deref(),
+                        )
+                        .map(str::to_owned)
                     });
                     let language = feed_id.and_then(|fid| {
                         subscribed_feeds.get(&fid).map_or_else(
@@ -398,6 +405,7 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
                                 .and_then(|fid| crate::local_metadata::feed_facts(conn, fid).ok())
                                 .unwrap_or_default(),
                         ),
+                        stored_values: stored_values.map(Box::new),
                         tracks,
                     }
                 })
@@ -605,7 +613,19 @@ fn hydrate_album_identity_facts(
         // changes on a repeated, reused hydration).
         if generation != crate::application::request_reuse::REUSED_GENERATION {
             if description.is_some() {
-                db::set_feed_description(&db, feed_id, description.as_deref())?;
+                // ADR 0076 Decision 5: a held RSS description stays until
+                // MusicIndex agrees or supplies a newer record.
+                let gate = db::rss_field_holds::musicindex_gate(
+                    &db,
+                    db::rss_field_holds::MusicIndexClaim::feed_description(
+                        feed_id,
+                        description.as_deref(),
+                        feed.updated_at,
+                    ),
+                )?;
+                if gate.writes() {
+                    db::set_feed_description(&db, feed_id, description.as_deref())?;
+                }
             }
             crate::identity_ingest::persist_musicindex_feed(&mut db, feed_id, &feed)?;
             // ADR 0077 Decision 5 and packet 013: each entry inserts or
@@ -619,20 +639,57 @@ fn hydrate_album_identity_facts(
                 let observed_at = observed_at.ok_or_else(|| {
                     anyhow::anyhow!("the publisher relationship response has no observation time")
                 })?;
+                // ADR 0076 Decision 5: the `music_to_publisher` remote is a
+                // compared slot. A held RSS remote keeps its row until
+                // MusicIndex agrees or supplies a newer record.
+                let entries = feed.publisher.as_deref().unwrap_or_default();
+                let remote = entries
+                    .iter()
+                    .find(|entry| entry.direction.as_deref() == Some("music_to_publisher"))
+                    .and_then(|entry| {
+                        Some(serde_json::json!({
+                            "feed_guid": entry.remote_feed_guid.as_deref()?,
+                            "feed_url": entry.remote_feed_url,
+                        }))
+                    });
+                let gate = db::rss_field_holds::musicindex_gate(
+                    &db,
+                    db::rss_field_holds::MusicIndexClaim {
+                        owner: db::rss_field_holds::HoldOwner::Feed(feed_id),
+                        field: db::rss_field_holds::RssField::Publisher,
+                        value: remote,
+                        updated_at: feed.updated_at,
+                    },
+                )?;
+                let entries = entries
+                    .iter()
+                    .filter(|entry| {
+                        gate.writes() || entry.direction.as_deref() != Some("music_to_publisher")
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
                 crate::db::publisher_relationships::upsert_feed_publisher_relationships(
                     &mut db,
                     feed_id,
                     feed.publisher_feed_title.as_deref(),
-                    feed.publisher.as_deref(),
+                    Some(&entries),
                     observed_at,
                 )?;
             }
         }
         let identity_facts = crate::local_identity::feed_facts(&db, feed_id)?;
         let metadata_facts = crate::local_metadata::feed_facts(&db, feed_id)?;
+        // ADR 0076 Decision 5 and packet 020: the album shows the stored
+        // description. A held RSS description stays in place of the value of
+        // this response.
+        let stored_values = stored_values::feed_values(&db, feed_id)?;
+        let description =
+            LibraryViewModel::display_description_text(stored_values.description.value.as_deref())
+                .map(str::to_owned);
         Ok(AlbumIdentityHydration {
             identity_facts,
             metadata_facts,
+            stored_values,
             description,
             observation_receipts: Vec::new(),
         })

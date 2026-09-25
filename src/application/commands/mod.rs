@@ -9,3 +9,4 @@ pub mod payment_routes;
 pub mod playback;
 pub mod playlist;
 pub mod search;
+pub(crate) mod tag_update;

@@ -3,6 +3,11 @@
 //! The query is read-only: it checks local library rows and embedded audio tag
 //! state so Show and CLI surfaces can report payment-route readiness without
 //! mutating files.
+//!
+//! ADR 0076 Decisions 7 and 9 add two not-ready states. A file route that
+//! differs from the stored route is `RouteOutOfDate`. A track with an
+//! unconfirmed "removed from feed" mark is `RemovedFromFeed`, and that state
+//! comes before each route state.
 
 #![warn(clippy::pedantic)]
 
@@ -12,13 +17,14 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 use serde::Serialize;
 
+use crate::api::PaymentRoute;
 use crate::application::application_query_service::ApplicationQueryService;
 use crate::application::errors::command::CommandError;
 use crate::audio_tags::{read_audio_tags, AudioTags};
 use crate::db::{self, LocalMetadataOwner, LocalMetadataValue, TrackRow};
 use crate::metadata::{
-    audio_tags_have_ready_value_routes, audio_tags_value_routes, MUSICINDEX_METADATA_SOURCE,
-    MUSICINDEX_PAYMENT_ROUTES_ABSENT_FACT_KEY,
+    audio_tags_have_ready_value_routes, audio_tags_value_routes, parse_value_routes,
+    payment_routes_equal, MUSICINDEX_METADATA_SOURCE, MUSICINDEX_PAYMENT_ROUTES_ABSENT_FACT_KEY,
 };
 use crate::{config, library_service};
 
@@ -46,6 +52,8 @@ impl BroadcastReadinessReport {
     pub(crate) const fn problem_count(&self) -> usize {
         self.summary.no_route_tag
             + self.summary.no_routes_upstream
+            + self.summary.route_out_of_date
+            + self.summary.removed_from_feed
             + self.summary.file_missing
             + self.summary.not_downloaded
     }
@@ -64,6 +72,10 @@ pub(crate) struct BroadcastReadinessSummary {
     pub(crate) file_missing: usize,
     /// Tracks in the library with no downloaded file.
     pub(crate) not_downloaded: usize,
+    /// Tracks whose file route differs from the stored route.
+    pub(crate) route_out_of_date: usize,
+    /// Tracks with an unconfirmed "removed from feed" mark.
+    pub(crate) removed_from_feed: usize,
 }
 
 impl BroadcastReadinessSummary {
@@ -74,6 +86,8 @@ impl BroadcastReadinessSummary {
             BroadcastReadinessState::NoRoutesUpstream => self.no_routes_upstream += 1,
             BroadcastReadinessState::FileMissing => self.file_missing += 1,
             BroadcastReadinessState::NotDownloaded => self.not_downloaded += 1,
+            BroadcastReadinessState::RouteOutOfDate => self.route_out_of_date += 1,
+            BroadcastReadinessState::RemovedFromFeed => self.removed_from_feed += 1,
         }
     }
 }
@@ -92,6 +106,11 @@ pub(crate) enum BroadcastReadinessState {
     NotDownloaded,
     /// Local path is missing or does not point to a readable file.
     FileMissing,
+    /// The file carries a route array that differs from the stored route.
+    RouteOutOfDate,
+    /// The track has the "removed from feed" mark, and the operator has not
+    /// confirmed it.
+    RemovedFromFeed,
 }
 
 impl BroadcastReadinessState {
@@ -104,8 +123,29 @@ impl BroadcastReadinessState {
             Self::NoRoutesUpstream => "No upstream routes",
             Self::FileMissing => "Missing file",
             Self::NotDownloaded => "Not downloaded",
+            Self::RouteOutOfDate => "Route out of date",
+            Self::RemovedFromFeed => "Removed from feed",
         }
     }
+}
+
+/// The reason of a `RouteOutOfDate` track (ADR 0076 Decision 9).
+pub(crate) const ROUTE_OUT_OF_DATE_REASON: &str = "Payment route in file is out of date.";
+
+/// The reason of a track whose stored route has no recipient.
+pub(crate) const NO_RSS_RECIPIENTS_REASON: &str =
+    "RSS has no payment recipients for this track or feed.";
+
+const NO_UPSTREAM_ROUTES_REASON: &str = "MusicIndex has no payment routes for this track or feed.";
+
+/// The reason of a `RemovedFromFeed` track (ADR 0076 Decision 7), with the
+/// recorded time of the check that set the mark, in UTC.
+fn removed_from_feed_reason(removed_at_us: i64) -> String {
+    let at = chrono::DateTime::from_timestamp_micros(removed_at_us).map_or_else(
+        || "an unknown time".to_owned(),
+        |at| at.format("%Y-%m-%d %H:%M UTC").to_string(),
+    );
+    format!("Removed from feed on {at}. Confirm to play it, or remove it from the playlist.")
 }
 
 /// One local library track classified for broadcast readiness.
@@ -200,6 +240,20 @@ fn readiness_track(
         .clone()
         .or_else(|| track.feed_title.clone())
         .unwrap_or_else(|| "Untitled".to_string());
+    if let Some(removed_at_us) = db::rss_field_holds::unconfirmed_removed_at(conn, track.id)? {
+        return Ok(BroadcastReadinessTrack {
+            track_id: track.id,
+            title,
+            artist: track.artist_name.clone(),
+            album: track.album_title.clone(),
+            path: track
+                .local_path
+                .as_ref()
+                .map(|path| path.resolve(music_dir).display().to_string()),
+            state: BroadcastReadinessState::RemovedFromFeed,
+            reason: removed_from_feed_reason(removed_at_us),
+        });
+    }
     let Some(path) = track
         .local_path
         .as_ref()
@@ -231,16 +285,28 @@ fn readiness_track(
         });
     }
 
-    let no_routes_upstream = track_has_no_upstream_payment_routes(conn, track)?;
-    match read_audio_tags(&path).context("read embedded audio tags") {
-        Ok(tags) if audio_tags_have_ready_value_routes(&tags) => {
-            Ok(readiness_track_from_tags(track, title, path.as_path()))
+    let stored = db::payment_routes::stored_route(conn, track.id)?;
+    let no_routes = match stored.as_deref() {
+        Some([]) => Some(NO_RSS_RECIPIENTS_REASON),
+        Some(_) => None,
+        None => {
+            track_has_no_upstream_payment_routes(conn, track)?.then_some(NO_UPSTREAM_ROUTES_REASON)
         }
+    };
+    let no_routes_upstream = no_routes.is_some();
+    match read_audio_tags(&path).context("read embedded audio tags") {
+        Ok(tags) if audio_tags_have_ready_value_routes(&tags) => Ok(readiness_track_from_tags(
+            track,
+            title,
+            path.as_path(),
+            &tags,
+            stored.as_deref(),
+        )),
         Ok(tags) => Ok(readiness_track_from_missing_tag(
             track,
             title,
             path.as_path(),
-            no_routes_upstream,
+            no_routes,
             &tags,
         )),
         Err(error) => Ok(BroadcastReadinessTrack {
@@ -254,11 +320,10 @@ fn readiness_track(
             } else {
                 BroadcastReadinessState::NoRouteTag
             },
-            reason: if no_routes_upstream {
-                "MusicIndex has no payment routes for this track or feed.".to_owned()
-            } else {
-                format!("Value routes tag could not be read: {error:#}")
-            },
+            reason: no_routes.map_or_else(
+                || format!("Value routes tag could not be read: {error:#}"),
+                str::to_owned,
+            ),
         }),
     }
 }
@@ -267,15 +332,35 @@ fn readiness_track_from_tags(
     track: &TrackRow,
     title: String,
     path: &Path,
+    tags: &AudioTags,
+    stored: Option<&[PaymentRoute]>,
 ) -> BroadcastReadinessTrack {
+    // ADR 0076 Decision 9: every recipient field counts, and the order does
+    // not. Without a stored route the app has nothing to compare.
+    let out_of_date = stored.is_some_and(|stored| {
+        audio_tags_value_routes(tags)
+            .and_then(parse_value_routes)
+            .is_some_and(|file| !payment_routes_equal(&file, stored))
+    });
+    let (state, reason) = if out_of_date {
+        (
+            BroadcastReadinessState::RouteOutOfDate,
+            ROUTE_OUT_OF_DATE_REASON,
+        )
+    } else {
+        (
+            BroadcastReadinessState::Ready,
+            "Embedded value routes are present.",
+        )
+    };
     BroadcastReadinessTrack {
         track_id: track.id,
         title,
         artist: track.artist_name.clone(),
         album: track.album_title.clone(),
         path: Some(path.display().to_string()),
-        state: BroadcastReadinessState::Ready,
-        reason: "Embedded value routes are present.".to_owned(),
+        state,
+        reason: reason.to_owned(),
     }
 }
 
@@ -283,14 +368,11 @@ fn readiness_track_from_missing_tag(
     track: &TrackRow,
     title: String,
     path: &Path,
-    no_routes_upstream: bool,
+    no_routes: Option<&str>,
     tags: &AudioTags,
 ) -> BroadcastReadinessTrack {
-    let (state, reason) = if no_routes_upstream {
-        (
-            BroadcastReadinessState::NoRoutesUpstream,
-            "MusicIndex has no payment routes for this track or feed.".to_owned(),
-        )
+    let (state, reason) = if let Some(reason) = no_routes {
+        (BroadcastReadinessState::NoRoutesUpstream, reason.to_owned())
     } else if audio_tags_value_routes(tags).is_some() {
         (
             BroadcastReadinessState::NoRouteTag,
@@ -567,6 +649,181 @@ mod tests {
 
         assert_eq!(report.summary, BroadcastReadinessSummary::default());
         assert!(report.tracks.is_empty());
+        Ok(())
+    }
+
+    const STORED: &str = r#"[{"recipient_name":"Band","route_type":"node","split":90.0,"fee":false,"address":"a"},{"recipient_name":"App","route_type":"node","split":10.0,"fee":false,"address":"b"}]"#;
+
+    fn set_stored_route(conn: &Connection, track_id: i64, routes: &str) -> anyhow::Result<()> {
+        conn.execute(
+            "UPDATE tracks SET payment_routes_json = ?2 WHERE id = ?1",
+            rusqlite::params![track_id, routes],
+        )?;
+        Ok(())
+    }
+
+    fn state_of(report: &BroadcastReadinessReport, track_id: i64) -> BroadcastReadinessState {
+        report
+            .tracks
+            .iter()
+            .find(|track| track.track_id == track_id)
+            .map(|track| track.state)
+            .expect("track in report")
+    }
+
+    /// R3-06: a split difference and a name-only difference are
+    /// `RouteOutOfDate`. An equal route in another recipient order is `Ready`.
+    #[test]
+    fn adr_0076_route_readiness_route_comparison_counts_every_field_and_ignores_order(
+    ) -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+        let temp = tempfile::tempdir()?;
+        let feed_id = create_feed(&conn)?;
+        let cases = [
+            (
+                "split.mp3",
+                r#"[{"recipient_name":"Band","route_type":"node","split":95.0,"address":"a"},{"recipient_name":"App","route_type":"node","split":5.0,"address":"b"}]"#,
+                BroadcastReadinessState::RouteOutOfDate,
+            ),
+            (
+                "name.mp3",
+                r#"[{"recipient_name":"The Band","route_type":"node","split":90.0,"address":"a"},{"recipient_name":"App","route_type":"node","split":10.0,"address":"b"}]"#,
+                BroadcastReadinessState::RouteOutOfDate,
+            ),
+            (
+                "order.mp3",
+                r#"[{"recipient_name":"App","route_type":"node","split":10.0,"fee":false,"address":"b"},{"recipient_name":"Band","route_type":"node","split":90.0,"fee":false,"address":"a"}]"#,
+                BroadcastReadinessState::Ready,
+            ),
+        ];
+        let mut expected = Vec::new();
+        for (name, routes, state) in cases {
+            let path = tagged_audio_file(&temp, name, routes)?;
+            let track_id = create_track(&conn, temp.path(), feed_id, name, &path)?;
+            set_stored_route(&conn, track_id, STORED)?;
+            expected.push((track_id, state));
+        }
+
+        let report =
+            ApplicationQueryService::new().broadcast_readiness_report(&conn, temp.path())?;
+
+        for (track_id, state) in expected {
+            assert_eq!(state_of(&report, track_id), state, "track {track_id}");
+        }
+        let out_of_date = report
+            .tracks
+            .iter()
+            .find(|track| track.state == BroadcastReadinessState::RouteOutOfDate)
+            .expect("out-of-date track");
+        assert_eq!(out_of_date.reason, ROUTE_OUT_OF_DATE_REASON);
+        assert_eq!(report.summary.route_out_of_date, 2);
+        assert_eq!(report.summary.ready, 1);
+        Ok(())
+    }
+
+    /// R3-07 and R3-08: an unconfirmed removed track is `RemovedFromFeed`
+    /// before its route state. After the confirmation it shows its route
+    /// state.
+    #[test]
+    fn adr_0076_route_readiness_removed_track_comes_before_route_state() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+        let temp = tempfile::tempdir()?;
+        let feed_id = create_feed(&conn)?;
+        let path = tagged_audio_file(
+            &temp,
+            "removed.mp3",
+            r#"[{"recipient_name":"Other","route_type":"node","split":100.0,"address":"z"}]"#,
+        )?;
+        let track_id = create_track(&conn, temp.path(), feed_id, "Removed", &path)?;
+        set_stored_route(&conn, track_id, STORED)?;
+        // 2026-09-24 10:00:00 UTC, the recorded time of a check.
+        conn.execute(
+            "UPDATE tracks SET removed_from_feed_at = 1790244000000000 WHERE id = ?1",
+            [track_id],
+        )?;
+
+        let report =
+            ApplicationQueryService::new().broadcast_readiness_report(&conn, temp.path())?;
+        assert_eq!(
+            report.tracks[0].state,
+            BroadcastReadinessState::RemovedFromFeed
+        );
+        assert_eq!(
+            report.tracks[0].reason,
+            "Removed from feed on 2026-09-24 10:00 UTC. Confirm to play it, or remove it from the playlist."
+        );
+        assert_eq!(report.summary.removed_from_feed, 1);
+        assert_eq!(report.summary.route_out_of_date, 0);
+
+        assert!(db::rss_field_holds::confirm_removed_track(
+            &conn,
+            track_id,
+            1_790_244_100_000_000
+        )?);
+        let report =
+            ApplicationQueryService::new().broadcast_readiness_report(&conn, temp.path())?;
+        assert_eq!(
+            report.tracks[0].state,
+            BroadcastReadinessState::RouteOutOfDate
+        );
+        assert_eq!(report.summary.removed_from_feed, 0);
+        Ok(())
+    }
+
+    /// R3-09: the summary and `problem_count` include both new states.
+    #[test]
+    fn adr_0076_route_readiness_summary_counts_both_new_states() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+        let temp = tempfile::tempdir()?;
+        let feed_id = create_feed(&conn)?;
+        let old = tagged_audio_file(
+            &temp,
+            "old.mp3",
+            r#"[{"recipient_name":"Other","route_type":"node","split":100.0,"address":"z"}]"#,
+        )?;
+        let old_id = create_track(&conn, temp.path(), feed_id, "Old", &old)?;
+        set_stored_route(&conn, old_id, STORED)?;
+        let removed = tagged_audio_file(&temp, "removed.mp3", STORED)?;
+        let removed_id = create_track(&conn, temp.path(), feed_id, "Removed", &removed)?;
+        set_stored_route(&conn, removed_id, STORED)?;
+        conn.execute(
+            "UPDATE tracks SET removed_from_feed_at = 1790244000000000 WHERE id = ?1",
+            [removed_id],
+        )?;
+        let ready = tagged_audio_file(&temp, "ready.mp3", STORED)?;
+        let ready_id = create_track(&conn, temp.path(), feed_id, "Ready", &ready)?;
+        set_stored_route(&conn, ready_id, STORED)?;
+
+        let report =
+            ApplicationQueryService::new().broadcast_readiness_report(&conn, temp.path())?;
+
+        assert_eq!(report.summary.route_out_of_date, 1);
+        assert_eq!(report.summary.removed_from_feed, 1);
+        assert_eq!(report.summary.ready, 1);
+        assert_eq!(report.problem_count(), 2);
+        assert_eq!(report.problem_tracks().len(), 2);
+        Ok(())
+    }
+
+    /// A stored route with no recipient means that RSS has no route. A file
+    /// without a route tag is then "no upstream routes", with an RSS reason.
+    #[test]
+    fn adr_0076_route_readiness_empty_stored_route_needs_publisher_routes() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+        let temp = tempfile::tempdir()?;
+        let feed_id = create_feed(&conn)?;
+        let path = untagged_audio_file(&temp, "none.mp3")?;
+        let track_id = create_track(&conn, temp.path(), feed_id, "None", &path)?;
+        set_stored_route(&conn, track_id, "[]")?;
+
+        let report =
+            ApplicationQueryService::new().broadcast_readiness_report(&conn, temp.path())?;
+
+        assert_eq!(
+            report.tracks[0].state,
+            BroadcastReadinessState::NoRoutesUpstream
+        );
+        assert_eq!(report.tracks[0].reason, NO_RSS_RECIPIENTS_REASON);
         Ok(())
     }
 }

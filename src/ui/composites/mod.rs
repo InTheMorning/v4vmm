@@ -60,6 +60,7 @@ pub use action_row::{
 pub(crate) use breadcrumb_trail::BreadcrumbTrail;
 pub use confirmation_dialog::{
     confirmation_dialog, ConfirmationDialogDisplay, ConfirmationDialogHandlers,
+    ConfirmationDialogItem,
 };
 pub use detail_grid::{DetailElementRow, DetailGrid, DetailRow, DetailTextRow};
 pub use detail_header::{DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay};

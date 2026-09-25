@@ -12,6 +12,11 @@ Group 8 records the Library comparison and hydration presentation gate.
 Group 9 records the feed check and feed update presentation gate.
 Group 12 records the Library artist view gate of the ADR 0079 artist storage removal.
 
+Group 13 records the playlist RSS check gate of ADR 0076 packet 001.
+Group 14 records the RSS comparison and report gate of ADR 0076 packet 002.
+Group 15 records the stored value projection gate of ADR 0075 packet 020.
+Group 16 records the stored payment route and readiness gate of ADR 0076 packet 003.
+
 The operator accepted ADR 0075 on 2026-09-19. Its placement decision adds future
 visual checks for the labelled identity sections on a track page. Phase 005 owns
 those checks. Do not request them during this pause.
@@ -363,3 +368,67 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-2
 - Migration 13 deletes the stored artist rows. Make the SQLite backup in the packet procedure before the first run of the new build.
 - Run the procedure only after the operator resumes visual checks.
 - Keep the backup until acceptance. The packet gives the restore and cleanup commands.
+
+## 13. Playlist RSS Check Button And Report — ADR 0076 Task 001
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-24. Operator inspection is pending.
+
+- Owner: [packet 001](tasks/adr-0076-task-001-playlist-rss-document-check.md#operator-visual-check).
+- V1: the playlist page shows the "Check RSS" button with its state, in Light and Dark themes.
+- V2: during a check, the page shows the progress in place, without navigation. Playback from the playlist does not wait for the check.
+- V3: after the check, the page shows each feed outcome and each stopped host in readable text.
+- Each check sends real HTTP requests to the feed hosts of the playlist.
+- Migration 15 adds two tables. Make the SQLite backup in the packet procedure before the first run of the new build.
+- Run the procedure only after the operator resumes visual checks.
+- Keep the backup until acceptance. The packet gives the restore and cleanup commands.
+
+## 14. RSS Comparison, Apply And Report — ADR 0076 Task 002
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-24. Operator inspection is pending.
+
+- Owner: [packet 002](tasks/adr-0076-task-002-rss-comparison-apply-and-report.md#operator-visual-check).
+- V1: after a check with differences, the playlist page shows the report in place. Each row gives the feed, the field, the old value, the new value and the time. Each stale feed has a podping.me button. Check in Light and Dark themes.
+- V2: a new track shows with its download action. A removed track shows its mark on the playlist row.
+- V3: the report is readable at normal and narrow widths. Stacked text follows the column text rule.
+- Each check sends real HTTP requests to the feed hosts of the playlist, and it writes RSS values into the stored values.
+- Migration 16 drops three tables. Make the SQLite backup in the packet procedure before the first run of the new build.
+- Run the procedure only after the operator resumes visual checks.
+- Keep the backup until acceptance. The packet gives the fixture, restore and cleanup commands.
+
+## 15. Stored Value Projection — ADR 0075 Task 020
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-24. Operator inspection is pending.
+
+- Owner: [packet 020](tasks/adr-0075-task-020-stored-value-projection.md#operator-visual-check).
+- V1: after a check applied a title change, the album page and the track page show the new title without navigation. Check in Light and Dark themes.
+- The track page shows the channel title as the album name. A title with "(old)" after the check is wrong.
+- The check sends real HTTP requests to the feed hosts of the playlist, and it writes RSS values into the stored values.
+- This packet adds no migration. The procedure needs schema version 16 from packet 002.
+- Run the procedure only after the operator resumes visual checks.
+
+## 16. Stored Payment Route And Readiness — ADR 0076 Task 003
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-24. Operator inspection is pending.
+
+- Owner: [packet 003](tasks/adr-0076-task-003-stored-payment-route-and-readiness.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks. Run it after group 14, because it needs schema version 16 from packet 002.
+- V1: the Music readiness list shows a "Route out of date" row with no button and a "Removed from feed" row with a **Confirm** button. Check in Light and Dark themes.
+- V2: the Show Source card counts both states as not ready and names them in its detail.
+- V3: **Confirm** on a removed track changes the row in place, without navigation.
+- The readiness row of a removed track also has **Remove from library**. The procedure opens its ADR 0044 confirmation and cancels it, because a removal deletes the audio file.
+- V4: a playlist row of a removed track shows a row error with **Remove from playlist** and **Remove from all playlists**. The second action lists each playlist in its confirmation. Each action changes the playlist in place.
+- Migration 17 adds and fills two columns. Make the SQLite backup in the packet procedure before the first run of the new build.
+- The fixture changes the database only. It changes no audio file. It adds two fixture playlists, and the cleanup deletes them.
+- Keep the backup until acceptance. The packet gives the fixture, restore and cleanup commands.
+
+## 17. Tag Update Confirmation — ADR 0076 Task 004
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-24. Operator inspection is pending.
+
+- Owner: [packet 004](tasks/adr-0076-task-004-tag-update-confirmation.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks. Run it after group 16, because it needs schema version 17 from packet 003.
+- V1: the Music section shows the "Update n file(s)" button with the count. The popup lists each file with its title, album and frames. Check in Light and Dark themes.
+- V2: a file in use by the show shows the mark "In use by the show". **Write Tags** does not write it. After the write, the button count equals the files in use.
+- V3: the popup is readable at normal and narrow window widths. Stacked text clips and does not show only an ellipsis.
+- This packet writes audio tags. Copy the fixture audio files before the first confirm, as the packet procedure tells.
+- Keep the copies until acceptance. The packet gives the restore and cleanup commands.

@@ -472,6 +472,12 @@ INSERT INTO metadata_observations(id, observation_key, provider_id, resource_id,
 INSERT INTO metadata_coverage VALUES(1,0,'field:description',1,'{}','requested','empty','complete',NULL,'{}'),
  (2,0,'field:description',1,'{}','requested','populated','complete',NULL,'{}');
 INSERT INTO metadata_snapshots VALUES(1,1,1,'field:description','empty',1,0,0);
+"#;
+
+/// Rows of the three tables that migration 16 drops (ADR 0076 packet 002).
+/// Use them only on a schema before version 16.
+#[cfg(test)]
+pub(super) const SUPERSEDED_ROWS: &str = r#"
 INSERT INTO metadata_field_selections VALUES(1,'description','context','{}',1,1,0,1,'absent',NULL,'{"original_value":null}','v1',20);
 INSERT INTO metadata_discrepancies VALUES(1,1,'description',1,1,2,2,'active',40,40,'{}',NULL);
 INSERT INTO metadata_discrepancy_transitions VALUES(1,1,1,NULL,'active','mismatch','v1','pair',1,2,
@@ -487,6 +493,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         crate::db::upgrades::create_fixture(&conn, 12).unwrap();
         conn.execute_batch(RETAINED_ROWS).unwrap();
+        conn.execute_batch(SUPERSEDED_ROWS).unwrap();
         conn
     }
 

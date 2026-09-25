@@ -30,6 +30,11 @@ use crate::ui::shells::playlist::{
 };
 use crate::view_models::library::{LibraryChromeDisplay, PlaylistDetailVm};
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the playlist page composes the shared shell from Library state; \
+              the RSS check snapshot is one more borrowed input (ADR 0076)."
+)]
 pub(crate) fn render_library_playlist_detail(
     detail: &PlaylistDetail,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
@@ -37,6 +42,7 @@ pub(crate) fn render_library_playlist_detail(
     rename_playlist_input: Entity<InputState>,
     renaming_playlist_id: Option<i64>,
     playlist_actor: Option<&PlaylistActorState>,
+    playlist_rss_check: Option<&crate::runtime::PlaylistRssCheckSnapshot>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     if let Some(state) = playlist_actor {
@@ -47,6 +53,7 @@ pub(crate) fn render_library_playlist_detail(
             chrome,
             rename_playlist_input.clone(),
             renaming_playlist_id,
+            playlist_rss_check,
             cx,
         ) {
             return rendered;
@@ -59,8 +66,43 @@ pub(crate) fn render_library_playlist_detail(
         chrome,
         rename_playlist_input,
         renaming_playlist_id,
+        playlist_rss_check,
         cx,
     )
+}
+
+/// The "Check RSS" slot: the button starts the check of this playlist
+/// (ADR 0076 Decision 2). The shell renders the typed availability.
+fn check_rss_slot(
+    playlist_id: i64,
+    cx: &mut Context<LibraryApp>,
+) -> crate::ui::shells::playlist::PlaylistClickHandler {
+    click_slot(cx.listener(move |this, _, _, cx| {
+        this.check_playlist_rss(playlist_id, crate::runtime::RssCheckTrigger::Button, cx);
+    }))
+}
+
+/// The download slot of a `track_added` difference: the existing Library
+/// track download (ADR 0076 Decision 6).
+fn download_added_track_slot(
+    cx: &mut Context<LibraryApp>,
+) -> crate::ui::shells::playlist::PlaylistTrackIdHandler {
+    let entity = cx.entity().downgrade();
+    std::rc::Rc::new(move |track_id, _window, cx| {
+        if let Some(entity) = entity.upgrade() {
+            entity.update(cx, |this, cx| this.download_rss_added_track(track_id, cx));
+        }
+    })
+}
+
+/// ADR 0076 Decision 7: "Remove from all playlists" opens its confirmation.
+fn remove_from_all_playlists_slot(
+    track_id: i64,
+    cx: &mut Context<LibraryApp>,
+) -> crate::ui::shells::playlist::PlaylistClickHandler {
+    click_slot(cx.listener(move |this, _, window, cx| {
+        this.request_remove_track_from_all_playlists(track_id, window, cx);
+    }))
 }
 
 fn render_eager_playlist_detail(
@@ -69,9 +111,11 @@ fn render_eager_playlist_detail(
     chrome: &LibraryChromeDisplay,
     rename_playlist_input: Entity<InputState>,
     renaming_playlist_id: Option<i64>,
+    playlist_rss_check: Option<&crate::runtime::PlaylistRssCheckSnapshot>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let page = PlaylistDetailVm::new(&detail.playlist, &detail.tracks)
+        .with_rss_check(playlist_rss_check)
         .page(chrome.playlist_detail_scroll_id);
     let playlist_id = page.playlist_id();
     let playlist_name = detail.playlist.name.clone();
@@ -87,8 +131,16 @@ fn render_eager_playlist_detail(
                 .and_then(|url| album_thumbs.get(url))
                 .cloned()
                 .flatten();
-            let display = row.display_with_playback(playlist_id, chrome.playback_availability);
+            let mut display = row.display_with_playback(playlist_id, chrome.playback_availability);
             let original_track_id = row.track().id;
+            display.removed_from_feed =
+                crate::view_models::playlist_rss_check::removed_from_feed_row(
+                    playlist_rss_check,
+                    playlist_id,
+                    original_track_id,
+                    position,
+                    &display.title,
+                );
             let on_play = display.controls.play_enabled.then(|| {
                 click_slot(cx.listener(move |_this, _, _, cx| {
                     cx.emit(LibraryAppEvent::PlayPlaylistAt {
@@ -115,6 +167,10 @@ fn render_eager_playlist_detail(
                 on_remove: Some(command_slot(cx.listener(move |this, (), _, cx| {
                     this.remove_playlist_track_at(playlist_id, position, cx);
                 }))),
+                on_remove_from_all_playlists: Some(remove_from_all_playlists_slot(
+                    original_track_id,
+                    cx,
+                )),
             };
             PlaylistShellRow::Ready(Box::new(PlaylistShellReadyRow { display, slot }))
         })
@@ -143,6 +199,8 @@ fn render_eager_playlist_detail(
             on_delete: Some(click_slot(cx.listener(move |this, _, _, cx| {
                 this.delete_playlist(playlist_id, cx);
             }))),
+            on_check_rss: Some(check_rss_slot(playlist_id, cx)),
+            on_download_added_track: Some(download_added_track_slot(cx)),
             on_reorder: Some(reorder_slot(cx.listener(
                 move |this, positions: &(i64, i64), _, cx| {
                     let (from, to) = *positions;
@@ -155,6 +213,11 @@ fn render_eager_playlist_detail(
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the playlist page composes the shared shell from Library state; \
+              the RSS check snapshot is one more borrowed input (ADR 0076)."
+)]
 fn try_render_paged(
     detail: &PlaylistDetail,
     state: &PlaylistActorState,
@@ -162,6 +225,7 @@ fn try_render_paged(
     chrome: &LibraryChromeDisplay,
     rename_playlist_input: Entity<InputState>,
     renaming_playlist_id: Option<i64>,
+    playlist_rss_check: Option<&crate::runtime::PlaylistRssCheckSnapshot>,
     cx: &mut Context<LibraryApp>,
 ) -> Option<AnyElement> {
     use crate::application::paged_track_list::PagedTrackListMsg;
@@ -175,6 +239,7 @@ fn try_render_paged(
     let inbox = state.handle.clone();
 
     let page = PlaylistDetailVm::new(&detail.playlist, &detail.tracks)
+        .with_rss_check(playlist_rss_check)
         .page(chrome.playlist_detail_scroll_id);
     let playlist_name = detail.playlist.name.clone();
     let rename_placeholder = page.actions_display().rename_input_placeholder;
@@ -207,15 +272,28 @@ fn try_render_paged(
                 position,
                 last_position,
                 track,
-            } => track_rows.push(render_ready_paged_playlist_row(
-                playlist_id,
-                position,
-                last_position,
-                &track,
-                album_thumbs,
-                chrome.playback_availability,
-                cx,
-            )),
+            } => {
+                let mut row = render_ready_paged_playlist_row(
+                    playlist_id,
+                    position,
+                    last_position,
+                    &track,
+                    album_thumbs,
+                    chrome.playback_availability,
+                    cx,
+                );
+                if let PlaylistShellRow::Ready(ready) = &mut row {
+                    ready.display.removed_from_feed =
+                        crate::view_models::playlist_rss_check::removed_from_feed_row(
+                            playlist_rss_check,
+                            playlist_id,
+                            track.id,
+                            ready.display.position,
+                            &ready.display.title,
+                        );
+                }
+                track_rows.push(row);
+            }
         }
     }
 
@@ -242,6 +320,8 @@ fn try_render_paged(
             on_delete: Some(click_slot(cx.listener(move |this, _, _, cx| {
                 this.delete_playlist(playlist_id, cx);
             }))),
+            on_check_rss: Some(check_rss_slot(playlist_id, cx)),
+            on_download_added_track: Some(download_added_track_slot(cx)),
             on_reorder: Some(reorder_slot(cx.listener(
                 move |this, positions: &(i64, i64), _, cx| {
                     let (from, to) = *positions;
@@ -306,6 +386,7 @@ fn render_ready_paged_playlist_row(
         on_remove: Some(command_slot(cx.listener(move |this, (), _, cx| {
             this.remove_playlist_track_at(playlist_id, position_i64, cx);
         }))),
+        on_remove_from_all_playlists: Some(remove_from_all_playlists_slot(original_track_id, cx)),
     };
     PlaylistShellRow::Ready(Box::new(PlaylistShellReadyRow { display, slot }))
 }

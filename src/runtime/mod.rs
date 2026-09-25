@@ -27,6 +27,8 @@ pub mod broadcast_service_watch;
 pub mod musicbrainz_feed_saga;
 pub mod paged_list_vm;
 pub mod playback_polling;
+pub mod playlist_rss_check;
+pub(crate) mod tag_update;
 pub mod vm_bus;
 
 pub use actor::{Actor, ActorHandle, Snapshot};
@@ -44,4 +46,9 @@ pub use musicbrainz_feed_saga::{
 };
 pub use paged_list_vm::{PageRequest, PagedListVm, Placeholder, RowSlot};
 pub use playback_polling::{PlaybackPollingHandle, PlaybackTickOutcome, PlaybackTickSnapshot};
+pub use playlist_rss_check::{
+    DifferenceKind, PlaylistRssCheckHandle, PlaylistRssCheckSnapshot, PlaylistRssRun,
+    RssCheckRunState, RssCheckTrigger, RssFeedCheck, RssFeedOutcome, RssField, StoredDifference,
+};
+pub(crate) use tag_update::{TagUpdateHandle, TagUpdateSnapshot};
 pub use vm_bus::{VmBus, VmEvent};

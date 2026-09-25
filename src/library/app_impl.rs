@@ -21,7 +21,8 @@ use crate::application::commands::payment_routes::{
     PaymentRouteRepairStatus, PaymentRouteRepairTrackResult, RepairPaymentRoutesForTrack,
 };
 use crate::application::commands::playlist::{
-    CreatePlaylist, DeletePlaylist, RemovePlaylistTrackAt, RenamePlaylist, ReorderPlaylistTrack,
+    ConfirmRemovedTrack, CreatePlaylist, DeletePlaylist, RemovePlaylistTrackAt,
+    RemoveTrackFromAllPlaylists, RenamePlaylist, ReorderPlaylistTrack,
 };
 use crate::application::errors::command::CommandError;
 use crate::application::library_removal::{LibraryRemovalIntent, LibraryRemovalTarget};
@@ -59,6 +60,9 @@ use crate::ui::shells::library::detail::render_library_detail;
 use crate::ui::shells::library::sidebar::render_library_sidebar;
 use crate::ui::shells::library::track_detail_metadata::track_metadata_rows_for_frame;
 use crate::ui::shells::library_removal_confirmation::open_library_removal_confirmation_dialog;
+use crate::ui::shells::tag_update_confirmation::{
+    open_tag_update_confirmation_dialog, render_tag_update_button, render_tag_update_report,
+};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::style::color;
 use crate::ui::style::spacing;
@@ -204,11 +208,13 @@ fn apply_library_hydration_result(
     vm.retain_observation_receipts(&hydration.observation_receipts);
     vm.update_album_identity_facts(feed_id, &hydration.identity_facts);
     vm.update_album_metadata_facts(feed_id, &hydration.metadata_facts);
+    vm.update_album_stored_values(feed_id, &hydration.stored_values);
     vm.update_album_description(feed_id, hydration.description.as_deref());
     if let LibraryDetail::Album(album) = detail {
         if album.feed_id == Some(feed_id) {
             album.identity_facts = hydration.identity_facts;
             *album.metadata_facts = hydration.metadata_facts;
+            album.stored_values = Some(Box::new(hydration.stored_values));
             album.description = hydration.description;
         }
     }
@@ -240,9 +246,9 @@ fn feed_check_route_repair_outcome(
     outcome: &CheckFeedsAndRepairRoutesResult,
 ) -> FeedCheckRouteRepairOutcome {
     let summary = &outcome.route_repairs().summary;
-    let feed_update_failures = outcome.feed_updates().map_or(0, |updates| {
-        updates.id3_errors().len() + updates.feed_errors().len()
-    });
+    let feed_update_failures = outcome
+        .feed_updates()
+        .map_or(0, |updates| updates.feed_errors().len());
     FeedCheckRouteRepairOutcome::new(
         outcome.feeds_checked(),
         outcome.stale_feed_count(),
@@ -479,13 +485,41 @@ impl LibraryApp {
     pub(crate) fn run_content_list_row_action(
         &mut self,
         action: ContentListRowActionKind,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match action {
             ContentListRowActionKind::RepairBroadcastRoutes { track_id } => {
                 self.repair_broadcast_routes_for_track(track_id, cx);
             }
+            ContentListRowActionKind::ConfirmRemovedFromFeed { track_id } => {
+                self.confirm_removed_track(track_id, cx);
+            }
+            // ADR 0076 Decision 7: the ADR 0044 removal flow with its
+            // confirmation. No second removal path.
+            ContentListRowActionKind::RemoveFromLibrary { track_id } => {
+                self.remove_track(track_id, window, cx);
+            }
         }
+    }
+
+    /// ADR 0076 Decision 7: the operator confirms that the show plays a
+    /// removed track. The mounted readiness list then shows its route state.
+    fn confirm_removed_track(&mut self, track_id: i64, cx: &mut Context<Self>) {
+        let command = ConfirmRemovedTrack::new(Arc::clone(&self.conn), track_id);
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            |this, _changed, _cx| {
+                this.refresh_current_broadcast_readiness_report();
+            },
+            |this, error, _cx| {
+                this.vm.set_error_status(error);
+                this.refresh_current_broadcast_readiness_report();
+            },
+        );
     }
 
     pub(crate) fn show_broadcast_readiness_report(
@@ -701,11 +735,18 @@ impl LibraryApp {
             runtime_host,
             playlist_actor: None,
             musicbrainz_feed_saga: None,
+            playlist_rss_check: None,
+            playlist_rss_snapshot: None,
+            tag_update: None,
+            tag_update_snapshot: None,
+            tag_update_request_failed: false,
             recent_music_page: RecentFeedsPageVm::loading(),
             recent_music_scroll: gpui::ScrollHandle::new(),
             split_pane_bounds: None,
         };
         app.maybe_start_musicbrainz_feed_saga(cx);
+        app.maybe_start_playlist_rss_check(cx);
+        app.maybe_start_tag_update(cx);
         app.start_async_reload(cx);
         app.start_recent_music_load(false, cx);
         app
@@ -728,6 +769,8 @@ impl LibraryApp {
         );
         self.runtime_host = Some(host);
         self.maybe_start_musicbrainz_feed_saga(cx);
+        self.maybe_start_playlist_rss_check(cx);
+        self.maybe_start_tag_update(cx);
         self.start_async_reload_preserving_detail(cx);
         self.start_recent_music_load(false, cx);
     }
@@ -735,6 +778,10 @@ impl LibraryApp {
     pub(crate) fn release_session_actors(&mut self) {
         self.playlist_actor.take();
         self.musicbrainz_feed_saga.take();
+        self.playlist_rss_check.take();
+        self.playlist_rss_snapshot = None;
+        self.tag_update.take();
+        self.tag_update_snapshot = None;
         self.runtime_host.take();
     }
 
@@ -765,6 +812,182 @@ impl LibraryApp {
             cx,
         );
         self.musicbrainz_feed_saga = Some(handle);
+    }
+
+    /// Start the playlist RSS check actor (ADR 0076 Decision 2, ADR 0040).
+    fn maybe_start_playlist_rss_check(&mut self, cx: &mut Context<Self>) {
+        if self.playlist_rss_check.is_some() {
+            return;
+        }
+        let Some(host) = self.runtime_host.as_ref() else {
+            return;
+        };
+        let _enter = host.handle().enter();
+        let handle =
+            crate::runtime::playlist_rss_check::spawn(Arc::clone(&self.conn), host.bus().session());
+        self.playlist_rss_snapshot = Some(handle.latest());
+        bridge_watch(
+            handle.subscribe(),
+            |this: &mut Self, snapshot, cx| {
+                // ADR 0076 packet 002: a check that applied RSS values
+                // changes stored feed and track values. The mounted view
+                // reloads them in place.
+                let applied = this.playlist_rss_snapshot.as_ref().is_some_and(|previous| {
+                    previous.applied_revision() != snapshot.applied_revision()
+                });
+                // ADR 0076 Decision 8: a check that completes starts the
+                // tag update scan.
+                let completed = this.playlist_rss_snapshot.as_ref().is_some_and(|previous| {
+                    previous
+                        .running_playlists()
+                        .any(|playlist_id| !snapshot.is_running(playlist_id))
+                });
+                this.playlist_rss_snapshot = Some(snapshot);
+                if applied {
+                    this.refresh_origin_playlist_actor();
+                    this.start_async_reload_preserving_detail(cx);
+                }
+                if completed {
+                    this.scan_tag_updates();
+                }
+            },
+            cx,
+        );
+        if let LibraryDetail::Playlist(detail) = &self.detail {
+            let _ = handle.load(detail.playlist.id);
+        }
+        self.playlist_rss_check = Some(handle);
+    }
+
+    /// Start the tag update actor (ADR 0076 Decision 8, ADR 0040) and its
+    /// first scan.
+    fn maybe_start_tag_update(&mut self, cx: &mut Context<Self>) {
+        if self.tag_update.is_some() {
+            return;
+        }
+        let Some(host) = self.runtime_host.as_ref() else {
+            return;
+        };
+        let _enter = host.handle().enter();
+        let handle = crate::runtime::tag_update::spawn(
+            Arc::clone(&self.conn),
+            host.bus().clone(),
+            host.bus().session(),
+        );
+        self.tag_update_snapshot = Some(handle.latest());
+        bridge_watch(
+            handle.subscribe(),
+            |this: &mut Self, snapshot, _cx| {
+                // A confirm changed file tags. The readiness list reads the
+                // route frames again.
+                let wrote = this
+                    .tag_update_snapshot
+                    .as_ref()
+                    .is_some_and(|previous| previous.last_write != snapshot.last_write);
+                this.tag_update_snapshot = Some(snapshot);
+                if wrote {
+                    this.refresh_current_broadcast_readiness_report();
+                }
+            },
+            cx,
+        );
+        let _ = handle.scan(self.music_dir.clone());
+        self.tag_update = Some(handle);
+    }
+
+    /// Request a tag update scan (ADR 0076 Decision 8). The scan runs in
+    /// the runtime actor. The app requests it after a completed RSS check,
+    /// after a download, after a feed update and after a tag apply.
+    pub(crate) fn scan_tag_updates(&mut self) {
+        if let Some(handle) = &self.tag_update {
+            let _ = handle.scan(self.music_dir.clone());
+        }
+    }
+
+    /// Open the "Update n file(s)" popup. The confirm writes the listed
+    /// files that the popup shows.
+    fn open_tag_update_popup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let snapshot = self.tag_update_snapshot.as_ref();
+        let Some(display) = crate::view_models::tag_update::popup(snapshot) else {
+            return;
+        };
+        let files = snapshot
+            .and_then(|snapshot| snapshot.scan.as_ref())
+            .map(|scan| scan.files.clone())
+            .unwrap_or_default();
+        open_tag_update_confirmation_dialog(window, cx, display, move |this, cx| {
+            this.confirm_tag_update(files.clone(), cx);
+        });
+    }
+
+    fn confirm_tag_update(
+        &mut self,
+        files: Vec<crate::application::queries::tag_update::TagUpdateFile>,
+        cx: &mut Context<Self>,
+    ) {
+        self.tag_update_request_failed = !self
+            .tag_update
+            .as_ref()
+            .is_some_and(|handle| handle.confirm(self.music_dir.clone(), files));
+        cx.notify();
+    }
+
+    /// Send `CheckPlaylistRss` for the playlist (ADR 0076 Decision 2).
+    ///
+    /// The "Check RSS" action and the playback start of `src/app.rs` call
+    /// this method. The command returns at once. The check runs in the
+    /// runtime actor, and its snapshot updates the mounted playlist page.
+    pub(crate) fn check_playlist_rss(
+        &mut self,
+        playlist_id: i64,
+        trigger: crate::runtime::RssCheckTrigger,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(checker) = self.playlist_rss_check.clone() else {
+            if trigger == crate::runtime::RssCheckTrigger::Button {
+                self.vm
+                    .fail_playlist_rss_check("The background runtime is not available.");
+                cx.notify();
+            }
+            return;
+        };
+        let command = crate::application::commands::playlist::CheckPlaylistRss::new(
+            checker,
+            playlist_id,
+            trigger,
+        );
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            |_this, (), _cx| {},
+            |this, err, _cx| this.vm.fail_playlist_rss_check(err),
+        );
+    }
+
+    /// The download action of a track that the RSS check added (ADR 0076
+    /// Decision 6). It uses the existing Library track download.
+    pub(crate) fn download_rss_added_track(&mut self, track_id: i64, cx: &mut Context<Self>) {
+        let track = match self.conn.lock() {
+            Ok(conn) => db::track_row_by_id(&conn, track_id),
+            Err(_) => Err(anyhow::anyhow!("The database connection is not available.")),
+        };
+        match track {
+            Ok(Some(track)) => self.subscribe_track(track, cx),
+            Ok(None) => {
+                self.vm.fail_track_subscribe(
+                    "The added track is no longer stored, so the app cannot download it.",
+                );
+                cx.notify();
+            }
+            Err(error) => {
+                self.vm.fail_track_subscribe(format!(
+                    "The app could not read the added track from the database. {error:#}"
+                ));
+                cx.notify();
+            }
+        }
     }
 
     fn on_rename_playlist_event(
@@ -865,6 +1088,7 @@ impl LibraryApp {
 
     pub fn set_music_dir(&mut self, music_dir: PathBuf, cx: &mut Context<Self>) {
         self.music_dir = music_dir;
+        self.scan_tag_updates();
         cx.notify();
     }
 
@@ -1019,6 +1243,9 @@ impl LibraryApp {
                 tracks: tracks.clone(),
             });
             self.spawn_playlist_actor(id, &tracks, cx);
+            if let Some(checker) = &self.playlist_rss_check {
+                let _ = checker.load(id);
+            }
             self.vm.replace_playlist_tracks(tracks);
         }
         cx.notify();
@@ -1244,6 +1471,75 @@ impl LibraryApp {
                 if this.vm.is_playlist_selected(playlist_id) {
                     this.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);
                 }
+            },
+            |this, err, _cx| this.vm.fail_playlist_track_remove(err),
+        );
+    }
+
+    /// ADR 0076 Decision 7: "Remove from all playlists" of a removed track.
+    /// The confirmation names each playlist that holds the track. The
+    /// command runs only after the operator confirms.
+    pub(crate) fn request_remove_track_from_all_playlists(
+        &mut self,
+        track_id: i64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let loaded = {
+            let Ok(conn) = self.conn.lock() else {
+                self.vm.set_error_status("database lock poisoned");
+                cx.notify();
+                return;
+            };
+            crate::playlist_service::playlists_holding_track(&conn, track_id).and_then(
+                |playlists| {
+                    let title = db::track_row_by_id(&conn, track_id)?
+                        .and_then(|track| track.track_title)
+                        .unwrap_or_else(|| "this track".to_owned());
+                    Ok((title, playlists))
+                },
+            )
+        };
+        let (title, playlists) = match loaded {
+            Ok(loaded) => loaded,
+            Err(error) => {
+                self.vm.set_error_status(format!("{error:#}"));
+                cx.notify();
+                return;
+            }
+        };
+        if playlists.is_empty() {
+            return;
+        }
+        let display =
+            crate::view_models::playlist_rss_check::remove_from_all_playlists_confirmation(
+                &title, &playlists,
+            );
+        crate::ui::shells::playlist_removal_confirmation::open_remove_from_all_playlists_dialog(
+            window,
+            cx,
+            display,
+            move |this, cx| this.remove_track_from_all_playlists(track_id, cx),
+        );
+    }
+
+    fn remove_track_from_all_playlists(&mut self, track_id: i64, cx: &mut Context<Self>) {
+        let command = RemoveTrackFromAllPlaylists::new(Arc::clone(&self.conn), track_id);
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, changed, cx| {
+                this.reload_playlists();
+                if let Some(playlist_id) = changed
+                    .iter()
+                    .copied()
+                    .find(|playlist_id| this.vm.is_playlist_selected(*playlist_id))
+                {
+                    this.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);
+                }
+                this.refresh_current_broadcast_readiness_report();
             },
             |this, err, _cx| this.vm.fail_playlist_track_remove(err),
         );
@@ -1521,6 +1817,9 @@ impl LibraryApp {
             metadata_facts: Box::new(
                 crate::local_metadata::feed_facts(&conn, feed_id).unwrap_or_default(),
             ),
+            stored_values: crate::application::queries::stored_values::feed_values(&conn, feed_id)
+                .ok()
+                .map(Box::new),
             tracks,
         })
     }
@@ -1694,6 +1993,7 @@ impl LibraryApp {
                 let repair = retain_feed_check_evidence(&mut this.vm, &outcome);
                 this.vm.finish_all_feed_check_with_route_repair(repair);
                 this.refresh_current_broadcast_readiness_report();
+                this.scan_tag_updates();
             },
             |this, error, _cx| {
                 retain_library_query_failure(&mut this.vm, &error);
@@ -1721,6 +2021,9 @@ impl LibraryApp {
             cx,
             |this, outcome, _cx| {
                 apply_feed_updates_result(&mut this.vm, &outcome);
+                // ADR 0076 Decision 8: the feed update changes the database
+                // only. The scan then offers the file write.
+                this.scan_tag_updates();
             },
             |this, error, _cx| {
                 retain_library_query_failure(&mut this.vm, &error);
@@ -2031,6 +2334,8 @@ impl LibraryApp {
             |this, result, cx| {
                 this.vm.clear_busy_feed();
                 this.apply_library_removal_result_to_selected_detail(result.target());
+                // A mounted readiness list drops the removed track in place.
+                this.refresh_current_broadcast_readiness_report();
                 this.refresh_origin_playlist_actor();
                 this.start_async_reload_preserving_detail(cx);
             },
@@ -2100,6 +2405,7 @@ impl LibraryApp {
                 ));
                 this.refresh_origin_playlist_actor();
                 this.start_async_reload_preserving_detail(cx);
+                this.scan_tag_updates();
             },
             |this, error, _cx| this.vm.fail_track_subscribe(error),
         );
@@ -2182,13 +2488,15 @@ impl LibraryApp {
         }
 
         let entity_id = frame.entity_id;
+        let track_id = frame.track.id;
         let path = PathBuf::from(result.path.clone());
         let edits = pending_id3_edits_for_apply(&pending_id3_edits);
         frame.applying_id3_edits = true;
         frame.id3_apply_error = None;
         cx.notify();
 
-        let command = ApplyTrackId3Edits::new(path, edits, track_context);
+        let command = ApplyTrackId3Edits::new(path, edits, track_context)
+            .with_stored_route(Arc::clone(&self.conn), track_id);
         present_command(
             &self.command_runner,
             command,
@@ -2204,6 +2512,8 @@ impl LibraryApp {
                         frame.id3_apply_error = None;
                     }
                 }
+                // ADR 0076 Decision 8: the button count follows the file.
+                this.scan_tag_updates();
             },
             move |this, error, _cx| {
                 if let Some(frame) = this.selected_track_frame_mut() {
@@ -2883,6 +3193,22 @@ impl Render for LibraryApp {
             left_items.extend(tree_items);
         }
 
+        let tag_update_button = crate::view_models::tag_update::button(
+            self.tag_update_snapshot.as_ref(),
+        )
+        .map(|button| {
+            render_tag_update_button(
+                button,
+                cx.listener(|this, _, window, cx| {
+                    this.open_tag_update_popup(window, cx);
+                }),
+            )
+        });
+        let tag_update_report = crate::view_models::tag_update::report(
+            self.tag_update_snapshot.as_ref(),
+            self.tag_update_request_failed,
+        )
+        .map(|report| render_tag_update_report(report, cx));
         let leading_pane = div()
             .flex()
             .flex_col()
@@ -2939,22 +3265,33 @@ impl Render for LibraryApp {
                                         )
                                     }),
                             )
-                            .child(if kind == FeedUpdateActionKind::ApplyUpdates {
-                                UiButton::styled(button_id, ControlStyle::Primary)
-                                    .label(label)
-                                    .disabled(disabled)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.apply_all_feed_updates(cx);
-                                    }))
-                            } else {
-                                UiButton::styled(button_id, ControlStyle::Secondary)
-                                    .label(label)
-                                    .disabled(disabled)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.check_all_feeds(cx);
-                                    }))
-                            }),
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(spacing::SM)
+                                    // ADR 0076 Decision 8: the button is
+                                    // absent when no file differs.
+                                    .children(tag_update_button)
+                                    .child(if kind == FeedUpdateActionKind::ApplyUpdates {
+                                        UiButton::styled(button_id, ControlStyle::Primary)
+                                            .label(label)
+                                            .disabled(disabled)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.apply_all_feed_updates(cx);
+                                            }))
+                                    } else {
+                                        UiButton::styled(button_id, ControlStyle::Secondary)
+                                            .label(label)
+                                            .disabled(disabled)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.check_all_feeds(cx);
+                                            }))
+                                    }),
+                            ),
                     )
+                    .children(tag_update_report)
                     .when_some(feed_status, |el, msg| {
                         el.child(
                             div()
@@ -3085,6 +3422,7 @@ impl Render for LibraryApp {
                 self.rename_playlist_input.clone(),
                 self.vm.renaming_playlist_id(),
                 self.playlist_actor.as_ref(),
+                self.playlist_rss_snapshot.as_ref(),
                 cx,
             );
             let trailing_pane = div()
@@ -3194,6 +3532,7 @@ mod tests {
             image_href: Some("https://example.test/art.png".into()),
             identity_facts: LocalIdentityFacts::default(),
             metadata_facts: Box::<crate::views::FeedMetadataFacts>::default(),
+            stored_values: None,
             tracks,
         }
     }
@@ -3521,6 +3860,7 @@ mod tests {
             AlbumIdentityHydration {
                 identity_facts: LocalIdentityFacts::default(),
                 metadata_facts: Default::default(),
+                stored_values: Default::default(),
                 description: Some("Hydrated description".into()),
                 observation_receipts: vec![library_observation_receipt(3)],
             },
@@ -3584,6 +3924,7 @@ mod tests {
             AlbumIdentityHydration {
                 identity_facts: LocalIdentityFacts::default(),
                 metadata_facts: Default::default(),
+                stored_values: Default::default(),
                 description: None,
                 observation_receipts: vec![library_observation_receipt(5)],
             },
@@ -3672,6 +4013,7 @@ mod tests {
             AlbumIdentityHydration {
                 identity_facts: LocalIdentityFacts::default(),
                 metadata_facts: Default::default(),
+                stored_values: Default::default(),
                 description: Some("Current description".into()),
                 observation_receipts: vec![library_observation_receipt(6)],
             },

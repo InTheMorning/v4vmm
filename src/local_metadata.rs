@@ -13,14 +13,67 @@ use crate::db::{self, LocalMetadataOwner, LocalMetadataValue};
 use crate::metadata::drop_placeholder_source_text;
 use crate::views::{FeedMetadataFacts, TrackMetadataFacts};
 
-pub(crate) fn feed_facts(conn: &Connection, feed_id: i64) -> Result<FeedMetadataFacts> {
-    let rows = db::local_metadata_facts(conn, LocalMetadataOwner::Feed(feed_id))?;
-    Ok(feed_facts_from_rows(rows))
+/// The source token of the facts that a `MusicIndex` response supplies.
+const MUSICINDEX_SOURCE: &str = "musicindex";
+/// The source token of the facts that the RSS parse and the playlist RSS
+/// check write.
+const RSS_SOURCE: &str = "rss";
+
+/// The decoded fact rows of one owner, one set for each source that the
+/// stored value projection reads (ADR 0075 packet 020).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SourcedFacts<T> {
+    /// The `musicindex` rows.
+    pub(crate) musicindex: T,
+    /// The `rss` rows.
+    pub(crate) rss: T,
 }
 
-pub(crate) fn track_facts(conn: &Connection, track_id: i64) -> Result<TrackMetadataFacts> {
+/// The `MusicIndex` facts of a feed. The Library uses them to find out if
+/// an album has had its `MusicIndex` hydration.
+pub(crate) fn feed_facts(conn: &Connection, feed_id: i64) -> Result<FeedMetadataFacts> {
+    Ok(sourced_feed_facts(conn, feed_id)?.musicindex)
+}
+
+pub(crate) fn sourced_feed_facts(
+    conn: &Connection,
+    feed_id: i64,
+) -> Result<SourcedFacts<FeedMetadataFacts>> {
+    let rows = db::local_metadata_facts(conn, LocalMetadataOwner::Feed(feed_id))?;
+    let (musicindex, rss) = split_by_source(rows);
+    Ok(SourcedFacts {
+        musicindex: feed_facts_from_rows(musicindex),
+        rss: feed_facts_from_rows(rss),
+    })
+}
+
+pub(crate) fn sourced_track_facts(
+    conn: &Connection,
+    track_id: i64,
+) -> Result<SourcedFacts<TrackMetadataFacts>> {
     let rows = db::local_metadata_facts(conn, LocalMetadataOwner::Track(track_id))?;
-    Ok(track_facts_from_rows(rows))
+    let (musicindex, rss) = split_by_source(rows);
+    Ok(SourcedFacts {
+        musicindex: track_facts_from_rows(musicindex),
+        rss: track_facts_from_rows(rss),
+    })
+}
+
+/// Keep the `musicindex` rows and the `rss` rows apart. A row of another
+/// source token is evidence only, and the projection does not read it.
+fn split_by_source(
+    rows: Vec<db::LocalMetadataFactRow>,
+) -> (Vec<db::LocalMetadataFactRow>, Vec<db::LocalMetadataFactRow>) {
+    let mut musicindex = Vec::new();
+    let mut rss = Vec::new();
+    for row in rows {
+        match row.source.as_str() {
+            MUSICINDEX_SOURCE => musicindex.push(row),
+            RSS_SOURCE => rss.push(row),
+            _ => {}
+        }
+    }
+    (musicindex, rss)
 }
 
 fn feed_facts_from_rows(rows: Vec<db::LocalMetadataFactRow>) -> FeedMetadataFacts {
@@ -250,7 +303,7 @@ mod tests {
             ],
         )?;
 
-        let facts = track_facts(&conn, 11)?;
+        let facts = sourced_track_facts(&conn, 11)?.musicindex;
 
         assert_eq!(facts.publisher_text.as_deref(), Some("Example Publisher"));
         assert_eq!(facts.description.as_deref(), Some("Track description"));

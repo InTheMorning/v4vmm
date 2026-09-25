@@ -63,6 +63,14 @@ impl<'a> PlaylistDetailPageVm<'a> {
         self.detail.actions_display()
     }
 
+    /// The report of the latest RSS check (ADR 0076 Decision 2).
+    #[must_use]
+    pub(crate) fn rss_check_report(
+        &self,
+    ) -> Option<crate::view_models::playlist_rss_check::PlaylistRssCheckReportDisplay> {
+        self.detail.rss_check_report()
+    }
+
     #[must_use]
     #[cfg_attr(
         not(test),
