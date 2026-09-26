@@ -1109,10 +1109,7 @@ impl SearchApp {
         let key = TrackRowActionVm::new(&track, false, false).key();
         self.request_library_removal(
             LibraryRemovalIntent::TrackMatch {
-                feed_url: track
-                    .feed_url
-                    .clone()
-                    .or_else(|| feed.as_ref().and_then(|feed| feed.feed_url.clone())),
+                feed_url: feed.as_ref().and_then(|feed| feed.feed_url.clone()),
                 item_guid: track.track_guid.clone(),
                 enclosure_url: track.enclosure_url.clone(),
             },
@@ -1315,12 +1312,7 @@ impl SearchApp {
                 LibraryRemovalIntent::FeedUrl(feed_url)
             }
             InspectorDetail::Track(track_context) => LibraryRemovalIntent::TrackMatch {
-                feed_url: track_context.track.feed_url.clone().or_else(|| {
-                    track_context
-                        .feed
-                        .as_ref()
-                        .and_then(|feed| feed.feed_url.clone())
-                }),
+                feed_url: track_context.feed_url().map(str::to_owned),
                 item_guid: track_context.track.track_guid.clone(),
                 enclosure_url: track_context.track.enclosure_url.clone(),
             },
@@ -1933,9 +1925,12 @@ impl SearchApp {
                 .feed_url
                 .as_deref()
                 .map(|feed_url| db::feed_is_subscribed_by_url(&db, feed_url).unwrap_or(false)),
+            // This search row has no feed beside the track (ADR 0075 packet
+            // 046). The match still checks the item GUID and the enclosure
+            // URL.
             EntityDetail::Track(track) => library_service::track_is_in_library_by_match(
                 &db,
-                track.feed_url.as_deref(),
+                None,
                 track.track_guid.as_deref(),
                 track.enclosure_url.as_deref(),
             )
@@ -2165,12 +2160,7 @@ fn local_subscription_for_detail(
             .map(|feed_url| db::feed_is_subscribed_by_url(&db, feed_url))
             .transpose(),
         InspectorDetail::Track(track_context) => {
-            let feed_url = track_context.track.feed_url.as_deref().or_else(|| {
-                track_context
-                    .feed
-                    .as_ref()
-                    .and_then(|feed| feed.feed_url.as_deref())
-            });
+            let feed_url = track_context.feed_url();
             library_service::track_is_in_library_by_match(
                 &db,
                 feed_url,

@@ -128,7 +128,6 @@ pub struct Feed {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<i64>,
     pub title: Option<String>,
-    pub name: Option<String>,
     pub feed_url: Option<String>,
     #[serde(alias = "owner_name")]
     pub release_artist: Option<String>,
@@ -185,9 +184,7 @@ pub struct Track {
     pub created_at: Option<i64>,
     pub feed_guid: Option<String>,
     pub feed_title: Option<String>,
-    pub feed_url: Option<String>,
     pub title: Option<String>,
-    pub name: Option<String>,
     pub duration_secs: Option<i32>,
     pub pub_date: Option<i64>,
     pub track_number: Option<i32>,
@@ -228,14 +225,11 @@ pub struct Track {
 
 pub fn track_with_feed_defaults(mut track: Track, feed: Option<&Feed>) -> Track {
     if let Some(feed) = feed {
-        if track.feed_url.is_none() {
-            track.feed_url = feed.feed_url.clone();
-        }
         if track.feed_guid.is_none() {
             track.feed_guid = feed.feed_guid.clone();
         }
         if track.feed_title.is_none() {
-            track.feed_title = feed.title.clone().or_else(|| feed.name.clone());
+            track.feed_title = feed.title.clone();
         }
         if track.image_url.is_none() {
             track.image_url = feed.image_url.clone();
@@ -1384,6 +1378,39 @@ pub(crate) mod tests {
         assert_eq!(track.source_contributors.as_ref().map(Vec::len), Some(1));
         assert_eq!(track.source_links.as_ref().map(Vec::len), Some(1));
         assert_eq!(track.source_ids.as_ref().map(Vec::len), Some(1));
+    }
+
+    /// R46-01: `api::Feed` and `api::Track` decode a response that contains
+    /// `name` and `feed_url` without an error, and the undeclared values
+    /// are ignored (ADR 0075 packet 046). The deployed contract sends
+    /// neither field on a track.
+    #[test]
+    fn adr_0075_undeclared_fields_r46_01_feed_and_track_ignore_undeclared_fields() {
+        let feed: Feed = serde_json::from_str(
+            r#"{
+                "feed_guid": "feed-1",
+                "title": "Feed Title",
+                "name": "Legacy Feed Name",
+                "feed_url": "https://example.test/feed.xml"
+            }"#,
+        )
+        .expect("a feed response with an undeclared name field must still decode");
+        assert_eq!(feed.title.as_deref(), Some("Feed Title"));
+        assert_eq!(
+            feed.feed_url.as_deref(),
+            Some("https://example.test/feed.xml")
+        );
+
+        let track: Track = serde_json::from_str(
+            r#"{
+                "track_guid": "track-1",
+                "title": "Track Title",
+                "name": "Legacy Track Name",
+                "feed_url": "https://example.test/feed.xml"
+            }"#,
+        )
+        .expect("a track response with undeclared name and feed_url fields must still decode");
+        assert_eq!(track.title.as_deref(), Some("Track Title"));
     }
 
     #[test]

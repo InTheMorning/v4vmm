@@ -414,17 +414,8 @@ fn subscribe_track_from_search_internal(
     enrich_track_context_from_rss(&mut refreshed_context);
     sanitize_track_context_source_text(&mut refreshed_context);
     let feed_url = refreshed_context
-        .track
-        .feed_url
-        .clone()
-        .filter(|url| !source_text_missing(Some(url.as_str())))
-        .or_else(|| {
-            refreshed_context
-                .feed
-                .as_ref()
-                .and_then(|feed| feed.feed_url.clone())
-        })
-        .filter(|url| !source_text_missing(Some(url.as_str())))
+        .feed_url()
+        .map(str::to_owned)
         .ok_or_else(|| anyhow!("track has no RSS feed URL"))?;
     let track = refreshed_context.track.clone();
     let feed = refreshed_context.feed.clone();
@@ -552,16 +543,9 @@ pub fn enrich_track_context_from_rss(context: &mut TrackContext) {
 pub(crate) fn rss_request_spec(
     context: &TrackContext,
 ) -> Option<crate::provider_observation::ProviderRequestSpec> {
-    let feed_url = context
-        .track
-        .feed_url
-        .clone()
-        .filter(|url| !source_text_missing(Some(url.as_str())))
-        .or_else(|| context.feed.as_ref().and_then(|feed| feed.feed_url.clone()))
-        .filter(|url| !source_text_missing(Some(url.as_str())));
-    feed_url.map(|url| {
+    context.feed_url().map(|url| {
         crate::provider_observation::contracts::rss_request(
-            &url,
+            url,
             context.track.track_guid.as_deref(),
             context.track.enclosure_url.as_deref(),
         )
@@ -763,7 +747,6 @@ where
 fn fill_missing_track_match_fields(track: &mut Track, fallback: &Track) {
     fill_missing_source_text(&mut track.track_guid, &fallback.track_guid);
     fill_missing_source_text(&mut track.feed_guid, &fallback.feed_guid);
-    fill_missing_source_text(&mut track.feed_url, &fallback.feed_url);
     fill_missing_source_text(&mut track.enclosure_url, &fallback.enclosure_url);
 }
 
@@ -860,7 +843,6 @@ mod tests {
         let original = Track {
             track_guid: Some("track-guid".into()),
             feed_guid: Some("feed-guid".into()),
-            feed_url: Some("https://example.test/feed.xml".into()),
             enclosure_url: Some("https://example.test/audio.mp3".into()),
             publisher_text: Some("Feed Publisher".into()),
             description: Some("Feed description".into()),
@@ -878,10 +860,6 @@ mod tests {
             .expect("fetched track should resolve");
 
         assert_eq!(resolved.feed_guid.as_deref(), Some("feed-guid"));
-        assert_eq!(
-            resolved.feed_url.as_deref(),
-            Some("https://example.test/feed.xml")
-        );
         assert_eq!(
             resolved.enclosure_url.as_deref(),
             Some("https://example.test/audio.mp3")
@@ -1031,6 +1009,25 @@ mod tests {
         let before = context.track.clone();
         enrich_track_context_from_rss(&mut context);
         assert_eq!(context.track.title, before.title);
-        assert_eq!(context.track.feed_url, before.feed_url);
+    }
+
+    /// R46-04: RSS enrichment of a context with a feed address reads the
+    /// feed address from the context's feed. `api::Track` has no `feed_url`
+    /// field of its own (ADR 0075 packet 046).
+    #[test]
+    fn adr_0075_undeclared_fields_r46_04_rss_request_spec_reads_feed_address_from_feed() {
+        let context = TrackContext::new(
+            Track {
+                track_guid: Some("track-1".into()),
+                ..Track::default()
+            },
+            Some(Feed {
+                feed_url: Some("https://example.test/feed.xml".into()),
+                ..Feed::default()
+            }),
+        );
+
+        let spec = rss_request_spec(&context).expect("a context with a feed address requests RSS");
+        assert_eq!(spec.request_uri, "https://example.test/feed.xml");
     }
 }

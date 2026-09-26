@@ -810,10 +810,10 @@ It does not treat assigned but unwritten field rules as completed proposals.
 | Track page comparison | Apply the feed website normalization. Preserve path, query, and fragment differences and the original URL |
 | Feed title source priority | Prefer fresh direct RSS titles over MusicIndex. Retain both source assertions and original evidence |
 | Feed title refinements | Apply accepted removal, conflict, and stale-state rules. Retain original text, source evidence, and the last selected state, including absence |
-| MusicIndex feed title representation | Prefer `title`, then legacy `name`. Retain both values and their field paths without overriding verified title removal |
+| MusicIndex feed title representation | Use `title`. Retain the value and its field path. Corrected 2026-09-26: the contract declares no `name` |
 | Missing feed title presentation | Keep "Unknown Feed" as a display label only. Do not store that generated label as source metadata |
 | Feed title placeholders | Hide only confirmed generated placeholders. Retain literal publisher-supplied titles such as "Unknown Feed" and preserve derivation evidence |
-| Track title rules | Apply the feed title source priority, title/name order, removal, conflict, stale-state, and placeholder rules. Preserve the track owner and evidence |
+| Track title rules | Apply the feed title source priority, removal, conflict, stale-state, and placeholder rules. Preserve the track owner and evidence |
 | Missing track title presentation | Display the track GUID, then "Untitled" when no GUID exists. These labels do not create source metadata |
 | Feed-title reference fallback | Allow a track response's `feed_title` as a labeled feed reference when no separately selected feed title exists. Preserve its feed owner and source evidence |
 | Feed-title reference removal | Verified feed-title removal hides the reference. Retain the removal and reference evidence |

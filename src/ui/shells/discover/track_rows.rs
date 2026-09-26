@@ -30,10 +30,10 @@ pub(crate) fn render_track_list_rows(
                     .and_then(|db| {
                         library_service::track_is_in_library_by_match(
                             db,
-                            track
-                                .feed_url
-                                .as_deref()
-                                .or_else(|| feed.as_ref().and_then(|f| f.feed_url.as_deref())),
+                            // `api::Track` carries no feed address of its own
+                            // (ADR 0075 packet 046). This row's parent feed
+                            // holds it instead.
+                            feed.as_ref().and_then(|f| f.feed_url.as_deref()),
                             track.track_guid.as_deref(),
                             track.enclosure_url.as_deref(),
                         )

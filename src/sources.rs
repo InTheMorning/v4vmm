@@ -86,7 +86,9 @@ impl MetadataSource for ApiSource {
                 id: Some(FeedRef::Musicindex(key.clone())),
                 feed_guid: Some(key),
                 title: t.feed_title.clone(),
-                feed_url: t.feed_url.clone(),
+                // The `/v1/tracks?artist=` route sends no feed address
+                // (ADR 0075 packet 046).
+                feed_url: None,
                 image_url: t.image_url.clone(),
                 ..Default::default()
             });

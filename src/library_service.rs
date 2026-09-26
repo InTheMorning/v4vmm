@@ -348,6 +348,45 @@ mod tests {
         Ok(())
     }
 
+    /// R46-03: the Library match of an Index track that has a fetched feed
+    /// still finds the local track by feed address and item GUID.
+    /// `api::Track` has no `feed_url` field of its own (ADR 0075 packet
+    /// 046); the address comes from `TrackContext::feed_url`.
+    #[test]
+    fn adr_0075_undeclared_fields_r46_03_track_context_feed_url_still_matches_library_track(
+    ) -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_feed(&conn, "https://example.test/feed.xml")?;
+        let track_id = create_track(
+            &conn,
+            feed_id,
+            "item-guid",
+            "https://example.test/audio.mp3",
+        )?;
+
+        let track_context = crate::metadata::TrackContext::new(
+            crate::api::Track {
+                track_guid: Some("item-guid".into()),
+                ..crate::api::Track::default()
+            },
+            Some(crate::api::Feed {
+                feed_url: Some("https://example.test/feed.xml".into()),
+                ..crate::api::Feed::default()
+            }),
+        );
+
+        let matched = find_track_id(
+            &conn,
+            track_context.feed_url(),
+            track_context.track.track_guid.as_deref(),
+            None,
+        )?;
+
+        assert_eq!(matched, Some(track_id));
+
+        Ok(())
+    }
+
     #[test]
     fn delete_local_file_removes_cache_record() -> Result<()> {
         let conn = setup_test_db()?;

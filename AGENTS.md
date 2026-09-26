@@ -104,7 +104,8 @@ against the deployed API.
 
 This client implements none of the three landed changes. Each one needs its own packet.
 ADR 0076, amended on 2026-09-26, makes the app ignore `last_build_date`. Three decoded fields no
-longer arrive. Their removal is recommended, and no packet exists yet.
+longer arrive. [Packet 046](docs/tasks/adr-0075-task-046-remove-undeclared-api-fields.md)
+removed them on 2026-09-26. Its mechanical checks are Green, and it needs no visual acceptance.
 
 [ADR 0076](docs/adr/0076-playlist-rss-check-for-stale-musicindex-records.md) is Accepted on
 2026-09-24, after the operator reviewed each decision. It replaces the per-field source

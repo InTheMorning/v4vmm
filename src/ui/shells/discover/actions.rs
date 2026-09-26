@@ -192,10 +192,11 @@ fn inspector_playlist_target(
     match (&frame.detail, frame.entity_type.as_str()) {
         (InspectorDetail::Track(track_context), _) => {
             let track = &track_context.track;
+            let feed_url = track_context.feed_url();
             let local_id = if let Ok(conn) = app.conn.lock() {
                 library_service::find_track_id(
                     &conn,
-                    track.feed_url.as_deref(),
+                    feed_url,
                     track.track_guid.as_deref(),
                     track.enclosure_url.as_deref(),
                 )
@@ -208,7 +209,7 @@ fn inspector_playlist_target(
                 Some(id) => Some(InspectorPlaylistTarget::Track(id)),
                 None => match (track.feed_guid.clone(), track.track_guid.clone()) {
                     (Some(fg), Some(tg)) => Some(InspectorPlaylistTarget::TrackPending {
-                        feed_url: track.feed_url.clone(),
+                        feed_url: feed_url.map(str::to_owned),
                         feed_guid: fg,
                         track_guid: tg,
                     }),

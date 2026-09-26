@@ -103,8 +103,12 @@ impl<'a> TrackRowActionVm<'a> {
 /// Borrow-only projection over the discover track-inspector header.
 /// Owns the feed-link URL fallback (`feed_url` -> `feed_guid`) and the
 /// feed-link label fallback (`feed_title` -> caller-provided guid).
+///
+/// `api::Track` carries no feed address of its own (ADR 0075 packet 046).
+/// The caller supplies `feed_url` from the track's `TrackContext`.
 pub(crate) struct TrackInspectorHeaderVm<'a> {
     track: &'a Track,
+    feed_url: Option<&'a str>,
 }
 
 /// Display-ready feed link for the Discover track inspector.
@@ -119,8 +123,8 @@ pub(crate) struct TrackFeedLinkDisplay {
 
 impl<'a> TrackInspectorHeaderVm<'a> {
     #[must_use]
-    pub(crate) fn new(track: &'a Track) -> Self {
-        Self { track }
+    pub(crate) fn new(track: &'a Track, feed_url: Option<&'a str>) -> Self {
+        Self { track, feed_url }
     }
 
     /// Complete feed-link display contract for the track inspector.
@@ -141,9 +145,8 @@ impl<'a> TrackInspectorHeaderVm<'a> {
     /// known).
     #[must_use]
     pub(crate) fn feed_link_url(&self) -> Option<String> {
-        self.track
-            .feed_url
-            .clone()
+        self.feed_url
+            .map(str::to_owned)
             .or_else(|| self.track.feed_guid.clone())
     }
 

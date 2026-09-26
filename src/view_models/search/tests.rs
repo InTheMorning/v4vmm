@@ -60,7 +60,6 @@ fn artist_display_falls_back_to_active_years_then_entity_id() {
 #[test]
 fn feed_display_uses_title_fallbacks_and_episode_count() {
     let detail = EntityDetail::Feed(Feed {
-        name: Some("Feed Name".into()),
         feed_guid: Some("feed-guid".into()),
         release_artist: Some("Release Artist".into()),
         episode_count: Some(12),
@@ -73,7 +72,7 @@ fn feed_display_uses_title_fallbacks_and_episode_count() {
         ResultRowDisplay {
             element_id: String::new(),
             kind_label: String::new(),
-            line1: "Feed Name".into(),
+            line1: "feed-guid".into(),
             line2: "Release Artist".into(),
             line3: "12 tracks".into(),
             image_url: Some("https://example.test/f.png".into()),
@@ -197,7 +196,6 @@ fn podroll_section_display_projects_heading_and_scroll_id() {
 fn recent_feed_tile_vm_does_not_emit_placeholder_ellipsis() {
     let feed = Feed {
         title: Some(" … ".into()),
-        name: Some("...".into()),
         release_artist: Some("...".into()),
         publisher_text: Some("Publisher".into()),
         feed_guid: Some("feed-guid".into()),
@@ -214,7 +212,7 @@ fn recent_feed_tile_vm_does_not_emit_placeholder_ellipsis() {
 #[test]
 fn track_display_uses_track_vm_title_duration_and_artist_fallback() {
     let detail = EntityDetail::Track(Track {
-        name: Some("Track Name".into()),
+        title: Some("Track Name".into()),
         duration_secs: Some(65),
         feed_title: Some("Feed Title".into()),
         release_artist: Some("Release Artist".into()),
@@ -696,23 +694,21 @@ fn search_view_model_starts_with_idle_panes_and_no_in_flight_tracks() {
 #[test]
 fn track_inspector_header_vm_feed_link_url_falls_back_to_feed_guid() {
     let track = Track {
-        feed_url: Some("https://example/x.rss".into()),
         feed_guid: Some("guid-1".into()),
         ..Track::default()
     };
-    let vm = TrackInspectorHeaderVm::new(&track);
+    let vm = TrackInspectorHeaderVm::new(&track, Some("https://example/x.rss"));
     assert_eq!(vm.feed_link_url().as_deref(), Some("https://example/x.rss"));
 
     let track = Track {
-        feed_url: None,
         feed_guid: Some("guid-1".into()),
         ..Track::default()
     };
-    let vm = TrackInspectorHeaderVm::new(&track);
+    let vm = TrackInspectorHeaderVm::new(&track, None);
     assert_eq!(vm.feed_link_url().as_deref(), Some("guid-1"));
 
     let track = Track::default();
-    let vm = TrackInspectorHeaderVm::new(&track);
+    let vm = TrackInspectorHeaderVm::new(&track, None);
     assert_eq!(vm.feed_link_url(), None);
 }
 
@@ -723,7 +719,7 @@ fn track_inspector_header_vm_feed_link_label_uses_feed_title_then_falls_back_to_
         feed_guid: Some("guid-1".into()),
         ..Track::default()
     };
-    let vm = TrackInspectorHeaderVm::new(&track);
+    let vm = TrackInspectorHeaderVm::new(&track, None);
     assert_eq!(vm.feed_link_label("guid-1"), "Friendly Title");
 
     // Empty / whitespace-only feed_title falls back to the guid arg.
@@ -732,14 +728,14 @@ fn track_inspector_header_vm_feed_link_label_uses_feed_title_then_falls_back_to_
         feed_guid: Some("guid-1".into()),
         ..Track::default()
     };
-    let vm = TrackInspectorHeaderVm::new(&track);
+    let vm = TrackInspectorHeaderVm::new(&track, None);
     assert_eq!(vm.feed_link_label("guid-1"), "guid-1");
 
     let track = Track {
         feed_title: None,
         ..Track::default()
     };
-    let vm = TrackInspectorHeaderVm::new(&track);
+    let vm = TrackInspectorHeaderVm::new(&track, None);
     assert_eq!(vm.feed_link_label("fallback"), "fallback");
 }
 
@@ -747,11 +743,10 @@ fn track_inspector_header_vm_feed_link_label_uses_feed_title_then_falls_back_to_
 fn track_inspector_header_vm_projects_feed_link_display_contract() {
     let track = Track {
         feed_title: Some("Friendly Title".into()),
-        feed_url: Some("https://example/x.rss".into()),
         feed_guid: Some("guid-1".into()),
         ..Track::default()
     };
-    let vm = TrackInspectorHeaderVm::new(&track);
+    let vm = TrackInspectorHeaderVm::new(&track, Some("https://example/x.rss"));
     assert_eq!(
         vm.feed_link_display(),
         Some(TrackFeedLinkDisplay {
@@ -765,11 +760,10 @@ fn track_inspector_header_vm_projects_feed_link_display_contract() {
 
     let track = Track {
         feed_title: Some("   ".into()),
-        feed_url: None,
         feed_guid: Some("guid-1".into()),
         ..Track::default()
     };
-    let vm = TrackInspectorHeaderVm::new(&track);
+    let vm = TrackInspectorHeaderVm::new(&track, None);
     assert_eq!(
         vm.feed_link_display(),
         Some(TrackFeedLinkDisplay {
@@ -785,7 +779,7 @@ fn track_inspector_header_vm_projects_feed_link_display_contract() {
         feed_guid: None,
         ..Track::default()
     };
-    let vm = TrackInspectorHeaderVm::new(&track);
+    let vm = TrackInspectorHeaderVm::new(&track, None);
     assert_eq!(vm.feed_link_display(), None);
 }
 
@@ -1443,7 +1437,7 @@ fn search_view_model_navigation_targets_follow_selection_and_clamp_edges() {
             "track",
             "track-1",
             Some(EntityDetail::Track(Track {
-                name: Some("Second Track".into()),
+                title: Some("Second Track".into()),
                 ..Track::default()
             })),
         ),

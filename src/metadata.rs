@@ -81,6 +81,20 @@ impl TrackContext {
             provider_state: Default::default(),
         }
     }
+
+    /// Returns the feed address of this context's feed.
+    ///
+    /// The result is `None` when this context has no feed, or when the
+    /// feed's `feed_url` is empty (ADR 0075 packet 046). `api::Track` has no
+    /// `feed_url` field of its own; a caller with a fetched feed reads the
+    /// address here instead.
+    #[must_use]
+    pub fn feed_url(&self) -> Option<&str> {
+        self.feed
+            .as_ref()
+            .and_then(|feed| feed.feed_url.as_deref())
+            .filter(|url| !url.is_empty())
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -433,9 +447,7 @@ pub(crate) fn sanitize_track_context_source_text(context: &mut TrackContext) {
 
 pub(crate) fn sanitize_track_source_text(track: &mut Track) {
     track.feed_title = drop_placeholder_source_text(track.feed_title.take());
-    track.feed_url = drop_placeholder_source_text(track.feed_url.take());
     track.title = drop_placeholder_source_text(track.title.take());
-    track.name = drop_placeholder_source_text(track.name.take());
     track.description = drop_placeholder_source_text(track.description.take());
     track.enclosure_url = drop_placeholder_source_text(track.enclosure_url.take());
     track.enclosure_type = drop_placeholder_source_text(track.enclosure_type.take());
@@ -451,7 +463,6 @@ pub(crate) fn sanitize_track_source_text(track: &mut Track) {
 
 pub(crate) fn sanitize_feed_source_text(feed: &mut Feed) {
     feed.title = drop_placeholder_source_text(feed.title.take());
-    feed.name = drop_placeholder_source_text(feed.name.take());
     feed.feed_url = drop_placeholder_source_text(feed.feed_url.take());
     feed.release_artist = drop_placeholder_source_text(feed.release_artist.take());
     feed.release_artist_sort = drop_placeholder_source_text(feed.release_artist_sort.take());
@@ -1895,7 +1906,6 @@ fn source_value_for_metadata_field(field: &str, track_context: &TrackContext) ->
     let feed = track_context.feed.as_ref();
     let value = match field {
         "Title" => drop_placeholder_source_text(track.title.clone())
-            .or_else(|| drop_placeholder_source_text(track.name.clone()))
             .as_deref()
             .and_then(format_id3_title),
         "Artist" => drop_placeholder_source_text(track.track_artist.clone()),
@@ -1908,12 +1918,7 @@ fn source_value_for_metadata_field(field: &str, track_context: &TrackContext) ->
             .feed_title
             .clone()
             .and_then(|value| drop_placeholder_source_text(Some(value)))
-            .or_else(|| {
-                feed.and_then(|feed| {
-                    drop_placeholder_source_text(feed.title.clone())
-                        .or_else(|| drop_placeholder_source_text(feed.name.clone()))
-                })
-            }),
+            .or_else(|| feed.and_then(|feed| drop_placeholder_source_text(feed.title.clone()))),
         "Track #" => track
             .track_number
             .map(|track_number| track_number.to_string()),
@@ -3418,7 +3423,6 @@ pub fn entity_key(entity_type: &str, entity_id: &str) -> String {
 pub fn feed_title(feed: &Feed) -> String {
     feed.title
         .clone()
-        .or_else(|| feed.name.clone())
         .or_else(|| feed.feed_guid.clone())
         .unwrap_or_else(|| "Untitled".into())
 }
@@ -3427,7 +3431,6 @@ pub fn track_title(track: &Track) -> String {
     track
         .title
         .clone()
-        .or_else(|| track.name.clone())
         .or_else(|| track.track_guid.clone())
         .unwrap_or_else(|| "Untitled".into())
 }
@@ -3613,6 +3616,33 @@ mod tests {
     use crate::audio_tags::AudioTags;
     use crate::track_compare::{ComparisonRow, ComparisonStatus};
 
+    /// R46-02: `TrackContext::feed_url` gives the feed address of a context
+    /// with a feed, and `None` for a context without a feed or with an
+    /// empty address (ADR 0075 packet 046).
+    #[test]
+    fn adr_0075_undeclared_fields_r46_02_track_context_feed_url_reads_feed_address() {
+        let with_feed = TrackContext::new(
+            Track::default(),
+            Some(Feed {
+                feed_url: Some("https://example.test/feed.xml".into()),
+                ..Feed::default()
+            }),
+        );
+        assert_eq!(with_feed.feed_url(), Some("https://example.test/feed.xml"));
+
+        let empty_address = TrackContext::new(
+            Track::default(),
+            Some(Feed {
+                feed_url: Some(String::new()),
+                ..Feed::default()
+            }),
+        );
+        assert_eq!(empty_address.feed_url(), None);
+
+        let no_feed = TrackContext::new(Track::default(), None);
+        assert_eq!(no_feed.feed_url(), None);
+    }
+
     #[test]
     fn id3_target_keys_normalize_descriptor_control_chars() {
         assert_eq!(
@@ -3696,9 +3726,7 @@ mod tests {
             provider_state: Default::default(),
             track: Track {
                 feed_title: Some("...".into()),
-                feed_url: Some("\u{2026}".into()),
                 title: Some("...\n...\n...".into()),
-                name: Some("Real fallback".into()),
                 description: Some(" . . . ".into()),
                 enclosure_url: Some("...".into()),
                 image_url: Some("...".into()),
@@ -3728,7 +3756,6 @@ mod tests {
             },
             feed: Some(Feed {
                 title: Some("...".into()),
-                name: Some("Real feed".into()),
                 feed_url: Some("...".into()),
                 description: Some("Real feed description".into()),
                 source_links: Some(vec![SourceEntityLink {
@@ -3753,9 +3780,7 @@ mod tests {
         sanitize_track_context_source_text(&mut context);
 
         assert_eq!(context.track.feed_title, None);
-        assert_eq!(context.track.feed_url, None);
         assert_eq!(context.track.title, None);
-        assert_eq!(context.track.name.as_deref(), Some("Real fallback"));
         assert_eq!(context.track.description, None);
         assert_eq!(context.track.enclosure_url, None);
         assert_eq!(context.track.image_url, None);
@@ -3788,7 +3813,6 @@ mod tests {
         );
         let feed = context.feed.as_ref().expect("feed remains present");
         assert_eq!(feed.title, None);
-        assert_eq!(feed.name.as_deref(), Some("Real feed"));
         assert_eq!(feed.feed_url, None);
         assert_eq!(feed.description.as_deref(), Some("Real feed description"));
         assert!(feed.source_links.as_deref().is_none_or(<[_]>::is_empty));
@@ -3932,7 +3956,6 @@ mod tests {
             provider_state: Default::default(),
             track: Track {
                 title: Some("<p>...</p><p>...</p>".into()),
-                name: Some("Real title".into()),
                 track_artist: Some("&hellip;".into()),
                 release_artist: Some("Real artist".into()),
                 feed_title: Some("&nbsp;<br />...".into()),
@@ -3951,7 +3974,7 @@ mod tests {
 
         assert_eq!(
             data_row(&rows, "Title").and_then(|row| row.rss_value.as_deref()),
-            Some("Real title")
+            None
         );
         assert_eq!(
             data_row(&rows, "Artist").and_then(|row| row.rss_value.as_deref()),

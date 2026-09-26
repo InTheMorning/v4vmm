@@ -149,7 +149,6 @@ pub struct TrackView {
     pub track_guid: Option<String>,
     pub feed_guid: Option<String>,
     pub feed_title: Option<String>,
-    pub feed_url: Option<String>,
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
@@ -424,7 +423,7 @@ impl FeedView {
             id: f.feed_guid.clone().map(FeedRef::Musicindex),
             feed_guid: f.feed_guid,
             feed_url: nonempty_owned(f.feed_url),
-            title: nonempty_owned(f.title).or_else(|| nonempty_owned(f.name)),
+            title: nonempty_owned(f.title),
             artist: nonempty_owned(f.release_artist),
             image_url: image_url.clone(),
             artwork: artwork_from_url(&image_url),
@@ -541,8 +540,7 @@ impl TrackView {
             track_guid: t.track_guid,
             feed_guid: t.feed_guid,
             feed_title: nonempty_owned(t.feed_title.clone()),
-            feed_url: nonempty_owned(t.feed_url),
-            title: nonempty_owned(t.title).or_else(|| nonempty_owned(t.name)),
+            title: nonempty_owned(t.title),
             artist: nonempty_owned(t.track_artist)
                 .or_else(|| nonempty_owned(t.release_artist.clone())),
             album: nonempty_owned(t.feed_title),
@@ -602,7 +600,6 @@ impl TrackView {
             track_guid: Some(t.item_guid),
             feed_guid: t.feed_guid,
             feed_title: t.feed_title,
-            feed_url: None,
             title: values.title.value,
             // A track without its own artist shows the album artist.
             artist: values.artist.value.or_else(|| album_artist.clone()),
@@ -740,7 +737,6 @@ mod tests {
     fn from_api_projection_drops_placeholder_source_text() {
         let feed = api::Feed {
             title: Some("<p>...</p><p>...</p>".into()),
-            name: Some("Real feed".into()),
             feed_url: Some("&hellip;".into()),
             description: Some("<p>...</p>".into()),
             source_release_claims: Some(vec![
@@ -757,7 +753,6 @@ mod tests {
             ]),
             tracks: Some(vec![api::Track {
                 title: Some("<p>...</p>".into()),
-                name: Some("Real track".into()),
                 description: Some("&#8230;".into()),
                 enclosure_url: Some("&nbsp;<br />...".into()),
                 source_links: Some(vec![api::SourceEntityLink {
@@ -772,11 +767,11 @@ mod tests {
 
         let view = FeedView::from_api(feed);
 
-        assert_eq!(view.title.as_deref(), Some("Real feed"));
+        assert_eq!(view.title, None);
         assert_eq!(view.feed_url, None);
         assert_eq!(view.description.as_deref(), Some("Real source description"));
         let track = view.tracks.first().expect("track projects");
-        assert_eq!(track.title.as_deref(), Some("Real track"));
+        assert_eq!(track.title, None);
         assert_eq!(track.description, None);
         assert_eq!(track.audio_url, None);
         assert_eq!(track.transcript_url, None);

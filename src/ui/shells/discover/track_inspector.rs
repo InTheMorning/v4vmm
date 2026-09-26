@@ -49,7 +49,7 @@ pub(crate) fn render_discover_track_inspector_core(
     let vm = TrackVm::new(track);
     let track_view = TrackView::from_api(track.clone());
     let detail_page = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Discover).page();
-    let header_vm = TrackInspectorHeaderVm::new(track);
+    let header_vm = TrackInspectorHeaderVm::new(track, track_context.feed_url());
     let feed_link = header_vm.feed_link_display();
     let audio_display = vm.play_audio_display();
     let mut external_links = vec![TrackSurfaceElement::from_element(

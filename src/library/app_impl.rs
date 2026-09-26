@@ -323,7 +323,6 @@ fn api_feed_from_album(album: &AlbumNode) -> crate::api::Feed {
         feed_guid: album.feed_guid.clone(),
         feed_url: album.feed_url.clone(),
         title: Some(album.name.clone()),
-        name: Some(album.name.clone()),
         description: album.description.clone(),
         image_url: album.image_href.clone(),
         tracks: Some(

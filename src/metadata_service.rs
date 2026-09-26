@@ -68,11 +68,7 @@ pub fn with_stored_route_frame(
 
 pub fn musicbrainz_lookup_metadata(track: &Track, tags: &AudioTags) -> LookupMetadata {
     LookupMetadata {
-        title: tags
-            .title
-            .clone()
-            .or_else(|| track.title.clone())
-            .or_else(|| track.name.clone()),
+        title: tags.title.clone().or_else(|| track.title.clone()),
         artist: tags.artist.clone().or_else(|| track.track_artist.clone()),
         album: tags.album.clone().or_else(|| track.feed_title.clone()),
         track_number: tags

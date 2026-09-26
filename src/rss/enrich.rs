@@ -1173,7 +1173,6 @@ fn apply_track_enrichment(
     }
     if let Some(feed) = feed {
         changed |= set_text_if_missing(&mut feed.title, enrichment.feed_title.clone());
-        changed |= set_text_if_missing(&mut feed.name, enrichment.feed_title.clone());
         changed |= set_text_if_missing(&mut feed.description, enrichment.feed_description.clone());
         changed |= set_text_if_missing(&mut feed.release_artist, enrichment.feed_artist.clone());
         changed |= set_text_if_missing(&mut feed.image_url, enrichment.feed_image_url.clone());
@@ -1789,7 +1788,7 @@ mod tests {
         let xml = document(&format!("<item><guid>track</guid><podcast:txt purpose=\"nostr\">{NPUB}</podcast:txt><podcast:txt purpose=\"npub\">npub1notavalidkey</podcast:txt><podcast:txt purpose=\"npub\">{unsupported}</podcast:txt></item>"));
         let (url, worker) = server(vec![("200 OK".into(), xml.as_bytes().to_vec())]);
         let mut context = context();
-        context.track.feed_url = Some(url.clone());
+        context.feed.as_mut().expect("context has a feed").feed_url = Some(url.clone());
         let before = Utc::now();
         crate::subscribe_service::enrich_track_context_from_rss(&mut context);
         let after = Utc::now();
@@ -2299,7 +2298,6 @@ mod tests {
         };
         let mut feed = Feed {
             title: Some("...".into()),
-            name: Some("...".into()),
             description: Some("...\n...\n...".into()),
             release_artist: Some("...".into()),
             image_url: Some("...".into()),

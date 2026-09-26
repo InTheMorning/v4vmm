@@ -902,7 +902,7 @@ impl TopApp {
             let conn = self.conn.lock().expect("lock db");
             library_service::find_track_id(
                 &conn,
-                api_track.feed_url.as_deref(),
+                feed.feed_url.as_deref(),
                 api_track.track_guid.as_deref(),
                 api_track.enclosure_url.as_deref(),
             )
@@ -1058,7 +1058,6 @@ fn api_feed_from_view(feed: &FeedView) -> crate::api::Feed {
     crate::api::Feed {
         feed_guid: feed_guid_from_view(feed),
         title: feed.title.clone(),
-        name: feed.title.clone(),
         feed_url: feed.feed_url.clone(),
         release_artist: feed.artist.clone(),
         release_kind: feed.release_kind.clone(),
@@ -1088,9 +1087,7 @@ fn api_track_from_view(feed: &FeedView, track: &TrackView) -> crate::api::Track 
             .clone()
             .or_else(|| feed_guid_from_view(feed)),
         feed_title: track.feed_title.clone().or_else(|| feed.title.clone()),
-        feed_url: track.feed_url.clone().or_else(|| feed.feed_url.clone()),
         title: track.title.clone(),
-        name: track.title.clone(),
         duration_secs: track.duration_secs,
         pub_date: track.pub_date,
         track_number: track.track_number,

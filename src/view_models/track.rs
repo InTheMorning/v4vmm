@@ -60,13 +60,12 @@ impl<'a> TrackVm<'a> {
     }
 
     /// Display title, with the legacy fallback chain
-    /// `title -> name -> guid -> "Untitled"`.
+    /// `title -> guid -> "Untitled"`.
     #[must_use]
     pub fn title(&self) -> String {
         self.track
             .title
             .clone()
-            .or_else(|| self.track.name.clone())
             .or_else(|| self.track.track_guid.clone())
             .unwrap_or_else(|| "Untitled".into())
     }
@@ -226,17 +225,13 @@ mod tests {
     }
 
     #[test]
-    fn title_prefers_title_then_name_then_guid_then_default() {
+    fn title_prefers_title_then_guid_then_default() {
         let mut t = track();
         t.title = Some("T".into());
-        t.name = Some("N".into());
         t.track_guid = Some("G".into());
         assert_eq!(TrackVm::new(&t).title(), "T");
 
         t.title = None;
-        assert_eq!(TrackVm::new(&t).title(), "N");
-
-        t.name = None;
         assert_eq!(TrackVm::new(&t).title(), "G");
 
         t.track_guid = None;

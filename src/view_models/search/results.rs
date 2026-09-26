@@ -338,7 +338,6 @@ fn count_label(count: i32, noun: &str) -> String {
 #[must_use]
 pub(crate) fn feed_display_title(feed: &Feed) -> String {
     nonempty_text(feed.title.as_deref())
-        .or_else(|| nonempty_text(feed.name.as_deref()))
         .or_else(|| nonempty_text(feed.feed_guid.as_deref()))
         .map_or_else(|| "Untitled".into(), str::to_string)
 }

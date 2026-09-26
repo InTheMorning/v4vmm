@@ -375,7 +375,7 @@ fn request_key(request: &SubscribeTrackRequest) -> String {
         SubscribeTrackRequest::LibraryTrack { track } => format!("library:{}", track.id),
         SubscribeTrackRequest::SearchTrack { track_context, .. } => format!(
             "index:{:?}:{:?}:{:?}",
-            track_context.track.feed_url,
+            track_context.feed_url(),
             track_context.track.track_guid,
             track_context.track.enclosure_url
         ),

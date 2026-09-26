@@ -2157,7 +2157,6 @@ mod observation_tests {
             fallback.track_context.provider_state.collections,
             empty.track_context.provider_state.collections
         );
-        assert!(fallback.track_context.track.feed_url.is_none());
         assert!(fallback
             .track_context
             .feed

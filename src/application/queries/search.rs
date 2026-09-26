@@ -839,7 +839,6 @@ pub(super) fn index_feed_display(
         let remote_feed = crate::views::FeedView::from_api(feed.clone());
         let label = feed
             .title
-            .or(feed.name)
             .or(feed.feed_guid)
             .unwrap_or_else(|| feed_guid.to_string());
         display = FeedResultDisplay::new(
@@ -879,10 +878,7 @@ fn index_track_display(
 
     if let Some(crate::api::EntityDetail::Track(track)) = detail {
         let remote_track = TrackView::from_api(track.clone());
-        let label = track
-            .title
-            .or(track.name)
-            .unwrap_or_else(|| track_guid.to_string());
+        let label = track.title.unwrap_or_else(|| track_guid.to_string());
         display = TrackResultDisplay::new(activation_id, label, SearchResultOrigin::Index);
 
         let secondary = count_parts([track.track_artist, track.release_artist, track.feed_title]);

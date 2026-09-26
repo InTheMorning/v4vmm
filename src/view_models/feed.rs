@@ -154,7 +154,6 @@ impl<'a> FeedVm<'a> {
         self.text_filter.as_deref().is_none_or(|filter| {
             [
                 track.title.as_deref(),
-                track.name.as_deref(),
                 track.feed_title.as_deref(),
                 track.track_artist.as_deref(),
                 track.release_artist.as_deref(),
@@ -205,7 +204,6 @@ impl<'a> FeedVm<'a> {
             feed_guid: self.view.feed_guid.clone(),
             feed_url: self.view.feed_url.clone(),
             title: self.view.title.clone(),
-            name: self.view.title.clone(),
             release_artist: self.view.artist.clone(),
             image_url: self.view.image_url.clone(),
             release_date: self.view.release_date,
@@ -471,7 +469,6 @@ mod tests {
         assert_eq!(f.feed_guid.as_deref(), Some("g"));
         assert_eq!(f.feed_url.as_deref(), Some("u"));
         assert_eq!(f.title.as_deref(), Some("T"));
-        assert_eq!(f.name.as_deref(), Some("T"));
         assert_eq!(f.release_artist.as_deref(), Some("A"));
         assert_eq!(f.image_url.as_deref(), Some("i"));
         assert_eq!(f.release_date, Some(42));

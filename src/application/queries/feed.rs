@@ -342,7 +342,6 @@ fn recent_feed_activation_id(feed: &crate::api::Feed, index: usize) -> String {
         feed.feed_guid.as_deref(),
         feed.feed_url.as_deref(),
         feed.title.as_deref(),
-        feed.name.as_deref(),
     ]
     .into_iter()
     .find_map(non_empty_str)

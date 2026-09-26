@@ -274,9 +274,10 @@ The operator accepted both cuts on 2026-09-21.
 | The retained discrepancy tables of ADR 0075 Decision G. Deleted packet 036 implemented them. ADR 0076 supersedes Decision G on 2026-09-24 | No packet. The ADR 0076 comparison packet uses the tables or deletes them |
 | A visible retry action for the capsules that packet 014 retains after a storage failure. Deleted packet 019 owned it | No packet. The storage-failure presentation gate of packet 014 depends on it |
 | A field rule for the new upstream `last_build_date` claim type | Closed. ADR 0076, amended on 2026-09-26: the app ignores the field and never uses `lastBuildDate` as a date or a change signal |
-| `Feed.name`, `Track.name`, and `Track.feed_url` no longer arrive from the deployed API. The app continues to read each one | No packet. No code fills `name`: the local row conversions fill only `title`, so each `name` fallback gives `None`. `api.rs` copies the feed `feed_url` into `Track.feed_url`, and each service read falls back to the feed value. The orchestrator recommended removal of the three fields on 2026-09-26. See the [API change request](musicindex-api-change-request.md#two-questions-for-the-operator) |
+| `Feed.name`, `Track.name`, and `Track.feed_url` no longer arrive from the deployed API | [Packet 046](../tasks/adr-0075-task-046-remove-undeclared-api-fields.md), Implemented on 2026-09-26. Mechanical checks Green. No visual gate. `TrackContext::feed_url` gives the feed address |
 | Stophammer removed its public artist credits on 2026-04-08, in commit `a16a720` | Closed. ADR 0077 packet 001 deleted the ADR 0045 binding on 2026-09-24 |
 | Search rows from the new upstream summary fields, without a detail request for each hit | No packet |
+| A guard that compares the fields that the app decodes with a stored copy of the MusicIndex contract. The incident: Stophammer removed `artist_credit` on 2026-04-08, and the app read `None` for five months without a report | No packet and no decision. The operator can decide it separately |
 | A typed RSS refresh-failure state. ADR 0075 §2 and §6 require the app to report a failed refresh. Deleted packet 019 owned it | No packet |
 | Combined isolation, restart, rollback, and superseded-response tests for provider snapshots. Deleted packet 015 owned them | No packet |
 

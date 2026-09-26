@@ -10,6 +10,8 @@ RSS is the only provenance. The operator also reduced the field scope in Decisio
 deferred nine field policies. Provider-ownership display work is superseded.
 The app reports a stale MusicIndex record and directs the operator to podping.me.
 
+Amended 2026-09-26: the MusicIndex title refinements no longer name the legacy `name` field. The contract declares no such field.
+
 Amended 2026-09-24: [ADR 0076](0076-playlist-rss-check-for-stale-musicindex-records.md) supersedes Decisions F, G and H.
 It also supersedes two Decision I rules. One rule gives fresh RSS the value. The other rule limits MusicIndex to a feed that the app has not fetched.
 It supersedes the provider priority, freshness, expiry and stale-label parts of each field refinement. The other parts stay in force.
@@ -305,8 +307,11 @@ Retain both source assertions and their original evidence.
 Feed title refinements, accepted separately: apply the accepted removal, conflict, and stale-state rules.
 Retain original title text, source evidence, and the last selected state, including absence.
 
-MusicIndex feed title representation, accepted separately: prefer `title`, then legacy `name`.
-Retain both values and their field paths. A compatibility fallback cannot override verified title removal.
+MusicIndex feed title representation, accepted separately: use `title`.
+Retain the value and its field path.
+
+Amended 2026-09-26: the MusicIndex contract declares no `name` field, and the live responses of 2026-09-25 send none.
+The rule no longer names the legacy `name` fallback. Packet 046 deletes the readers. This corrects a fact and changes no decision.
 
 Missing feed title presentation, accepted separately: keep "Unknown Feed" as a display label only.
 Do not store that generated label as source metadata.
@@ -314,7 +319,7 @@ Do not store that generated label as source metadata.
 Feed title placeholders, accepted separately: hide only confirmed generated placeholders from title selection.
 Retain literal publisher-supplied titles such as "Unknown Feed". Preserve evidence that identifies a value as generated.
 
-Track title rules, accepted separately: apply the feed title source priority, title/name order, removal, conflict, stale-state, and placeholder rules.
+Track title rules, accepted separately: apply the feed title source priority, removal, conflict, stale-state, and placeholder rules.
 Prefer fresh direct item RSS titles over MusicIndex. Retain original title text, source evidence, and selected absence.
 Keep the track owner. A feed title cannot become a track title.
 

@@ -98,9 +98,8 @@ Refinements, accepted separately: apply the description fields' removal, conflic
 Retain original title text, source evidence, and the last selected state, including absence.
 Failed or incomplete observations cannot establish removal. Expiry cannot restore a title removed by verified absence.
 
-MusicIndex representation, accepted separately: prefer `$.title`, then legacy `$.name`.
-Retain both values and their field paths. Keep this compatibility fallback distinct from a publisher-declared alias.
-A fallback cannot override verified title removal.
+MusicIndex representation, accepted separately: use `$.title`. Retain the value and its field path.
+Corrected 2026-09-26: the MusicIndex contract declares no `$.name`. ADR 0075 records the correction.
 
 Missing-title presentation, accepted separately: keep "Unknown Feed" as a display label when no feed title is selected.
 Do not store that generated label as source metadata. The underlying selected absence remains distinct from the presentation label.
@@ -111,8 +110,8 @@ Unknown provenance does not prove a generated placeholder. A renderer must not g
 
 ### Accepted Track Title Rules
 
-Accepted on 2026-09-21: apply the feed title source priority, title/name order, removal, conflict, stale-state, and placeholder rules.
-Prefer fresh direct item RSS titles over MusicIndex. Within MusicIndex, prefer `$.title`, then legacy `$.name`.
+Accepted on 2026-09-21: apply the feed title source priority, removal, conflict, stale-state, and placeholder rules.
+Prefer fresh direct item RSS titles over MusicIndex. Within MusicIndex, use `$.title`.
 Retain both providers, original text, field paths, and the last selected state, including absence.
 Keep the track owner. A feed title cannot become a track title.
 

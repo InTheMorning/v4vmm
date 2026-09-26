@@ -319,9 +319,6 @@ fn feed_defaults(mut feed: Feed, defaults: &Feed) -> Feed {
     if source_text_missing(feed.title.as_deref()) {
         feed.title = defaults.title.clone();
     }
-    if source_text_missing(feed.name.as_deref()) {
-        feed.name = defaults.name.clone();
-    }
     if source_text_missing(feed.feed_url.as_deref()) {
         feed.feed_url = defaults.feed_url.clone();
     }

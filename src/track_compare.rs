@@ -237,7 +237,6 @@ pub fn local_track_path(cfg: &DownloadConfig, track: &Track, extension: &str) ->
         track
             .title
             .as_deref()
-            .or(track.name.as_deref())
             .or(track.track_guid.as_deref())
             .unwrap_or("unknown-track"),
     );
@@ -449,11 +448,7 @@ pub fn compare_track_tags(track: &Track, tags: &AudioTags) -> Vec<ComparisonRow>
     let mut rows = vec![
         comparison_row(
             "Title",
-            track
-                .title
-                .as_deref()
-                .or(track.name.as_deref())
-                .map(sanitize_title_text),
+            track.title.as_deref().map(sanitize_title_text),
             tags.title.as_deref(),
         ),
         comparison_row(
