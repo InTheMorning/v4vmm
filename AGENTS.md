@@ -102,8 +102,9 @@ Summary search fields, separate track artwork, and a truthful publication-date l
 [verified](docs/plans/musicindex-api-change-request.md#verification-against-the-deployed-api)
 against the deployed API.
 
-This client implements none of the three landed changes. Each one needs its own packet. A new
-`last_build_date` claim type has no field rule yet, and three decoded fields no longer arrive.
+This client implements none of the three landed changes. Each one needs its own packet.
+ADR 0076, amended on 2026-09-26, makes the app ignore `last_build_date`. Three decoded fields no
+longer arrive. Their removal is recommended, and no packet exists yet.
 
 [ADR 0076](docs/adr/0076-playlist-rss-check-for-stale-musicindex-records.md) is Accepted on
 2026-09-24, after the operator reviewed each decision. It replaces the per-field source

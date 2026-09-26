@@ -9,6 +9,9 @@ The operator reviewed each decision on 2026-09-24. The review changed Decisions 
 Amended 2026-09-25: the operator limited the `Retry-After` wait to 60 seconds. This tightens Decision 2. "Accepted Values" records the limit.
 "Accepted Values" records the three numeric values that the operator accepted on 2026-09-24.
 
+Amended 2026-09-26: the operator decided that the app ignores the channel `lastBuildDate` and the MusicIndex `last_build_date` field.
+This tightens Decision 3. Section 3 states the rule.
+
 ## Context
 
 ADR 0075 made the app select a source for each field each time it showed that field.
@@ -71,6 +74,12 @@ The operator added this element on 2026-09-24.
 MusicIndex computes some values that RSS does not state directly.
 These are the publisher link state, the publisher role, a release date from the oldest item, and counts.
 The check does not compare them. The app keeps the MusicIndex value for them.
+
+The channel `lastBuildDate` gives the time that a host generated the feed file. It is not a fact about the music.
+On 2026-09-26, a Wavlake album from 2023-04-29 gave a `last_build_date` of 2026-09-25.
+The app does not decode, store or show the MusicIndex `last_build_date` field.
+The app does not use `lastBuildDate` as a release date, a publication date, a change signal or a compared element.
+The raw responses in the observation store keep the value as evidence.
 
 Each compared element uses a written comparison rule. Descriptions compare as readable text.
 URLs use the accepted normalization of scheme, host, and default ports.

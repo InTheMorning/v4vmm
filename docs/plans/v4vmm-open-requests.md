@@ -140,8 +140,8 @@ These items were open in earlier v4vmm documents. The Stophammer source or the l
 | Is the `publisher` collection complete in one response? | Yes. The query has no limit and no paging | `load_publisher`, `get_feed_remote_items_for_feed` in `src/db.rs` |
 | Why is `include=publisher` on a track empty? | The track view reads the item's own remote items. It is empty when the item states no publisher | `load_track_publisher`, ADR 0038 |
 | The normalization rule of the artist count | Trim, collapse white space, Unicode lowercase. "feat." is not split | ADR 0049 §7 |
-| `Feed.name`, `Track.name`, `Track.feed_url` | No longer in the responses. v4vmm also uses these fields to carry local values, so their removal waits for a v4vmm decision. No Stophammer action | Live responses, 2026-09-25. v4vmm source, 2026-09-26 |
+| `Feed.name`, `Track.name`, `Track.feed_url` | No longer in the responses. No v4vmm code fills `name`, and `Track.feed_url` is a copy of the feed value. v4vmm removes its readers in a later packet. No Stophammer action | Live responses, 2026-09-25. v4vmm source, 2026-09-26 |
 | `Track.artist_credit` | Removed on purpose on 2026-04-08 | Commit `a16a720` |
 | Search summary fields, separate track artwork, the publication-date label | Live since 2026-09-23 | v4vmm API change request, changes 1 to 3 |
-| The `last_build_date` claim | No Stophammer action. v4vmm writes its own field rule | v4vmm |
+| The `last_build_date` claim | No Stophammer action. v4vmm ignores the field. v4vmm ADR 0076, amended on 2026-09-26 | v4vmm |
 | The publisher relationship fields | Live since 2026-09-24 | ADR 0049 |
