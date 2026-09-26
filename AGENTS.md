@@ -126,7 +126,8 @@ The [publisher relationship request](docs/plans/stophammer-publisher-relationshi
 records the operator's decisions of 2026-09-23 for Stophammer. Stophammer ADR 0049 owns the result.
 Its fields are [verified](docs/plans/stophammer-publisher-relationship-request.md#verification-against-the-deployed-api)
 against the deployed API on 2026-09-24. The contract at `/openapi.json` is the specification.
-The track publisher view returned an empty array in each sample. That question is open with Stophammer.
+A track publisher view is empty when the item states no publisher (Stophammer ADR 0038).
+v4vmm reads the relationship from the feed route.
 
 [ADR 0077](docs/adr/0077-publisher-feed-artist-binding.md) is Accepted on 2026-09-24. It keys an
 artist page on the publisher feed GUID and supersedes ADR 0045, which is archived. Implementation

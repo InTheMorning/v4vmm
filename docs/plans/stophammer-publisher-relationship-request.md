@@ -132,8 +132,9 @@ Of these links, 767 resolve by GUID, 6,323 by `feedUrl`, and 1,159 stay unresolv
 The feed-scoped track route gives the same result. Fifteen tracks from eight feeds were checked.
 The feed of each track has one publisher entry.
 
-Ask Stophammer if tracks inherit the album relationship.
-Until Stophammer answers, v4vmm reads the relationship from the feed route only.
+Answered on 2026-09-25: the track view reads the item's own `podcast:remoteItem` elements (Stophammer ADR 0038).
+It is empty when the item states no publisher, and a track does not inherit the album relationship.
+v4vmm reads the relationship from the feed route. The [open Stophammer requests](v4vmm-open-requests.md#answered-no-action) record the answer.
 
 **The publisher list groups by `itunes:owner`.** `/v1/publishers` groups feeds by `publisher_text`.
 On 2026-09-24, "Wavlake" holds 7,352 feeds. Thus, that list gives feed writers, not artists or labels.
