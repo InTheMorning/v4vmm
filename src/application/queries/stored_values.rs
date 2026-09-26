@@ -20,6 +20,17 @@
 //! fallback only when the feed column is null.
 //!
 //! No value carries a provider label or a renderer type.
+//!
+//! The credit list of each owner follows the same order (ADR 0076 packet
+//! 006). `entity_contributors` keeps one list for each source:
+//!
+//! 1. the `rss` list, when a hold exists for the persons slot. A cleared
+//!    hold gives an empty list.
+//! 2. the `musicindex` list, when it has a row.
+//! 3. the `rss` list.
+//!
+//! The projection shows one list, in its stored order. It merges no person
+//! across the two lists, and both lists stay in storage.
 
 #![warn(clippy::pedantic)]
 
@@ -30,10 +41,12 @@ use rusqlite::Connection;
 use serde_json::{json, Value};
 
 use crate::db::rss_field_holds::{self as holds, HoldOwner, RssField};
-use crate::db::{self, FeedRow, StoredFeedColumns, TrackRow};
+use crate::db::{
+    self, FeedRow, LocalContributorRow, LocalEntityOwner, StoredFeedColumns, TrackRow,
+};
 use crate::local_metadata::{self, SourcedFacts};
 use crate::metadata::drop_placeholder_source_text;
-use crate::views::{FeedMetadataFacts, TrackMetadataFacts};
+use crate::views::{ContributorView, FeedMetadataFacts, TrackMetadataFacts};
 
 /// The RSS element that states a value (ADR 0075 Decision I).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,6 +101,8 @@ pub struct FeedStoredValues {
     pub release_date: Owned<i64>,
     /// A value that `MusicIndex` computes. The check does not compare it.
     pub release_kind: Owned<String>,
+    /// The `podcast:person` credits of the channel, in their stored order.
+    pub credits: Vec<ContributorView>,
 }
 
 /// The current stored values of one track.
@@ -106,6 +121,8 @@ pub struct TrackStoredValues {
     pub pub_date: Owned<i64>,
     pub explicit: Owned<bool>,
     pub publisher_text: Owned<String>,
+    /// The `podcast:person` credits of the item, in their stored order.
+    pub credits: Vec<ContributorView>,
 }
 
 impl Default for TrackStoredValues {
@@ -120,6 +137,7 @@ impl Default for TrackStoredValues {
             pub_date: Owned::item(None),
             explicit: Owned::item(None),
             publisher_text: Owned::item(None),
+            credits: Vec::new(),
         }
     }
 }
@@ -166,6 +184,9 @@ pub(crate) fn select<T>(held: Hold<T>, musicindex: Option<T>, column: Option<T>)
 
 type Holds = BTreeMap<RssField, Option<Value>>;
 
+const MUSICINDEX_SOURCE: &str = "musicindex";
+const RSS_SOURCE: &str = "rss";
+
 fn held<T>(holds: &Holds, field: RssField, decode: impl Fn(&Value) -> Option<T>) -> Hold<T> {
     match holds.get(&field) {
         Some(value) => Hold::Present(value.as_ref().and_then(&decode)),
@@ -198,7 +219,12 @@ pub(crate) fn feed_values(conn: &Connection, feed_id: i64) -> Result<FeedStoredV
     let columns = db::stored_feed_columns(conn, feed_id)?.unwrap_or_default();
     let facts = local_metadata::sourced_feed_facts(conn, feed_id)?;
     let holds = holds::owner_holds(conn, HoldOwner::Feed(feed_id))?;
-    Ok(project_feed(&holds, &facts, columns))
+    let mut values = project_feed(&holds, &facts, columns);
+    values.credits = project_credits(
+        &holds,
+        db::local_contributors(conn, LocalEntityOwner::Feed(feed_id))?,
+    );
+    Ok(values)
 }
 
 /// The column step alone, for a feed row that a caller has without a
@@ -283,6 +309,7 @@ fn project_feed(
         release_kind: Owned::channel(
             select(Hold::Absent, musicindex.release_kind.clone(), None).into_value(),
         ),
+        credits: Vec::new(),
     }
 }
 
@@ -303,13 +330,66 @@ pub(crate) fn track_values(conn: &Connection, track: &TrackRow) -> Result<TrackS
     let channel_holds = holds::owner_holds(conn, HoldOwner::Feed(track.feed_id))?;
     let feed_album_artist =
         db::stored_feed_columns(conn, track.feed_id)?.and_then(|columns| columns.album_artist);
-    Ok(project_track(
+    let mut values = project_track(
         track,
         &item_holds,
         &channel_holds,
         &facts,
         feed_album_artist,
+    );
+    values.credits = project_credits(
+        &item_holds,
+        db::local_contributors(conn, LocalEntityOwner::Track(track.id))?,
+    );
+    Ok(values)
+}
+
+/// The credit list of one feed, for a caller that needs no other value.
+///
+/// # Errors
+///
+/// Returns an error when a database read fails.
+pub(crate) fn feed_credits(conn: &Connection, feed_id: i64) -> Result<Vec<ContributorView>> {
+    Ok(project_credits(
+        &holds::owner_holds(conn, HoldOwner::Feed(feed_id))?,
+        db::local_contributors(conn, LocalEntityOwner::Feed(feed_id))?,
     ))
+}
+
+/// ADR 0076 packet 006: one credit list for each owner, in the order of
+/// [`select`]. A row of another source token is evidence only.
+fn project_credits(holds: &Holds, rows: Vec<LocalContributorRow>) -> Vec<ContributorView> {
+    let mut musicindex = Vec::new();
+    let mut rss = Vec::new();
+    for row in rows {
+        let list = match row.source.as_str() {
+            MUSICINDEX_SOURCE => &mut musicindex,
+            RSS_SOURCE => &mut rss,
+            _ => continue,
+        };
+        list.push(ContributorView {
+            name: row.name,
+            role: row.role,
+            group_name: row.group_name,
+            href: row.href,
+            image_url: row.image_url,
+            nostr_npub: row.nostr_npub,
+        });
+    }
+    let held = match holds.get(&RssField::Persons) {
+        // The `rss` rows and the hold are written together. A cleared hold
+        // gives an empty list, although `MusicIndex` supplied one.
+        Some(Some(_)) => Hold::Present(Some(rss.clone())),
+        Some(None) => Hold::Present(None),
+        None => Hold::Absent,
+    };
+    select(
+        held,
+        (!musicindex.is_empty()).then_some(musicindex),
+        Some(rss),
+    )
+    .into_value()
+    .unwrap_or_default()
 }
 
 /// The column step alone, for a track row that a caller has without a
@@ -414,6 +494,7 @@ fn project_track(
             )
             .into_value(),
         ),
+        credits: Vec::new(),
     }
 }
 
@@ -861,6 +942,215 @@ mod tests {
             assert!(
                 !text.contains(label),
                 "a projected value names `{label}`: {text}"
+            );
+        }
+    }
+
+    fn credit_list(conn: &mut Connection, owner: LocalEntityOwner, source: &str, names: &[&str]) {
+        let rows = names
+            .iter()
+            .enumerate()
+            .map(|(position, name)| db::LocalContributorInput {
+                position: i64::try_from(position).unwrap(),
+                name: Some((*name).to_owned()),
+                role: Some("vocals".into()),
+                ..db::LocalContributorInput::default()
+            })
+            .collect::<Vec<_>>();
+        db::replace_local_contributors(conn, owner, source, &rows).unwrap();
+    }
+
+    fn credit_names(credits: &[ContributorView]) -> Vec<&str> {
+        credits
+            .iter()
+            .filter_map(|credit| credit.name.as_deref())
+            .collect()
+    }
+
+    fn persons_hold(conn: &Connection, owner: HoldOwner, names: &[&str]) {
+        let value = (!names.is_empty()).then(|| {
+            Value::Array(
+                names
+                    .iter()
+                    .map(|name| json!({"name": name, "role": "vocals"}))
+                    .collect(),
+            )
+        });
+        hold(conn, owner, RssField::Persons, value);
+    }
+
+    /// Both credit lists of the fixture feed and track, with the `rss` rows
+    /// in a stored order that differs from the name order.
+    fn with_both_credit_lists() -> Connection {
+        let mut conn = stored();
+        for owner in [
+            LocalEntityOwner::Feed(FEED_ID),
+            LocalEntityOwner::Track(TRACK_ID),
+        ] {
+            credit_list(&mut conn, owner, "rss", &["Zed", "Amy"]);
+            credit_list(&mut conn, owner, "musicindex", &["Mia", "Noor"]);
+        }
+        conn
+    }
+
+    fn local_views(conn: Connection) -> (crate::views::FeedView, crate::views::TrackView) {
+        let source = LocalSource::new(Arc::new(Mutex::new(conn)));
+        let feed = source
+            .fetch_feed(&FeedRef::LocalFeedId(FEED_ID), FetchMode::WithTracks)
+            .unwrap();
+        let track = source
+            .fetch_track(&TrackRef::LocalTrackId(TRACK_ID))
+            .unwrap();
+        (feed, track)
+    }
+
+    /// R6-01: with a persons hold, the feed view and the track view show
+    /// only the `rss` list, in its stored order.
+    #[test]
+    fn adr_0076_credit_list_hold_shows_only_the_rss_list_in_order() {
+        let conn = with_both_credit_lists();
+        persons_hold(&conn, HoldOwner::Feed(FEED_ID), &["Zed", "Amy"]);
+        persons_hold(&conn, track_owner(), &["Zed", "Amy"]);
+
+        let (feed, track) = local_views(conn);
+
+        assert_eq!(credit_names(&feed.contributors), ["Zed", "Amy"]);
+        assert_eq!(credit_names(&track.contributors), ["Zed", "Amy"]);
+        assert_eq!(credit_names(&feed.tracks[0].contributors), ["Zed", "Amy"]);
+    }
+
+    /// R6-02: without a hold, the views show only the `musicindex` list.
+    /// Without a `musicindex` list, they show the `rss` list.
+    #[test]
+    fn adr_0076_credit_list_without_hold_shows_only_the_musicindex_list() {
+        let conn = with_both_credit_lists();
+        let (feed, track) = local_views(conn);
+        assert_eq!(credit_names(&feed.contributors), ["Mia", "Noor"]);
+        assert_eq!(credit_names(&track.contributors), ["Mia", "Noor"]);
+
+        let mut conn = stored();
+        credit_list(
+            &mut conn,
+            LocalEntityOwner::Track(TRACK_ID),
+            "rss",
+            &["Zed", "Amy"],
+        );
+        credit_list(
+            &mut conn,
+            LocalEntityOwner::Track(TRACK_ID),
+            "embedded",
+            &["Evidence Only"],
+        );
+        let (feed, track) = local_views(conn);
+        assert!(feed.contributors.is_empty());
+        assert_eq!(credit_names(&track.contributors), ["Zed", "Amy"]);
+    }
+
+    /// R6-03: a cleared hold gives an empty list, although a `musicindex`
+    /// list exists.
+    #[test]
+    fn adr_0076_credit_list_cleared_hold_gives_an_empty_list() {
+        let conn = with_both_credit_lists();
+        hold(&conn, HoldOwner::Feed(FEED_ID), RssField::Persons, None);
+        hold(&conn, track_owner(), RssField::Persons, None);
+
+        let values = track_values(&conn, &track_row(&conn, TRACK_ID)).unwrap();
+        assert!(values.credits.is_empty());
+        assert!(feed_credits(&conn, FEED_ID).unwrap().is_empty());
+        let (feed, track) = local_views(conn);
+
+        assert!(feed.contributors.is_empty());
+        assert!(track.contributors.is_empty());
+    }
+
+    /// R6-04: after a check, `entity_contributors` keeps the `rss` list and
+    /// the `musicindex` list. The view shows the held `rss` list.
+    #[test]
+    fn adr_0076_credit_list_check_keeps_both_stored_lists() {
+        let mut conn = database();
+        conn.execute(
+            "INSERT INTO feeds(id, feed_url, feed_guid) VALUES (?1, 'https://band.test/feed.xml', 'feed-guid-1')",
+            [FEED_ID],
+        )
+        .unwrap();
+        let first_run = runs::insert_run(&conn, 1, RssCheckTrigger::Button, CHECKED_AT).unwrap();
+        apply_checked_document(&conn, first_run, FEED_ID, &document(&first()), CHECKED_AT).unwrap();
+        let track_id: i64 = conn
+            .query_row(
+                "SELECT id FROM tracks WHERE item_guid = 'item-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let track = LocalEntityOwner::Track(track_id);
+        credit_list(&mut conn, track, "musicindex", &["Bob", "Index Guest"]);
+        let later = CHECKED_AT + 1_000_000;
+        let second_run = runs::insert_run(&conn, 1, RssCheckTrigger::Button, later).unwrap();
+        apply_checked_document(&conn, second_run, FEED_ID, &document(&second()), later).unwrap();
+
+        let stored = db::local_contributors(&conn, track).unwrap();
+        let by_source = |source: &str| {
+            stored
+                .iter()
+                .filter(|row| row.source == source)
+                .filter_map(|row| row.name.as_deref())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(by_source("rss"), ["Dee"]);
+        assert_eq!(by_source("musicindex"), ["Bob", "Index Guest"]);
+
+        let values = track_values(&conn, &track_row(&conn, track_id)).unwrap();
+        assert_eq!(credit_names(&values.credits), ["Dee"]);
+    }
+
+    /// R6-06: no credit row carries a provider label. The projected list,
+    /// the views and the track context of the tag frames name no source.
+    #[test]
+    fn adr_0076_credit_list_rows_carry_no_provider_label() {
+        let conn = with_both_credit_lists();
+        persons_hold(&conn, track_owner(), &["Zed", "Amy"]);
+        let row = track_row(&conn, TRACK_ID);
+        let values = track_values(&conn, &row).unwrap();
+        let feed_list = feed_credits(&conn, FEED_ID).unwrap();
+        let context =
+            crate::feed_service::track_row_to_track_context_with_local_identity(&conn, &row)
+                .unwrap();
+
+        let context_credits = context
+            .track
+            .source_contributors
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .chain(
+                context
+                    .feed
+                    .as_ref()
+                    .and_then(|feed| feed.source_contributors.clone())
+                    .unwrap_or_default(),
+            )
+            .collect::<Vec<_>>();
+        assert_eq!(context_credits.len(), 4);
+        for credit in &context_credits {
+            assert_eq!(credit.source, None);
+            assert_eq!(credit.extraction_path, None);
+        }
+        let names = context_credits
+            .iter()
+            .filter_map(|credit| credit.name.as_deref())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["Zed", "Amy", "Mia", "Noor"]);
+
+        let (feed, track) = local_views(conn);
+        let text = format!(
+            "{:?} {:?} {:?} {:?}",
+            values.credits, feed_list, feed.contributors, track.contributors
+        )
+        .to_lowercase();
+        for label in ["musicindex", "rss", "source", "provider"] {
+            assert!(
+                !text.contains(label),
+                "a credit row names `{label}`: {text}"
             );
         }
     }

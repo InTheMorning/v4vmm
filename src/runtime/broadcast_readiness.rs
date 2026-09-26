@@ -209,7 +209,9 @@ mod tests {
             if receiver.borrow().report.is_some() {
                 return;
             }
-            timeout(Duration::from_secs(1), receiver.changed())
+            // The limit only bounds a failing test. A parallel run of the full
+            // suite can delay the actor for more than one second.
+            timeout(Duration::from_secs(10), receiver.changed())
                 .await
                 .expect("actor should publish before timeout")
                 .expect("actor should keep the watch channel open");

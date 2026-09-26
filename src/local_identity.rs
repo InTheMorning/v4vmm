@@ -9,13 +9,15 @@
 use anyhow::Result;
 use rusqlite::Connection;
 
-use crate::db::{self, LocalEntityOwner, LocalIdentityOwner};
-use crate::views::{ContributorView, IdentityIdFact, IdentityLinkFact, LocalIdentityFacts};
+use crate::db::{self, LocalIdentityOwner};
+use crate::views::{IdentityIdFact, IdentityLinkFact, LocalIdentityFacts};
 
+/// The identity links and identifiers of one owner, with the rows of each
+/// source. The credit list is not here: the stored value projection owns it
+/// (ADR 0076 packet 006).
 pub(crate) fn facts_for_owner(
     conn: &Connection,
     identity_owner: LocalIdentityOwner,
-    entity_owner: LocalEntityOwner,
 ) -> Result<LocalIdentityFacts> {
     let source_links = db::local_identity_links(conn, identity_owner)?
         .into_iter()
@@ -43,37 +45,16 @@ pub(crate) fn facts_for_owner(
             observed_at: row.observed_at,
         })
         .collect();
-    let contributors = db::local_contributors(conn, entity_owner)?
-        .into_iter()
-        .map(|row| ContributorView {
-            name: row.name,
-            role: row.role,
-            group_name: row.group_name,
-            href: row.href,
-            image_url: row.image_url,
-            nostr_npub: row.nostr_npub,
-        })
-        .collect();
-
     Ok(LocalIdentityFacts {
         source_links,
         source_ids,
-        contributors,
     })
 }
 
 pub(crate) fn feed_facts(conn: &Connection, feed_id: i64) -> Result<LocalIdentityFacts> {
-    facts_for_owner(
-        conn,
-        LocalIdentityOwner::Feed(feed_id),
-        LocalEntityOwner::Feed(feed_id),
-    )
+    facts_for_owner(conn, LocalIdentityOwner::Feed(feed_id))
 }
 
 pub(crate) fn track_facts(conn: &Connection, track_id: i64) -> Result<LocalIdentityFacts> {
-    facts_for_owner(
-        conn,
-        LocalIdentityOwner::Track(track_id),
-        LocalEntityOwner::Track(track_id),
-    )
+    facts_for_owner(conn, LocalIdentityOwner::Track(track_id))
 }

@@ -375,6 +375,11 @@ The guard messages name ADR 0076 Decisions 5 and 8 and give the fix. No test sen
 
 No application launch and no production-data change occurred.
 
+
+### Later Corrections
+
+ADR 0076 packet 006 changed two parts of this result on 2026-09-25. A subscribe now holds the persons slot. `identity_ingest::persist_contributors` is a new gate site, and the R2-18 guard lists it.
+
 ## Operator Visual Check
 
 Run this check only after the operator resumes visual checks.

@@ -16,6 +16,7 @@ use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 
+use crate::db::LocalContributorInput;
 use crate::rss::compare::{self, ComparedPerson, TextRepresentation};
 
 pub(super) const COLUMNS: &[(&str, &[&str])] = &[
@@ -349,6 +350,30 @@ impl RssField {
             Self::Track => rss == other,
         }
     }
+}
+
+/// The JSON form of a credit list for the persons slot. An empty list gives
+/// no value. The playlist RSS check, the subscribe and the `MusicIndex`
+/// credit writer use this one form (ADR 0076 packets 002 and 006).
+#[must_use]
+pub(crate) fn persons_value(contributors: &[LocalContributorInput]) -> Option<Value> {
+    (!contributors.is_empty()).then(|| {
+        Value::Array(
+            contributors
+                .iter()
+                .map(|contributor| {
+                    ComparedPerson {
+                        name: contributor.name.clone(),
+                        role: contributor.role.clone(),
+                        group: contributor.group_name.clone(),
+                        href: contributor.href.clone(),
+                        image: contributor.image_url.clone(),
+                    }
+                    .to_json()
+                })
+                .collect(),
+        )
+    })
 }
 
 fn persons_equal(rss: Option<&Value>, other: Option<&Value>) -> bool {

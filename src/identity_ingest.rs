@@ -58,7 +58,9 @@ pub(crate) fn persist_musicindex_feed(
     persist_contributors(
         conn,
         LocalEntityOwner::Feed(feed_id),
+        HoldOwner::Feed(feed_id),
         feed.source_contributors.as_deref(),
+        feed.updated_at,
     )?;
     persist_feed_metadata_facts(conn, feed_id, feed)
 }
@@ -89,7 +91,9 @@ pub(crate) fn persist_musicindex_track(
     persist_contributors(
         conn,
         LocalEntityOwner::Track(track_id),
+        hold_owner,
         track.source_contributors.as_deref(),
+        track.updated_at,
     )?;
     persist_track_metadata_facts(conn, track_id, hold_owner, track)
 }
@@ -214,7 +218,9 @@ fn is_nostr_scheme(scheme: Option<&str>) -> bool {
 fn persist_contributors(
     conn: &mut Connection,
     owner: LocalEntityOwner,
+    hold_owner: HoldOwner,
     contributors: Option<&[Contributor]>,
+    updated_at: Option<i64>,
 ) -> Result<()> {
     let Some(contributors) = contributors else {
         return Ok(());
@@ -236,6 +242,19 @@ fn persist_contributors(
         })
         .collect::<Vec<_>>();
 
+    // ADR 0076 Decision 5 and packet 006: the persons slot is compared. The
+    // `musicindex` list is its own stored list, so the app always writes it.
+    // The gate call releases a held RSS list when `MusicIndex` agrees or has
+    // a newer record. The projection then shows the `musicindex` list.
+    rss_field_holds::musicindex_gate(
+        conn,
+        MusicIndexClaim {
+            owner: hold_owner,
+            field: RssField::Persons,
+            value: rss_field_holds::persons_value(&rows),
+            updated_at,
+        },
+    )?;
     db::replace_local_contributors(conn, owner, MUSICINDEX_SOURCE, &rows)
 }
 
@@ -579,6 +598,74 @@ mod tests {
             ],
         )?;
         Ok((feed_id, conn.last_insert_rowid()))
+    }
+
+    /// R6-05: the `MusicIndex` credit writer calls the packet 002 gate. An
+    /// older record keeps the held RSS list, and the projection shows it. A
+    /// newer record releases the hold. Both stored lists stay.
+    #[test]
+    fn adr_0076_credit_list_musicindex_writer_calls_the_gate() -> Result<()> {
+        use crate::application::queries::stored_values;
+
+        let mut conn = setup_test_db()?;
+        let (feed_id, track_id) = create_feed_and_track(&conn)?;
+        let owner = LocalEntityOwner::Track(track_id);
+        let hold_owner = HoldOwner::Track { feed_id, track_id };
+        let rss = [LocalContributorInput {
+            name: Some("Rae".into()),
+            role: Some("vocals".into()),
+            ..LocalContributorInput::default()
+        }];
+        db::replace_local_contributors(&mut conn, owner, RSS_SOURCE, &rss)?;
+        let checked_at_seconds = 1_790_000_000;
+        rss_field_holds::write_hold(
+            &conn,
+            hold_owner,
+            RssField::Persons,
+            rss_field_holds::persons_value(&rss).as_ref(),
+            None,
+            checked_at_seconds * 1_000_000,
+        )?;
+        let musicindex_track = |updated_at: i64| Track {
+            source_contributors: Some(vec![Contributor {
+                name: Some("Old Name".into()),
+                role: Some("vocals".into()),
+                ..Contributor::default()
+            }]),
+            updated_at: Some(updated_at),
+            ..Track::default()
+        };
+        let names = |conn: &Connection| -> Result<Vec<String>> {
+            let row = db::track_row_by_id(conn, track_id)?.context("track row")?;
+            Ok(stored_values::track_values(conn, &row)?
+                .credits
+                .into_iter()
+                .filter_map(|credit| credit.name)
+                .collect())
+        };
+
+        persist_musicindex_track(
+            &mut conn,
+            track_id,
+            &musicindex_track(checked_at_seconds - 60),
+        )?;
+        assert!(rss_field_holds::hold(&conn, hold_owner, RssField::Persons)?.is_some());
+        assert_eq!(names(&conn)?, ["Rae"]);
+        let sources = db::local_contributors(&conn, owner)?
+            .into_iter()
+            .map(|row| row.source)
+            .collect::<Vec<_>>();
+        assert_eq!(sources, ["musicindex", "rss"]);
+
+        persist_musicindex_track(
+            &mut conn,
+            track_id,
+            &musicindex_track(checked_at_seconds + 60),
+        )?;
+        assert!(rss_field_holds::hold(&conn, hold_owner, RssField::Persons)?.is_none());
+        assert_eq!(names(&conn)?, ["Old Name"]);
+        assert_eq!(db::local_contributors(&conn, owner)?.len(), 2);
+        Ok(())
     }
 
     #[test]

@@ -19772,6 +19772,13 @@ fn adr_0076_rss_comparison_musicindex_writers_call_the_hold_gate() {
             "fn is_nostr_scheme(",
             "db::replace_local_identity_ids(",
         ),
+        // ADR 0076 packet 006: the `MusicIndex` credit list.
+        (
+            "src/identity_ingest.rs",
+            "fn persist_contributors(",
+            "fn persist_feed_metadata_facts(",
+            "db::replace_local_contributors(",
+        ),
         (
             "src/identity_ingest.rs",
             "fn persist_feed_metadata_facts(",
@@ -19816,6 +19823,16 @@ fn adr_0076_rss_comparison_musicindex_writers_call_the_hold_gate() {
                 "src/application/queries/library.rs",
             ][..],
         ),
+        // ADR 0076 packet 006: the gated `MusicIndex` credit writer, and the
+        // RSS credit writers of the subscribe and the check.
+        (
+            "replace_local_contributors(",
+            &[
+                "src/db.rs",
+                "src/identity_ingest.rs",
+                "src/rss/subscribe.rs",
+            ][..],
+        ),
     ] {
         for path in rust_files_under("src") {
             let file = rel_path(&path);
@@ -19833,6 +19850,42 @@ fn adr_0076_rss_comparison_musicindex_writers_call_the_hold_gate() {
     assert!(
         violations.is_empty(),
         "ADR 0076 Decision 5 hold gate violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational: ADR 0076 packet 006. A credit list on a screen or in a tag
+/// frame comes from the stored value projection, which shows one list for
+/// each owner. Before this packet, a track page listed the `rss` credits and
+/// the `musicindex` credits together (packet 020 finding 6). Delete this
+/// guard when ADR 0076 is superseded.
+#[test]
+fn adr_0076_credit_list_readers_use_the_projection() {
+    const FIX: &str = "ADR 0076 packet 006: db::local_contributors returns the credit rows of all sources. Read the credit list through application::queries::stored_values (feed_values, track_values or feed_credits). Only the projection and the RSS comparison of rss::check_apply read the stored rows.";
+    const READ: &str = "::local_contributors(";
+    const ALLOWED: [&str; 2] = [
+        "src/application/queries/stored_values.rs",
+        "src/rss/check_apply.rs",
+    ];
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        if ALLOWED.contains(&file.as_str()) {
+            continue;
+        }
+        let source = read_source(&path);
+        let production = without_unit_test_module(&source);
+        for (line_number, line) in code_lines(&production) {
+            if line.contains(READ) {
+                violations.push(format!(
+                    "{file}:{line_number}: a reader of all credit sources: `{line}`\n  {FIX}"
+                ));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0076 packet 006 credit list violations:\n{}",
         violations.join("\n")
     );
 }

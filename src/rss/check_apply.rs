@@ -18,14 +18,14 @@ use anyhow::{Context, Result};
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 
-use super::compare::{self, ComparedPerson, TextRepresentation};
+use super::compare::{self, TextRepresentation};
 use super::subscribe::{
     parse_feed_document, upsert_item_columns, ParsedChannel, ParsedFeedDocument, ParsedItem,
     ParsedNostrId,
 };
 use crate::application::queries::stored_values;
 use crate::db::rss_field_holds::{
-    self as holds, DifferenceKind, HoldOwner, NewDifference, RssField,
+    self as holds, persons_value, DifferenceKind, HoldOwner, NewDifference, RssField,
 };
 use crate::db::{
     self, LocalContributorInput, LocalEntityOwner, LocalIdentityIdInput, LocalIdentityOwner,
@@ -117,26 +117,6 @@ fn date_value(raw: Option<&str>) -> Option<Value> {
 
 fn json_value(raw: Option<&str>) -> Option<Value> {
     compare::trimmed(raw).and_then(|raw| serde_json::from_str(raw).ok())
-}
-
-fn persons_value(contributors: &[LocalContributorInput]) -> Option<Value> {
-    (!contributors.is_empty()).then(|| {
-        Value::Array(
-            contributors
-                .iter()
-                .map(|contributor| {
-                    ComparedPerson {
-                        name: contributor.name.clone(),
-                        role: contributor.role.clone(),
-                        group: contributor.group_name.clone(),
-                        href: contributor.href.clone(),
-                        image: contributor.image_url.clone(),
-                    }
-                    .to_json()
-                })
-                .collect(),
-        )
-    })
 }
 
 fn nostr_value(ids: &[(String, String)]) -> Option<Value> {
@@ -939,18 +919,17 @@ fn item_fact_slots(item: &ParsedItem) -> [FactSlot; 3] {
 
 /// The column-backed slots of a channel that the subscribe persist step
 /// writes. `MusicIndex` writes none of them.
-const SUBSCRIBED_CHANNEL_COLUMN_FIELDS: [RssField; 6] = [
+const SUBSCRIBED_CHANNEL_COLUMN_FIELDS: [RssField; 5] = [
     RssField::Title,
     RssField::Artwork,
     RssField::Link,
     RssField::AlbumArtist,
     RssField::PaymentRoutes,
-    RssField::Persons,
 ];
 
 /// The column-backed slots of an item that the subscribe persist step
 /// writes. `MusicIndex` writes none of them.
-const SUBSCRIBED_ITEM_COLUMN_FIELDS: [RssField; 8] = [
+const SUBSCRIBED_ITEM_COLUMN_FIELDS: [RssField; 7] = [
     RssField::Title,
     RssField::Artwork,
     RssField::Link,
@@ -958,7 +937,6 @@ const SUBSCRIBED_ITEM_COLUMN_FIELDS: [RssField; 8] = [
     RssField::Duration,
     RssField::Artist,
     RssField::PaymentRoutes,
-    RssField::Persons,
 ];
 
 /// ADR 0076 Decision 5 for the subscribe command. A subscribe reads the RSS
@@ -972,6 +950,10 @@ const SUBSCRIBED_ITEM_COLUMN_FIELDS: [RssField; 8] = [
 /// function deletes an earlier hold of each such slot, so an older held value
 /// cannot hide the new column. No `MusicIndex` writer changes these slots,
 /// and the projection then shows the column.
+///
+/// The persons slot also gets the hold of the RSS value. The persist step
+/// writes the `rss` credit list, and the gated `MusicIndex` credit writer
+/// keeps its own list (ADR 0076 packet 006).
 ///
 /// # Errors
 ///
@@ -998,6 +980,17 @@ pub(crate) fn record_subscribed_document(
             subscribed_at_us,
         )?;
     }
+    // ADR 0076 packet 006: the persist step wrote the `rss` credit list. The
+    // `MusicIndex` credit list is a second stored list, so the persons slot
+    // holds the RSS value like a fact-backed slot.
+    holds::write_hold(
+        &tx,
+        feed_owner,
+        RssField::Persons,
+        persons_value(&document.channel.contributors).as_ref(),
+        None,
+        subscribed_at_us,
+    )?;
     for field in SUBSCRIBED_CHANNEL_COLUMN_FIELDS {
         holds::delete_hold(&tx, feed_owner, field)?;
     }
@@ -1024,6 +1017,14 @@ pub(crate) fn record_subscribed_document(
                 subscribed_at_us,
             )?;
         }
+        holds::write_hold(
+            &tx,
+            owner,
+            RssField::Persons,
+            persons_value(&item.contributors).as_ref(),
+            None,
+            subscribed_at_us,
+        )?;
         for field in SUBSCRIBED_ITEM_COLUMN_FIELDS {
             holds::delete_hold(&tx, owner, field)?;
         }
@@ -1419,6 +1420,47 @@ mod tests {
             holds::hold(&conn, HoldOwner::Feed(feed_id), RssField::Language)
                 .unwrap()
                 .is_none()
+        );
+    }
+
+    /// ADR 0076 packet 006: a subscribe holds the RSS credit list of the
+    /// channel and of each item. An older `MusicIndex` credit list is stored
+    /// and does not replace the projected list.
+    #[test]
+    fn adr_0076_credit_list_subscribe_holds_the_rss_list() {
+        let mut conn = database();
+        let feed_id = resubscribe(&mut conn, &first(), T1);
+        let track_id = track_id(&conn, "item-1");
+        for owner in [
+            HoldOwner::Feed(feed_id),
+            HoldOwner::Track { feed_id, track_id },
+        ] {
+            assert!(holds::hold(&conn, owner, RssField::Persons)
+                .unwrap()
+                .is_some());
+        }
+
+        let older = crate::api::Feed {
+            source_contributors: Some(vec![crate::api::Contributor {
+                name: Some("Old Name".into()),
+                ..crate::api::Contributor::default()
+            }]),
+            updated_at: Some((T1 - 10_000_000).div_euclid(1_000_000)),
+            ..Default::default()
+        };
+        crate::identity_ingest::persist_musicindex_feed(&mut conn, feed_id, &older).unwrap();
+
+        let names = projected(&conn, feed_id)
+            .credits
+            .into_iter()
+            .filter_map(|credit| credit.name)
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["Ann"]);
+        assert_eq!(
+            db::local_contributors(&conn, LocalEntityOwner::Feed(feed_id))
+                .unwrap()
+                .len(),
+            2
         );
     }
 

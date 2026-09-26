@@ -75,7 +75,6 @@ pub struct EntityIdentityLinks {
 pub struct LocalIdentityFacts {
     pub source_links: Vec<IdentityLinkFact>,
     pub source_ids: Vec<IdentityIdFact>,
-    pub contributors: Vec<ContributorView>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -465,7 +464,8 @@ impl FeedView {
 
     /// A local feed view. Each metadata value comes from the stored value
     /// projection, which owns the order of hold, `MusicIndex` fact and column
-    /// (ADR 0076 Decision 1). This view selects no source.
+    /// (ADR 0076 Decision 1). This view selects no source. The credit list
+    /// is the projected list of the channel (ADR 0076 packet 006).
     pub fn from_local_with_facts(
         f: db::FeedRow,
         tracks: Vec<TrackView>,
@@ -502,7 +502,7 @@ impl FeedView {
             publisher_text: nonempty_owned(values.owner_name.value),
             description: values.description.value,
             payment_routes: Vec::new(),
-            contributors: facts.contributors,
+            contributors: values.credits,
             tracks,
         }
     }
@@ -579,7 +579,8 @@ impl TrackView {
     /// A local track view. Each metadata value comes from the stored value
     /// projection, which owns the order of hold, `MusicIndex` fact and column
     /// (ADR 0076 Decision 1). This view selects no source. Audio URL, type,
-    /// duration and numbers have no fact, and they come from the row.
+    /// duration and numbers have no fact, and they come from the row. The
+    /// credit list is the projected list of the item (ADR 0076 packet 006).
     pub fn from_local_with_facts(
         t: db::TrackRow,
         facts: LocalIdentityFacts,
@@ -616,7 +617,7 @@ impl TrackView {
             mime: t.enclosure_type,
             bytes: None,
             publisher_text: nonempty_owned(values.publisher_text.value),
-            contributors: facts.contributors,
+            contributors: values.credits,
             payment_routes: Vec::new(),
             transcript_url: t.transcript_url,
         }
@@ -927,16 +928,24 @@ mod tests {
                 value: Some("npub1track".into()),
                 ..IdentityIdFact::default()
             }],
-            contributors: vec![ContributorView {
+        };
+        // ADR 0076 packet 006: the credit list comes from the projection.
+        let values = TrackStoredValues {
+            artwork: stored_values::Owned {
+                value: track.track_image_href.clone(),
+                owner: stored_values::ValueOwner::Item,
+            },
+            credits: vec![ContributorView {
                 name: Some("Alice".into()),
                 href: Some("https://example.test/alice".into()),
                 image_url: Some("https://example.test/alice.jpg".into()),
                 nostr_npub: Some("npub1alice".into()),
                 ..ContributorView::default()
             }],
+            ..TrackStoredValues::default()
         };
 
-        let view = TrackView::from_local_with_identity(track, facts);
+        let view = TrackView::from_local_with_facts(track, facts, values);
 
         assert_eq!(
             view.identity.website_url.as_deref(),
@@ -1103,16 +1112,20 @@ mod tests {
                 value: Some("npub1feed".into()),
                 ..IdentityIdFact::default()
             }],
-            contributors: vec![ContributorView {
+        };
+        // ADR 0076 packet 006: the credit list comes from the projection.
+        let values = FeedStoredValues {
+            credits: vec![ContributorView {
                 name: Some("Bob".into()),
                 href: Some("https://example.test/bob".into()),
                 image_url: Some("https://example.test/bob.jpg".into()),
                 nostr_npub: Some("npub1bob".into()),
                 ..ContributorView::default()
             }],
+            ..stored_values::feed_values_from_columns(&feed)
         };
 
-        let view = FeedView::from_local_with_identity(feed, Vec::new(), facts);
+        let view = FeedView::from_local_with_facts(feed, Vec::new(), facts, values);
 
         assert_eq!(
             view.identity.website_url.as_deref(),

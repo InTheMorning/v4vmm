@@ -632,7 +632,7 @@ pub fn track_row_to_track_context_with_local_identity(
         track.feed_id,
         context.feed.take(),
     )?);
-    context.track = hydrate_track_identity(conn, track.id, context.track)?;
+    context.track = hydrate_track_identity(conn, track.id, context.track, &values)?;
     sanitize_track_context_source_text(&mut context);
     Ok(context)
 }
@@ -651,16 +651,22 @@ fn hydrate_feed_identity(conn: &Connection, feed_id: i64, feed: Option<Feed>) ->
             .map(source_id_from_local)
             .collect(),
     );
+    // ADR 0076 packet 006: the projected credit list of the channel.
     feed.source_contributors = Some(
-        db::local_contributors(conn, db::LocalEntityOwner::Feed(feed_id))?
+        stored_values::feed_credits(conn, feed_id)?
             .into_iter()
-            .map(contributor_from_local)
+            .map(Contributor::from)
             .collect(),
     );
     Ok(feed)
 }
 
-fn hydrate_track_identity(conn: &Connection, track_id: i64, mut track: Track) -> Result<Track> {
+fn hydrate_track_identity(
+    conn: &Connection,
+    track_id: i64,
+    mut track: Track,
+    values: &stored_values::TrackStoredValues,
+) -> Result<Track> {
     track.source_links = Some(
         db::local_identity_links(conn, db::LocalIdentityOwner::Track(track_id))?
             .into_iter()
@@ -673,10 +679,13 @@ fn hydrate_track_identity(conn: &Connection, track_id: i64, mut track: Track) ->
             .map(source_id_from_local)
             .collect(),
     );
+    // ADR 0076 packet 006: the projected credit list of the item.
     track.source_contributors = Some(
-        db::local_contributors(conn, db::LocalEntityOwner::Track(track_id))?
-            .into_iter()
-            .map(contributor_from_local)
+        values
+            .credits
+            .iter()
+            .cloned()
+            .map(Contributor::from)
             .collect(),
     );
     Ok(track)
@@ -705,25 +714,6 @@ fn source_id_from_local(row: db::LocalIdentityIdRow) -> SourceEntityId {
         source: Some(row.source),
         extraction_path: row.extraction_path,
         observed_at: row.observed_at,
-    }
-}
-
-fn contributor_from_local(row: db::LocalContributorRow) -> Contributor {
-    // ADR 0075: the local row keeps no claim provenance, so these fields stay unknown.
-    Contributor {
-        name: row.name,
-        role: row.role,
-        href: row.href,
-        img: row.image_url,
-        npub: row.nostr_npub,
-        group_name: row.group_name,
-        entity_type: None,
-        entity_id: None,
-        position: None,
-        role_norm: None,
-        source: None,
-        extraction_path: None,
-        observed_at: None,
     }
 }
 

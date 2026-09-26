@@ -6507,7 +6507,6 @@ mod tests {
                 value: Some("npub1saw".into()),
                 ..crate::views::IdentityIdFact::default()
             }],
-            contributors: Vec::new(),
         };
 
         assert!(vm.update_album_identity_facts(10, &facts));

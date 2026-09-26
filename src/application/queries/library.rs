@@ -450,6 +450,7 @@ pub(crate) fn fetch_library_track_context_with_local_fallback(
         Ok(mut remote_context) => {
             if let Ok(local_context) = local_context {
                 apply_local_track_metadata_defaults(&mut remote_context, &local_context);
+                apply_projected_credits(&mut remote_context, &local_context);
             }
             Ok(remote_context)
         }
@@ -547,6 +548,21 @@ pub(crate) fn apply_local_track_metadata_defaults(remote: &mut TrackContext, loc
     }
     if remote.track.explicit.is_none() {
         remote.track.explicit = local.track.explicit;
+    }
+}
+
+/// ADR 0076 packet 006: the track page shows the projected credit list of
+/// the item and of the channel. The fetched `MusicIndex` list is not stored
+/// by this command, and it does not replace the stored list on the page.
+pub(crate) fn apply_projected_credits(remote: &mut TrackContext, local: &TrackContext) {
+    remote
+        .track
+        .source_contributors
+        .clone_from(&local.track.source_contributors);
+    if let (Some(remote_feed), Some(local_feed)) = (remote.feed.as_mut(), local.feed.as_ref()) {
+        remote_feed
+            .source_contributors
+            .clone_from(&local_feed.source_contributors);
     }
 }
 
@@ -3013,6 +3029,57 @@ target=\"1 request set\" measured_requests={measured_requests} requests={all_req
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR 0076 packet 006, V1 support: the Library track page shows the
+    /// projected credit lists of the local context, and not the fetched
+    /// `MusicIndex` lists. The other fetched values stay.
+    #[test]
+    fn adr_0076_credit_list_track_page_uses_projected_credits() {
+        let credit = |name: &str| crate::api::Contributor {
+            name: Some(name.to_owned()),
+            ..crate::api::Contributor::default()
+        };
+        let context = |track_credit: &str, feed_credit: &str, title: &str| TrackContext {
+            rss_observation: None,
+            observation_receipts: Vec::new(),
+            provider_state: Default::default(),
+            track: crate::api::Track {
+                title: Some(title.to_owned()),
+                source_contributors: Some(vec![credit(track_credit)]),
+                ..crate::api::Track::default()
+            },
+            feed: Some(crate::api::Feed {
+                source_contributors: Some(vec![credit(feed_credit)]),
+                ..crate::api::Feed::default()
+            }),
+        };
+        let mut remote = context("Stale Item Credit", "Stale Channel Credit", "Remote");
+        let local = context("Rss Item Credit", "Rss Channel Credit", "Local");
+
+        apply_projected_credits(&mut remote, &local);
+
+        let names = |credits: Option<&Vec<crate::api::Contributor>>| {
+            credits
+                .into_iter()
+                .flatten()
+                .filter_map(|credit| credit.name.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            names(remote.track.source_contributors.as_ref()),
+            ["Rss Item Credit"]
+        );
+        assert_eq!(
+            names(
+                remote
+                    .feed
+                    .as_ref()
+                    .and_then(|feed| feed.source_contributors.as_ref())
+            ),
+            ["Rss Channel Credit"]
+        );
+        assert_eq!(remote.track.title.as_deref(), Some("Remote"));
+    }
 
     fn setup_test_db() -> anyhow::Result<Connection> {
         let conn = Connection::open_in_memory()?;
