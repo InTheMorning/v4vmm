@@ -132,6 +132,20 @@ pub(crate) const INSPECTOR_TRACK_DETAIL_TRACK: RequestProfile =
 pub(crate) const INSPECTOR_TRACK_DETAIL_FEED: RequestProfile =
     RequestProfile::new(RequestPathShape::Feed, Some(L4));
 
+/// Index publisher page. The one request of the Index and the Library
+/// publisher page queries (ADR 0077 Task 003). Owners:
+/// `feed::fetch_index_publisher_page_albums` and
+/// `library::fetch_library_publisher_page`.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0077 packet 004 connects a screen to this item. Remove this expectation in that packet."
+    )
+)]
+pub(crate) const INDEX_PUBLISHER_PAGE: RequestProfile =
+    RequestProfile::new(RequestPathShape::Feed, Some("publisher"));
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,6 +361,14 @@ mod tests {
             })
             .count();
         assert_eq!(requesting, 2, "only two profiles request publisher");
+    }
+
+    /// R3-01 (ADR 0077 Task 003): `INDEX_PUBLISHER_PAGE` requests the feed
+    /// path shape with only `publisher` in its include list.
+    #[test]
+    fn adr_0077_publisher_page_index_publisher_page_profile_matches_recorded_literal() {
+        assert_eq!(INDEX_PUBLISHER_PAGE.path_shape(), RequestPathShape::Feed);
+        assert_eq!(INDEX_PUBLISHER_PAGE.include(), Some("publisher"));
     }
 
     /// R17-13: no profile requests `source_transcripts`. A later addition

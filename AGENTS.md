@@ -143,7 +143,9 @@ tables. Its mechanical checks are Green. Its visual gate is open and paused.
 [Packet 002](docs/tasks/adr-0077-task-002-publisher-relationship-transport-and-storage.md) is
 implemented on 2026-09-24. It decodes the publisher relationship, requests it on the Library album
 hydration and the Index feed detail, and stores it in schema version 14. Its mechanical checks are
-Green, and it needs no visual acceptance. Packets 003 and 004 are Held on the album summary fields.
+Green, and it needs no visual acceptance. Stophammer deployed the album summary fields on 2026-09-26.
+Packet 003 is implemented on 2026-09-26. Its mechanical checks are Green, and it needs no
+visual acceptance. Packet 004 is next.
 [Open Stophammer requests](docs/plans/v4vmm-open-requests.md) consolidates each open request
 to Stophammer on 2026-09-25. The Stophammer repository holds an equal copy. Update both copies together. A reverse album list
 is deferred while Stophammer corrects the relationship data.

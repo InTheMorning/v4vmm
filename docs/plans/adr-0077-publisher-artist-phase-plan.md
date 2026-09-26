@@ -12,19 +12,18 @@ and [ADR 0079](../adr/0079-remove-musicindex-artist-subject-storage.md) own the 
 |---|---|---|---|---|
 | [001](../tasks/adr-0077-task-001-remove-dead-artist-storage.md) | Delete the ADR 0045 binding and the ADR 0029 artist subject storage | ADR 0077 Decision 7, ADR 0079 | None | Implemented 2026-09-24. Mechanical checks Green. Visual gate open and paused |
 | [002](../tasks/adr-0077-task-002-publisher-relationship-transport-and-storage.md) | Decode the publisher relationship and store it for each Library feed | ADR 0077 Decisions 2 and 5 | 001 | Implemented 2026-09-24. Mechanical checks Green. No visual gate |
-| [003](../tasks/adr-0077-task-003-publisher-page-view-model.md) | Publisher page query and view model | ADR 0077, ADR 0078 | 002, and the Stophammer answer | Held |
-| [004](../tasks/adr-0077-task-004-publisher-navigation-and-presentation.md) | Navigation, screens, feed owner text and the name search | ADR 0077 Decisions 1, 2 and 6 | 003 | Held |
+| [003](../tasks/adr-0077-task-003-publisher-page-view-model.md) | Publisher page query and view model | ADR 0077, ADR 0078 | 002, and Stophammer ADR 0059 | Implemented 2026-09-26. Mechanical checks Green. No visual gate |
+| [004](../tasks/adr-0077-task-004-publisher-navigation-and-presentation.md) | Navigation, screens, feed owner text and the name search | ADR 0077 Decisions 1, 2 and 6 | 003 | Next. Its task review comes first |
 
 Packet 001 added schema version 13, and packet 002 added schema version 14.
 
 ## Held Work
 
-Packets 003 and 004 wait for the answer to the
-album summary fields, request 1 of the [open Stophammer requests](v4vmm-open-requests.md).
-The operator asked on 2026-09-24 which route is better. The orchestrator recommended this route over a paged album fetch. The operator can change it.
+Packet 004 is ready for its task review. Packet 003 is implemented.
 
-When Stophammer adds the album summary, packet 003 reads it and sends one request for each publisher page.
-When Stophammer rejects the request, the operator selects a new route before packet 003 starts.
+Stophammer deployed the album summary fields of its ADR 0059 on 2026-09-26, at commit `264706e`.
+The [open Stophammer requests](v4vmm-open-requests.md#verification-by-v4vmm---2026-09-26) record the v4vmm verification.
+Packet 003 reads the `remote_*` fields and sends one request for each publisher page.
 
 ## Follow-Up Findings
 

@@ -192,6 +192,93 @@ pub(crate) fn upsert_feed_publisher_relationships(
     Ok(written)
 }
 
+/// One local feed with a stored `music_to_publisher` row for a publisher
+/// feed GUID (ADR 0077 Task 003). The Library publisher page query uses
+/// this to build its Library album group without a request, and the Index
+/// publisher page query uses it to mark each album that is in the Library.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0077 packet 004 connects a screen to this item. Remove this expectation in that packet."
+    )
+)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct LocalPublisherAlbum {
+    /// The album feed's own GUID, from the local `feeds` row.
+    pub(crate) feed_guid: Option<String>,
+    /// The album feed's own title, from the local `feeds` row.
+    pub(crate) title: Option<String>,
+    /// The album feed's own channel image, from the local `feeds` row.
+    pub(crate) image_url: Option<String>,
+    /// The title of the publisher feed that this row names, as the album's
+    /// own feed response stated it when the app stored the row.
+    pub(crate) publisher_feed_title: Option<String>,
+    pub(crate) role: Option<String>,
+    pub(crate) role_source: Option<crate::api::RoleSource>,
+    pub(crate) publisher_lists_music: Option<bool>,
+    pub(crate) publisher_link_resolution: Option<crate::api::PublisherLinkResolution>,
+    pub(crate) publisher_rel: Option<String>,
+    pub(crate) music_rel: Option<String>,
+}
+
+/// Reads each local feed with a stored `music_to_publisher` row for the
+/// given publisher feed GUID (ADR 0077 Task 003).
+///
+/// The read joins the stored relationship row to its local `feeds` row, so
+/// each result carries the album feed's own GUID, title, and image. It
+/// sends no `MusicIndex` request.
+///
+/// # Errors
+///
+/// Returns an error when the database read fails.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0077 packet 004 connects a screen to this item. Remove this expectation in that packet."
+    )
+)]
+pub(crate) fn local_albums_for_publisher(
+    conn: &Connection,
+    publisher_feed_guid: &str,
+) -> Result<Vec<LocalPublisherAlbum>> {
+    let mut statement = conn
+        .prepare(
+            "SELECT feeds.feed_guid, feeds.title, feeds.album_image_href, r.publisher_feed_title,
+                    r.role, r.role_source, r.publisher_lists_music, r.publisher_link_resolution,
+                    r.publisher_rel, r.music_rel
+             FROM feed_publisher_relationships r
+             JOIN feeds ON feeds.id = r.feed_id
+             WHERE r.direction = 'music_to_publisher' AND r.publisher_feed_guid = ?1
+             ORDER BY feeds.title COLLATE NOCASE",
+        )
+        .context("Prepare local albums for publisher read")?;
+    let rows = statement
+        .query_map(params![publisher_feed_guid], |row| {
+            Ok(LocalPublisherAlbum {
+                feed_guid: row.get(0)?,
+                title: row.get(1)?,
+                image_url: row.get(2)?,
+                publisher_feed_title: row.get(3)?,
+                role: row.get(4)?,
+                role_source: row
+                    .get::<_, Option<String>>(5)?
+                    .map(crate::api::RoleSource::from),
+                publisher_lists_music: row.get(6)?,
+                publisher_link_resolution: row
+                    .get::<_, Option<String>>(7)?
+                    .map(crate::api::PublisherLinkResolution::from),
+                publisher_rel: row.get(8)?,
+                music_rel: row.get(9)?,
+            })
+        })
+        .context("Query local albums for publisher")?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .context("Read local albums for publisher")?;
+    Ok(rows)
+}
+
 /// The RSS-stated remote of the first `music_to_publisher` row of a feed:
 /// the remote feed GUID and the remote feed URL (ADR 0076 packet 002).
 ///
@@ -570,5 +657,75 @@ mod tests {
         )
         .is_err());
         assert!(test_support::rows(&conn, 99).is_empty());
+    }
+
+    /// R3-02 (ADR 0077 Task 003): the reader returns the local feed that
+    /// names the given publisher, with its role and link facts, and it
+    /// excludes a feed that names a different publisher.
+    #[test]
+    fn adr_0077_publisher_page_local_albums_for_publisher_reads_stored_rows() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        upgrades::create_fixture(&conn, CURRENT_VERSION).unwrap();
+        conn.execute_batch(
+            "INSERT INTO feeds(id, feed_url, feed_guid, title, album_image_href)
+             VALUES (1, 'https://example.test/one.xml', 'album-guid-1', 'Album One', 'https://example.test/one.jpg');
+             INSERT INTO feeds(id, feed_url, feed_guid, title)
+             VALUES (2, 'https://example.test/two.xml', 'album-guid-2', 'Album Two');",
+        )
+        .unwrap();
+        let owned = PublisherRelationship {
+            direction: Some("music_to_publisher".to_owned()),
+            publisher_feed_guid: Some("publisher-a".to_owned()),
+            remote_feed_guid: Some("publisher-a".to_owned()),
+            role: Some("label".to_owned()),
+            role_source: Some(crate::api::RoleSource::PublisherRel),
+            publisher_lists_music: Some(false),
+            publisher_link_resolution: Some(crate::api::PublisherLinkResolution::Unresolved),
+            publisher_rel: Some("label".to_owned()),
+            ..PublisherRelationship::default()
+        };
+        upsert_feed_publisher_relationships(&mut conn, 1, Some("Publisher A"), Some(&[owned]), 10)
+            .unwrap();
+        upsert_feed_publisher_relationships(
+            &mut conn,
+            2,
+            Some("Publisher B"),
+            Some(&[entry("publisher-b", None)]),
+            10,
+        )
+        .unwrap();
+
+        let albums = local_albums_for_publisher(&conn, "publisher-a").unwrap();
+
+        assert_eq!(albums.len(), 1, "only the feed that names publisher-a");
+        let album = &albums[0];
+        assert_eq!(album.feed_guid.as_deref(), Some("album-guid-1"));
+        assert_eq!(album.title.as_deref(), Some("Album One"));
+        assert_eq!(
+            album.image_url.as_deref(),
+            Some("https://example.test/one.jpg")
+        );
+        assert_eq!(album.publisher_feed_title.as_deref(), Some("Publisher A"));
+        assert_eq!(album.role.as_deref(), Some("label"));
+        assert_eq!(
+            album.role_source,
+            Some(crate::api::RoleSource::PublisherRel)
+        );
+        assert_eq!(album.publisher_lists_music, Some(false));
+        assert_eq!(
+            album.publisher_link_resolution,
+            Some(crate::api::PublisherLinkResolution::Unresolved)
+        );
+        assert_eq!(album.publisher_rel.as_deref(), Some("label"));
+
+        assert_eq!(
+            local_albums_for_publisher(&conn, "publisher-b")
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(local_albums_for_publisher(&conn, "publisher-missing")
+            .unwrap()
+            .is_empty());
     }
 }

@@ -1,6 +1,6 @@
 //! Library local query family.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -23,6 +23,7 @@ use crate::subscribe_service;
 use crate::view_models::library::{
     AlbumNode, ArtistNode, LibraryTrackRowVm, LibraryTree, LibraryViewModel,
 };
+use crate::view_models::publisher_page::{PublisherPageAlbumFact, PublisherPageFacts};
 use crate::views::{FeedMetadataFacts, FeedView, LocalIdentityFacts};
 use crate::{db, library_service};
 
@@ -718,6 +719,103 @@ fn hydrate_album_identity_facts(
             hydration.observation_receipts.extend(receipts);
         },
     )
+}
+
+/// Reads the Library publisher page (ADR 0077 Task 003).
+///
+/// The Library group reads stored `music_to_publisher` rows for the given
+/// publisher feed GUID, without a request; the page title comes from the
+/// stored `publisher_feed_title` of those rows. The function then sends one
+/// `INDEX_PUBLISHER_PAGE` request, through `feed::fetch_index_publisher_page_albums`,
+/// for the albums that the Library group does not already name. When that
+/// request fails, the Library group stays present, and the returned facts
+/// carry the failure separately (R3-02a).
+///
+/// # Errors
+///
+/// Returns an error only when the local read of the Library group fails.
+/// A failure of the network request is not an error here: it is folded
+/// into `PublisherPageFacts::other_albums_failure`.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0077 packet 004 connects a screen to this item. Remove this expectation in that packet."
+    )
+)]
+pub(crate) fn fetch_library_publisher_page(
+    conn: &SharedConnection,
+    endpoint: &crate::config::MusicIndexEndpoint,
+    publisher_feed_guid: &str,
+) -> Result<PublisherPageFacts, CommandError> {
+    let local = {
+        let db = conn.lock().map_err(|_| poisoned_lock())?;
+        db::publisher_relationships::local_albums_for_publisher(&db, publisher_feed_guid)
+            .map_err(|error| query_error(&error))?
+    };
+    let feed_title = local
+        .iter()
+        .find_map(|album| album.publisher_feed_title.clone());
+    let library_feed_guids: BTreeSet<String> = local
+        .iter()
+        .filter_map(|album| album.feed_guid.clone())
+        .collect();
+    let mut albums: Vec<PublisherPageAlbumFact> = local
+        .into_iter()
+        .map(|album| PublisherPageAlbumFact {
+            feed_guid: album.feed_guid,
+            title: album.title,
+            image_url: album.image_url,
+            artist: None,
+            artist_source: None,
+            role: album.role,
+            role_source: album.role_source,
+            music_names_publisher: Some(true),
+            publisher_lists_music: album.publisher_lists_music,
+            publisher_link_resolution: album.publisher_link_resolution,
+            publisher_rel: album.publisher_rel,
+            music_rel: album.music_rel,
+            in_library: true,
+        })
+        .collect();
+
+    let client = crate::api::Client::new_with_base_url(endpoint.clone());
+    let provider_identity = endpoint.require().map(str::to_owned).unwrap_or_default();
+    let mut other_albums_failure = None;
+    let mut distinct_release_artist_count = None;
+    let mut distinct_release_artists = Vec::new();
+    match crate::application::queries::feed::fetch_index_publisher_page_albums(
+        &client,
+        &provider_identity,
+        publisher_feed_guid,
+    ) {
+        Ok(remote) => {
+            // The one request also carries the publisher feed's own derived
+            // artist count (ADR 0077, ADR 0078). The Library page shows it
+            // when that request succeeds, the same as the Index page.
+            distinct_release_artist_count = remote.distinct_release_artist_count;
+            distinct_release_artists = remote.distinct_release_artists;
+            for album in remote.albums {
+                let already_local = album
+                    .feed_guid
+                    .as_deref()
+                    .is_some_and(|guid| library_feed_guids.contains(guid));
+                if !already_local {
+                    albums.push(album);
+                }
+            }
+        }
+        Err(error) => other_albums_failure = Some(format!("{error:#}")),
+    }
+
+    Ok(PublisherPageFacts {
+        publisher_feed_guid: publisher_feed_guid.to_owned(),
+        feed_title,
+        distinct_release_artist_count,
+        distinct_release_artists,
+        albums,
+        other_albums_failure,
+    })
 }
 
 fn compare_library_track(
@@ -3022,6 +3120,239 @@ target=\"1 request set\" measured_requests={measured_requests} requests={all_req
                 "query": [["include", include]]
             }),
             "R17-10: the retained profile JSON must keep its pre-packet shape"
+        );
+    }
+}
+
+/// ADR 0077 Task 003: the Library publisher page query.
+#[cfg(test)]
+mod adr_0077_publisher_page_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    /// A minimal local HTTP server that records each request path and can
+    /// be told to fail the next response (R3-02a).
+    struct Fixture {
+        endpoint: crate::config::MusicIndexEndpoint,
+        address: String,
+        requests: Arc<Mutex<Vec<String>>>,
+        fail: Arc<AtomicBool>,
+        stop: Arc<AtomicBool>,
+        worker: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl Fixture {
+        fn start() -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let address = listener.local_addr().unwrap().to_string();
+            let endpoint: crate::config::MusicIndexEndpoint = format!("http://{address}").into();
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let fail = Arc::new(AtomicBool::new(false));
+            let stop = Arc::new(AtomicBool::new(false));
+            let received = Arc::clone(&requests);
+            let failing = Arc::clone(&fail);
+            let stopped = Arc::clone(&stop);
+            let worker = std::thread::spawn(move || {
+                while !stopped.load(Ordering::SeqCst) {
+                    match listener.accept() {
+                        Ok((mut stream, _)) => {
+                            stream
+                                .set_read_timeout(Some(Duration::from_secs(2)))
+                                .unwrap();
+                            let mut bytes = Vec::new();
+                            let mut buffer = [0; 4096];
+                            while !bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                                match stream.read(&mut buffer) {
+                                    Ok(0) | Err(_) => break,
+                                    Ok(read) => bytes.extend_from_slice(&buffer[..read]),
+                                }
+                            }
+                            let request = String::from_utf8_lossy(&bytes);
+                            let Some(path) = request
+                                .lines()
+                                .next()
+                                .and_then(|line| line.split_whitespace().nth(1))
+                            else {
+                                continue;
+                            };
+                            received.lock().unwrap().push(path.to_string());
+                            if failing.load(Ordering::SeqCst) {
+                                write!(
+                                    stream,
+                                    "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                                )
+                                .unwrap();
+                                continue;
+                            }
+                            let body = serde_json::json!({"data": {
+                                "feed_guid": "publisher-guid",
+                                "title": "Publisher Feed",
+                                "distinct_release_artist_count": 2,
+                                "distinct_release_artists": ["Remote Artist", "Local Artist"],
+                                "publisher": [
+                                    {
+                                        "direction": "publisher_to_music",
+                                        "remote_feed_guid": "album-guid-remote",
+                                        "publisher_feed_guid": "publisher-guid",
+                                        "remote_feed_title": "Remote Album",
+                                        "music_names_publisher": true,
+                                        "publisher_lists_music": true,
+                                        "publisher_link_resolution": "feed_url",
+                                        "role": "artist",
+                                        "role_source": "default"
+                                    },
+                                    {
+                                        "direction": "publisher_to_music",
+                                        "remote_feed_guid": "album-guid-local",
+                                        "publisher_feed_guid": "publisher-guid",
+                                        "remote_feed_title": "Local Album, from the publisher feed",
+                                        "music_names_publisher": true,
+                                        "publisher_lists_music": true,
+                                        "publisher_link_resolution": "feed_url",
+                                        "role": "artist",
+                                        "role_source": "default"
+                                    }
+                                ]
+                            }})
+                            .to_string();
+                            write!(
+                                stream,
+                                "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                                body.len()
+                            )
+                            .unwrap();
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(2));
+                        }
+                        Err(error) => panic!("fixture listener: {error}"),
+                    }
+                }
+            });
+            Self {
+                endpoint,
+                address,
+                requests,
+                fail,
+                stop,
+                worker: Some(worker),
+            }
+        }
+
+        fn fail_next_response(&self) {
+            self.fail.store(true, Ordering::SeqCst);
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+            let _ = TcpStream::connect(&self.address);
+            self.worker.take().unwrap().join().unwrap();
+        }
+    }
+
+    /// A database with one local album that already names the publisher
+    /// feed, through a stored `music_to_publisher` row.
+    fn conn_with_local_album() -> SharedConnection {
+        let mut conn = Connection::open_in_memory().unwrap();
+        db::init_schema(&conn).unwrap();
+        db::migrate_schema(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO feeds(id, feed_url, feed_guid, title)
+             VALUES (1, 'https://example.test/one.xml', 'album-guid-local', 'Local Album')",
+            [],
+        )
+        .unwrap();
+        let stored_entry = crate::api::PublisherRelationship {
+            direction: Some("music_to_publisher".to_owned()),
+            publisher_feed_guid: Some("publisher-guid".to_owned()),
+            remote_feed_guid: Some("publisher-guid".to_owned()),
+            role: Some("artist".to_owned()),
+            ..crate::api::PublisherRelationship::default()
+        };
+        db::publisher_relationships::upsert_feed_publisher_relationships(
+            &mut conn,
+            1,
+            Some("Publisher Feed"),
+            Some(&[stored_entry]),
+            10,
+        )
+        .unwrap();
+        Arc::new(Mutex::new(conn))
+    }
+
+    /// R3-02: the Library query returns the local feed with a stored row
+    /// for the GUID without a request. It sends one `INDEX_PUBLISHER_PAGE`
+    /// request for the other albums, and the `in_library` flag tells the
+    /// two groups apart.
+    #[test]
+    fn adr_0077_publisher_page_library_query_reads_local_then_one_remote_request() {
+        let fixture = Fixture::start();
+        let conn = conn_with_local_album();
+
+        let facts = fetch_library_publisher_page(&conn, &fixture.endpoint, "publisher-guid")
+            .expect("the query should succeed");
+
+        let requests = fixture.requests.lock().unwrap().clone();
+        assert_eq!(
+            requests.len(),
+            1,
+            "R3-02: one INDEX_PUBLISHER_PAGE request for the other albums"
+        );
+        assert_eq!(facts.feed_title.as_deref(), Some("Publisher Feed"));
+        assert_eq!(
+            facts.albums.len(),
+            2,
+            "the Library album plus the one remaining remote album"
+        );
+        let local = facts
+            .albums
+            .iter()
+            .find(|album| album.feed_guid.as_deref() == Some("album-guid-local"))
+            .expect("the Library album stays");
+        assert!(local.in_library);
+        let remote = facts
+            .albums
+            .iter()
+            .find(|album| album.feed_guid.as_deref() == Some("album-guid-remote"))
+            .expect("the remaining remote album is added");
+        assert!(!remote.in_library);
+        assert_eq!(facts.other_albums_failure, None);
+        assert_eq!(
+            facts.distinct_release_artist_count,
+            Some(2),
+            "the one request also carries the derived artist count"
+        );
+    }
+
+    /// R3-02a: when the request for the other albums fails, the Library
+    /// group stays, and the facts report the failure for the other group.
+    #[test]
+    fn adr_0077_publisher_page_library_query_keeps_library_group_on_remote_failure() {
+        let fixture = Fixture::start();
+        fixture.fail_next_response();
+        let conn = conn_with_local_album();
+
+        let facts = fetch_library_publisher_page(&conn, &fixture.endpoint, "publisher-guid")
+            .expect("a remote failure must not fail the query");
+
+        assert_eq!(facts.albums.len(), 1, "the Library group stays");
+        assert_eq!(
+            facts.albums[0].feed_guid.as_deref(),
+            Some("album-guid-local")
+        );
+        assert!(
+            facts.other_albums_failure.is_some(),
+            "the other group's failure is reported"
+        );
+        assert_eq!(
+            facts.distinct_release_artist_count, None,
+            "a failed request carries no derived artist count"
         );
     }
 }

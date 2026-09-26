@@ -19736,6 +19736,46 @@ its publisher through its album feed.";
     );
 }
 
+/// Situational — ADR 0077 Decision 1, Task 003 (R3-12): an artist identity
+/// comes only from a publisher feed GUID. No code builds
+/// `ArtistRef::PublisherFeed` from name text or from `publisher_text`.
+/// Delete this guard when ADR 0077 Decision 1 is superseded.
+#[test]
+fn adr_0077_publisher_page_artist_ref_publisher_feed_built_only_from_guid() {
+    const FIX: &str =
+        "ADR 0077 Decision 1: an artist identity comes only from a publisher feed GUID. \
+Build `ArtistRef::PublisherFeed` from `publisher_feed_guid` or a stored feed GUID, never from name \
+text or `publisher_text`.";
+    const FORBIDDEN: &[&str] = &["publisher_text", "name", "title"];
+    const CONSTRUCTOR: &str = "ArtistRef::PublisherFeed(";
+
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(production_source(&source)) {
+            let Some(index) = line.find(CONSTRUCTOR) else {
+                continue;
+            };
+            let rest = &line[index + CONSTRUCTOR.len()..];
+            let argument = rest.split(')').next().unwrap_or_default().to_lowercase();
+            for pattern in FORBIDDEN {
+                if argument.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: `ArtistRef::PublisherFeed` built from `{pattern}`: `{line}`\n  {FIX}"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0077 Decision 1 publisher feed identity violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Situational: ADR 0076 Decision 5 (packet 002). Each `MusicIndex` writer of
 /// a compared slot calls the one hold gate before it writes the slot. Delete
 /// this guard when ADR 0076 is superseded.

@@ -18,12 +18,14 @@ use crate::metadata::{
 };
 use crate::rss;
 use crate::subscribe_service::enrich_track_context_from_rss;
+use crate::view_models::publisher_page::{PublisherPageAlbumFact, PublisherPageFacts};
 use crate::view_models::recent_feeds::RecentFeedsPageBatch;
 use crate::view_models::track::TrackVm;
 
 use super::search::{index_feed_display, index_item_id, non_empty_str, INDEX_FEED_ID_BASE};
 use crate::application::request_profiles::{
-    INDEX_FEED_DETAIL, INSPECTOR_TRACK_DETAIL_FEED, INSPECTOR_TRACK_DETAIL_TRACK,
+    INDEX_FEED_DETAIL, INDEX_PUBLISHER_PAGE, INSPECTOR_TRACK_DETAIL_FEED,
+    INSPECTOR_TRACK_DETAIL_TRACK,
 };
 use crate::application::request_reuse::{self, RefreshIntent, RequestKey, SharedFetchError};
 
@@ -595,6 +597,118 @@ fn owner_fetch_feed(
         .map_err(SharedFetchError::into_anyhow)
 }
 
+/// Reads the albums of one publisher feed (ADR 0077 Task 003). It sends one
+/// `INDEX_PUBLISHER_PAGE` request through the packet 018 shared owner, and
+/// no request for an album: each album's title, image, artist text, and
+/// artist source come from the `remote_*` fields of its own
+/// `publisher_to_music` entry (Stophammer ADR 0059).
+///
+/// Every album's `in_library` flag starts `false`. The Index publisher page
+/// query below sets it from local storage; the Library publisher page query
+/// in `library.rs` calls this function directly and sets it from its own
+/// local read instead.
+///
+/// # Errors
+///
+/// Returns an error when the MusicIndex request fails.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0077 packet 004 connects a screen to this item. Remove this expectation in that packet."
+    )
+)]
+pub(crate) fn fetch_index_publisher_page_albums(
+    client: &Client,
+    provider_identity: &str,
+    publisher_feed_guid: &str,
+) -> Result<PublisherPageFacts> {
+    let feed = owner_fetch_feed(
+        client,
+        provider_identity,
+        publisher_feed_guid,
+        Some(&INDEX_PUBLISHER_PAGE),
+    )?;
+    Ok(publisher_page_facts_from_feed(publisher_feed_guid, &feed))
+}
+
+/// Reads the Index publisher page (ADR 0077 Task 003, R3-02b): the albums of
+/// `fetch_index_publisher_page_albums`, each marked with whether a stored
+/// `music_to_publisher` row already names it as a Library album.
+///
+/// # Errors
+///
+/// Returns an error when the MusicIndex request fails, or when the local
+/// read of the Library marking fails.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0077 packet 004 connects a screen to this item. Remove this expectation in that packet."
+    )
+)]
+pub(crate) fn fetch_index_publisher_page(
+    conn: &Connection,
+    client: &Client,
+    provider_identity: &str,
+    publisher_feed_guid: &str,
+) -> Result<PublisherPageFacts> {
+    let mut facts =
+        fetch_index_publisher_page_albums(client, provider_identity, publisher_feed_guid)?;
+    let library_feed_guids: BTreeSet<String> =
+        db::publisher_relationships::local_albums_for_publisher(conn, publisher_feed_guid)?
+            .into_iter()
+            .filter_map(|album| album.feed_guid)
+            .collect();
+    for album in &mut facts.albums {
+        album.in_library = album
+            .feed_guid
+            .as_deref()
+            .is_some_and(|guid| library_feed_guids.contains(guid));
+    }
+    Ok(facts)
+}
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0077 packet 004 connects a screen to this item. Remove this expectation in that packet."
+    )
+)]
+fn publisher_page_facts_from_feed(publisher_feed_guid: &str, feed: &Feed) -> PublisherPageFacts {
+    let albums = feed
+        .publisher
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .filter(|entry| entry.direction.as_deref() == Some("publisher_to_music"))
+        .map(|entry| PublisherPageAlbumFact {
+            feed_guid: entry.remote_feed_guid.clone(),
+            title: entry.remote_feed_title.clone(),
+            image_url: entry.remote_feed_image_url.clone(),
+            artist: entry.remote_release_artist.clone(),
+            artist_source: entry.remote_release_artist_source.clone(),
+            role: entry.role.clone(),
+            role_source: entry.role_source.clone(),
+            music_names_publisher: entry.music_names_publisher,
+            publisher_lists_music: entry.publisher_lists_music,
+            publisher_link_resolution: entry.publisher_link_resolution.clone(),
+            publisher_rel: entry.publisher_rel.clone(),
+            music_rel: entry.music_rel.clone(),
+            in_library: false,
+        })
+        .collect();
+    PublisherPageFacts {
+        publisher_feed_guid: publisher_feed_guid.to_owned(),
+        feed_title: feed.title.clone(),
+        distinct_release_artist_count: feed.distinct_release_artist_count,
+        distinct_release_artists: feed.distinct_release_artists.clone().unwrap_or_default(),
+        albums,
+        other_albums_failure: None,
+    }
+}
+
 fn resolve_podroll_feeds(client: &Client, feed_url: &str) -> Result<Vec<Feed>> {
     let entries = rss::fetch_feed_podroll(feed_url)?;
     let mut feeds: Vec<Feed> = Vec::new();
@@ -825,6 +939,26 @@ mod adr_0075_request_profile_tests {
             }})
             .to_string();
         }
+        if bare == "/v1/feeds/publisher-guid" {
+            return serde_json::json!({"data": {
+                "feed_guid": "publisher-guid",
+                "title": "Publisher Feed",
+                "publisher": [{
+                    "direction": "publisher_to_music",
+                    "remote_feed_guid": "album-guid",
+                    "publisher_feed_guid": "publisher-guid",
+                    "remote_feed_title": "Album Title",
+                    "remote_release_artist": "Album Artist",
+                    "remote_release_artist_source": "itunes_author",
+                    "music_names_publisher": true,
+                    "publisher_lists_music": true,
+                    "publisher_link_resolution": "feed_url",
+                    "role": "artist",
+                    "role_source": "default"
+                }]
+            }})
+            .to_string();
+        }
         serde_json::json!({"data": {"feed_guid": "f1", "title": "Feed"}}).to_string()
     }
 
@@ -938,6 +1072,75 @@ mod adr_0075_request_profile_tests {
                 ),
             ],
             "R17-06: the inspector track detail route must send L3 then L4, in that order"
+        );
+    }
+
+    /// R3-01 (ADR 0077 Task 003): the Index publisher page query sends one
+    /// request, and it asks for the `INDEX_PUBLISHER_PAGE` include list. It
+    /// sends no request for an album.
+    #[test]
+    fn adr_0077_publisher_page_index_query_sends_one_request_and_no_album_request() {
+        let fixture = Fixture::start();
+        let client = crate::api::Client::new_with_base_url(fixture.endpoint.clone());
+        let provider_identity = fixture.endpoint.require().unwrap();
+
+        let facts = fetch_index_publisher_page_albums(&client, provider_identity, "publisher-guid")
+            .unwrap();
+
+        assert_eq!(facts.albums.len(), 1, "the fixture names one album entry");
+        assert_eq!(facts.albums[0].feed_guid.as_deref(), Some("album-guid"));
+        assert_eq!(facts.albums[0].title.as_deref(), Some("Album Title"));
+        let requests = fixture.requests.lock().unwrap().clone();
+        assert_eq!(
+            requests,
+            vec![format!(
+                "/v1/feeds/publisher-guid?include={}",
+                encoded_include(INDEX_PUBLISHER_PAGE)
+            )],
+            "R3-01: one request, and no request for an album"
+        );
+    }
+
+    /// R3-02b (ADR 0077 Task 003): the Index publisher page marks each
+    /// album that a stored `music_to_publisher` row already names as a
+    /// Library album.
+    #[test]
+    fn adr_0077_publisher_page_index_query_marks_library_albums() {
+        let fixture = Fixture::start();
+        let client = crate::api::Client::new_with_base_url(fixture.endpoint.clone());
+        let provider_identity = fixture.endpoint.require().unwrap();
+        let mut conn = Connection::open_in_memory().unwrap();
+        db::init_schema(&conn).unwrap();
+        db::migrate_schema(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO feeds(id, feed_url, feed_guid, title)
+             VALUES (1, 'https://example.test/one.xml', 'album-guid', 'Local title')",
+            [],
+        )
+        .unwrap();
+        let stored_entry = crate::api::PublisherRelationship {
+            direction: Some("music_to_publisher".to_owned()),
+            publisher_feed_guid: Some("publisher-guid".to_owned()),
+            remote_feed_guid: Some("publisher-guid".to_owned()),
+            role: Some("artist".to_owned()),
+            ..crate::api::PublisherRelationship::default()
+        };
+        db::publisher_relationships::upsert_feed_publisher_relationships(
+            &mut conn,
+            1,
+            Some("Publisher Feed"),
+            Some(&[stored_entry]),
+            10,
+        )
+        .unwrap();
+
+        let facts = fetch_index_publisher_page(&conn, &client, provider_identity, "publisher-guid")
+            .unwrap();
+
+        assert_eq!(facts.albums.len(), 1);
+        assert!(
+            facts.albums[0].in_library,
+            "the album that a stored music_to_publisher row names must be marked as in the Library"
         );
     }
 }

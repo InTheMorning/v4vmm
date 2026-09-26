@@ -538,6 +538,8 @@ impl From<RoleSource> for String {
 ///
 /// The fields follow the live `PublisherResponse` contract of 2026-09-24.
 /// The legacy fields stay, because the live contract still sends them.
+/// Stophammer ADR 0059 added the four `remote_*` summary fields. Stophammer
+/// deployed that change on 2026-09-26 (ADR 0077 Task 003).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct PublisherRelationship {
@@ -585,6 +587,24 @@ pub struct PublisherRelationship {
     pub role: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role_source: Option<RoleSource>,
+    /// The title of the feed that `remote_feed_guid` names (Stophammer ADR
+    /// 0059, ADR 0077 Task 003). On a `music_to_publisher` entry, this
+    /// describes the publisher feed. On a `publisher_to_music` entry, this
+    /// describes the album.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_feed_title: Option<String>,
+    /// The channel image URL of the feed that `remote_feed_guid` names
+    /// (Stophammer ADR 0059, ADR 0077 Task 003).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_feed_image_url: Option<String>,
+    /// The `release_artist` of the feed that `remote_feed_guid` names
+    /// (Stophammer ADR 0059, ADR 0077 Task 003).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_release_artist: Option<String>,
+    /// The source of `remote_release_artist`, as Stophammer sends it
+    /// (Stophammer ADR 0059, ADR 0077 Task 003).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_release_artist_source: Option<String>,
 }
 
 /// One value time split from an API response (ADR 0075).
@@ -3126,6 +3146,118 @@ pub(crate) mod tests {
             }
             assert!(
                 serde_json::from_str::<Feed>(r#"{"publisher": [{"role_source": 7}]}"#).is_err()
+            );
+        }
+    }
+
+    /// ADR 0077 Task 003: the four `remote_*` summary fields of Stophammer
+    /// ADR 0059. Stophammer deployed this change on 2026-09-26.
+    mod adr_0077_publisher_page {
+        use crate::api::{DetailResponse, Feed};
+
+        /// Recorded on 2026-09-26 from
+        /// `GET https://api.musicindex.org/v1/feeds/137aaa9c-75ff-4916-9f23-e02968b2d15e?include=publisher`.
+        /// Trimmed to the fields the tests need. The first entry names each
+        /// summary field. The second entry names none of them, as an entry
+        /// with no linked feed sends null for each one.
+        const RECORDED_PUBLISHER_FEED_WITH_SUMMARY_FIELDS: &str = r#"{
+            "data": {
+                "feed_guid": "137aaa9c-75ff-4916-9f23-e02968b2d15e",
+                "title": "Official DETOX Music",
+                "publisher": [
+                    {
+                        "direction": "publisher_to_music",
+                        "remote_feed_guid": "album-guid-1",
+                        "publisher_feed_guid": "137aaa9c-75ff-4916-9f23-e02968b2d15e",
+                        "remote_feed_title": "Think'n Bout Ya",
+                        "remote_feed_image_url": "https://d12wklypp119aj.cloudfront.net/image/0ea057e2-fcf3-4e1d-881e-51a87b582b92.jpg",
+                        "remote_release_artist": "Official DETOX Music",
+                        "remote_release_artist_source": "itunes_author",
+                        "music_names_publisher": true,
+                        "publisher_lists_music": true,
+                        "publisher_link_resolution": "feed_url",
+                        "role": "artist",
+                        "role_source": "default"
+                    },
+                    {
+                        "direction": "publisher_to_music",
+                        "remote_feed_guid": "album-guid-2",
+                        "publisher_feed_guid": "137aaa9c-75ff-4916-9f23-e02968b2d15e",
+                        "remote_feed_title": null,
+                        "remote_feed_image_url": null,
+                        "remote_release_artist": null,
+                        "remote_release_artist_source": null,
+                        "music_names_publisher": true,
+                        "publisher_lists_music": true,
+                        "publisher_link_resolution": "feed_url",
+                        "role": "artist",
+                        "role_source": "default"
+                    }
+                ]
+            },
+            "pagination": {"cursor": null, "has_more": false}
+        }"#;
+
+        /// R3-13: `PublisherRelationship` decodes each `remote_*` summary
+        /// field, and it keeps the value on a round trip.
+        #[test]
+        fn adr_0077_publisher_page_summary_fields_decode_each_stated_value() {
+            let response: DetailResponse<Feed> =
+                serde_json::from_str(RECORDED_PUBLISHER_FEED_WITH_SUMMARY_FIELDS)
+                    .expect("the recorded response should decode");
+            let entries = response
+                .data
+                .publisher
+                .expect("the response should carry publisher entries");
+            let entry = &entries[0];
+            assert_eq!(entry.remote_feed_title.as_deref(), Some("Think'n Bout Ya"));
+            assert_eq!(
+                entry.remote_feed_image_url.as_deref(),
+                Some(
+                    "https://d12wklypp119aj.cloudfront.net/image/0ea057e2-fcf3-4e1d-881e-51a87b582b92.jpg"
+                )
+            );
+            assert_eq!(
+                entry.remote_release_artist.as_deref(),
+                Some("Official DETOX Music")
+            );
+            assert_eq!(
+                entry.remote_release_artist_source.as_deref(),
+                Some("itunes_author")
+            );
+
+            let serialized = serde_json::to_value(entry).unwrap();
+            assert_eq!(serialized["remote_feed_title"], "Think'n Bout Ya");
+            assert_eq!(serialized["remote_release_artist_source"], "itunes_author");
+        }
+
+        /// R3-13/R3-14: an entry with a null summary field, and an entry
+        /// with no summary field at all, both decode to `None` in each
+        /// `remote_*` field.
+        #[test]
+        fn adr_0077_publisher_page_summary_fields_absent_or_null_decode_to_none() {
+            let response: DetailResponse<Feed> =
+                serde_json::from_str(RECORDED_PUBLISHER_FEED_WITH_SUMMARY_FIELDS)
+                    .expect("the recorded response should decode");
+            let entries = response.data.publisher.expect("entries");
+            let null_entry = &entries[1];
+            assert_eq!(null_entry.remote_feed_title, None);
+            assert_eq!(null_entry.remote_feed_image_url, None);
+            assert_eq!(null_entry.remote_release_artist, None);
+            assert_eq!(null_entry.remote_release_artist_source, None);
+
+            let feed: Feed =
+                serde_json::from_str(r#"{"publisher": [{"direction": "music_to_publisher"}]}"#)
+                    .expect("an entry with no summary field must still decode");
+            let entry = &feed.publisher.unwrap()[0];
+            assert_eq!(entry.remote_feed_title, None);
+            assert_eq!(entry.remote_feed_image_url, None);
+            assert_eq!(entry.remote_release_artist, None);
+            assert_eq!(entry.remote_release_artist_source, None);
+            let serialized = serde_json::to_value(entry).unwrap();
+            assert!(
+                serialized.get("remote_feed_title").is_none(),
+                "an absent summary field must stay out of the serialized entry"
             );
         }
     }

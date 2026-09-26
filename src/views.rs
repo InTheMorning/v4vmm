@@ -6,6 +6,10 @@ use crate::metadata::drop_placeholder_source_text;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArtistRef {
     LocalArtistName(String),
+    /// A publisher feed GUID that identifies an artist or label page (ADR
+    /// 0077 Decision 1). No code builds this value from name text or from
+    /// `publisher_text`.
+    PublisherFeed(String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

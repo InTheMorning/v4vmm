@@ -65,7 +65,16 @@ impl MetadataSource for ApiSource {
     }
 
     fn list_feeds_for_artist(&self, r: &ArtistRef) -> Result<Vec<FeedView>> {
-        let ArtistRef::LocalArtistName(name) = r;
+        let name = match r {
+            ArtistRef::LocalArtistName(name) => name,
+            // ADR 0077 Task 003: a publisher feed page has its own query
+            // and view model. `ApiSource` does not build one here.
+            ArtistRef::PublisherFeed(_) => {
+                return Err(anyhow!(
+                "ApiSource does not list feeds for a publisher feed through list_feeds_for_artist"
+            ))
+            }
+        };
         let resp = self.client.fetch_tracks_by_artist(name, None, None)?;
         let mut by_feed: std::collections::BTreeMap<String, FeedView> = Default::default();
         for t in resp.data {
@@ -123,7 +132,16 @@ fn local_feed_view(
 
 impl MetadataSource for LocalSource {
     fn fetch_artist(&self, r: &ArtistRef) -> Result<ArtistView> {
-        let ArtistRef::LocalArtistName(name) = r;
+        let name = match r {
+            ArtistRef::LocalArtistName(name) => name,
+            // ADR 0077 Task 003: a publisher feed page has its own query
+            // and view model. `LocalSource` does not build one.
+            ArtistRef::PublisherFeed(_) => {
+                return Err(anyhow!(
+                    "LocalSource does not fetch a publisher feed page through fetch_artist"
+                ))
+            }
+        };
         let conn = self.conn.lock().map_err(|e| anyhow!("conn lock: {e}"))?;
         let filtered: Vec<_> = library_service::library_tracks(&conn)?
             .into_iter()
@@ -174,7 +192,16 @@ impl MetadataSource for LocalSource {
     }
 
     fn list_feeds_for_artist(&self, r: &ArtistRef) -> Result<Vec<FeedView>> {
-        let ArtistRef::LocalArtistName(name) = r;
+        let name = match r {
+            ArtistRef::LocalArtistName(name) => name,
+            // ADR 0077 Task 003: a publisher feed page has its own query
+            // and view model. `LocalSource` does not build one.
+            ArtistRef::PublisherFeed(_) => {
+                return Err(anyhow!(
+                    "LocalSource does not list feeds for a publisher feed through list_feeds_for_artist"
+                ))
+            }
+        };
         let conn = self.conn.lock().map_err(|e| anyhow!("conn lock: {e}"))?;
         let rows = library_service::library_tracks(&conn)?;
         let mut by_feed: std::collections::BTreeMap<i64, Vec<db::TrackRow>> = Default::default();
