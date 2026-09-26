@@ -8,8 +8,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, AnyElement, App, ClickEvent, Context, Entity, FontWeight, InteractiveElement,
-    ParentElement, Pixels, Point, Render, SharedString, Styled, Window,
+    div, prelude::*, AnyElement, App, ClickEvent, ClipboardItem, Context, Entity, FontWeight,
+    InteractiveElement, ParentElement, Pixels, Point, Render, SharedString, Styled, Window,
 };
 use gpui_component::input::{Input, InputState};
 use gpui_component::Size;
@@ -311,32 +311,10 @@ fn render_rss_check_report(
         .differences
         .into_iter()
         .map(|row| render_rss_difference_row(row, on_download_added_track.cloned(), cx));
-    let podping_links = report.podping_links.into_iter().map(|link| {
-        let url = link.url;
-        div()
-            .id(SharedString::from(link.id.clone()))
-            .flex()
-            .flex_col()
-            .gap(spacing::XXS)
-            .child(
-                div()
-                    .text_size(row_text)
-                    .text_color(color::text_primary())
-                    .child(link.text),
-            )
-            .child(
-                UiButton::styled(
-                    SharedString::from(format!("{}-open", link.id)),
-                    ControlStyle::Ghost,
-                )
-                .label(link.label)
-                .a11y_label(link.a11y_label.clone())
-                .tooltip(link.a11y_label)
-                .on_click(move |_, _, _| {
-                    let _ = open::that(url);
-                }),
-            )
-    });
+    let podping_links = report
+        .podping_links
+        .into_iter()
+        .map(|link| render_podping_link(link, row_text));
     div()
         .id(SharedString::from(report.id))
         .flex()
@@ -383,6 +361,63 @@ fn render_rss_check_report(
         .children(differences)
         .children(podping_links)
         .into_any_element()
+}
+
+/// The podping.me link of one stale feed, with the "Copy feed URL" action
+/// adjacent to it (ADR 0076 Decision 4 and packet 005).
+fn render_podping_link(
+    link: crate::view_models::playlist_rss_check::PodpingLinkDisplay,
+    row_text: Pixels,
+) -> impl IntoElement {
+    let url = link.url;
+    let copy = link.copy_feed_url;
+    // ADR 0076 packet 005: the view model gives the text, the label,
+    // the accessibility label and the availability. The click puts the
+    // feed URL on the clipboard through GPUI.
+    let copy_target = copy.enabled.then_some(copy.feed_url).flatten();
+    let copy_button = UiButton::styled(SharedString::from(copy.button_id), ControlStyle::Ghost)
+        .label(copy.label)
+        .a11y_label(copy.a11y_label.clone())
+        .tooltip(copy.a11y_label)
+        .disabled(!copy.enabled);
+    let copy_button = match copy_target {
+        Some(feed_url) => copy_button.on_click(move |_, _, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string(feed_url.clone()));
+        }),
+        None => copy_button,
+    };
+    div()
+        .id(SharedString::from(link.id.clone()))
+        .flex()
+        .flex_col()
+        .gap(spacing::XXS)
+        .child(
+            div()
+                .text_size(row_text)
+                .text_color(color::text_primary())
+                .child(link.text),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .items_center()
+                .gap(spacing::SM)
+                .child(
+                    UiButton::styled(
+                        SharedString::from(format!("{}-open", link.id)),
+                        ControlStyle::Ghost,
+                    )
+                    .label(link.label)
+                    .a11y_label(link.a11y_label.clone())
+                    .tooltip(link.a11y_label)
+                    .on_click(move |_, _, _| {
+                        let _ = open::that(url);
+                    }),
+                )
+                .child(copy_button),
+        )
 }
 
 /// One applied difference: the subject, the field, the change in words and

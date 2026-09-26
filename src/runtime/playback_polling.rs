@@ -44,6 +44,10 @@ pub enum PlaybackTickOutcome {
     Idle,
     /// Now-playing state advanced or reconciled and status should clear.
     Advanced,
+    /// The playback session changed to the state `stopped`. The screen
+    /// refreshes Show and requests one tag update scan (ADR 0076 packet
+    /// 005). The next tick of the same stopped session is `Idle`.
+    SessionStopped,
     /// Polling failed; the screen should show the playback error.
     Error(String),
 }
@@ -137,6 +141,7 @@ where
         Ok(PollOutcome::Reconciled(Some(_)) | PollOutcome::Advanced(_)) => {
             PlaybackTickOutcome::Advanced
         }
+        Ok(PollOutcome::Stopped) => PlaybackTickOutcome::SessionStopped,
         Err(error) => PlaybackTickOutcome::Error(format!("{error:#}")),
     }
 }
@@ -240,6 +245,55 @@ mod tests {
                 .as_deref(),
             Some(Path::new("/tmp/track.mp3"))
         );
+        Ok(())
+    }
+
+    /// R5-04: a session change to `stopped` gives one `SessionStopped`
+    /// tick. `TopApp` requests one tag update scan for that tick.
+    #[tokio::test]
+    async fn adr_0076_follow_up_session_stop_starts_one_tag_scan() -> Result<()> {
+        let conn = Arc::new(Mutex::new(setup_test_db()?));
+        {
+            let conn = conn.lock().expect("lock db");
+            let track_id = create_downloaded_track(&conn)?;
+            playback::set_track(&conn, track_id, playback::DEFAULT_SESSION_ID)?;
+        }
+        let playback_owner = Arc::new(Mutex::new(PlaybackOwner::new(
+            NullDriver::new(),
+            playback::DEFAULT_SESSION_ID,
+            PathBuf::from("/"),
+        )));
+        let first = poll_playback_owner(Arc::clone(&playback_owner), Arc::clone(&conn)).await;
+        assert_eq!(first, PlaybackTickOutcome::Advanced);
+
+        // Another process, such as the CLI, stops the session.
+        playback::stop(&conn.lock().expect("lock db"), playback::DEFAULT_SESSION_ID)?;
+        let mut outcomes = Vec::new();
+        for _ in 0..3 {
+            outcomes
+                .push(poll_playback_owner(Arc::clone(&playback_owner), Arc::clone(&conn)).await);
+        }
+        assert_eq!(
+            outcomes,
+            [
+                PlaybackTickOutcome::SessionStopped,
+                PlaybackTickOutcome::Idle,
+                PlaybackTickOutcome::Idle
+            ]
+        );
+
+        // `TopApp` maps `SessionStopped` to one scan request. No GPUI test
+        // drives `TopApp`, so the test reads the reducer arm.
+        let app = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/app.rs"),
+        )?;
+        let arm = app
+            .split("PlaybackTickOutcome::SessionStopped =>")
+            .nth(1)
+            .and_then(|rest| rest.split("PlaybackTickOutcome::").next())
+            .expect("apply_playback_tick has a SessionStopped arm");
+        assert_eq!(arm.matches("scan_tag_updates()").count(), 1, "{arm}");
+        assert_eq!(app.matches("scan_tag_updates()").count(), 1);
         Ok(())
     }
 

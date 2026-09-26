@@ -9,14 +9,19 @@
 //! the feed, the track, the field, the old value, the new value and the
 //! check time. Each stale feed gets a podping.me link. The app sends no
 //! podping.
+//!
+//! ADR 0076 packet 005 adds a "Copy feed URL" action beside each podping.me
+//! link, and it names the requested wait of each host that the check
+//! stopped after a `Retry-After` value.
 
 #![warn(clippy::pedantic)]
 
 use serde_json::Value;
 
 use crate::runtime::{
-    DifferenceKind, PlaylistRssCheckSnapshot, PlaylistRssRun, RssCheckRunState, RssCheckTrigger,
-    RssFeedCheck, RssFeedOutcome, RssField, StoredDifference,
+    wait_seconds, DifferenceKind, HostStopReason, PlaylistRssCheckSnapshot, PlaylistRssRun,
+    RssCheckRunState, RssCheckTrigger, RssFeedCheck, RssFeedOutcome, RssField, StoppedHost,
+    StoredDifference,
 };
 
 /// The podping.me page. ADR 0075 Decision I and ADR 0076 Decision 4 direct
@@ -150,6 +155,27 @@ pub(crate) struct PlaylistRssDifferenceRowDisplay {
     pub(crate) download: Option<AddedTrackDownloadDisplay>,
 }
 
+/// Typed availability of the "Copy feed URL" action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CopyFeedUrlAvailability {
+    Available,
+    /// The stored difference has no feed URL.
+    NoFeedUrl,
+}
+
+/// The "Copy feed URL" action beside the podping.me link of a stale feed
+/// (ADR 0076 packet 005). The renderer puts `feed_url` on the clipboard.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CopyFeedUrlDisplay {
+    pub(crate) button_id: String,
+    pub(crate) label: &'static str,
+    pub(crate) a11y_label: String,
+    pub(crate) availability: CopyFeedUrlAvailability,
+    pub(crate) enabled: bool,
+    /// The text that the action puts on the clipboard.
+    pub(crate) feed_url: Option<String>,
+}
+
 /// The podping.me link of one stale feed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PodpingLinkDisplay {
@@ -159,6 +185,7 @@ pub(crate) struct PodpingLinkDisplay {
     pub(crate) label: &'static str,
     pub(crate) a11y_label: String,
     pub(crate) url: &'static str,
+    pub(crate) copy_feed_url: CopyFeedUrlDisplay,
 }
 
 /// The report of the latest check of a playlist.
@@ -198,13 +225,7 @@ pub(crate) fn report(
             .iter()
             .map(|feed| row(playlist_id, feed))
             .collect(),
-        stopped_hosts: run
-            .stopped_hosts
-            .iter()
-            .map(|host| {
-                format!("The check stopped requests to {host} after HTTP 429 (Too Many Requests).")
-            })
-            .collect(),
+        stopped_hosts: run.stopped_hosts.iter().map(stopped_host).collect(),
         error: run.error.clone(),
         differences_summary: differences_summary(run),
         differences: run
@@ -347,6 +368,28 @@ pub(crate) fn remove_from_all_playlists_confirmation(
     }
 }
 
+/// One sentence for a host that the check stopped. It names the host and
+/// the requested wait when the response gave one.
+fn stopped_host(stopped: &StoppedHost) -> String {
+    let host = &stopped.host;
+    match stopped.reason {
+        HostStopReason::TooManyRequests {
+            requested_wait: None,
+        } => format!("The check stopped requests to {host} after HTTP 429 (Too Many Requests)."),
+        HostStopReason::TooManyRequests {
+            requested_wait: Some(wait),
+        } => format!(
+            "The check stopped requests to {host} after HTTP 429 (Too Many Requests). {host} requested a wait of {} seconds.",
+            wait_seconds(wait)
+        ),
+        HostStopReason::RetryAfterLimit { requested_wait } => format!(
+            "The check stopped requests to {host}. {host} requested a wait of {} seconds (Retry-After), and the limit is {} seconds.",
+            wait_seconds(requested_wait),
+            crate::runtime::playlist_rss_check::MAX_RETRY_AFTER.as_secs()
+        ),
+    }
+}
+
 fn differences_summary(run: &PlaylistRssRun) -> Option<String> {
     if run.differences.is_empty() {
         return None;
@@ -390,6 +433,35 @@ fn podping_links(playlist_id: i64, run: &PlaylistRssRun) -> Vec<PodpingLinkDispl
                 .feed_url
                 .clone()
                 .unwrap_or_else(|| "the feed address".to_owned());
+            let feed_url = difference
+                .feed_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|url| !url.is_empty())
+                .map(str::to_owned);
+            let availability = if feed_url.is_some() {
+                CopyFeedUrlAvailability::Available
+            } else {
+                CopyFeedUrlAvailability::NoFeedUrl
+            };
+            let copy_feed_url = CopyFeedUrlDisplay {
+                button_id: format!(
+                    "playlist-rss-check-{playlist_id}-copy-feed-url-{}",
+                    difference.feed_id
+                ),
+                label: "Copy feed URL",
+                a11y_label: match availability {
+                    CopyFeedUrlAvailability::Available => {
+                        format!("Copy the feed URL of {feed} to the clipboard")
+                    }
+                    CopyFeedUrlAvailability::NoFeedUrl => {
+                        format!("The app has no feed URL for {feed}, so it cannot copy it")
+                    }
+                },
+                availability,
+                enabled: availability == CopyFeedUrlAvailability::Available,
+                feed_url,
+            };
             PodpingLinkDisplay {
                 id: format!(
                     "playlist-rss-check-{playlist_id}-podping-{}",
@@ -402,6 +474,7 @@ fn podping_links(playlist_id: i64, run: &PlaylistRssRun) -> Vec<PodpingLinkDispl
                 label: "Open podping.me",
                 a11y_label: format!("Open podping.me in the browser for {feed}"),
                 url: PODPING_URL,
+                copy_feed_url,
             }
         })
         .collect()
@@ -678,6 +751,15 @@ fn counts(run: &PlaylistRssRun) -> String {
     )
 }
 
+/// Add the stored message of a received response to its row text. The
+/// message names a `Retry-After` stop or a comparison failure.
+fn with_message(result: String, message: Option<&str>) -> String {
+    match message.map(str::trim).filter(|message| !message.is_empty()) {
+        Some(message) => format!("{result} {message}"),
+        None => result,
+    }
+}
+
 fn row(playlist_id: i64, feed: &RssFeedCheck) -> PlaylistRssFeedRowDisplay {
     let name = feed
         .title
@@ -698,11 +780,17 @@ fn row(playlist_id: i64, feed: &RssFeedCheck) -> PlaylistRssFeedRowDisplay {
         ),
         Some(RssFeedOutcome::Document) => (
             PlaylistRssFeedRowRole::Document,
-            format!("{host} sent the RSS document. The app recorded it.{status}"),
+            with_message(
+                format!("{host} sent the RSS document. The app recorded it.{status}"),
+                feed.message.as_deref(),
+            ),
         ),
         Some(RssFeedOutcome::NotModified) => (
             PlaylistRssFeedRowRole::NotModified,
-            format!("{host} reported no change since the last check.{status}"),
+            with_message(
+                format!("{host} reported no change since the last check.{status}"),
+                feed.message.as_deref(),
+            ),
         ),
         Some(RssFeedOutcome::Failed) => (
             PlaylistRssFeedRowRole::Failed,
@@ -899,6 +987,101 @@ mod tests {
         assert_eq!(
             display.confirm_a11y_label,
             "Remove Gone Song from 2 playlists"
+        );
+    }
+
+    /// R5-03: the report exposes "Copy feed URL" for each stale feed, with
+    /// typed availability and an accessibility label. The action carries
+    /// the feed URL.
+    #[test]
+    fn adr_0076_follow_up_report_exposes_copy_feed_url_for_each_stale_feed() {
+        use crate::runtime::playlist_rss_check::test_support::snapshot_with_differences;
+        let difference = |id: i64, feed_id: i64, feed_url: Option<&str>| StoredDifference {
+            id,
+            run_id: 1,
+            feed_id,
+            feed_title: Some(format!("Album {feed_id}")),
+            feed_url: feed_url.map(str::to_owned),
+            track_id: None,
+            track_title: None,
+            field: RssField::Title,
+            kind: DifferenceKind::Changed,
+            old_value: Some(Value::from("Old")),
+            new_value: Some(Value::from("New")),
+            recorded_at_us: 1_790_000_000_000_000,
+        };
+        let snapshot = snapshot_with_differences(
+            3,
+            vec![
+                difference(1, 7, Some("https://feed.test/seven.xml")),
+                difference(2, 7, Some("https://feed.test/seven.xml")),
+                difference(3, 8, Some("https://feed.test/eight.xml")),
+                difference(4, 9, None),
+            ],
+            &[],
+        );
+        let display = report(3, Some(&snapshot)).unwrap();
+        assert_eq!(display.podping_links.len(), 3);
+        let seven = &display.podping_links[0].copy_feed_url;
+        assert_eq!(seven.label, "Copy feed URL");
+        assert_eq!(seven.availability, CopyFeedUrlAvailability::Available);
+        assert!(seven.enabled);
+        assert_eq!(
+            seven.feed_url.as_deref(),
+            Some("https://feed.test/seven.xml")
+        );
+        assert_eq!(
+            seven.a11y_label,
+            "Copy the feed URL of Album 7 to the clipboard"
+        );
+        let eight = &display.podping_links[1].copy_feed_url;
+        assert_eq!(
+            eight.feed_url.as_deref(),
+            Some("https://feed.test/eight.xml")
+        );
+        assert_ne!(seven.button_id, eight.button_id);
+        let missing = &display.podping_links[2].copy_feed_url;
+        assert_eq!(missing.availability, CopyFeedUrlAvailability::NoFeedUrl);
+        assert!(!missing.enabled);
+        assert_eq!(missing.feed_url, None);
+        assert!(!missing.a11y_label.is_empty());
+        assert_eq!(display.podping_links[0].url, PODPING_URL);
+    }
+
+    /// R5-02, report side: the report names the stopped host and the
+    /// requested wait.
+    #[test]
+    fn adr_0076_follow_up_report_names_host_and_requested_wait() {
+        use crate::runtime::playlist_rss_check::test_support::snapshot_with_stopped_host;
+        use crate::runtime::StoppedHost;
+        use std::time::Duration;
+        let snapshot = snapshot_with_stopped_host(
+            3,
+            StoppedHost {
+                host: "limited.test".to_owned(),
+                reason: HostStopReason::RetryAfterLimit {
+                    requested_wait: Duration::from_secs(61),
+                },
+            },
+        );
+        let limited = report(3, Some(&snapshot)).unwrap();
+        assert_eq!(
+            limited.stopped_hosts,
+            ["The check stopped requests to limited.test. limited.test requested a wait of 61 seconds (Retry-After), and the limit is 60 seconds."]
+        );
+        let snapshot = snapshot_with_stopped_host(
+            3,
+            StoppedHost {
+                host: "busy.test".to_owned(),
+                reason: HostStopReason::TooManyRequests {
+                    requested_wait: Some(Duration::from_millis(300_500)),
+                },
+            },
+        );
+        let busy = report(3, Some(&snapshot)).unwrap();
+        assert_eq!(
+            busy.stopped_hosts,
+            ["The check stopped requests to busy.test after HTTP 429 (Too Many Requests). busy.test requested a wait of 301 seconds."]
         );
     }
 }

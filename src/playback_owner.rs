@@ -18,6 +18,11 @@ pub enum PollOutcome {
     NoSession,
     Reconciled(Option<playback::NowPlayingUpdate>),
     Advanced(playback::NowPlayingUpdate),
+    /// The session changed to the state `stopped` after the owner loaded
+    /// its track. The owner stopped the driver. A later poll of the same
+    /// stopped session gives `Reconciled(None)`. ADR 0076 packet 005 starts
+    /// the tag update scan on this outcome.
+    Stopped,
 }
 
 #[derive(Debug)]
@@ -242,11 +247,16 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
             return Ok(PollOutcome::NoSession);
         };
         if session.state == "stopped" {
-            if self.loaded_track_id.take().is_some() {
+            let was_loaded = self.loaded_track_id.take().is_some();
+            if was_loaded {
                 self.driver.stop()?;
             }
             self.clear_drop_file()?;
-            return Ok(PollOutcome::Reconciled(None));
+            return Ok(if was_loaded {
+                PollOutcome::Stopped
+            } else {
+                PollOutcome::Reconciled(None)
+            });
         }
         if self.loaded_track_id != Some(session.local_track_id) {
             let identity = track_identity::local_track_identity(conn, session.local_track_id)?;
@@ -684,8 +694,9 @@ mod tests {
 
         let outcome = owner.poll(&conn)?;
 
-        assert!(matches!(outcome, PollOutcome::Reconciled(None)));
+        assert!(matches!(outcome, PollOutcome::Stopped));
         assert!(owner.driver().snapshot().stopped);
+        assert!(matches!(owner.poll(&conn)?, PollOutcome::Reconciled(None)));
         Ok(())
     }
 }

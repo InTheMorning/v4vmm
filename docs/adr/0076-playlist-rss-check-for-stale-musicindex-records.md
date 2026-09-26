@@ -3,8 +3,10 @@
 ## Status
 
 Accepted - 2026-09-24. The operator gave each decision below on 2026-09-23 and accepted this ADR on 2026-09-24.
-Implementation partial: packets 001 to 004 and ADR 0075 packet 020 are implemented on 2026-09-24 with mechanical checks Green. Their visual gates are open and paused.
+Implementation partial: packets 001 to 006 and ADR 0075 packet 020 are implemented on 2026-09-24 and 2026-09-25 with mechanical checks Green. Their visual gates are open and paused.
 The operator reviewed each decision on 2026-09-24. The review changed Decisions 3, 5 and 7.
+
+Amended 2026-09-25: the operator limited the `Retry-After` wait to 60 seconds. This tightens Decision 2. "Accepted Values" records the limit.
 "Accepted Values" records the three numeric values that the operator accepted on 2026-09-24.
 
 ## Context
@@ -143,6 +145,7 @@ The operator accepted each value below on 2026-09-24.
 | Minimum interval between requests to one host | 2 seconds, the same as the Stophammer Wavlake import |
 | Parallel hosts | At most four hosts at the same time |
 | Stored validators | The app stores the `ETag` and `Last-Modified` values of each feed with its RSS observation |
+| Maximum `Retry-After` wait | 60 seconds. A longer value stops that host for the check, as HTTP `429` does. The report names the host and the requested wait. Accepted on 2026-09-25 |
 
 ## Out Of Scope
 

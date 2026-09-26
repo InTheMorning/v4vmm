@@ -343,9 +343,9 @@ fn album_thumbnail_urls(album: &AlbumNode) -> Vec<String> {
         .iter()
         .chain(
             album
-                .identity_facts
-                .contributors
+                .stored_values
                 .iter()
+                .flat_map(|values| values.credits.iter())
                 .filter_map(|contributor| contributor.image_url.as_ref()),
         )
         .chain(album.tracks.iter().filter_map(|track| {
@@ -505,6 +505,9 @@ impl LibraryApp {
 
     /// ADR 0076 Decision 7: the operator confirms that the show plays a
     /// removed track. The mounted readiness list then shows its route state.
+    /// The check actor reads the marks of each loaded playlist that holds
+    /// the track again, so the mounted playlist page updates in place
+    /// (packet 005).
     fn confirm_removed_track(&mut self, track_id: i64, cx: &mut Context<Self>) {
         let command = ConfirmRemovedTrack::new(Arc::clone(&self.conn), track_id);
         present_command(
@@ -512,14 +515,31 @@ impl LibraryApp {
             command,
             CommandContext::next(),
             cx,
-            |this, _changed, _cx| {
+            move |this, _changed, _cx| {
                 this.refresh_current_broadcast_readiness_report();
+                this.reload_playlist_rss_track_marks(track_id);
             },
             |this, error, _cx| {
                 this.vm.set_error_status(error);
                 this.refresh_current_broadcast_readiness_report();
             },
         );
+    }
+
+    /// ADR 0076 packet 005: the check actor reads the "removed from feed"
+    /// marks again for each loaded playlist with a mark for this track.
+    fn reload_playlist_rss_track_marks(&self, track_id: i64) {
+        if let Some(checker) = &self.playlist_rss_check {
+            let _ = checker.reload_track_marks(track_id);
+        }
+    }
+
+    /// ADR 0076 packet 005: the check actor reads the "removed from feed"
+    /// marks of this playlist again.
+    fn reload_playlist_rss_marks(&self, playlist_id: i64) {
+        if let Some(checker) = &self.playlist_rss_check {
+            let _ = checker.reload_playlist_marks(playlist_id);
+        }
     }
 
     pub(crate) fn show_broadcast_readiness_report(
@@ -1468,6 +1488,7 @@ impl LibraryApp {
             cx,
             move |this, (), cx| {
                 this.reload_playlists();
+                this.reload_playlist_rss_marks(playlist_id);
                 if this.vm.is_playlist_selected(playlist_id) {
                     this.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);
                 }
@@ -1532,6 +1553,7 @@ impl LibraryApp {
             cx,
             move |this, changed, cx| {
                 this.reload_playlists();
+                this.reload_playlist_rss_track_marks(track_id);
                 if let Some(playlist_id) = changed
                     .iter()
                     .copied()

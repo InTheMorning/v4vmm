@@ -758,6 +758,7 @@ impl TopApp {
             move |this, result, cx| {
                 this.settings_status = result.message().to_string();
                 this.reload_cached(cx);
+                this.scan_tags_after_search_download(cx);
                 if let Some(feed_id) =
                     this.downloaded_index_feed_id(feed_guid.as_deref(), feed_url.as_deref())
                 {
@@ -830,6 +831,7 @@ impl TopApp {
                 this.settings_status = result.message().to_string();
                 this.reload_cached(cx);
                 this.library.update(cx, LibraryApp::refresh);
+                this.scan_tags_after_search_download(cx);
             },
             |this, error, _cx| {
                 this.settings_status = format!("Error downloading track: {error:#}");
@@ -997,11 +999,20 @@ impl TopApp {
                 );
                 this.reload_cached(cx);
                 this.library.update(cx, LibraryApp::refresh);
+                this.scan_tags_after_search_download(cx);
             },
             |this, error, _cx| {
                 this.settings_status = format!("Error adding to playlist: {error:#}");
             },
         );
+    }
+
+    /// ADR 0076 packet 005: a completed download from the search results
+    /// requests one tag update scan. The scan runs in the Library runtime
+    /// actor, and the new file gets its difference count.
+    fn scan_tags_after_search_download(&mut self, cx: &mut Context<Self>) {
+        self.library
+            .update(cx, |library, _cx| library.scan_tag_updates());
     }
 }
 
@@ -1214,4 +1225,51 @@ mod remote_detail_thumbnail_tests {
 
 fn non_empty_str(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    /// R5-05: each completed search download requests one tag update scan.
+    /// No GPUI test drives `TopApp`, so the test reads the success handler
+    /// of each search download command.
+    #[test]
+    fn adr_0076_follow_up_search_download_starts_one_tag_scan() {
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/app/search_dispatch.rs"),
+        )
+        .unwrap();
+        let production = source.split("#[cfg(test)]").next().unwrap();
+        for (function, error_handler) in [
+            ("fn download_index_feed(", "|this, error, _cx|"),
+            ("fn download_index_track(", "|this, error, _cx|"),
+            (
+                "fn subscribe_then_append_to_playlist(",
+                "|this, error, _cx|",
+            ),
+        ] {
+            let body = production
+                .split(function)
+                .nth(1)
+                .and_then(|rest| rest.split("\n    fn ").next())
+                .unwrap_or_else(|| panic!("{function} exists"));
+            let success = body
+                .split("present_command(")
+                .nth(1)
+                .and_then(|rest| rest.split(error_handler).next())
+                .unwrap_or_else(|| panic!("{function} has a success handler"));
+            assert_eq!(
+                success
+                    .matches("this.scan_tags_after_search_download(cx);")
+                    .count(),
+                1,
+                "{function}"
+            );
+        }
+        let helper = production
+            .split("fn scan_tags_after_search_download(")
+            .nth(1)
+            .unwrap();
+        assert_eq!(helper.matches("scan_tag_updates()").count(), 1);
+        assert_eq!(production.matches("scan_tag_updates()").count(), 1);
+    }
 }

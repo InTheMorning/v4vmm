@@ -4,8 +4,16 @@
 //! It sends one conditional GET for each feed. It sends one request at a
 //! time to each host and waits `MIN_HOST_INTERVAL` or more after each
 //! response from that host. It runs at most `MAX_PARALLEL_HOSTS` host
-//! queues at the same time. It obeys `Retry-After`. After HTTP 429 it sends
-//! no more requests to that host during the run.
+//! queues at the same time. It obeys a `Retry-After` value of
+//! `MAX_RETRY_AFTER` (60 seconds) or less. After HTTP 429, or after a
+//! `Retry-After` value that is more than that limit, it sends no more
+//! requests to that host during the run. The run and the report name the
+//! host and the requested wait.
+//!
+//! After a readiness Confirm or a playlist removal, the Library sends
+//! `ReloadTrackMarks` or `ReloadPlaylistMarks`. The actor then reads the
+//! "removed from feed" marks of each loaded playlist again, so the mounted
+//! playlist page updates in place without a new check.
 //!
 //! Each request records one observation in the ADR 0075 store. For each
 //! received RSS document, packet 002 of ADR 0076 compares the document with
@@ -47,6 +55,11 @@ pub(crate) const MIN_HOST_INTERVAL: Duration = Duration::from_secs(2);
 /// ADR 0076 accepted value: the maximum number of hosts that the check
 /// sends requests to at the same time.
 pub(crate) const MAX_PARALLEL_HOSTS: usize = 4;
+
+/// ADR 0076 accepted value (2026-09-25): the longest `Retry-After` wait
+/// that the check obeys. A longer value stops the host for the check, as
+/// HTTP 429 does.
+pub(crate) const MAX_RETRY_AFTER: Duration = Duration::from_mins(1);
 
 const INBOX_CAPACITY: usize = 16;
 
@@ -144,6 +157,29 @@ pub enum RssCheckRunState {
     Failed,
 }
 
+/// The reason that the check stopped the requests to one host.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostStopReason {
+    /// The host sent HTTP 429. `requested_wait` is its `Retry-After`
+    /// value, when the response had one that the app can read.
+    TooManyRequests { requested_wait: Option<Duration> },
+    /// The host sent a `Retry-After` value longer than `MAX_RETRY_AFTER`.
+    RetryAfterLimit { requested_wait: Duration },
+}
+
+/// One host that the check stopped, with the reason.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoppedHost {
+    pub host: String,
+    pub reason: HostStopReason,
+}
+
+/// The requested wait in whole seconds, rounded up.
+#[must_use]
+pub fn wait_seconds(wait: Duration) -> u64 {
+    wait.as_secs() + u64::from(wait.subsec_nanos() > 0)
+}
+
 /// One run of the check for one playlist.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlaylistRssRun {
@@ -154,8 +190,10 @@ pub struct PlaylistRssRun {
     pub finished_at_us: Option<i64>,
     pub state: RssCheckRunState,
     pub feeds: Vec<RssFeedCheck>,
-    /// Each host that the check stopped after HTTP 429, in stop order.
-    pub stopped_hosts: Vec<String>,
+    /// Each host that the check stopped, in stop order. A stored run
+    /// gives only the HTTP 429 stops. Its feed result messages name each
+    /// `Retry-After` stop with the requested wait.
+    pub stopped_hosts: Vec<StoppedHost>,
     /// Each difference that the check applied, in record order (packet 002).
     pub differences: Vec<StoredDifference>,
     pub error: Option<String>,
@@ -192,12 +230,17 @@ impl PlaylistRssRun {
                 message: result.message,
             })
             .collect();
-        let mut stopped_hosts = Vec::new();
+        let mut stopped_hosts: Vec<StoppedHost> = Vec::new();
         for feed in &feeds {
             if feed.http_status == Some(429) {
                 if let Some(host) = &feed.host {
-                    if !stopped_hosts.contains(host) {
-                        stopped_hosts.push(host.clone());
+                    if !stopped_hosts.iter().any(|stopped| stopped.host == *host) {
+                        stopped_hosts.push(StoppedHost {
+                            host: host.clone(),
+                            reason: HostStopReason::TooManyRequests {
+                                requested_wait: None,
+                            },
+                        });
                     }
                 }
             }
@@ -306,6 +349,13 @@ pub enum PlaylistRssCheckMessage {
     },
     /// Read the latest stored run of a playlist into the snapshot.
     Load { playlist_id: i64 },
+    /// Read the marks again for each loaded playlist that has a mark for
+    /// this track. The Library sends it after a readiness Confirm and
+    /// after "Remove from all playlists" (ADR 0076 packet 005).
+    ReloadTrackMarks { track_id: i64 },
+    /// Read the marks of this playlist again when the snapshot holds its
+    /// marks. The Library sends it after "Remove from playlist".
+    ReloadPlaylistMarks { playlist_id: i64 },
 }
 
 /// Caller-side handle of the actor.
@@ -332,6 +382,24 @@ impl PlaylistRssCheckHandle {
     pub fn load(&self, playlist_id: i64) -> bool {
         self.inbox
             .try_send(PlaylistRssCheckMessage::Load { playlist_id })
+            .is_ok()
+    }
+
+    /// Send `ReloadTrackMarks`. Returns `false` when the actor stopped or
+    /// its inbox is full.
+    #[must_use]
+    pub fn reload_track_marks(&self, track_id: i64) -> bool {
+        self.inbox
+            .try_send(PlaylistRssCheckMessage::ReloadTrackMarks { track_id })
+            .is_ok()
+    }
+
+    /// Send `ReloadPlaylistMarks`. Returns `false` when the actor stopped
+    /// or its inbox is full.
+    #[must_use]
+    pub fn reload_playlist_marks(&self, playlist_id: i64) -> bool {
+        self.inbox
+            .try_send(PlaylistRssCheckMessage::ReloadPlaylistMarks { playlist_id })
             .is_ok()
     }
 
@@ -494,7 +562,63 @@ fn handle_message(
                 }
             });
         }
+        PlaylistRssCheckMessage::ReloadTrackMarks { track_id } => {
+            let playlist_ids: Vec<i64> = context
+                .snapshot
+                .borrow()
+                .removed_marks
+                .iter()
+                .filter(|(_, marks)| marks.contains_key(&track_id))
+                .map(|(playlist_id, _)| *playlist_id)
+                .collect();
+            reload_marks(context, playlist_ids, runs);
+        }
+        PlaylistRssCheckMessage::ReloadPlaylistMarks { playlist_id } => {
+            let loaded = context
+                .snapshot
+                .borrow()
+                .removed_marks
+                .contains_key(&playlist_id);
+            if loaded {
+                reload_marks(context, vec![playlist_id], runs);
+            }
+        }
     }
+}
+
+/// Read the "removed from feed" marks of each playlist again, and replace
+/// them in the snapshot. This sends no request.
+fn reload_marks(context: &CheckContext, playlist_ids: Vec<i64>, runs: &mut JoinSet<()>) {
+    if playlist_ids.is_empty() {
+        return;
+    }
+    let context = context.clone();
+    runs.spawn(async move {
+        let conn = Arc::clone(&context.conn);
+        let reloaded = blocking(move || {
+            let conn = lock(&conn)?;
+            playlist_ids
+                .into_iter()
+                .map(|playlist_id| {
+                    crate::db::rss_field_holds::playlist_removed_marks(&conn, playlist_id)
+                        .map(|marks| (playlist_id, marks))
+                        .map_err(|error| format!("{error:#}"))
+                })
+                .collect::<Result<Vec<_>, String>>()
+        })
+        .await;
+        // A failed read keeps the earlier marks. The next check or the
+        // next app start reads them again.
+        if let Ok(reloaded) = reloaded {
+            context.snapshot.send_modify(|snapshot| {
+                for (playlist_id, marks) in reloaded {
+                    snapshot
+                        .removed_marks
+                        .insert(playlist_id, marks.into_iter().collect());
+                }
+            });
+        }
+    });
 }
 
 async fn blocking<T: Send + 'static>(
@@ -625,17 +749,16 @@ async fn host_queue(
         return;
     };
     let mut next_request_at: Option<Duration> = None;
-    let mut stopped = false;
+    // The text of each remaining feed after the check stopped this host.
+    let mut stopped: Option<String> = None;
     for feed in feeds {
-        if stopped {
+        if let Some(message) = &stopped {
             record(
                 &context,
                 playlist_id,
                 run_id,
                 feed.feed_id,
-                FeedFetch::not_checked(format!(
-                    "Not checked. {host} sent HTTP 429 (Too Many Requests) earlier in this check. The check sent no more requests to {host}."
-                )),
+                FeedFetch::not_checked(message.clone()),
             )
             .await;
             continue;
@@ -671,20 +794,82 @@ async fn host_queue(
         })
         .await
         .unwrap_or_else(|error| FeedFetch::failed(None, None, error));
+        let mut fetch = fetch;
         let answered_at = context.clock.now();
         next_request_at =
             Some(answered_at + fetch.retry_after.unwrap_or_default().max(MIN_HOST_INTERVAL));
-        if fetch.http_status == Some(429) {
-            stopped = true;
-            let stopped_host = host.clone();
+        if let Some(stop) = host_stop(&host, &fetch) {
+            if let Some(note) = stop.response_note {
+                fetch.message = Some(match fetch.message.take() {
+                    Some(message) => format!("{message} {note}"),
+                    None => note,
+                });
+            }
+            stopped = Some(stop.remaining_message);
+            let stopped_host = StoppedHost {
+                host: host.clone(),
+                reason: stop.reason,
+            };
             context.update_run(playlist_id, |run| {
-                if !run.stopped_hosts.contains(&stopped_host) {
+                if !run
+                    .stopped_hosts
+                    .iter()
+                    .any(|stopped| stopped.host == stopped_host.host)
+                {
                     run.stopped_hosts.push(stopped_host);
                 }
             });
         }
         record(&context, playlist_id, run_id, feed.feed_id, fetch).await;
     }
+}
+
+/// The stop of one host after a response.
+struct HostStop {
+    reason: HostStopReason,
+    /// A sentence for the stored message of the response that stopped the
+    /// host, when the existing message does not name the stop.
+    response_note: Option<String>,
+    /// The stored message of each remaining feed of the host.
+    remaining_message: String,
+}
+
+/// Decide whether the response stops the host: HTTP 429, or a
+/// `Retry-After` value longer than `MAX_RETRY_AFTER` (ADR 0076 Decision 2).
+fn host_stop(host: &str, fetch: &FeedFetch) -> Option<HostStop> {
+    if fetch.http_status == Some(429) {
+        let requested = fetch.retry_after.map_or_else(String::new, |wait| {
+            format!(
+                " {host} requested a wait of {} seconds.",
+                wait_seconds(wait)
+            )
+        });
+        return Some(HostStop {
+            reason: HostStopReason::TooManyRequests {
+                requested_wait: fetch.retry_after,
+            },
+            response_note: fetch.retry_after.map(|wait| {
+                format!("{host} requested a wait of {} seconds.", wait_seconds(wait))
+            }),
+            remaining_message: format!(
+                "Not checked. {host} sent HTTP 429 (Too Many Requests) earlier in this check.{requested} The check sent no more requests to {host}."
+            ),
+        });
+    }
+    let wait = fetch.retry_after.filter(|wait| *wait > MAX_RETRY_AFTER)?;
+    let seconds = wait_seconds(wait);
+    let limit = MAX_RETRY_AFTER.as_secs();
+    Some(HostStop {
+        reason: HostStopReason::RetryAfterLimit {
+            requested_wait: wait,
+        },
+        response_note: Some(format!(
+            "{host} requested a wait of {seconds} seconds (Retry-After). The limit is {limit} seconds, so the check sent no more requests to {host}."
+        )),
+        remaining_message: format!(
+            "Not checked. {host} requested a wait of {seconds} seconds (Retry-After) earlier in this check. The limit is {limit} seconds, so the check sent no more requests to {host}."
+        ),
+    })
 }
 
 /// The result of one feed request.
@@ -998,6 +1183,18 @@ pub(crate) mod test_support {
         snapshot
             .removed_marks
             .insert(playlist_id, marks.iter().copied().collect());
+        snapshot
+    }
+
+    /// A finished run of the playlist that stopped one host (packet 005).
+    pub(crate) fn snapshot_with_stopped_host(
+        playlist_id: i64,
+        stopped: StoppedHost,
+    ) -> PlaylistRssCheckSnapshot {
+        let mut snapshot = snapshot_with_differences(playlist_id, Vec::new(), &[]);
+        if let Some(run) = snapshot.runs.get_mut(&playlist_id) {
+            run.stopped_hosts.push(stopped);
+        }
         snapshot
     }
 
@@ -1392,7 +1589,15 @@ mod tests {
             1
         );
         assert_eq!(url_count(&sent, other), 1);
-        assert_eq!(run.stopped_hosts, ["limited.test"]);
+        assert_eq!(
+            run.stopped_hosts,
+            [StoppedHost {
+                host: "limited.test".to_owned(),
+                reason: HostStopReason::TooManyRequests {
+                    requested_wait: Some(Duration::from_secs(300)),
+                },
+            }]
+        );
         let outcome = |feed_id: i64| {
             run.feeds
                 .iter()
@@ -1795,5 +2000,231 @@ mod tests {
         )
         .occurrence;
         assert_eq!(retry_after(&occurrence), Some(Duration::ZERO));
+    }
+
+    /// R5-01: `Retry-After: 60` is at the limit. It delays the next request
+    /// to that host by 60 seconds on the injected clock.
+    #[tokio::test(flavor = "current_thread")]
+    async fn adr_0076_follow_up_retry_after_60_delays_the_next_request() {
+        let first = "https://slow.test/r501/one.xml";
+        let second = "https://slow.test/r501/two.xml";
+        let (conn, playlist_id, _) = database(&[(first, 1), (second, 1)]);
+        let clock = FakeClock::new();
+        let fetcher = FakeFetcher::new(Arc::clone(&clock), move |url| {
+            if url == first {
+                response(url, 200, &[("retry-after", "60")], Some(RSS))
+            } else {
+                ok(url)
+            }
+        });
+        let session = SessionLifecycle::new();
+        let handle = start(&conn, &fetcher, &clock, &session);
+        assert!(handle.start(playlist_id, RssCheckTrigger::Button));
+        let run = finished(&handle, playlist_id).await;
+        let sent = fetcher.sent();
+        assert_eq!(sent.len(), 2);
+        assert_eq!(sent[1].url, second);
+        assert_eq!(sent[1].at - sent[0].at, Duration::from_secs(60));
+        assert_eq!(MAX_RETRY_AFTER, Duration::from_secs(60));
+        assert!(run.stopped_hosts.is_empty());
+        assert_eq!(run.count(RssFeedOutcome::Document), 2);
+    }
+
+    /// R5-02: `Retry-After: 61` stops the host. Each remaining feed of the
+    /// host is `not_checked`. The run and the stored results name the host
+    /// and the requested wait.
+    #[tokio::test(flavor = "current_thread")]
+    async fn adr_0076_follow_up_retry_after_61_stops_the_host() {
+        let limited = [
+            "https://limited.test/r502/one.xml",
+            "https://limited.test/r502/two.xml",
+            "https://limited.test/r502/three.xml",
+        ];
+        let other = "https://other.test/r502/feed.xml";
+        let (conn, playlist_id, feed_ids) = database(&[
+            (limited[0], 1),
+            (limited[1], 1),
+            (limited[2], 1),
+            (other, 1),
+        ]);
+        let clock = FakeClock::new();
+        let fetcher = FakeFetcher::new(Arc::clone(&clock), |url| {
+            if url.contains("limited.test") {
+                response(url, 200, &[("retry-after", "61")], Some(RSS))
+            } else {
+                ok(url)
+            }
+        });
+        let session = SessionLifecycle::new();
+        let handle = start(&conn, &fetcher, &clock, &session);
+        assert!(handle.start(playlist_id, RssCheckTrigger::Button));
+        let run = finished(&handle, playlist_id).await;
+        let sent = fetcher.sent();
+        assert_eq!(
+            sent.iter()
+                .filter(|request| request.url.contains("limited.test"))
+                .count(),
+            1
+        );
+        assert_eq!(url_count(&sent, other), 1);
+        assert_eq!(
+            run.stopped_hosts,
+            [StoppedHost {
+                host: "limited.test".to_owned(),
+                reason: HostStopReason::RetryAfterLimit {
+                    requested_wait: Duration::from_secs(61),
+                },
+            }]
+        );
+        let feed = |feed_id: i64| {
+            run.feeds
+                .iter()
+                .find(|feed| feed.feed_id == feed_id)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(feed(feed_ids[0]).outcome, Some(RssFeedOutcome::Document));
+        assert_eq!(feed(feed_ids[1]).outcome, Some(RssFeedOutcome::NotChecked));
+        assert_eq!(feed(feed_ids[2]).outcome, Some(RssFeedOutcome::NotChecked));
+        assert_eq!(feed(feed_ids[3]).outcome, Some(RssFeedOutcome::Document));
+
+        let stored = store::latest_run(&conn.lock().unwrap(), playlist_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.not_checked_count, 2);
+        for feed_id in &feed_ids[..3] {
+            let message = stored
+                .results
+                .iter()
+                .find(|result| result.feed_id == *feed_id)
+                .and_then(|result| result.message.clone())
+                .unwrap();
+            assert!(message.contains("limited.test"), "{message}");
+            assert!(message.contains("61 seconds"), "{message}");
+        }
+        let other_message = stored
+            .results
+            .iter()
+            .find(|result| result.feed_id == feed_ids[3])
+            .and_then(|result| result.message.clone());
+        assert_eq!(other_message, None);
+    }
+
+    /// Two playlists hold one track with a "removed from feed" mark. The
+    /// actor has loaded the marks of both.
+    async fn two_playlists_with_a_marked_track(
+        url: &str,
+    ) -> (
+        Arc<Mutex<Connection>>,
+        PlaylistRssCheckHandle,
+        Arc<FakeFetcher>,
+        SessionLifecycle,
+        [i64; 2],
+        i64,
+    ) {
+        let (conn, first, _) = database(&[(url, 2)]);
+        let (second, track_id) = {
+            let conn = conn.lock().unwrap();
+            let track_id: i64 = conn
+                .query_row("SELECT min(id) FROM tracks", [], |row| row.get(0))
+                .unwrap();
+            conn.execute(
+                "UPDATE tracks SET removed_from_feed_at = ?2 WHERE id = ?1",
+                rusqlite::params![track_id, 1_790_000_000_000_000_i64],
+            )
+            .unwrap();
+            let second = crate::db::playlist_create(&conn, "Warm Up").unwrap();
+            crate::db::playlist_append(&conn, second, track_id).unwrap();
+            (second, track_id)
+        };
+        let clock = FakeClock::new();
+        let fetcher = FakeFetcher::new(Arc::clone(&clock), ok);
+        let session = SessionLifecycle::new();
+        let handle = start(&conn, &fetcher, &clock, &session);
+        assert!(handle.load(first));
+        assert!(handle.load(second));
+        wait_for(&handle, |snapshot| {
+            snapshot.removed_mark(first, track_id).is_some()
+                && snapshot.removed_mark(second, track_id).is_some()
+        })
+        .await;
+        (conn, handle, fetcher, session, [first, second], track_id)
+    }
+
+    async fn wait_for(
+        handle: &PlaylistRssCheckHandle,
+        condition: impl Fn(&PlaylistRssCheckSnapshot) -> bool,
+    ) {
+        let mut receiver = handle.subscribe();
+        loop {
+            if condition(&receiver.borrow()) {
+                return;
+            }
+            tokio::time::timeout(Duration::from_secs(10), receiver.changed())
+                .await
+                .expect("the snapshot reaches the expected state")
+                .expect("the actor keeps its snapshot channel");
+        }
+    }
+
+    /// R5-06: after a Confirm, the snapshot of each playlist that holds the
+    /// track has no removed mark for it. The actor sends no request.
+    #[tokio::test(flavor = "current_thread")]
+    async fn adr_0076_follow_up_confirm_reloads_the_marks_of_each_playlist() {
+        let (conn, handle, fetcher, _session, playlists, track_id) =
+            two_playlists_with_a_marked_track("https://a.test/r506/feed.xml").await;
+        assert!(crate::db::rss_field_holds::confirm_removed_track(
+            &conn.lock().unwrap(),
+            track_id,
+            1_790_000_100_000_000,
+        )
+        .unwrap());
+        assert!(handle.reload_track_marks(track_id));
+        wait_for(&handle, |snapshot| {
+            playlists
+                .iter()
+                .all(|playlist_id| snapshot.removed_mark(*playlist_id, track_id).is_none())
+        })
+        .await;
+        assert!(fetcher.sent().is_empty());
+        for playlist_id in playlists {
+            assert!(handle.latest().run(playlist_id).is_none());
+        }
+    }
+
+    /// R5-07: after "Remove from all playlists", no playlist snapshot holds
+    /// the track.
+    #[tokio::test(flavor = "current_thread")]
+    async fn adr_0076_follow_up_remove_from_all_playlists_reloads_the_marks() {
+        let (conn, handle, fetcher, _session, playlists, track_id) =
+            two_playlists_with_a_marked_track("https://a.test/r507/feed.xml").await;
+        let changed =
+            crate::db::playlist_remove_track_everywhere(&mut conn.lock().unwrap(), track_id)
+                .unwrap();
+        assert_eq!(changed.len(), 2);
+        assert!(handle.reload_track_marks(track_id));
+        wait_for(&handle, |snapshot| {
+            playlists
+                .iter()
+                .all(|playlist_id| snapshot.removed_mark(*playlist_id, track_id).is_none())
+        })
+        .await;
+        assert!(fetcher.sent().is_empty());
+    }
+
+    /// "Remove from playlist" reloads the marks of the playlist that it
+    /// changed, and the other playlist keeps its mark.
+    #[tokio::test(flavor = "current_thread")]
+    async fn adr_0076_follow_up_remove_from_playlist_reloads_that_playlist() {
+        let (conn, handle, fetcher, _session, [first, second], track_id) =
+            two_playlists_with_a_marked_track("https://a.test/r507b/feed.xml").await;
+        crate::db::playlist_remove_at(&mut conn.lock().unwrap(), second, 0).unwrap();
+        assert!(handle.reload_playlist_marks(second));
+        wait_for(&handle, |snapshot| {
+            snapshot.removed_mark(second, track_id).is_none()
+        })
+        .await;
+        assert!(handle.latest().removed_mark(first, track_id).is_some());
+        assert!(fetcher.sent().is_empty());
     }
 }

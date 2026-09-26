@@ -651,6 +651,14 @@ impl TopApp {
                 self.settings_status.clear();
                 self.refresh_show_page(cx);
             }
+            PlaybackTickOutcome::SessionStopped => {
+                // ADR 0076 packet 005: the show released its files. The
+                // tag update scan runs again, so the marks "In use by the
+                // show" are current.
+                self.refresh_show_page(cx);
+                self.library
+                    .update(cx, |library, _cx| library.scan_tag_updates());
+            }
             PlaybackTickOutcome::Error(error) => {
                 self.settings_status = format!("Playback error: {error}");
             }

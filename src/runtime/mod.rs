@@ -47,8 +47,9 @@ pub use musicbrainz_feed_saga::{
 pub use paged_list_vm::{PageRequest, PagedListVm, Placeholder, RowSlot};
 pub use playback_polling::{PlaybackPollingHandle, PlaybackTickOutcome, PlaybackTickSnapshot};
 pub use playlist_rss_check::{
-    DifferenceKind, PlaylistRssCheckHandle, PlaylistRssCheckSnapshot, PlaylistRssRun,
-    RssCheckRunState, RssCheckTrigger, RssFeedCheck, RssFeedOutcome, RssField, StoredDifference,
+    wait_seconds, DifferenceKind, HostStopReason, PlaylistRssCheckHandle, PlaylistRssCheckSnapshot,
+    PlaylistRssRun, RssCheckRunState, RssCheckTrigger, RssFeedCheck, RssFeedOutcome, RssField,
+    StoppedHost, StoredDifference,
 };
 pub(crate) use tag_update::{TagUpdateHandle, TagUpdateSnapshot};
 pub use vm_bus::{VmBus, VmEvent};
