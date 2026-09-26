@@ -4,6 +4,8 @@
 
 Sent to Stophammer on 2026-09-22. The operator reports the fixes live on 2026-09-23.
 
+Consolidated 2026-09-25: the [open Stophammer requests](v4vmm-open-requests.md) carry each item of this document that is still open. This document keeps its verification record.
+
 Changes 1, 2, and 3 are verified live on 2026-09-23. See "Verification Against The
 Deployed API". Change 4 is a release policy, and no external check can prove it.
 

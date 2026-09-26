@@ -113,8 +113,10 @@ Its packets replace packet 045, and packet 020 projects stored values without so
 The [ADR 0076 phase plan](docs/plans/adr-0076-playlist-rss-check-phase-plan.md) registers five
 packets in dispatch order: 001, 002, 020, 003, 004. All five are implemented on 2026-09-24, with
 mechanical checks Green and their visual gates open and paused. A feed update no longer writes audio
-tags. The "Update n files" confirmation owns each metadata tag write. A Confirm in the readiness
-list does not clear a playlist row error in place yet. The phase plan records this open defect.
+tags. The "Update n files" confirmation owns each metadata tag write. The operator decided four more
+details on 2026-09-25. Packet 005 (limits, copy action, scan triggers, and the in-place update after
+Confirm) and packet 006 (one credit list for each owner) are implemented on 2026-09-25, with their
+visual gates open and paused. No ADR 0076 packet is open.
 Schema version 17 is current, and each route write to a file reads the stored route. One projection in
 `src/application/queries/stored_values.rs` owns the order of stored values.
 Packet 002 dropped the unused ADR 0075 discrepancy and field-selection tables. The operator accepted the
@@ -141,8 +143,10 @@ tables. Its mechanical checks are Green. Its visual gate is open and paused.
 [Packet 002](docs/tasks/adr-0077-task-002-publisher-relationship-transport-and-storage.md) is
 implemented on 2026-09-24. It decodes the publisher relationship, requests it on the Library album
 hydration and the Index feed detail, and stores it in schema version 14. Its mechanical checks are
-Green, and it needs no visual acceptance. Packets 003 and 004 are Held on the unsent
-[album summary request](docs/plans/stophammer-publisher-album-summary-request.md) to Stophammer.
+Green, and it needs no visual acceptance. Packets 003 and 004 are Held on the album summary fields.
+[Open Stophammer requests](docs/plans/v4vmm-open-requests.md) consolidates each open request
+to Stophammer on 2026-09-25. The Stophammer repository holds an equal copy. Update both copies together. A reverse album list
+is deferred while Stophammer corrects the relationship data.
 
 Storage, shared projections, remaining field policies, and upstream changes remain open. Visual checks stay paused.
 

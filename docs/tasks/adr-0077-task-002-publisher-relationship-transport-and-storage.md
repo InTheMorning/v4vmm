@@ -88,7 +88,7 @@ Packet 013 keeps MusicIndex collection replacement disabled. This packet follows
 - An empty `publisher` array deletes no row.
 - An absent or null `publisher` value changes no row.
 
-The [publisher album summary request](../plans/stophammer-publisher-album-summary-request.md) asks Stophammer for a completeness statement.
+The [open Stophammer requests](../plans/v4vmm-open-requests.md) ask Stophammer for a completeness statement.
 A subsequent packet enables replacement through the packet 013 registry after that statement arrives.
 
 ## Mechanical Acceptance Criteria

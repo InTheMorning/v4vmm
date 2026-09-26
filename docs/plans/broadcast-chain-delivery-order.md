@@ -55,6 +55,8 @@ A track is not ready for a show when its file payment route differs from the sto
 [ADR 0075 packet 020](../tasks/adr-0075-task-020-stored-value-projection.md) projects the stored values. Implementation and mechanical checks are complete on 2026-09-24. Its visual gate remains open and paused.
 [ADR 0076 packet 003](../tasks/adr-0076-task-003-stored-payment-route-and-readiness.md) adds the stored route and the two ADR 0059 not-ready states. Implementation and mechanical checks are complete on 2026-09-24. Its visual gate remains open and paused.
 [ADR 0076 packet 004](../tasks/adr-0076-task-004-tag-update-confirmation.md) adds the "Update n files" confirmation. Implementation and mechanical checks are complete on 2026-09-24. Its visual gate remains open and paused.
+[ADR 0076 packet 005](../tasks/adr-0076-task-005-check-and-scan-follow-ups.md) adds the check and scan follow-ups. Implementation and mechanical checks are complete on 2026-09-25. Its visual gate remains open and paused.
+[ADR 0076 packet 006](../tasks/adr-0076-task-006-credit-list-projection.md) shows one credit list for each owner. Implementation and mechanical checks are complete on 2026-09-25. Its visual gate remains open and paused.
 
 The orchestrator dispatches bounded work under accepted rules and reviews each result.
 New product policies retain their acceptance gate. Visual checks remain paused.

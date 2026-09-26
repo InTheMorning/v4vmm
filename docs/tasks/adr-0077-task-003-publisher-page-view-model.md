@@ -1,7 +1,7 @@
 # ADR 0077 Task 003: Publisher Page View Model
 
 Status: Held - 2026-09-24. This packet waits for the Stophammer answer to the
-[publisher album summary request](../plans/stophammer-publisher-album-summary-request.md).
+album summary fields, request 1 of the [open Stophammer requests](../plans/v4vmm-open-requests.md).
 Implementation has not started. This packet changes no screen. Packet 004 owns the visual gate.
 
 ## Goal
@@ -70,6 +70,10 @@ Add a publisher page view model under `src/view_models/`. It exposes these value
 | Owned albums | Entries with `music_names_publisher = true` |
 | "Listed by" albums | Entries with `music_names_publisher = false`, in a separate group |
 | "Not listed" mark | An owned album with `publisher_lists_music = false` or `publisher_link_resolution = "unresolved"` |
+
+The Stophammer source of 2026-09-25 shows that the publisher view lists only the albums that the publisher feed lists.
+An Index page therefore receives no album that names the publisher without a listing by it. A Library page shows such albums from stored `music_to_publisher` rows.
+The operator decided on 2026-09-25 not to request a reverse list now.
 | Album role | The stated role and its source. `role_source = "default"` shows as an assumed role, never as a stated role |
 | Role conflict | `role_source = "conflict"` shows `publisher_rel` and `music_rel`, each with its source. No value wins |
 | Artist count | `distinct_release_artist_count` and `distinct_release_artists`, labeled as derived. They never select the page type |

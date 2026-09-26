@@ -16,6 +16,10 @@ Group 13 records the playlist RSS check gate of ADR 0076 packet 001.
 Group 14 records the RSS comparison and report gate of ADR 0076 packet 002.
 Group 15 records the stored value projection gate of ADR 0075 packet 020.
 Group 16 records the stored payment route and readiness gate of ADR 0076 packet 003.
+Group 17 records the tag update confirmation gate of ADR 0076 packet 004.
+Group 18 records the check and scan follow-up gate of ADR 0076 packet 005.
+
+Group 19 records the credit list gate of ADR 0076 packet 006.
 
 The operator accepted ADR 0075 on 2026-09-19. Its placement decision adds future
 visual checks for the labelled identity sections on a track page. Phase 005 owns
@@ -432,3 +436,26 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-2
 - V3: the popup is readable at normal and narrow window widths. Stacked text clips and does not show only an ellipsis.
 - This packet writes audio tags. Copy the fixture audio files before the first confirm, as the packet procedure tells.
 - Keep the copies until acceptance. The packet gives the restore and cleanup commands.
+
+## 18. Check And Scan Follow-Ups — ADR 0076 Task 005
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-25. Operator inspection is pending.
+
+- Owner: [packet 005](tasks/adr-0076-task-005-check-and-scan-follow-ups.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks. Run it after group 16, because it needs schema version 17 and the readiness list from packet 003.
+- V1: the check report shows **Copy feed URL** adjacent to the **Open podping.me** button. The pasted text is the feed URL. Check in Light and Dark themes.
+- V2: after a **Confirm** in the readiness list, the playlist page shows no error on that row. No check and no restart occur between the two steps.
+- The check in V1 sends real HTTP requests to the feed hosts of the playlist, and it writes RSS values into the stored values.
+- This packet adds no migration. Make the SQLite backup in the packet procedure before the first run.
+- Keep the backup until acceptance. The packet gives the fixture, restore and cleanup commands.
+
+## 19. Credit List Projection — ADR 0076 Task 006
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-25. Operator inspection is pending.
+
+- Owner: [packet 006](tasks/adr-0076-task-006-credit-list-projection.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks. It needs schema version 17 from packet 003.
+- V1: after a check that changed the credits, the track page shows the RSS credits one time each, in RSS order, with no MusicIndex credit and no provider label. Check in Light and Dark themes.
+- The Library track page now shows the stored credit list, also when the MusicIndex fetch succeeds. The operator can reject this at V1.
+- The check sends real HTTP requests to the feed hosts of the playlist, and it writes RSS values into the stored values.
+- This packet adds no migration, so it needs no backup. The packet gives the fixture and cleanup commands.

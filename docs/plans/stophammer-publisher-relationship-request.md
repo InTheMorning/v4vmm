@@ -6,6 +6,8 @@ Live - 2026-09-24. The operator gave the decisions below on 2026-09-23.
 This document is a request from the v4vmm client. Stophammer records its own decision in its own ADR.
 The live contract names Stophammer ADR 0049 as the owner of each new field.
 
+Consolidated 2026-09-25: the [open Stophammer requests](v4vmm-open-requests.md) carry each item of this document that is still open. This document keeps its verification record.
+
 The operator reports the fields live on 2026-09-24. See "Verification Against The Deployed API".
 
 The [research note](../notes/2026-09-23-publisher-feed-artist-research.md) holds the evidence.

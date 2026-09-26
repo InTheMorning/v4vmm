@@ -20,7 +20,7 @@ Packet 001 added schema version 13, and packet 002 added schema version 14.
 ## Held Work
 
 Packets 003 and 004 wait for the answer to the
-[publisher album summary request](stophammer-publisher-album-summary-request.md).
+album summary fields, request 1 of the [open Stophammer requests](v4vmm-open-requests.md).
 The operator asked on 2026-09-24 which route is better. The orchestrator recommended this route over a paged album fetch. The operator can change it.
 
 When Stophammer adds the album summary, packet 003 reads it and sends one request for each publisher page.
