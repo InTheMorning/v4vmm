@@ -937,8 +937,7 @@ impl SearchApp {
             InspectorDetail::Loading(_)
             | InspectorDetail::Error(_)
             | InspectorDetail::Artist(_)
-            | InspectorDetail::Feed(_)
-            | InspectorDetail::Publisher(_) => return,
+            | InspectorDetail::Feed(_) => return,
         };
         let rows = track_metadata_rows_for_frame(frame, &track_context, Some(result));
         let pending_id3_edits = auto_populated_pending_id3_edits(
@@ -1164,8 +1163,9 @@ impl SearchApp {
             }
             InspectorDetail::Loading(_)
             | InspectorDetail::Error(_)
-            | InspectorDetail::Artist(_)
-            | InspectorDetail::Publisher(_) => return,
+            | InspectorDetail::Artist(_) => {
+                return;
+            }
         };
 
         let subscription_command = SearchSubscriptionCommand::Download;
@@ -1318,8 +1318,7 @@ impl SearchApp {
             },
             InspectorDetail::Loading(_)
             | InspectorDetail::Error(_)
-            | InspectorDetail::Artist(_)
-            | InspectorDetail::Publisher(_) => return,
+            | InspectorDetail::Artist(_) => return,
         };
 
         self.request_library_removal(
@@ -1935,10 +1934,7 @@ impl SearchApp {
                 track.enclosure_url.as_deref(),
             )
             .ok(),
-            EntityDetail::Artist(_)
-            | EntityDetail::Release(_)
-            | EntityDetail::Recording(_)
-            | EntityDetail::Publisher(_) => None,
+            EntityDetail::Artist(_) | EntityDetail::Release(_) | EntityDetail::Recording(_) => None,
         }
     }
 }
@@ -2098,7 +2094,6 @@ fn inspector_detail_from_data(detail: InspectorDetailData) -> InspectorDetail {
         })),
         InspectorDetailData::Feed(feed) => InspectorDetail::Feed(feed),
         InspectorDetailData::Track(track) => InspectorDetail::Track(track),
-        InspectorDetailData::Publisher(publisher) => InspectorDetail::Publisher(publisher),
     }
 }
 
@@ -2169,9 +2164,8 @@ fn local_subscription_for_detail(
             )
             .map(Some)
         }
-        InspectorDetail::Loading(_)
-        | InspectorDetail::Error(_)
-        | InspectorDetail::Artist(_)
-        | InspectorDetail::Publisher(_) => Ok(None),
+        InspectorDetail::Loading(_) | InspectorDetail::Error(_) | InspectorDetail::Artist(_) => {
+            Ok(None)
+        }
     }
 }

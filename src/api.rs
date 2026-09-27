@@ -44,13 +44,6 @@ pub struct SearchResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
-pub struct PublisherSearchResponse {
-    pub data: Vec<Publisher>,
-    pub pagination: Pagination,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
 pub struct TrackListResponse {
     pub data: Vec<Track>,
     pub pagination: Pagination,
@@ -260,16 +253,6 @@ pub fn track_with_feed_defaults(mut track: Track, feed: Option<&Feed>) -> Track 
         }
     }
     track
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct Publisher {
-    pub publisher_text: Option<String>,
-    pub feed_count: Option<i32>,
-    pub track_count: Option<i32>,
-    pub feeds: Option<Vec<Feed>>,
-    pub tracks: Option<Vec<Track>>,
 }
 
 /// One contributor claim from a source observation (ADR 0075).
@@ -679,7 +662,6 @@ pub enum EntityDetail {
     Recording(Recording),
     Feed(Feed),
     Track(Track),
-    Publisher(Publisher),
 }
 
 #[derive(Clone)]
@@ -742,20 +724,6 @@ impl Client {
         self.get_json(&["v1", "search"], &params)
     }
 
-    pub fn search_publishers(
-        &self,
-        query: &str,
-        limit: Option<i32>,
-        fuzzy: bool,
-    ) -> Result<PublisherSearchResponse> {
-        let params = vec![
-            ("q", query.to_string()),
-            ("limit", limit.unwrap_or(PAGE_LIMIT).to_string()),
-            ("fuzzy", fuzzy.to_string()),
-        ];
-        self.get_json(&["v1", "publishers"], &params)
-    }
-
     pub fn fetch_recent_feeds(
         &self,
         limit: Option<i32>,
@@ -786,7 +754,6 @@ impl Client {
             }
             "feed" => Ok(EntityDetail::Feed(self.fetch_feed(entity_id, None)?)),
             "track" => Ok(EntityDetail::Track(self.fetch_track(entity_id, None)?)),
-            "publisher" => Ok(EntityDetail::Publisher(self.fetch_publisher(entity_id)?)),
             _ => Err(anyhow!("unknown entity type: {entity_type}")),
         }
     }
@@ -902,10 +869,6 @@ impl Client {
         self.get_json(&["v1", "tracks"], &params)
     }
 
-    pub fn fetch_publisher(&self, publisher_text: &str) -> Result<Publisher> {
-        self.fetch_wrapped(&["v1", "publishers", publisher_text])
-    }
-
     pub fn fetch_contributors(
         &self,
         entity_type: &str,
@@ -982,13 +945,6 @@ impl Client {
             }
             .into()
         })
-    }
-
-    fn fetch_wrapped<T>(&self, path_segments: &[&str]) -> Result<T>
-    where
-        T: DeserializeOwned,
-    {
-        self.fetch_wrapped_with_query(path_segments, &[])
     }
 
     fn fetch_wrapped_with_query<T>(

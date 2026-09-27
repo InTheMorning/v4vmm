@@ -6,9 +6,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use rusqlite::Connection;
 
-use crate::api::{
-    Artist, Client, Contributor, Feed, PaymentRoute, Publisher, RecentFeedsResponse, Track,
-};
+use crate::api::{Artist, Client, Contributor, Feed, PaymentRoute, RecentFeedsResponse, Track};
 use crate::application::application_query_service::ApplicationQueryService;
 use crate::application::command_bus::{ApplicationCommand, CommandOutcome, CommandResult};
 use crate::application::command_context::CommandContext;
@@ -116,8 +114,6 @@ pub(crate) enum InspectorDetailData {
     Feed(Box<Feed>),
     /// Track detail payload.
     Track(Box<TrackContext>),
-    /// Publisher detail payload.
-    Publisher(Publisher),
 }
 
 /// Neutral artist detail payload for parked Discover.
@@ -407,10 +403,6 @@ fn fetch_inspector_detail(
         "artist" => fetch_artist_detail(client, provider_identity, entity_id),
         "feed" => fetch_feed_detail(client, provider_identity, entity_id),
         "track" => fetch_track_detail(client, provider_identity, entity_id, feed_guid),
-        "publisher" => Ok(InspectorDetailResult {
-            detail: InspectorDetailData::Publisher(client.fetch_publisher(entity_id)?),
-            image_url: None,
-        }),
         _ => Err(anyhow::anyhow!(
             "unknown inspector entity type: {entity_type}"
         )),

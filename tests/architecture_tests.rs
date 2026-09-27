@@ -19737,6 +19737,50 @@ its publisher through its album feed.";
     );
 }
 
+/// Situational — ADR 0077 Decision 6, packet 005 (R5-02): `publisher_text`
+/// is feed owner text. No entry point opens the removed
+/// `/v1/publishers/{publisher_text}` inspector. Delete this guard when ADR
+/// 0077 Decision 6 is superseded.
+#[test]
+fn adr_0077_feed_owner_publisher_text_inspector_stays_removed() {
+    const FIX: &str = "ADR 0077 Decision 6: `publisher_text` is the feed owner. No artist page \
+and no label page opens from it or from `/v1/publishers`. Show `publisher_text` as inert feed \
+owner text instead of reintroducing the publisher inspector.";
+    const FORBIDDEN: &[&str] = &[
+        "fn fetch_publisher(",
+        "EntityDetail::Publisher",
+        "InspectorDetailData::Publisher",
+        "InspectorDetail::Publisher",
+        "PublisherInspectorVm",
+        "render_publisher_inspector",
+        "struct Publisher {",
+        "PublisherSearchResponse",
+        "fn search_publishers(",
+        "fn fetch_wrapped(",
+    ];
+
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for pattern in FORBIDDEN {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: names `{pattern}`: `{line}`\n  {FIX}"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0077 Decision 6 feed owner inspector violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Situational — ADR 0077 Decision 1, Task 003 (R3-12): an artist identity
 /// comes only from a publisher feed GUID. No code builds
 /// `ArtistRef::PublisherFeed` from name text or from `publisher_text`.

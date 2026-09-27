@@ -668,7 +668,10 @@ impl ReleaseHeroVm<'_> {
             data_rows: self
                 .supporting_line
                 .map(|supporting_line| ReleaseHeaderDataRowVm {
-                    label: "Publisher",
+                    // ADR 0077 Decision 6: `publisher_text` is the feed
+                    // owner (the `itunes:owner` name), never an artist or
+                    // a label. This row opens no page.
+                    label: "Feed owner",
                     value: supporting_line.to_string(),
                     max_lines: 1,
                 })
@@ -1585,7 +1588,7 @@ mod tests {
                 title: "Release".into(),
                 subtitle: Some("Artist".into()),
                 data_rows: vec![ReleaseHeaderDataRowVm {
-                    label: "Publisher",
+                    label: "Feed owner",
                     value: "Publisher".into(),
                     max_lines: 1,
                 }],
@@ -1607,6 +1610,26 @@ mod tests {
                 subtitle: None,
                 data_rows: Vec::new(),
             }
+        );
+    }
+
+    /// R5-01 (ADR 0077 Decision 6): the album hero shows `publisher_text` as
+    /// feed owner text. `ReleaseHeaderDataRowVm` carries a label and a
+    /// value only, so this row has no action and opens no page.
+    #[test]
+    fn adr_0077_feed_owner_hero_row_labels_publisher_text_as_feed_owner() {
+        let mut feed = feed_view();
+        feed.publisher_text = Some("Wavlake".into());
+        let page = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).page();
+
+        let data_rows = page.hero.display().data_rows;
+        assert_eq!(
+            data_rows,
+            vec![ReleaseHeaderDataRowVm {
+                label: "Feed owner",
+                value: "Wavlake".into(),
+                max_lines: 1,
+            }]
         );
     }
 

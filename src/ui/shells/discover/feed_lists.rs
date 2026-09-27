@@ -1,4 +1,4 @@
-//! Discover artist, publisher, and feed-list inspector sections.
+//! Discover artist and feed-list inspector sections.
 
 #![warn(clippy::pedantic)]
 
@@ -9,12 +9,9 @@ use gpui::{
     SharedString, Styled,
 };
 
-use crate::api::{Feed, Publisher};
+use crate::api::Feed;
 use crate::discover::{ArtistContext, SearchApp};
-use crate::ui::composites::{
-    DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow as CompositeDetailRow,
-    DetailTextRow as CompositeDetailTextRow, EntityKind, Thumbnail, ThumbnailSize,
-};
+use crate::ui::composites::{EntityKind, Thumbnail, ThumbnailSize};
 use crate::ui::layouts as layout;
 use crate::ui::primitives::{Label, SectionHeader};
 use crate::ui::shells::artist;
@@ -23,9 +20,7 @@ use crate::ui::shells::discover::recent::{
 };
 use crate::ui::style::{color, radius, spacing, typography};
 use crate::ui::tokens::FontSize;
-use crate::view_models::search::{
-    PublisherInspectorVm, RecentFeedTileDisplay, RecentFeedTileVm, SearchViewModel,
-};
+use crate::view_models::search::{RecentFeedTileDisplay, RecentFeedTileVm, SearchViewModel};
 
 pub(crate) fn render_artist_inspector(
     frame_image: Option<Arc<Image>>,
@@ -50,41 +45,6 @@ pub(crate) fn render_artist_inspector(
         Some(track_count),
         feed_section,
     )
-}
-
-pub(crate) fn render_publisher_inspector(
-    publisher: &Publisher,
-    app: &mut SearchApp,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    let vm = PublisherInspectorVm::new(publisher);
-
-    div()
-        .flex()
-        .flex_col()
-        .gap(spacing::LG)
-        .child(DetailHeader::new(DetailHeaderDisplay {
-            kind: EntityKind::Publisher,
-            title: vm.title().into(),
-            subtitle: None,
-            data_rows: Vec::new(),
-        }))
-        .child(DetailGrid::new(
-            vm.detail_rows()
-                .into_iter()
-                .map(|(k, v)| {
-                    CompositeDetailRow::text(CompositeDetailTextRow {
-                        key: k.into(),
-                        value: v,
-                        max_lines: 6,
-                    })
-                })
-                .collect::<Vec<_>>(),
-        ))
-        .when(vm.has_feed_list(), |el| {
-            el.child(render_feed_list_section(vm.feeds(), app, cx))
-        })
-        .into_any_element()
 }
 
 pub(crate) fn render_feed_list_section(

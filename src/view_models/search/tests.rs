@@ -1,5 +1,5 @@
 use super::*;
-use crate::api::{Publisher, Recording, Release};
+use crate::api::{Recording, Release};
 use crate::view_models::entity_detail::{EntityActionKind, EntityActionTarget, EntityActionVm};
 use crate::view_models::ActionStatusMessageDisplay;
 use crate::views::FeedRef;
@@ -19,8 +19,12 @@ fn playlist(name: &str) -> db::Playlist {
     }
 }
 
+/// R5-03 (ADR 0077 Decision 1, "Index artist page by name" refinement): a
+/// name-built Index row shows a search-result title with the quoted name.
+/// It carries no identity fact, even when the underlying record carries
+/// an area or a begin year.
 #[test]
-fn artist_display_uses_counts_area_and_image() {
+fn adr_0077_feed_owner_name_search_row_shows_quoted_title_and_no_identity() {
     let detail = EntityDetail::Artist(Artist {
         name: Some("The Artist".into()),
         track_count: Some(1),
@@ -36,25 +40,21 @@ fn artist_display_uses_counts_area_and_image() {
         ResultRowDisplay {
             element_id: String::new(),
             kind_label: String::new(),
-            line1: "The Artist".into(),
+            line1: "Tracks matching \"The Artist\"".into(),
             line2: "1 track · 2 feeds".into(),
-            line3: "Canada".into(),
+            line3: String::new(),
             image_url: Some("https://example.test/a.png".into()),
         }
     );
 }
 
 #[test]
-fn artist_display_falls_back_to_active_years_then_entity_id() {
-    let detail = EntityDetail::Artist(Artist {
-        begin_year: Some(2001),
-        end_year: None,
-        ..Artist::default()
-    });
+fn artist_display_falls_back_to_entity_id_when_name_is_missing() {
+    let detail = EntityDetail::Artist(Artist::default());
 
     let display = ResultRowVm::new("artist-id", Some(&detail)).display();
-    assert_eq!(display.line1, "artist-id");
-    assert_eq!(display.line3, "2001-");
+    assert_eq!(display.line1, "Tracks matching \"artist-id\"");
+    assert!(display.line3.is_empty());
 }
 
 #[test]
@@ -234,28 +234,6 @@ fn track_display_uses_track_vm_title_duration_and_artist_fallback() {
 }
 
 #[test]
-fn publisher_display_keeps_no_image_contract() {
-    let detail = EntityDetail::Publisher(Publisher {
-        publisher_text: Some("Pub".into()),
-        feed_count: Some(2),
-        track_count: Some(3),
-        ..Publisher::default()
-    });
-
-    assert_eq!(
-        ResultRowVm::new("publisher-id", Some(&detail)).display(),
-        ResultRowDisplay {
-            element_id: String::new(),
-            kind_label: String::new(),
-            line1: "Pub".into(),
-            line2: "2 feeds · 3 tracks".into(),
-            line3: String::new(),
-            image_url: None,
-        }
-    );
-}
-
-#[test]
 fn fallback_rows_preserve_release_and_recording_images() {
     let release = EntityDetail::Release(Release {
         image_url: Some("https://example.test/release.png".into()),
@@ -337,86 +315,6 @@ fn artist_rows_are_derived_from_feed_and_track_details() {
         artist.image_url.as_deref(),
         Some("https://example.test/track.png")
     );
-}
-
-#[test]
-fn publisher_inspector_vm_falls_back_to_unknown_publisher_title() {
-    let pub_ = Publisher::default();
-    let vm = PublisherInspectorVm::new(&pub_);
-    assert_eq!(vm.title(), "Unknown publisher");
-}
-
-#[test]
-fn publisher_inspector_vm_uses_publisher_text_when_present() {
-    let pub_ = Publisher {
-        publisher_text: Some("Acme Audio".into()),
-        ..Publisher::default()
-    };
-    let vm = PublisherInspectorVm::new(&pub_);
-    assert_eq!(vm.title(), "Acme Audio");
-}
-
-#[test]
-fn publisher_inspector_vm_prefers_explicit_counts_over_collection_length() {
-    let pub_ = Publisher {
-        feed_count: Some(7),
-        track_count: Some(42),
-        feeds: Some(vec![Feed::default()]),
-        tracks: Some(vec![Track::default(), Track::default()]),
-        ..Publisher::default()
-    };
-    let vm = PublisherInspectorVm::new(&pub_);
-    assert_eq!(vm.feed_count(), 7);
-    assert_eq!(vm.track_count(), 42);
-}
-
-#[test]
-fn publisher_inspector_vm_falls_back_to_collection_length_when_count_absent() {
-    let pub_ = Publisher {
-        feed_count: None,
-        track_count: None,
-        feeds: Some(vec![Feed::default(), Feed::default()]),
-        tracks: Some(vec![Track::default(), Track::default(), Track::default()]),
-        ..Publisher::default()
-    };
-    let vm = PublisherInspectorVm::new(&pub_);
-    assert_eq!(vm.feed_count(), 2);
-    assert_eq!(vm.track_count(), 3);
-}
-
-#[test]
-fn publisher_inspector_vm_falls_back_to_zero_when_neither_present() {
-    let pub_ = Publisher::default();
-    let vm = PublisherInspectorVm::new(&pub_);
-    assert_eq!(vm.feed_count(), 0);
-    assert_eq!(vm.track_count(), 0);
-}
-
-#[test]
-fn publisher_inspector_vm_detail_rows_render_in_feeds_then_tracks_order() {
-    let pub_ = Publisher {
-        feed_count: Some(3),
-        track_count: Some(5),
-        ..Publisher::default()
-    };
-    let vm = PublisherInspectorVm::new(&pub_);
-    let rows = vm.detail_rows();
-    assert_eq!(rows.len(), 2);
-    assert_eq!(rows[0], ("Feeds".into(), "3".into()));
-    assert_eq!(rows[1], ("Tracks".into(), "5".into()));
-}
-
-#[test]
-fn publisher_inspector_vm_has_feed_list_only_when_feeds_present() {
-    let pub_ = Publisher::default();
-    let vm = PublisherInspectorVm::new(&pub_);
-    assert!(!vm.has_feed_list());
-    let pub_ = Publisher {
-        feeds: Some(vec![Feed::default()]),
-        ..Publisher::default()
-    };
-    let vm = PublisherInspectorVm::new(&pub_);
-    assert!(vm.has_feed_list());
 }
 
 #[test]

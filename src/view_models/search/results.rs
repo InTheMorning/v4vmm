@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::api::{Artist, EntityDetail, Feed, Publisher, Track};
+use crate::api::{Artist, EntityDetail, Feed, Track};
 use crate::view_models::track::TrackVm;
 
 use super::common::nonempty_text;
@@ -240,7 +240,6 @@ impl<'a> ResultRowVm<'a> {
                     image_url: track.image_url.clone(),
                 }
             }
-            Some(EntityDetail::Publisher(publisher)) => publisher_display(publisher),
             Some(EntityDetail::Release(release)) => ResultRowDisplay {
                 element_id: String::new(),
                 kind_label: String::new(),
@@ -268,7 +267,17 @@ impl<'a> ResultRowVm<'a> {
         }
     }
 
+    /// Projects a name-built Index row (ADR 0077 Decision 1 and its
+    /// "Index artist page by name" refinement). The name query matches
+    /// track and feed text; it is never an artist identity. The row
+    /// shows a search-result title with the quoted name, and carries no
+    /// identity fact such as an area or active years.
     fn artist_display(&self, artist: &Artist) -> ResultRowDisplay {
+        let name = artist
+            .name
+            .clone()
+            .or_else(|| artist.artist_id.clone())
+            .unwrap_or_else(|| self.entity_id.to_string());
         let mut parts = Vec::new();
         if let Some(count) = artist.track_count {
             parts.push(count_label(count, "track"));
@@ -276,25 +285,22 @@ impl<'a> ResultRowVm<'a> {
         if let Some(count) = artist.feed_count {
             parts.push(count_label(count, "feed"));
         }
-        let line3 = artist
-            .area
-            .clone()
-            .or_else(|| artist_active_years(artist))
-            .unwrap_or_default();
 
         ResultRowDisplay {
             element_id: String::new(),
             kind_label: String::new(),
-            line1: artist
-                .name
-                .clone()
-                .or_else(|| artist.artist_id.clone())
-                .unwrap_or_else(|| self.entity_id.to_string()),
+            line1: name_search_title(&name),
             line2: parts.join(" · "),
-            line3,
+            line3: String::new(),
             image_url: artist.image_url.clone(),
         }
     }
+}
+
+/// Title for an Index row built from name text, never an artist identity
+/// (ADR 0077 Decision 1 and its "Index artist page by name" refinement).
+fn name_search_title(name: &str) -> String {
+    format!("Tracks matching \"{name}\"")
 }
 
 fn feed_display(feed: &Feed) -> ResultRowDisplay {
@@ -313,24 +319,6 @@ fn feed_display(feed: &Feed) -> ResultRowDisplay {
     }
 }
 
-fn publisher_display(publisher: &Publisher) -> ResultRowDisplay {
-    let mut parts = Vec::new();
-    if let Some(count) = publisher.feed_count {
-        parts.push(format!("{count} feeds"));
-    }
-    if let Some(count) = publisher.track_count {
-        parts.push(format!("{count} tracks"));
-    }
-    ResultRowDisplay {
-        element_id: String::new(),
-        kind_label: String::new(),
-        line1: publisher.publisher_text.clone().unwrap_or_default(),
-        line2: parts.join(" · "),
-        line3: String::new(),
-        image_url: None,
-    }
-}
-
 fn count_label(count: i32, noun: &str) -> String {
     format!("{count} {noun}{}", if count == 1 { "" } else { "s" })
 }
@@ -340,15 +328,6 @@ pub(crate) fn feed_display_title(feed: &Feed) -> String {
     nonempty_text(feed.title.as_deref())
         .or_else(|| nonempty_text(feed.feed_guid.as_deref()))
         .map_or_else(|| "Untitled".into(), str::to_string)
-}
-
-fn artist_active_years(artist: &Artist) -> Option<String> {
-    match (artist.begin_year, artist.end_year) {
-        (Some(begin), Some(end)) => Some(format!("{begin}-{end}")),
-        (Some(begin), None) => Some(format!("{begin}-")),
-        (None, Some(end)) => Some(format!("until {end}")),
-        (None, None) => None,
-    }
 }
 
 #[must_use]
@@ -398,10 +377,7 @@ pub(crate) fn artist_rows_from_result_rows(
             Some(EntityDetail::Track(track)) => {
                 insert_track_artist_candidates(&mut artists, track, query);
             }
-            Some(
-                EntityDetail::Release(_) | EntityDetail::Recording(_) | EntityDetail::Publisher(_),
-            )
-            | None => {}
+            Some(EntityDetail::Release(_) | EntityDetail::Recording(_)) | None => {}
         }
     }
 

@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use gpui::{Image, ScrollHandle};
 use rusqlite::Connection;
 
-use crate::api::{Artist, Feed, PaymentRoute, Publisher, Track};
+use crate::api::{Artist, Feed, PaymentRoute, Track};
 use crate::application::{ApplicationServices, AsyncCommandRunner};
 use crate::db;
 use crate::media::ImageCache;
@@ -38,7 +38,6 @@ pub(crate) enum InspectorDetail {
     Artist(Box<ArtistContext>),
     Feed(Box<Feed>),
     Track(Box<TrackContext>),
-    Publisher(Publisher),
 }
 
 #[derive(Clone, Debug)]

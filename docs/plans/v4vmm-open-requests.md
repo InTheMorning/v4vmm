@@ -123,6 +123,24 @@ v4vmm read the live API with read-only GET requests on 2026-09-26.
 - Request 2: `GET /node/info` gave `git_revision` `264706e` and `built_at` `2026-09-26T04:05:34Z`.
 - Request 3: `/v1/node/capabilities` listed `remote_items` and `publisher` for tracks.
 
+## Release 0.1.0 - 2026-09-27
+
+Stophammer 0.1.0 is the first release. `info.version` of `/openapi.json`
+gives the version of the running node. `GET /node/info` gives the commit in
+`git_revision`. The
+[GitHub release](https://github.com/InTheMorning/stophammer/releases/tag/v0.1.0)
+holds the role tarballs, the Arch packages and the images.
+
+The deploy of 2026-09-27 also adds live items (Stophammer ADR 0064):
+
+- `GET /v1/feeds/{guid}` gives `live_items`.
+- `GET /v1/live-items` gives the live items of all feeds, with the views
+  `now`, `upcoming` and `all`.
+
+A client that shows a live stream reads `confirming_relay`. When it is `true`,
+the client asks the relay of the row if the stream is on air. `docs/API.md`
+gives the details.
+
 ## Deferred, Not Requested Now
 
 **A reverse album list.** The publisher view lists only the albums that the publisher feed lists (`load_publisher` in `src/query.rs`).

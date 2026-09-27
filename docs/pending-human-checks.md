@@ -473,3 +473,14 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-2
 - V5: normal and narrow widths show each element in its place, with no clipped text.
 - The Index track page shows no "Open publisher" action. The packet records this as a deviation.
 - V3 changes the MusicIndex endpoint in Settings. Restore it after the check.
+
+## 21. Feed Owner Text And Name Grouping — ADR 0077 Task 005
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-26. Operator inspection is pending.
+
+- Owner: [packet 005](tasks/adr-0077-task-005-feed-owner-text-and-name-search.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks.
+- V1: an album page shows `publisher_text` as "Feed owner" text that opens nothing, in Light and Dark themes.
+- V3: a Library artist page without a publisher relationship shows "Grouped by name".
+- V4: normal and narrow widths show each element in its place, with no clipped text.
+- V2 cannot be walked. The name search of this packet reached only parked code. ADR 0077 packet 006 owns the live name-keyed artist page.

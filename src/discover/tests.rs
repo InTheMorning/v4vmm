@@ -29,7 +29,7 @@ fn discover_back_button_is_visible_for_any_open_inspector() {
     );
     assert!(
         should_show_inspector_back(1),
-        "first opened feed, track, or publisher should show Back"
+        "first opened feed, track, or artist should show Back"
     );
     assert!(
         should_show_inspector_back(2),
@@ -65,7 +65,7 @@ fn search_results_are_limited_to_artist_feed_and_track() {
     );
     assert!(
         !search_result_type_is_visible("publisher"),
-        "publisher results should only be opened from feed or track links"
+        "the removed publisher inspector must not reopen as a search result (ADR 0077 Decision 6)"
     );
 }
 

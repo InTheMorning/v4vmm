@@ -3965,11 +3965,15 @@ impl<'a> LibraryArtistDetailVm<'a> {
         rows
     }
 
+    /// Page projection for the Library name grouping. The subtitle names
+    /// the grouping itself: it has no publisher relationship, no role and
+    /// no page type (ADR 0077 Decision 6, "Album without a publisher"
+    /// refinement).
     #[must_use]
     pub(crate) fn page(&self) -> ArtistDetailPageVm {
         ArtistDetailPageVm::new(
             self.artist_name_or_unknown(),
-            None::<String>,
+            Some("Grouped by name"),
             self.detail_rows()
                 .into_iter()
                 .map(|(key, value)| ArtistDetailFactVm::new(key, value, 6))
@@ -5814,7 +5818,7 @@ mod tests {
         );
         let page = vm.page();
         assert_eq!(page.detail_rows.len(), 3);
-        assert_eq!(page.subtitle, None);
+        assert_eq!(page.subtitle.as_deref(), Some("Grouped by name"));
     }
 
     #[test]
@@ -5836,11 +5840,23 @@ mod tests {
         let page = vm.page();
 
         assert_eq!(page.title, "Unknown");
-        assert_eq!(page.subtitle, None);
+        assert_eq!(page.subtitle.as_deref(), Some("Grouped by name"));
         assert!(page.shows_feed_section);
         assert_eq!(page.detail_rows[0].key, "Albums");
         assert_eq!(page.detail_rows[0].value, "1");
         assert_eq!(page.detail_rows[0].max_lines, 6);
+    }
+
+    /// R5-04 (ADR 0077 Decision 6, "Album without a publisher"
+    /// refinement): the Library name-grouped artist page shows the
+    /// "Grouped by name" label. The grouping has no publisher
+    /// relationship, no role and no page type.
+    #[test]
+    fn adr_0077_feed_owner_library_name_grouping_shows_grouped_by_name() {
+        let tracks = [track_for_feed(1, Some("A"))];
+        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
+
+        assert_eq!(vm.page().subtitle.as_deref(), Some("Grouped by name"));
     }
 
     #[test]

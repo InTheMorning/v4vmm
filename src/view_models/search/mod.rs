@@ -54,7 +54,7 @@ pub(crate) use controls::{
         reason = "root re-export preserves the view_models::search import surface after decomposition"
     )
 )]
-pub(crate) use feed_detail::{PaymentRouteGroupDisplay, PaymentRouteVm, PublisherInspectorVm};
+pub(crate) use feed_detail::{PaymentRouteGroupDisplay, PaymentRouteVm};
 #[cfg_attr(
     not(test),
     expect(

@@ -16,9 +16,7 @@ use crate::ui::composites::{EntityKind, SkeletonInspector, Thumbnail, ThumbnailS
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
 use crate::ui::primitives::{Button as UiButton, Label, LoadingMessage};
-use crate::ui::shells::discover::feed_lists::{
-    render_artist_inspector, render_publisher_inspector, render_recent_feeds_tiles,
-};
+use crate::ui::shells::discover::feed_lists::{render_artist_inspector, render_recent_feeds_tiles};
 use crate::ui::shells::discover::track_inspector::{
     render_discover_track_inspector_core, render_discover_track_inspector_lazy_sections,
 };
@@ -140,7 +138,6 @@ fn render_inspector_body(
         InspectorDetail::Track(track_context) => {
             render_discover_track_inspector_core(frame, track_context, app, cx)
         }
-        InspectorDetail::Publisher(publisher) => render_publisher_inspector(publisher, app, cx),
     }
 }
 
@@ -152,7 +149,6 @@ fn skeleton_for_entity(entity_type: &str) -> SkeletonInspector {
         "track" => SkeletonInspector::new().body_rows(8),
         "feed" => SkeletonInspector::new().body_rows(6),
         "artist" => SkeletonInspector::new().body_rows(5),
-        "publisher" => SkeletonInspector::new().body_rows(4),
         _ => SkeletonInspector::new(),
     }
 }
