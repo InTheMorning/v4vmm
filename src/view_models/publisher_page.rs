@@ -8,15 +8,50 @@
 //! and packet 004 wires a screen to it.
 
 #![warn(clippy::pedantic)]
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ADR 0077 packet 004 connects a screen to this module. Remove this expectation in that packet."
-    )
-)]
 
 use crate::api::{PublisherLinkResolution, RoleSource};
+
+/// The route that opened a publisher page (ADR 0077 packet 004). This value
+/// selects which `PublisherPageVm` groups the screen shows. It decides no
+/// page type, no role and no action availability: those come from
+/// [`PublisherPageVm`] alone.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PublisherPageContext {
+    /// Reached from the Library. The screen shows `library_albums` and
+    /// `other_albums` as two groups.
+    Library,
+    /// Reached from the Index. The screen shows `owned_albums` and
+    /// `listed_by_albums`, and marks each album with `in_library`.
+    Index,
+}
+
+impl PublisherPageContext {
+    /// The section captions for this page shape (Required Change 4). The
+    /// screen decides no group label of its own.
+    #[must_use]
+    pub(crate) const fn group_labels(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Library => ("Library Albums", "Other Albums"),
+            Self::Index => ("Owned Albums", "Listed By"),
+        }
+    }
+
+    /// `true` when the screen marks each album row with `in_library`
+    /// (Required Change 4: only the Index page shape does this).
+    #[must_use]
+    pub(crate) const fn marks_in_library(self) -> bool {
+        matches!(self, Self::Index)
+    }
+
+    /// The route name for a status report (packet 004).
+    #[must_use]
+    pub(crate) const fn route_name(self) -> &'static str {
+        match self {
+            Self::Library => "Library",
+            Self::Index => "Index",
+        }
+    }
+}
 
 /// One album row on a publisher page, gathered by the owning query.
 ///
@@ -107,12 +142,67 @@ pub(crate) enum AlbumRoleDisplay {
     Unknown,
 }
 
+impl AlbumRoleDisplay {
+    /// The word this role shows, when one side or the default names it
+    /// (ADR 0077 packet 004). `None` for a conflict or an unknown role: the
+    /// screen reads `Self::Conflict`'s own two stated values instead of a
+    /// single word.
+    #[must_use]
+    pub(crate) fn text(&self) -> Option<&str> {
+        match self {
+            Self::Stated { role, .. } | Self::Assumed { role } => Some(role.as_str()),
+            Self::Conflict { .. } | Self::Unknown => None,
+        }
+    }
+
+    /// `true` only when a feed stated this role. `false` for an assumed
+    /// default, a conflict, or an unknown role (R3-07: a default role never
+    /// shows as stated).
+    #[must_use]
+    pub(crate) const fn is_stated(&self) -> bool {
+        matches!(self, Self::Stated { .. })
+    }
+
+    /// The two stated values of a role conflict, ready to view (ADR 0077
+    /// Decision 3, R3-06). `None` when this is not a conflict.
+    #[must_use]
+    pub(crate) fn conflict_text(&self) -> Option<String> {
+        match self {
+            Self::Conflict {
+                publisher_role,
+                music_role,
+            } => Some(format!(
+                "Publisher feed: {} / Album feed: {}",
+                publisher_role.as_deref().unwrap_or(Self::CONFLICT_UNSTATED),
+                music_role.as_deref().unwrap_or(Self::CONFLICT_UNSTATED),
+            )),
+            Self::Stated { .. } | Self::Assumed { .. } | Self::Unknown => None,
+        }
+    }
+
+    /// The word this display shows for a conflict side that states no role.
+    const CONFLICT_UNSTATED: &'static str = "no stated role";
+}
+
 /// The artist of one album, from `remote_release_artist` (R3-14). `None`
 /// when the entry states no artist. The view model invents no placeholder.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AlbumArtistDisplay {
     pub(crate) name: String,
     pub(crate) source: Option<String>,
+}
+
+impl AlbumArtistDisplay {
+    /// The artist name, with its stored owner as supporting text (ADR 0075
+    /// Decision I, packet 004 R4-05). A missing source shows the name
+    /// alone. The screen composes no text of its own.
+    #[must_use]
+    pub(crate) fn display_text(&self) -> String {
+        self.source.as_deref().map_or_else(
+            || self.name.clone(),
+            |source| format!("{} ({source})", self.name),
+        )
+    }
 }
 
 /// One album row, ready to view.
@@ -127,6 +217,16 @@ pub(crate) struct PublisherPageAlbumVm {
     /// unresolved link.
     pub(crate) not_listed: bool,
     pub(crate) in_library: bool,
+}
+
+impl PublisherPageAlbumVm {
+    /// The mark on an owned album that the publisher feed does not list
+    /// (ADR 0077 Accepted Refinements, R3-09).
+    pub(crate) const NOT_LISTED_LABEL: &'static str = "Not listed by the publisher";
+
+    /// The mark on an Index album whose own feed is in the Library
+    /// (packet 004, Required Change 4).
+    pub(crate) const IN_LIBRARY_LABEL: &'static str = "In Library";
 }
 
 /// The state of the albums that are not in the Library (R3-02a).
@@ -149,11 +249,82 @@ impl OtherAlbumsStatus {
     pub(crate) const UNAVAILABLE_REPORT: &'static str = "The app could not load the other albums of this publisher from MusicIndex. The albums in the Library stay on this page.";
 }
 
+/// Display state of the mounted publisher page while it loads, when its
+/// fetch fails, or when none is open (ADR 0077 packet 004). The app layer
+/// only selects which state applies; this module decides its text, the
+/// same as `OtherAlbumsStatus`. A `Failed` state gives a report first, and
+/// its technical detail after it, apart from the report (R3-02a). This
+/// type carries no transport error: the app layer turns one into text
+/// before it reaches here.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PublisherPageLoadDisplay {
+    Loading {
+        message: String,
+    },
+    Failed {
+        report: &'static str,
+        detail: String,
+    },
+    Empty {
+        message: String,
+    },
+}
+
+impl PublisherPageLoadDisplay {
+    /// The report for a publisher page that failed to load.
+    pub(crate) const FAILED_REPORT: &'static str =
+        "The app could not load this publisher page from MusicIndex.";
+
+    /// The message shown when no publisher page is open.
+    pub(crate) const EMPTY_MESSAGE: &'static str = "No publisher page is open.";
+
+    /// The display for a publisher page in flight (packet 004).
+    #[must_use]
+    pub(crate) fn loading(context: PublisherPageContext, publisher_feed_guid: &str) -> Self {
+        Self::Loading {
+            message: format!(
+                "Loading the {} publisher page {publisher_feed_guid}...",
+                context.route_name()
+            ),
+        }
+    }
+
+    /// The display for a publisher page whose fetch failed. `detail` is
+    /// the transport error, already turned into text by the app layer.
+    #[must_use]
+    pub(crate) fn failed(detail: impl Into<String>) -> Self {
+        Self::Failed {
+            report: Self::FAILED_REPORT,
+            detail: detail.into(),
+        }
+    }
+
+    /// The display for a frame with no mounted publisher page.
+    #[must_use]
+    pub(crate) fn empty() -> Self {
+        Self::Empty {
+            message: Self::EMPTY_MESSAGE.to_owned(),
+        }
+    }
+}
+
 /// The type of a publisher page (ADR 0078).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PublisherPageType {
     Artist,
     Label,
+}
+
+impl PublisherPageType {
+    /// The word this page type shows (ADR 0078, packet 004). This word
+    /// never selects the type: `PublisherPageVm::page_type` alone does.
+    #[must_use]
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Artist => "Artist",
+            Self::Label => "Label",
+        }
+    }
 }
 
 /// The derived artist count of a publisher feed (ADR 0077, ADR 0078). It
@@ -168,6 +339,31 @@ impl DerivedArtistCount {
     /// The label the page shows next to the count, naming it as derived,
     /// not stated (ADR 0075 Decision I).
     pub(crate) const LABEL: &'static str = "Derived from album credits";
+
+    /// The count, its derived label, and its artist names, ready to view
+    /// (packet 004). The screen composes no text of its own.
+    #[must_use]
+    pub(crate) fn display_text(&self) -> String {
+        if self.names.is_empty() {
+            format!("{} \u{2014} {}", self.count, Self::LABEL)
+        } else {
+            format!(
+                "{} \u{2014} {} ({})",
+                self.count,
+                Self::LABEL,
+                self.names.join(", ")
+            )
+        }
+    }
+}
+
+/// One header fact of a publisher page, ready to view (packet 004). The
+/// screen shows each fact as a label/value pair. It decides no label and
+/// composes no text of its own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PublisherPageHeaderFact {
+    pub(crate) label: &'static str,
+    pub(crate) value: String,
 }
 
 /// The publisher page view model (ADR 0077 Task 003).
@@ -176,6 +372,14 @@ pub(crate) struct PublisherPageVm {
 }
 
 impl PublisherPageVm {
+    /// Row label for the page type fact (packet 004).
+    pub(crate) const TYPE_LABEL: &'static str = "Type";
+    /// Row label for the "No title" fact, shown only when the feed states
+    /// no title.
+    pub(crate) const TITLE_LABEL: &'static str = "Title";
+    /// Row label for the derived artist count fact.
+    pub(crate) const ARTISTS_LABEL: &'static str = "Artists";
+
     #[must_use]
     pub(crate) const fn new(facts: PublisherPageFacts) -> Self {
         Self { facts }
@@ -189,6 +393,40 @@ impl PublisherPageVm {
             self.facts.feed_title.as_deref(),
             &self.facts.publisher_feed_guid,
         )
+    }
+
+    /// The page title text, ready to view (R4-04). `Missing` gives the
+    /// feed's own GUID: the same fallback `title` gives for the page.
+    #[must_use]
+    pub(crate) fn title_text(&self) -> String {
+        match self.title() {
+            TitleDisplay::Stated(text) => text,
+            TitleDisplay::Missing(guid) => guid,
+        }
+    }
+
+    /// The header facts of this page, ready to view (packet 004). The
+    /// screen shows each fact as a label/value pair; it decides no label
+    /// and composes no text.
+    #[must_use]
+    pub(crate) fn header_facts(&self) -> Vec<PublisherPageHeaderFact> {
+        let mut facts = vec![PublisherPageHeaderFact {
+            label: Self::TYPE_LABEL,
+            value: self.page_type().label().to_owned(),
+        }];
+        if matches!(self.title(), TitleDisplay::Missing(_)) {
+            facts.push(PublisherPageHeaderFact {
+                label: Self::TITLE_LABEL,
+                value: TitleDisplay::MISSING_LABEL.to_owned(),
+            });
+        }
+        if let Some(count) = self.derived_artist_count() {
+            facts.push(PublisherPageHeaderFact {
+                label: Self::ARTISTS_LABEL,
+                value: count.display_text(),
+            });
+        }
+        facts
     }
 
     /// ADR 0078: `Label` only when one owned album states the label role.
@@ -280,6 +518,23 @@ impl PublisherPageVm {
                 detail: detail.clone(),
             },
         }
+    }
+
+    /// Every distinct album artwork URL on this page, in every group
+    /// (ADR 0077 packet 004, orchestrator fix 5). The app layer resolves
+    /// each one through the shared thumbnail path, and passes the resolved
+    /// map to the screen. The screen fetches no image of its own.
+    #[must_use]
+    pub(crate) fn album_image_urls(&self) -> Vec<String> {
+        let mut urls: Vec<String> = self
+            .facts
+            .albums
+            .iter()
+            .filter_map(|album| album.image_url.clone())
+            .collect();
+        urls.sort_unstable();
+        urls.dedup();
+        urls
     }
 
     fn album_vm(album: &PublisherPageAlbumFact) -> PublisherPageAlbumVm {
@@ -563,5 +818,154 @@ mod tests {
         assert_eq!(library, vec![Some("local".to_owned())]);
         assert_eq!(other, vec![Some("remote".to_owned())]);
         assert_eq!(vm.other_albums_status(), OtherAlbumsStatus::Loaded);
+    }
+
+    /// R4-04: the page title text is the view model title, from the
+    /// publisher feed's own `<title>`.
+    #[test]
+    fn adr_0077_publisher_navigation_title_text_uses_stated_title() {
+        let vm = PublisherPageVm::new(facts(vec![]));
+        assert_eq!(vm.title_text(), "Publisher Feed");
+    }
+
+    /// R4-04: a publisher feed without a title shows its GUID as its title
+    /// text, the same value `title` gives for the page.
+    #[test]
+    fn adr_0077_publisher_navigation_title_text_falls_back_to_guid() {
+        let mut page_facts = facts(vec![]);
+        page_facts.feed_title = None;
+        let vm = PublisherPageVm::new(page_facts);
+        assert_eq!(vm.title_text(), "publisher-guid");
+    }
+
+    /// Packet 004: the header facts name the page type. A stated title
+    /// adds no "Title" row.
+    #[test]
+    fn adr_0077_publisher_navigation_header_facts_name_the_page_type() {
+        let vm = PublisherPageVm::new(facts(vec![owned_album(
+            Some("label"),
+            Some(RoleSource::PublisherRel),
+        )]));
+
+        let facts = vm.header_facts();
+
+        assert_eq!(facts[0].label, PublisherPageVm::TYPE_LABEL);
+        assert_eq!(facts[0].value, "Label");
+        assert!(
+            facts
+                .iter()
+                .all(|fact| fact.label != PublisherPageVm::TITLE_LABEL),
+            "a stated title adds no Title row"
+        );
+    }
+
+    /// Packet 004: a publisher feed without a title adds a "Title" row
+    /// naming the missing-title label. The screen writes no such text.
+    #[test]
+    fn adr_0077_publisher_navigation_header_facts_name_a_missing_title() {
+        let mut page_facts = facts(vec![]);
+        page_facts.feed_title = None;
+        let vm = PublisherPageVm::new(page_facts);
+
+        let facts = vm.header_facts();
+
+        let title_row = facts
+            .iter()
+            .find(|fact| fact.label == PublisherPageVm::TITLE_LABEL)
+            .expect("a missing title adds a Title row");
+        assert_eq!(title_row.value, TitleDisplay::MISSING_LABEL);
+    }
+
+    /// Packet 004: the derived artist count header fact names the count as
+    /// derived, and lists the artist names.
+    #[test]
+    fn adr_0077_publisher_navigation_header_facts_name_the_count_as_derived() {
+        let mut page_facts = facts(vec![owned_album(Some("artist"), Some(RoleSource::Default))]);
+        page_facts.distinct_release_artist_count = Some(2);
+        page_facts.distinct_release_artists = vec!["A".into(), "B".into()];
+        let vm = PublisherPageVm::new(page_facts);
+
+        let facts = vm.header_facts();
+
+        let artists_row = facts
+            .iter()
+            .find(|fact| fact.label == PublisherPageVm::ARTISTS_LABEL)
+            .expect("a derived count adds an Artists row");
+        assert!(artists_row.value.contains("2"));
+        assert!(artists_row.value.contains(DerivedArtistCount::LABEL));
+        assert!(artists_row.value.contains("A, B"));
+    }
+
+    /// Packet 004, R4-05: an album artist's display text names its stored
+    /// owner as supporting text. A missing source shows the name alone.
+    #[test]
+    fn adr_0077_publisher_navigation_album_artist_display_text_names_its_source() {
+        let with_source = AlbumArtistDisplay {
+            name: "Stored Artist".into(),
+            source: Some("channel".into()),
+        };
+        assert_eq!(with_source.display_text(), "Stored Artist (channel)");
+
+        let without_source = AlbumArtistDisplay {
+            name: "Stored Artist".into(),
+            source: None,
+        };
+        assert_eq!(without_source.display_text(), "Stored Artist");
+    }
+
+    /// Packet 004: a `Failed` load display gives a report first, and its
+    /// technical detail separately, the same order as `OtherAlbumsStatus`.
+    #[test]
+    fn adr_0077_publisher_navigation_load_display_failed_separates_report_and_detail() {
+        let display = PublisherPageLoadDisplay::failed("HTTP 503 from /v1/feeds/p");
+
+        assert_eq!(
+            display,
+            PublisherPageLoadDisplay::Failed {
+                report: PublisherPageLoadDisplay::FAILED_REPORT,
+                detail: "HTTP 503 from /v1/feeds/p".into(),
+            },
+            "the report comes first, and the transport detail follows it, apart from it"
+        );
+    }
+
+    /// Packet 004: the loading and empty displays give fixed, view-model
+    /// owned text. The app layer builds neither string.
+    #[test]
+    fn adr_0077_publisher_navigation_load_display_loading_and_empty_text() {
+        let loading = PublisherPageLoadDisplay::loading(PublisherPageContext::Library, "p-guid");
+        assert_eq!(
+            loading,
+            PublisherPageLoadDisplay::Loading {
+                message: "Loading the Library publisher page p-guid...".into(),
+            }
+        );
+
+        assert_eq!(
+            PublisherPageLoadDisplay::empty(),
+            PublisherPageLoadDisplay::Empty {
+                message: PublisherPageLoadDisplay::EMPTY_MESSAGE.to_owned(),
+            }
+        );
+    }
+
+    /// Orchestrator fix 5: the view model gathers every album's artwork URL,
+    /// once each, so the app layer can resolve every image through the
+    /// shared thumbnail path. An album with no artwork URL contributes none.
+    #[test]
+    fn adr_0077_publisher_navigation_album_image_urls_are_gathered_once_each() {
+        let mut with_art = owned_album(Some("artist"), Some(RoleSource::Default));
+        with_art.image_url = Some("https://example.test/a.png".into());
+        let mut duplicate_art = owned_album(Some("artist"), Some(RoleSource::Default));
+        duplicate_art.image_url = Some("https://example.test/a.png".into());
+        let mut no_art = owned_album(Some("artist"), Some(RoleSource::Default));
+        no_art.image_url = None;
+
+        let vm = PublisherPageVm::new(facts(vec![with_art, duplicate_art, no_art]));
+
+        assert_eq!(
+            vm.album_image_urls(),
+            vec!["https://example.test/a.png".to_string()]
+        );
     }
 }

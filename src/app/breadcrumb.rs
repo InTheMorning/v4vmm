@@ -35,6 +35,11 @@ impl TopApp {
                 .read(cx)
                 .album_for_detail_by_feed_id(*feed_id)
                 .map_or_else(|| "Album".to_string(), |album| album.name),
+            // ADR 0077 packet 004, R4-04: the breadcrumb text is the
+            // publisher page view model title, when the page has loaded.
+            FrameNavigationEntry::PublisherDetail(publisher_feed_guid) => self
+                .publisher_page_breadcrumb_text()
+                .unwrap_or_else(|| publisher_feed_guid.clone()),
             _ => entry.display_label(),
         }
     }
@@ -63,6 +68,7 @@ impl TopApp {
             self.library.update(cx, |library, cx| {
                 library.hydrate_detail_from_nav(&entry, cx);
             });
+            self.restore_publisher_page_for_nav(&entry, cx);
             if let FrameNavigationEntry::Search(query) = &entry {
                 self.start_index_search_for_query(query, cx);
             }

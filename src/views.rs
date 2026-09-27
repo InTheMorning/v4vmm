@@ -141,6 +141,11 @@ pub struct FeedView {
     pub payment_routes: Vec<api::PaymentRoute>,
     pub contributors: Vec<ContributorView>,
     pub tracks: Vec<TrackView>,
+    /// The publisher feed GUID that this album names, when a stored or
+    /// received relationship states `music_names_publisher = true` (ADR
+    /// 0077 Decision 2, packet 004). `None` when the album names no
+    /// publisher. Never built from name text or `publisher_text`.
+    pub publisher_feed_guid: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -419,6 +424,8 @@ impl FeedView {
             description_from_release_claims(f.source_release_claims.as_deref());
         let identity =
             EntityIdentityLinks::from_api_facts(image_url.clone(), f.source_links, f.source_ids);
+        let publisher_feed_guid =
+            owned_publisher_feed_guid_from_relationships(f.publisher.as_deref());
         Self {
             id: f.feed_guid.clone().map(FeedRef::Musicindex),
             feed_guid: f.feed_guid,
@@ -448,6 +455,7 @@ impl FeedView {
                 .into_iter()
                 .map(TrackView::from_api)
                 .collect(),
+            publisher_feed_guid,
         }
     }
 
@@ -507,8 +515,33 @@ impl FeedView {
             payment_routes: Vec::new(),
             contributors: values.credits,
             tracks,
+            // A local read has no request in hand. The caller sets this
+            // from its own stored relationship read when the screen needs
+            // the "open publisher" action (ADR 0077 packet 004).
+            publisher_feed_guid: None,
         }
     }
+}
+
+/// The publisher feed GUID of the received `music_to_publisher` entry that
+/// states `music_names_publisher = true` (ADR 0077 Decision 2, packet 004).
+/// `None` when the response names no relationship entries, or when no entry
+/// names this album as owned by a publisher. Never reads `publisher_text`.
+fn owned_publisher_feed_guid_from_relationships(
+    relationships: Option<&[api::PublisherRelationship]>,
+) -> Option<String> {
+    relationships?
+        .iter()
+        .find(|entry| {
+            entry.direction.as_deref() == Some("music_to_publisher")
+                && entry.music_names_publisher == Some(true)
+        })
+        .and_then(|entry| {
+            entry
+                .publisher_feed_guid
+                .clone()
+                .or_else(|| entry.remote_feed_guid.clone())
+        })
 }
 
 fn description_from_release_claims(claims: Option<&[api::SourceReleaseClaim]>) -> Option<String> {

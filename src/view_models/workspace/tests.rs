@@ -600,6 +600,27 @@ fn breadcrumb_display_projects_navigation_path() {
     );
 }
 
+/// R4-04 (ADR 0077 packet 004): the publisher breadcrumb segment shows the
+/// title that its `label_for` closure supplies (the view model title at the
+/// call site), not the publisher feed GUID.
+#[test]
+fn adr_0077_publisher_navigation_breadcrumb_shows_view_model_title() {
+    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    nav.push(FrameNavigationEntry::PublisherDetail(
+        "publisher-guid".to_string(),
+    ));
+
+    let display = BreadcrumbDisplay::project("publisher-breadcrumb", &nav, |entry| match entry {
+        FrameNavigationEntry::PublisherDetail(_) => "Wavlake Artists".to_string(),
+        _ => "Library".to_string(),
+    });
+
+    assert_eq!(display.segments.len(), 2);
+    assert_eq!(display.segments[1].label, "Wavlake Artists");
+    assert!(display.segments[1].is_current);
+    assert_eq!(display.segments[1].target, None);
+}
+
 #[test]
 fn breadcrumb_display_projects_index_search_drilldown_path() {
     let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
@@ -1342,6 +1363,38 @@ fn navigation_push_pop_round_trip() {
     assert!(
         !nav.can_go_forward(),
         "round-trip should consume forward history"
+    );
+}
+
+/// R4-04 (ADR 0077 packet 004): the publisher navigation entry keys on the
+/// publisher feed GUID, so two different GUIDs are two different entries
+/// and pushing a repeated GUID is a no-op, the same as every other entry.
+#[test]
+fn adr_0077_publisher_navigation_entry_keys_on_guid() {
+    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+
+    nav.push(FrameNavigationEntry::PublisherDetail("guid-a".into()));
+    assert_eq!(
+        nav.current(),
+        &FrameNavigationEntry::PublisherDetail("guid-a".into())
+    );
+    assert!(nav.can_go_back());
+
+    nav.push(FrameNavigationEntry::PublisherDetail("guid-a".into()));
+    assert!(
+        !nav.can_go_forward(),
+        "repeating the same publisher feed GUID must not push a duplicate entry"
+    );
+
+    nav.push(FrameNavigationEntry::PublisherDetail("guid-b".into()));
+    assert_eq!(
+        nav.current(),
+        &FrameNavigationEntry::PublisherDetail("guid-b".into())
+    );
+    assert_ne!(
+        nav.current(),
+        &FrameNavigationEntry::PublisherDetail("guid-a".into()),
+        "two different publisher feed GUIDs must be two different entries"
     );
 }
 

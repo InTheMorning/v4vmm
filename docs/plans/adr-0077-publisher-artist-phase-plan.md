@@ -13,13 +13,14 @@ and [ADR 0079](../adr/0079-remove-musicindex-artist-subject-storage.md) own the 
 | [001](../tasks/adr-0077-task-001-remove-dead-artist-storage.md) | Delete the ADR 0045 binding and the ADR 0029 artist subject storage | ADR 0077 Decision 7, ADR 0079 | None | Implemented 2026-09-24. Mechanical checks Green. Visual gate open and paused |
 | [002](../tasks/adr-0077-task-002-publisher-relationship-transport-and-storage.md) | Decode the publisher relationship and store it for each Library feed | ADR 0077 Decisions 2 and 5 | 001 | Implemented 2026-09-24. Mechanical checks Green. No visual gate |
 | [003](../tasks/adr-0077-task-003-publisher-page-view-model.md) | Publisher page query and view model | ADR 0077, ADR 0078 | 002, and Stophammer ADR 0059 | Implemented 2026-09-26. Mechanical checks Green. No visual gate |
-| [004](../tasks/adr-0077-task-004-publisher-navigation-and-presentation.md) | Navigation, screens, feed owner text and the name search | ADR 0077 Decisions 1, 2 and 6 | 003 | Next. Its task review comes first |
+| [004](../tasks/adr-0077-task-004-publisher-navigation-and-presentation.md) | Publisher page, navigation from an album and a track, and the Library album values | ADR 0077 Decisions 1 and 2, ADR 0078 | 003 | Implemented 2026-09-26. Mechanical checks Green. Visual gate open and paused |
+| [005](../tasks/adr-0077-task-005-feed-owner-text-and-name-search.md) | Feed owner text, removal of the `publisher_text` inspector, the name search and the name grouping label | ADR 0077 Decisions 1, 2 and 6 | 004 | Ready 2026-09-26 |
 
 Packet 001 added schema version 13, and packet 002 added schema version 14.
 
 ## Held Work
 
-Packet 004 is ready for its task review. Packet 003 is implemented.
+Packet 004 is implemented on 2026-09-26. Packet 005 is next.
 
 Stophammer deployed the album summary fields of its ADR 0059 on 2026-09-26, at commit `264706e`.
 The [open Stophammer requests](v4vmm-open-requests.md#verification-by-v4vmm---2026-09-26) record the v4vmm verification.

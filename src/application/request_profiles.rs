@@ -136,13 +136,6 @@ pub(crate) const INSPECTOR_TRACK_DETAIL_FEED: RequestProfile =
 /// publisher page queries (ADR 0077 Task 003). Owners:
 /// `feed::fetch_index_publisher_page_albums` and
 /// `library::fetch_library_publisher_page`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ADR 0077 packet 004 connects a screen to this item. Remove this expectation in that packet."
-    )
-)]
 pub(crate) const INDEX_PUBLISHER_PAGE: RequestProfile =
     RequestProfile::new(RequestPathShape::Feed, Some("publisher"));
 

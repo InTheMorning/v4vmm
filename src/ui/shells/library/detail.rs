@@ -37,6 +37,7 @@ pub(crate) fn render_library_detail(
     renaming_playlist_id: Option<i64>,
     playlist_actor: Option<&PlaylistActorState>,
     playlist_rss_check: Option<&crate::runtime::PlaylistRssCheckSnapshot>,
+    track_publisher_feed_guid: Option<&str>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     match detail {
@@ -65,9 +66,14 @@ pub(crate) fn render_library_detail(
             cx,
         ),
 
-        LibraryDetail::Track(frame) => {
-            render_library_track_detail(frame, track_breadcrumb, playlists, chrome, cx)
-        }
+        LibraryDetail::Track(frame) => render_library_track_detail(
+            frame,
+            track_breadcrumb,
+            playlists,
+            chrome,
+            track_publisher_feed_guid,
+            cx,
+        ),
 
         LibraryDetail::Playlist(detail) => render_library_playlist_detail(
             detail,

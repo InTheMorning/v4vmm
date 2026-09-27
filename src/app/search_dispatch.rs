@@ -33,10 +33,13 @@ use crate::ui::shells::search_results_inspector::{
     render_index_detail_display, render_index_feed_detail, render_index_track_detail,
 };
 use crate::ui::shells::track::TrackDetailBehaviorSlots;
-use crate::view_models::entity_detail::{EntitySurfaceContext, SharedTrackRowVm};
+use crate::view_models::entity_detail::{
+    EntityActionTarget, EntitySurfaceContext, ReleaseDetailVm, SharedTrackRowVm,
+};
+use crate::view_models::publisher_page::PublisherPageContext;
 use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchResultsTab};
 use crate::view_models::workspace::{FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId};
-use crate::views::{FeedRef, FeedView, TrackRef, TrackView};
+use crate::views::{ArtistRef, FeedRef, FeedView, TrackRef, TrackView};
 
 use super::{AppTab, TopApp};
 
@@ -647,11 +650,47 @@ impl TopApp {
             this.create_playlist_and_add_index_feed(name, feed_for_create.clone(), cx);
         }));
 
-        vec![
+        let mut actions = vec![
             ReleaseSurfaceElement::from_element(download.into_any_element()),
             ReleaseSurfaceElement::from_element(musicbrainz.into_any_element()),
             ReleaseSurfaceElement::from_element(playlist.into_any_element()),
-        ]
+        ];
+        // ADR 0077 packet 004: an Index album with a received publisher
+        // relationship exposes an "open publisher" action. This reads the
+        // relationship that the L2 feed detail request already carries
+        // (ADR 0077 Decision 5); it sends no new request.
+        if let Some(publisher_action) =
+            ReleaseDetailVm::new(feed, EntitySurfaceContext::Library).publisher_action()
+        {
+            let a11y_label = publisher_action.a11y_label();
+            let EntityActionTarget::Artist(ArtistRef::PublisherFeed(publisher_feed_guid)) =
+                publisher_action.target
+            else {
+                unreachable!(
+                    "ReleaseDetailVm::publisher_action always targets a publisher feed GUID"
+                )
+            };
+            let open_publisher = action_button(
+                ActionButtonDisplay {
+                    label: SharedString::from(publisher_action.label),
+                    a11y_label: SharedString::from(a11y_label),
+                },
+                cx,
+            )
+            .disabled(!publisher_action.enabled)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.open_publisher_page(
+                    publisher_feed_guid.clone(),
+                    PublisherPageContext::Index,
+                    cx,
+                );
+            }));
+            actions.push(ReleaseSurfaceElement::from_element(
+                open_publisher.into_any_element(),
+            ));
+        }
+
+        actions
     }
 
     fn index_feed_track_rows(

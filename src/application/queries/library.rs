@@ -278,6 +278,46 @@ impl ApplicationCommand for CompareLibraryTrack {
     }
 }
 
+/// Reads a Library publisher page (ADR 0077 packet 004).
+#[derive(Clone, Debug)]
+pub(crate) struct FetchLibraryPublisherPage {
+    conn: SharedConnection,
+    musicindex_endpoint: crate::config::MusicIndexEndpoint,
+    publisher_feed_guid: String,
+}
+
+impl FetchLibraryPublisherPage {
+    /// Creates a Library publisher page query command.
+    #[must_use]
+    pub(crate) fn new(
+        conn: SharedConnection,
+        musicindex_endpoint: impl Into<crate::config::MusicIndexEndpoint>,
+        publisher_feed_guid: impl Into<String>,
+    ) -> Self {
+        Self {
+            conn,
+            musicindex_endpoint: musicindex_endpoint.into(),
+            publisher_feed_guid: publisher_feed_guid.into(),
+        }
+    }
+}
+
+impl ApplicationCommand for FetchLibraryPublisherPage {
+    type Output = PublisherPageFacts;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        fetch_library_publisher_page(
+            &self.conn,
+            &self.musicindex_endpoint,
+            &self.publisher_feed_guid,
+        )
+        .map(CommandOutcome::without_events)
+    }
+}
+
 impl ApplicationQueryService {
     /// Counts playlists that currently reference a local track.
     ///
@@ -390,6 +430,12 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
                         .iter()
                         .find_map(|t| t.album_image_href.clone())
                         .or_else(|| tracks.iter().find_map(|t| t.track_image_href.clone()));
+                    // ADR 0077 packet 004: the "open publisher" action of
+                    // the album needs the stored owned relationship, when
+                    // one exists (Decision 2).
+                    let publisher_feed_guid = feed_id.and_then(|fid| {
+                        db::publisher_relationships::owned_publisher_feed_guid(conn, fid).ok()?
+                    });
                     AlbumNode {
                         name: album_name,
                         feed_id,
@@ -398,6 +444,7 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
                         language,
                         description,
                         image_href,
+                        publisher_feed_guid,
                         identity_facts: feed_id
                             .and_then(|fid| crate::local_identity::feed_facts(conn, fid).ok())
                             .unwrap_or_default(),
@@ -736,48 +783,29 @@ fn hydrate_album_identity_facts(
 /// Returns an error only when the local read of the Library group fails.
 /// A failure of the network request is not an error here: it is folded
 /// into `PublisherPageFacts::other_albums_failure`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ADR 0077 packet 004 connects a screen to this item. Remove this expectation in that packet."
-    )
-)]
 pub(crate) fn fetch_library_publisher_page(
     conn: &SharedConnection,
     endpoint: &crate::config::MusicIndexEndpoint,
     publisher_feed_guid: &str,
 ) -> Result<PublisherPageFacts, CommandError> {
-    let local = {
+    let (feed_title, library_feed_guids, mut albums) = {
         let db = conn.lock().map_err(|_| poisoned_lock())?;
-        db::publisher_relationships::local_albums_for_publisher(&db, publisher_feed_guid)
-            .map_err(|error| query_error(&error))?
+        let local =
+            db::publisher_relationships::local_albums_for_publisher(&db, publisher_feed_guid)
+                .map_err(|error| query_error(&error))?;
+        let feed_title = local
+            .iter()
+            .find_map(|album| album.publisher_feed_title.clone());
+        let library_feed_guids: BTreeSet<String> = local
+            .iter()
+            .filter_map(|album| album.feed_guid.clone())
+            .collect();
+        let albums = local
+            .into_iter()
+            .map(|album| library_publisher_album_fact(&db, album))
+            .collect::<Vec<_>>();
+        (feed_title, library_feed_guids, albums)
     };
-    let feed_title = local
-        .iter()
-        .find_map(|album| album.publisher_feed_title.clone());
-    let library_feed_guids: BTreeSet<String> = local
-        .iter()
-        .filter_map(|album| album.feed_guid.clone())
-        .collect();
-    let mut albums: Vec<PublisherPageAlbumFact> = local
-        .into_iter()
-        .map(|album| PublisherPageAlbumFact {
-            feed_guid: album.feed_guid,
-            title: album.title,
-            image_url: album.image_url,
-            artist: None,
-            artist_source: None,
-            role: album.role,
-            role_source: album.role_source,
-            music_names_publisher: Some(true),
-            publisher_lists_music: album.publisher_lists_music,
-            publisher_link_resolution: album.publisher_link_resolution,
-            publisher_rel: album.publisher_rel,
-            music_rel: album.music_rel,
-            in_library: true,
-        })
-        .collect();
 
     let client = crate::api::Client::new_with_base_url(endpoint.clone());
     let provider_identity = endpoint.require().map(str::to_owned).unwrap_or_default();
@@ -816,6 +844,61 @@ pub(crate) fn fetch_library_publisher_page(
         albums,
         other_albums_failure,
     })
+}
+
+/// One Library album row of a publisher page (ADR 0077 packet 004). The
+/// title, image and artist come from `stored_values::feed_values`, the one
+/// projection that owns the stored value of a field (ADR 0076 Decision 1).
+/// A Library album with no stored artist shows no artist: this function
+/// invents no placeholder.
+fn library_publisher_album_fact(
+    conn: &Connection,
+    album: db::publisher_relationships::LocalPublisherAlbum,
+) -> PublisherPageAlbumFact {
+    let stored = stored_values::feed_values(conn, album.feed_id).ok();
+    let (title, image_url, artist, artist_source) = match stored {
+        Some(values) => {
+            let artist = values.album_artist.value;
+            let artist_source = artist
+                .is_some()
+                .then(|| stored_value_owner_text(values.album_artist.owner).to_owned());
+            (
+                values.title.value,
+                values.artwork.value,
+                artist,
+                artist_source,
+            )
+        }
+        // The stored value projection could not read this feed. The join
+        // already read from the same local feed row (ADR 0075 packet 020),
+        // so its title and image stay as a fallback. It carries no artist.
+        None => (album.title, album.image_url, None, None),
+    };
+    PublisherPageAlbumFact {
+        feed_guid: album.feed_guid,
+        title,
+        image_url,
+        artist,
+        artist_source,
+        role: album.role,
+        role_source: album.role_source,
+        music_names_publisher: Some(true),
+        publisher_lists_music: album.publisher_lists_music,
+        publisher_link_resolution: album.publisher_link_resolution,
+        publisher_rel: album.publisher_rel,
+        music_rel: album.music_rel,
+        in_library: true,
+    }
+}
+
+/// The RSS element that stated an album's artist, as text (ADR 0075
+/// Decision I). `stored_values::project_feed` gives the album artist as a
+/// channel value.
+const fn stored_value_owner_text(owner: stored_values::ValueOwner) -> &'static str {
+    match owner {
+        stored_values::ValueOwner::Channel => "channel",
+        stored_values::ValueOwner::Item => "item",
+    }
 }
 
 fn compare_library_track(
@@ -3353,6 +3436,62 @@ mod adr_0077_publisher_page_tests {
             facts.distinct_release_artist_count, None,
             "a failed request carries no derived artist count"
         );
+    }
+
+    /// R4-05 (ADR 0077 packet 004): a Library album's title, image and
+    /// artist come from `stored_values::feed_values`, with the stored
+    /// owner as the source text.
+    #[test]
+    fn adr_0077_publisher_navigation_library_album_reads_stored_values() {
+        let fixture = Fixture::start();
+        let conn = conn_with_local_album();
+        {
+            let db = conn.lock().unwrap();
+            db.execute(
+                "UPDATE feeds
+                 SET title = 'Stored Title',
+                     album_image_href = 'https://example.test/stored.jpg',
+                     album_artist = 'Stored Artist'
+                 WHERE id = 1",
+                [],
+            )
+            .unwrap();
+        }
+
+        let facts = fetch_library_publisher_page(&conn, &fixture.endpoint, "publisher-guid")
+            .expect("the query should succeed");
+
+        let local = facts
+            .albums
+            .iter()
+            .find(|album| album.feed_guid.as_deref() == Some("album-guid-local"))
+            .expect("the Library album stays");
+        assert_eq!(local.title.as_deref(), Some("Stored Title"));
+        assert_eq!(
+            local.image_url.as_deref(),
+            Some("https://example.test/stored.jpg")
+        );
+        assert_eq!(local.artist.as_deref(), Some("Stored Artist"));
+        assert_eq!(local.artist_source.as_deref(), Some("channel"));
+    }
+
+    /// R4-05: a Library album with no stored artist exposes no artist. The
+    /// view model invents no placeholder.
+    #[test]
+    fn adr_0077_publisher_navigation_library_album_without_stored_artist_exposes_none() {
+        let fixture = Fixture::start();
+        let conn = conn_with_local_album();
+
+        let facts = fetch_library_publisher_page(&conn, &fixture.endpoint, "publisher-guid")
+            .expect("the query should succeed");
+
+        let local = facts
+            .albums
+            .iter()
+            .find(|album| album.feed_guid.as_deref() == Some("album-guid-local"))
+            .expect("the Library album stays");
+        assert_eq!(local.artist, None);
+        assert_eq!(local.artist_source, None);
     }
 }
 

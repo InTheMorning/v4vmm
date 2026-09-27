@@ -28,14 +28,15 @@ use crate::ui::shells::entity::{
 use crate::ui::style::{color, spacing, typography};
 use crate::view_models::entity_detail::{
     ContributorIdentityActionDisplay, ContributorIdentityActionKind, ContributorRowVm,
-    EntityActionKind, EntityActionTone, EntityActionVm, EntitySurfaceContext, ReleaseDetailVm,
+    EntityActionKind, EntityActionTarget, EntityActionTone, EntityActionVm, EntitySurfaceContext,
+    ReleaseDetailVm,
 };
 use crate::view_models::library::{
     AlbumNode, LibraryAlbumDetailVm, LibraryTrackRowDisplay, LibraryTrackRowVm, LibraryViewModel,
     MbStatusKind, MbTrackStatus,
 };
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
-use crate::views::{FeedView, TrackView};
+use crate::views::{ArtistRef, FeedView, TrackView};
 
 #[expect(
     clippy::too_many_lines,
@@ -69,7 +70,7 @@ pub(crate) fn render_library_feed_detail(
         .collect();
     // ADR 0075 packet 020: the query layer projects the stored values of the
     // feed. An album without a feed row has only its columns.
-    let feed_view = match album.stored_values.as_deref() {
+    let mut feed_view = match album.stored_values.as_deref() {
         Some(values) => FeedView::from_local_with_facts(
             feed_row,
             track_views,
@@ -80,6 +81,11 @@ pub(crate) fn render_library_feed_detail(
             FeedView::from_local_with_identity(feed_row, track_views, album.identity_facts.clone())
         }
     };
+    // ADR 0077 packet 004: the query layer already read the stored owned
+    // relationship of this album (Decision 2). The screen adds no request.
+    feed_view
+        .publisher_feed_guid
+        .clone_from(&album.publisher_feed_guid);
 
     let thumb_image = album
         .image_href
@@ -140,7 +146,8 @@ pub(crate) fn render_library_feed_detail(
                     | EntityActionKind::OpenMusicBrainz
                     | EntityActionKind::OpenWebsite
                     | EntityActionKind::CopyNostr
-                    | EntityActionKind::OpenRss => {}
+                    | EntityActionKind::OpenRss
+                    | EntityActionKind::OpenPublisher => {}
                 }
                 cx.notify();
             })),
@@ -179,6 +186,36 @@ pub(crate) fn render_library_feed_detail(
             }))
             .on_create(cx.listener(move |this, name: &String, _window, cx| {
                 this.create_playlist_and_add_album(name, fid, cx);
+            })),
+        );
+    }
+    // ADR 0077 packet 004: an album with an owned publisher relationship
+    // exposes an "open publisher" action. An album without one exposes none.
+    if let Some(publisher_action) =
+        ReleaseDetailVm::new(&feed_view, EntitySurfaceContext::Library).publisher_action()
+    {
+        let a11y_label = publisher_action.a11y_label();
+        let EntityActionVm {
+            label,
+            enabled,
+            target,
+            ..
+        } = publisher_action;
+        let EntityActionTarget::Artist(ArtistRef::PublisherFeed(publisher_feed_guid)) = target
+        else {
+            unreachable!("ReleaseDetailVm::publisher_action always targets a publisher feed GUID")
+        };
+        buttons = buttons.child(
+            action_button(
+                ActionButtonDisplay {
+                    label: SharedString::from(label),
+                    a11y_label: SharedString::from(a11y_label),
+                },
+                cx,
+            )
+            .disabled(!enabled)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.open_publisher_page(&publisher_feed_guid, cx);
             })),
         );
     }

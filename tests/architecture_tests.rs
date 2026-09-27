@@ -396,6 +396,7 @@ const SCREEN_FILES: &[&str] = &[
     "src/app/keyboard.rs",
     "src/app/menu.rs",
     "src/app/playback_bar.rs",
+    "src/app/publisher_dispatch.rs",
     "src/app/resize.rs",
     "src/app/search_dispatch.rs",
     "src/app/tab_bar.rs",
@@ -19772,6 +19773,75 @@ text or `publisher_text`.";
     assert!(
         violations.is_empty(),
         "ADR 0077 Decision 1 publisher feed identity violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational — ADR 0077 packet 004 (R4-06): the durable renderer
+/// portability rule in AGENTS.md. The publisher page screen reads the page
+/// type, the role labels, the group labels and the "not listed"/"in
+/// library" marks from `PublisherPageVm`/`PublisherPageContext` only. It
+/// never hardcodes the words those types compute, and it composes no
+/// display string, such as a count-and-label pair or a glyph, of its own
+/// (orchestrator review, packet 004 fix 2). Delete this guard only when
+/// AGENTS.md drops the renderer portability rule.
+#[test]
+fn adr_0077_publisher_navigation_screen_reads_labels_from_view_model_only() {
+    const FIX: &str = "AGENTS.md durable renderer portability rule: a screen decides no page type, \
+no role label, no group, no composed display string and no action availability. Read \
+`PublisherPageType::label()`, `AlbumRoleDisplay::text()`, `PublisherPageContext::group_labels()`, \
+`PublisherPageAlbumVm::NOT_LISTED_LABEL`, `PublisherPageAlbumVm::IN_LIBRARY_LABEL`, \
+`AlbumArtistDisplay::display_text()`, `DerivedArtistCount::display_text()` and \
+`PublisherPageVm::header_facts()`/`title_text()` from `src/view_models/publisher_page.rs` instead of \
+writing the word, the composed string or the glyph directly in the screen.";
+    const FORBIDDEN: &[&str] = &[
+        "\"Artist\"",
+        "\"Label\"",
+        "\"Not listed",
+        "\"In Library\"",
+        "\"Library Albums\"",
+        "\"Other Albums\"",
+        "\"Owned Albums\"",
+        "\"Listed By\"",
+    ];
+    /// A `\u{...}` escape is a glyph, such as an em dash, composed straight
+    /// into the screen. AGENTS.md token discipline: "No raw literal and no
+    /// glyph string in a renderer."
+    const GLYPH_ESCAPE: &str = "\\u{";
+    /// A string literal passed straight to `Label::new` is a display label
+    /// the screen invented, not one the view model computed.
+    const LITERAL_LABEL: &str = "Label::new(\"";
+
+    let path = manifest_path("src/ui/shells/publisher.rs");
+    let source = read_source(&path);
+    let mut violations = Vec::new();
+    for (line_number, line) in code_lines(&source) {
+        for forbidden in FORBIDDEN {
+            if line.contains(forbidden) {
+                violations.push(format!(
+                    "{}:{line_number}: publisher page screen hardcodes {forbidden}: `{line}`\n  {FIX}",
+                    rel_path(&path)
+                ));
+            }
+        }
+        if line.contains(GLYPH_ESCAPE) {
+            violations.push(format!(
+                "{}:{line_number}: publisher page screen embeds a glyph escape: `{line}`\n  {FIX}",
+                rel_path(&path)
+            ));
+        }
+        if line.contains(LITERAL_LABEL) {
+            violations.push(format!(
+                "{}:{line_number}: publisher page screen passes a quoted display label to \
+`Label::new`: `{line}`\n  {FIX}",
+                rel_path(&path)
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0077 packet 004 publisher page screen renderer portability violations:\n{}",
         violations.join("\n")
     );
 }

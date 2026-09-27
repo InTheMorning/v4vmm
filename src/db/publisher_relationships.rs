@@ -196,15 +196,12 @@ pub(crate) fn upsert_feed_publisher_relationships(
 /// feed GUID (ADR 0077 Task 003). The Library publisher page query uses
 /// this to build its Library album group without a request, and the Index
 /// publisher page query uses it to mark each album that is in the Library.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ADR 0077 packet 004 connects a screen to this item. Remove this expectation in that packet."
-    )
-)]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct LocalPublisherAlbum {
+    /// The local `feeds.id` of the album feed (ADR 0077 packet 004). The
+    /// Library publisher page query uses this to read the album's title,
+    /// image and artist from `stored_values::feed_values`.
+    pub(crate) feed_id: i64,
     /// The album feed's own GUID, from the local `feeds` row.
     pub(crate) feed_guid: Option<String>,
     /// The album feed's own title, from the local `feeds` row.
@@ -232,22 +229,15 @@ pub(crate) struct LocalPublisherAlbum {
 /// # Errors
 ///
 /// Returns an error when the database read fails.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ADR 0077 packet 004 connects a screen to this item. Remove this expectation in that packet."
-    )
-)]
 pub(crate) fn local_albums_for_publisher(
     conn: &Connection,
     publisher_feed_guid: &str,
 ) -> Result<Vec<LocalPublisherAlbum>> {
     let mut statement = conn
         .prepare(
-            "SELECT feeds.feed_guid, feeds.title, feeds.album_image_href, r.publisher_feed_title,
-                    r.role, r.role_source, r.publisher_lists_music, r.publisher_link_resolution,
-                    r.publisher_rel, r.music_rel
+            "SELECT feeds.id, feeds.feed_guid, feeds.title, feeds.album_image_href,
+                    r.publisher_feed_title, r.role, r.role_source, r.publisher_lists_music,
+                    r.publisher_link_resolution, r.publisher_rel, r.music_rel
              FROM feed_publisher_relationships r
              JOIN feeds ON feeds.id = r.feed_id
              WHERE r.direction = 'music_to_publisher' AND r.publisher_feed_guid = ?1
@@ -257,26 +247,50 @@ pub(crate) fn local_albums_for_publisher(
     let rows = statement
         .query_map(params![publisher_feed_guid], |row| {
             Ok(LocalPublisherAlbum {
-                feed_guid: row.get(0)?,
-                title: row.get(1)?,
-                image_url: row.get(2)?,
-                publisher_feed_title: row.get(3)?,
-                role: row.get(4)?,
+                feed_id: row.get(0)?,
+                feed_guid: row.get(1)?,
+                title: row.get(2)?,
+                image_url: row.get(3)?,
+                publisher_feed_title: row.get(4)?,
+                role: row.get(5)?,
                 role_source: row
-                    .get::<_, Option<String>>(5)?
+                    .get::<_, Option<String>>(6)?
                     .map(crate::api::RoleSource::from),
-                publisher_lists_music: row.get(6)?,
+                publisher_lists_music: row.get(7)?,
                 publisher_link_resolution: row
-                    .get::<_, Option<String>>(7)?
+                    .get::<_, Option<String>>(8)?
                     .map(crate::api::PublisherLinkResolution::from),
-                publisher_rel: row.get(8)?,
-                music_rel: row.get(9)?,
+                publisher_rel: row.get(9)?,
+                music_rel: row.get(10)?,
             })
         })
         .context("Query local albums for publisher")?
         .collect::<rusqlite::Result<Vec<_>>>()
         .context("Read local albums for publisher")?;
     Ok(rows)
+}
+
+/// The publisher feed GUID that one local feed names, when its stored
+/// `music_to_publisher` row states `music_names_publisher = true` (ADR 0077
+/// packet 004, Decision 2). `None` when the feed has no such stored row.
+///
+/// A screen uses this value to expose the "open publisher" action of an
+/// album. No screen builds that action from name text.
+///
+/// # Errors
+///
+/// Returns an error when the database read fails.
+pub(crate) fn owned_publisher_feed_guid(conn: &Connection, feed_id: i64) -> Result<Option<String>> {
+    use rusqlite::OptionalExtension as _;
+    conn.query_row(
+        "SELECT publisher_feed_guid FROM feed_publisher_relationships
+         WHERE feed_id = ?1 AND direction = 'music_to_publisher' AND music_names_publisher = 1
+         ORDER BY observed_at DESC LIMIT 1",
+        params![feed_id],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .context("Read owned publisher feed GUID")
 }
 
 /// The RSS-stated remote of the first `music_to_publisher` row of a feed:
@@ -699,6 +713,7 @@ mod tests {
 
         assert_eq!(albums.len(), 1, "only the feed that names publisher-a");
         let album = &albums[0];
+        assert_eq!(album.feed_id, 1);
         assert_eq!(album.feed_guid.as_deref(), Some("album-guid-1"));
         assert_eq!(album.title.as_deref(), Some("Album One"));
         assert_eq!(
@@ -727,5 +742,46 @@ mod tests {
         assert!(local_albums_for_publisher(&conn, "publisher-missing")
             .unwrap()
             .is_empty());
+    }
+
+    /// R4-01/R4-02 (ADR 0077 packet 004): `owned_publisher_feed_guid` gives
+    /// the publisher feed GUID only for a feed with a stored row that names
+    /// the publisher. A feed with no such row, or a "listed by" row where
+    /// `music_names_publisher` is not `true`, gives `None`.
+    #[test]
+    fn adr_0077_publisher_navigation_owned_publisher_feed_guid_requires_stored_ownership() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        upgrades::create_fixture(&conn, CURRENT_VERSION).unwrap();
+        conn.execute_batch(
+            "INSERT INTO feeds(id, feed_url, feed_guid) VALUES (1, 'https://example.test/one.xml', 'album-guid-1');
+             INSERT INTO feeds(id, feed_url, feed_guid) VALUES (2, 'https://example.test/two.xml', 'album-guid-2');",
+        )
+        .unwrap();
+        let owned = PublisherRelationship {
+            music_names_publisher: Some(true),
+            ..entry("publisher-a", Some("artist"))
+        };
+        let not_owned = PublisherRelationship {
+            music_names_publisher: Some(false),
+            ..entry("publisher-b", None)
+        };
+        upsert_feed_publisher_relationships(&mut conn, 1, None, Some(&[owned]), 10).unwrap();
+        upsert_feed_publisher_relationships(&mut conn, 2, None, Some(&[not_owned]), 10).unwrap();
+
+        assert_eq!(
+            owned_publisher_feed_guid(&conn, 1).unwrap().as_deref(),
+            Some("publisher-a"),
+            "a feed with music_names_publisher = true exposes the publisher feed GUID"
+        );
+        assert_eq!(
+            owned_publisher_feed_guid(&conn, 2).unwrap(),
+            None,
+            "a feed with music_names_publisher = false exposes no publisher feed GUID"
+        );
+        assert_eq!(
+            owned_publisher_feed_guid(&conn, 99).unwrap(),
+            None,
+            "a feed with no stored relationship row exposes no publisher feed GUID"
+        );
     }
 }

@@ -121,6 +121,9 @@ fn breadcrumb_entry_id(entry: &FrameNavigationEntry) -> String {
         FrameNavigationEntry::TrackDetail(id) => format!("track-{id}"),
         FrameNavigationEntry::AlbumDetail(id) => format!("album-{id}"),
         FrameNavigationEntry::ArtistDetail(name) => format!("artist-{}", slug_id(name)),
+        FrameNavigationEntry::PublisherDetail(publisher_feed_guid) => {
+            format!("publisher-{}", slug_id(publisher_feed_guid))
+        }
         FrameNavigationEntry::Search(query) => format!("search-{}", slug_id(query)),
         FrameNavigationEntry::IndexArtistFeedScope(name) => {
             format!("index-artist-{}", slug_id(name))

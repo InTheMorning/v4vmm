@@ -31,6 +31,9 @@ pub(crate) enum FrameNavigationEntry {
     AlbumDetail(i64),
     /// Artist detail by display name.
     ArtistDetail(String),
+    /// Publisher page by publisher feed GUID (ADR 0077 Decision 1). This
+    /// entry never keys on name text or on `publisher_text`.
+    PublisherDetail(String),
     /// Search results by submitted query.
     Search(String),
     /// Remote Index feed results scoped by an artist result display name.
@@ -67,6 +70,9 @@ impl FrameNavigationEntry {
             Self::TrackDetail(id) => format!("Track {id}"),
             Self::AlbumDetail(id) => format!("Album {id}"),
             Self::ArtistDetail(name) | Self::IndexArtistFeedScope(name) => name.clone(),
+            // The publisher page view model gives the real title. This
+            // fallback shows only when no caller supplies that title.
+            Self::PublisherDetail(publisher_feed_guid) => publisher_feed_guid.clone(),
             Self::Search(query) => {
                 if query.trim().is_empty() {
                     "Search".to_string()

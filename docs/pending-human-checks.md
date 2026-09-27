@@ -459,3 +459,17 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-2
 - The Library track page now shows the stored credit list, also when the MusicIndex fetch succeeds. The operator can reject this at V1.
 - The check sends real HTTP requests to the feed hosts of the playlist, and it writes RSS values into the stored values.
 - This packet adds no migration, so it needs no backup. The packet gives the fixture and cleanup commands.
+
+## 20. Publisher Page And Navigation — ADR 0077 Task 004
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-26. Operator inspection is pending.
+
+- Owner: [packet 004](tasks/adr-0077-task-004-publisher-navigation-and-presentation.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks. It needs a Library album whose album hydration stored a `music_to_publisher` row.
+- V1: an album page opens its publisher page, with its title, its type and its albums, in Light and Dark themes.
+- V2: a track page opens the publisher page of its album.
+- V3: a Library publisher page shows the Library albums and the other albums as two groups. With MusicIndex unreachable, the Library group stays and the report comes first.
+- V4: a stated role and an assumed role show different text. A "Not listed" album and a derived artist count are marked.
+- V5: normal and narrow widths show each element in its place, with no clipped text.
+- The Index track page shows no "Open publisher" action. The packet records this as a deviation.
+- V3 changes the MusicIndex endpoint in Settings. Restore it after the check.

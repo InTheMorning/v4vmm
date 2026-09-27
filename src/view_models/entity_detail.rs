@@ -40,6 +40,9 @@ pub enum EntityActionKind {
     OpenWebsite,
     CopyNostr,
     OpenRss,
+    /// Opens the publisher page of an album's owned relationship (ADR 0077
+    /// packet 004). The target carries the publisher feed GUID.
+    OpenPublisher,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -615,7 +618,8 @@ impl EntityActionVm {
             | EntityActionKind::AddToPlaylist
             | EntityActionKind::Play
             | EntityActionKind::CompareMetadata
-            | EntityActionKind::OpenMusicBrainz => return None,
+            | EntityActionKind::OpenMusicBrainz
+            | EntityActionKind::OpenPublisher => return None,
         };
         Some(IdentityActionDisplay {
             id: format!("{id_prefix}-{}:{payload}", kind.slug()),
@@ -935,6 +939,22 @@ impl<'a> ReleaseDetailVm<'a> {
             EntitySurfaceContext::Discover => "discover-feed",
             EntitySurfaceContext::Library => "library-feed",
         }
+    }
+
+    /// R4-01/R4-02 (ADR 0077 packet 004): the "open publisher" action of an
+    /// album with a stored or received relationship where
+    /// `music_names_publisher = true`. `None` when the album names no
+    /// publisher. The action never builds `ArtistRef::PublisherFeed` from
+    /// name text or `publisher_text`.
+    #[must_use]
+    pub fn publisher_action(&self) -> Option<EntityActionVm> {
+        let publisher_feed_guid = self.view.publisher_feed_guid.clone()?;
+        Some(EntityActionVm::new(
+            EntityActionKind::OpenPublisher,
+            EntityActionTarget::Artist(ArtistRef::PublisherFeed(publisher_feed_guid)),
+            "Open publisher",
+            EntityActionTone::Secondary,
+        ))
     }
 
     #[must_use]
@@ -2255,5 +2275,37 @@ mod tests {
         );
 
         assert_eq!(action.a11y_label(), "Remove Feed");
+    }
+
+    /// R4-01 (ADR 0077 packet 004): an album with an owned relationship
+    /// exposes an enabled "open publisher" action with the publisher feed
+    /// GUID and an accessibility label.
+    #[test]
+    fn adr_0077_publisher_navigation_album_with_relationship_exposes_open_publisher_action() {
+        let mut feed = feed_view();
+        feed.publisher_feed_guid = Some("publisher-guid".into());
+
+        let action = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library)
+            .publisher_action()
+            .expect("an album with an owned relationship exposes a publisher action");
+
+        assert_eq!(action.kind, EntityActionKind::OpenPublisher);
+        assert!(action.enabled);
+        assert_eq!(
+            action.target,
+            EntityActionTarget::Artist(ArtistRef::PublisherFeed("publisher-guid".into()))
+        );
+        assert_eq!(action.a11y_label(), "Open publisher");
+    }
+
+    /// R4-02: an album without a relationship exposes no publisher action.
+    #[test]
+    fn adr_0077_publisher_navigation_album_without_relationship_exposes_no_action() {
+        let feed = feed_view();
+        assert_eq!(feed.publisher_feed_guid, None);
+
+        let action = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).publisher_action();
+
+        assert_eq!(action, None);
     }
 }

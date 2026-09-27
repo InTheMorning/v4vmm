@@ -16,23 +16,30 @@ use crate::feed_service::track_row_to_track_context;
 use crate::library::{InspectorFrame, LazyPanel, LibraryApp};
 use crate::metadata::{TagCompareResult, TrackContext};
 use crate::ui::composites::BreadcrumbTrail;
-use crate::ui::composites::{DisclosureTextPanel, DisclosureTextPanelDisplay, TrackSurfaceElement};
+use crate::ui::composites::{
+    action_button, ActionButtonDisplay, DisclosureTextPanel, DisclosureTextPanelDisplay,
+    TrackSurfaceElement,
+};
 use crate::ui::shells::library::track_detail_metadata::{
     pending_id3_edits_for_track_detail, render_library_track_detail_actions,
     render_library_track_detail_metadata,
 };
 use crate::ui::shells::track;
 use crate::ui::style::spacing;
+use crate::view_models::entity_detail::EntityActionTarget;
 use crate::view_models::library::{DescriptionState, LibraryChromeDisplay, LibraryViewModel};
-use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
+use crate::view_models::track_detail::{
+    TrackDetailPageVm, TrackDetailSurfaceContext, TrackDetailVm,
+};
 use crate::view_models::workspace::BreadcrumbDisplay;
-use crate::views::TrackView;
+use crate::views::{ArtistRef, TrackView};
 
 pub(crate) fn render_library_track_detail(
     frame: &InspectorFrame,
     breadcrumb: Option<BreadcrumbDisplay>,
     playlists: &[db::Playlist],
     chrome: &LibraryChromeDisplay,
+    publisher_feed_guid: Option<&str>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let context = track_row_to_track_context(&frame.track);
@@ -49,7 +56,13 @@ pub(crate) fn render_library_track_detail(
         .overflow_y_scroll()
         .p(spacing::LG)
         .child(render_library_track_window(
-            frame, breadcrumb, context, result, playlists, cx,
+            frame,
+            breadcrumb,
+            context,
+            result,
+            playlists,
+            publisher_feed_guid,
+            cx,
         ))
         .into_any_element()
 }
@@ -60,6 +73,7 @@ fn render_library_track_window(
     track_context: &TrackContext,
     result: Option<&TagCompareResult>,
     playlists: &[db::Playlist],
+    publisher_feed_guid: Option<&str>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let pending_id3_edits = pending_id3_edits_for_track_detail(frame, track_context, result);
@@ -71,6 +85,7 @@ fn render_library_track_window(
         inspector_display.description_state,
         render_library_track_detail_actions(frame, &pending_id3_edits, playlists, cx),
         breadcrumb,
+        publisher_feed_guid,
         cx,
     );
 
@@ -84,6 +99,10 @@ fn render_library_track_window(
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "publisher navigation (ADR 0077 packet 004) adds one already-loaded value to an existing core renderer"
+)]
 pub(crate) fn render_library_track_detail_core(
     track: &Track,
     override_title: &str,
@@ -91,17 +110,24 @@ pub(crate) fn render_library_track_detail_core(
     description_state: DescriptionState,
     primary_action_row: AnyElement,
     breadcrumb: Option<BreadcrumbDisplay>,
+    publisher_feed_guid: Option<&str>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let track_view = TrackView::from_api(track.clone());
     let detail_page = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Library)
         .with_override_title(Some(override_title))
+        .with_publisher_feed_guid(publisher_feed_guid)
         .page();
+
+    let mut primary_actions = vec![TrackSurfaceElement::from_element(primary_action_row)];
+    if let Some(button) = render_track_publisher_action_button(&detail_page, cx) {
+        primary_actions.push(TrackSurfaceElement::from_element(button));
+    }
 
     let mut slots = track::TrackDetailBehaviorSlots {
         hero_image,
         external_links: track::render_track_page_identity_actions(&detail_page),
-        primary_actions: vec![TrackSurfaceElement::from_element(primary_action_row)],
+        primary_actions,
         ..track::TrackDetailBehaviorSlots::default()
     };
 
@@ -144,4 +170,34 @@ pub(crate) fn render_library_track_detail_core(
     }
 
     surface
+}
+
+/// ADR 0077 packet 004, R4-03: the "open publisher" action of a track's
+/// album feed. `None` when the album names no publisher, so the track shows
+/// no action.
+fn render_track_publisher_action_button(
+    page: &TrackDetailPageVm<'_>,
+    cx: &mut Context<LibraryApp>,
+) -> Option<AnyElement> {
+    let publisher_action = page.detail().publisher_action()?;
+    let a11y_label = publisher_action.a11y_label();
+    let EntityActionTarget::Artist(ArtistRef::PublisherFeed(publisher_feed_guid)) =
+        publisher_action.target
+    else {
+        unreachable!("TrackDetailVm::publisher_action always targets a publisher feed GUID")
+    };
+    Some(
+        action_button(
+            ActionButtonDisplay {
+                label: SharedString::from(publisher_action.label),
+                a11y_label: SharedString::from(a11y_label),
+            },
+            cx,
+        )
+        .disabled(!publisher_action.enabled)
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.open_publisher_page(&publisher_feed_guid, cx);
+        }))
+        .into_any_element(),
+    )
 }

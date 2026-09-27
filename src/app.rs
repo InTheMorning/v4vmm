@@ -35,6 +35,7 @@ use crate::ui::shells::workspace::{render_workspace, WorkspaceSlots};
 use crate::ui::tokens::{color, SemanticColor};
 use crate::view_models::app_toolbar::AppToolbarVm;
 use crate::view_models::cached_files::CachedFilesVm;
+use crate::view_models::publisher_page::PublisherPageContext;
 use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchResultsTab};
 use crate::view_models::settings::{SettingsAction, SettingsVm};
 use crate::view_models::show::{EventSectionInput, ShowCommandState, ShowPageVm};
@@ -55,6 +56,7 @@ mod events;
 mod keyboard;
 mod menu;
 mod playback_bar;
+mod publisher_dispatch;
 mod queue_now_playing;
 mod resize;
 mod search_dispatch;
@@ -183,6 +185,14 @@ pub struct TopApp {
     database_tools_subscription: Option<gpui::Subscription>,
     configuration_editor:
         Option<Entity<crate::presentation::configuration_editor::ConfigurationEditor>>,
+    /// The mounted publisher page (ADR 0077 packet 004). `None` when the
+    /// current frame is not a publisher page.
+    publisher_page: Option<publisher_dispatch::PublisherPageState>,
+    /// The route (Library or Index) each visited publisher feed GUID last
+    /// opened with (ADR 0077 packet 004). A breadcrumb or history restore
+    /// of an older `PublisherDetail` entry reads this to fetch with the
+    /// same query it originally used.
+    publisher_page_routes: BTreeMap<String, PublisherPageContext>,
 }
 
 impl TopApp {
@@ -306,6 +316,15 @@ impl TopApp {
                 LibraryAppEvent::OpenIndexFeedDetail { feed_guid, label } => {
                     this.open_index_feed_detail_from_music(feed_guid, label.clone(), cx);
                 }
+                LibraryAppEvent::OpenPublisherPage {
+                    publisher_feed_guid,
+                } => {
+                    this.open_publisher_page(
+                        publisher_feed_guid.clone(),
+                        PublisherPageContext::Library,
+                        cx,
+                    );
+                }
             },
         );
         let appearance_sub = cx.observe_window_appearance(window, |this, window, cx| {
@@ -410,6 +429,8 @@ impl TopApp {
             configuration_editor_subscription: None,
             database_tools: None,
             database_tools_subscription: None,
+            publisher_page: None,
+            publisher_page_routes: BTreeMap::new(),
         }
     }
 
@@ -627,6 +648,7 @@ impl TopApp {
             self.library.update(cx, |library, cx| {
                 library.hydrate_detail_from_nav(&entry, cx);
             });
+            self.restore_publisher_page_for_nav(&entry, cx);
             if let FrameNavigationEntry::Search(query) = &entry {
                 self.start_index_search_for_query(query, cx);
             }
@@ -802,6 +824,7 @@ impl TopApp {
             FrameNavigationEntry::AlbumDetail(_) => "Album".to_string(),
             FrameNavigationEntry::ArtistDetail(_)
             | FrameNavigationEntry::IndexArtistFeedScope(_) => "Artist".to_string(),
+            FrameNavigationEntry::PublisherDetail(_) => "Publisher".to_string(),
             FrameNavigationEntry::ReadinessIssues => "Broadcast Readiness".to_string(),
             FrameNavigationEntry::QueueNowPlaying => "Queue".to_string(),
         }
@@ -1180,6 +1203,12 @@ impl TopApp {
                     cx,
                 );
                 WorkspaceSlots::new().content_list(settings_screen)
+            }
+            // ADR 0077 packet 004: the publisher page loads through its own
+            // fetch, independent of the Library tree and the Index results.
+            Some(FrameNavigationEntry::PublisherDetail(_)) => {
+                let detail_content = self.render_publisher_page_content(cx);
+                WorkspaceSlots::new().content_list(detail_content)
             }
             // Entity details or default: render the Library-backed Music surface.
             Some(

@@ -481,6 +481,19 @@ impl LibraryApp {
         }
     }
 
+    /// Opens the publisher page of an album or a track's album feed (ADR
+    /// 0077 packet 004). The top app owns the publisher page fetch and its
+    /// navigation entry.
+    pub(crate) fn open_publisher_page(
+        &mut self,
+        publisher_feed_guid: &str,
+        cx: &mut Context<Self>,
+    ) {
+        cx.emit(super::LibraryAppEvent::OpenPublisherPage {
+            publisher_feed_guid: publisher_feed_guid.to_owned(),
+        });
+    }
+
     pub(crate) fn run_content_list_row_action(
         &mut self,
         action: ContentListRowActionKind,
@@ -1834,6 +1847,11 @@ impl LibraryApp {
                 .album_image_href
                 .clone()
                 .or_else(|| first.track_image_href.clone()),
+            publisher_feed_guid: db::publisher_relationships::owned_publisher_feed_guid(
+                &conn, feed_id,
+            )
+            .ok()
+            .flatten(),
             identity_facts: crate::local_identity::feed_facts(&conn, feed_id).unwrap_or_default(),
             metadata_facts: Box::new(
                 crate::local_metadata::feed_facts(&conn, feed_id).unwrap_or_default(),
@@ -2186,6 +2204,18 @@ impl LibraryApp {
         (display.segments.len() > 1).then_some(display)
     }
 
+    /// The publisher feed GUID of the mounted track's album feed (ADR 0077
+    /// packet 004 R4-03). The already-loaded Library tree carries this
+    /// value; the screen sends no request for it.
+    pub(crate) fn mounted_track_publisher_feed_guid(&self) -> Option<String> {
+        let LibraryDetail::Track(frame) = &self.detail else {
+            return None;
+        };
+        self.find_album_by_feed_id(frame.track.feed_id)?
+            .publisher_feed_guid
+            .clone()
+    }
+
     fn frame_breadcrumb_label(&self, entry: &FrameNavigationEntry) -> String {
         match entry {
             FrameNavigationEntry::SourceList => "Library".to_string(),
@@ -2200,6 +2230,11 @@ impl LibraryApp {
             FrameNavigationEntry::AlbumDetail(_) => "Album".to_string(),
             FrameNavigationEntry::ArtistDetail(name)
             | FrameNavigationEntry::IndexArtistFeedScope(name) => name.clone(),
+            // ADR 0077 packet 004: the top app owns the publisher page
+            // title. This frame never mounts under a Library breadcrumb.
+            FrameNavigationEntry::PublisherDetail(publisher_feed_guid) => {
+                publisher_feed_guid.clone()
+            }
             FrameNavigationEntry::Search(query) if query.trim().is_empty() => "Search".to_string(),
             FrameNavigationEntry::Search(query) => query.clone(),
             FrameNavigationEntry::IndexFeedDetail { label, .. }
@@ -3431,6 +3466,7 @@ impl Render for LibraryApp {
                 }))
                 .into_any_element()
         } else {
+            let track_publisher_feed_guid = self.mounted_track_publisher_feed_guid();
             let detail_pane = render_library_detail(
                 &self.detail,
                 self.track_breadcrumb_display(),
@@ -3444,6 +3480,7 @@ impl Render for LibraryApp {
                 self.vm.renaming_playlist_id(),
                 self.playlist_actor.as_ref(),
                 self.playlist_rss_snapshot.as_ref(),
+                track_publisher_feed_guid.as_deref(),
                 cx,
             );
             let trailing_pane = div()
@@ -3551,6 +3588,7 @@ mod tests {
             language: None,
             description: None,
             image_href: Some("https://example.test/art.png".into()),
+            publisher_feed_guid: None,
             identity_facts: LocalIdentityFacts::default(),
             metadata_facts: Box::<crate::views::FeedMetadataFacts>::default(),
             stored_values: None,

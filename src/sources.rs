@@ -124,12 +124,13 @@ fn local_feed_view(
         .collect::<Result<Vec<_>>>()?;
     let facts = local_identity::feed_facts(conn, feed_row.id)?;
     let values = stored_values::feed_values(conn, feed_row.id)?;
-    Ok(FeedView::from_local_with_facts(
-        feed_row,
-        track_views,
-        facts,
-        values,
-    ))
+    let feed_id = feed_row.id;
+    let mut view = FeedView::from_local_with_facts(feed_row, track_views, facts, values);
+    // ADR 0077 packet 004: the "open publisher" action reads the stored
+    // owned relationship of this local feed (Decision 2).
+    view.publisher_feed_guid =
+        db::publisher_relationships::owned_publisher_feed_guid(conn, feed_id).unwrap_or_default();
+    Ok(view)
 }
 
 impl MetadataSource for LocalSource {

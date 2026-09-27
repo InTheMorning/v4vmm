@@ -348,6 +348,10 @@ pub(crate) struct AlbumNode {
     pub(crate) language: Option<String>,
     pub(crate) description: Option<String>,
     pub(crate) image_href: Option<String>,
+    /// The publisher feed GUID that this album names, when its stored
+    /// relationship states `music_names_publisher = true` (ADR 0077
+    /// Decision 2, packet 004). `None` when the album names no publisher.
+    pub(crate) publisher_feed_guid: Option<String>,
     pub(crate) identity_facts: LocalIdentityFacts,
     pub(crate) metadata_facts: Box<FeedMetadataFacts>,
     /// The stored values of the feed from the stored value projection
@@ -3636,6 +3640,7 @@ fn filter_tree(tree: &LibraryTree, query: &str) -> LibraryTree {
                     language: album.language.clone(),
                     description: album.description.clone(),
                     image_href: album.image_href.clone(),
+                    publisher_feed_guid: album.publisher_feed_guid.clone(),
                     identity_facts: album.identity_facts.clone(),
                     metadata_facts: album.metadata_facts.clone(),
                     stored_values: album.stored_values.clone(),
@@ -6399,6 +6404,7 @@ mod tests {
                             language: None,
                             description: None,
                             image_href: Some("saw.jpg".into()),
+                            publisher_feed_guid: None,
                             identity_facts: LocalIdentityFacts::default(),
                             metadata_facts: Box::<FeedMetadataFacts>::default(),
                             stored_values: None,
@@ -6412,6 +6418,7 @@ mod tests {
                             language: None,
                             description: None,
                             image_href: None,
+                            publisher_feed_guid: None,
                             identity_facts: LocalIdentityFacts::default(),
                             metadata_facts: Box::<FeedMetadataFacts>::default(),
                             stored_values: None,
@@ -6429,6 +6436,7 @@ mod tests {
                         language: None,
                         description: None,
                         image_href: None,
+                        publisher_feed_guid: None,
                         identity_facts: LocalIdentityFacts::default(),
                         metadata_facts: Box::<FeedMetadataFacts>::default(),
                         stored_values: None,

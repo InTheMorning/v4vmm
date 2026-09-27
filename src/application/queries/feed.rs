@@ -1,6 +1,7 @@
 //! Feed local query family.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use rusqlite::Connection;
@@ -295,6 +296,53 @@ impl ApplicationCommand for ResolvePodrollFeeds {
         }
         let client = Client::new_with_base_url(self.endpoint);
         resolve_podroll_feeds(&client, &self.feed_url)
+            .map_err(|error| query_error(&error))
+            .map(CommandOutcome::without_events)
+    }
+}
+
+/// Reads an Index publisher page (ADR 0077 packet 004).
+#[derive(Clone, Debug)]
+pub(crate) struct FetchIndexPublisherPage {
+    conn: Arc<Mutex<Connection>>,
+    endpoint: crate::config::MusicIndexEndpoint,
+    publisher_feed_guid: String,
+}
+
+impl FetchIndexPublisherPage {
+    /// Creates an Index publisher page query command.
+    #[must_use]
+    pub(crate) fn new(
+        conn: Arc<Mutex<Connection>>,
+        endpoint: impl Into<crate::config::MusicIndexEndpoint>,
+        publisher_feed_guid: impl Into<String>,
+    ) -> Self {
+        Self {
+            conn,
+            endpoint: endpoint.into(),
+            publisher_feed_guid: publisher_feed_guid.into(),
+        }
+    }
+}
+
+impl ApplicationCommand for FetchIndexPublisherPage {
+    type Output = PublisherPageFacts;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        let provider_identity = self
+            .endpoint
+            .require()
+            .map(str::to_owned)
+            .unwrap_or_default();
+        let client = Client::new_with_base_url(self.endpoint);
+        let db = self
+            .conn
+            .lock()
+            .map_err(|_| CommandError::Query("database lock poisoned".into()))?;
+        fetch_index_publisher_page(&db, &client, &provider_identity, &self.publisher_feed_guid)
             .map_err(|error| query_error(&error))
             .map(CommandOutcome::without_events)
     }
@@ -610,13 +658,6 @@ fn owner_fetch_feed(
 /// # Errors
 ///
 /// Returns an error when the MusicIndex request fails.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ADR 0077 packet 004 connects a screen to this item. Remove this expectation in that packet."
-    )
-)]
 pub(crate) fn fetch_index_publisher_page_albums(
     client: &Client,
     provider_identity: &str,
@@ -639,13 +680,6 @@ pub(crate) fn fetch_index_publisher_page_albums(
 ///
 /// Returns an error when the MusicIndex request fails, or when the local
 /// read of the Library marking fails.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ADR 0077 packet 004 connects a screen to this item. Remove this expectation in that packet."
-    )
-)]
 pub(crate) fn fetch_index_publisher_page(
     conn: &Connection,
     client: &Client,
@@ -668,13 +702,6 @@ pub(crate) fn fetch_index_publisher_page(
     Ok(facts)
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ADR 0077 packet 004 connects a screen to this item. Remove this expectation in that packet."
-    )
-)]
 fn publisher_page_facts_from_feed(publisher_feed_guid: &str, feed: &Feed) -> PublisherPageFacts {
     let albums = feed
         .publisher

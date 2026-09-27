@@ -75,6 +75,12 @@ pub enum LibraryAppEvent {
         feed_guid: String,
         label: String,
     },
+    /// Opens the publisher page of a Library album or track (ADR 0077
+    /// packet 004). `publisher_feed_guid` is the value that the album's
+    /// stored owned relationship names, never name text.
+    OpenPublisherPage {
+        publisher_feed_guid: String,
+    },
 }
 
 impl gpui::EventEmitter<LibraryAppEvent> for LibraryApp {}

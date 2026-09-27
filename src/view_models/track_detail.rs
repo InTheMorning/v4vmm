@@ -12,7 +12,7 @@ use crate::view_models::entity_detail::{
 use crate::view_models::format::fmt_date;
 use crate::view_models::track::fmt_dur;
 use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
-use crate::views::{TrackRef, TrackView};
+use crate::views::{ArtistRef, TrackRef, TrackView};
 
 const UNTITLED: &str = "Untitled";
 const UNKNOWN_ARTIST: &str = "Unknown Artist";
@@ -115,6 +115,10 @@ pub struct TrackDetailVm<'a> {
     track: &'a TrackView,
     context: TrackDetailSurfaceContext,
     override_title: Option<&'a str>,
+    /// The publisher feed GUID of this track's album feed (ADR 0077
+    /// Decision 2, packet 004 R4-03). The track stores no publisher value
+    /// of its own; the caller supplies its album feed's own value.
+    publisher_feed_guid: Option<&'a str>,
 }
 
 impl<'a> TrackDetailVm<'a> {
@@ -124,12 +128,21 @@ impl<'a> TrackDetailVm<'a> {
             track,
             context,
             override_title: None,
+            publisher_feed_guid: None,
         }
     }
 
     #[must_use]
     pub const fn with_override_title(mut self, title: Option<&'a str>) -> Self {
         self.override_title = title;
+        self
+    }
+
+    /// Sets the publisher feed GUID of this track's album feed (R4-03). The
+    /// caller reads it from the album feed, never from name text.
+    #[must_use]
+    pub const fn with_publisher_feed_guid(mut self, publisher_feed_guid: Option<&'a str>) -> Self {
+        self.publisher_feed_guid = publisher_feed_guid;
         self
     }
 
@@ -316,6 +329,20 @@ impl<'a> TrackDetailVm<'a> {
             );
         }
         actions
+    }
+
+    /// R4-03 (ADR 0077 packet 004): the "open publisher" action of this
+    /// track's album feed. `None` when the album names no publisher. The
+    /// track stores no publisher value of its own.
+    #[must_use]
+    pub fn publisher_action(&self) -> Option<EntityActionVm> {
+        let publisher_feed_guid = self.publisher_feed_guid?.to_owned();
+        Some(EntityActionVm::new(
+            EntityActionKind::OpenPublisher,
+            EntityActionTarget::Artist(ArtistRef::PublisherFeed(publisher_feed_guid)),
+            "Open publisher",
+            EntityActionTone::Quiet,
+        ))
     }
 
     #[must_use]
@@ -712,6 +739,32 @@ mod tests {
             TrackDetailLoadState::Failed {
                 reason: "missing".to_string()
             }
+        );
+    }
+
+    /// R4-03 (ADR 0077 packet 004): a track exposes the "open publisher"
+    /// action of its album feed. No value comes from the track itself: the
+    /// same track with no publisher feed GUID supplied exposes no action.
+    #[test]
+    fn adr_0077_publisher_navigation_track_exposes_its_album_feed_publisher_action() {
+        let track = track_with_identity();
+
+        let with_publisher = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library)
+            .with_publisher_feed_guid(Some("publisher-guid"))
+            .publisher_action()
+            .expect("a track with an album feed publisher exposes an action");
+        assert_eq!(with_publisher.kind, EntityActionKind::OpenPublisher);
+        assert_eq!(
+            with_publisher.target,
+            EntityActionTarget::Artist(ArtistRef::PublisherFeed("publisher-guid".into()))
+        );
+        assert!(with_publisher.enabled);
+
+        let without_publisher =
+            TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library).publisher_action();
+        assert_eq!(
+            without_publisher, None,
+            "no track row stores a publisher value: the track alone gives no action"
         );
     }
 }
