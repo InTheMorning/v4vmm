@@ -528,3 +528,13 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-2
 - V2: each other relation shows as a read-only row with its relation type, and it offers no write.
 - V3: after a write of the homepage and the license on a test copy, an external tag reader shows plain URLs in `WOAR` and `WCOP`.
 - V4: normal and narrow widths show each row in its place, in Light and Dark themes, with no clipped text.
+
+## 26. No Derived Release Date — ADR 0075 Task 049
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-29. Operator inspection is pending.
+
+- Owner: [packet 049](tasks/adr-0075-task-049-no-derived-release-date.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks. It only reads pages.
+- V1: a track page of a track without its own date shows no release date.
+- V2: a track with its own date shows that date.
+- V3: normal and narrow widths show each row in its place, in Light and Dark themes.

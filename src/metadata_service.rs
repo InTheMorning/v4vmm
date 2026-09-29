@@ -401,4 +401,28 @@ mod tests {
             );
         }
     }
+
+    /// R49-04 (ADR 0075 packet 049): a track with its own date gives a
+    /// `TDRC` edit with that date.
+    #[test]
+    fn adr_0075_release_date_r49_04_own_date_writes_tdrc() {
+        let mut context = track_context_without_own_identity();
+        context.track.pub_date = Some(1_704_067_200);
+        let edits = id3_edits_for_track_context(&context);
+        assert!(edits.contains(&edit("TDRC", "2024-01-01")));
+    }
+
+    /// R49-05 (ADR 0075 packet 049): a track without its own date gets no
+    /// `TDRC` edit from a feed release date or an oldest item date.
+    #[test]
+    fn adr_0075_release_date_r49_05_no_own_date_writes_no_tdrc() {
+        let mut context = track_context_without_own_identity();
+        context.feed.as_mut().expect("feed").release_date = Some(1_672_531_200);
+        context.feed.as_mut().expect("feed").oldest_item_at = Some(1_640_995_200);
+        let edits = id3_edits_for_track_context(&context);
+        assert!(
+            !edits.iter().any(|edit| edit.frame_label == "TDRC"),
+            "a track with no own date must write no TDRC edit"
+        );
+    }
 }

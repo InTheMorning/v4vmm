@@ -614,8 +614,12 @@ fn rss_and_musicbrainz_rows_use_semantic_groups() {
     );
 }
 
+/// ADR 0075 packet 049, Track release dates: `musicindex_release_date`
+/// gives only the track's own date, and it never uses a feed date. A track
+/// with its own date ignores its feed's `release_date` and `oldest_item_at`.
+/// A track with no own date gets no feed-substituted value.
 #[test]
-fn release_date_prefers_item_then_feed_then_oldest_item_pubdate() {
+fn adr_0075_release_date_musicindex_release_date_never_uses_a_feed_date() {
     let track_context = TrackContext {
         rss_observation: None,
         observation_receipts: Vec::new(),
@@ -653,6 +657,8 @@ fn release_date_prefers_item_then_feed_then_oldest_item_pubdate() {
         Some("Jan 1, 2024")
     );
 
+    // R49-05: a track without its own date, in a feed with a release date
+    // and an oldest item date, gives no release date.
     let track_context = TrackContext {
         rss_observation: None,
         observation_receipts: Vec::new(),
@@ -666,7 +672,7 @@ fn release_date_prefers_item_then_feed_then_oldest_item_pubdate() {
     };
     assert_eq!(
         super::musicindex_release_date(&track_context).as_deref(),
-        Some("Jan 1, 2023")
+        None
     );
 }
 

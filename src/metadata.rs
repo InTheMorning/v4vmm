@@ -380,37 +380,76 @@ fn transcript_url_extension(url: &str) -> bool {
         .any(|extension| path.ends_with(extension))
 }
 
+/// Extraction paths that prove a MusicIndex `release_date` claim names the
+/// track itself, and not its feed (ADR 0075 Track release dates, packet
+/// 049). No path earns a place here today. A track's `source_release_claims`
+/// can hold a copy of its feed's claims (see `track_with_feed_defaults`), so
+/// this function must not accept an unproven path just because the claim
+/// sits on the track. Add a path only with confirmed evidence that it names
+/// the track.
+const TRACK_RELEASE_DATE_PROVEN_PATHS: &[&str] = &[];
+
+/// Extraction paths that prove a MusicIndex `release_date` claim states the
+/// feed's own release date, and not a build date or an oldest-item date
+/// (ADR 0075 Feed release-date evidence, packet 049). No path earns a place
+/// here today. The known paths `feed.pub_date` and `oldest_item.pub_date`
+/// stay out: `feed.pub_date` is a publication date, and an oldest-item date
+/// is not a release date. A claim type alone does not prove release-date
+/// meaning. Add a path only with confirmed evidence that it proves a release
+/// date.
+const FEED_RELEASE_DATE_PROVEN_PATHS: &[&str] = &[];
+
+/// The track's own release date, proven by its own `pub_date` or by a
+/// `release_date` claim with a path that names the track (ADR 0075 packet
+/// 049).
 pub fn track_release_pubdate(track: &Track) -> Option<String> {
-    release_pubdate_from_claims(track.source_release_claims.as_deref())
-        .or_else(|| track.pub_date.and_then(fmt_date))
+    release_pubdate_from_claims(
+        track.source_release_claims.as_deref(),
+        TRACK_RELEASE_DATE_PROVEN_PATHS,
+    )
+    .or_else(|| track.pub_date.and_then(fmt_date))
 }
 
+/// The feed's own release date, proven by a `release_date` claim with a
+/// path that names the feed (ADR 0075 packet 049). `Feed::release_date` and
+/// `Feed::oldest_item_at` stay in the evidence store, but this function no
+/// longer reads them here: neither field proves a release date, and the
+/// earliest track publication date is an oldest-item date, not a release
+/// date.
 pub fn feed_release_pubdate(feed: &Feed) -> Option<String> {
-    release_pubdate_from_claims(feed.source_release_claims.as_deref())
-        .or_else(|| feed.release_date.and_then(fmt_date))
-        .or_else(|| feed.oldest_item_at.and_then(fmt_date))
-        .or_else(|| {
-            feed.tracks
-                .as_deref()?
-                .iter()
-                .filter_map(|track| track.pub_date)
-                .min()
-                .and_then(fmt_date)
-        })
+    release_pubdate_from_claims(
+        feed.source_release_claims.as_deref(),
+        FEED_RELEASE_DATE_PROVEN_PATHS,
+    )
 }
 
 fn explicit_metadata_value(explicit: bool) -> Option<String> {
     explicit.then(|| "Yes".to_string())
 }
 
+/// The track's own release date. ADR 0075 section 4: a feed fact never
+/// becomes a track assertion, so this function does not fall back to
+/// `feed_release_pubdate`. A track with no proven date of its own has no
+/// release date here, even when its feed has one.
 pub fn musicindex_release_date(track_context: &TrackContext) -> Option<String> {
     track_release_pubdate(&track_context.track)
-        .or_else(|| track_context.feed.as_ref().and_then(feed_release_pubdate))
 }
 
-pub fn release_pubdate_from_claims(claims: Option<&[SourceReleaseClaim]>) -> Option<String> {
+/// A `release_date` claim value, read only when the claim carries an
+/// extraction path in `proven_paths` (ADR 0075 Feed release-date evidence,
+/// packet 049). A claim with no path, or with a path outside the proven
+/// set, gives no value: a claim type alone does not prove release-date
+/// meaning.
+pub fn release_pubdate_from_claims(
+    claims: Option<&[SourceReleaseClaim]>,
+    proven_paths: &[&str],
+) -> Option<String> {
     claims?.iter().find_map(|claim| {
         if claim.claim_type.as_deref() != Some("release_date") {
+            return None;
+        }
+        let path = claim.extraction_path.as_deref()?;
+        if !proven_paths.contains(&path) {
             return None;
         }
 
@@ -1229,15 +1268,9 @@ pub fn track_metadata_rows(
             .and_then(summarize_value_routes),
         None,
     );
-    push_track_metadata_row(
-        &mut rows,
-        "descriptive-technical-rights-text",
-        "RSS item pubdate",
-        track_release_pubdate(track).filter(|item_pubdate| {
-            musicindex_release_date(track_context).as_deref() != Some(item_pubdate)
-        }),
-        None,
-    );
+    // ADR 0075 packet 049: "Release date" above always shows the track's own
+    // date, never a feed date. A separate "RSS item pubdate" row would
+    // always repeat that same value, so this page no longer shows one.
     let item_description = source_value_for_metadata_field("Description", track_context);
     push_track_metadata_row(
         &mut rows,
@@ -2094,9 +2127,6 @@ fn source_value_for_metadata_field(field: &str, track_context: &TrackContext) ->
         "Website" => track_website(track),
         "RSS feed website" => feed.and_then(feed_website),
         "Release date" | "Release year" => musicindex_release_date(track_context),
-        "RSS item pubdate" => track_release_pubdate(track).filter(|item_pubdate| {
-            musicindex_release_date(track_context).as_deref() != Some(item_pubdate)
-        }),
         "Duration" => track.duration_secs.map(fmt_dur),
         "Explicit" => track.explicit.and_then(explicit_metadata_value),
         "Artwork" => track_artwork_url(track_context),
@@ -3803,10 +3833,11 @@ mod tests {
         aligned_compare_rows, auto_populated_pending_id3_edits, compare_track_rows,
         contributor_id3_rows, display_contributor_tree, display_metadata_value,
         expand_woar_metadata_rows, expanded_metadata_display_string,
-        expanded_metadata_display_value, id3_frame_base, musicindex_contributors_id3_value,
-        pending_id3_edits_for_apply, pending_id3_target_key, sanitize_track_context_source_text,
-        source_text_is_placeholder, summarize_contributor_value, track_metadata_rows,
-        MetadataGridRow, TagCompareResult, TrackContext,
+        expanded_metadata_display_value, feed_release_pubdate, id3_frame_base,
+        musicindex_contributors_id3_value, musicindex_release_date, pending_id3_edits_for_apply,
+        pending_id3_target_key, sanitize_track_context_source_text, source_text_is_placeholder,
+        summarize_contributor_value, track_metadata_rows, track_release_pubdate, MetadataGridRow,
+        TagCompareResult, TrackContext,
     };
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -4257,6 +4288,163 @@ mod tests {
             data_row(&clean_rows, "Explicit").is_none(),
             "explicit metadata row should only render true state"
         );
+    }
+
+    /// R49-01 (ADR 0075 packet 049): a feed `release_date` claim with the
+    /// path `oldest_item.pub_date` gives no feed release date. That path
+    /// names an oldest-item date, not a release date.
+    #[test]
+    fn adr_0075_release_date_r49_01_oldest_item_path_gives_no_feed_release_date() {
+        let feed = Feed {
+            source_release_claims: Some(vec![SourceReleaseClaim {
+                claim_type: Some("release_date".into()),
+                claim_value: Some("1704067200".into()),
+                extraction_path: Some("oldest_item.pub_date".into()),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+        assert_eq!(feed_release_pubdate(&feed), None);
+    }
+
+    /// R49-02 (ADR 0075 packet 049): a feed `release_date` claim with the
+    /// path `feed.pub_date` gives no feed release date. The upstream parser
+    /// can substitute `lastBuildDate` for that path, so it does not prove a
+    /// release date.
+    #[test]
+    fn adr_0075_release_date_r49_02_feed_pub_date_path_gives_no_feed_release_date() {
+        let feed = Feed {
+            source_release_claims: Some(vec![SourceReleaseClaim {
+                claim_type: Some("release_date".into()),
+                claim_value: Some("1704067200".into()),
+                extraction_path: Some("feed.pub_date".into()),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+        assert_eq!(feed_release_pubdate(&feed), None);
+    }
+
+    /// R49-03 (ADR 0075 packet 049): a feed gives no release date from its
+    /// `release_date` scalar, its `oldest_item_at` scalar, or its tracks'
+    /// publication dates. None of the three is proven release-date
+    /// evidence.
+    #[test]
+    fn adr_0075_release_date_r49_03_feed_scalars_and_track_dates_give_no_release_date() {
+        let feed = Feed {
+            release_date: Some(1_672_531_200),
+            oldest_item_at: Some(1_640_995_200),
+            tracks: Some(vec![Track {
+                pub_date: Some(1_600_000_000),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+        assert_eq!(feed_release_pubdate(&feed), None);
+    }
+
+    /// R49-04 (ADR 0075 packet 049): a track with its own date gives that
+    /// date in the "Release date" row, even when its feed has a release
+    /// date and an oldest item date of its own.
+    #[test]
+    fn adr_0075_release_date_r49_04_track_own_date_shows_in_release_date_row() {
+        let track_context = TrackContext {
+            rss_observation: None,
+            observation_receipts: Vec::new(),
+            provider_state: Default::default(),
+            track: Track {
+                pub_date: Some(1_704_067_200),
+                ..Default::default()
+            },
+            feed: Some(Feed {
+                release_date: Some(1_672_531_200),
+                oldest_item_at: Some(1_640_995_200),
+                ..Default::default()
+            }),
+        };
+        let rows = track_metadata_rows(&track_context, None, false);
+        assert_eq!(
+            data_row(&rows, "Release date").and_then(|row| row.rss_value.as_deref()),
+            Some("Jan 1, 2024")
+        );
+    }
+
+    /// R49-05 (ADR 0075 packet 049): a track without its own date, in a
+    /// feed with an oldest item date, gives no "Release date" value. ADR
+    /// 0075 section 4: a feed fact never becomes a track assertion.
+    #[test]
+    fn adr_0075_release_date_r49_05_track_without_own_date_shows_no_release_date_row() {
+        let track_context = TrackContext {
+            rss_observation: None,
+            observation_receipts: Vec::new(),
+            provider_state: Default::default(),
+            track: Track::default(),
+            feed: Some(Feed {
+                oldest_item_at: Some(1_640_995_200),
+                ..Default::default()
+            }),
+        };
+        let rows = track_metadata_rows(&track_context, None, false);
+        assert_eq!(
+            data_row(&rows, "Release date").and_then(|row| row.rss_value.as_deref()),
+            None
+        );
+    }
+
+    /// R49-06 (ADR 0075 packet 049): a `last_build_date` claim gives no
+    /// date in any row. Its claim type is not `release_date`.
+    #[test]
+    fn adr_0075_release_date_r49_06_last_build_date_claim_gives_no_date() {
+        let feed = Feed {
+            source_release_claims: Some(vec![SourceReleaseClaim {
+                claim_type: Some("last_build_date".into()),
+                claim_value: Some("1704067200".into()),
+                extraction_path: Some("feed.last_build_date".into()),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+        assert_eq!(feed_release_pubdate(&feed), None);
+
+        let track_context = TrackContext {
+            rss_observation: None,
+            observation_receipts: Vec::new(),
+            provider_state: Default::default(),
+            track: Track {
+                source_release_claims: Some(vec![SourceReleaseClaim {
+                    claim_type: Some("last_build_date".into()),
+                    claim_value: Some("1704067200".into()),
+                    extraction_path: Some("item.last_build_date".into()),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            },
+            feed: Some(feed),
+        };
+        assert_eq!(musicindex_release_date(&track_context), None);
+        let rows = track_metadata_rows(&track_context, None, false);
+        assert_eq!(
+            data_row(&rows, "Release date").and_then(|row| row.rss_value.as_deref()),
+            None
+        );
+    }
+
+    /// ADR 0075 packet 049, Track release dates: a track's own claim list
+    /// can hold a copy of its feed's claims (`track_with_feed_defaults`).
+    /// A copied claim with a known feed-only path must not become the
+    /// track's own date.
+    #[test]
+    fn adr_0075_release_date_track_ignores_a_copied_feed_claim() {
+        let track = Track {
+            source_release_claims: Some(vec![SourceReleaseClaim {
+                claim_type: Some("release_date".into()),
+                claim_value: Some("1704067200".into()),
+                extraction_path: Some("oldest_item.pub_date".into()),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+        assert_eq!(track_release_pubdate(&track), None);
     }
 
     fn data_row<'a>(
