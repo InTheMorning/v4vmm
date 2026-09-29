@@ -236,12 +236,10 @@ pub fn compare_track_rows(
             feed_nostr(feed),
             track_nostr(track),
         );
-        push_if_differs(
-            &mut rows,
-            "RSS feed website",
-            feed_website(feed),
-            track_website(track),
-        );
+        // ADR 0080 Decision 2: the channel website compares against its own
+        // frame (`WOAR`), so this row shows even when it equals the item's
+        // page (`WOAF`).
+        push_compare_row(&mut rows, "RSS feed website", feed_website(feed), None);
     }
 
     rows
@@ -936,13 +934,9 @@ pub fn auto_populated_pending_id3_edits(
             .find(|edit| target_for(&edit.frame) == dest)
             .map(|edit| edit.value.as_str())
             .or(row.id3_value.as_deref());
-        let Some(value) = format_source_value_for_id3v24(
-            frame,
-            &row.field,
-            source,
-            existing_value,
-            &source_value,
-        ) else {
+        let Some(value) =
+            format_source_value_for_id3v24(frame, &row.field, existing_value, &source_value)
+        else {
             continue;
         };
         // Aliased frames (TYER + TDRC → DATE on Vorbis) would otherwise both
@@ -1130,18 +1124,16 @@ pub fn track_metadata_rows(
         None,
     );
     if let Some(feed) = track_context.feed.as_ref() {
-        let feed_website_value = feed_website(feed);
-        if normalized_compare_value(feed_website_value.as_deref())
-            != normalized_compare_value(track_website(track).as_deref())
-        {
-            push_track_metadata_row(
-                &mut rows,
-                "url-link-frames",
-                "RSS feed website",
-                feed_website_value,
-                None,
-            );
-        }
+        // ADR 0080 Decision 2: the item page writes to `WOAF` and the
+        // channel website writes to `WOAR`. The row shows even when the two
+        // values are equal, because each now writes its own frame.
+        push_track_metadata_row(
+            &mut rows,
+            "url-link-frames",
+            "RSS feed website",
+            feed_website(feed),
+            None,
+        );
     }
     push_track_metadata_row(
         &mut rows,
@@ -1242,13 +1234,25 @@ pub fn track_metadata_rows(
         }),
         None,
     );
+    let item_description = source_value_for_metadata_field("Description", track_context);
     push_track_metadata_row(
         &mut rows,
         "descriptive-technical-rights-text",
         "Description",
-        source_value_for_metadata_field("Description", track_context),
+        item_description.clone(),
         None,
     );
+    if item_description.is_none() {
+        // ADR 0080 Decision 5: the channel description gets its own row and
+        // frame only when the item states none.
+        push_track_metadata_row(
+            &mut rows,
+            "descriptive-technical-rights-text",
+            "Album description",
+            source_value_for_metadata_field("Album description", track_context),
+            None,
+        );
+    }
 
     if show_musicbrainz {
         if let Some(candidate) = musicbrainz {
@@ -1487,6 +1491,7 @@ pub fn aligned_compare_rows(
     let description_id3 = id3_value_for_field("Description", result);
     let description_status =
         compare_optional_values(description_rss.as_deref(), description_id3.as_deref());
+    let item_has_description = description_rss.is_some();
     push_grouped_metadata_data_row(
         &mut grouped_rows,
         "descriptive-technical-rights-text",
@@ -1502,6 +1507,32 @@ pub fn aligned_compare_rows(
             musicbrainz_status: ComparisonStatus::MissingBoth,
         },
     );
+    if !item_has_description {
+        // ADR 0080 Decision 5: the album description row shows the channel
+        // description, with its own frame, only when the item has none.
+        let album_description_rss =
+            source_value_for_metadata_field("Album description", track_context);
+        let album_description_id3 = id3_value_for_field("Album description", result);
+        let album_description_status = compare_optional_values(
+            album_description_rss.as_deref(),
+            album_description_id3.as_deref(),
+        );
+        push_grouped_metadata_data_row(
+            &mut grouped_rows,
+            "descriptive-technical-rights-text",
+            AlignedCompareRow {
+                row_id: compare_row_id("Album description"),
+                field: "Album description".into(),
+                rss_value: album_description_rss,
+                id3_value: album_description_id3,
+                id3_frame: id3_frame_hint("Album description").map(str::to_string),
+                musicbrainz_value: None,
+                musicbrainz_key: None,
+                id3_status: album_description_status,
+                musicbrainz_status: ComparisonStatus::MissingBoth,
+            },
+        );
+    }
     let transcript_rss = track_transcript_url(&track_context.track);
     for field in ["Transcript", "Transcript text"] {
         let transcript_id3 = id3_value_for_field(field, result);
@@ -1943,9 +1974,12 @@ fn source_value_for_metadata_field(field: &str, track_context: &TrackContext) ->
         "Explicit" => track.explicit.and_then(explicit_metadata_value),
         "Artwork" => track_artwork_url(track_context),
         "Transcript" | "Transcript text" => track_transcript_url(track),
-        "Description" => drop_placeholder_source_text(track.description.clone()).or_else(|| {
+        // ADR 0080 Decision 5: the item description holds only the item's
+        // own value. "Album description" carries the channel fallback.
+        "Description" => drop_placeholder_source_text(track.description.clone()),
+        "Album description" => {
             feed.and_then(|feed| drop_placeholder_source_text(feed.description.clone()))
-        }),
+        }
         "Contributors" => track
             .source_contributors
             .as_deref()
@@ -2082,6 +2116,13 @@ pub fn id3_value_for_field(field: &str, result: &TagCompareResult) -> Option<Str
         return id3_values_for_frame(result, frame_id, id3_txxx_needles(field));
     }
     if matches!(frame_id, "COMM" | "USLT" | "SYLT") {
+        // ADR 0080 Decision 5: "Description" and "Album description" share
+        // the same needles ("musicindex", "description"), so a loose search
+        // would match either frame for both rows. An exact frame label
+        // keeps the item row and the channel row apart.
+        if matches!(field, "Description" | "Album description") {
+            return id3_exact_frame_value(result, frame_label);
+        }
         return id3_values_for_frame(result, frame_id, id3_descriptor_needles(field));
     }
 
@@ -2118,6 +2159,11 @@ pub fn id3_compare_value_for_field(field: &str, result: &TagCompareResult) -> Op
         return id3_values_for_frame(result, frame_id, id3_txxx_needles(field));
     }
     if matches!(frame_id, "COMM" | "USLT" | "SYLT") {
+        // ADR 0080 Decision 5: see the matching comment in
+        // `id3_value_for_field`.
+        if matches!(field, "Description" | "Album description") {
+            return id3_exact_frame_value(result, frame_label);
+        }
         return id3_values_for_frame(result, frame_id, id3_descriptor_needles(field));
     }
 
@@ -2194,6 +2240,8 @@ pub fn format_drag_value_for_id3v24(
         "TXXX" | "UFID" => Some(value),
         "COMM" | "USLT" | "SYLT" => Some(value),
         "WXXX" => format_id3_url(&value),
+        // ADR 0080 Decision 8: `WOAR` and `WOAF` hold a plain URL only.
+        "WOAR" | "WOAF" => format_id3_website_url(&value),
         "TRCK" => format_slash_number_frame(target_field, existing_value, &value),
         "TPOS" => format_slash_number_frame(target_field, existing_value, &value),
         "TLEN" => format_id3_duration_ms(&value),
@@ -2228,19 +2276,13 @@ pub fn format_tmcl_value(target_field: &str, value: &str) -> Option<String> {
 pub fn format_source_value_for_id3v24(
     frame_label: &str,
     target_field: &str,
-    source: MetadataColumn,
     existing_value: Option<&str>,
     value: &str,
 ) -> Option<String> {
-    let prepared = if source == MetadataColumn::Rss
-        && id3_frame_base(frame_label) == "WOAR"
-        && target_field.to_ascii_lowercase().contains("website")
-    {
-        format!("download for free (url, forward): {value}")
-    } else {
-        value.to_string()
-    };
-    format_drag_value_for_id3v24(frame_label, target_field, existing_value, &prepared)
+    // ADR 0080 Decision 8: a URL frame holds a plain URL, with no label text
+    // before it. An RSS value and a MusicBrainz value pass through the same
+    // URL check.
+    format_drag_value_for_id3v24(frame_label, target_field, existing_value, value)
 }
 
 pub fn format_slash_number_frame(
@@ -2341,6 +2383,15 @@ pub fn format_id3_duration_ms(value: &str) -> Option<String> {
 pub fn format_id3_url(value: &str) -> Option<String> {
     let url = value.split('·').next().map(str::trim).unwrap_or(value);
     (!url.is_empty()).then(|| url.to_string())
+}
+
+/// ADR 0080 Decision 8: `WOAR` and `WOAF` hold one plain URL, with no label
+/// text before it. The app writes a URL only when it parses as a URL. This
+/// uses `reqwest`'s URL parser, already a dependency, so no crate is added
+/// only for this check.
+pub fn format_id3_website_url(value: &str) -> Option<String> {
+    let url = value.split('·').next().map(str::trim).unwrap_or(value);
+    reqwest::Url::parse(url).ok().map(|_| url.to_string())
 }
 
 pub fn id3v24_drag_copy_frame_is_writable(frame_label: &str) -> bool {
@@ -2486,6 +2537,21 @@ pub fn id3_values_for_frame(
             let searchable = format!("{} {}", field.frame_id, field.value);
             needles_match(&searchable, needles)
         })
+        .map(|field| field.value.clone())
+        .collect::<Vec<_>>();
+    join_values(&values)
+}
+
+/// The value of the field whose full label, including its descriptor,
+/// matches `frame_label`. Unlike [`id3_values_for_frame`], this makes no
+/// substring guess: it keeps two owners of the same base frame, such as
+/// `COMM:MusicIndex Description` and `COMM:MusicIndex Album Description`,
+/// from matching each other's needles (ADR 0080 Decision 5).
+fn id3_exact_frame_value(result: &TagCompareResult, frame_label: &str) -> Option<String> {
+    let values = result
+        .id3_fields
+        .iter()
+        .filter(|field| field.frame_id.eq_ignore_ascii_case(frame_label))
         .map(|field| field.value.clone())
         .collect::<Vec<_>>();
     join_values(&values)
@@ -3528,13 +3594,19 @@ pub fn id3_frame_hint(field: &str) -> Option<&'static str> {
         "RSS track guid" => Some("TXXX:MusicIndex Track Guid"),
         "Nostr handle" | "RSS feed nostr handle" => Some("TXXX:RSS Nostr Handle"),
         "Label" => Some("TPUB"),
-        "Website" | "RSS feed website" => Some("WOAR"),
+        // ADR 0080 Decision 2: the item page and the channel website are two
+        // frames. Neither value goes in the other's frame.
+        "Website" => Some("WOAF"),
+        "RSS feed website" => Some("WOAR"),
         "Tempo" => Some("TBPM"),
         "Release date" => Some("TDRC"),
         "Release year" => Some("TYER"),
         "Duration" => Some("TLEN"),
         "Artwork" => Some("APIC"),
         "Description" => Some("COMM:MusicIndex Description"),
+        // ADR 0080 Decision 5: the channel description has its own frame,
+        // used only when the item states none.
+        "Album description" => Some("COMM:MusicIndex Album Description"),
         "Transcript" => Some("SYLT:MusicIndex Transcript"),
         "Transcript text" => Some("USLT:MusicIndex Transcript"),
         "Contributors" => Some("TXXX:MusicIndex Contributors"),
@@ -3992,8 +4064,15 @@ mod tests {
             data_row(&rows, "Publisher").and_then(|row| row.rss_value.as_deref()),
             None
         );
+        // ADR 0080 Decision 5: the item states a placeholder description, so
+        // the "Description" row has none. The channel's real description
+        // shows in its own "Album description" row instead.
         assert_eq!(
             data_row(&rows, "Description").and_then(|row| row.rss_value.as_deref()),
+            None
+        );
+        assert_eq!(
+            data_row(&rows, "Album description").and_then(|row| row.rss_value.as_deref()),
             Some("Real feed description")
         );
         assert!(

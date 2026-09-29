@@ -9,7 +9,7 @@ Active - 2026-09-29. This plan is advisory. It states no rule.
 
 | Packet | Scope | Owners | Depends on | State |
 |---|---|---|---|---|
-| [001](../tasks/adr-0080-task-001-rss-frames-and-idempotent-writes.md) | RSS frames by owner, the album description frame, plain URLs, idempotent writes, and the compare and scan that use the writer resolution | ADR 0080 Decisions 1 to 8, for RSS values | ADR 0075 packet 022 | Ready 2026-09-29 |
+| [001](../tasks/adr-0080-task-001-rss-frames-and-idempotent-writes.md) | RSS frames by owner, the album description frame, plain URLs, idempotent writes, and the compare and scan that use the writer resolution | ADR 0080 Decisions 1 to 8, for RSS values | ADR 0075 packet 022 | Implemented 2026-09-29. Mechanical checks Green. Visual gate open and paused |
 | 002 | MusicBrainz URL relations by relation type: official homepage to `WOAR`, license to `WCOP` or `TXXX:LICENSE`, and no frame for each other type | ADR 0080 Decisions 6 and 8, for MusicBrainz values | 001 | No task document yet |
 
 ## Sequence

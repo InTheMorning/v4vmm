@@ -99,53 +99,11 @@ pub(crate) fn used_id3_fields_for_group<'a>(
         .filter(|field| id3_frame_group_key(&field.frame_id) == group_key)
         .collect()
 }
-#[cfg(test)]
-pub(crate) fn id3_frame_hint(field: &str) -> Option<&'static str> {
-    match field {
-        "Title" => Some("TIT2"),
-        "Artist" => Some("TPE1"),
-        "Album/Feed" => Some("TALB"),
-        "Track #" => Some("TRCK"),
-        "Publisher" => Some("TXXX:V4V_PUBLISHER"),
-        "RSS feed guid" => Some("TXXX:MusicIndex Feed Guid"),
-        "RSS track guid" => Some("TXXX:MusicIndex Track Guid"),
-        "Nostr handle" | "RSS feed nostr handle" => Some("TXXX:RSS Nostr Handle"),
-        "Label" => Some("TPUB"),
-        "Website" => Some("WOAR"),
-        "Tempo" => Some("TBPM"),
-        "Release date" => Some("TDRC"),
-        "Release year" => Some("TYER"),
-        "Duration" => Some("TLEN"),
-        "Artwork" => Some("APIC"),
-        "Description" => Some("COMM:MusicIndex Description"),
-        "Transcript" => Some("SYLT:MusicIndex Transcript"),
-        "Transcript text" => Some("USLT:MusicIndex Transcript"),
-        "Contributors" => Some("TXXX:MusicIndex Contributors"),
-        "Composer" => Some("TCOM"),
-        "Lyricist" => Some("TEXT"),
-        "Lead performer" => Some("TPE1"),
-        "Album artist" => Some("TPE2"),
-        "Conductor" => Some("TPE3"),
-        "Remixer" => Some("TPE4"),
-        "Original artist" => Some("TOPE"),
-        "Original lyricist" => Some("TOLY"),
-        "Involved musicians" => Some("TMCL"),
-        "Value Routes" => Some("TXXX:MusicIndex Value Routes"),
-        "MusicBrainz recording" => Some("UFID:http://musicbrainz.org"),
-        "MusicBrainz release" => Some("TXXX:MusicBrainz Album Id"),
-        "MusicBrainz release group" => Some("TXXX:MusicBrainz Release Group Id"),
-        "Release country" => Some("TXXX:MusicBrainz Album Release Country"),
-        "Release status" => Some("TXXX:MusicBrainz Album Status"),
-        "Barcode" => Some("TXXX:BARCODE"),
-        "Release type" | "Release secondary types" => Some("TXXX:MusicBrainz Album Type"),
-        "Media" => Some("TMED"),
-        "Disc #" => Some("TPOS"),
-        "Disc subtitle" => Some("TSST"),
-        "Total tracks" => Some("TRCK"),
-        "ISRC" => Some("TSRC"),
-        _ => None,
-    }
-}
+// ADR 0080 orchestrator review, defect 3: this test helper used to carry its
+// own copy of `id3_frame_hint`, which had fallen out of step with the
+// production mapping (it still sent "Website" to `WOAR`, not `WOAF`). It now
+// re-exports the production function, so the two cannot drift apart again.
+pub(crate) use crate::metadata::id3_frame_hint;
 
 #[cfg(test)]
 #[allow(dead_code)]

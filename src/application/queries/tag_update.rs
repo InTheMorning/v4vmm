@@ -465,6 +465,113 @@ mod tests {
 
         assert_eq!(scan.count(), 1);
     }
+
+    /// R80-10 (ADR 0080): the scan reports a file that still holds the
+    /// earlier labeled channel value in `WOAR`. It does not report a file
+    /// whose `WOAR` holds the current channel value alongside an unrelated
+    /// (foreign) value from another tool.
+    #[test]
+    fn adr_0080_scan_reports_earlier_labeled_woar_and_ignores_a_foreign_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = library(dir.path(), &[1, 2]);
+        db::replace_local_identity_links(
+            &mut conn,
+            db::LocalIdentityOwner::Feed(1),
+            "rss",
+            &[db::LocalIdentityLinkInput {
+                entity_type: None,
+                entity_id: None,
+                position: None,
+                link_type: Some("website".into()),
+                url: Some("https://example.test/feed".into()),
+                extraction_path: None,
+                observed_at: None,
+                raw_json: None,
+            }],
+        )
+        .unwrap();
+        settle(&conn, dir.path());
+
+        // Track 1 still holds the earlier labeled channel value.
+        write_id3v24_edits(
+            &dir.path().join("song-1.mp3"),
+            &[Id3v24Edit {
+                frame_label: "WOAR".into(),
+                value: "download for free (url, forward): https://example.test/feed".into(),
+            }],
+        )
+        .unwrap();
+        // Track 2 holds the current channel value, plus one from another
+        // tool.
+        write_id3v24_edits(
+            &dir.path().join("song-2.mp3"),
+            &[
+                Id3v24Edit {
+                    frame_label: "WOAR".into(),
+                    value: "https://example.test/feed".into(),
+                },
+                Id3v24Edit {
+                    frame_label: "WOAR".into(),
+                    value: "https://foreign.example/from-another-tool".into(),
+                },
+            ],
+        )
+        .unwrap();
+
+        let scan = scan_tag_updates(&conn, dir.path()).unwrap();
+
+        let track_1 = scan
+            .files
+            .iter()
+            .find(|file| file.track_id == 1)
+            .expect("track 1 is listed for its earlier labeled value");
+        assert!(
+            frame(track_1, "WOAR").is_some(),
+            "the earlier labeled value must be reported"
+        );
+        assert!(
+            scan.files.iter().all(|file| file.track_id != 2),
+            "a foreign value alongside the current one must not be reported"
+        );
+    }
+
+    /// Orchestrator review, defect 1 (ADR 0080 Decision 3): the scan reports
+    /// no difference for a FLAC track without its own description, after a
+    /// write of the channel's description to
+    /// `COMM:MusicIndex Album Description`.
+    ///
+    /// Before the fix, that value read back only under the shared Comment
+    /// key, as `COMM:MusicIndex Description`, so the scan reported a
+    /// difference on every read of a file this app had written.
+    #[test]
+    fn adr_0080_flac_album_description_round_trips_with_no_difference() {
+        let flac_bytes = include_bytes!("../../../docs/runbooks/fixtures/conversion.flac");
+        let temp = tempfile::Builder::new().suffix(".flac").tempfile().unwrap();
+        std::fs::write(temp.path(), flac_bytes).unwrap();
+        let expected = vec![Id3v24Edit {
+            frame_label: "COMM:MusicIndex Album Description".into(),
+            value: "Feed description".into(),
+        }];
+        write_id3v24_edits(temp.path(), &expected).unwrap();
+        let tags = crate::audio_tags::read_audio_tags(temp.path()).unwrap();
+
+        let planned = PlannedFile {
+            track_id: 1,
+            title: "Song".into(),
+            album: Some("Feed".into()),
+            path: temp.path().to_path_buf(),
+            in_use: false,
+            expected,
+            route: None,
+        };
+
+        let frames = changed_frames(&planned, &tags, Some(AudioFormat::Flac));
+
+        assert!(
+            frames.is_empty(),
+            "a FLAC file the app wrote must show no difference: {frames:?}"
+        );
+    }
 }
 
 /// Fixtures that the tag update tests of other modules share.

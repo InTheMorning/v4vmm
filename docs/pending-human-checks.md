@@ -506,3 +506,14 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-2
 - V2: the row opens a page titled "Tracks matching" that lists the tracks of that name. A track opens its detail, and the album opens its publisher page.
 - V3: a name with no exact match shows the empty state text.
 - V4: normal and narrow widths show each element in its place, in Light and Dark themes, with no clipped text.
+
+## 24. Tag Frames By Owner — ADR 0080 Task 001
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-29. Operator inspection is pending.
+
+- Owner: [packet 001](tasks/adr-0080-task-001-rss-frames-and-idempotent-writes.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks. It uses an isolated database copy and never writes to the Library.
+- V1: after "Update n file(s)", an external tag reader shows the item page in `WOAF`, the channel website in `WOAR`, and plain URLs.
+- V2: a second "Update n file(s)" on the same file adds no frame.
+- V3: after the update, the next scan shows no difference for that file.
+- V4: the compare grid shows the album description row with its owner, in Light and Dark themes, with no clipped text.

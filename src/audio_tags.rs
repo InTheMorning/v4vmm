@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
@@ -22,6 +22,40 @@ const WRITABLE_TEXT_FRAMES: &[&str] = &[
 const WRITABLE_URL_FRAMES: &[&str] = &[
     "WCOM", "WCOP", "WOAF", "WOAR", "WOAS", "WORS", "WPAY", "WPUB", "WXXX",
 ];
+
+/// ADR 0080 Decision 2: the two frame labels that hold a website. A write
+/// treats them as one family: a value under one label can replace an
+/// earlier value under either label, so a fact that moved frame, or a
+/// repeated write, leaves no stale copy (Decision 6).
+const WEBSITE_FRAME_LABELS: [&str; 2] = ["WOAR", "WOAF"];
+
+/// ADR 0080 Decision 5: the two frame labels that hold a description. A
+/// track holds at most one of them, so a write that sets either one clears
+/// both first.
+const DESCRIPTION_FRAME_LABELS: [&str; 2] = [
+    "COMM:MusicIndex Description",
+    "COMM:MusicIndex Album Description",
+];
+
+/// The plain, lower-cased URL that `edits` is about to write into a `WOAR`
+/// or `WOAF` frame. Empty when this write touches neither frame.
+fn website_urls_in_edits(edits: &[Id3v24Edit]) -> BTreeSet<String> {
+    edits
+        .iter()
+        .filter(|edit| WEBSITE_FRAME_LABELS.contains(&edit.frame_label.as_str()))
+        .map(|edit| embedded_frame_url(&edit.value).to_ascii_lowercase())
+        .collect()
+}
+
+/// The URL embedded in a `WOAR` or `WOAF` value, with a label an earlier
+/// write put before it removed (ADR 0080 Decision 6). A value with no label
+/// is already a plain URL.
+fn embedded_frame_url(value: &str) -> &str {
+    match value.find("https://").or_else(|| value.find("http://")) {
+        Some(start) => value[start..].trim(),
+        None => value.trim(),
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AudioTags {
@@ -141,6 +175,7 @@ fn add_lofty_compare_aliases(fields: &mut Vec<Id3Field>, artwork: Option<&Embedd
     if let Some(comment) = first_field_value(fields, "COMM") {
         push_alias_field(fields, "COMM:MusicIndex Description", comment);
     }
+    add_lofty_album_description_alias(fields);
 
     if let Some(transcript) =
         first_field_value(fields, "USLT").or_else(|| first_field_value(fields, "SYLT"))
@@ -168,6 +203,24 @@ fn add_lofty_compare_aliases(fields: &mut Vec<Id3Field>, artwork: Option<&Embedd
         };
         push_alias_field(fields, "APIC", summary);
     }
+}
+
+/// ADR 0080 Decisions 3 and 5: on Vorbis Comments and MP4 freeform atoms,
+/// the album description round-trips as a `TXXX`-style field, the same way
+/// any other named `TXXX` descriptor does (`lofty_field_for_label` gives it
+/// that key when the writer writes it). This aliases the field back to
+/// `COMM:MusicIndex Album Description`, so the compare grid and the tag
+/// scan find it under the frame the writer gives it.
+fn add_lofty_album_description_alias(fields: &mut Vec<Id3Field>) {
+    let Some(value) = fields.iter().find_map(|field| {
+        let descriptor = field.frame_id.strip_prefix("TXXX:")?;
+        descriptor
+            .eq_ignore_ascii_case("MusicIndex Album Description")
+            .then(|| field.value.clone())
+    }) else {
+        return;
+    };
+    push_alias_field(fields, "COMM:MusicIndex Album Description", value);
 }
 
 fn push_alias_field(fields: &mut Vec<Id3Field>, frame_id: &str, value: String) {
@@ -255,6 +308,8 @@ fn write_mp3_edits(path: &Path, edits: &[Id3v24Edit]) -> Result<usize> {
     let mut tag = no_tag_ok(Tag::read_from_path(path))
         .with_context(|| format!("read embedded MP3 tags from {}", path.display()))?
         .unwrap_or_default();
+    remove_stale_id3_website_frames(&mut tag, edits);
+    remove_stale_id3_description_frames(&mut tag, edits);
     let mut applied = 0;
 
     for edit in edits {
@@ -266,6 +321,47 @@ fn write_mp3_edits(path: &Path, edits: &[Id3v24Edit]) -> Result<usize> {
     tag.write_to_path(path, Version::Id3v24)
         .with_context(|| format!("write ID3v2.4 tags to {}", path.display()))?;
     Ok(applied)
+}
+
+/// ADR 0080 Decision 6: a write removes a `WOAR` or `WOAF` value under
+/// either label when the same URL is about to be written again. This
+/// recognizes the earlier labeled channel value and the item page
+/// mistakenly held in `WOAR`, and removes only those. A value from another
+/// tool, or a MusicBrainz value this write does not repeat, is not touched.
+fn remove_stale_id3_website_frames(tag: &mut Tag, edits: &[Id3v24Edit]) {
+    let new_urls = website_urls_in_edits(edits);
+    if new_urls.is_empty() {
+        return;
+    }
+    tag.frames_vec_mut().retain(|frame| {
+        if !WEBSITE_FRAME_LABELS.contains(&frame.id()) {
+            return true;
+        }
+        match frame.content().link() {
+            Some(link) => !new_urls.contains(&embedded_frame_url(link).to_ascii_lowercase()),
+            None => true,
+        }
+    });
+}
+
+/// ADR 0080 Decisions 5 and 6: `COMM:MusicIndex Description` and
+/// `COMM:MusicIndex Album Description` hold at most one value between them.
+/// When this write sets either one, it clears both first, so a fact that
+/// moved descriptor leaves no stale copy under its earlier one.
+fn remove_stale_id3_description_frames(tag: &mut Tag, edits: &[Id3v24Edit]) {
+    let touches_description = edits
+        .iter()
+        .any(|edit| DESCRIPTION_FRAME_LABELS.contains(&edit.frame_label.as_str()));
+    if !touches_description {
+        return;
+    }
+    tag.frames_vec_mut().retain(|frame| {
+        let Content::Comment(comment) = frame.content() else {
+            return true;
+        };
+        let label = format!("COMM:{}", comment.description);
+        !DESCRIPTION_FRAME_LABELS.contains(&label.as_str())
+    });
 }
 
 fn write_lofty_edits(
@@ -289,6 +385,12 @@ fn write_lofty_edits(
     let mut tag = tagged
         .remove(tag_type)
         .unwrap_or_else(|| LoftyTag::new(tag_type));
+    // Each cleanup pass runs once, before any edit is added. A pass inside
+    // the loop would remove the value of an earlier edit that shares its
+    // key with a later one (orchestrator review, defect 2).
+    remove_stale_lofty_website_items(&mut tag, tag_type, &website_urls_in_edits(edits));
+    remove_stale_lofty_description_items(&mut tag, tag_type, edits);
+    remove_stale_lofty_keyed_items(&mut tag, tag_type, edits);
 
     let mut applied = 0usize;
     for edit in edits {
@@ -311,16 +413,19 @@ fn write_lofty_edits(
             continue;
         }
 
-        let field = TagFieldId::from_id3_label(&edit.frame_label);
+        let field = lofty_field_for_label(&edit.frame_label);
         let inserted = match tag_type {
             lofty::tag::TagType::VorbisComments => {
-                let key = match field.vorbis_key() {
-                    Some(k) => k,
-                    None => continue,
+                let Some(key) = field.vorbis_key() else {
+                    continue;
                 };
-                // `Tag::push` rejects `ItemKey::Unknown` because re_map fails
-                // for keys without a built-in mapping. push_unchecked bypasses
-                // that and the merge step preserves the raw vorbis key.
+                // `Tag::push` rejects `ItemKey::Unknown` because re_map
+                // fails for keys without a built-in mapping, so this uses
+                // the unchecked push instead. The cleanup above already
+                // removed one item for each key this write owns, so a
+                // plain push here does not duplicate on a repeated write,
+                // and two edits that share a key (`TDRC` and `TYER`, both
+                // `DATE`) both land.
                 tag.push_unchecked(TagItem::new(
                     ItemKey::Unknown(key),
                     ItemValue::Text(edit.value.clone()),
@@ -352,15 +457,7 @@ fn write_lofty_edits(
                     _ => false,
                 };
                 if !handled {
-                    let ns_key = match &field {
-                        TagFieldId::Custom(desc) => {
-                            format!("----:com.apple.iTunes:{desc}")
-                        }
-                        TagFieldId::Url(kind) => {
-                            format!("----:com.apple.iTunes:{}", kind.to_id3())
-                        }
-                        _ => format!("----:com.apple.iTunes:{}", edit.frame_label),
-                    };
+                    let ns_key = lofty_mp4_freeform_key(&edit.frame_label, &field);
                     tag.push_unchecked(TagItem::new(
                         ItemKey::Unknown(ns_key),
                         ItemValue::Text(edit.value.clone()),
@@ -380,6 +477,194 @@ fn write_lofty_edits(
         .save_to_path(path, lofty::config::WriteOptions::default())
         .with_context(|| format!("write tags to {}", path.display()))?;
     Ok(applied)
+}
+
+/// ADR 0080 Decision 5: the field that `frame_label` maps to, for the lofty
+/// writer. `COMM:MusicIndex Album Description` gets its own key, the same
+/// way a `TXXX` descriptor does, so it does not collide with the shared
+/// Comment key (Vorbis `COMMENT`, MP4 `©cmt`) that
+/// `COMM:MusicIndex Description` keeps.
+fn lofty_field_for_label(frame_label: &str) -> crate::tag_field::TagFieldId {
+    use crate::tag_field::TagFieldId;
+    if frame_label == "COMM:MusicIndex Album Description" {
+        TagFieldId::Custom("MusicIndex Album Description".into())
+    } else {
+        TagFieldId::from_id3_label(frame_label)
+    }
+}
+
+/// The MP4 freeform atom name that `field` stores under, once `field` is
+/// known not to be one of the atoms an MP4 accessor sets directly.
+fn lofty_mp4_freeform_key(frame_label: &str, field: &crate::tag_field::TagFieldId) -> String {
+    use crate::tag_field::TagFieldId;
+    match field {
+        TagFieldId::Custom(desc) => format!("----:com.apple.iTunes:{desc}"),
+        TagFieldId::Url(kind) => format!("----:com.apple.iTunes:{}", kind.to_id3()),
+        _ => format!("----:com.apple.iTunes:{frame_label}"),
+    }
+}
+
+/// The key that `frame_label` stores under, in `tag_type`'s tag, through
+/// the generic push path. `None` for a Vorbis comment with no mapping for
+/// this field, and for a tag type this writer does not handle.
+fn lofty_generic_key(frame_label: &str, tag_type: lofty::tag::TagType) -> Option<String> {
+    let field = lofty_field_for_label(frame_label);
+    match tag_type {
+        lofty::tag::TagType::VorbisComments => field.vorbis_key(),
+        lofty::tag::TagType::Mp4Ilst => Some(lofty_mp4_freeform_key(frame_label, &field)),
+        _ => None,
+    }
+}
+
+/// `true` for the two logical fields that map to `WOAR` and `WOAF`. A
+/// website edit is not part of the once-per-key removal that
+/// `remove_stale_lofty_keyed_items` does: `WOAR` can hold more than one
+/// value (the channel website and a MusicBrainz value), and
+/// `remove_stale_lofty_website_items` already covers the value this write
+/// repeats.
+fn is_website_field(field: &crate::tag_field::TagFieldId) -> bool {
+    use crate::tag_field::{TagFieldId, UrlKind};
+    matches!(
+        field,
+        TagFieldId::Url(UrlKind::OfficialArtist) | TagFieldId::Url(UrlKind::OfficialAudio)
+    )
+}
+
+/// Removes each existing item whose stored key, under `tag_type`, matches
+/// `key`. Lofty can read a standard key (`TITLE`, for example) back as its
+/// own typed `ItemKey` rather than as `ItemKey::Unknown`, so comparing the
+/// mapped key string, instead of the `ItemKey` value, keeps one item for
+/// that key across a repeated write (ADR 0080 Decision 6).
+fn remove_lofty_item_by_key(tag: &mut lofty::tag::Tag, tag_type: lofty::tag::TagType, key: &str) {
+    tag.retain(|item| {
+        item.key()
+            .map_key(tag_type, true)
+            .is_none_or(|existing| !existing.eq_ignore_ascii_case(key))
+    });
+}
+
+/// ADR 0080 Decision 6: removes each key that `edits` gives a non-website,
+/// non-artwork field, once, before any edit of this write is added.
+///
+/// A pass inside the write loop would remove one edit's value when a later
+/// edit that shares its key was added (orchestrator review, defect 2): two
+/// edits can share a key, for example `TDRC` and `TYER`, both `DATE` on
+/// Vorbis Comments. Clearing each owned key once, first, keeps both edits'
+/// values, and still keeps a repeated write from duplicating either one.
+fn remove_stale_lofty_keyed_items(
+    tag: &mut lofty::tag::Tag,
+    tag_type: lofty::tag::TagType,
+    edits: &[Id3v24Edit],
+) {
+    use crate::tag_field::TagFieldId;
+
+    let mut keys = BTreeSet::new();
+    for edit in edits {
+        if edit.frame_label.starts_with("APIC") {
+            continue;
+        }
+        let field = lofty_field_for_label(&edit.frame_label);
+        if is_website_field(&field) {
+            continue;
+        }
+        // An MP4 accessor sets this field directly; it is not a keyed push.
+        if tag_type == lofty::tag::TagType::Mp4Ilst
+            && matches!(
+                field,
+                TagFieldId::Title
+                    | TagFieldId::Artist
+                    | TagFieldId::Album
+                    | TagFieldId::TrackNumber
+            )
+        {
+            continue;
+        }
+        if let Some(key) = lofty_generic_key(&edit.frame_label, tag_type) {
+            keys.insert(key);
+        }
+    }
+    for key in keys {
+        remove_lofty_item_by_key(tag, tag_type, &key);
+    }
+}
+
+/// ADR 0080 Decisions 3 and 5, for Vorbis Comments and MP4 freeform atoms:
+/// the item's own description and the channel's hold at most one value
+/// between them. `COMM:MusicIndex Album Description` keeps its own key
+/// apart from the shared Comment key that `COMM:MusicIndex Description`
+/// keeps (`lofty_field_for_label`), so the two no longer collide, and a
+/// file can now carry the channel's description on these formats. When
+/// this write sets either label, it clears the other's stored key first,
+/// so a fact that moved owner leaves no stale copy under its earlier key.
+fn remove_stale_lofty_description_items(
+    tag: &mut lofty::tag::Tag,
+    tag_type: lofty::tag::TagType,
+    edits: &[Id3v24Edit],
+) {
+    let touches_description = edits
+        .iter()
+        .any(|edit| DESCRIPTION_FRAME_LABELS.contains(&edit.frame_label.as_str()));
+    if !touches_description {
+        return;
+    }
+    for label in DESCRIPTION_FRAME_LABELS {
+        if let Some(key) = lofty_generic_key(label, tag_type) {
+            remove_lofty_item_by_key(tag, tag_type, &key);
+        }
+    }
+}
+
+/// ADR 0080 Decision 6: removes a Vorbis comment or MP4 freeform item under
+/// the stored key of `WOAR` or `WOAF` whose URL is about to be written
+/// again, so a value that moved frame, or a repeated write, leaves no stale
+/// item behind. An item under another key, or a website item with a
+/// different URL, is not touched.
+fn remove_stale_lofty_website_items(
+    tag: &mut lofty::tag::Tag,
+    tag_type: lofty::tag::TagType,
+    new_urls: &BTreeSet<String>,
+) {
+    use lofty::prelude::ItemKey;
+    use lofty::tag::ItemValue;
+
+    if new_urls.is_empty() {
+        return;
+    }
+    let keys = lofty_website_item_keys(tag_type);
+    tag.retain(|item| {
+        let ItemKey::Unknown(name) = item.key() else {
+            return true;
+        };
+        if !keys.iter().any(|key| key.eq_ignore_ascii_case(name)) {
+            return true;
+        }
+        match item.value() {
+            ItemValue::Text(text) => {
+                !new_urls.contains(&embedded_frame_url(text).to_ascii_lowercase())
+            }
+            _ => true,
+        }
+    });
+}
+
+/// The stored item key that holds `WOAR` and `WOAF` in `tag_type`.
+fn lofty_website_item_keys(tag_type: lofty::tag::TagType) -> [String; 2] {
+    use crate::tag_field::{TagFieldId, UrlKind};
+
+    match tag_type {
+        lofty::tag::TagType::VorbisComments => [
+            TagFieldId::Url(UrlKind::OfficialArtist)
+                .vorbis_key()
+                .unwrap_or_default(),
+            TagFieldId::Url(UrlKind::OfficialAudio)
+                .vorbis_key()
+                .unwrap_or_default(),
+        ],
+        _ => [
+            format!("----:com.apple.iTunes:{}", UrlKind::OfficialArtist.to_id3()),
+            format!("----:com.apple.iTunes:{}", UrlKind::OfficialAudio.to_id3()),
+        ],
+    }
 }
 
 fn read_mp3_tags(path: &Path) -> Result<AudioTags> {
@@ -1373,5 +1658,279 @@ mod tests {
             normalize_frame_descriptor(" \0MusicIndex Contributors\0 "),
             Some("MusicIndex Contributors".into())
         );
+    }
+
+    fn woar_frame_values(tag: &Tag) -> Vec<String> {
+        let mut values = tag
+            .frames()
+            .filter(|frame| frame.id() == "WOAR")
+            .map(|frame| frame.content().link().unwrap_or_default().to_string())
+            .collect::<Vec<_>>();
+        values.sort();
+        values
+    }
+
+    fn woaf_frame_values(tag: &Tag) -> Vec<String> {
+        tag.frames()
+            .filter(|frame| frame.id() == "WOAF")
+            .map(|frame| frame.content().link().unwrap_or_default().to_string())
+            .collect::<Vec<_>>()
+    }
+
+    /// R80-06: a write of the same edits twice to an MP3 file gives equal
+    /// frames. The second write adds no duplicate.
+    #[test]
+    fn adr_0080_repeated_mp3_write_gives_equal_frames() {
+        let temp = tempfile::NamedTempFile::new().expect("temp file");
+        fs::write(temp.path(), b"not really an mp3").expect("write file");
+        let edits = [
+            Id3v24Edit {
+                frame_label: "TIT2".into(),
+                value: "Song".into(),
+            },
+            Id3v24Edit {
+                frame_label: "TALB".into(),
+                value: "Feed Title".into(),
+            },
+            Id3v24Edit {
+                frame_label: "TXXX:RSS Nostr Handle".into(),
+                value: "npub1example".into(),
+            },
+            Id3v24Edit {
+                frame_label: "WOAR".into(),
+                value: "https://example.test/feed".into(),
+            },
+            Id3v24Edit {
+                frame_label: "WOAF".into(),
+                value: "https://example.test/track".into(),
+            },
+            Id3v24Edit {
+                frame_label: "COMM:MusicIndex Description".into(),
+                value: "Track description".into(),
+            },
+        ];
+
+        write_id3v24_edits(temp.path(), &edits).expect("first write");
+        let first = read_audio_tags(temp.path())
+            .expect("read after first write")
+            .fields;
+        write_id3v24_edits(temp.path(), &edits).expect("second write");
+        let second = read_audio_tags(temp.path())
+            .expect("read after second write")
+            .fields;
+
+        assert_eq!(first, second, "a repeated write must not duplicate a frame");
+    }
+
+    /// R80-06: the same idempotent-write proof for FLAC, on a copy of a real
+    /// FLAC fixture in a temporary file.
+    #[test]
+    fn adr_0080_repeated_flac_write_gives_equal_fields() {
+        let flac_bytes = include_bytes!("../docs/runbooks/fixtures/conversion.flac");
+        let temp = tempfile::Builder::new()
+            .suffix(".flac")
+            .tempfile()
+            .expect("temp flac file");
+        fs::write(temp.path(), flac_bytes).expect("write flac fixture copy");
+        let edits = [
+            Id3v24Edit {
+                frame_label: "TIT2".into(),
+                value: "Song".into(),
+            },
+            Id3v24Edit {
+                frame_label: "TALB".into(),
+                value: "Feed Title".into(),
+            },
+            Id3v24Edit {
+                frame_label: "TXXX:RSS Nostr Handle".into(),
+                value: "npub1example".into(),
+            },
+            Id3v24Edit {
+                frame_label: "WOAR".into(),
+                value: "https://example.test/feed".into(),
+            },
+            Id3v24Edit {
+                frame_label: "WOAF".into(),
+                value: "https://example.test/track".into(),
+            },
+        ];
+
+        write_id3v24_edits(temp.path(), &edits).expect("first write");
+        let first = read_audio_tags(temp.path())
+            .expect("read after first write")
+            .fields;
+        write_id3v24_edits(temp.path(), &edits).expect("second write");
+        let second = read_audio_tags(temp.path())
+            .expect("read after second write")
+            .fields;
+
+        assert_eq!(
+            first, second,
+            "a repeated FLAC write must not duplicate a field"
+        );
+    }
+
+    /// Orchestrator review, defect 2: two edits that alias to the same
+    /// Vorbis key (`TDRC` and `TYER`, both `DATE`) keep both their values.
+    /// A once-per-edit removal would let the second edit erase the first.
+    #[test]
+    fn adr_0080_two_edits_sharing_one_vorbis_key_keep_both_values() {
+        let flac_bytes = include_bytes!("../docs/runbooks/fixtures/conversion.flac");
+        let temp = tempfile::Builder::new()
+            .suffix(".flac")
+            .tempfile()
+            .expect("temp flac file");
+        fs::write(temp.path(), flac_bytes).expect("write flac fixture copy");
+        let edits = [
+            Id3v24Edit {
+                frame_label: "TDRC".into(),
+                value: "2024-01-01".into(),
+            },
+            Id3v24Edit {
+                frame_label: "TYER".into(),
+                value: "2024".into(),
+            },
+        ];
+
+        write_id3v24_edits(temp.path(), &edits).expect("write edits");
+        let tags = read_audio_tags(temp.path()).expect("read tags back");
+
+        let dates = tags
+            .fields
+            .iter()
+            .filter(|field| field.frame_id == "TDRC")
+            .map(|field| field.value.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            dates.contains(&"2024-01-01"),
+            "the TDRC value must stay: {dates:?}"
+        );
+        assert!(
+            dates.contains(&"2024"),
+            "the TYER value must also stay: {dates:?}"
+        );
+        assert_eq!(
+            dates.len(),
+            2,
+            "both values must be present, not one replacing the other: {dates:?}"
+        );
+    }
+
+    /// R80-07: an MP3 file with the earlier labeled channel value and the
+    /// item page mistakenly held in `WOAR` holds only the plain channel
+    /// value in `WOAR`, and the item page in `WOAF`, after one write.
+    #[test]
+    fn adr_0080_write_moves_earlier_woar_values_to_their_frame() {
+        let temp = tempfile::NamedTempFile::new().expect("temp file");
+        fs::write(temp.path(), b"not really an mp3").expect("write file");
+        let channel_url = "https://example.test/feed";
+        let item_page = "https://example.test/track";
+        write_id3v24_edits(
+            temp.path(),
+            &[
+                Id3v24Edit {
+                    frame_label: "WOAR".into(),
+                    value: format!("download for free (url, forward): {channel_url}"),
+                },
+                Id3v24Edit {
+                    frame_label: "WOAR".into(),
+                    value: item_page.into(),
+                },
+            ],
+        )
+        .expect("seed the earlier mapping");
+
+        write_id3v24_edits(
+            temp.path(),
+            &[
+                Id3v24Edit {
+                    frame_label: "WOAR".into(),
+                    value: channel_url.into(),
+                },
+                Id3v24Edit {
+                    frame_label: "WOAF".into(),
+                    value: item_page.into(),
+                },
+            ],
+        )
+        .expect("write the current mapping");
+
+        let tag = Tag::read_from_path(temp.path()).expect("read written tag");
+        assert_eq!(
+            woar_frame_values(&tag),
+            vec![channel_url.to_string()],
+            "WOAR must hold only the plain channel value"
+        );
+        assert_eq!(
+            woaf_frame_values(&tag),
+            vec![item_page.to_string()],
+            "WOAF must hold only the item page"
+        );
+    }
+
+    /// R80-08: a write keeps a `WOAR` value that no source supplied, and a
+    /// MusicBrainz `WOAR` value, while it still moves the earlier labeled
+    /// channel value and the item page to their own frame.
+    #[test]
+    fn adr_0080_write_keeps_foreign_and_musicbrainz_woar_values() {
+        let temp = tempfile::NamedTempFile::new().expect("temp file");
+        fs::write(temp.path(), b"not really an mp3").expect("write file");
+        let foreign_url = "https://foreign.example/from-another-tool";
+        let musicbrainz_value =
+            "download for free (url, forward): https://musicbrainz.example/artist";
+        let channel_url = "https://example.test/feed";
+        let item_page = "https://example.test/track";
+        write_id3v24_edits(
+            temp.path(),
+            &[
+                Id3v24Edit {
+                    frame_label: "WOAR".into(),
+                    value: foreign_url.into(),
+                },
+                Id3v24Edit {
+                    frame_label: "WOAR".into(),
+                    value: musicbrainz_value.into(),
+                },
+                Id3v24Edit {
+                    frame_label: "WOAR".into(),
+                    value: format!("download for free (url, forward): {channel_url}"),
+                },
+                Id3v24Edit {
+                    frame_label: "WOAR".into(),
+                    value: item_page.into(),
+                },
+            ],
+        )
+        .expect("seed the file with three owners and the earlier mapping");
+
+        write_id3v24_edits(
+            temp.path(),
+            &[
+                Id3v24Edit {
+                    frame_label: "WOAR".into(),
+                    value: channel_url.into(),
+                },
+                Id3v24Edit {
+                    frame_label: "WOAF".into(),
+                    value: item_page.into(),
+                },
+            ],
+        )
+        .expect("write the current mapping");
+
+        let tag = Tag::read_from_path(temp.path()).expect("read written tag");
+        let mut expected = vec![
+            foreign_url.to_string(),
+            musicbrainz_value.to_string(),
+            channel_url.to_string(),
+        ];
+        expected.sort();
+        assert_eq!(
+            woar_frame_values(&tag),
+            expected,
+            "a write keeps a foreign value and a MusicBrainz value, and \
+             replaces only the values it supplies"
+        );
+        assert_eq!(woaf_frame_values(&tag), vec![item_page.to_string()]);
     }
 }

@@ -998,7 +998,7 @@ fn auto_populates_multiple_woar_rows_for_distinct_outer_urls() {
     assert_eq!(pending.len(), 2);
     assert_eq!(
         pending["compare:website"].value,
-        "download for free (url, forward): https://rss.example/artist"
+        "https://rss.example/artist"
     );
     assert_eq!(pending["compare:website"].source, MetadataColumn::Rss);
     assert_eq!(
@@ -1116,7 +1116,10 @@ fn tagger_stages_nostr_handles_as_txxx() {
             title: Some("Song".into()),
             source_ids: Some(vec![SourceEntityId {
                 scheme: Some("nostr_npub".into()),
-                value: Some("npub1track".into()),
+                // A real, validly encoded `npub` (ADR 0080 Decision 7).
+                value: Some(
+                    "npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6".into(),
+                ),
                 ..Default::default()
             }]),
             ..Default::default()
@@ -1125,9 +1128,10 @@ fn tagger_stages_nostr_handles_as_txxx() {
     };
 
     let edits = crate::metadata_service::id3_edits_for_track_context(&context);
-    assert!(edits
-        .iter()
-        .any(|edit| { edit.frame_label == "TXXX:RSS Nostr Handle" && edit.value == "npub1track" }));
+    assert!(edits.iter().any(|edit| {
+        edit.frame_label == "TXXX:RSS Nostr Handle"
+            && edit.value == "npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6"
+    }));
 }
 
 #[test]

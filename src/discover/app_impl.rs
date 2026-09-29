@@ -889,7 +889,6 @@ impl SearchApp {
         let Some(value) = format_source_value_for_id3v24(
             &drag.frame,
             &drag.field,
-            drag.source,
             drag.target_existing_value.as_deref(),
             &drag.value,
         ) else {
