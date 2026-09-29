@@ -186,7 +186,20 @@ pub struct Track {
     pub enclosure_url: Option<String>,
     pub enclosure_type: Option<String>,
     pub enclosure_bytes: Option<i64>,
+    /// The resolved image: the track's own image, else the feed image
+    /// (ADR 0075 Decision C). A response with neither owner field below
+    /// still carries this value, with unknown ownership (the accepted
+    /// legacy-artwork rule, packet 048).
     pub image_url: Option<String>,
+    /// The track's own image. `None` when the track has no image of its
+    /// own, or when the response states no owner for either image field
+    /// (Stophammer ADR 0042, ADR 0075 packet 048).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub track_image_url: Option<String>,
+    /// The feed's image that this track response states, beside the
+    /// track's own image (Stophammer ADR 0042, ADR 0075 packet 048).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub feed_image_url: Option<String>,
     #[serde(alias = "author_name")]
     pub track_artist: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1427,6 +1440,35 @@ pub(crate) mod tests {
         assert_eq!(track.source_contributors.as_ref().map(Vec::len), Some(1));
         assert_eq!(track.source_links.as_ref().map(Vec::len), Some(1));
         assert_eq!(track.source_ids.as_ref().map(Vec::len), Some(1));
+    }
+
+    /// R48-01 (ADR 0075 packet 048): a recorded response that carries a
+    /// track image and a feed image decodes both owner fields, and it
+    /// still decodes the resolved `image_url` (Stophammer ADR 0042).
+    #[test]
+    fn adr_0075_track_artwork_r48_01_decodes_both_owner_fields_and_resolved_image() {
+        let track: Track = serde_json::from_str(
+            r#"{
+                "track_guid": "track-1",
+                "image_url": "https://example.test/track.jpg",
+                "track_image_url": "https://example.test/track.jpg",
+                "feed_image_url": "https://example.test/feed.jpg"
+            }"#,
+        )
+        .expect("a recorded track response with both owner fields should decode");
+
+        assert_eq!(
+            track.track_image_url.as_deref(),
+            Some("https://example.test/track.jpg")
+        );
+        assert_eq!(
+            track.feed_image_url.as_deref(),
+            Some("https://example.test/feed.jpg")
+        );
+        assert_eq!(
+            track.image_url.as_deref(),
+            Some("https://example.test/track.jpg")
+        );
     }
 
     /// R46-01: `api::Feed` and `api::Track` decode a response that contains

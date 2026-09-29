@@ -1082,8 +1082,11 @@ fn index_feed_artwork_url(feed: &FeedView) -> Option<&str> {
     })
 }
 
+/// The image URL to show for an Index track (ADR 0075 Decision C,
+/// packet 048). `TrackView::display_artwork_url` makes this choice. A
+/// caller resolves the returned URL to an image.
 fn index_track_artwork_url(track: &TrackView) -> Option<&str> {
-    non_empty_str(track.image_url.as_deref())
+    track.display_artwork_url()
 }
 
 fn index_track_row_artwork_url<'a>(feed: &'a FeedView, track: &'a TrackView) -> Option<&'a str> {
@@ -1133,6 +1136,10 @@ fn api_track_from_view(feed: &FeedView, track: &TrackView) -> crate::api::Track 
         enclosure_type: track.mime.clone(),
         enclosure_bytes: track.bytes,
         image_url: track.image_url.clone().or_else(|| feed.image_url.clone()),
+        // ADR 0075 packet 048: carry the track's own claimed image
+        // forward. Never set it from the feed's image (Decision C).
+        track_image_url: track.track_image_url.clone(),
+        feed_image_url: track.feed_image_url.clone(),
         track_artist: track.artist.clone(),
         release_artist: feed.artist.clone(),
         publisher_text: track.publisher_text.clone(),
@@ -1252,6 +1259,30 @@ mod remote_detail_thumbnail_tests {
         assert_eq!(
             index_track_row_artwork_url(&feed, &track),
             Some("https://example.test/track.jpg")
+        );
+    }
+
+    /// R48-05 (ADR 0075 packet 048): `api_track_from_view` carries the
+    /// track's own claimed image forward. It never turns a feed image
+    /// into a track-owned image.
+    #[test]
+    fn adr_0075_track_artwork_r48_05_api_track_from_view_gives_no_track_image_from_feed() {
+        let feed = FeedView {
+            image_url: Some("https://example.test/feed.jpg".to_string()),
+            ..FeedView::default()
+        };
+        let track = TrackView {
+            track_image_url: None,
+            feed_image_url: Some("https://example.test/feed.jpg".to_string()),
+            ..TrackView::default()
+        };
+
+        let api_track = api_track_from_view(&feed, &track);
+
+        assert_eq!(api_track.track_image_url, None);
+        assert_eq!(
+            api_track.feed_image_url.as_deref(),
+            Some("https://example.test/feed.jpg")
         );
     }
 }

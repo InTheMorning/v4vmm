@@ -538,3 +538,12 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-2
 - V1: a track page of a track without its own date shows no release date.
 - V2: a track with its own date shows that date.
 - V3: normal and narrow widths show each row in its place, in Light and Dark themes.
+
+## 27. Separate Track Artwork — ADR 0075 Task 048
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-29. Operator inspection is pending.
+
+- Owner: [packet 048](tasks/adr-0075-task-048-separate-track-artwork.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks. It only reads pages.
+- V1: an Index track with its own image shows that image. An Index track without one shows the album image.
+- V2: normal and narrow widths show the artwork in its place, in Light and Dark themes.

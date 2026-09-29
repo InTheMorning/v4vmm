@@ -105,7 +105,7 @@ against the deployed API.
 This client implements none of the three landed changes. Packets
 [047](docs/tasks/adr-0075-task-047-search-rows-from-summary-fields.md), [048](docs/tasks/adr-0075-task-048-separate-track-artwork.md)
 and [049](docs/tasks/adr-0075-task-049-no-derived-release-date.md) are written on 2026-09-29, one for each change.
-Packet 049 is implemented, with its visual gate open and paused. Packets 047 and 048 are Ready.
+Packets 048 and 049 are implemented, with their visual gates open and paused. Packet 047 is Ready.
 ADR 0076, amended on 2026-09-26, makes the app ignore `last_build_date`. Three decoded fields no
 longer arrive. [Packet 046](docs/tasks/adr-0075-task-046-remove-undeclared-api-fields.md)
 removed them on 2026-09-26. Its mechanical checks are Green, and it needs no visual acceptance.

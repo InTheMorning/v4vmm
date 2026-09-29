@@ -43,6 +43,10 @@ const SCALARS: &[&str] = &[
     "oldest_item_at",
     "description",
     "image_url",
+    // ADR 0075 packet 048: the track's own image and the feed's image,
+    // as the track response states them (Decision C).
+    "track_image_url",
+    "feed_image_url",
     "duration_secs",
     "pub_date",
     "track_number",
@@ -51,7 +55,6 @@ const SCALARS: &[&str] = &[
     "enclosure_bytes",
     "track_artist",
     "track_artist_sort",
-    "artist_credit",
 ];
 
 pub(crate) fn extract(
@@ -321,5 +324,56 @@ mod tests {
             invalid.facts[0].body_locator["json_pointer"],
             "/data/source_ids"
         );
+    }
+
+    /// R48-06 (ADR 0075 packet 048): an observation of a track response
+    /// records `track_image_url` and `feed_image_url` as separate
+    /// fields. It records no `artist_credit`, a field the contract does
+    /// not declare.
+    #[test]
+    fn adr_0075_track_artwork_r48_06_observes_owner_fields_and_drops_artist_credit() {
+        let spec = ProviderRequestSpec {
+            provider: ProviderKind::MusicIndex,
+            provider_identity: "x".into(),
+            request_uri: "y".into(),
+            requested_subject: None,
+            requested_parameters: json!({"path":["v1","tracks","track-1"]}),
+            profile: json!({}),
+            started_at_us: 0,
+        };
+        let mut observation = ProviderObservation {
+            body: None,
+            http_status: None,
+            response_uri: None,
+            interpretation: json!({}),
+            source_revision: None,
+            source_times: json!({}),
+            decoder_version: "test".into(),
+            outcome: ObservationOutcome::Success,
+            failure: None,
+            finished_at_us: 0,
+            fetched_at_us: None,
+            occurrence: json!({}),
+            coverage: Vec::new(),
+        };
+
+        extract(
+            &mut observation,
+            &spec,
+            r#"{"data":{"track_guid":"track-1","track_image_url":"https://example.test/track.jpg","feed_image_url":"https://example.test/feed.jpg"}}"#,
+        );
+
+        assert!(observation
+            .coverage
+            .iter()
+            .any(|c| c.collection == "field:track_image_url"));
+        assert!(observation
+            .coverage
+            .iter()
+            .any(|c| c.collection == "field:feed_image_url"));
+        assert!(!observation
+            .coverage
+            .iter()
+            .any(|c| c.collection == "field:artist_credit"));
     }
 }

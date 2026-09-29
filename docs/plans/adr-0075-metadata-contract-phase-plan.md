@@ -277,8 +277,9 @@ The operator accepted both cuts on 2026-09-21.
 | `Feed.name`, `Track.name`, and `Track.feed_url` no longer arrive from the deployed API | [Packet 046](../tasks/adr-0075-task-046-remove-undeclared-api-fields.md), Implemented on 2026-09-26. Mechanical checks Green. No visual gate. `TrackContext::feed_url` gives the feed address |
 | Stophammer removed its public artist credits on 2026-04-08, in commit `a16a720` | Closed. ADR 0077 packet 001 deleted the ADR 0045 binding on 2026-09-24 |
 | Search rows from the new upstream summary fields, without a detail request for each hit | [Packet 047](../tasks/adr-0075-task-047-search-rows-from-summary-fields.md), Ready on 2026-09-29 |
-| The separate track and feed artwork fields of MusicIndex change 2 | [Packet 048](../tasks/adr-0075-task-048-separate-track-artwork.md), Ready on 2026-09-29 |
+| The separate track and feed artwork fields of MusicIndex change 2 | [Packet 048](../tasks/adr-0075-task-048-separate-track-artwork.md), Implemented on 2026-09-29. Mechanical checks Green. Visual gate open and paused |
 | `feed_release_pubdate` gives an oldest-item date as a release date, against the accepted feed release-date evidence rule. `TDRC` gets it | [Packet 049](../tasks/adr-0075-task-049-no-derived-release-date.md), Implemented on 2026-09-29. Mechanical checks Green. Visual gate open and paused |
+| `TrackView.artwork` has no reader. `TrackView::display_artwork_url` gives the track artwork | No packet. Packet 048 recorded it on 2026-09-29 |
 | A feed artwork fallback to the first track image puts a track value on a feed (`index_feed_artwork_url`) | No packet. Packet 048 recorded it on 2026-09-29 |
 | The app reads no RSS channel `pubDate`. The accepted feed publication-date rules have no source | No packet |
 | A guard that compares the fields that the app decodes with a stored copy of the MusicIndex contract. The incident: Stophammer removed `artist_credit` on 2026-04-08, and the app read `None` for five months without a report | No packet and no decision. The operator can decide it separately |

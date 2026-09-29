@@ -167,6 +167,19 @@ pub struct TrackView {
     pub explicit: Option<bool>,
     pub description: Option<String>,
     pub image_url: Option<String>,
+    /// The track's own image, when the source states an owner (ADR 0075
+    /// Decision C, packet 048). This value is `None` when the track has
+    /// no image of its own. It is also `None` when the source states no
+    /// owner for either image field. An Index track reads this value
+    /// from `Track::track_image_url`. A local track leaves this value
+    /// `None`. The Library route picks one image for `image_url` (ADR
+    /// 0076 Decision 1).
+    pub track_image_url: Option<String>,
+    /// The feed's image that the source states with this track (ADR
+    /// 0075 Decision C, packet 048). An Index track reads this value
+    /// from `Track::feed_image_url`. The track response carries this
+    /// value. A separate feed read does not supply it.
+    pub feed_image_url: Option<String>,
     pub artwork: Option<ArtworkRef>,
     pub identity: EntityIdentityLinks,
     pub audio_url: Option<String>,
@@ -176,6 +189,21 @@ pub struct TrackView {
     pub contributors: Vec<ContributorView>,
     pub payment_routes: Vec<api::PaymentRoute>,
     pub transcript_url: Option<String>,
+}
+
+impl TrackView {
+    /// The image to show for this track (ADR 0075 Decision C). This
+    /// method shows the track's own image first. It shows the feed
+    /// image second. When the source states no owner for either field,
+    /// it shows `image_url`. That value has unknown ownership (the
+    /// accepted legacy-artwork rule). This method never reports it as a
+    /// track-owned image.
+    #[must_use]
+    pub fn display_artwork_url(&self) -> Option<&str> {
+        trimmed(self.track_image_url.as_deref())
+            .or_else(|| trimmed(self.feed_image_url.as_deref()))
+            .or_else(|| trimmed(self.image_url.as_deref()))
+    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -361,6 +389,13 @@ fn nonempty_owned(value: Option<String>) -> Option<String> {
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     drop_placeholder_source_text(value)
+}
+
+/// A trimmed, non-empty borrow of `value`, or `None`.
+/// `TrackView::display_artwork_url` uses this. A blank value must not
+/// hide a real fallback value.
+fn trimmed(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 impl ArtistView {
@@ -565,6 +600,8 @@ impl TrackView {
             })
             .and_then(|link| link.url.clone());
         let image_url = nonempty_owned(t.image_url);
+        let track_image_url = nonempty_owned(t.track_image_url);
+        let feed_image_url = nonempty_owned(t.feed_image_url);
         let identity =
             EntityIdentityLinks::from_api_facts(image_url.clone(), source_links, t.source_ids);
 
@@ -585,6 +622,8 @@ impl TrackView {
             explicit: t.explicit,
             description: nonempty_owned(t.description),
             image_url: image_url.clone(),
+            track_image_url,
+            feed_image_url,
             artwork: artwork_from_url(&image_url),
             identity,
             audio_url: nonempty_owned(t.enclosure_url),
@@ -645,6 +684,12 @@ impl TrackView {
             explicit: values.explicit.value,
             description: nonempty_owned(values.description.value),
             image_url: image_url.clone(),
+            // The Library route picks one image for `image_url` and
+            // keeps no separate track/feed owner facts (ADR 0076
+            // Decision 1). This packet does not change the Library
+            // route.
+            track_image_url: None,
+            feed_image_url: None,
             artwork: artwork_from_url(&image_url),
             identity,
             audio_url: t.enclosure_url,
@@ -661,6 +706,80 @@ impl TrackView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R48-02 (ADR 0075 packet 048): a recorded track with its own image
+    /// exposes it as the track image. `display_artwork_url` shows it.
+    #[test]
+    fn adr_0075_track_artwork_r48_02_track_image_field_is_shown() {
+        let track: api::Track = serde_json::from_str(
+            r#"{
+                "track_guid": "track-1",
+                "image_url": "https://example.test/track.jpg",
+                "track_image_url": "https://example.test/track.jpg",
+                "feed_image_url": "https://example.test/feed.jpg"
+            }"#,
+        )
+        .expect("a recorded track with a track image should decode");
+
+        let view = TrackView::from_api(track);
+
+        assert_eq!(
+            view.track_image_url.as_deref(),
+            Some("https://example.test/track.jpg")
+        );
+        assert_eq!(
+            view.display_artwork_url(),
+            Some("https://example.test/track.jpg")
+        );
+    }
+
+    /// R48-03 (ADR 0075 packet 048): a recorded track with a null track
+    /// image and a feed image exposes no track image.
+    /// `display_artwork_url` shows the feed image (ADR 0075 Decision C).
+    #[test]
+    fn adr_0075_track_artwork_r48_03_null_track_image_shows_feed_image() {
+        let track: api::Track = serde_json::from_str(
+            r#"{
+                "track_guid": "track-1",
+                "image_url": "https://example.test/feed.jpg",
+                "track_image_url": null,
+                "feed_image_url": "https://example.test/feed.jpg"
+            }"#,
+        )
+        .expect("a recorded track with a null track image should decode");
+
+        let view = TrackView::from_api(track);
+
+        assert_eq!(view.track_image_url, None);
+        assert_eq!(
+            view.display_artwork_url(),
+            Some("https://example.test/feed.jpg")
+        );
+    }
+
+    /// R48-04 (ADR 0075 packet 048): a recorded track with only
+    /// `image_url` states no owner. The view keeps that image for
+    /// display, and it never reports it as the track's own image (the
+    /// accepted legacy-artwork rule).
+    #[test]
+    fn adr_0075_track_artwork_r48_04_legacy_image_has_unknown_ownership() {
+        let track: api::Track = serde_json::from_str(
+            r#"{
+                "track_guid": "track-1",
+                "image_url": "https://example.test/legacy.jpg"
+            }"#,
+        )
+        .expect("a recorded track with only image_url should decode");
+
+        let view = TrackView::from_api(track);
+
+        assert_eq!(view.track_image_url, None);
+        assert_eq!(view.feed_image_url, None);
+        assert_eq!(
+            view.display_artwork_url(),
+            Some("https://example.test/legacy.jpg")
+        );
+    }
 
     #[test]
     fn from_api_track_roundtrip() {
