@@ -216,6 +216,15 @@ pub struct Track {
     pub updated_at: Option<i64>,
 }
 
+/// Backfills a track with its feed's values, for the fields whose fallback
+/// stays outside display ownership (ADR 0075 Decision B, packet 022).
+///
+/// This function does not copy `source_links`, `source_ids` or
+/// `description`. A track keeps only its own identity and its own
+/// description; a caller that still wants the feed's website, Nostr key or
+/// description reads the feed in its `TrackContext` directly
+/// (`metadata::source_value_for_metadata_field` does this for a tag row,
+/// and `TrackDetailVm::with_feed_identity` does this for the track page).
 pub fn track_with_feed_defaults(mut track: Track, feed: Option<&Feed>) -> Track {
     if let Some(feed) = feed {
         if track.feed_guid.is_none() {
@@ -230,20 +239,11 @@ pub fn track_with_feed_defaults(mut track: Track, feed: Option<&Feed>) -> Track 
         if track.publisher_text.is_none() {
             track.publisher_text = feed.publisher_text.clone();
         }
-        if track.description.is_none() {
-            track.description = feed.description.clone();
-        }
         if track.release_artist.is_none() {
             track.release_artist = feed.release_artist.clone();
         }
         if track.source_contributors.is_none() {
             track.source_contributors = feed.source_contributors.clone();
-        }
-        if track.source_links.is_none() {
-            track.source_links = feed.source_links.clone();
-        }
-        if track.source_ids.is_none() {
-            track.source_ids = feed.source_ids.clone();
         }
         if track.source_release_claims.is_none() {
             track.source_release_claims = feed.source_release_claims.clone();
@@ -1149,8 +1149,8 @@ pub(crate) mod tests {
     }
 
     use super::{
-        Client, Contributor, Feed, PaymentRoute, SourceEnclosure, SourceEntityId, SourceTranscript,
-        Track,
+        Client, Contributor, Feed, PaymentRoute, SourceEnclosure, SourceEntityId, SourceEntityLink,
+        SourceReleaseClaim, SourceTranscript, Track,
     };
     use crate::application::request_profiles;
 
@@ -1228,7 +1228,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn track_with_feed_defaults_inherits_missing_source_metadata() {
+    fn track_with_feed_defaults_inherits_missing_feed_level_metadata() {
         let track = Track {
             track_guid: Some("track-guid".into()),
             ..Default::default()
@@ -1237,12 +1237,6 @@ pub(crate) mod tests {
             feed_guid: Some("feed-guid".into()),
             title: Some("Feed".into()),
             publisher_text: Some("publisher".into()),
-            description: Some("description".into()),
-            source_ids: Some(vec![SourceEntityId {
-                scheme: Some("nostr_npub".into()),
-                value: Some("npub1test".into()),
-                ..Default::default()
-            }]),
             source_contributors: Some(vec![Contributor {
                 name: Some("Alice".into()),
                 role: Some("musician".into()),
@@ -1260,9 +1254,76 @@ pub(crate) mod tests {
         assert_eq!(hydrated.feed_guid.as_deref(), Some("feed-guid"));
         assert_eq!(hydrated.feed_title.as_deref(), Some("Feed"));
         assert_eq!(hydrated.publisher_text.as_deref(), Some("publisher"));
-        assert_eq!(hydrated.description.as_deref(), Some("description"));
-        assert_eq!(hydrated.source_ids.as_ref().map(Vec::len), Some(1));
         assert_eq!(hydrated.source_contributors.as_ref().map(Vec::len), Some(1));
+        assert_eq!(hydrated.payment_routes.as_ref().map(Vec::len), Some(1));
+    }
+
+    /// R22-01 (ADR 0075 packet 022): `track_with_feed_defaults` does not
+    /// copy a feed's `source_links`, `source_ids` or `description` into a
+    /// track that has none of its own. It still copies each other value.
+    #[test]
+    fn adr_0075_track_header_r22_01_stops_identity_and_description_copies() {
+        let track = Track {
+            track_guid: Some("track-guid".into()),
+            ..Default::default()
+        };
+        let feed = Feed {
+            feed_guid: Some("feed-guid".into()),
+            title: Some("Feed".into()),
+            publisher_text: Some("publisher".into()),
+            description: Some("feed description".into()),
+            image_url: Some("https://example.test/feed.jpg".into()),
+            release_artist: Some("Feed Artist".into()),
+            source_links: Some(vec![SourceEntityLink {
+                link_type: Some("website".into()),
+                url: Some("https://example.test/feed".into()),
+                ..Default::default()
+            }]),
+            source_ids: Some(vec![SourceEntityId {
+                scheme: Some("nostr_npub".into()),
+                value: Some("npub1feed".into()),
+                ..Default::default()
+            }]),
+            source_contributors: Some(vec![Contributor {
+                name: Some("Alice".into()),
+                role: Some("musician".into()),
+                ..Default::default()
+            }]),
+            source_release_claims: Some(vec![SourceReleaseClaim {
+                claim_type: Some("description".into()),
+                claim_value: Some("claim".into()),
+                ..Default::default()
+            }]),
+            payment_routes: Some(vec![PaymentRoute {
+                recipient_name: Some("Alice".into()),
+                split: Some(100.0),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+
+        let hydrated = super::track_with_feed_defaults(track, Some(&feed));
+
+        // The three stopped copies: the track keeps no identity and no
+        // description from the feed.
+        assert!(hydrated.source_links.is_none());
+        assert!(hydrated.source_ids.is_none());
+        assert!(hydrated.description.is_none());
+
+        // Each other value still copies.
+        assert_eq!(hydrated.feed_guid.as_deref(), Some("feed-guid"));
+        assert_eq!(hydrated.feed_title.as_deref(), Some("Feed"));
+        assert_eq!(hydrated.publisher_text.as_deref(), Some("publisher"));
+        assert_eq!(
+            hydrated.image_url.as_deref(),
+            Some("https://example.test/feed.jpg")
+        );
+        assert_eq!(hydrated.release_artist.as_deref(), Some("Feed Artist"));
+        assert_eq!(hydrated.source_contributors.as_ref().map(Vec::len), Some(1));
+        assert_eq!(
+            hydrated.source_release_claims.as_ref().map(Vec::len),
+            Some(1)
+        );
         assert_eq!(hydrated.payment_routes.as_ref().map(Vec::len), Some(1));
     }
 

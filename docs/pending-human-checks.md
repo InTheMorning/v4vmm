@@ -484,3 +484,14 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-2
 - V3: a Library artist page without a publisher relationship shows "Grouped by name".
 - V4: normal and narrow widths show each element in its place, with no clipped text.
 - V2 cannot be walked. The name search of this packet reached only parked code. ADR 0077 packet 006 owns the live name-keyed artist page.
+
+## 22. Track Header Identities — ADR 0075 Task 022
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-28. Operator inspection is pending.
+
+- Owner: [packet 022](tasks/adr-0075-task-022-track-header-identities.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks.
+- V1: an Index track without its own identities shows no website or Nostr action in its header. The feed section shows them, with the feed named as owner, in Light and Dark themes.
+- V2: a track with its own identities shows them in its header, apart from the feed section.
+- V3: a track without its own description shows no description.
+- V4: normal and narrow widths show each element in its place, with no clipped text.

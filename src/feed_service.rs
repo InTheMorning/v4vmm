@@ -966,6 +966,10 @@ mod tests {
         }));
     }
 
+    /// ADR 0075 packet 022 (R22-01): the track still inherits feed-level
+    /// facts that stay outside display ownership (publisher, contributors,
+    /// payment routes). It no longer inherits the feed's identity or
+    /// description; `context.feed` still carries the feed's own values.
     #[test]
     fn library_track_context_inherits_feed_level_musicindex_metadata() {
         let track_row = TrackRow {
@@ -1027,14 +1031,26 @@ mod tests {
             context.track.source_contributors.as_ref().map(Vec::len),
             Some(1)
         );
-        assert_eq!(context.track.source_ids.as_ref().map(Vec::len), Some(1));
         assert_eq!(context.track.payment_routes.as_ref().map(Vec::len), Some(1));
+        // ADR 0075 packet 022 (R22-01): the track keeps no feed identity or
+        // feed description as its own. A tag row or the track page reads
+        // the feed in `context.feed` directly instead.
+        assert!(context.track.source_ids.is_none());
+        assert!(context.track.description.is_none());
         assert_eq!(
             context
                 .feed
                 .as_ref()
                 .and_then(|feed| feed.description.as_deref()),
             Some("Feed description")
+        );
+        assert_eq!(
+            context
+                .feed
+                .as_ref()
+                .and_then(|feed| feed.source_ids.as_ref())
+                .map(Vec::len),
+            Some(1)
         );
     }
 

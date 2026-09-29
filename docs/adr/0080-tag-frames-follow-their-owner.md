@@ -20,6 +20,12 @@ The app reads embedded tags back as a separate source and compares them with the
 The compare checks a tag against the track's own fact. A frame that holds a feed value then differs from the track fact, and the difference never resolves.
 The operator confirmed on 2026-09-26 that this round-trip defect is old.
 
+The fixed edits of ADR 0075 packet 022 (R22-06, 2026-09-28) record the present output:
+
+- A track with its own Nostr key gets the feed key in `TXXX:RSS Nostr Handle`. The track key is lost.
+- A track with its own website gets two `WOAR` frames: the feed website and the track page.
+- Each `WOAR` value holds link label text before the URL, for example `download for free (url, forward): https://example.test/feed`. ID3v2.4 defines a URL frame value as a URL only.
+
 The Podcast Namespace states that item values replace channel values for `podcast:value` and `podcast:person`.
 v4vmm applies that rule to payment routes in files (ADR 0076 Decision 9) and to the credit list (ADR 0076 packet 006).
 The Podcast Namespace states no such rule for `podcast:txt`.

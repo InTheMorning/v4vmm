@@ -48,7 +48,9 @@ pub(crate) fn render_discover_track_inspector_core(
     let track = &track_context.track;
     let vm = TrackVm::new(track);
     let track_view = TrackView::from_api(track.clone());
-    let detail_page = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Discover).page();
+    let detail_page = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Discover)
+        .with_feed_identity(track_context.feed.as_ref())
+        .page();
     let header_vm = TrackInspectorHeaderVm::new(track, track_context.feed_url());
     let feed_link = header_vm.feed_link_display();
     let audio_display = vm.play_audio_display();
@@ -56,6 +58,17 @@ pub(crate) fn render_discover_track_inspector_core(
         render_track_header_subtitle(feed_link, audio_display, cx),
     )];
     external_links.extend(track::render_track_page_identity_actions(&detail_page));
+
+    let mut section_elements = Vec::new();
+    if let Some(feed_identity) = track::render_track_feed_identity_section(&detail_page, cx) {
+        section_elements.push(feed_identity);
+    }
+    section_elements.push(TrackSurfaceElement::from_element(
+        render_discover_track_inspector_lazy_sections(frame, app, cx),
+    ));
+    section_elements.push(TrackSurfaceElement::from_element(
+        render_discover_track_inspector_metadata(frame, track_context, cx),
+    ));
 
     let surface = track::build_track_detail_surface(
         &detail_page,
@@ -65,16 +78,7 @@ pub(crate) fn render_discover_track_inspector_core(
             primary_actions: vec![TrackSurfaceElement::from_element(
                 discover_inspector_action_row(frame, app, cx),
             )],
-            section_elements: vec![
-                TrackSurfaceElement::from_element(render_discover_track_inspector_lazy_sections(
-                    frame, app, cx,
-                )),
-                TrackSurfaceElement::from_element(render_discover_track_inspector_metadata(
-                    frame,
-                    track_context,
-                    cx,
-                )),
-            ],
+            section_elements,
             ..track::TrackDetailBehaviorSlots::default()
         },
     );

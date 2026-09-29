@@ -222,7 +222,12 @@ fn render_surface_state(message: &str, cx: &mut App) -> AnyElement {
         .into_any_element()
 }
 
-fn render_text_section(label: String, value: String, cx: &mut App) -> AnyElement {
+/// A bordered box with a bold caption above a body element. Shared by a
+/// track's description panel and its feed identity section, so both read as
+/// one visual family and share the scaled token path ADR 0039 requires. A
+/// screen supplies the label text and the body element; it decides no
+/// border, no spacing and no color of its own.
+fn render_labeled_box(label: String, body: AnyElement, cx: &mut App) -> AnyElement {
     div()
         .border_1()
         .border_color(color(cx, SemanticColor::Separator))
@@ -235,12 +240,40 @@ fn render_text_section(label: String, value: String, cx: &mut App) -> AnyElement
                 .text_color(color(cx, SemanticColor::SecondaryLabel))
                 .child(SharedString::from(label)),
         )
-        .child(
-            div()
-                .mt(Spacing::XS.scaled(cx))
-                .child(MultilineText::new(value).max_lines(3).size(FontSize::Micro)),
-        )
+        .child(div().mt(Spacing::XS.scaled(cx)).child(body))
         .into_any_element()
+}
+
+fn render_text_section(label: String, value: String, cx: &mut App) -> AnyElement {
+    render_labeled_box(
+        label,
+        MultilineText::new(value)
+            .max_lines(3)
+            .size(FontSize::Micro)
+            .into_any_element(),
+        cx,
+    )
+}
+
+/// The feed identity panel of a track page: a labeled box that wraps the
+/// feed's identity actions, apart from the track's own header (ADR 0075
+/// Decision B, packet 022). `owner_label` names the feed as the owner of
+/// every action in `actions`. Shares `render_labeled_box` with
+/// `render_text_section`, so it uses the same scaled tokens.
+pub(crate) fn render_feed_identity_panel(
+    owner_label: String,
+    actions: Vec<TrackSurfaceElement>,
+    cx: &mut App,
+) -> AnyElement {
+    let body = div()
+        .flex()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .gap(Spacing::SM.scaled(cx))
+        .children(actions)
+        .into_any_element();
+    render_labeled_box(owner_label, body, cx)
 }
 
 #[cfg(test)]

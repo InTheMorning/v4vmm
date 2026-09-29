@@ -6,18 +6,23 @@
 
 #![warn(clippy::pedantic)]
 
+use crate::api::Feed;
+use crate::metadata::{feed_nostr, feed_website};
 use crate::view_models::entity_detail::{
     EntityActionKind, EntityActionTarget, EntityActionTone, EntityActionVm,
 };
 use crate::view_models::format::fmt_date;
 use crate::view_models::track::fmt_dur;
 use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
-use crate::views::{ArtistRef, TrackRef, TrackView};
+use crate::views::{ArtistRef, FeedRef, TrackRef, TrackView};
 
 const UNTITLED: &str = "Untitled";
 const UNKNOWN_ARTIST: &str = "Unknown Artist";
 const UNKNOWN_ALBUM: &str = "Unknown Album";
 const TRACK_KIND: &str = "track";
+/// The owner label of a track page's feed identity section when the feed
+/// has no title of its own (ADR 0075 Decision B, packet 022).
+const FEED_IDENTITY_FALLBACK_OWNER: &str = "Feed";
 
 /// Surface requesting track display facts.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -119,6 +124,11 @@ pub struct TrackDetailVm<'a> {
     /// Decision 2, packet 004 R4-03). The track stores no publisher value
     /// of its own; the caller supplies its album feed's own value.
     publisher_feed_guid: Option<&'a str>,
+    /// The track's feed, supplied so [`Self::feed_identity_section`] can
+    /// list the feed's own website and Nostr key apart from the track's
+    /// header (ADR 0075 Decision B, packet 022). `None` when the caller's
+    /// surface has no feed.
+    feed: Option<&'a Feed>,
 }
 
 impl<'a> TrackDetailVm<'a> {
@@ -129,6 +139,7 @@ impl<'a> TrackDetailVm<'a> {
             context,
             override_title: None,
             publisher_feed_guid: None,
+            feed: None,
         }
     }
 
@@ -143,6 +154,14 @@ impl<'a> TrackDetailVm<'a> {
     #[must_use]
     pub const fn with_publisher_feed_guid(mut self, publisher_feed_guid: Option<&'a str>) -> Self {
         self.publisher_feed_guid = publisher_feed_guid;
+        self
+    }
+
+    /// Sets the track's feed (R22-03, ADR 0075 Decision B). The track's own
+    /// header never reads this; only [`Self::feed_identity_section`] does.
+    #[must_use]
+    pub const fn with_feed_identity(mut self, feed: Option<&'a Feed>) -> Self {
+        self.feed = feed;
         self
     }
 
@@ -353,6 +372,77 @@ impl<'a> TrackDetailVm<'a> {
         }
     }
 
+    /// R22-02/R22-03 (ADR 0075 Decision B): the feed identity section, apart
+    /// from the track's own header. `None` when this surface has no feed, or
+    /// when the feed has no website and no Nostr key. The feed title is the
+    /// section's owner, and each action label and accessibility text names
+    /// the feed.
+    #[must_use]
+    pub fn feed_identity_section(&self) -> Option<FeedIdentitySectionVm> {
+        let feed = self.feed?;
+        let website = feed_website(feed).filter(|url| nonempty(url).is_some());
+        let nostr = feed_nostr(feed).filter(|npub| nonempty(npub).is_some());
+        if website.is_none() && nostr.is_none() {
+            return None;
+        }
+        let target = feed
+            .feed_guid
+            .clone()
+            .map(FeedRef::Musicindex)
+            .map(EntityActionTarget::Feed)
+            .or_else(|| self.track.id.clone().map(EntityActionTarget::Track))?;
+        let owner_label = feed
+            .title
+            .as_deref()
+            .and_then(nonempty)
+            .unwrap_or(FEED_IDENTITY_FALLBACK_OWNER)
+            .to_string();
+
+        let mut actions = Vec::new();
+        if let Some(url) = website {
+            actions.push(
+                EntityActionVm::new(
+                    EntityActionKind::OpenWebsite,
+                    target.clone(),
+                    format!("{owner_label} website"),
+                    EntityActionTone::Quiet,
+                )
+                .with_payload(url)
+                .with_identity_a11y_label(format!("Open {owner_label} website")),
+            );
+        }
+        if let Some(npub) = nostr {
+            actions.push(
+                EntityActionVm::new(
+                    EntityActionKind::CopyNostr,
+                    target,
+                    format!("{owner_label} Nostr key"),
+                    EntityActionTone::Quiet,
+                )
+                .with_payload(npub)
+                .with_identity_a11y_label(format!("Copy {owner_label} Nostr key")),
+            );
+        }
+        // `website` or `nostr` holds a value here (the guard above returns
+        // early when both are `None`), so `actions` always holds at least
+        // one entry.
+        Some(FeedIdentitySectionVm {
+            owner_label,
+            actions,
+        })
+    }
+
+    /// The identity-action id prefix of the feed identity section. Apart
+    /// from [`Self::identity_action_prefix`] so a feed action's element id
+    /// cannot collide with the track's own header action.
+    #[must_use]
+    pub const fn feed_identity_action_prefix(&self) -> &'static str {
+        match self.context {
+            TrackDetailSurfaceContext::Discover => "discover-track-feed",
+            TrackDetailSurfaceContext::Library => "library-track-feed",
+        }
+    }
+
     #[must_use]
     pub const fn primary_actions_a11y_label(&self) -> &'static str {
         match self.context {
@@ -388,6 +478,27 @@ impl<'a> TrackDetailPageVm<'a> {
     pub const fn identity_action_prefix(&self) -> &'static str {
         self.detail.identity_action_prefix()
     }
+
+    #[must_use]
+    pub fn feed_identity_section(&self) -> Option<FeedIdentitySectionVm> {
+        self.detail.feed_identity_section()
+    }
+
+    #[must_use]
+    pub const fn feed_identity_action_prefix(&self) -> &'static str {
+        self.detail.feed_identity_action_prefix()
+    }
+}
+
+/// A track page's feed identity section, apart from the track's own header
+/// (ADR 0075 Decision B, packet 022 R22-03). `owner_label` is the feed's
+/// title, or a generic fallback when the feed has none. Each entry in
+/// `actions` already names `owner_label` in its label and its
+/// accessibility text.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeedIdentitySectionVm {
+    pub owner_label: String,
+    pub actions: Vec<EntityActionVm>,
 }
 
 /// Row-shaped projection of [`TrackDetailVm`].
@@ -523,6 +634,7 @@ fn nonempty(value: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::{SourceEntityId, SourceEntityLink};
     use crate::views::{EntityIdentityLinks, IdentityIdFact, IdentityLinkFact, TrackRef};
 
     fn track() -> TrackView {
@@ -713,6 +825,145 @@ mod tests {
             TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library).identity_actions();
 
         assert!(actions.is_empty());
+    }
+
+    fn feed_with_identity() -> Feed {
+        Feed {
+            feed_guid: Some("feed-guid".into()),
+            title: Some("MoeFactz".into()),
+            source_links: Some(vec![SourceEntityLink {
+                link_type: Some("website".into()),
+                url: Some("https://example.test/feed".into()),
+                ..Default::default()
+            }]),
+            source_ids: Some(vec![SourceEntityId {
+                scheme: Some("nostr_npub".into()),
+                value: Some("npub1feed".into()),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        }
+    }
+
+    /// R22-02 (ADR 0075 Decision B): a track with no own identities exposes
+    /// no identity action in its header, even when its feed has a website
+    /// and a Nostr key.
+    #[test]
+    fn adr_0075_track_header_r22_02_header_hides_feed_identity() {
+        let track = track();
+        let feed = feed_with_identity();
+        let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
+            .with_feed_identity(Some(&feed));
+
+        assert!(vm.identity_actions().is_empty());
+    }
+
+    /// R22-03: the feed identity section names the feed as the owner, and
+    /// each action label and accessibility text names the feed.
+    #[test]
+    fn adr_0075_track_header_r22_03_feed_identity_section_names_owner() {
+        let track = track();
+        let feed = feed_with_identity();
+        let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
+            .with_feed_identity(Some(&feed));
+
+        let section = vm
+            .feed_identity_section()
+            .expect("a feed with a website and a Nostr key exposes a section");
+        assert_eq!(section.owner_label, "MoeFactz");
+        assert_eq!(
+            section
+                .actions
+                .iter()
+                .map(|action| action.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["MoeFactz website", "MoeFactz Nostr key"]
+        );
+        for action in &section.actions {
+            let display = action
+                .identity_display(vm.feed_identity_action_prefix())
+                .expect("a website or Nostr action always projects a display");
+            assert!(
+                display.a11y_label.contains("MoeFactz"),
+                "accessibility text must name the feed, got {}",
+                display.a11y_label
+            );
+        }
+    }
+
+    /// R22-04: a track with its own website and Nostr key shows them in its
+    /// header; the feed section still shows the feed's own values apart
+    /// from them.
+    #[test]
+    fn adr_0075_track_header_r22_04_own_and_feed_identities_stay_apart() {
+        let track = track_with_identity();
+        let feed = feed_with_identity();
+        let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
+            .with_feed_identity(Some(&feed));
+
+        assert_eq!(
+            vm.identity_actions()
+                .iter()
+                .map(|action| action.payload.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                Some("https://example.test/track".to_string()),
+                Some("npub1track".to_string()),
+            ]
+        );
+        let section = vm
+            .feed_identity_section()
+            .expect("the feed keeps its own identity apart from the track's");
+        assert_eq!(
+            section
+                .actions
+                .iter()
+                .map(|action| action.payload.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                Some("https://example.test/feed".to_string()),
+                Some("npub1feed".to_string()),
+            ]
+        );
+    }
+
+    /// R22-05: a track without its own description exposes no description,
+    /// even when its feed has one.
+    #[test]
+    fn adr_0075_track_header_r22_05_no_feed_description_fallback() {
+        let mut track = track();
+        track.description = None;
+        let mut feed = feed_with_identity();
+        feed.description = Some("Feed description".into());
+        let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
+            .with_feed_identity(Some(&feed));
+
+        assert!(vm.description().is_none());
+    }
+
+    /// A feed with no website and no Nostr key exposes no identity section.
+    #[test]
+    fn adr_0075_track_header_feed_identity_section_absent_without_feed_identity() {
+        let track = track();
+        let feed = Feed {
+            feed_guid: Some("feed-guid".into()),
+            title: Some("MoeFactz".into()),
+            ..Default::default()
+        };
+        let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
+            .with_feed_identity(Some(&feed));
+
+        assert!(vm.feed_identity_section().is_none());
+    }
+
+    /// A track page with no feed in its context shows no feed identity
+    /// section.
+    #[test]
+    fn adr_0075_track_header_feed_identity_section_absent_without_feed() {
+        let track = track();
+        let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover);
+
+        assert!(vm.feed_identity_section().is_none());
     }
 
     #[test]

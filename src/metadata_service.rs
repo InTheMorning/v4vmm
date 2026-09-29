@@ -84,3 +84,150 @@ pub fn musicbrainz_lookup_metadata(track: &Track, tags: &AudioTags) -> LookupMet
             .or_else(|| tags.custom.get("isrc").cloned()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::{Feed, SourceEntityId, SourceEntityLink};
+
+    /// A track with no website, no Nostr key and no description of its own.
+    /// Its feed has all three.
+    fn track_context_without_own_identity() -> TrackContext {
+        TrackContext {
+            track: Track {
+                track_guid: Some("track-guid".into()),
+                feed_guid: Some("feed-guid".into()),
+                title: Some("Song".into()),
+                ..Default::default()
+            },
+            feed: Some(Feed {
+                feed_guid: Some("feed-guid".into()),
+                title: Some("Feed Title".into()),
+                description: Some("Feed description".into()),
+                source_links: Some(vec![SourceEntityLink {
+                    link_type: Some("website".into()),
+                    url: Some("https://example.test/feed".into()),
+                    ..Default::default()
+                }]),
+                source_ids: Some(vec![SourceEntityId {
+                    scheme: Some("nostr_npub".into()),
+                    value: Some("npub1feed".into()),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            }),
+            rss_observation: None,
+            observation_receipts: Vec::new(),
+            provider_state: Default::default(),
+        }
+    }
+
+    /// A track with its own website, Nostr key and description, apart from
+    /// its feed's own distinct values.
+    fn track_context_with_own_identity() -> TrackContext {
+        TrackContext {
+            track: Track {
+                track_guid: Some("track-guid".into()),
+                feed_guid: Some("feed-guid".into()),
+                title: Some("Song".into()),
+                description: Some("Track description".into()),
+                source_links: Some(vec![SourceEntityLink {
+                    link_type: Some("website".into()),
+                    url: Some("https://example.test/track".into()),
+                    ..Default::default()
+                }]),
+                source_ids: Some(vec![SourceEntityId {
+                    scheme: Some("nostr_npub".into()),
+                    value: Some("npub1track".into()),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            },
+            feed: Some(Feed {
+                feed_guid: Some("feed-guid".into()),
+                title: Some("Feed Title".into()),
+                description: Some("Feed description".into()),
+                source_links: Some(vec![SourceEntityLink {
+                    link_type: Some("website".into()),
+                    url: Some("https://example.test/feed".into()),
+                    ..Default::default()
+                }]),
+                source_ids: Some(vec![SourceEntityId {
+                    scheme: Some("nostr_npub".into()),
+                    value: Some("npub1feed".into()),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            }),
+            rss_observation: None,
+            observation_receipts: Vec::new(),
+            provider_state: Default::default(),
+        }
+    }
+
+    fn edit(frame_label: &str, value: &str) -> Id3v24Edit {
+        Id3v24Edit {
+            frame_label: frame_label.to_owned(),
+            value: value.to_owned(),
+        }
+    }
+
+    /// R22-06 (ADR 0075 packet 022): `id3_edits_for_track_context` gives
+    /// equal tag edits before and after this packet. A track with no own
+    /// website, Nostr key or description still tags the feed's WOAR,
+    /// `TXXX:RSS Nostr Handle` and `COMM:MusicIndex Description` frames,
+    /// because the "RSS feed website"/"RSS feed nostr handle" rows and the
+    /// "Description" row's feed fallback map to the same frames as the
+    /// track's own rows (`id3_frame_hint`). This test holds the expected
+    /// edits as fixed values.
+    #[test]
+    fn adr_0075_track_header_r22_06_tag_edits_stay_equal_without_own_identity() {
+        let context = track_context_without_own_identity();
+        let edits = id3_edits_for_track_context(&context);
+
+        assert_eq!(
+            edits,
+            vec![
+                edit("COMM:MusicIndex Description", "Feed description"),
+                edit("TALB", "Feed Title"),
+                edit("TIT2", "Song"),
+                edit("TXXX:MusicIndex Feed Guid", "feed-guid"),
+                edit("TXXX:MusicIndex Track Guid", "track-guid"),
+                edit("TXXX:RSS Nostr Handle", "npub1feed"),
+                edit(
+                    "WOAR",
+                    "download for free (url, forward): https://example.test/feed"
+                ),
+            ]
+        );
+    }
+
+    /// R22-06: a track with its own website, Nostr key and description
+    /// tags its own values, apart from the feed's, and the resulting edits
+    /// stay equal before and after this packet.
+    #[test]
+    fn adr_0075_track_header_r22_06_tag_edits_stay_equal_with_own_identity() {
+        let context = track_context_with_own_identity();
+        let edits = id3_edits_for_track_context(&context);
+
+        assert_eq!(
+            edits,
+            vec![
+                edit("COMM:MusicIndex Description", "Track description"),
+                edit("TALB", "Feed Title"),
+                edit("TIT2", "Song"),
+                edit("TXXX:MusicIndex Feed Guid", "feed-guid"),
+                edit("TXXX:MusicIndex Track Guid", "track-guid"),
+                edit("TXXX:RSS Nostr Handle", "npub1feed"),
+                edit(
+                    "WOAR",
+                    "download for free (url, forward): https://example.test/feed"
+                ),
+                edit(
+                    "WOAR",
+                    "download for free (url, forward): https://example.test/track"
+                ),
+            ]
+        );
+    }
+}

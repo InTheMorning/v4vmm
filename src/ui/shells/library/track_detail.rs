@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use gpui::{div, prelude::*, AnyElement, Context, Image, SharedString};
 
-use crate::api::Track;
+use crate::api::{Feed, Track};
 use crate::db;
 use crate::feed_service::track_row_to_track_context;
 use crate::library::{InspectorFrame, LazyPanel, LibraryApp};
@@ -80,6 +80,7 @@ fn render_library_track_window(
     let inspector_display = frame.inspector_display(track_context.track.description.as_deref());
     let track_core = render_library_track_detail_core(
         &track_context.track,
+        track_context.feed.as_ref(),
         &frame.title,
         frame.image.clone(),
         inspector_display.description_state,
@@ -101,10 +102,11 @@ fn render_library_track_window(
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "publisher navigation (ADR 0077 packet 004) adds one already-loaded value to an existing core renderer"
+    reason = "publisher navigation (ADR 0077 packet 004) and the feed identity section (ADR 0075 packet 022) each add one already-loaded value to an existing core renderer"
 )]
 pub(crate) fn render_library_track_detail_core(
     track: &Track,
+    feed: Option<&Feed>,
     override_title: &str,
     hero_image: Option<Arc<Image>>,
     description_state: DescriptionState,
@@ -117,6 +119,7 @@ pub(crate) fn render_library_track_detail_core(
     let detail_page = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Library)
         .with_override_title(Some(override_title))
         .with_publisher_feed_guid(publisher_feed_guid)
+        .with_feed_identity(feed)
         .page();
 
     let mut primary_actions = vec![TrackSurfaceElement::from_element(primary_action_row)];
@@ -130,6 +133,10 @@ pub(crate) fn render_library_track_detail_core(
         primary_actions,
         ..track::TrackDetailBehaviorSlots::default()
     };
+
+    if let Some(feed_identity) = track::render_track_feed_identity_section(&detail_page, cx) {
+        slots.section_elements.push(feed_identity);
+    }
 
     let description_text = detail_page.detail().description();
     if let Some(description) =

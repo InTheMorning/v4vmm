@@ -110,6 +110,7 @@ pub use skeleton_track_row::SkeletonTrackRow;
 pub use split_pane::SplitPane;
 pub use tag_badge::{EntityKind, ProvenanceRole, StatusRole, TagBadge, TagBadgeDisplay};
 pub use thumbnail::{Thumbnail, ThumbnailSize};
+pub(crate) use track_detail_surface::render_feed_identity_panel;
 pub use track_detail_surface::{TrackDetailSurface, TrackSurfaceElement};
 pub use track_header::TrackHeader;
 pub use track_metadata_grid::{

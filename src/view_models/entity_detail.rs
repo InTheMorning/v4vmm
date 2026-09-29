@@ -563,6 +563,11 @@ pub struct EntityActionVm {
     pub enabled: bool,
     pub tone: EntityActionTone,
     pub payload: Option<String>,
+    /// Screen-reader text for [`Self::identity_display`], when the action
+    /// must name an owner the shared default text does not know (ADR 0075
+    /// Decision B, packet 022). `None` keeps
+    /// `IdentityActionDisplayKind::default_a11y_label`.
+    identity_a11y_label: Option<String>,
 }
 
 impl EntityActionVm {
@@ -580,6 +585,7 @@ impl EntityActionVm {
             enabled: true,
             tone,
             payload: None,
+            identity_a11y_label: None,
         }
     }
 
@@ -592,6 +598,15 @@ impl EntityActionVm {
     #[must_use]
     pub fn with_payload(mut self, payload: impl Into<String>) -> Self {
         self.payload = Some(payload.into());
+        self
+    }
+
+    /// Sets the screen-reader text of the identity action this becomes
+    /// (ADR 0075 Decision B, packet 022 R22-03). A track page's feed
+    /// identity section uses this to name the feed as the owner.
+    #[must_use]
+    pub fn with_identity_a11y_label(mut self, label: impl Into<String>) -> Self {
+        self.identity_a11y_label = Some(label.into());
         self
     }
 
@@ -621,11 +636,15 @@ impl EntityActionVm {
             | EntityActionKind::OpenMusicBrainz
             | EntityActionKind::OpenPublisher => return None,
         };
+        let a11y_label = self
+            .identity_a11y_label
+            .clone()
+            .unwrap_or_else(|| kind.default_a11y_label().to_string());
         Some(IdentityActionDisplay {
             id: format!("{id_prefix}-{}:{payload}", kind.slug()),
             kind,
             payload: payload.clone(),
-            a11y_label: kind.default_a11y_label().to_string(),
+            a11y_label,
         })
     }
 }

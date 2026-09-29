@@ -8,13 +8,13 @@
 
 use std::sync::Arc;
 
-use gpui::{prelude::*, AnyElement, ClickEvent, ClipboardItem, Context, Image, SharedString};
+use gpui::{prelude::*, AnyElement, App, ClickEvent, ClipboardItem, Context, Image, SharedString};
 
 use crate::api::{Feed, Track};
 use crate::db;
 use crate::discover::{render_play_icon_button_with_id, render_track_download_button, SearchApp};
 use crate::ui::composites::{
-    identity_action_button, AddToPlaylistDisplay, AddToPlaylistPopover,
+    identity_action_button, render_feed_identity_panel, AddToPlaylistDisplay, AddToPlaylistPopover,
     IdentityActionButtonDisplay, IdentityActionKind, PlaylistOption, PlaylistOptionDisplay,
     TrackDetailSurface, TrackRow, TrackSurfaceElement,
 };
@@ -64,6 +64,27 @@ pub(crate) fn render_track_page_identity_actions(
     page: &TrackDetailPageVm<'_>,
 ) -> Vec<TrackSurfaceElement> {
     render_track_identity_actions(page.identity_actions(), page.identity_action_prefix())
+}
+
+/// Renders the feed identity section of a track page, apart from the
+/// track's own header (ADR 0075 Decision B, packet 022). `None` when the
+/// page has no feed identity to show. The box and its scaled tokens live in
+/// the shared `render_feed_identity_panel` composite; this function only
+/// composes the view model's data into it.
+#[must_use]
+pub(crate) fn render_track_feed_identity_section(
+    page: &TrackDetailPageVm<'_>,
+    cx: &mut App,
+) -> Option<TrackSurfaceElement> {
+    let section = page.feed_identity_section()?;
+    let actions =
+        render_track_identity_actions(section.actions, page.feed_identity_action_prefix());
+    if actions.is_empty() {
+        return None;
+    }
+    Some(TrackSurfaceElement::from_element(
+        render_feed_identity_panel(section.owner_label, actions, cx),
+    ))
 }
 
 fn render_track_identity_actions(

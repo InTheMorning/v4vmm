@@ -234,7 +234,7 @@ These five packets carry ADR 0075 to a visible result. Dispatch them in this seq
 | [018](../tasks/adr-0075-task-018-request-reuse-and-freshness.md) | Code | Request identity, sharing, expiry, explicit refresh, and response order. Complete on 2026-09-22 | 016, 017, and nine policies that the operator accepted on 2026-09-21 and 2026-09-22 |
 | 045 | Code | Replaced on 2026-09-24 by the ADR 0076 packets. The [ADR 0076 phase plan](adr-0076-playlist-rss-check-phase-plan.md) registers them | 018 and ADR 0076 |
 | [020](../tasks/adr-0075-task-020-stored-value-projection.md) | Code | One shared projection of the stored values with their owners. Implemented on 2026-09-24. Visual gate open and paused | ADR 0076 packet 002 |
-| [022](../tasks/adr-0075-task-022-track-header-identities.md) | Code | The track header view model, limited to track identities. Ready on 2026-09-26 | 020 |
+| [022](../tasks/adr-0075-task-022-track-header-identities.md) | Code | The track header view model, limited to track identities. Implemented on 2026-09-28. Mechanical checks Green. Visual gate open and paused | 020 |
 
 Packet 017 is complete. It named ten requests and models no provider profile, because a
 provider is transport and not a source. Packet 018 is complete. ADR 0076 is Accepted on
