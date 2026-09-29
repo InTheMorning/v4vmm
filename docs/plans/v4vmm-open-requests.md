@@ -141,6 +141,14 @@ A client that shows a live stream reads `confirming_relay`. When it is `true`,
 the client asks the relay of the row if the stream is on air. `docs/API.md`
 gives the details.
 
+## Release 0.2.0 - Checked By v4vmm On 2026-09-29
+
+- `info.version` of `/openapi.json` gives `0.2.0`.
+- `GET /node/info` gives `git_revision: null` and `built_at: null`. On 2026-09-26 it gave `264706e` and a build time.
+  Request 2 of the deploy of 2026-09-26 is thus open again. A client cannot tell which commit serves a response.
+- `SearchResponseItem` also declares `release_artist`, `release_artist_source`, `track_artist`, `duration_secs` and `episode_count`. A live hit omits each null field.
+- The search route declares `q`, `type`, `limit` and `cursor`. v4vmm sent `fuzzy=true`. v4vmm packet 047 stops it.
+
 ## Deferred, Not Requested Now
 
 **A reverse album list.** The publisher view lists only the albums that the publisher feed lists (`load_publisher` in `src/query.rs`).
@@ -155,7 +163,7 @@ A v4vmm playlist could take a list feed by `feedGuid` and `itemGuid`, with no na
 This is new product scope, and it needs a v4vmm ADR before a request. The v4vmm operator deferred it on 2026-09-28.
 
 **The confirmed and unconfirmed artists.** Stophammer ADR 0061 is Accepted on 2026-09-27. Release 0.2.0 carries it.
-On 2026-09-28, the deployed contract is version 0.1.0 and does not give the four fields. v4vmm ADR 0077 packet 007 waits for the deploy. This needs no Stophammer action.
+On 2026-09-29, the deployed contract is version 0.2.0 and declares the four fields. v4vmm ADR 0077 packet 007 can use them. This needs no Stophammer action.
 
 ## Answered, No Action
 

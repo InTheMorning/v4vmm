@@ -102,7 +102,9 @@ Summary search fields, separate track artwork, and a truthful publication-date l
 [verified](docs/plans/musicindex-api-change-request.md#verification-against-the-deployed-api)
 against the deployed API.
 
-This client implements none of the three landed changes. Each one needs its own packet.
+This client implements none of the three landed changes. Packets
+[047](docs/tasks/adr-0075-task-047-search-rows-from-summary-fields.md), [048](docs/tasks/adr-0075-task-048-separate-track-artwork.md)
+and [049](docs/tasks/adr-0075-task-049-no-derived-release-date.md) are Ready on 2026-09-29, one for each change.
 ADR 0076, amended on 2026-09-26, makes the app ignore `last_build_date`. Three decoded fields no
 longer arrive. [Packet 046](docs/tasks/adr-0075-task-046-remove-undeclared-api-fields.md)
 removed them on 2026-09-26. Its mechanical checks are Green, and it needs no visual acceptance.
@@ -160,8 +162,8 @@ paused. Its name search reached only the parked `SearchApp`.
 
 [Packet 006](docs/tasks/adr-0077-task-006-name-matches-are-search-results.md) is implemented on 2026-09-29, with mechanical checks Green and its visual gate open and paused.
 It shows the live Index name match as a search result, `Tracks matching "<name>"`.
-Packet 007 shows the confirmed and unconfirmed artists of Stophammer ADR 0061. It waits for the deploy
-of Stophammer 0.2.0, and no task document exists for it.
+Packet 007 shows the confirmed and unconfirmed artists of Stophammer ADR 0061. Stophammer 0.2.0 is deployed
+with those fields on 2026-09-29, and no task document exists for packet 007.
 
 [Open Stophammer requests](docs/plans/v4vmm-open-requests.md) consolidates each open request
 to Stophammer on 2026-09-25. The Stophammer repository holds an equal copy. Update both copies together. A reverse album list
