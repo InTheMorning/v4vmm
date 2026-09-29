@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use crate::api::*;
 use crate::audio_tags::{id3v24_edit_label_is_writable, AudioTags, Id3Field, Id3v24Edit};
-use crate::musicbrainz::{MusicBrainzCandidate, MusicBrainzLookup};
+use crate::musicbrainz::{
+    MusicBrainzCandidate, MusicBrainzLookup, MusicBrainzRelationOwner, MusicBrainzUrlRelation,
+};
 use crate::rss::RssObservation;
 use crate::track_compare::{compare_track_tags, ComparisonRow, ComparisonStatus};
 
@@ -1121,7 +1123,9 @@ pub fn track_metadata_rows(
         "url-link-frames",
         "Website",
         track_website(track),
-        None,
+        // ADR 0080 Decision 8: the item page (`WOAF`) gets no MusicBrainz
+        // value.
+        musicbrainz_value_for_field("Website", musicbrainz),
     );
     if let Some(feed) = track_context.feed.as_ref() {
         // ADR 0080 Decision 2: the item page writes to `WOAF` and the
@@ -1132,7 +1136,7 @@ pub fn track_metadata_rows(
             "url-link-frames",
             "RSS feed website",
             feed_website(feed),
-            None,
+            musicbrainz_value_for_field("RSS feed website", musicbrainz),
         );
     }
     push_track_metadata_row(
@@ -1686,7 +1690,7 @@ pub fn metadata_field_group_key(field: &str) -> &'static str {
         "Artwork" | "Transcript" | "Transcript text" => {
             "lyrics-comments-artwork-user-facing-content"
         }
-        "Website" | "RSS feed website" => "url-link-frames",
+        "Website" | "RSS feed website" | "License" => "url-link-frames",
         "Nostr handle" | "RSS feed nostr handle" => "identity-linking-private-registration",
         "Value Routes" => "music-disc-acquisition-commerce",
         "Composer" | "Lyricist" | "Lead performer" | "Album artist" | "Conductor" | "Remixer"
@@ -1748,7 +1752,10 @@ pub fn musicbrainz_value_for_field(
             .track_artist
             .clone()
             .or_else(|| candidate.artist.clone()),
-        "Website" | "RSS feed website" => join_values(&candidate.urls),
+        // ADR 0080 Decision 8: only the release group's official homepage
+        // relation goes to the channel website row. The item page row
+        // ("Website") gets no MusicBrainz value.
+        "RSS feed website" => musicbrainz_official_homepage_url(candidate),
         "Release date" => candidate.release_date.clone(),
         "Duration" => candidate.track_length_ms.map(fmt_ms),
         _ => None,
@@ -1762,11 +1769,36 @@ pub fn musicbrainz_key_for_field(field: &str) -> Option<&'static str> {
         "Album/Feed" => Some("release.title"),
         "Track #" => Some("track.number/medium.track-count"),
         "Contributors" => Some("track.artist-credit.name"),
-        "Website" | "RSS feed website" => Some("relation.url.resource"),
+        "RSS feed website" => Some("release-group.relations.official homepage"),
         "Release date" => Some("release.date"),
         "Duration" => Some("track.length"),
         _ => None,
     }
+}
+
+/// The release group's official homepage relation (ADR 0080 Decision 8). A
+/// homepage relation stated by the release itself, rather than its release
+/// group, is not this row's value; `musicbrainz_relation_type_rows` shows it
+/// as a read-only row instead.
+fn musicbrainz_official_homepage_url(candidate: &MusicBrainzCandidate) -> Option<String> {
+    candidate
+        .url_relations
+        .iter()
+        .find(|relation| is_release_group_official_homepage(relation))
+        .map(|relation| relation.url.clone())
+}
+
+fn is_release_group_official_homepage(relation: &MusicBrainzUrlRelation) -> bool {
+    relation.relation_type == "official homepage"
+        && relation.owner == MusicBrainzRelationOwner::ReleaseGroup
+}
+
+/// The release's own license relations (ADR 0080 Decision 8). A license
+/// relation stated by the release group, rather than the release, is not
+/// consumed here; `musicbrainz_relation_type_rows` shows it as a read-only
+/// row instead.
+fn is_release_license(relation: &MusicBrainzUrlRelation) -> bool {
+    relation.relation_type == "license" && relation.owner == MusicBrainzRelationOwner::Release
 }
 
 pub fn musicbrainz_remainder_rows(
@@ -1856,7 +1888,102 @@ pub fn musicbrainz_remainder_rows(
         candidate.track_disambiguation.clone(),
     );
     push("ISRC", "recording.isrcs", join_values(&candidate.isrcs));
+
+    if let Some(row) = musicbrainz_license_row(candidate, track_context, result) {
+        rows.push(row);
+    }
+    rows.extend(musicbrainz_relation_type_rows(candidate));
+
     rows
+}
+
+/// The "License" row (ADR 0080 Decision 8). One license relation of the
+/// release writes `WCOP`. More than one writes `TXXX:LICENSE`, joined the
+/// same way `join_values` joins every other multi-value field, so the
+/// values stay idempotent through the same string on a repeated write.
+/// `None` when the release states no license.
+fn musicbrainz_license_row(
+    candidate: &MusicBrainzCandidate,
+    track_context: &TrackContext,
+    result: Option<&TagCompareResult>,
+) -> Option<AlignedCompareRow> {
+    let license_urls = candidate
+        .url_relations
+        .iter()
+        .filter(|relation| is_release_license(relation))
+        .map(|relation| relation.url.clone())
+        .collect::<Vec<_>>();
+    let (frame, value, read_frame_id, needles): (&str, String, &str, &[&str]) =
+        match license_urls.as_slice() {
+            [] => return None,
+            [one] => ("WCOP", one.clone(), "WCOP", &[]),
+            many => ("TXXX:LICENSE", join_values(many)?, "TXXX", &["license"]),
+        };
+    let rss_value = musicbrainz_source_value_for_field("License", track_context, result);
+    let id3_value = result.and_then(|result| id3_values_for_frame(result, read_frame_id, needles));
+    let id3_status = compare_optional_values(rss_value.as_deref(), id3_value.as_deref());
+    let musicbrainz_status = compare_optional_values(rss_value.as_deref(), Some(value.as_str()));
+    Some(AlignedCompareRow {
+        row_id: compare_row_id("License"),
+        field: "License".into(),
+        rss_value,
+        id3_value,
+        id3_frame: Some(frame.into()),
+        musicbrainz_value: Some(value),
+        musicbrainz_key: Some("release.relations.license".into()),
+        id3_status,
+        musicbrainz_status,
+    })
+}
+
+/// A read-only row for each MusicBrainz URL relation that Decision 8 does
+/// not resolve to a frame: the row shows the relation type as its label,
+/// but it carries no ID3 frame, so the app writes it nowhere. The screen
+/// asks the view model, not this row directly, whether a value is writable;
+/// a row with no frame is never writable (`auto_populated_pending_id3_edits`
+/// already skips a row without one).
+fn musicbrainz_relation_type_rows(candidate: &MusicBrainzCandidate) -> Vec<AlignedCompareRow> {
+    let mut rows = Vec::new();
+    for relation in &candidate.url_relations {
+        if is_release_group_official_homepage(relation) || is_release_license(relation) {
+            continue;
+        }
+        let owner_key = match relation.owner {
+            MusicBrainzRelationOwner::Release => "release",
+            MusicBrainzRelationOwner::ReleaseGroup => "release-group",
+        };
+        let row_id = unique_musicbrainz_relation_row_id(&rows, &relation.relation_type);
+        rows.push(AlignedCompareRow {
+            row_id,
+            field: relation.relation_type.clone(),
+            rss_value: None,
+            id3_value: None,
+            id3_frame: None,
+            musicbrainz_value: Some(relation.url.clone()),
+            musicbrainz_key: Some(format!("{owner_key}.relations.{}", relation.relation_type)),
+            id3_status: ComparisonStatus::MissingBoth,
+            musicbrainz_status: ComparisonStatus::MissingSource,
+        });
+    }
+    rows
+}
+
+/// A `compare_row_id` for `relation_type` that does not collide with a row
+/// already in `rows`. Two relations of the same type, for example two
+/// `"lyrics"` links, would otherwise share one row id.
+fn unique_musicbrainz_relation_row_id(rows: &[AlignedCompareRow], relation_type: &str) -> String {
+    let base = compare_row_id(relation_type);
+    if !rows.iter().any(|row| row.row_id == base) {
+        return base;
+    }
+    let mut suffix = 2;
+    loop {
+        let candidate = format!("{base}-{suffix}");
+        if !rows.iter().any(|row| row.row_id == candidate) {
+            return candidate;
+        }
+        suffix += 1;
+    }
 }
 
 pub fn push_musicbrainz_only_row(
@@ -3673,19 +3800,23 @@ pub fn metadata_drag_value(
 #[cfg(test)]
 mod tests {
     use super::{
-        aligned_compare_rows, compare_track_rows, contributor_id3_rows, display_contributor_tree,
-        display_metadata_value, expanded_metadata_display_string, expanded_metadata_display_value,
-        id3_frame_base, musicindex_contributors_id3_value, pending_id3_target_key,
-        sanitize_track_context_source_text, source_text_is_placeholder,
-        summarize_contributor_value, track_metadata_rows, MetadataGridRow, TagCompareResult,
-        TrackContext,
+        aligned_compare_rows, auto_populated_pending_id3_edits, compare_track_rows,
+        contributor_id3_rows, display_contributor_tree, display_metadata_value,
+        expand_woar_metadata_rows, expanded_metadata_display_string,
+        expanded_metadata_display_value, id3_frame_base, musicindex_contributors_id3_value,
+        pending_id3_edits_for_apply, pending_id3_target_key, sanitize_track_context_source_text,
+        source_text_is_placeholder, summarize_contributor_value, track_metadata_rows,
+        MetadataGridRow, TagCompareResult, TrackContext,
     };
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use crate::api::{
         Contributor, Feed, SourceEntityId, SourceEntityLink, SourceReleaseClaim, Track,
     };
-    use crate::audio_tags::AudioTags;
+    use crate::audio_tags::{read_audio_tags, write_id3v24_edits, AudioTags};
+    use crate::musicbrainz::{
+        MusicBrainzCandidate, MusicBrainzRelationOwner, MusicBrainzUrlRelation,
+    };
     use crate::track_compare::{ComparisonRow, ComparisonStatus};
 
     /// R46-02: `TrackContext::feed_url` gives the feed address of a context
@@ -4246,5 +4377,108 @@ mod tests {
         );
         assert!(summary.contains("Alice"));
         assert!(summary.contains("Bob"));
+    }
+
+    fn track_context_with_channel_website() -> TrackContext {
+        TrackContext {
+            rss_observation: None,
+            observation_receipts: Vec::new(),
+            provider_state: Default::default(),
+            track: Track::default(),
+            feed: Some(Feed {
+                source_links: Some(vec![SourceEntityLink {
+                    link_type: Some("website".into()),
+                    url: Some("https://example.test/feed".into()),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            }),
+        }
+    }
+
+    /// R82-09: a round trip. A file written from a MusicBrainz selection (a
+    /// release-group homepage and a license), read back and compared
+    /// against the same lookup result, reports no difference for the rows
+    /// this packet resolves to a frame.
+    #[test]
+    fn adr_0080_mb_round_trip_written_file_shows_no_difference() {
+        let track_context = track_context_with_channel_website();
+        let candidate = MusicBrainzCandidate {
+            recording_id: "recording-id".into(),
+            url_relations: vec![
+                MusicBrainzUrlRelation {
+                    relation_type: "official homepage".into(),
+                    url: "https://mb.example/homepage".into(),
+                    owner: MusicBrainzRelationOwner::ReleaseGroup,
+                },
+                MusicBrainzUrlRelation {
+                    relation_type: "license".into(),
+                    url: "https://creativecommons.example/by".into(),
+                    owner: MusicBrainzRelationOwner::Release,
+                },
+            ],
+            ..MusicBrainzCandidate::default()
+        };
+
+        let rows =
+            expand_woar_metadata_rows(track_metadata_rows(&track_context, Some(&candidate), true));
+        let pending =
+            auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new(), None);
+        let edits = pending_id3_edits_for_apply(&pending);
+
+        let temp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(temp.path(), b"not really an mp3").expect("write file");
+        write_id3v24_edits(temp.path(), &edits).expect("write edits");
+        let tags = read_audio_tags(temp.path()).expect("read tags back");
+
+        let result = TagCompareResult {
+            path: temp.path().display().to_string(),
+            rows: compare_track_rows(&track_context.track, track_context.feed.as_ref(), &tags),
+            file_image: None,
+            contributors: Vec::new(),
+            value_routes: Vec::new(),
+            id3_fields: tags.fields.clone(),
+            total_tracks: None,
+            format: None,
+        };
+
+        let compared = expand_woar_metadata_rows(aligned_compare_rows(
+            &result,
+            &track_context,
+            Some(&candidate),
+            true,
+            &BTreeSet::new(),
+        ));
+        let data_rows = compared
+            .iter()
+            .filter_map(|row| match row {
+                MetadataGridRow::Data(row) => Some(row),
+                MetadataGridRow::Group(_) => None,
+            })
+            .collect::<Vec<_>>();
+
+        let homepage_row = data_rows
+            .iter()
+            .find(|row| row.id3_value.as_deref() == Some("https://mb.example/homepage"))
+            .expect("homepage row read back from the file");
+        assert_ne!(
+            homepage_row.id3_status,
+            ComparisonStatus::Different,
+            "the homepage row must report no difference: {homepage_row:?}"
+        );
+
+        let license_row = data_rows
+            .iter()
+            .find(|row| row.field == "License")
+            .expect("License row");
+        assert_eq!(
+            license_row.id3_value.as_deref(),
+            Some("https://creativecommons.example/by")
+        );
+        assert_ne!(
+            license_row.id3_status,
+            ComparisonStatus::Different,
+            "the License row must report no difference: {license_row:?}"
+        );
     }
 }

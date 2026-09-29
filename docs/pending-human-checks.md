@@ -517,3 +517,14 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-2
 - V2: a second "Update n file(s)" on the same file adds no frame.
 - V3: after the update, the next scan shows no difference for that file.
 - V4: the compare grid shows the album description row with its owner, in Light and Dark themes, with no clipped text.
+
+## 25. MusicBrainz URL Relations By Type — ADR 0080 Task 002
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-29. Operator inspection is pending.
+
+- Owner: [packet 002](tasks/adr-0080-task-002-musicbrainz-url-relations-by-type.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks. It uses an isolated database copy and never writes to the Library. It needs network access to `musicbrainz.org`.
+- V1: a MusicBrainz lookup shows the release-group homepage in the channel website row, and a "License" row when the release states a license.
+- V2: each other relation shows as a read-only row with its relation type, and it offers no write.
+- V3: after a write of the homepage and the license on a test copy, an external tag reader shows plain URLs in `WOAR` and `WCOP`.
+- V4: normal and narrow widths show each row in its place, in Light and Dark themes, with no clipped text.

@@ -1933,4 +1933,47 @@ mod tests {
         );
         assert_eq!(woaf_frame_values(&tag), vec![item_page.to_string()]);
     }
+
+    /// R82-08: a write with the RSS channel website and a MusicBrainz
+    /// release-group homepage holds both plain URLs in `WOAR`. A second
+    /// write gives equal frames.
+    #[test]
+    fn adr_0080_mb_write_keeps_channel_and_musicbrainz_homepage_in_woar() {
+        let temp = tempfile::NamedTempFile::new().expect("temp file");
+        fs::write(temp.path(), b"not really an mp3").expect("write file");
+        let channel_url = "https://example.test/feed";
+        let homepage_url = "https://musicbrainz.example/homepage";
+        let edits = [
+            Id3v24Edit {
+                frame_label: "WOAR".into(),
+                value: channel_url.into(),
+            },
+            Id3v24Edit {
+                frame_label: "WOAR".into(),
+                value: homepage_url.into(),
+            },
+        ];
+
+        write_id3v24_edits(temp.path(), &edits).expect("first write");
+        let tag = Tag::read_from_path(temp.path()).expect("read written tag");
+        let mut expected = vec![channel_url.to_string(), homepage_url.to_string()];
+        expected.sort();
+        assert_eq!(
+            woar_frame_values(&tag),
+            expected,
+            "WOAR must hold both the channel website and the MusicBrainz homepage"
+        );
+
+        let first = read_audio_tags(temp.path())
+            .expect("read after first write")
+            .fields;
+        write_id3v24_edits(temp.path(), &edits).expect("second write");
+        let second = read_audio_tags(temp.path())
+            .expect("read after second write")
+            .fields;
+        assert_eq!(
+            first, second,
+            "a repeated write must not duplicate a WOAR frame"
+        );
+    }
 }

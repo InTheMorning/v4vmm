@@ -229,7 +229,11 @@ pub(super) fn metadata_musicbrainz_cell(
         row.musicbrainz_key.as_deref(),
         None,
     ));
-    if let Some(drag) = metadata_drag_value(row, MetadataColumn::MusicBrainz) {
+    let writable = TrackMetadataGridVm::musicbrainz_value_is_writable(row.id3_frame.as_deref());
+    if let Some(drag) = writable
+        .then(|| metadata_drag_value(row, MetadataColumn::MusicBrainz))
+        .flatten()
+    {
         let display =
             TrackMetadataGridVm::source_drag_display(MetadataColumn::MusicBrainz, &row.row_id);
         cell.id(SharedString::from(display.cell_id))

@@ -113,7 +113,7 @@ Its mechanical checks are Green. Its visual gate is open and paused.
 [ADR 0080](docs/adr/0080-tag-frames-follow-their-owner.md) is Accepted on 2026-09-29. It maps tag frames by
 owner and fixes the tag round-trip defect. The [phase plan](docs/plans/adr-0080-tag-frames-phase-plan.md)
 registers two packets. [Packet 001](docs/tasks/adr-0080-task-001-rss-frames-and-idempotent-writes.md) is implemented on 2026-09-29.
-Its mechanical checks are Green. Its visual gate is open and paused. [Packet 002](docs/tasks/adr-0080-task-002-musicbrainz-url-relations-by-type.md) is Ready on 2026-09-29.
+Its mechanical checks are Green. Its visual gate is open and paused. [Packet 002](docs/tasks/adr-0080-task-002-musicbrainz-url-relations-by-type.md) is implemented on 2026-09-29, with its visual gate open and paused. No ADR 0080 packet is open.
 
 [ADR 0076](docs/adr/0076-playlist-rss-check-for-stale-musicindex-records.md) is Accepted on
 2026-09-24, after the operator reviewed each decision. It replaces the per-field source

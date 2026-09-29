@@ -52,10 +52,31 @@ pub struct MusicBrainzCandidate {
     pub total_tracks: Option<i32>,
     pub isrcs: Vec<String>,
     pub labels: Vec<String>,
-    pub urls: Vec<String>,
+    pub url_relations: Vec<MusicBrainzUrlRelation>,
     pub duration_ms: Option<i64>,
     pub musicbrainz_score: Option<i32>,
     pub similarity_score: i32,
+}
+
+/// The release element that stated a MusicBrainz URL relation (ADR 0080
+/// Decision 8). The release and its release group are different elements,
+/// and a relation type such as "official homepage" can mean a different
+/// frame depending on which element states it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MusicBrainzRelationOwner {
+    Release,
+    ReleaseGroup,
+}
+
+/// One URL relation of a MusicBrainz release or release group. `relation_type`
+/// is the raw MusicBrainz type text, such as `"official homepage"` or
+/// `"discogs"`. `url` is a plain, already-parsed URL; a relation whose URL
+/// does not parse never becomes one of these (ADR 0080 Decision 8).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MusicBrainzUrlRelation {
+    pub relation_type: String,
+    pub url: String,
+    pub owner: MusicBrainzRelationOwner,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -106,6 +127,11 @@ struct MbReleaseGroup {
     id: Option<String>,
     primary_type: Option<String>,
     secondary_types: Vec<String>,
+    /// Present only when the lookup's `inc` value holds
+    /// `release-group-level-rels`. The release group's own official
+    /// homepage relation lives here, not under the release (Recorded Facts,
+    /// packet 002).
+    relations: Vec<MbRelation>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -290,7 +316,7 @@ pub fn lookup_releases(
                     total_tracks: tc.total_tracks,
                     isrcs: tc.isrcs.clone(),
                     labels: release_label_values(&release),
-                    urls: release_url_values(&release),
+                    url_relations: release_url_relations(&release),
                     duration_ms: tc.track_length_ms,
                     musicbrainz_score: release_stub.score,
                     similarity_score: 0,
@@ -343,18 +369,28 @@ fn enrich_candidates_with_release_details(
     }
 }
 
-fn fetch_release_detail(client: &ReqwestClient, release_id: &str) -> Result<MbRelease> {
-    let url = build_musicbrainz_url(
+/// The one lookup URL that `fetch_release_detail` sends. Kept apart from the
+/// network call so a test can check the query without sending a request.
+///
+/// `release-group-level-rels` adds the release group's own relations to the
+/// same response, at no extra request (Recorded Facts, packet 002): it is
+/// how a release-group official homepage relation reaches this lookup.
+fn release_detail_url(release_id: &str) -> Result<Url> {
+    build_musicbrainz_url(
         &["ws", "2", "release", release_id],
         &[
             ("fmt", "json".into()),
             (
                 "inc",
-                "artist-credits+labels+recordings+release-groups+media+isrcs+url-rels".into(),
+                "artist-credits+labels+recordings+release-groups+media+isrcs+url-rels+release-group-level-rels"
+                    .into(),
             ),
         ],
-    )?;
+    )
+}
 
+fn fetch_release_detail(client: &ReqwestClient, release_id: &str) -> Result<MbRelease> {
+    let url = release_detail_url(release_id)?;
     Ok(client.get(url).send()?.error_for_status()?.json()?)
 }
 
@@ -380,7 +416,7 @@ fn merge_release_detail(candidate: &mut MusicBrainzCandidate, release: &MbReleas
         .as_ref()
         .map_or_else(Vec::new, |group| group.secondary_types.clone());
     candidate.labels = release_label_values(release);
-    candidate.urls = release_url_values(release);
+    candidate.url_relations = release_url_relations(release);
 
     if let Some(track) =
         release_track_context(release, &candidate.recording_id, Some(&candidate.title))
@@ -452,7 +488,7 @@ fn candidate_from_recording(
             .as_ref()
             .map_or_else(Vec::new, |track| track.isrcs.clone()),
         labels: release.map_or_else(Vec::new, release_label_values),
-        urls: release.map_or_else(Vec::new, release_url_values),
+        url_relations: release.map_or_else(Vec::new, release_url_relations),
         duration_ms: recording.length,
         musicbrainz_score: recording.score,
         similarity_score: 0,
@@ -597,21 +633,44 @@ fn release_label_values(release: &MbRelease) -> Vec<String> {
         .collect()
 }
 
-fn release_url_values(release: &MbRelease) -> Vec<String> {
-    release
-        .relations
+/// The URL relations of `release` and of its release group, each tagged
+/// with the element that stated it (ADR 0080 Decision 8, Required Changes
+/// 2). A relation whose URL does not parse is dropped: the app treats each
+/// relation URL as untrusted input.
+fn release_url_relations(release: &MbRelease) -> Vec<MusicBrainzUrlRelation> {
+    let mut relations = relation_urls(&release.relations, MusicBrainzRelationOwner::Release);
+    if let Some(group) = &release.release_group {
+        relations.extend(relation_urls(
+            &group.relations,
+            MusicBrainzRelationOwner::ReleaseGroup,
+        ));
+    }
+    relations
+}
+
+fn relation_urls(
+    relations: &[MbRelation],
+    owner: MusicBrainzRelationOwner,
+) -> Vec<MusicBrainzUrlRelation> {
+    relations
         .iter()
         .filter_map(|relation| {
             let resource = relation
                 .url
                 .as_ref()
                 .and_then(|url| url.resource.clone().or_else(|| url.id.clone()))?;
-            let relation_type = relation.relation_type.as_deref().unwrap_or("url");
-            let target_type = relation.target_type.as_deref().unwrap_or("url");
-            let direction = relation.direction.as_deref().unwrap_or("forward");
-            Some(format!(
-                "{relation_type} ({target_type}, {direction}): {resource}"
-            ))
+            if Url::parse(&resource).is_err() {
+                return None;
+            }
+            let relation_type = relation
+                .relation_type
+                .clone()
+                .unwrap_or_else(|| "url".to_string());
+            Some(MusicBrainzUrlRelation {
+                relation_type,
+                url: resource,
+                owner,
+            })
         })
         .collect()
 }
@@ -890,8 +949,9 @@ fn sanitize_musicbrainz_path_segment(value: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_recording_query, merge_release_detail, text_similarity, LookupMetadata, MbRelease,
-        MusicBrainzCandidate,
+        build_recording_query, merge_release_detail, release_detail_url, text_similarity,
+        LookupMetadata, MbRelease, MusicBrainzCandidate, MusicBrainzRelationOwner,
+        MusicBrainzUrlRelation,
     };
 
     #[test]
@@ -1071,8 +1131,12 @@ mod tests {
             vec!["Example Label (CAT-001)".to_string()]
         );
         assert_eq!(
-            candidate.urls,
-            vec!["official homepage (url, forward): https://example.invalid/album".to_string()]
+            candidate.url_relations,
+            vec![MusicBrainzUrlRelation {
+                relation_type: "official homepage".into(),
+                url: "https://example.invalid/album".into(),
+                owner: MusicBrainzRelationOwner::Release,
+            }]
         );
     }
 
@@ -1141,6 +1205,148 @@ mod tests {
         assert_eq!(
             super::artist_credit_name(&[super::MbArtistCredit { name: None }]),
             None
+        );
+    }
+
+    /// R82-01: the release lookup URL holds `release-group-level-rels`, so
+    /// one request reaches the release group's own relations too.
+    #[test]
+    fn adr_0080_mb_release_lookup_url_requests_release_group_level_relations() {
+        let url = release_detail_url("release-id").expect("url");
+        let inc = url
+            .query_pairs()
+            .find(|(key, _)| key == "inc")
+            .map(|(_, value)| value.into_owned())
+            .expect("inc query parameter");
+        assert!(
+            inc.split('+')
+                .any(|part| part == "release-group-level-rels"),
+            "inc must request release-group-level-rels: {inc}"
+        );
+    }
+
+    /// R82-02: a release whose release group states an official homepage
+    /// relation gives one relation with that type, its URL, and the release
+    /// group as owner. The Recorded Facts lookup of `94a78c1e-84fb-455c-ae9b-9ecfee51049f`
+    /// found this relation only under the release group, not the release.
+    #[test]
+    fn adr_0080_mb_release_group_official_homepage_decodes_with_its_owner() {
+        let release: MbRelease = serde_json::from_str(
+            r#"{
+                "id": "release-id",
+                "release-group": {
+                    "id": "release-group-id",
+                    "relations": [
+                        {
+                            "type": "official homepage",
+                            "target-type": "url",
+                            "direction": "forward",
+                            "url": {
+                                "id": "url-id",
+                                "resource": "http://ghosts.nin.com/"
+                            }
+                        }
+                    ]
+                }
+            }"#,
+        )
+        .expect("release with a release-group relation");
+        let mut candidate = MusicBrainzCandidate {
+            recording_id: "recording-id".into(),
+            release_id: Some("release-id".into()),
+            ..MusicBrainzCandidate::default()
+        };
+
+        merge_release_detail(&mut candidate, &release);
+
+        assert_eq!(
+            candidate.url_relations,
+            vec![MusicBrainzUrlRelation {
+                relation_type: "official homepage".into(),
+                url: "http://ghosts.nin.com/".into(),
+                owner: MusicBrainzRelationOwner::ReleaseGroup,
+            }]
+        );
+    }
+
+    /// R82-03: the candidate holds a plain URL, never a label built from the
+    /// relation's type, target type and direction.
+    #[test]
+    fn adr_0080_mb_url_relation_holds_no_label_text() {
+        let release: MbRelease = serde_json::from_str(
+            r#"{
+                "id": "release-id",
+                "relations": [
+                    {
+                        "type": "discogs",
+                        "target-type": "url",
+                        "direction": "forward",
+                        "url": {
+                            "id": "url-id",
+                            "resource": "https://www.discogs.com/release/1"
+                        }
+                    }
+                ]
+            }"#,
+        )
+        .expect("release with a relation");
+        let mut candidate = MusicBrainzCandidate {
+            recording_id: "recording-id".into(),
+            release_id: Some("release-id".into()),
+            ..MusicBrainzCandidate::default()
+        };
+
+        merge_release_detail(&mut candidate, &release);
+
+        let relation = candidate
+            .url_relations
+            .iter()
+            .find(|relation| relation.relation_type == "discogs")
+            .expect("discogs relation");
+        assert_eq!(relation.url, "https://www.discogs.com/release/1");
+        assert!(
+            !relation.url.contains('('),
+            "the URL must hold no label text: {}",
+            relation.url
+        );
+    }
+
+    /// R82-07: a relation whose URL does not parse gives no relation, so it
+    /// never reaches `MusicBrainzCandidate::url_relations`. This is the one
+    /// place a relation URL is checked; `metadata.rs` builds each row and
+    /// edit from `url_relations` alone, so a row for this relation, and an
+    /// edit for it, never exist.
+    #[test]
+    fn adr_0080_mb_relation_with_an_unparsable_url_is_dropped() {
+        let release: MbRelease = serde_json::from_str(
+            r#"{
+                "id": "release-id",
+                "relations": [
+                    {
+                        "type": "discogs",
+                        "target-type": "url",
+                        "direction": "forward",
+                        "url": {
+                            "id": "url-id",
+                            "resource": "not a url"
+                        }
+                    }
+                ]
+            }"#,
+        )
+        .expect("release with an invalid relation url");
+        let mut candidate = MusicBrainzCandidate {
+            recording_id: "recording-id".into(),
+            release_id: Some("release-id".into()),
+            ..MusicBrainzCandidate::default()
+        };
+
+        merge_release_detail(&mut candidate, &release);
+
+        assert!(
+            candidate.url_relations.is_empty(),
+            "an unparsable relation URL must give no relation: {:?}",
+            candidate.url_relations
         );
     }
 }

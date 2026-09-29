@@ -17,7 +17,7 @@ use crate::metadata::{
     compare_id3_field_values, contributor_id3_rows, display_metadata_value,
     musicindex_contributors_id3_value,
 };
-use crate::musicbrainz::MusicBrainzCandidate;
+use crate::musicbrainz::{MusicBrainzCandidate, MusicBrainzRelationOwner, MusicBrainzUrlRelation};
 use crate::track_compare::{ComparisonRow, ComparisonStatus};
 use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
 
@@ -737,6 +737,179 @@ fn musicbrainz_rows_align_with_id3_and_rss_equivalents() {
     assert_eq!(isrc_row.rss_value.as_deref(), Some("USRC17607839"));
     assert_eq!(isrc_row.id3_frame.as_deref(), Some("TSRC"));
     assert_eq!(isrc_row.id3_value.as_deref(), Some("USRC17607839"));
+}
+
+fn track_context_with_channel_website() -> TrackContext {
+    TrackContext {
+        rss_observation: None,
+        observation_receipts: Vec::new(),
+        provider_state: Default::default(),
+        track: Track::default(),
+        feed: Some(Feed {
+            source_links: Some(vec![SourceEntityLink {
+                link_type: Some("website".into()),
+                url: Some("https://example.test/feed".into()),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        }),
+    }
+}
+
+/// R82-04: a selected release-group official homepage gives one `WOAR`
+/// edit with the plain URL, alongside the channel website's own `WOAR`
+/// edit, and no `WOAF` edit.
+#[test]
+fn adr_0080_mb_official_homepage_writes_one_woar_edit_and_no_woaf_edit() {
+    let track_context = track_context_with_channel_website();
+    let candidate = MusicBrainzCandidate {
+        recording_id: "recording-id".into(),
+        url_relations: vec![MusicBrainzUrlRelation {
+            relation_type: "official homepage".into(),
+            url: "https://mb.example/homepage".into(),
+            owner: MusicBrainzRelationOwner::ReleaseGroup,
+        }],
+        ..MusicBrainzCandidate::default()
+    };
+
+    let rows =
+        expand_woar_metadata_rows(track_metadata_rows(&track_context, Some(&candidate), true));
+    let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new(), None);
+    let edits = pending_id3_edits_for_apply(&pending);
+
+    let woar_values = edits
+        .iter()
+        .filter(|edit| edit.frame_label == "WOAR")
+        .map(|edit| edit.value.as_str())
+        .collect::<Vec<_>>();
+    assert!(woar_values.contains(&"https://example.test/feed"));
+    assert!(woar_values.contains(&"https://mb.example/homepage"));
+    assert_eq!(
+        woar_values.len(),
+        2,
+        "unexpected WOAR edits: {woar_values:?}"
+    );
+    assert!(
+        !edits.iter().any(|edit| edit.frame_label == "WOAF"),
+        "the item page frame must get no MusicBrainz value: {edits:?}"
+    );
+}
+
+/// R82-05: one license relation gives one `WCOP` edit.
+#[test]
+fn adr_0080_mb_one_license_writes_one_wcop_edit() {
+    let track_context = track_context_with_channel_website();
+    let candidate = MusicBrainzCandidate {
+        recording_id: "recording-id".into(),
+        url_relations: vec![MusicBrainzUrlRelation {
+            relation_type: "license".into(),
+            url: "https://creativecommons.example/by".into(),
+            owner: MusicBrainzRelationOwner::Release,
+        }],
+        ..MusicBrainzCandidate::default()
+    };
+
+    let rows =
+        expand_woar_metadata_rows(track_metadata_rows(&track_context, Some(&candidate), true));
+    let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new(), None);
+    let edits = pending_id3_edits_for_apply(&pending);
+
+    assert!(edits.iter().any(
+        |edit| edit.frame_label == "WCOP" && edit.value == "https://creativecommons.example/by"
+    ));
+    assert!(!edits.iter().any(|edit| edit.frame_label == "TXXX:LICENSE"));
+}
+
+/// R82-05: two license relations give one `TXXX:LICENSE` edit holding both
+/// URLs, and no `WCOP` edit.
+#[test]
+fn adr_0080_mb_two_licenses_write_one_txxx_license_edit_and_no_wcop() {
+    let track_context = track_context_with_channel_website();
+    let candidate = MusicBrainzCandidate {
+        recording_id: "recording-id".into(),
+        url_relations: vec![
+            MusicBrainzUrlRelation {
+                relation_type: "license".into(),
+                url: "https://creativecommons.example/by".into(),
+                owner: MusicBrainzRelationOwner::Release,
+            },
+            MusicBrainzUrlRelation {
+                relation_type: "license".into(),
+                url: "https://creativecommons.example/by-sa".into(),
+                owner: MusicBrainzRelationOwner::Release,
+            },
+        ],
+        ..MusicBrainzCandidate::default()
+    };
+
+    let rows =
+        expand_woar_metadata_rows(track_metadata_rows(&track_context, Some(&candidate), true));
+    let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new(), None);
+    let edits = pending_id3_edits_for_apply(&pending);
+
+    let license_edit = edits
+        .iter()
+        .find(|edit| edit.frame_label == "TXXX:LICENSE")
+        .expect("TXXX:LICENSE edit");
+    assert!(license_edit
+        .value
+        .contains("https://creativecommons.example/by"));
+    assert!(license_edit
+        .value
+        .contains("https://creativecommons.example/by-sa"));
+    assert!(!edits.iter().any(|edit| edit.frame_label == "WCOP"));
+}
+
+/// R82-06: a `discogs` relation gives a read-only row labeled with its
+/// relation type, and it stages no edit.
+#[test]
+fn adr_0080_mb_discogs_relation_is_read_only_with_no_edit() {
+    let track_context = track_context_with_channel_website();
+    let candidate = MusicBrainzCandidate {
+        recording_id: "recording-id".into(),
+        url_relations: vec![MusicBrainzUrlRelation {
+            relation_type: "discogs".into(),
+            url: "https://www.discogs.com/release/1".into(),
+            owner: MusicBrainzRelationOwner::Release,
+        }],
+        ..MusicBrainzCandidate::default()
+    };
+
+    let rows = track_metadata_rows(&track_context, Some(&candidate), true);
+    let discogs_row = rows
+        .iter()
+        .find_map(|row| match row {
+            MetadataGridRow::Data(row) if row.field == "discogs" => Some(row),
+            _ => None,
+        })
+        .expect("discogs row");
+    assert_eq!(
+        discogs_row.musicbrainz_value.as_deref(),
+        Some("https://www.discogs.com/release/1")
+    );
+    assert!(
+        discogs_row.id3_frame.is_none(),
+        "a relation type with no mapped frame must carry no ID3 frame"
+    );
+    assert!(
+        !TrackMetadataGridVm::musicbrainz_value_is_writable(discogs_row.id3_frame.as_deref()),
+        "the view model must mark this row as not writable"
+    );
+    let discogs_row_id = discogs_row.row_id.clone();
+
+    let expanded = expand_woar_metadata_rows(rows);
+    let pending =
+        auto_populated_pending_id3_edits(&expanded, &BTreeMap::new(), &BTreeSet::new(), None);
+    assert!(
+        !pending.contains_key(&discogs_row_id),
+        "a read-only relation row must stage no edit: {pending:?}"
+    );
+    assert!(
+        !pending
+            .values()
+            .any(|edit| edit.value == "https://www.discogs.com/release/1"),
+        "the discogs URL must never become a pending edit: {pending:?}"
+    );
 }
 
 #[test]

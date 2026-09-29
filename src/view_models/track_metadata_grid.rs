@@ -157,6 +157,17 @@ impl TrackMetadataGridVm {
         row_frame.unwrap_or("").to_string()
     }
 
+    /// Whether a `MusicBrainz` value can move into an ID3 frame.
+    ///
+    /// A relation type that ADR 0080 Decision 8 does not resolve to a frame
+    /// carries no `id3_frame`. Its row is read-only: the screen asks this
+    /// method instead of deciding on its own (the durable typed-action-state
+    /// rule in `AGENTS.md`).
+    #[must_use]
+    pub const fn musicbrainz_value_is_writable(row_frame: Option<&str>) -> bool {
+        row_frame.is_some()
+    }
+
     #[must_use]
     pub fn id3_frame_label(frame_id: Option<&str>) -> &str {
         frame_id.unwrap_or("")
