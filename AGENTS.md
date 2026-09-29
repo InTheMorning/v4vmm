@@ -106,7 +106,8 @@ This client implements none of the three landed changes. Each one needs its own 
 ADR 0076, amended on 2026-09-26, makes the app ignore `last_build_date`. Three decoded fields no
 longer arrive. [Packet 046](docs/tasks/adr-0075-task-046-remove-undeclared-api-fields.md)
 removed them on 2026-09-26. Its mechanical checks are Green, and it needs no visual acceptance.
-[Packet 022](docs/tasks/adr-0075-task-022-track-header-identities.md) is Ready on 2026-09-26. It shows track and feed identities apart and keeps the tag output equal.
+[Packet 022](docs/tasks/adr-0075-task-022-track-header-identities.md) is implemented on 2026-09-28. It shows track and feed identities apart and keeps the tag output equal.
+Its mechanical checks are Green. Its visual gate is open and paused.
 [ADR 0080](docs/adr/0080-tag-frames-follow-their-owner.md) is Proposed on 2026-09-26. It maps tag frames by
 owner and fixes the tag round-trip defect. Three details wait for the operator's review.
 
@@ -142,7 +143,7 @@ supersedes ADR 0077 Decision 4: only a stated label role gives a label page.
 [ADR 0079](docs/adr/0079-remove-musicindex-artist-subject-storage.md) is Accepted on 2026-09-24. It
 supersedes ADR 0029 and deletes the stale MusicIndex artist subject storage. Person identity stays
 deferred. The operator reviewed each ADR 0077 proposal on 2026-09-24, and none is open.
-The [phase plan](docs/plans/adr-0077-publisher-artist-phase-plan.md) registers six packets.
+The [phase plan](docs/plans/adr-0077-publisher-artist-phase-plan.md) registers seven packets.
 [Packet 001](docs/tasks/adr-0077-task-001-remove-dead-artist-storage.md) is implemented on 2026-09-24.
 It deletes the ADR 0045 binding and the ADR 0029 artist storage, and schema version 13 drops the four
 tables. Its mechanical checks are Green. Its visual gate is open and paused.
@@ -153,8 +154,13 @@ Green, and it needs no visual acceptance. Stophammer deployed the album summary 
 Packet 003 is implemented on 2026-09-26. Its mechanical checks are Green, and it needs no
 visual acceptance. Packet 004 is implemented on 2026-09-26, with mechanical checks Green and its
 visual gate open and paused. Packet 005 is implemented on 2026-09-26, with its visual gate open and
-paused. Its name search reached only the parked `SearchApp`. Packet 006, without a task document yet,
-owns the live name-keyed artist page.
+paused. Its name search reached only the parked `SearchApp`.
+
+[Packet 006](docs/tasks/adr-0077-task-006-name-matches-are-search-results.md) is Ready on 2026-09-28.
+It shows the live Index name match as a search result, `Tracks matching "<name>"`.
+Packet 007 shows the confirmed and unconfirmed artists of Stophammer ADR 0061. It waits for the deploy
+of Stophammer 0.2.0, and no task document exists for it.
+
 [Open Stophammer requests](docs/plans/v4vmm-open-requests.md) consolidates each open request
 to Stophammer on 2026-09-25. The Stophammer repository holds an equal copy. Update both copies together. A reverse album list
 is deferred while Stophammer corrects the relationship data.

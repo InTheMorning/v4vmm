@@ -149,6 +149,14 @@ An album that names a publisher without a listing by it does not appear. Stopham
 The v4vmm operator decided on 2026-09-25 not to request this list now, because Stophammer is correcting the relationship data.
 `/v1/publisher-links/stats` shows the correction: unresolved links fell from 1,159 on 2026-09-24 to 156 on 2026-09-25.
 
+**A `musicL` playlist import.** Stophammer ADR 0060 is deployed on 2026-09-26. Each `remote_items` entry of a list feed gives `item_guid` and `item_title`.
+A v4vmm playlist could take a list feed by `feedGuid` and `itemGuid`, with no name match. v4vmm reads neither field on 2026-09-28.
+
+This is new product scope, and it needs a v4vmm ADR before a request. The v4vmm operator deferred it on 2026-09-28.
+
+**The confirmed and unconfirmed artists.** Stophammer ADR 0061 is Accepted on 2026-09-27. Release 0.2.0 carries it.
+On 2026-09-28, the deployed contract is version 0.1.0 and does not give the four fields. v4vmm ADR 0077 packet 007 waits for the deploy. This needs no Stophammer action.
+
 ## Answered, No Action
 
 These items were open in earlier v4vmm documents. The Stophammer source or the live API answers each one.
