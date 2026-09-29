@@ -197,6 +197,14 @@ pub struct TopApp {
     /// The mounted name-match track page (ADR 0077 packet 006). `None` when
     /// the current frame is not a name-match page.
     name_match_page: Option<name_match_dispatch::NameMatchPageState>,
+    /// The Index feed detail-on-open fetch, reached from an active search
+    /// (ADR 0075 packet 047). `None` when no such fetch is tracked.
+    index_feed_detail_state: Option<search_dispatch::IndexFeedDetailState>,
+    /// The Index track detail-on-open fetch (ADR 0075 packet 047). `None`
+    /// when no such fetch is tracked: the operator has not opened a track
+    /// row, or opened one whose full detail already came from the
+    /// name-match page's own fetch.
+    index_track_detail_state: Option<search_dispatch::IndexTrackDetailState>,
 }
 
 impl TopApp {
@@ -436,6 +444,8 @@ impl TopApp {
             publisher_page: None,
             publisher_page_routes: BTreeMap::new(),
             name_match_page: None,
+            index_feed_detail_state: None,
+            index_track_detail_state: None,
         }
     }
 
@@ -655,6 +665,8 @@ impl TopApp {
             });
             self.restore_publisher_page_for_nav(&entry, cx);
             self.restore_name_match_page_for_nav(&entry, cx);
+            self.restore_index_feed_detail_for_nav(&entry, content_list_id, cx);
+            self.restore_index_track_detail_for_nav(&entry, cx);
             if let FrameNavigationEntry::Search(query) = &entry {
                 self.start_index_search_for_query(query, cx);
             }
@@ -1141,12 +1153,11 @@ impl TopApp {
                     .frame_nav(content_frame_id)
                     .and_then(FrameNavigationState::active_search_query)
                     .is_some();
-                if let Some(search_results) = self
-                    .search_results_detail
-                    .as_ref()
-                    .filter(|_| search_is_active)
-                {
-                    let detail = search_results.index_feed_detail(&activation_id, id, label);
+                if search_is_active {
+                    // ADR 0075 packet 047: the search sent this row's
+                    // summary only. The operator's own open-time fetch,
+                    // not the retained row, supplies its detail.
+                    let detail = self.index_feed_detail_display(id, label);
                     let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
                     WorkspaceSlots::new().content_list(detail_content)
                 } else if let Some(detail) =
@@ -1168,19 +1179,10 @@ impl TopApp {
             Some(FrameNavigationEntry::IndexTrackDetail { id, label })
                 if self.search_results_detail.is_some() || self.name_match_page.is_some() =>
             {
-                let activation_id = format!("index-track:{id}");
-                let detail = if let Some(search_results) = self.search_results_detail.as_ref() {
-                    search_results.index_track_detail(&activation_id, id, label)
-                } else {
-                    // ADR 0077 packet 006: the operator reached this track
-                    // from the name-match page, not from a search flow.
-                    let row = self.name_match_page_track_row(&activation_id);
-                    crate::view_models::search_results::IndexDetailDisplay::track_or_fallback(
-                        row.as_ref(),
-                        id,
-                        label,
-                    )
-                };
+                // ADR 0075 packet 047: a search-drawn row supplies its
+                // detail from the operator's own open-time fetch; a
+                // name-match row keeps its already-fetched cache.
+                let detail = self.index_track_detail_display(id, label);
                 let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
                 WorkspaceSlots::new().content_list(detail_content)
             }

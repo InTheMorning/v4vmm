@@ -33,13 +33,31 @@ pub struct SearchResponse {
     pub pagination: Pagination,
 }
 
+/// One search hit's summary fields (ADR 0075 packet 047). The deployed
+/// contract version `0.2.0` declares every field below on
+/// `SearchResponseItem`. A hit omits each field whose value is null; an
+/// omitted field decodes as `None`. `quality_score` is an integer in the
+/// contract; `Option<f64>` still accepts it, because `serde_json` decodes
+/// a JSON integer into an `f64` field without an error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct SearchResult {
     pub entity_type: String,
     pub entity_id: String,
-    pub feed_guid: Option<String>,
+    pub rank: Option<f64>,
     pub quality_score: Option<f64>,
+    pub title: Option<String>,
+    pub feed_guid: Option<String>,
+    pub feed_title: Option<String>,
+    pub feed_image_url: Option<String>,
+    pub track_image_url: Option<String>,
+    pub release_artist: Option<String>,
+    pub release_artist_source: Option<String>,
+    pub track_artist: Option<String>,
+    pub pub_date: Option<i64>,
+    pub duration_secs: Option<i32>,
+    pub episode_count: Option<i32>,
+    pub href: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1194,8 +1212,8 @@ pub(crate) mod tests {
     }
 
     use super::{
-        Client, Contributor, Feed, PaymentRoute, SourceEnclosure, SourceEntityId, SourceEntityLink,
-        SourceReleaseClaim, SourceTranscript, Track,
+        Client, Contributor, Feed, PaymentRoute, SearchResult, SourceEnclosure, SourceEntityId,
+        SourceEntityLink, SourceReleaseClaim, SourceTranscript, Track,
     };
     use crate::application::request_profiles;
 
@@ -1469,6 +1487,98 @@ pub(crate) mod tests {
             track.image_url.as_deref(),
             Some("https://example.test/track.jpg")
         );
+    }
+
+    /// R47-01 (ADR 0075 packet 047): a recorded feed hit and a recorded
+    /// track hit, each captured against the deployed contract on
+    /// 2026-09-29, decode every summary field the hit supplies. A field
+    /// the hit omits decodes as `None`.
+    #[test]
+    fn adr_0075_search_summary_r47_01_decodes_summary_fields_and_omits_absent_ones() {
+        let feed_hit: SearchResult = serde_json::from_str(
+            r#"{
+                "entity_type": "feed",
+                "entity_id": "1429d28c-9af0-5529-98e5-0f400afca76b",
+                "rank": -8.03,
+                "quality_score": 85,
+                "title": "Monster",
+                "feed_image_url": "https://d12wklypp119aj.cloudfront.net/image/3a64dbaf-7d8d-4f05-ac8d-92adbfce991b.jpg",
+                "release_artist": "Official DETOX Music",
+                "release_artist_source": "itunes_author",
+                "episode_count": 1
+            }"#,
+        )
+        .expect("a recorded feed hit should decode");
+
+        assert_eq!(feed_hit.entity_type, "feed");
+        assert_eq!(feed_hit.entity_id, "1429d28c-9af0-5529-98e5-0f400afca76b");
+        assert_eq!(feed_hit.rank, Some(-8.03));
+        assert_eq!(feed_hit.quality_score, Some(85.0));
+        assert_eq!(feed_hit.title.as_deref(), Some("Monster"));
+        assert_eq!(
+            feed_hit.feed_image_url.as_deref(),
+            Some("https://d12wklypp119aj.cloudfront.net/image/3a64dbaf-7d8d-4f05-ac8d-92adbfce991b.jpg")
+        );
+        assert_eq!(
+            feed_hit.release_artist.as_deref(),
+            Some("Official DETOX Music")
+        );
+        assert_eq!(
+            feed_hit.release_artist_source.as_deref(),
+            Some("itunes_author")
+        );
+        assert_eq!(feed_hit.episode_count, Some(1));
+        assert_eq!(feed_hit.feed_guid, None);
+        assert_eq!(feed_hit.feed_title, None);
+        assert_eq!(feed_hit.track_image_url, None);
+        assert_eq!(feed_hit.track_artist, None);
+        assert_eq!(feed_hit.pub_date, None);
+        assert_eq!(feed_hit.duration_secs, None);
+        assert_eq!(feed_hit.href, None);
+
+        let track_hit: SearchResult = serde_json::from_str(
+            r#"{
+                "entity_type": "track",
+                "entity_id": "ddf821be-1139-47b9-ab1e-44594b0cd779",
+                "rank": -9.34,
+                "quality_score": 80,
+                "feed_guid": "bcb53b0b-d88e-5e01-9e9d-dfeeae52e2c9",
+                "href": "/v1/feeds/bcb53b0b-d88e-5e01-9e9d-dfeeae52e2c9/tracks/ddf821be-1139-47b9-ab1e-44594b0cd779",
+                "title": "Monster",
+                "feed_title": "Shadows of Light",
+                "feed_image_url": "https://d12wklypp119aj.cloudfront.net/image/897e093c-ef1c-454b-9985-18310f04f916.jpg",
+                "pub_date": 1728711846,
+                "track_artist": "Absolut Absolem",
+                "duration_secs": 215
+            }"#,
+        )
+        .expect("a recorded track hit should decode");
+
+        assert_eq!(track_hit.entity_type, "track");
+        assert_eq!(track_hit.entity_id, "ddf821be-1139-47b9-ab1e-44594b0cd779");
+        assert_eq!(track_hit.rank, Some(-9.34));
+        assert_eq!(track_hit.quality_score, Some(80.0));
+        assert_eq!(
+            track_hit.feed_guid.as_deref(),
+            Some("bcb53b0b-d88e-5e01-9e9d-dfeeae52e2c9")
+        );
+        assert_eq!(
+            track_hit.href.as_deref(),
+            Some("/v1/feeds/bcb53b0b-d88e-5e01-9e9d-dfeeae52e2c9/tracks/ddf821be-1139-47b9-ab1e-44594b0cd779")
+        );
+        assert_eq!(track_hit.title.as_deref(), Some("Monster"));
+        assert_eq!(track_hit.feed_title.as_deref(), Some("Shadows of Light"));
+        assert_eq!(
+            track_hit.feed_image_url.as_deref(),
+            Some("https://d12wklypp119aj.cloudfront.net/image/897e093c-ef1c-454b-9985-18310f04f916.jpg")
+        );
+        assert_eq!(track_hit.pub_date, Some(1_728_711_846));
+        assert_eq!(track_hit.track_artist.as_deref(), Some("Absolut Absolem"));
+        assert_eq!(track_hit.duration_secs, Some(215));
+        assert_eq!(track_hit.release_artist, None);
+        assert_eq!(track_hit.release_artist_source, None);
+        assert_eq!(track_hit.track_image_url, None);
+        assert_eq!(track_hit.episode_count, None);
     }
 
     /// R46-01: `api::Feed` and `api::Track` decode a response that contains

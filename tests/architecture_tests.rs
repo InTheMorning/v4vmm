@@ -3040,8 +3040,6 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
     }
 
     for required in [
-        "pub(crate) fn index_feed_detail(",
-        "pub(crate) fn index_track_detail(",
         "pub(crate) fn index_feed_label(",
         "pub(crate) fn index_track_label(",
         "tab_was_user_selected",
@@ -3050,6 +3048,22 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         if !search_results_mod_source.contains(required) {
             violations.push(format!(
                 "src/view_models/search_results/mod.rs: ADR 0049 Index drill-down VM contract missing `{required}`"
+            ));
+        }
+    }
+
+    // ADR 0075 packet 047 deleted `index_feed_detail` and
+    // `index_track_detail`: an Index search row no longer retains a
+    // fetched detail to project. `TopApp::index_feed_detail_display` and
+    // `index_track_detail_display` (`src/app/search_dispatch.rs`) select
+    // the detail-on-open fetch state instead.
+    for forbidden in [
+        "pub(crate) fn index_feed_detail(",
+        "pub(crate) fn index_track_detail(",
+    ] {
+        if search_results_mod_source.contains(forbidden) {
+            violations.push(format!(
+                "src/view_models/search_results/mod.rs: ADR 0075 packet 047 removed the cached-row detail projection; found `{forbidden}`"
             ));
         }
     }
@@ -3216,13 +3230,18 @@ fn adr_0024_index_track_detail_uses_rich_track_view_path() {
         }
     }
 
+    // ADR 0075 packet 047 moved the Index track detail fetch out of the
+    // search loop and into `FetchIndexTrackDetail`, sent only when the
+    // operator opens the row. That command still attaches a rich
+    // `TrackView` from the fetched `api::Track`, which is this guard's
+    // ADR 0024 rule; only the call site moved.
     for required in [
-        "TrackView::from_api(track.clone())",
-        "display = display.with_remote_track(remote_track)",
+        "TrackView::from_api(track)",
+        "CommandOutcome::without_events(remote_track)",
     ] {
         if !search_query_source.contains(required) {
             violations.push(format!(
-                "src/application/queries/search.rs: ADR 0024 Index track detail fetch path must attach TrackView from fetched api::Track; missing `{required}`"
+                "src/application/queries/search.rs: ADR 0024 Index track detail-on-open command must attach TrackView from fetched api::Track; missing `{required}`"
             ));
         }
     }
@@ -19386,7 +19405,9 @@ refresh intent, so it never joins an active passive read. {FIX}"
 /// identity shares P18-2's window (`owner.fetch_feed_with_receipts`); a
 /// track identity carries no accepted window of its own, so it shares
 /// only an active request (`owner.fetch_track_shared`), never a retained
-/// one.
+/// one. Packet 047 moved each call from the search loop to a
+/// detail-on-open command, and this guard also checks that the search
+/// loop itself sends no per-hit detail request (R47-02).
 #[test]
 fn adr_0075_request_reuse_index_routes_ask_the_owner() {
     const FIX: &str = "ADR 0075 section 6, packet 018 R18B-12: an Index or Inspector feed or \
@@ -19437,15 +19458,18 @@ request owner. {FIX}"
 shared request owner for both its scoped and its unscoped identity. {FIX}"
         ));
     }
+    // ADR 0075 packet 047 moved these calls out of the search loops and
+    // into a detail-on-open command, sent only when the operator opens the
+    // row. Each command still asks the shared request owner.
     for (start, end, calls_helper) in [
         (
+            "struct FetchIndexFeedDetail {",
             "fn fetch_index_feed_result_rows(",
-            "fn fetch_index_track_result_rows(",
             "owner_fetch_feed(",
         ),
         (
-            "fn fetch_index_track_result_rows(",
-            "fn index_artist_candidate_from_feed(",
+            "struct FetchIndexTrackDetail {",
+            "pub(super) fn index_feed_display(",
             "fetch_index_track_detail(",
         ),
     ] {
@@ -19462,6 +19486,34 @@ shared request owner for both its scoped and its unscoped identity. {FIX}"
 directly. {FIX}"
                 ));
             }
+        }
+    }
+
+    // Situational — ADR 0075 packet 047, Required Change 2: an Index
+    // search draws each row from the search response's own summary
+    // fields, so it must send no per-hit detail request of its own.
+    const NO_DETAIL_FIX: &str = "ADR 0075 packet 047, Required Change 2: an Index search draws \
+each row from the search response's own summary fields and sends no per-hit detail request. \
+Move a needed detail fetch into FetchIndexFeedDetail or FetchIndexTrackDetail, sent only when \
+the operator opens the row.";
+    for (start, end, forbidden_helper) in [
+        (
+            "fn fetch_index_feed_result_rows(",
+            "fn fetch_index_track_result_rows(",
+            "owner_fetch_feed(",
+        ),
+        (
+            "fn fetch_index_track_result_rows(",
+            "fn index_artist_candidate_from_feed(",
+            "fetch_index_track_detail(",
+        ),
+    ] {
+        let body = source_between(search_production, start, end);
+        if body.contains(forbidden_helper) {
+            violations.push(format!(
+                "src/application/queries/search.rs: `{start}` must send no per-hit detail \
+request; found `{forbidden_helper}`. {NO_DETAIL_FIX}"
+            ));
         }
     }
 

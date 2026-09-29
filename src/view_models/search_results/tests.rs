@@ -218,6 +218,64 @@ fn index_detail_display_preserves_remote_track_view() {
     assert_eq!(track.duration_secs, Some(125));
 }
 
+/// ADR 0075 packet 047, Required Change 3: the loading state names the
+/// entity kind, and it carries no feed or track detail.
+#[test]
+fn index_detail_display_loading_names_the_kind_and_carries_no_detail() {
+    let detail = super::IndexDetailDisplay::loading(IndexDetailKind::Feed, "feed-guid", "Monster");
+
+    assert_eq!(detail.kind, IndexDetailKind::Feed);
+    assert_eq!(detail.id, "feed-guid");
+    assert!(detail.secondary_text.contains("feed"));
+    assert!(detail.feed.is_none());
+    assert!(detail.track.is_none());
+}
+
+/// The failed state reports the already-readable detail the app layer
+/// supplied. It carries no transport error of its own.
+#[test]
+fn index_detail_display_failed_reports_the_supplied_detail() {
+    let detail = super::IndexDetailDisplay::failed(
+        IndexDetailKind::Track,
+        "track-guid",
+        "Monster",
+        "connection refused",
+    );
+
+    assert_eq!(detail.kind, IndexDetailKind::Track);
+    assert!(detail.secondary_text.contains("connection refused"));
+    assert!(detail.track.is_none());
+}
+
+/// The loaded state carries the fetched feed or track, and it reports no
+/// stale label or secondary text of its own; the caller reads the
+/// attached view.
+#[test]
+fn index_detail_display_loaded_feed_and_track_carry_the_fetched_view() {
+    let feed_detail = super::IndexDetailDisplay::loaded_feed(
+        FeedView {
+            title: Some("Monster".to_string()),
+            ..FeedView::default()
+        },
+        "feed-guid",
+    );
+    assert_eq!(feed_detail.kind, IndexDetailKind::Feed);
+    assert_eq!(
+        feed_detail
+            .feed
+            .as_ref()
+            .and_then(|feed| feed.title.clone()),
+        Some("Monster".to_string())
+    );
+
+    let track_detail = super::IndexDetailDisplay::loaded_track(remote_track(), "track-guid");
+    assert_eq!(track_detail.kind, IndexDetailKind::Track);
+    assert_eq!(
+        track_detail.track.as_ref().map(|track| track.track_number),
+        Some(Some(7))
+    );
+}
+
 #[test]
 fn local_library_tracks_populate_ready_artist_feed_and_track_results() {
     let rows = [
@@ -365,8 +423,12 @@ fn index_results_auto_select_first_populated_tab_until_user_selects_tab() {
     );
 }
 
+/// ADR 0075 packet 047: the Index search page still reads a row's cached
+/// label for a nav breadcrumb and for an opening row's placeholder title.
+/// It no longer projects a cached row into a detail page; the detail-on-open
+/// fetch supplies that (`src/app/search_dispatch.rs`).
 #[test]
-fn index_detail_projection_uses_cached_result_rows() {
+fn index_label_projection_uses_cached_result_rows() {
     let mut vm = SearchResultsInspectorPageVm::new("delta");
     vm.replace_index_results(IndexSearchResultRows {
         artists: Vec::new(),
@@ -377,15 +439,7 @@ fn index_detail_projection_uses_cached_result_rows() {
                 "Remote Feed",
                 SearchResultOrigin::Index,
             )
-            .with_secondary_text("Remote Artist - 6 tracks")
-            .with_remote_feed(FeedView {
-                title: Some("Remote Feed".to_string()),
-                tracks: vec![TrackView {
-                    title: Some("Remote Track".to_string()),
-                    ..TrackView::default()
-                }],
-                ..FeedView::default()
-            }),
+            .with_secondary_text("Remote Artist - 6 tracks"),
         )],
         tracks: vec![(
             301,
@@ -394,8 +448,7 @@ fn index_detail_projection_uses_cached_result_rows() {
                 "Remote Track",
                 SearchResultOrigin::Index,
             )
-            .with_secondary_text("Remote Artist")
-            .with_remote_track(remote_track()),
+            .with_secondary_text("Remote Artist"),
         )],
     });
 
@@ -403,41 +456,10 @@ fn index_detail_projection_uses_cached_result_rows() {
         vm.index_feed_label("index-feed:feed-guid").as_deref(),
         Some("Remote Feed")
     );
-    let feed = vm.index_feed_detail("index-feed:feed-guid", "feed-guid", "feed-guid");
-    assert_eq!(feed.kind, IndexDetailKind::Feed);
-    assert_eq!(feed.title, "Remote Feed");
-    assert_eq!(feed.secondary_text, "Remote Artist - 6 tracks");
-    assert!(
-        feed.feed.is_some(),
-        "Index feed detail should preserve rich remote feed projection when search fetched it"
-    );
-    assert_eq!(
-        feed.feed.as_ref().map(|feed| feed.tracks.len()),
-        Some(1),
-        "Index feed detail should preserve remote track rows for release-detail rendering"
-    );
-
     assert_eq!(
         vm.index_track_label("index-track:feed-guid:track-guid")
             .as_deref(),
         Some("Remote Track")
-    );
-    let track = vm.index_track_detail(
-        "index-track:feed-guid:track-guid",
-        "feed-guid:track-guid",
-        "track-guid",
-    );
-    assert_eq!(track.kind, IndexDetailKind::Track);
-    assert_eq!(track.title, "Remote Track");
-    assert_eq!(track.secondary_text, "Remote Artist");
-    assert!(
-        track.track.is_some(),
-        "Index track detail should preserve rich remote track projection when search fetched it"
-    );
-    assert_eq!(
-        track.track.as_ref().and_then(|track| track.track_number),
-        Some(7),
-        "Index track detail should preserve track fields for shared track-detail rendering"
     );
 }
 

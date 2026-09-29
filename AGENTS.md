@@ -102,10 +102,9 @@ Summary search fields, separate track artwork, and a truthful publication-date l
 [verified](docs/plans/musicindex-api-change-request.md#verification-against-the-deployed-api)
 against the deployed API.
 
-This client implements none of the three landed changes. Packets
-[047](docs/tasks/adr-0075-task-047-search-rows-from-summary-fields.md), [048](docs/tasks/adr-0075-task-048-separate-track-artwork.md)
-and [049](docs/tasks/adr-0075-task-049-no-derived-release-date.md) are written on 2026-09-29, one for each change.
-Packets 048 and 049 are implemented, with their visual gates open and paused. Packet 047 is Ready.
+Packets [047](docs/tasks/adr-0075-task-047-search-rows-from-summary-fields.md), [048](docs/tasks/adr-0075-task-048-separate-track-artwork.md)
+and [049](docs/tasks/adr-0075-task-049-no-derived-release-date.md) implement the three landed changes on 2026-09-29.
+Their mechanical checks are Green, and their visual gates are open and paused.
 ADR 0076, amended on 2026-09-26, makes the app ignore `last_build_date`. Three decoded fields no
 longer arrive. [Packet 046](docs/tasks/adr-0075-task-046-remove-undeclared-api-fields.md)
 removed them on 2026-09-26. Its mechanical checks are Green, and it needs no visual acceptance.

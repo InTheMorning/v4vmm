@@ -128,4 +128,66 @@ impl IndexDetailDisplay {
             |row| Self::track(row, fallback_id),
         )
     }
+
+    /// The loading state of a detail-on-open page (ADR 0075 packet 047,
+    /// Required Change 3), shown right after the operator opens a row and
+    /// before its own detail request completes.
+    #[must_use]
+    pub(crate) fn loading(
+        kind: IndexDetailKind,
+        id: impl Into<String>,
+        label: impl Into<String>,
+    ) -> Self {
+        let label = label.into();
+        Self::new(
+            kind,
+            id,
+            label,
+            format!("Loading this {} from MusicIndex.", kind.label()),
+        )
+    }
+
+    /// The failed state of a detail-on-open page (ADR 0075 packet 047,
+    /// Required Change 3). `detail` is a display report the app layer
+    /// already built from the transport error; this type carries no
+    /// transport error of its own.
+    #[must_use]
+    pub(crate) fn failed(
+        kind: IndexDetailKind,
+        id: impl Into<String>,
+        label: impl Into<String>,
+        detail: impl Into<String>,
+    ) -> Self {
+        let label = label.into();
+        Self::new(
+            kind,
+            id,
+            label,
+            format!(
+                "The app could not load this {} from MusicIndex. {}",
+                kind.label(),
+                detail.into()
+            ),
+        )
+    }
+
+    /// The loaded state of a detail-on-open feed page (ADR 0075 packet 047,
+    /// Required Change 3): the operator's own fetch, run when the row was
+    /// opened, already returned this feed.
+    #[must_use]
+    pub(crate) fn loaded_feed(feed: FeedView, id: impl Into<String>) -> Self {
+        let mut display = Self::new(IndexDetailKind::Feed, id, String::new(), String::new());
+        display.feed = Some(feed);
+        display
+    }
+
+    /// The loaded state of a detail-on-open track page (ADR 0075 packet
+    /// 047, Required Change 3): the operator's own fetch, run when the row
+    /// was opened, already returned this track.
+    #[must_use]
+    pub(crate) fn loaded_track(track: TrackView, id: impl Into<String>) -> Self {
+        let mut display = Self::new(IndexDetailKind::Track, id, String::new(), String::new());
+        display.track = Some(track);
+        display
+    }
 }

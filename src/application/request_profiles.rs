@@ -110,8 +110,9 @@ pub(crate) const LIBRARY_ALBUM_HYDRATION_FEED: RequestProfile =
     RequestProfile::new(RequestPathShape::Feed, Some(L5_PUBLISHER));
 
 /// Index feed detail. The only request of each of its three call sites:
-/// `search::fetch_index_feed_result_rows`, `feed::fetch_recent_feed_result_rows`,
-/// and `feed::fetch_feed_detail`.
+/// `search::owner_fetch_feed` (through the detail-on-open command
+/// `search::FetchIndexFeedDetail`, ADR 0075 packet 047),
+/// `feed::fetch_recent_feed_result_rows`, and `feed::fetch_feed_detail`.
 pub(crate) const INDEX_FEED_DETAIL: RequestProfile =
     RequestProfile::new(RequestPathShape::Feed, Some(L2_PUBLISHER));
 

@@ -70,6 +70,8 @@ impl TopApp {
             });
             self.restore_publisher_page_for_nav(&entry, cx);
             self.restore_name_match_page_for_nav(&entry, cx);
+            self.restore_index_feed_detail_for_nav(&entry, content_list_id, cx);
+            self.restore_index_track_detail_for_nav(&entry, cx);
             if let FrameNavigationEntry::Search(query) = &entry {
                 self.start_index_search_for_query(query, cx);
             }

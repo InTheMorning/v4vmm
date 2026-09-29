@@ -11,7 +11,9 @@ use crate::application::commands::download::{SubscribeThenAppendToPlaylist, Subs
 use crate::application::commands::feed::SubscribeFeed;
 use crate::application::commands::playlist::CreatePlaylist;
 use crate::application::queries::images::FetchThumbnail;
-use crate::application::queries::search::FetchIndexSearchResults;
+use crate::application::queries::search::{
+    FetchIndexFeedDetail, FetchIndexSearchResults, FetchIndexTrackDetail,
+};
 use crate::application::{ApplicationCommand, CommandContext};
 use crate::db;
 use crate::feed_service;
@@ -37,7 +39,9 @@ use crate::view_models::entity_detail::{
     EntityActionTarget, EntitySurfaceContext, ReleaseDetailVm, SharedTrackRowVm,
 };
 use crate::view_models::publisher_page::PublisherPageContext;
-use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchResultsTab};
+use crate::view_models::search_results::{
+    IndexDetailDisplay, IndexDetailKind, SearchResultsInspectorPageVm, SearchResultsTab,
+};
 use crate::view_models::workspace::{FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId};
 use crate::views::{ArtistRef, FeedRef, FeedView, TrackRef, TrackView};
 
@@ -47,6 +51,113 @@ use super::{AppTab, TopApp};
 pub(super) enum RemoteDetailThumbnailState {
     Loading,
     Loaded(Option<Arc<Image>>),
+}
+
+/// Loading lifecycle of the mounted Index feed detail page, reached from an
+/// active search (ADR 0075 packet 047, Required Change 3). `None` on
+/// `TopApp` means no fetch is tracked for the mounted page: the operator
+/// has not opened a feed row from search, or has navigated away from the
+/// search flow entirely (`recent_music_index_feed_detail` covers that
+/// case with its own, already-fetched data).
+#[derive(Clone, Debug)]
+pub(super) enum IndexFeedDetailState {
+    Loading {
+        feed_guid: String,
+    },
+    Loaded {
+        feed_guid: String,
+        // Boxed so this variant does not enlarge the whole enum well past
+        // the size of the other two (clippy::large_enum_variant).
+        feed: Box<FeedView>,
+    },
+    Failed {
+        feed_guid: String,
+        message: String,
+    },
+}
+
+impl IndexFeedDetailState {
+    /// The feed GUID this state belongs to, regardless of its lifecycle
+    /// step (packet 047: the stale-result fix keys on this value, the same
+    /// pattern `publisher_page_result_is_current` follows in
+    /// `src/app/publisher_dispatch.rs`).
+    fn feed_guid(&self) -> &str {
+        match self {
+            Self::Loading { feed_guid }
+            | Self::Loaded { feed_guid, .. }
+            | Self::Failed { feed_guid, .. } => feed_guid,
+        }
+    }
+}
+
+/// `true` when a fetch result for `feed_guid` still belongs to the mounted
+/// Index feed detail page (ADR 0075 packet 047), following the pattern of
+/// `publisher_page_result_is_current`. A newer "open feed" click, or a
+/// navigation restore to a different feed GUID, already replaces `current`
+/// by the time an older fetch's result arrives. That call gives `false`,
+/// so the caller applies no result (R47-07).
+fn index_feed_detail_result_is_current(
+    current: Option<&IndexFeedDetailState>,
+    feed_guid: &str,
+) -> bool {
+    current.is_some_and(|state| state.feed_guid() == feed_guid)
+}
+
+/// Loading lifecycle of the mounted Index track detail page (ADR 0075
+/// packet 047, Required Change 3). `target` is the row's activation target:
+/// `<feed_guid>:<track_guid>` for a scoped hit, or a bare `<track_guid>`
+/// for an unscoped one. `None` on `TopApp` means no fetch is tracked: the
+/// operator has not opened a track row, or opened one whose full detail
+/// already came from the name-match page's own fetch
+/// (`name_match_page_track_row` covers that case).
+#[derive(Clone, Debug)]
+pub(super) enum IndexTrackDetailState {
+    Loading {
+        target: String,
+    },
+    Loaded {
+        target: String,
+        // Boxed for the same reason as `IndexFeedDetailState::Loaded`.
+        track: Box<TrackView>,
+    },
+    Failed {
+        target: String,
+        message: String,
+    },
+}
+
+impl IndexTrackDetailState {
+    /// The activation target this state belongs to, regardless of its
+    /// lifecycle step.
+    fn target(&self) -> &str {
+        match self {
+            Self::Loading { target }
+            | Self::Loaded { target, .. }
+            | Self::Failed { target, .. } => target,
+        }
+    }
+}
+
+/// `true` when a fetch result for `target` still belongs to the mounted
+/// Index track detail page (ADR 0075 packet 047), following the pattern of
+/// `publisher_page_result_is_current` (R47-07).
+fn index_track_detail_result_is_current(
+    current: Option<&IndexTrackDetailState>,
+    target: &str,
+) -> bool {
+    current.is_some_and(|state| state.target() == target)
+}
+
+/// Splits a track row's activation target into its optional feed GUID and
+/// its track GUID (ADR 0075 packet 047). A scoped hit's target holds
+/// `<feed_guid>:<track_guid>`; an unscoped hit's target holds the bare
+/// track GUID.
+fn split_index_track_target(target: &str) -> (Option<&str>, &str) {
+    target
+        .split_once(':')
+        .map_or((None, target), |(feed_guid, track_guid)| {
+            (Some(feed_guid), track_guid)
+        })
 }
 
 impl TopApp {
@@ -441,6 +552,9 @@ impl TopApp {
             .and_then(|detail| detail.index_feed_label(&activation_id))
             .unwrap_or_else(|| feed_guid.to_string());
         self.push_index_feed_detail(content_frame_id, feed_guid, label, cx);
+        // ADR 0075 packet 047, Required Change 3: the search sent this
+        // row's summary only. Opening it sends its own detail request.
+        self.fetch_index_feed_detail_page(feed_guid.to_string(), cx);
     }
 
     fn push_index_feed_detail(
@@ -470,17 +584,25 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) {
         let activation_id = format!("index-track:{target}");
-        let (_feed_guid, track_guid) = target
-            .split_once(':')
-            .map_or((None, target), |(feed_guid, track_guid)| {
-                (Some(feed_guid), track_guid)
-            });
+        let (feed_guid, track_guid) = split_index_track_target(target);
         let label = self
             .search_results_detail
             .as_ref()
             .and_then(|detail| detail.index_track_label(&activation_id))
             .unwrap_or_else(|| track_guid.to_string());
         self.push_index_track_detail(content_frame_id, target, label, cx);
+        // ADR 0075 packet 047, Required Change 3: a track reached from the
+        // name-match page already carries its full detail from that
+        // page's own fetch (packet 006). Only a search-drawn summary row
+        // needs its own detail request here.
+        if self.name_match_page_track_row(&activation_id).is_none() {
+            self.fetch_index_track_detail_page(
+                target.to_string(),
+                feed_guid.map(str::to_string),
+                track_guid.to_string(),
+                cx,
+            );
+        }
     }
 
     fn push_index_track_detail(
@@ -501,6 +623,207 @@ impl TopApp {
         }
         self.sync_search_results_detail_with_nav(content_frame_id);
         cx.notify();
+    }
+
+    /// Starts the Index feed detail-on-open fetch, and records the loading
+    /// state right away (ADR 0075 packet 047, Required Change 3).
+    fn fetch_index_feed_detail_page(&mut self, feed_guid: String, cx: &mut Context<Self>) {
+        self.index_feed_detail_state = Some(IndexFeedDetailState::Loading {
+            feed_guid: feed_guid.clone(),
+        });
+        cx.notify();
+
+        let command =
+            FetchIndexFeedDetail::new(self.musicindex_endpoint.clone(), feed_guid.clone());
+        let success_guid = feed_guid.clone();
+        let failure_guid = feed_guid;
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, feed, cx| {
+                // R47-07: a newer "open feed" click, or a navigation
+                // restore to a different feed GUID, already replaced the
+                // mounted page. This older fetch's result must not
+                // overwrite it.
+                if !index_feed_detail_result_is_current(
+                    this.index_feed_detail_state.as_ref(),
+                    &success_guid,
+                ) {
+                    return;
+                }
+                this.index_feed_detail_state = Some(IndexFeedDetailState::Loaded {
+                    feed_guid: success_guid,
+                    feed: Box::new(feed),
+                });
+                cx.notify();
+            },
+            move |this, error, cx| {
+                if !index_feed_detail_result_is_current(
+                    this.index_feed_detail_state.as_ref(),
+                    &failure_guid,
+                ) {
+                    return;
+                }
+                this.index_feed_detail_state = Some(IndexFeedDetailState::Failed {
+                    feed_guid: failure_guid,
+                    message: format!("{error}"),
+                });
+                cx.notify();
+            },
+        );
+    }
+
+    /// Starts the Index track detail-on-open fetch, and records the
+    /// loading state right away (ADR 0075 packet 047, Required Change 3).
+    fn fetch_index_track_detail_page(
+        &mut self,
+        target: String,
+        feed_guid: Option<String>,
+        track_guid: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.index_track_detail_state = Some(IndexTrackDetailState::Loading {
+            target: target.clone(),
+        });
+        cx.notify();
+
+        let command =
+            FetchIndexTrackDetail::new(self.musicindex_endpoint.clone(), track_guid, feed_guid);
+        let success_target = target.clone();
+        let failure_target = target;
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, track, cx| {
+                // R47-07: the same stale-result guard as the feed page.
+                if !index_track_detail_result_is_current(
+                    this.index_track_detail_state.as_ref(),
+                    &success_target,
+                ) {
+                    return;
+                }
+                this.index_track_detail_state = Some(IndexTrackDetailState::Loaded {
+                    target: success_target,
+                    track: Box::new(track),
+                });
+                cx.notify();
+            },
+            move |this, error, cx| {
+                if !index_track_detail_result_is_current(
+                    this.index_track_detail_state.as_ref(),
+                    &failure_target,
+                ) {
+                    return;
+                }
+                this.index_track_detail_state = Some(IndexTrackDetailState::Failed {
+                    target: failure_target,
+                    message: format!("{error}"),
+                });
+                cx.notify();
+            },
+        );
+    }
+
+    /// Restores the Index feed detail-on-open fetch for a navigation entry
+    /// that a breadcrumb or a history move (back or forward) just restored
+    /// (ADR 0075 packet 047). Starts no fetch when `entry` is not an Index
+    /// feed detail page reached from an active search, or when the mounted
+    /// page already matches its feed GUID.
+    pub(super) fn restore_index_feed_detail_for_nav(
+        &mut self,
+        entry: &FrameNavigationEntry,
+        content_frame_id: WorkspaceFrameId,
+        cx: &mut Context<Self>,
+    ) {
+        let FrameNavigationEntry::IndexFeedDetail { id, .. } = entry else {
+            return;
+        };
+        let search_is_active = self
+            .workspace_layout
+            .frame_nav(content_frame_id)
+            .and_then(FrameNavigationState::active_search_query)
+            .is_some();
+        if !search_is_active {
+            return;
+        }
+        if index_feed_detail_result_is_current(self.index_feed_detail_state.as_ref(), id) {
+            return;
+        }
+        self.fetch_index_feed_detail_page(id.clone(), cx);
+    }
+
+    /// Restores the Index track detail-on-open fetch for a navigation
+    /// entry that a breadcrumb or a history move just restored (ADR 0075
+    /// packet 047). Starts no fetch when `entry` is not an Index track
+    /// detail page, when the operator reached it from the name-match page
+    /// (that page's own fetch already carries its full detail), or when
+    /// the mounted page already matches its activation target.
+    pub(super) fn restore_index_track_detail_for_nav(
+        &mut self,
+        entry: &FrameNavigationEntry,
+        cx: &mut Context<Self>,
+    ) {
+        let FrameNavigationEntry::IndexTrackDetail { id, .. } = entry else {
+            return;
+        };
+        if self.search_results_detail.is_none() && self.name_match_page.is_none() {
+            return;
+        }
+        let activation_id = format!("index-track:{id}");
+        if self.name_match_page_track_row(&activation_id).is_some() {
+            return;
+        }
+        if index_track_detail_result_is_current(self.index_track_detail_state.as_ref(), id) {
+            return;
+        }
+        let (feed_guid, track_guid) = split_index_track_target(id);
+        self.fetch_index_track_detail_page(
+            id.clone(),
+            feed_guid.map(str::to_string),
+            track_guid.to_string(),
+            cx,
+        );
+    }
+
+    /// Selects the Index feed detail display state to render: the
+    /// operator's own fetch when it matches the mounted feed GUID, or a
+    /// loading placeholder otherwise (ADR 0075 packet 047). This method
+    /// only selects which state applies; the view model decides its text.
+    pub(super) fn index_feed_detail_display(&self, id: &str, label: &str) -> IndexDetailDisplay {
+        match self.index_feed_detail_state.as_ref() {
+            Some(IndexFeedDetailState::Loaded { feed_guid, feed }) if feed_guid == id => {
+                IndexDetailDisplay::loaded_feed((**feed).clone(), id)
+            }
+            Some(IndexFeedDetailState::Failed { feed_guid, message }) if feed_guid == id => {
+                IndexDetailDisplay::failed(IndexDetailKind::Feed, id, label, message.clone())
+            }
+            _ => IndexDetailDisplay::loading(IndexDetailKind::Feed, id, label),
+        }
+    }
+
+    /// Selects the Index track detail display state to render (ADR 0075
+    /// packet 047). A track reached from the name-match page shows that
+    /// page's own cached detail, at no extra request; any other track
+    /// shows the operator's own fetch, once it matches the mounted
+    /// activation target, or a loading placeholder before it does.
+    pub(super) fn index_track_detail_display(&self, id: &str, label: &str) -> IndexDetailDisplay {
+        let activation_id = format!("index-track:{id}");
+        if let Some(row) = self.name_match_page_track_row(&activation_id) {
+            return IndexDetailDisplay::track_or_fallback(Some(&row), id, label);
+        }
+        match self.index_track_detail_state.as_ref() {
+            Some(IndexTrackDetailState::Loaded { target, track }) if target == id => {
+                IndexDetailDisplay::loaded_track((**track).clone(), id)
+            }
+            Some(IndexTrackDetailState::Failed { target, message }) if target == id => {
+                IndexDetailDisplay::failed(IndexDetailKind::Track, id, label, message.clone())
+            }
+            _ => IndexDetailDisplay::loading(IndexDetailKind::Track, id, label),
+        }
     }
 
     pub(super) fn render_index_feed_or_fallback_detail(
@@ -1160,6 +1483,106 @@ fn track_guid_from_view(track: &TrackView) -> Option<String> {
         Some(TrackRef::Musicindex(track_guid)) => Some(track_guid.clone()),
         Some(TrackRef::LocalTrackId(_)) | None => None,
     })
+}
+
+#[cfg(test)]
+mod index_detail_dispatch_tests {
+    use super::*;
+
+    /// R47-07: a detail result for a feed the operator already navigated
+    /// away from must not replace the mounted page.
+    #[test]
+    fn adr_0075_search_summary_r47_07_feed_detail_stale_result_for_replaced_guid_is_ignored() {
+        let current = Some(IndexFeedDetailState::Loading {
+            feed_guid: "guid-b".into(),
+        });
+
+        assert!(!index_feed_detail_result_is_current(
+            current.as_ref(),
+            "guid-a"
+        ));
+        assert!(index_feed_detail_result_is_current(
+            current.as_ref(),
+            "guid-b"
+        ));
+    }
+
+    /// A result also applies when the mounted page already reached
+    /// `Loaded` or `Failed` for that same feed GUID, not only `Loading`.
+    #[test]
+    fn adr_0075_search_summary_feed_detail_result_is_current_for_any_lifecycle_step() {
+        let loaded = Some(IndexFeedDetailState::Loaded {
+            feed_guid: "guid-a".into(),
+            feed: Box::default(),
+        });
+        assert!(index_feed_detail_result_is_current(
+            loaded.as_ref(),
+            "guid-a"
+        ));
+
+        let failed = Some(IndexFeedDetailState::Failed {
+            feed_guid: "guid-a".into(),
+            message: "error".into(),
+        });
+        assert!(index_feed_detail_result_is_current(
+            failed.as_ref(),
+            "guid-a"
+        ));
+
+        assert!(!index_feed_detail_result_is_current(None, "guid-a"));
+    }
+
+    /// R47-07: a detail result for a track the operator already navigated
+    /// away from must not replace the mounted page.
+    #[test]
+    fn adr_0075_search_summary_r47_07_track_detail_stale_result_for_replaced_target_is_ignored() {
+        let current = Some(IndexTrackDetailState::Loading {
+            target: "feed-guid:track-b".into(),
+        });
+
+        assert!(!index_track_detail_result_is_current(
+            current.as_ref(),
+            "feed-guid:track-a"
+        ));
+        assert!(index_track_detail_result_is_current(
+            current.as_ref(),
+            "feed-guid:track-b"
+        ));
+    }
+
+    /// A result also applies when the mounted page already reached
+    /// `Loaded` or `Failed` for that same target, not only `Loading`.
+    #[test]
+    fn adr_0075_search_summary_track_detail_result_is_current_for_any_lifecycle_step() {
+        let loaded = Some(IndexTrackDetailState::Loaded {
+            target: "track-a".into(),
+            track: Box::default(),
+        });
+        assert!(index_track_detail_result_is_current(
+            loaded.as_ref(),
+            "track-a"
+        ));
+
+        let failed = Some(IndexTrackDetailState::Failed {
+            target: "track-a".into(),
+            message: "error".into(),
+        });
+        assert!(index_track_detail_result_is_current(
+            failed.as_ref(),
+            "track-a"
+        ));
+
+        assert!(!index_track_detail_result_is_current(None, "track-a"));
+    }
+
+    #[test]
+    fn split_index_track_target_separates_a_scoped_target() {
+        assert_eq!(
+            split_index_track_target("feed-guid:track-guid"),
+            (Some("feed-guid"), "track-guid")
+        );
+        assert_eq!(split_index_track_target("track-guid"), (None, "track-guid"));
+    }
 }
 
 #[cfg(test)]

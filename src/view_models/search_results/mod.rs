@@ -248,34 +248,6 @@ impl SearchResultsInspectorPageVm {
             .map(|row| row.label)
     }
 
-    /// Projects a remote Index feed detail page from a result row or fallback nav data.
-    #[must_use]
-    pub(crate) fn index_feed_detail(
-        &self,
-        activation_id: &str,
-        fallback_id: &str,
-        fallback_label: &str,
-    ) -> IndexDetailDisplay {
-        let row = self
-            .feeds
-            .cached_row_matching(ContentFilter::All, |row| row.id == activation_id);
-        IndexDetailDisplay::feed_or_fallback(row.as_ref(), fallback_id, fallback_label)
-    }
-
-    /// Projects a remote Index track detail page from a result row or fallback nav data.
-    #[must_use]
-    pub(crate) fn index_track_detail(
-        &self,
-        activation_id: &str,
-        fallback_id: &str,
-        fallback_label: &str,
-    ) -> IndexDetailDisplay {
-        let row = self
-            .tracks
-            .cached_row_matching(ContentFilter::All, |row| row.id == activation_id);
-        IndexDetailDisplay::track_or_fallback(row.as_ref(), fallback_id, fallback_label)
-    }
-
     /// Returns whether a tab/filter combination has no rows.
     #[must_use]
     pub(crate) fn is_empty(&self, tab: SearchResultsTab, filter: ContentFilter) -> bool {

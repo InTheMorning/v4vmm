@@ -547,3 +547,14 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-2
 - Scheduling: run the procedure only after the operator resumes visual checks. It only reads pages.
 - V1: an Index track with its own image shows that image. An Index track without one shows the album image.
 - V2: normal and narrow widths show the artwork in its place, in Light and Dark themes.
+
+## 28. Search Rows From Summary Fields — ADR 0075 Task 047
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-29. Operator inspection is pending.
+
+- Owner: [packet 047](tasks/adr-0075-task-047-search-rows-from-summary-fields.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks. It only reads pages. It needs network access to `api.musicindex.org`.
+- V1: an Index search shows feed rows and track rows with titles, artists and artwork, faster than before.
+- V2: opening a row shows a loading state, then the detail, in place.
+- V3: a fast open of row A and then row B shows the detail of row B.
+- V4: normal and narrow widths show each element in its place, in Light and Dark themes, with no clipped text.

@@ -13,8 +13,8 @@ The deployed revision stays unconfirmed. The published contract declares the sta
 `0.1.0`, which names no build. Each source reference below still describes commit `a220f44`
 in a local checkout.
 
-This client implements none of the three landed changes. Each one needs its own packet, and
-the verification section records two new questions for the operator.
+ADR 0075 packets 047, 048 and 049 implement the three landed changes on 2026-09-29, one packet for each change.
+The two questions of the verification section are answered. ADR 0076 ignores `last_build_date`, and packet 046 removed the missing fields.
 
 ## Purpose
 

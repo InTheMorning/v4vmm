@@ -224,13 +224,15 @@ fn fetch_index_search_result_rows(
     endpoint: &crate::config::MusicIndexEndpoint,
     query: &str,
 ) -> Result<IndexSearchResultRows> {
-    let provider_identity = endpoint.require().map(str::to_owned).unwrap_or_default();
     let client = crate::api::Client::new_with_base_url(endpoint.clone());
     let mut rows = IndexSearchResultRows::default();
     let mut artists = BTreeMap::new();
 
-    let feed_rows = fetch_index_feed_result_rows(&client, &provider_identity, query);
-    let track_rows = fetch_index_track_result_rows(&client, &provider_identity, query);
+    // ADR 0075 packet 047, Required Change 2: each row comes from this
+    // search's own summary fields. Neither call below sends a detail
+    // request for a returned hit.
+    let feed_rows = fetch_index_feed_result_rows(&client, query);
+    let track_rows = fetch_index_track_result_rows(&client, query);
 
     match (feed_rows, track_rows) {
         (Ok(feeds), Ok(tracks)) => {
@@ -670,10 +672,14 @@ impl IndexArtistCandidate {
     }
 }
 
-/// Packet 018 R18B-12: asks the shared owner for this feed (ADR 0075
-/// section 6), instead of `Client` directly. P18-2 covers this Index feed
-/// detail response: a 15-minute window, exactly as for any other feed
-/// identity.
+/// Asks the shared owner for this feed (ADR 0075 section 6), instead of
+/// `Client` directly. P18-2 covers this Index feed detail response: a
+/// 15-minute window, exactly as for any other feed identity.
+///
+/// ADR 0075 packet 047 moved this call out of the search loop: a search
+/// draws its rows from summary fields alone. `FetchIndexFeedDetail`, below,
+/// is this function's only caller, and it runs once the operator opens
+/// the row.
 ///
 /// This file has no observation recorder — the guard in
 /// `tests/architecture_tests.rs` forbids one here — so this closure
@@ -699,9 +705,55 @@ fn owner_fetch_feed(
         .map_err(SharedFetchError::into_anyhow)
 }
 
+/// Fetches one remote Index feed's own detail, sent only when the operator
+/// opens its row (ADR 0075 packet 047, Required Change 3). The search that
+/// found this row sent no detail request for it.
+#[derive(Clone, Debug)]
+pub(crate) struct FetchIndexFeedDetail {
+    endpoint: crate::config::MusicIndexEndpoint,
+    feed_guid: String,
+}
+
+impl FetchIndexFeedDetail {
+    /// Creates an Index feed detail-on-open query command.
+    #[must_use]
+    pub(crate) fn new(
+        endpoint: impl Into<crate::config::MusicIndexEndpoint>,
+        feed_guid: impl Into<String>,
+    ) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            feed_guid: feed_guid.into(),
+        }
+    }
+}
+
+impl ApplicationCommand for FetchIndexFeedDetail {
+    type Output = crate::views::FeedView;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        let provider_identity = self
+            .endpoint
+            .require()
+            .map(str::to_owned)
+            .unwrap_or_default();
+        let client = crate::api::Client::new_with_base_url(self.endpoint);
+        let feed = owner_fetch_feed(&client, &provider_identity, &self.feed_guid)
+            .map_err(|error| query_error(&error))?;
+        Ok(CommandOutcome::without_events(
+            crate::views::FeedView::from_api(feed),
+        ))
+    }
+}
+
+/// Packet 047 Required Change 2: this search sends no per-hit detail
+/// request. Each row's title, artist, track count and artwork come from
+/// the search response's own summary fields (R47-02, R47-03, R47-05).
 fn fetch_index_feed_result_rows(
     client: &crate::api::Client,
-    provider_identity: &str,
     query: &str,
 ) -> Result<IndexFeedSearchRows> {
     let response = client.search(
@@ -709,31 +761,30 @@ fn fetch_index_feed_result_rows(
         Some("feed"),
         Some(crate::api::PAGE_LIMIT),
         None,
-        true,
+        false,
     )?;
     let mut rows = Vec::new();
     let mut artists = Vec::new();
 
     for (index, hit) in response.data.iter().enumerate() {
-        let feed_guid = hit.feed_guid.as_deref().unwrap_or(&hit.entity_id);
-        let detail = owner_fetch_feed(client, provider_identity, feed_guid).ok();
-        if let Some(feed) = detail.as_ref() {
-            if let Some(candidate) = index_artist_candidate_from_feed(feed, query) {
-                artists.push(candidate);
-            }
+        if let Some(candidate) = index_artist_candidate_from_feed(hit, query) {
+            artists.push(candidate);
         }
         rows.push((
             index_item_id(INDEX_FEED_ID_BASE, index),
-            index_feed_display(feed_guid, detail.map(crate::api::EntityDetail::Feed)),
+            index_feed_result_display(hit),
         ));
     }
 
     Ok(IndexFeedSearchRows { rows, artists })
 }
 
+/// Packet 047 Required Change 2: this search sends no per-hit detail
+/// request. Each row's title, artist and feed name come from the search
+/// response's own summary fields. Its artwork follows ADR 0075 Decision C
+/// through `index_track_result_artwork_url` (R47-02, R47-04).
 fn fetch_index_track_result_rows(
     client: &crate::api::Client,
-    provider_identity: &str,
     query: &str,
 ) -> Result<IndexTrackSearchRows> {
     let response = client.search(
@@ -741,77 +792,120 @@ fn fetch_index_track_result_rows(
         Some("track"),
         Some(crate::api::PAGE_LIMIT),
         None,
-        true,
+        false,
     )?;
     let mut rows = Vec::new();
     let mut artists = Vec::new();
 
     for (index, hit) in response.data.iter().enumerate() {
-        let detail = fetch_index_track_detail(
-            client,
-            provider_identity,
-            &hit.entity_id,
-            hit.feed_guid.as_deref(),
-        )
-        .ok();
-        if let Some(track) = detail.as_ref() {
-            artists.extend(index_artist_candidates_from_track(track, query));
-        }
-        let feed_guid = hit
-            .feed_guid
-            .as_deref()
-            .or_else(|| detail.as_ref().and_then(|track| track.feed_guid.as_deref()))
-            .map(str::to_string);
+        artists.extend(index_artist_candidates_from_track(hit, query));
         rows.push((
             index_item_id(INDEX_TRACK_ID_BASE, index),
-            index_track_display(
-                &hit.entity_id,
-                feed_guid.as_deref(),
-                detail.map(crate::api::EntityDetail::Track),
-            ),
+            index_track_result_display(hit),
         ));
     }
 
     Ok(IndexTrackSearchRows { rows, artists })
 }
 
+/// Builds a feed search-result row directly from the search response's
+/// own summary fields (ADR 0075 packet 047, Required Change 2). It shows
+/// no `publisher_text`: the summary carries none, and ADR 0077 Decision 6
+/// does not make feed owner text an artist.
+fn index_feed_result_display(hit: &SearchResult) -> FeedResultDisplay {
+    let feed_guid = hit.feed_guid.as_deref().unwrap_or(&hit.entity_id);
+    let label = non_empty_str(hit.title.as_deref())
+        .map(str::to_string)
+        .unwrap_or_else(|| feed_guid.to_string());
+    let mut display = FeedResultDisplay::new(
+        format!("index-feed:{feed_guid}"),
+        label,
+        SearchResultOrigin::Index,
+    );
+
+    let secondary = count_parts([
+        hit.release_artist.clone(),
+        hit.episode_count.map(|count| count_label(count, "track")),
+    ]);
+    if !secondary.is_empty() {
+        display = display.with_secondary_text(secondary);
+    }
+    if let Some(image_url) = non_empty_string(hit.feed_image_url.clone()) {
+        display = display.with_thumbnail_href(image_url);
+    }
+    display
+}
+
+/// Builds a track search-result row directly from the search response's
+/// own summary fields (ADR 0075 packet 047, Required Change 2).
+fn index_track_result_display(hit: &SearchResult) -> TrackResultDisplay {
+    let track_guid = hit.entity_id.as_str();
+    let feed_guid = hit.feed_guid.as_deref();
+    let activation_id = feed_guid.map_or_else(
+        || format!("index-track:{track_guid}"),
+        |feed_guid| format!("index-track:{feed_guid}:{track_guid}"),
+    );
+    let label = non_empty_str(hit.title.as_deref())
+        .map(str::to_string)
+        .unwrap_or_else(|| track_guid.to_string());
+    let mut display = TrackResultDisplay::new(activation_id, label, SearchResultOrigin::Index);
+
+    let secondary = count_parts([
+        hit.track_artist.clone(),
+        hit.release_artist.clone(),
+        hit.feed_title.clone(),
+    ]);
+    if !secondary.is_empty() {
+        display = display.with_secondary_text(secondary);
+    }
+    if let Some(image_url) = index_track_result_artwork_url(hit) {
+        display = display.with_thumbnail_href(image_url);
+    }
+    display
+}
+
+/// The artwork URL for a track row built from summary fields alone (ADR
+/// 0075 Decision C, packet 047). This reuses the packet 048 choice,
+/// `TrackView::display_artwork_url`: the track's own image, then the
+/// feed's image, without repeating that order here.
+fn index_track_result_artwork_url(hit: &SearchResult) -> Option<String> {
+    let probe = crate::views::TrackView {
+        track_image_url: hit.track_image_url.clone(),
+        feed_image_url: hit.feed_image_url.clone(),
+        ..crate::views::TrackView::default()
+    };
+    probe.display_artwork_url().map(str::to_string)
+}
+
 fn index_artist_candidate_from_feed(
-    feed: &crate::api::Feed,
+    hit: &SearchResult,
     query: &str,
 ) -> Option<IndexArtistCandidate> {
-    let name = non_empty_str(feed.release_artist.as_deref())?;
+    let name = non_empty_str(hit.release_artist.as_deref())?;
     index_artist_name_matches_query(name, query).then(|| {
         IndexArtistCandidate::new(
             name,
             1,
-            feed.episode_count.unwrap_or_default().max(0),
-            non_empty_str(feed.image_url.as_deref()).map(str::to_string),
+            hit.episode_count.unwrap_or_default().max(0),
+            non_empty_str(hit.feed_image_url.as_deref()).map(str::to_string),
         )
     })
 }
 
+/// R47-09: this candidate's name comes from the summary `track_artist` and
+/// `release_artist` fields, not from a fetched track detail.
 fn index_artist_candidates_from_track(
-    track: &crate::api::Track,
+    hit: &SearchResult,
     query: &str,
 ) -> Vec<IndexArtistCandidate> {
-    [
-        track.track_artist.as_deref(),
-        track.release_artist.as_deref(),
-    ]
-    .into_iter()
-    .filter_map(non_empty_str)
-    .collect::<BTreeSet<_>>()
-    .into_iter()
-    .filter(|name| index_artist_name_matches_query(name, query))
-    .map(|name| {
-        IndexArtistCandidate::new(
-            name,
-            0,
-            1,
-            non_empty_str(track.image_url.as_deref()).map(str::to_string),
-        )
-    })
-    .collect()
+    [hit.track_artist.as_deref(), hit.release_artist.as_deref()]
+        .into_iter()
+        .filter_map(non_empty_str)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|name| index_artist_name_matches_query(name, query))
+        .map(|name| IndexArtistCandidate::new(name, 0, 1, index_track_result_artwork_url(hit)))
+        .collect()
 }
 
 fn merge_index_artist_candidates(
@@ -841,12 +935,16 @@ pub(super) fn index_item_id(base: SearchResultItemId, index: usize) -> SearchRes
 /// profiles (ADR 0075 packet 017). Both profiles are L0: neither sends an
 /// `include` query parameter.
 ///
-/// Packet 018 R18B-12 + Job 1: asks the shared owner for this track
-/// (ADR 0075 section 6), instead of `Client` directly. The Index route
-/// carries no accepted reuse window of its own — P18-1 names a Library
-/// track detail response only — so this shares an active request
-/// (`MetadataRequestOwner::fetch_track_shared`'s own documentation)
-/// without retaining a completed one for a later reuse.
+/// Asks the shared owner for this track (ADR 0075 section 6), instead of
+/// `Client` directly. The Index route carries no accepted reuse window of
+/// its own — P18-1 names a Library track detail response only — so this
+/// shares an active request (`MetadataRequestOwner::fetch_track_shared`'s
+/// own documentation) without retaining a completed one for a later reuse.
+///
+/// ADR 0075 packet 047 moved this call out of the search loop: a search
+/// draws its rows from summary fields alone. `FetchIndexTrackDetail`,
+/// below, is this function's only caller, and it runs once the operator
+/// opens the row.
 fn fetch_index_track_detail(
     client: &crate::api::Client,
     provider_identity: &str,
@@ -887,6 +985,61 @@ fn fetch_index_track_detail(
     }
 }
 
+/// Fetches one remote Index track's own detail, sent only when the
+/// operator opens its row (ADR 0075 packet 047, Required Change 3). The
+/// search that found this row sent no detail request for it. `feed_guid`
+/// scopes the request when the row's summary carried one; an unscoped hit
+/// carries `None`.
+#[derive(Clone, Debug)]
+pub(crate) struct FetchIndexTrackDetail {
+    endpoint: crate::config::MusicIndexEndpoint,
+    track_guid: String,
+    feed_guid: Option<String>,
+}
+
+impl FetchIndexTrackDetail {
+    /// Creates an Index track detail-on-open query command.
+    #[must_use]
+    pub(crate) fn new(
+        endpoint: impl Into<crate::config::MusicIndexEndpoint>,
+        track_guid: impl Into<String>,
+        feed_guid: Option<String>,
+    ) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            track_guid: track_guid.into(),
+            feed_guid,
+        }
+    }
+}
+
+impl ApplicationCommand for FetchIndexTrackDetail {
+    type Output = TrackView;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        let provider_identity = self
+            .endpoint
+            .require()
+            .map(str::to_owned)
+            .unwrap_or_default();
+        let client = crate::api::Client::new_with_base_url(self.endpoint);
+        let track = fetch_index_track_detail(
+            &client,
+            &provider_identity,
+            &self.track_guid,
+            self.feed_guid.as_deref(),
+        )
+        .map_err(|error| query_error(&error))?;
+        // ADR 0024: the detail-on-open path carries a rich `TrackView`, not
+        // the raw decoded response, to the page that shows it.
+        let remote_track = TrackView::from_api(track);
+        Ok(CommandOutcome::without_events(remote_track))
+    }
+}
+
 pub(super) fn index_feed_display(
     feed_guid: &str,
     detail: Option<crate::api::EntityDetail>,
@@ -921,36 +1074,6 @@ pub(super) fn index_feed_display(
             display = display.with_thumbnail_href(image_url);
         }
         display = display.with_remote_feed(remote_feed);
-    }
-
-    display
-}
-
-fn index_track_display(
-    track_guid: &str,
-    feed_guid: Option<&str>,
-    detail: Option<crate::api::EntityDetail>,
-) -> TrackResultDisplay {
-    let activation_id = feed_guid.map_or_else(
-        || format!("index-track:{track_guid}"),
-        |feed_guid| format!("index-track:{feed_guid}:{track_guid}"),
-    );
-    let mut display =
-        TrackResultDisplay::new(activation_id.clone(), track_guid, SearchResultOrigin::Index);
-
-    if let Some(crate::api::EntityDetail::Track(track)) = detail {
-        let remote_track = TrackView::from_api(track.clone());
-        let label = track.title.unwrap_or_else(|| track_guid.to_string());
-        display = TrackResultDisplay::new(activation_id, label, SearchResultOrigin::Index);
-
-        let secondary = count_parts([track.track_artist, track.release_artist, track.feed_title]);
-        if !secondary.is_empty() {
-            display = display.with_secondary_text(secondary);
-        }
-        if let Some(image_url) = non_empty_string(track.image_url) {
-            display = display.with_thumbnail_href(image_url);
-        }
-        display = display.with_remote_track(remote_track);
     }
 
     display
@@ -1002,7 +1125,6 @@ fn bounded_i32_count(len: usize) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::{Contributor, EntityDetail, SourceEntityId, SourceEntityLink, Track};
 
     fn setup_test_db() -> anyhow::Result<Connection> {
         let conn = Connection::open_in_memory()?;
@@ -1122,63 +1244,134 @@ mod tests {
         Ok(())
     }
 
+    /// R47-03, R47-04 (ADR 0075 packet 047): a track row built from summary
+    /// fields alone shows its title, `track_artist`, `release_artist` and
+    /// `feed_title`, and its artwork follows Decision C: `track_image_url`
+    /// first, then `feed_image_url`. It carries no fetched `TrackView`; the
+    /// search sent no detail request for it.
     #[test]
-    fn index_track_display_attaches_fetched_track_view() {
-        let display = index_track_display(
-            "track-guid",
-            Some("feed-guid"),
-            Some(EntityDetail::Track(Track {
-                track_guid: Some("track-guid".to_string()),
-                feed_guid: Some("feed-guid".to_string()),
-                feed_title: Some("Remote Release".to_string()),
-                title: Some("Remote Track".to_string()),
-                duration_secs: Some(125),
-                pub_date: Some(1_712_275_200),
-                track_number: Some(7),
-                explicit: Some(true),
-                image_url: Some("https://example.test/track.jpg".to_string()),
-                track_artist: Some("Track Artist".to_string()),
-                source_contributors: Some(vec![Contributor {
-                    name: Some("Contributor".to_string()),
-                    role: Some("producer".to_string()),
-                    ..Contributor::default()
-                }]),
-                source_links: Some(vec![SourceEntityLink {
-                    link_type: Some("transcript".to_string()),
-                    url: Some("https://example.test/transcript.srt".to_string()),
-                    ..SourceEntityLink::default()
-                }]),
-                source_ids: Some(vec![SourceEntityId {
-                    scheme: Some("nostr_npub".to_string()),
-                    value: Some("npub1track".to_string()),
-                    ..SourceEntityId::default()
-                }]),
-                ..Track::default()
-            })),
-        );
+    fn adr_0075_search_summary_track_row_uses_summary_fields_and_decision_c_artwork() {
+        let with_track_image = SearchResult {
+            entity_type: "track".to_string(),
+            entity_id: "track-guid".to_string(),
+            feed_guid: Some("feed-guid".to_string()),
+            title: Some("Remote Track".to_string()),
+            feed_title: Some("Remote Release".to_string()),
+            track_artist: Some("Track Artist".to_string()),
+            track_image_url: Some("https://example.test/track.jpg".to_string()),
+            feed_image_url: Some("https://example.test/feed.jpg".to_string()),
+            ..SearchResult::default()
+        };
+        let display = index_track_result_display(&with_track_image);
 
         assert_eq!(display.label, "Remote Track");
         assert_eq!(display.secondary_text, "Track Artist - Remote Release");
         assert_eq!(
             display.thumbnail_href.as_deref(),
-            Some("https://example.test/track.jpg")
+            Some("https://example.test/track.jpg"),
+            "R47-04: a track_image_url must win over feed_image_url"
+        );
+        assert!(
+            display.remote_track.is_none(),
+            "the search must attach no fetched TrackView to the row"
         );
 
-        let track = display
-            .remote_track
-            .as_ref()
-            .expect("fetched Index detail should attach a TrackView to the result row");
-        assert_eq!(track.title.as_deref(), Some("Remote Track"));
-        assert_eq!(track.feed_title.as_deref(), Some("Remote Release"));
-        assert_eq!(track.track_number, Some(7));
-        assert_eq!(track.duration_secs, Some(125));
-        assert_eq!(track.pub_date, Some(1_712_275_200));
-        assert_eq!(track.explicit, Some(true));
-        assert_eq!(track.identity.nostr_npub.as_deref(), Some("npub1track"));
-        assert_eq!(track.contributors.len(), 1);
+        let feed_image_only = SearchResult {
+            feed_image_url: Some("https://example.test/feed.jpg".to_string()),
+            ..with_track_image
+        };
+        let feed_fallback = index_track_result_display(&SearchResult {
+            track_image_url: None,
+            ..feed_image_only
+        });
         assert_eq!(
-            track.transcript_url.as_deref(),
-            Some("https://example.test/transcript.srt")
+            feed_fallback.thumbnail_href.as_deref(),
+            Some("https://example.test/feed.jpg"),
+            "R47-04: with no track_image_url, the row must use feed_image_url"
+        );
+    }
+
+    /// R47-03 (ADR 0075 packet 047): a feed row built from summary fields
+    /// alone shows its title, `release_artist`, its track count and its
+    /// feed artwork. It shows no `publisher_text`, because the summary
+    /// carries none and ADR 0077 Decision 6 does not make feed owner text
+    /// an artist.
+    #[test]
+    fn adr_0075_search_summary_r47_03_feed_row_uses_summary_fields_with_no_publisher_text() {
+        let hit = SearchResult {
+            entity_type: "feed".to_string(),
+            entity_id: "f1".to_string(),
+            feed_guid: Some("f1".to_string()),
+            title: Some("Monster".to_string()),
+            release_artist: Some("Official DETOX Music".to_string()),
+            episode_count: Some(3),
+            feed_image_url: Some("https://example.test/feed.jpg".to_string()),
+            ..SearchResult::default()
+        };
+
+        let display = index_feed_result_display(&hit);
+
+        assert_eq!(display.label, "Monster");
+        assert_eq!(display.secondary_text, "Official DETOX Music - 3 tracks");
+        assert_eq!(
+            display.thumbnail_href.as_deref(),
+            Some("https://example.test/feed.jpg")
+        );
+        assert!(
+            !display.secondary_text.contains("publisher"),
+            "the summary carries no publisher_text, so the row must show none"
+        );
+    }
+
+    /// R47-05: a feed hit without `feed_guid` opens the feed of its
+    /// `entity_id`.
+    #[test]
+    fn adr_0075_search_summary_r47_05_feed_hit_without_feed_guid_uses_entity_id() {
+        let hit = SearchResult {
+            entity_type: "feed".to_string(),
+            entity_id: "entity-only".to_string(),
+            title: Some("No Feed Guid".to_string()),
+            ..SearchResult::default()
+        };
+
+        let display = index_feed_result_display(&hit);
+
+        assert_eq!(display.id, "index-feed:entity-only");
+    }
+
+    /// R47-09: an Index name candidate's name comes from the search
+    /// response's own `release_artist` and `track_artist` summary fields,
+    /// not from a fetched detail.
+    #[test]
+    fn adr_0075_search_summary_r47_09_name_candidates_come_from_summary_fields() {
+        let feed_hit = SearchResult {
+            entity_type: "feed".to_string(),
+            entity_id: "f1".to_string(),
+            release_artist: Some("Survival Guide".to_string()),
+            episode_count: Some(4),
+            feed_image_url: Some("https://example.test/feed.jpg".to_string()),
+            ..SearchResult::default()
+        };
+        let feed_candidate = index_artist_candidate_from_feed(&feed_hit, "survival")
+            .expect("a matching release_artist should produce a candidate");
+        assert_eq!(feed_candidate.name, "Survival Guide");
+        assert_eq!(feed_candidate.feed_count, 1);
+        assert_eq!(feed_candidate.track_count, 4);
+
+        let track_hit = SearchResult {
+            entity_type: "track".to_string(),
+            entity_id: "t1".to_string(),
+            track_artist: Some("Survival Guide".to_string()),
+            release_artist: Some("Album Artist".to_string()),
+            ..SearchResult::default()
+        };
+        let track_candidates = index_artist_candidates_from_track(&track_hit, "survival");
+        assert_eq!(
+            track_candidates
+                .iter()
+                .map(|candidate| candidate.name.clone())
+                .collect::<Vec<_>>(),
+            vec!["Survival Guide".to_string()]
         );
     }
 
@@ -1331,6 +1524,16 @@ mod adr_0075_request_profile_tests {
             })
             .to_string();
         }
+        // ADR 0075 packet 047: a track detail-on-open request names its
+        // track GUID in the path. The plain `/v1/tracks` search path above
+        // is matched first, so this only serves a scoped or unscoped
+        // single-track request.
+        if let Some(track_guid) = bare.rsplit_once("/tracks/").map(|(_, id)| id) {
+            return serde_json::json!({
+                "data": {"track_guid": track_guid, "feed_guid": "f1", "title": "Track One"}
+            })
+            .to_string();
+        }
         serde_json::json!({"data": {"feed_guid": "f1", "title": "Feed"}}).to_string()
     }
 
@@ -1341,54 +1544,106 @@ mod adr_0075_request_profile_tests {
             .unwrap_or_default()
     }
 
-    /// R2-05: the Index search feed rows send the same number of requests as
-    /// before ADR 0077 packet 002. The feed detail request asks for
-    /// `publisher` (ADR 0077 Decision 5).
+    /// R47-02, R47-08: an Index feed search sends one request, the search
+    /// itself, with no `fuzzy` parameter and no per-hit detail request.
+    /// This replaces the pre-packet-047 count of one search request plus
+    /// one feed detail request for each returned hit.
     #[test]
-    fn adr_0077_publisher_relationship_index_feed_rows_request_count_is_unchanged() {
+    fn adr_0075_search_summary_r47_02_feed_search_sends_no_detail_request() {
         let fixture = Fixture::start();
         let client = crate::api::Client::new_with_base_url(fixture.endpoint.clone());
-        let provider_identity = fixture.endpoint.require().unwrap();
 
-        fetch_index_feed_result_rows(&client, provider_identity, "needle").unwrap();
-
-        let requests = fixture.requests.lock().unwrap().clone();
-        assert_eq!(
-            requests.len(),
-            2,
-            "one search request, one feed detail request"
-        );
-        assert!(
-            requests[1].starts_with("/v1/feeds/f1?include=")
-                && requests[1].contains("%2Cpublisher"),
-            "the Index feed detail must ask for publisher. Got: {requests:?}"
-        );
-    }
-
-    /// R17-05: the Index feed detail profile serves
-    /// `fetch_index_feed_result_rows`, and this call site sends L2. ADR 0077
-    /// Decision 5 adds `publisher` to that include list.
-    #[test]
-    fn adr_0075_request_profile_index_feed_result_rows_sends_l2() {
-        let fixture = Fixture::start();
-        let client = crate::api::Client::new_with_base_url(fixture.endpoint.clone());
-        let provider_identity = fixture.endpoint.require().unwrap();
-
-        let rows = fetch_index_feed_result_rows(&client, provider_identity, "needle").unwrap();
+        let rows = fetch_index_feed_result_rows(&client, "needle").unwrap();
 
         assert_eq!(rows.rows.len(), 1);
         let requests = fixture.requests.lock().unwrap().clone();
         assert_eq!(
             requests.len(),
-            2,
-            "one search request, one feed detail request"
+            1,
+            "the search must send no per-hit feed detail request. Got: {requests:?}"
+        );
+        assert!(requests[0].starts_with("/v1/search?"), "Got: {requests:?}");
+        assert!(
+            !requests[0].contains("fuzzy"),
+            "R47-08: the search request must hold no fuzzy parameter. Got: {requests:?}"
+        );
+    }
+
+    /// R47-02, R47-08: an Index track search sends one request, with no
+    /// `fuzzy` parameter and no per-hit detail request.
+    #[test]
+    fn adr_0075_search_summary_r47_02_track_search_sends_no_detail_request() {
+        let fixture = Fixture::start();
+        let client = crate::api::Client::new_with_base_url(fixture.endpoint.clone());
+
+        let rows = fetch_index_track_result_rows(&client, "needle").unwrap();
+
+        assert_eq!(rows.rows.len(), 1);
+        let requests = fixture.requests.lock().unwrap().clone();
+        assert_eq!(
+            requests.len(),
+            1,
+            "the search must send no per-hit track detail request. Got: {requests:?}"
         );
         assert!(
-            requests[1].starts_with(&format!(
+            !requests[0].contains("fuzzy"),
+            "R47-08: the search request must hold no fuzzy parameter. Got: {requests:?}"
+        );
+    }
+
+    /// R47-06: opening a feed row sends its own detail request, with the
+    /// existing `INDEX_FEED_DETAIL` profile (L2, plus `publisher` under
+    /// ADR 0077 Decision 5). A second open inside packet 018's 15-minute
+    /// reuse window (P18-2) sends none.
+    #[test]
+    fn adr_0075_search_summary_r47_06_feed_detail_sends_one_request_and_reuses_it() {
+        let fixture = Fixture::start();
+
+        let first = FetchIndexFeedDetail::new(fixture.endpoint.clone(), "f1")
+            .execute(&CommandContext::next())
+            .map(|outcome| outcome.into_parts().0)
+            .unwrap();
+        let second = FetchIndexFeedDetail::new(fixture.endpoint.clone(), "f1")
+            .execute(&CommandContext::next())
+            .map(|outcome| outcome.into_parts().0)
+            .unwrap();
+
+        assert_eq!(first.feed_guid.as_deref(), Some("f1"));
+        assert_eq!(second.feed_guid.as_deref(), Some("f1"));
+        let requests = fixture.requests.lock().unwrap().clone();
+        assert_eq!(
+            requests.len(),
+            1,
+            "a second open inside the reuse window must send no request. Got: {requests:?}"
+        );
+        assert!(
+            requests[0].starts_with(&format!(
                 "/v1/feeds/f1?include={}",
                 encoded_include(request_profiles::INDEX_FEED_DETAIL)
-            )),
-            "R17-05: the Index feed detail call site must send L2 and publisher (ADR 0077 Decision 5). Got: {requests:?}"
+            )) && requests[0].contains("%2Cpublisher"),
+            "the detail request must use the existing INDEX_FEED_DETAIL profile, \
+including publisher (ADR 0077 Decision 5). Got: {requests:?}"
+        );
+    }
+
+    /// R47-06: opening a track row sends its own detail request, scoped by
+    /// the feed GUID the row's summary carried, with no `include`
+    /// parameter (the existing L0 profile).
+    #[test]
+    fn adr_0075_search_summary_r47_06_track_detail_sends_its_own_scoped_request() {
+        let fixture = Fixture::start();
+
+        let track = FetchIndexTrackDetail::new(fixture.endpoint.clone(), "t1", Some("f1".into()))
+            .execute(&CommandContext::next())
+            .map(|outcome| outcome.into_parts().0)
+            .unwrap();
+
+        assert_eq!(track.track_guid.as_deref(), Some("t1"));
+        let requests = fixture.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 1, "Got: {requests:?}");
+        assert_eq!(
+            requests[0], "/v1/feeds/f1/tracks/t1",
+            "L0: the scoped track detail request holds no include parameter"
         );
     }
 
