@@ -69,6 +69,7 @@ impl TopApp {
                 library.hydrate_detail_from_nav(&entry, cx);
             });
             self.restore_publisher_page_for_nav(&entry, cx);
+            self.restore_name_match_page_for_nav(&entry, cx);
             if let FrameNavigationEntry::Search(query) = &entry {
                 self.start_index_search_for_query(query, cx);
             }

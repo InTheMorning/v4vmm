@@ -1,7 +1,6 @@
 # ADR 0077 Task 006: Name Matches Are Search Results
 
-Status: Ready - 2026-09-28. Implementation has not started.
-Its visual gate opens when the implementation is complete. Visual checks are paused, so the gate stays open.
+Status: Implemented - 2026-09-29. Mechanical checks Green. Visual gate open and paused.
 
 ## Goal
 
@@ -126,10 +125,150 @@ cargo build --bin v4vmm
 
 Revert the working tree. This packet adds no migration and no stored data.
 
+## Implementation Result
+
+### Files
+
+New files:
+
+- `src/view_models/name_match_page.rs`: `NameMatchPageFacts` and `NameMatchPageVm`. The view
+  model owns the page title, the track rows, the empty message, the failure message, and the
+  "more tracks" message.
+- `src/app/name_match_dispatch.rs`: `TopApp` owns the fetch and the navigation entry, through the
+  ADR 0040 runtime. It follows the stale-result pattern of `publisher_page_result_is_current`.
+- `src/ui/shells/name_match_page.rs`: the screen. It composes `NameMatchPageVm` and reuses the
+  shared Index result row from `search_result_rows`.
+
+Changed files:
+
+- `src/view_models/workspace/nav.rs`, `breadcrumb.rs`, `tests.rs`: renamed `IndexArtistFeedScope`
+  to `IndexNameMatches`. The breadcrumb label is now the quoted name.
+- `src/library/app_impl.rs`: renamed the same entry in the Library's own breadcrumb and
+  detail-reset match arms.
+- `src/app/search_dispatch.rs`: an Index name candidate now opens the name-match page.
+- `src/app.rs`: a new frame title ("Tracks matching") and a new content-list render arm for the
+  page. It adds a name-match fallback for the shared Index track detail route, and the page's
+  mounted state field.
+- `src/app/breadcrumb.rs`: the breadcrumb-select handler now also restores the name-match page.
+- `src/application/queries/search.rs`: the new `FetchNameMatchTracks` command and its one-request
+  fetch function. The Index name candidate's label is now the quoted "Tracks matching" text, with
+  an equal accessibility label.
+- `src/application/request_profiles.rs`: a new path shape, `TracksByArtistName`, and a new named
+  profile, `INDEX_NAME_MATCH_TRACKS`.
+- `src/api.rs`: `fetch_tracks_by_artist_with_profile`, the named-profile form of the existing
+  call.
+- `src/ui/shells/search_results_inspector.rs`, `src/view_models/search_results/mod.rs` and
+  `tests.rs`: removed `SearchResultsHeaderMode::Scoped` and `empty_state_for_scope`. See
+  Deviations.
+- `tests/architecture_tests.rs`: replaced the retired guard with
+  `adr_0077_name_matches_index_row_opens_tracks_matching_not_artist_page`, and corrected three
+  other guards that named the retired route or the retired header mode.
+
+### Tests
+
+- `cargo test --lib adr_0077_name_matches`: 11 passed. They cover R6-01 (the label and its equal
+  accessibility label), R6-03 (the one request, through the named profile), R6-04 (one row for
+  each track, with the existing detail's activation id), R6-05 (the empty, failure, and
+  "more tracks" states), and R6-06 (the stale-result guard).
+- `cargo test`: 1867 library tests and 283 architecture tests passed, 0 failed.
+- `cargo test --test architecture_tests`: 283 passed, including the replaced guard (R6-07).
+- `cargo fmt -- --check`, `cargo clippy -- -D warnings`, `cargo check --all-targets`: Green, no
+  warning.
+- `cargo build --bin v4vmm`: Green.
+
+### Behavior
+
+A search for a name shows a row labeled `Tracks matching "<name>"`, in the Artists tab, with its
+existing count text and thumbnail. Its accessibility label states the same text. The row opens a
+page titled "Tracks matching". Its breadcrumb shows the quoted name. The page lists each track
+MusicIndex gives for that exact name. A track row opens the existing Index track detail, which
+reaches the album and the album's publisher page.
+
+An exact name with no track shows a message that names the exact name. A failed request shows a
+failure message with its detail. A response can hold more tracks than the page lists. The page
+states that fact, and this packet adds no paging.
+
+### Deviations
+
+- I named the navigation entry `IndexNameMatches`, the example name the packet gave.
+- Packet 017 named ten fixed request profiles. This page's request needs a new path shape
+  (`/v1/tracks?artist=`). I added `TracksByArtistName` and `INDEX_NAME_MATCH_TRACKS` to the same
+  `request_profiles.rs` registry, the way packet 003 added `INDEX_PUBLISHER_PAGE`.
+- Deleting the old scoped Index feed-results route left `SearchResultsHeaderMode::Scoped` and
+  `SearchResultsInspectorPageVm::empty_state_for_scope` with no caller. I deleted both, under
+  "Delete Dead Things." This also needed two small corrections in `tests/architecture_tests.rs`.
+  Two guards, for ADR 0049 and ADR 0066, named the deleted mode or counted its wiring. I corrected
+  each guard to its new, true count or requirement. I changed no rule of either ADR.
+- The name-match page reads its own cached track row for the shared `IndexTrackDetail` route,
+  in addition to the existing search-results cache. This keeps "opens the existing Index track detail"
+  true when the operator did not reach the track from a search flow.
+
+### Concerns
+
+- V1's "does not look like an artist identity" and the page's visual weight need the operator's
+  judgment. The page heading uses `SectionHeader`, not an entity header, so it carries no
+  identity-like badge.
+- The two corrected ADR 0049 and ADR 0066 guards sit outside this packet's named files. I
+  corrected them because this packet's required deletion made their assertions false, not to
+  change either ADR's rule.
+
 ## Operator Visual Check
 
-The implementer writes this section at completion, with numbered steps for V1 to V4, the needed state, what counts as wrong, and the cleanup.
-Do not delete `/tmp/v4vmm-governance.ie6k8TQf`. Color alone is not a valid difference.
+**Setup**
+
+1. Build and open the desktop binary:
+
+   ```bash
+   cargo build --bin v4vmm && target/debug/v4vmm
+   ```
+
+   Run this command first. A prior `cargo test` run can leave a GPUI test-support binary at
+   `target/debug/v4vmm`. This step is the only one that starts the app.
+2. Open Settings. Confirm the MusicIndex endpoint field holds a working endpoint.
+3. In the Music tab, type a name into the toolbar search field that MusicIndex knows by name
+   text, for example "Survival Guide" or "DETOX". Submit the search.
+
+**V1 — the row states a search result, not an artist**
+
+4. Open the Artists tab of the search results. Find the row for the typed name.
+5. Read the row.
+   - This result is wrong: the row states the bare name, with no quotes and no
+     "Tracks matching" text.
+   - This result is wrong: the row looks like an artist identity row, for example a
+     person-shaped thumbnail placeholder shown nowhere else in this tab.
+
+**V2 — the row opens the track list, and a track opens its album's publisher page**
+
+6. Select the row. Read the page title and its breadcrumb.
+   - This result is wrong: the page title or the breadcrumb states "Artist".
+   - This result is wrong: the page shows a role, a page type, or another artist identity fact.
+7. Read the page body. It lists each track MusicIndex gives for the typed name.
+8. Select a track row. It opens the existing Index track detail page for that track.
+9. From the track detail, open its album, then the album's publisher page.
+   - This result is wrong: a step in this chain fails, or opens the wrong page.
+
+**V3 — an exact name with no track**
+
+10. Type a name that matches no track by its exact text, for example a real name with one
+    misspelled letter.
+11. Select its "Tracks matching" row.
+    - This result is wrong: the page shows a blank area, with no message.
+    - This result is wrong: the message does not name the exact typed name.
+
+**V4 — normal and narrow widths, Light and Dark themes**
+
+12. Repeat step 6 through step 7 at the normal window width, then at a narrow width. Pull the
+    window edge until the Library sidebar collapses, or resize below the narrow-layout width
+    named in the sidebar and toolbar runbooks.
+13. Repeat step 12 in Light theme, then in Dark theme (Settings > Appearance).
+    - This result is wrong: the page title, a track row, or the "more tracks" message (when
+      shown) clips its text at either width or in either theme.
+    - Color alone is not a valid difference between a correct result and an incorrect one.
+
+**Cleanup**
+
+14. Close the app window. This packet writes no file and stores no new row. No step undoes state.
+    Do not delete `/tmp/v4vmm-governance.ie6k8TQf`.
 
 ## Prompt for lower-context coding model
 
@@ -186,3 +325,12 @@ Stop and report the problem, and do not guess, when:
 - The packet 017 profile owner cannot name a profile for `/v1/tracks?artist=` without a change to another profile.
 - A live caller other than the Index name row uses `IndexArtistFeedScope`.
 - A change needs a file in "Do not touch".
+
+## Orchestrator Review - 2026-09-29
+
+The orchestrator reviewed the diff and ran each check. Each check is Green: 1,867 unit tests, 283 guards, and no warning.
+
+- The screen uses scaled tokens and the shared result row. The view model owns each text.
+- A result for an earlier name does not change the page. `name_match_page_result_is_current` follows the pattern of packet 004.
+- The new profile `INDEX_NAME_MATCH_TRACKS` is additive. It changes no other profile.
+- The deletion of `SearchResultsHeaderMode::Scoped` is correct. No entry point reached it after this packet. Two guards lost only a requirement that named the deleted code.

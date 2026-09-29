@@ -55,6 +55,7 @@ mod breadcrumb;
 mod events;
 mod keyboard;
 mod menu;
+mod name_match_dispatch;
 mod playback_bar;
 mod publisher_dispatch;
 mod queue_now_playing;
@@ -193,6 +194,9 @@ pub struct TopApp {
     /// of an older `PublisherDetail` entry reads this to fetch with the
     /// same query it originally used.
     publisher_page_routes: BTreeMap<String, PublisherPageContext>,
+    /// The mounted name-match track page (ADR 0077 packet 006). `None` when
+    /// the current frame is not a name-match page.
+    name_match_page: Option<name_match_dispatch::NameMatchPageState>,
 }
 
 impl TopApp {
@@ -431,6 +435,7 @@ impl TopApp {
             database_tools_subscription: None,
             publisher_page: None,
             publisher_page_routes: BTreeMap::new(),
+            name_match_page: None,
         }
     }
 
@@ -649,6 +654,7 @@ impl TopApp {
                 library.hydrate_detail_from_nav(&entry, cx);
             });
             self.restore_publisher_page_for_nav(&entry, cx);
+            self.restore_name_match_page_for_nav(&entry, cx);
             if let FrameNavigationEntry::Search(query) = &entry {
                 self.start_index_search_for_query(query, cx);
             }
@@ -822,8 +828,10 @@ impl TopApp {
             FrameNavigationEntry::TrackDetail(_)
             | FrameNavigationEntry::IndexTrackDetail { .. } => "Track".to_string(),
             FrameNavigationEntry::AlbumDetail(_) => "Album".to_string(),
-            FrameNavigationEntry::ArtistDetail(_)
-            | FrameNavigationEntry::IndexArtistFeedScope(_) => "Artist".to_string(),
+            FrameNavigationEntry::ArtistDetail(_) => "Artist".to_string(),
+            // ADR 0077 packet 006: this frame title is fixed text, never
+            // "Artist". The entry names no artist.
+            FrameNavigationEntry::IndexNameMatches(_) => "Tracks matching".to_string(),
             FrameNavigationEntry::PublisherDetail(_) => "Publisher".to_string(),
             FrameNavigationEntry::ReadinessIssues => "Broadcast Readiness".to_string(),
             FrameNavigationEntry::QueueNowPlaying => "Queue".to_string(),
@@ -1118,40 +1126,13 @@ impl TopApp {
                         });
                     })
             }
-            Some(FrameNavigationEntry::IndexArtistFeedScope(_))
-                if self.search_results_detail.is_some() =>
-            {
-                let thumbnail_hrefs = self
-                    .search_results_detail
-                    .as_ref()
-                    .unwrap()
-                    .thumbnail_hrefs_for_scope(SearchResultsTab::Feeds, ContentFilter::Index);
-                let thumbnails = self.resolve_search_result_thumbnails(thumbnail_hrefs, cx);
-                let search_results = self.search_results_detail.as_ref().unwrap();
-                let select_entity = entity.clone();
-                let failure_entity = entity.clone();
-                let inspector_slots = SearchResultsInspectorSlots::new()
-                    .on_failure_action(move |action, _window, cx| {
-                        failure_entity.update(cx, |this, cx| {
-                            this.handle_search_failure_action(action, cx);
-                        });
-                    })
-                    .on_result_select(move |tab, result_id, _window, cx| {
-                        select_entity.update(cx, |this, cx| {
-                            this.handle_search_result_selected(tab, &result_id, cx);
-                        });
-                    })
-                    .with_thumbnails(thumbnails);
-                let inspector_content = render_search_results_inspector(
-                    search_results,
-                    &inspector_slots,
-                    SearchResultsHeaderMode::Scoped {
-                        tab: SearchResultsTab::Feeds,
-                        filter: ContentFilter::Index,
-                    },
-                    cx,
-                );
-                WorkspaceSlots::new().content_list(inspector_content)
+            // ADR 0077 packet 006: the name-match track page loads through
+            // its own fetch, independent of the Library tree and the
+            // search-results cache. It replaces the old scoped Index feed
+            // results rendering of this entry.
+            Some(FrameNavigationEntry::IndexNameMatches(_)) => {
+                let detail_content = self.render_name_match_page_content(cx);
+                WorkspaceSlots::new().content_list(detail_content)
             }
             Some(FrameNavigationEntry::IndexFeedDetail { id, label }) => {
                 let activation_id = format!("index-feed:{id}");
@@ -1185,14 +1166,21 @@ impl TopApp {
                 }
             }
             Some(FrameNavigationEntry::IndexTrackDetail { id, label })
-                if self.search_results_detail.is_some() =>
+                if self.search_results_detail.is_some() || self.name_match_page.is_some() =>
             {
                 let activation_id = format!("index-track:{id}");
-                let detail = self
-                    .search_results_detail
-                    .as_ref()
-                    .unwrap()
-                    .index_track_detail(&activation_id, id, label);
+                let detail = if let Some(search_results) = self.search_results_detail.as_ref() {
+                    search_results.index_track_detail(&activation_id, id, label)
+                } else {
+                    // ADR 0077 packet 006: the operator reached this track
+                    // from the name-match page, not from a search flow.
+                    let row = self.name_match_page_track_row(&activation_id);
+                    crate::view_models::search_results::IndexDetailDisplay::track_or_fallback(
+                        row.as_ref(),
+                        id,
+                        label,
+                    )
+                };
                 let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
                 WorkspaceSlots::new().content_list(detail_content)
             }
@@ -1216,7 +1204,6 @@ impl TopApp {
                 | FrameNavigationEntry::AlbumDetail(_)
                 | FrameNavigationEntry::ArtistDetail(_)
                 | FrameNavigationEntry::PlaylistDetail(_)
-                | FrameNavigationEntry::IndexArtistFeedScope(_)
                 | FrameNavigationEntry::IndexTrackDetail { .. }
                 | FrameNavigationEntry::ReadinessIssues
                 | FrameNavigationEntry::SourceList,

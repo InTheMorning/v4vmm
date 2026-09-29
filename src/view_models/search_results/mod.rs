@@ -292,31 +292,6 @@ impl SearchResultsInspectorPageVm {
         self.empty_state.as_ref()
     }
 
-    /// Returns the empty state for an explicit tab/filter scope.
-    #[must_use]
-    pub(crate) fn empty_state_for_scope(
-        &self,
-        tab: SearchResultsTab,
-        filter: ContentFilter,
-    ) -> Option<EmptyStateDisplay> {
-        if self.index_loading
-            && matches!(filter, ContentFilter::All | ContentFilter::Index)
-            && self.is_empty(tab, filter)
-        {
-            return None;
-        }
-
-        if matches!(filter, ContentFilter::All | ContentFilter::Index) && self.is_empty(tab, filter)
-        {
-            if let Some(error) = self.index_error.as_ref() {
-                return Some(error.clone());
-            }
-        }
-
-        self.is_empty(tab, filter)
-            .then(|| empty_state_for(tab, filter, &self.query))
-    }
-
     /// Returns visible row thumbnail hrefs for the requested tab/filter scope.
     #[must_use]
     pub(crate) fn thumbnail_hrefs_for_scope(

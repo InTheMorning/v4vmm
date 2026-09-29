@@ -483,7 +483,7 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-2
 - V1: an album page shows `publisher_text` as "Feed owner" text that opens nothing, in Light and Dark themes.
 - V3: a Library artist page without a publisher relationship shows "Grouped by name".
 - V4: normal and narrow widths show each element in its place, with no clipped text.
-- V2 cannot be walked. The name search of this packet reached only parked code. ADR 0077 packet 006 owns the live name-keyed artist page.
+- V2 cannot be walked. The name search of this packet reached only parked code. Section 23 (packet 006) replaces it.
 
 ## 22. Track Header Identities — ADR 0075 Task 022
 
@@ -495,3 +495,14 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-2
 - V2: a track with its own identities shows them in its header, apart from the feed section.
 - V3: a track without its own description shows no description.
 - V4: normal and narrow widths show each element in its place, with no clipped text.
+
+## 23. Name Matches Are Search Results — ADR 0077 Task 006
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-29. Operator inspection is pending.
+
+- Owner: [packet 006](tasks/adr-0077-task-006-name-matches-are-search-results.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks.
+- V1: a search for "Survival Guide" shows a row `Tracks matching "Survival Guide"`. The row does not look like an artist identity.
+- V2: the row opens a page titled "Tracks matching" that lists the tracks of that name. A track opens its detail, and the album opens its publisher page.
+- V3: a name with no exact match shows the empty state text.
+- V4: normal and narrow widths show each element in its place, in Light and Dark themes, with no clipped text.

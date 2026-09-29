@@ -415,18 +415,15 @@ impl TopApp {
         self.push_index_feed_detail(content_frame_id, feed_guid, label, cx);
     }
 
+    /// ADR 0077 packet 006: an Index name candidate opens the name-match
+    /// track page, a search result, never an artist detail page.
     fn handle_index_artist_result_selected(
         &mut self,
         artist_name: &str,
         content_frame_id: WorkspaceFrameId,
         cx: &mut Context<Self>,
     ) {
-        if let Err(error) = self.workspace_layout.push_nav(
-            content_frame_id,
-            FrameNavigationEntry::IndexArtistFeedScope(artist_name.to_string()),
-        ) {
-            self.settings_status = format!("Failed to navigate to index artist: {error}");
-        }
+        self.open_name_match_page(artist_name.to_string(), content_frame_id, cx);
         self.sync_search_results_detail_with_nav(content_frame_id);
         cx.notify();
     }

@@ -28,6 +28,9 @@ pub(crate) enum RequestPathShape {
     /// profiles. The inspector track detail profile names it as one
     /// profile with one include list.
     ScopedOrUnscopedTrack,
+    /// `/v1/tracks?artist={name}` (ADR 0077 packet 006). This shape
+    /// matches a name query, never a track GUID.
+    TracksByArtistName,
 }
 
 /// One named MusicIndex request profile.
@@ -138,6 +141,12 @@ pub(crate) const INSPECTOR_TRACK_DETAIL_FEED: RequestProfile =
 /// `library::fetch_library_publisher_page`.
 pub(crate) const INDEX_PUBLISHER_PAGE: RequestProfile =
     RequestProfile::new(RequestPathShape::Feed, Some("publisher"));
+
+/// Index name-match tracks. The one request of the Index name-match track
+/// page (ADR 0077 packet 006, Accepted Refinement "Index artist page by
+/// name"). Owner: `search::fetch_name_match_tracks`.
+pub(crate) const INDEX_NAME_MATCH_TRACKS: RequestProfile =
+    RequestProfile::new(RequestPathShape::TracksByArtistName, None);
 
 #[cfg(test)]
 mod tests {
@@ -362,6 +371,17 @@ mod tests {
     fn adr_0077_publisher_page_index_publisher_page_profile_matches_recorded_literal() {
         assert_eq!(INDEX_PUBLISHER_PAGE.path_shape(), RequestPathShape::Feed);
         assert_eq!(INDEX_PUBLISHER_PAGE.include(), Some("publisher"));
+    }
+
+    /// R6-03 (ADR 0077 packet 006): `INDEX_NAME_MATCH_TRACKS` requests the
+    /// tracks-by-artist-name path shape with no include list (L0).
+    #[test]
+    fn adr_0077_name_matches_index_name_match_tracks_profile_matches_recorded_literal() {
+        assert_eq!(
+            INDEX_NAME_MATCH_TRACKS.path_shape(),
+            RequestPathShape::TracksByArtistName
+        );
+        assert_eq!(INDEX_NAME_MATCH_TRACKS.include(), None);
     }
 
     /// R17-13: no profile requests `source_transcripts`. A later addition

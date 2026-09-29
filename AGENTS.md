@@ -156,7 +156,7 @@ visual acceptance. Packet 004 is implemented on 2026-09-26, with mechanical chec
 visual gate open and paused. Packet 005 is implemented on 2026-09-26, with its visual gate open and
 paused. Its name search reached only the parked `SearchApp`.
 
-[Packet 006](docs/tasks/adr-0077-task-006-name-matches-are-search-results.md) is Ready on 2026-09-28.
+[Packet 006](docs/tasks/adr-0077-task-006-name-matches-are-search-results.md) is implemented on 2026-09-29, with mechanical checks Green and its visual gate open and paused.
 It shows the live Index name match as a search result, `Tracks matching "<name>"`.
 Packet 007 shows the confirmed and unconfirmed artists of Stophammer ADR 0061. It waits for the deploy
 of Stophammer 0.2.0, and no task document exists for it.

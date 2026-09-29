@@ -869,6 +869,38 @@ impl Client {
         self.get_json(&["v1", "tracks"], &params)
     }
 
+    /// Fetches tracks by artist name using a named ADR 0075 request profile
+    /// (ADR 0077 packet 006). The profile supplies the include list. An L0
+    /// profile sends no `include` query parameter. The wire format stays
+    /// the same as `fetch_tracks_by_artist`.
+    ///
+    /// # Errors
+    /// Returns the same errors as `fetch_tracks_by_artist`.
+    pub(crate) fn fetch_tracks_by_artist_with_profile(
+        &self,
+        artist: &str,
+        limit: Option<i32>,
+        cursor: Option<&str>,
+        profile: &RequestProfile,
+    ) -> Result<TrackListResponse> {
+        debug_assert_eq!(
+            profile.path_shape(),
+            RequestPathShape::TracksByArtistName,
+            "ADR 0077 packet 006: {profile:?} must name the tracks-by-artist-name path shape"
+        );
+        let mut params = vec![
+            ("artist", artist.to_string()),
+            ("limit", limit.unwrap_or(PAGE_LIMIT).to_string()),
+        ];
+        if let Some(cursor) = cursor {
+            params.push(("cursor", cursor.to_string()));
+        }
+        if let Some(include) = profile.include() {
+            params.push(("include", include.to_string()));
+        }
+        self.get_json(&["v1", "tracks"], &params)
+    }
+
     pub fn fetch_contributors(
         &self,
         entity_type: &str,

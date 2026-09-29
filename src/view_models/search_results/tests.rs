@@ -442,21 +442,6 @@ fn index_detail_projection_uses_cached_result_rows() {
 }
 
 #[test]
-fn scoped_empty_state_does_not_mutate_root_tab_or_filter() {
-    let mut vm = SearchResultsInspectorPageVm::new("delta");
-    vm.set_tab(SearchResultsTab::Artists);
-    vm.set_filter(ContentFilter::All);
-
-    let empty = vm
-        .empty_state_for_scope(SearchResultsTab::Feeds, ContentFilter::Index)
-        .expect("scoped feeds/index render should compute its own empty state");
-
-    assert_eq!(empty.title, "No feeds results");
-    assert_eq!(vm.tab(), SearchResultsTab::Artists);
-    assert_eq!(vm.filter(), ContentFilter::All);
-}
-
-#[test]
 fn index_error_surfaces_for_index_when_no_index_rows_exist() {
     let mut vm = SearchResultsInspectorPageVm::new("field recordings");
 
@@ -496,14 +481,6 @@ fn adr_0066_search_failure_disclosure_respects_scope_and_resets_on_retry() {
             .unwrap()
             .failure
             .as_ref()
-            .unwrap()
-            .visible_report(),
-        Some(report.as_str())
-    );
-    assert_eq!(
-        vm.empty_state_for_scope(SearchResultsTab::Feeds, ContentFilter::Index)
-            .unwrap()
-            .failure
             .unwrap()
             .visible_report(),
         Some(report.as_str())

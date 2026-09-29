@@ -59,6 +59,7 @@ A track is not ready for a show when its file payment route differs from the sto
 [ADR 0076 packet 006](../tasks/adr-0076-task-006-credit-list-projection.md) shows one credit list for each owner. Implementation and mechanical checks are complete on 2026-09-25. Its visual gate remains open and paused.
 [ADR 0077 packet 004](../tasks/adr-0077-task-004-publisher-navigation-and-presentation.md) adds the publisher page and its navigation. Implementation and mechanical checks are complete on 2026-09-26. Its visual gate remains open and paused.
 [ADR 0077 packet 005](../tasks/adr-0077-task-005-feed-owner-text-and-name-search.md) shows feed owner text, removes the `publisher_text` inspector and labels the name grouping. Implementation and mechanical checks are complete on 2026-09-26. Its visual gate remains open and paused.
+[ADR 0077 packet 006](../tasks/adr-0077-task-006-name-matches-are-search-results.md) shows a name match as a search result with its own track page. Implementation and mechanical checks are complete on 2026-09-29. Its visual gate remains open and paused.
 [ADR 0075 packet 022](../tasks/adr-0075-task-022-track-header-identities.md) shows the track identities and the feed identities apart on a track page. Implementation and mechanical checks are complete on 2026-09-28. Its visual gate remains open and paused.
 
 The orchestrator dispatches bounded work under accepted rules and reviews each result.

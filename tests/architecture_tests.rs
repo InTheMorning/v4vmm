@@ -395,6 +395,7 @@ const SCREEN_FILES: &[&str] = &[
     "src/app/events.rs",
     "src/app/keyboard.rs",
     "src/app/menu.rs",
+    "src/app/name_match_dispatch.rs",
     "src/app/playback_bar.rs",
     "src/app/publisher_dispatch.rs",
     "src/app/resize.rs",
@@ -2157,10 +2158,13 @@ fn adr_0066_search_failure_report_stays_readable_and_vm_owned() {
     assert!(dispatch.contains("ClipboardItem::new_string(report)"));
     assert!(!dispatch.contains("fn command_error_detail("));
     let app = read_source(&manifest_path("src/app.rs"));
+    // ADR 0077 packet 006 deleted the second wiring site: the scoped Index
+    // feed-results view. The name-match track page it replaced reports its
+    // own failure through `NameMatchPageLoadDisplay`, not this action.
     assert_eq!(
         app.matches(".on_failure_action(").count(),
-        2,
-        "root and scoped search must wire diagnostic actions"
+        1,
+        "root search must wire diagnostic actions"
     );
     let failure = read_source(&manifest_path("src/view_models/search_results/failure.rs"));
     let failure = production_source(&failure);
@@ -2981,11 +2985,10 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         "strip_prefix(\"index-feed:\")",
         "strip_prefix(\"index-track:\")",
         "strip_prefix(\"index-artist:\")",
-        "FrameNavigationEntry::IndexArtistFeedScope(",
+        "FrameNavigationEntry::IndexNameMatches(",
         "FrameNavigationEntry::IndexFeedDetail {",
         "FrameNavigationEntry::IndexTrackDetail {",
         "render_index_detail_display(",
-        "SearchResultsHeaderMode::Scoped {",
         "content_list_breadcrumb_labeler(",
         "render_index_feed_detail(feed, slots)",
         "hero_image: self.index_feed_hero_image(feed, cx)",
@@ -3139,7 +3142,6 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
     }
 
     for required in [
-        "SearchResultsHeaderMode::Scoped",
         "SearchResultsHeaderMode::Tabbed",
         "pub(crate) fn render_index_feed_detail(",
         "EntitySurfaceContext::Library",
@@ -3149,6 +3151,14 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
                 "src/ui/shells/search_results_inspector.rs: ADR 0049 scoped drill-down chrome missing `{required}`"
             ));
         }
+    }
+    // ADR 0077 packet 006 deleted `SearchResultsHeaderMode::Scoped`, the
+    // old Index name-route feed results mode. It had no other caller.
+    if search_results_shell_source.contains("SearchResultsHeaderMode::Scoped") {
+        violations.push(
+            "src/ui/shells/search_results_inspector.rs: ADR 0077 packet 006 retired SearchResultsHeaderMode::Scoped; it must not return"
+                .to_string(),
+        );
     }
 
     for required in [
@@ -3362,7 +3372,7 @@ fn adr_0024_loading_shape_readiness_gate_is_locked() {
         "local_feed_language_parity_is_loaded_through_read_model_path",
         "adr_0024_index_track_detail_uses_rich_track_view_path",
         "local_track_pubdate_and_explicit_projection_path_is_guarded",
-        "index_artist_activation_is_scoped_feed_route_not_detail_page",
+        "adr_0077_name_matches_index_row_opens_tracks_matching_not_artist_page",
         "adr_0024_playlist_local_detail_metadata_is_vm_owned_without_index_detail",
     ] {
         let fn_signature = format!("fn {guard_name}(");
@@ -11658,10 +11668,15 @@ fn global_search_routes_to_content_list() {
     );
 }
 
+/// ADR 0077 packet 006: an Index name candidate opens a search result — the
+/// "Tracks matching" page — never a detail page titled "Artist". This test
+/// replaces `index_artist_activation_is_scoped_feed_route_not_detail_page`,
+/// which named the retired scoped Index feed-results route.
 #[test]
-fn index_artist_activation_is_scoped_feed_route_not_detail_page() {
+fn adr_0077_name_matches_index_row_opens_tracks_matching_not_artist_page() {
     let app_source = read_source(&manifest_path("src/app.rs"));
     let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let name_match_dispatch_source = read_source(&manifest_path("src/app/name_match_dispatch.rs"));
     let workspace_nav_source = read_source(&manifest_path("src/view_models/workspace/nav.rs"));
     let workspace_breadcrumb_source =
         read_source(&manifest_path("src/view_models/workspace/breadcrumb.rs"));
@@ -11671,12 +11686,17 @@ fn index_artist_activation_is_scoped_feed_route_not_detail_page() {
         "src/view_models/search_results/index_detail.rs",
     ));
     let retired_artist_detail_route_name = concat!("IndexArtist", "Detail");
+    let retired_feed_scope_route_name = concat!("IndexArtist", "FeedScope");
 
     for (path, source) in [
         ("src/app.rs", app_source.as_str()),
         (
             "src/app/search_dispatch.rs",
             search_dispatch_source.as_str(),
+        ),
+        (
+            "src/app/name_match_dispatch.rs",
+            name_match_dispatch_source.as_str(),
         ),
         (
             "src/view_models/workspace/nav.rs",
@@ -11694,31 +11714,53 @@ fn index_artist_activation_is_scoped_feed_route_not_detail_page() {
     ] {
         assert!(
             !source.contains(retired_artist_detail_route_name),
-            "{path}: Index artist activation must be named as a scoped feed-results route"
+            "ADR 0077 packet 006: {path} must not reintroduce a detail-page artist route for an Index name candidate"
+        );
+        assert!(
+            !source.contains(retired_feed_scope_route_name),
+            "ADR 0077 packet 006: {path} must not reintroduce the retired scoped feed-results route"
         );
     }
 
     assert!(
-        workspace_nav_source.contains("IndexArtistFeedScope(String)")
-            && search_dispatch_source
-                .contains("FrameNavigationEntry::IndexArtistFeedScope(artist_name.to_string())")
-            && app_source.contains("FrameNavigationEntry::IndexArtistFeedScope(_)")
-            && app_source.contains("SearchResultsHeaderMode::Scoped")
-            && app_source.contains("tab: SearchResultsTab::Feeds")
-            && app_source.contains("filter: ContentFilter::Index"),
-        "Index artist activation must route to scoped Index feed results"
+        workspace_nav_source.contains("IndexNameMatches(String)"),
+        "ADR 0077 packet 006: the navigation entry must be named for a name match, not an artist"
+    );
+    assert!(
+        search_dispatch_source
+            .contains("self.open_name_match_page(artist_name.to_string(), content_frame_id, cx);"),
+        "ADR 0077 packet 006: an Index name candidate must open the name-match track page"
+    );
+    assert!(
+        name_match_dispatch_source.contains("FrameNavigationEntry::IndexNameMatches(name.clone())"),
+        "ADR 0077 packet 006: opening a name match must push the IndexNameMatches entry"
+    );
+    assert!(
+        app_source.contains(
+            "FrameNavigationEntry::IndexNameMatches(_) => \"Tracks matching\".to_string(),"
+        ),
+        "ADR 0077 packet 006: the frame title for a name match must be \"Tracks matching\", never \"Artist\""
+    );
+    assert!(
+        !app_source.contains("FrameNavigationEntry::IndexNameMatches(_) => \"Artist\".to_string()"),
+        "ADR 0077 packet 006: a name match must never show the \"Artist\" frame title"
+    );
+    assert!(
+        app_source.contains("Some(FrameNavigationEntry::IndexNameMatches(_)) => {")
+            && app_source.contains("self.render_name_match_page_content(cx);"),
+        "ADR 0077 packet 006: the content list must render the name-match track page, not the old scoped feed-results view"
     );
     assert!(
         workspace_tests_source.contains("display.segments[2].target")
-            && workspace_tests_source.contains("FrameNavigationEntry::IndexArtistFeedScope")
+            && workspace_tests_source.contains("FrameNavigationEntry::IndexNameMatches")
             && workspace_tests_source.contains("the immediate Index parent must stay selectable"),
-        "breadcrumb tests must keep the scoped artist feed parent selectable"
+        "breadcrumb tests must keep the name-match parent selectable"
     );
     assert!(
         !index_detail_source.contains("IndexDetailKind::Artist")
             && !app_source.contains("ArtistDetailPageVm")
             && !search_dispatch_source.contains("ArtistDetailPageVm"),
-        "Index artist rows must not invent an Index artist detail kind or reuse Library artist detail VM"
+        "Index name-match rows must not invent an Index artist detail kind or reuse Library artist detail VM"
     );
 }
 
@@ -11733,7 +11775,7 @@ fn nav_top_drives_content_list_body_switch() {
         "FrameNavigationEntry::AlbumDetail(_)",
         "FrameNavigationEntry::ArtistDetail(_)",
         "FrameNavigationEntry::PlaylistDetail(_)",
-        "FrameNavigationEntry::IndexArtistFeedScope(_)",
+        "FrameNavigationEntry::IndexNameMatches(_)",
         "FrameNavigationEntry::IndexFeedDetail { .. }",
         "FrameNavigationEntry::IndexTrackDetail { .. }",
         "FrameNavigationEntry::Settings",

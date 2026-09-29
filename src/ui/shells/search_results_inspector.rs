@@ -48,13 +48,12 @@ type ResultSelectHandler = SearchResultSelectHandler;
 type ClearFilterHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 type FailureHandler = Rc<dyn Fn(SearchFailureAction, &mut Window, &mut App) + 'static>;
 
+// ADR 0077 packet 006 deleted this mode's only scoped drill-down caller
+// (the old Index name-route feed results). `Tabbed` is the one remaining
+// header mode; the type stays named for its one caller in `app.rs`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SearchResultsHeaderMode {
     Tabbed,
-    Scoped {
-        tab: SearchResultsTab,
-        filter: ContentFilter,
-    },
 }
 
 /// Callback slots supplied by the screen or frame owner.
@@ -133,9 +132,6 @@ pub(crate) fn render_search_results_inspector(
 ) -> AnyElement {
     let (tab, filter, empty_state) = match header_mode {
         SearchResultsHeaderMode::Tabbed => (vm.tab(), vm.filter(), vm.empty_state().cloned()),
-        SearchResultsHeaderMode::Scoped { tab, filter } => {
-            (tab, filter, vm.empty_state_for_scope(tab, filter))
-        }
     };
     render_search_results_inspector_with_scope(
         vm,

@@ -36,8 +36,11 @@ pub(crate) enum FrameNavigationEntry {
     PublisherDetail(String),
     /// Search results by submitted query.
     Search(String),
-    /// Remote Index feed results scoped by an artist result display name.
-    IndexArtistFeedScope(String),
+    /// Tracks `MusicIndex` gives for one name query (ADR 0077 packet 006,
+    /// Accepted Refinement "Index artist page by name"). This entry carries
+    /// no artist identity, no role, and no page type: it is a search
+    /// result, never an artist page.
+    IndexNameMatches(String),
     /// Remote Index feed drill-down.
     IndexFeedDetail {
         /// Stable remote feed id.
@@ -69,7 +72,10 @@ impl FrameNavigationEntry {
             Self::PlaylistDetail(id) => format!("Playlist {id}"),
             Self::TrackDetail(id) => format!("Track {id}"),
             Self::AlbumDetail(id) => format!("Album {id}"),
-            Self::ArtistDetail(name) | Self::IndexArtistFeedScope(name) => name.clone(),
+            Self::ArtistDetail(name) => name.clone(),
+            // ADR 0077 packet 006: the breadcrumb shows the quoted name.
+            // This entry names no artist, so its label never looks like one.
+            Self::IndexNameMatches(name) => format!("\"{name}\""),
             // The publisher page view model gives the real title. This
             // fallback shows only when no caller supplies that title.
             Self::PublisherDetail(publisher_feed_guid) => publisher_feed_guid.clone(),

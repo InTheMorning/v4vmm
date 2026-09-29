@@ -129,7 +129,7 @@ fn focused_search_descriptor_projects_detail_entity_as_detail_tracks() {
         FrameNavigationEntry::TrackDetail(4),
         FrameNavigationEntry::AlbumDetail(5),
         FrameNavigationEntry::ArtistDetail("Dawn Chorus".to_string()),
-        FrameNavigationEntry::IndexArtistFeedScope("Dawn Chorus".to_string()),
+        FrameNavigationEntry::IndexNameMatches("Dawn Chorus".to_string()),
         FrameNavigationEntry::IndexFeedDetail {
             id: "feed-guid".to_string(),
             label: "Dawn Chorus Feed".to_string(),
@@ -625,7 +625,7 @@ fn adr_0077_publisher_navigation_breadcrumb_shows_view_model_title() {
 fn breadcrumb_display_projects_index_search_drilldown_path() {
     let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
     nav.push(FrameNavigationEntry::Search("survival guide".to_string()));
-    nav.push(FrameNavigationEntry::IndexArtistFeedScope(
+    nav.push(FrameNavigationEntry::IndexNameMatches(
         "Survival Guide".to_string(),
     ));
     nav.push(FrameNavigationEntry::IndexFeedDetail {
@@ -646,13 +646,13 @@ fn breadcrumb_display_projects_index_search_drilldown_path() {
         [
             "Library",
             "Search: survival guide",
-            "Survival Guide",
+            "\"Survival Guide\"",
             "deathdreams"
         ]
     );
     assert_eq!(
         display.segments[2].target,
-        Some(FrameNavigationEntry::IndexArtistFeedScope(
+        Some(FrameNavigationEntry::IndexNameMatches(
             "Survival Guide".to_string()
         )),
         "the immediate Index parent must stay selectable in the breadcrumb"
@@ -667,7 +667,7 @@ fn breadcrumb_display_projects_index_search_drilldown_path() {
         vec![
             FrameNavigationEntry::SourceList,
             FrameNavigationEntry::Search("survival guide".to_string()),
-            FrameNavigationEntry::IndexArtistFeedScope("Survival Guide".to_string()),
+            FrameNavigationEntry::IndexNameMatches("Survival Guide".to_string()),
             FrameNavigationEntry::IndexFeedDetail {
                 id: "feed-guid".to_string(),
                 label: "deathdreams".to_string(),

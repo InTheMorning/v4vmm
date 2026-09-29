@@ -28,6 +28,7 @@ pub mod entity;
 pub mod feed;
 pub mod library;
 pub mod library_removal_confirmation;
+pub mod name_match_page;
 pub mod playlist;
 pub(crate) mod playlist_removal_confirmation;
 pub mod publisher;

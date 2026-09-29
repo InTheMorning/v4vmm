@@ -1944,7 +1944,7 @@ impl LibraryApp {
                 self.select_artist(name, cx);
             }
             FrameNavigationEntry::Search(_)
-            | FrameNavigationEntry::IndexArtistFeedScope(_)
+            | FrameNavigationEntry::IndexNameMatches(_)
             | FrameNavigationEntry::IndexFeedDetail { .. }
             | FrameNavigationEntry::IndexTrackDetail { .. }
             | FrameNavigationEntry::SourceList
@@ -2228,8 +2228,10 @@ impl LibraryApp {
                 _ => "Track".to_string(),
             },
             FrameNavigationEntry::AlbumDetail(_) => "Album".to_string(),
-            FrameNavigationEntry::ArtistDetail(name)
-            | FrameNavigationEntry::IndexArtistFeedScope(name) => name.clone(),
+            FrameNavigationEntry::ArtistDetail(name) => name.clone(),
+            // ADR 0077 packet 006: this entry names no artist, so its label
+            // is the quoted name, never a bare name.
+            FrameNavigationEntry::IndexNameMatches(name) => format!("\"{name}\""),
             // ADR 0077 packet 004: the top app owns the publisher page
             // title. This frame never mounts under a Library breadcrumb.
             FrameNavigationEntry::PublisherDetail(publisher_feed_guid) => {

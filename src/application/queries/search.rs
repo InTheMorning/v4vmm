@@ -12,6 +12,7 @@ use crate::application::command_bus::{ApplicationCommand, CommandOutcome, Comman
 use crate::application::command_context::CommandContext;
 use crate::application::errors::command::CommandError;
 use crate::feed_service;
+use crate::view_models::name_match_page::{NameMatchPageFacts, NameMatchPageVm};
 use crate::view_models::search::{
     artist_rows_from_result_rows, search_result_type_is_visible, ResultRow, SearchBatch,
     SearchViewModel,
@@ -125,6 +126,61 @@ impl ApplicationCommand for FetchIndexSearchResults {
             .map_err(|error| query_error(&error))?;
         Ok(CommandOutcome::without_events(rows))
     }
+}
+
+/// Fetches the Index name-match track page (ADR 0077 packet 006, Accepted
+/// Refinement "Index artist page by name"). The one request is
+/// `GET /v1/tracks?artist=<name>`, through the `INDEX_NAME_MATCH_TRACKS`
+/// request profile.
+#[derive(Clone, Debug)]
+pub(crate) struct FetchNameMatchTracks {
+    endpoint: crate::config::MusicIndexEndpoint,
+    name: String,
+}
+
+impl FetchNameMatchTracks {
+    /// Creates an Index name-match track page query command.
+    #[must_use]
+    pub(crate) fn new(
+        endpoint: impl Into<crate::config::MusicIndexEndpoint>,
+        name: impl Into<String>,
+    ) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            name: name.into(),
+        }
+    }
+}
+
+impl ApplicationCommand for FetchNameMatchTracks {
+    type Output = NameMatchPageFacts;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        let client = crate::api::Client::new_with_base_url(self.endpoint);
+        fetch_name_match_tracks(&client, &self.name)
+            .map_err(|error| query_error(&error))
+            .map(CommandOutcome::without_events)
+    }
+}
+
+/// Sends the one request of the name-match track page: `/v1/tracks` with
+/// `artist=<name>`, through the `INDEX_NAME_MATCH_TRACKS` request profile
+/// (Required Change 3, R6-03). This function sends no other route.
+fn fetch_name_match_tracks(client: &crate::api::Client, name: &str) -> Result<NameMatchPageFacts> {
+    let response = client.fetch_tracks_by_artist_with_profile(
+        name,
+        Some(crate::api::PAGE_LIMIT),
+        None,
+        &crate::application::request_profiles::INDEX_NAME_MATCH_TRACKS,
+    )?;
+    Ok(NameMatchPageFacts {
+        name: name.to_string(),
+        tracks: response.data,
+        has_more: response.pagination.has_more,
+    })
 }
 
 impl ApplicationQueryService {
@@ -588,12 +644,18 @@ impl IndexArtistCandidate {
         }
     }
 
+    /// ADR 0077 packet 006, Accepted Refinement "Index artist page by
+    /// name": this row is a search result, never an artist. Its label and
+    /// its accessibility label are the same quoted text
+    /// `NameMatchPageVm` uses for the page this row opens (R6-01).
     fn into_display(self) -> ArtistResultDisplay {
+        let label = NameMatchPageVm::title_text_for_name(&self.name);
         let mut display = ArtistResultDisplay::new(
             format!("index-artist:{}", self.name),
-            self.name,
+            label,
             SearchResultOrigin::Index,
         );
+        display.a11y_label.clone_from(&display.label);
         let secondary = count_parts([
             positive_count_label(self.feed_count, "feed"),
             positive_count_label(self.track_count, "track"),
@@ -1262,6 +1324,13 @@ mod adr_0075_request_profile_tests {
             })
             .to_string();
         }
+        if bare == "/v1/tracks" {
+            return serde_json::json!({
+                "data": [{"track_guid": "t1", "feed_guid": "f1", "title": "Track One"}],
+                "pagination": {"has_more": false}
+            })
+            .to_string();
+        }
         serde_json::json!({"data": {"feed_guid": "f1", "title": "Feed"}}).to_string()
     }
 
@@ -1320,6 +1389,55 @@ mod adr_0075_request_profile_tests {
                 encoded_include(request_profiles::INDEX_FEED_DETAIL)
             )),
             "R17-05: the Index feed detail call site must send L2 and publisher (ADR 0077 Decision 5). Got: {requests:?}"
+        );
+    }
+
+    /// R6-01 (ADR 0077 packet 006): an Index name candidate exposes the
+    /// label `Tracks matching "<name>"` and an equal accessibility label.
+    #[test]
+    fn adr_0077_name_matches_candidate_label_is_the_quoted_name_and_equals_its_a11y_label() {
+        let display = IndexArtistCandidate::new("Survival Guide", 2, 5, None).into_display();
+
+        assert_eq!(display.label, "Tracks matching \"Survival Guide\"");
+        assert_eq!(display.a11y_label, display.label);
+    }
+
+    /// R6-01: the row keeps its secondary count text and its thumbnail.
+    #[test]
+    fn adr_0077_name_matches_candidate_keeps_its_secondary_text_and_thumbnail() {
+        let display = IndexArtistCandidate::new(
+            "Survival Guide",
+            2,
+            5,
+            Some("https://example.test/art.jpg".to_string()),
+        )
+        .into_display();
+
+        assert_eq!(display.secondary_text, "2 feeds - 5 tracks");
+        assert_eq!(
+            display.thumbnail_href.as_deref(),
+            Some("https://example.test/art.jpg")
+        );
+    }
+
+    /// R6-03: the name-match track page sends exactly one request,
+    /// `/v1/tracks` with `artist=<name>`, through the
+    /// `INDEX_NAME_MATCH_TRACKS` request profile, and no other route.
+    #[test]
+    fn adr_0077_name_matches_page_command_sends_one_tracks_by_artist_request() {
+        let fixture = Fixture::start();
+        let client = crate::api::Client::new_with_base_url(fixture.endpoint.clone());
+
+        let facts = fetch_name_match_tracks(&client, "DETOX").unwrap();
+
+        assert_eq!(facts.name, "DETOX");
+        assert_eq!(facts.tracks.len(), 1);
+        assert!(!facts.has_more);
+        let requests = fixture.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 1, "the page must send no other route");
+        assert!(
+            requests[0].starts_with("/v1/tracks?") && requests[0].contains("artist=DETOX"),
+            "R6-03: the page must request /v1/tracks with artist=<name>. Got: {requests:?}"
         );
     }
 }
