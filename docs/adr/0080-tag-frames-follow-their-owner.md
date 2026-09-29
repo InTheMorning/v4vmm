@@ -69,6 +69,11 @@ A file that the app wrote shows no difference at the next compare.
 The ADR 0076 tag scan uses this mapping. A file with an earlier mapping shows as a difference.
 "Update n file(s)" rewrites it after the operator confirms (ADR 0076 Decision 8). No write occurs without that confirmation.
 
+### Files Written Before This ADR
+
+The operator stated on 2026-09-29 that the Library can be cleared and downloaded again.
+Thus a file written before this ADR needs no conversion beyond Decision 6. Packets aim at the tags of current and future writes.
+
 ### 5. Description: Two Frames
 
 `COMM:MusicIndex Description` holds the item description only.
@@ -94,13 +99,14 @@ ADR 0075 section 3 keeps an invalid value as evidence only. The operator decided
 ### 8. A URL Frame Holds A Plain URL
 
 Each URL frame holds one plain URL. It holds no label text. The app writes a URL only when it parses as a URL.
-The relation type or link label stays in the database, and the compare shows it.
+An RSS link label stays in the database, and the compare shows it. v4vmm stores no MusicBrainz lookup result.
+A MusicBrainz relation type exists only in the lookup result, and the compare shows it while that result is open.
 
 | Value | Frame |
 |---|---|
 | The item page (RSS item `<link>`) | `WOAF` |
 | The channel website (RSS channel `<link>`) | `WOAR` |
-| A MusicBrainz official homepage relation | `WOAR` |
+| A MusicBrainz official homepage relation of the release group, which is the album page like the RSS channel `<link>` | `WOAR` |
 | One MusicBrainz license relation | `WCOP` |
 | More than one MusicBrainz license relation | `TXXX:LICENSE`, as Picard does |
 | Each other MusicBrainz URL relation type, for example "download for free" | No frame |
@@ -152,5 +158,5 @@ Visual criteria, for an operator check after the visual pause ends:
 - A tag reader can tell the track page from the artist page.
 - A file that the app wrote agrees with the next compare.
 - Each existing file with the earlier mapping needs one confirmed rewrite.
-- MusicBrainz relation types other than official homepage and license leave the file. They stay in the database.
+- MusicBrainz relation types other than official homepage and license go into no file. They show only in an open lookup result.
 - A file can hold two `WOAR` values: the RSS channel website and the MusicBrainz official homepage.

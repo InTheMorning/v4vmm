@@ -10,7 +10,7 @@ Active - 2026-09-29. This plan is advisory. It states no rule.
 | Packet | Scope | Owners | Depends on | State |
 |---|---|---|---|---|
 | [001](../tasks/adr-0080-task-001-rss-frames-and-idempotent-writes.md) | RSS frames by owner, the album description frame, plain URLs, idempotent writes, and the compare and scan that use the writer resolution | ADR 0080 Decisions 1 to 8, for RSS values | ADR 0075 packet 022 | Implemented 2026-09-29. Mechanical checks Green. Visual gate open and paused |
-| 002 | MusicBrainz URL relations by relation type: official homepage to `WOAR`, license to `WCOP` or `TXXX:LICENSE`, and no frame for each other type | ADR 0080 Decisions 6 and 8, for MusicBrainz values | 001 | No task document yet |
+| [002](../tasks/adr-0080-task-002-musicbrainz-url-relations-by-type.md) | MusicBrainz URL relations by relation type: release-group official homepage to `WOAR`, license to `WCOP` or `TXXX:LICENSE`, and no frame for each other type | ADR 0080 Decisions 6 and 8, for MusicBrainz values | 001 | Ready 2026-09-29 |
 
 ## Sequence
 
@@ -22,7 +22,7 @@ Until packet 002 is complete, packet 001 keeps each MusicBrainz URL value that t
 
 - `release_url_values` in `src/musicbrainz.rs` gives each release URL relation as one text value, `<relation type> (<target type>, <direction>): <url>`.
   `musicbrainz_value_for_field` in `src/metadata.rs` puts all of them in the "Website" row, and thus in `WOAR`.
-- The lookup requests `url-rels` of a release only. An official homepage relation belongs to an artist or a label in MusicBrainz. Packet 002 must record if a release lookup can give one.
+- The lookup requests `url-rels` of a release only. On 2026-09-29 a release lookup gave no official homepage. The release group holds it, and `release-group-level-rels` in the same lookup gives it. Packet 002 records the evidence.
 - `changed_frames` in `src/application/queries/tag_update.rs` counts a frame as equal when any file value matches the expected value. A file with extra stale values in the same frame shows no difference.
 
 ## Session Rules
