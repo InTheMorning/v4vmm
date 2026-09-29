@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed - 2026-09-26. The operator discussed the direction on 2026-09-26.
-The operator decided each proposal on 2026-09-29. Decisions 5 to 8 record them.
-This ADR is not binding until the operator accepts it.
+Accepted - 2026-09-29. The operator discussed the direction on 2026-09-26.
+The operator decided each proposal on 2026-09-29, and Decisions 5 to 8 record them. The operator accepted this ADR on 2026-09-29.
+The [phase plan](../plans/adr-0080-tag-frames-phase-plan.md) registers its packets.
 
 ## Context
 

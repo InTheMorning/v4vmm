@@ -108,9 +108,9 @@ longer arrive. [Packet 046](docs/tasks/adr-0075-task-046-remove-undeclared-api-f
 removed them on 2026-09-26. Its mechanical checks are Green, and it needs no visual acceptance.
 [Packet 022](docs/tasks/adr-0075-task-022-track-header-identities.md) is implemented on 2026-09-28. It shows track and feed identities apart and keeps the tag output equal.
 Its mechanical checks are Green. Its visual gate is open and paused.
-[ADR 0080](docs/adr/0080-tag-frames-follow-their-owner.md) is Proposed on 2026-09-26. It maps tag frames by
-owner and fixes the tag round-trip defect. The operator decided its four proposals on 2026-09-29.
-It waits for the operator's acceptance review.
+[ADR 0080](docs/adr/0080-tag-frames-follow-their-owner.md) is Accepted on 2026-09-29. It maps tag frames by
+owner and fixes the tag round-trip defect. The [phase plan](docs/plans/adr-0080-tag-frames-phase-plan.md)
+registers two packets. [Packet 001](docs/tasks/adr-0080-task-001-rss-frames-and-idempotent-writes.md) is Ready on 2026-09-29.
 
 [ADR 0076](docs/adr/0076-playlist-rss-check-for-stale-musicindex-records.md) is Accepted on
 2026-09-24, after the operator reviewed each decision. It replaces the per-field source
