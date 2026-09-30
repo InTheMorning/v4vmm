@@ -163,7 +163,8 @@ paused. Its name search reached only the parked `SearchApp`.
 [Packet 006](docs/tasks/adr-0077-task-006-name-matches-are-search-results.md) is implemented on 2026-09-29, with mechanical checks Green and its visual gate open and paused.
 It shows the live Index name match as a search result, `Tracks matching "<name>"`.
 Packet 007 shows the confirmed and unconfirmed artists of Stophammer ADR 0061. Stophammer 0.2.0 is deployed
-with those fields on 2026-09-29. [Packet 007](docs/tasks/adr-0077-task-007-confirmed-and-unconfirmed-artists.md) is Ready on 2026-09-29.
+with those fields on 2026-09-29. [Packet 007](docs/tasks/adr-0077-task-007-confirmed-and-unconfirmed-artists.md) is implemented on 2026-09-30,
+with its visual gate open and paused. No ADR 0077 packet is open.
 
 [Open Stophammer requests](docs/plans/v4vmm-open-requests.md) consolidates each open request
 to Stophammer on 2026-09-25. The Stophammer repository holds an equal copy. Update both copies together. A reverse album list

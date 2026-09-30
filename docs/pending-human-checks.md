@@ -558,3 +558,14 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-2
 - V2: opening a row shows a loading state, then the detail, in place.
 - V3: a fast open of row A and then row B shows the detail of row B.
 - V4: normal and narrow widths show each element in its place, in Light and Dark themes, with no clipped text.
+
+## 29. Confirmed And Unconfirmed Artists — ADR 0077 Task 007
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-30. Operator inspection is pending.
+
+- Owner: [packet 007](tasks/adr-0077-task-007-confirmed-and-unconfirmed-artists.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks. It only reads pages. It needs network access to `api.musicindex.org`.
+- V1: the DETOX publisher page shows "Artists that name this feed: 1" with the name, and the unconfirmed fact with 0.
+- V2: a publisher whose listed albums do not name it shows 0 confirmed artists and its unconfirmed artists with their names.
+- V3: the two labels read clearly. The operator accepts them or gives new labels.
+- V4: normal and narrow widths show each fact in its place, in Light and Dark themes, with no clipped text.

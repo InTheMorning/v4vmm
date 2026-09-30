@@ -175,14 +175,28 @@ pub struct Feed {
     /// The source of `release_artist`, as MusicIndex sends it (ADR 0077).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub release_artist_source: Option<String>,
-    /// The number of distinct album artists of a publisher feed. MusicIndex
-    /// derives it, and it is present only on a publisher feed (ADR 0077).
+    /// The count of distinct `release_artist` values among the albums that
+    /// name this publisher and that this publisher also lists. MusicIndex
+    /// derives it from Stophammer ADR 0061, and it is present only on a
+    /// publisher feed (ADR 0077 Task 007). It never selects the page type
+    /// (ADR 0078).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub distinct_release_artist_count: Option<i64>,
+    pub confirmed_release_artist_count: Option<i64>,
     /// One raw `release_artist` value for each count in
-    /// `distinct_release_artist_count` (ADR 0077).
+    /// `confirmed_release_artist_count`, in first-listing order (ADR 0077
+    /// Task 007).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub distinct_release_artists: Option<Vec<String>>,
+    pub confirmed_release_artists: Option<Vec<String>>,
+    /// The count of distinct `release_artist` values among the albums that
+    /// this publisher lists but that do not name it. MusicIndex derives it
+    /// from Stophammer ADR 0061 (ADR 0077 Task 007).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unconfirmed_release_artist_count: Option<i64>,
+    /// One raw `release_artist` value for each count in
+    /// `unconfirmed_release_artist_count`, in first-listing order (ADR 0077
+    /// Task 007).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unconfirmed_release_artists: Option<Vec<String>>,
     pub payment_routes: Option<Vec<PaymentRoute>>,
     pub updated_at: Option<i64>,
 }
@@ -3215,8 +3229,6 @@ pub(crate) mod tests {
                 Some("Liberthea Anadara")
             );
             assert_eq!(feed.release_artist_source.as_deref(), Some("itunes_author"));
-            assert_eq!(feed.distinct_release_artist_count, None);
-            assert_eq!(feed.distinct_release_artists, None);
 
             let entries = feed.publisher.expect("the album should carry publisher");
             assert_eq!(entries.len(), 1);
@@ -3278,18 +3290,15 @@ pub(crate) mod tests {
             }
         }
 
-        /// R2-02: the recorded publisher feed response decodes the artist count,
-        /// the artist list and each `publisher_to_music` entry.
+        /// R2-02: the recorded publisher feed response decodes each
+        /// `publisher_to_music` entry. The recorded body keeps each field of
+        /// the response as evidence. `Feed` decodes only the declared fields
+        /// that the app reads (ADR 0077 Task 007).
         #[test]
         fn adr_0077_publisher_relationship_recorded_publisher_feed_decodes_entries() {
             let response: DetailResponse<Feed> = serde_json::from_str(RECORDED_PUBLISHER_RESPONSE)
                 .expect("the recorded publisher response should decode");
             let feed = response.data;
-            assert_eq!(feed.distinct_release_artist_count, Some(1));
-            assert_eq!(
-                feed.distinct_release_artists,
-                Some(vec!["Liberthea Anadara".to_owned()])
-            );
             assert_eq!(feed.release_artist_source.as_deref(), Some("placeholder"));
             assert_eq!(feed.publisher_feed_title, None);
 
@@ -3487,6 +3496,54 @@ pub(crate) mod tests {
                 serialized.get("remote_feed_title").is_none(),
                 "an absent summary field must stay out of the serialized entry"
             );
+        }
+    }
+
+    /// ADR 0077 Task 007: the confirmed and unconfirmed artist fields of a
+    /// publisher feed (Stophammer ADR 0061).
+    mod adr_0077_confirmed_artists {
+        use crate::api::{DetailResponse, Feed};
+
+        /// Recorded on 2026-09-29 from
+        /// `GET https://api.musicindex.org/v1/feeds/137aaa9c-75ff-4916-9f23-e02968b2d15e?include=publisher`,
+        /// on Stophammer 0.2.0.
+        const RECORDED_PUBLISHER_FEED_WITH_CONFIRMED_ARTISTS: &str = r#"{
+            "data": {
+                "feed_guid": "137aaa9c-75ff-4916-9f23-e02968b2d15e",
+                "title": "Official DETOX Music",
+                "confirmed_release_artist_count": 1,
+                "confirmed_release_artists": ["Official DETOX Music"],
+                "unconfirmed_release_artist_count": 0,
+                "unconfirmed_release_artists": []
+            },
+            "pagination": {"cursor": null, "has_more": false}
+        }"#;
+
+        /// R7-01: the recorded feed response decodes the four fields.
+        #[test]
+        fn adr_0077_confirmed_artists_recorded_response_decodes_each_field() {
+            let response: DetailResponse<Feed> =
+                serde_json::from_str(RECORDED_PUBLISHER_FEED_WITH_CONFIRMED_ARTISTS)
+                    .expect("the recorded response should decode");
+            let feed = response.data;
+            assert_eq!(feed.confirmed_release_artist_count, Some(1));
+            assert_eq!(
+                feed.confirmed_release_artists,
+                Some(vec!["Official DETOX Music".to_owned()])
+            );
+            assert_eq!(feed.unconfirmed_release_artist_count, Some(0));
+            assert_eq!(feed.unconfirmed_release_artists, Some(vec![]));
+        }
+
+        /// R7-01: an omitted field decodes as absent.
+        #[test]
+        fn adr_0077_confirmed_artists_omitted_field_decodes_to_none() {
+            let feed: Feed = serde_json::from_str(r#"{"feed_guid": "publisher-guid"}"#)
+                .expect("a feed with none of the four fields should still decode");
+            assert_eq!(feed.confirmed_release_artist_count, None);
+            assert_eq!(feed.confirmed_release_artists, None);
+            assert_eq!(feed.unconfirmed_release_artist_count, None);
+            assert_eq!(feed.unconfirmed_release_artists, None);
         }
     }
 }

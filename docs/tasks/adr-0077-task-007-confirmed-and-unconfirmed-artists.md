@@ -1,7 +1,6 @@
 # ADR 0077 Task 007: Confirmed And Unconfirmed Artists
 
-Status: Ready - 2026-09-29. Implementation has not started.
-Its visual gate opens when the implementation is complete. Visual checks are paused, so the gate stays open.
+Status: Implemented - 2026-09-30. Mechanical checks Green. Visual gate open and paused.
 
 ## Goal
 
@@ -104,13 +103,138 @@ cargo build --bin v4vmm
 
 Revert the working tree. This packet adds no migration and no stored data.
 
+## Implementation Result
+
+### Files
+
+Changed files:
+
+- `src/api.rs`: `Feed` now decodes `confirmed_release_artist_count`, `confirmed_release_artists`,
+  `unconfirmed_release_artist_count`, and `unconfirmed_release_artists`. It no longer decodes
+  `distinct_release_artist_count` or `distinct_release_artists`. The two earlier ADR 0077 decode
+  tests (R2-01, R2-02) drop their assertions on those two removed fields. A new
+  `adr_0077_confirmed_artists` test module adds the R7-01 decode tests.
+- `src/application/queries/feed.rs`: `publisher_page_facts_from_feed` copies the four new `Feed`
+  fields into `PublisherPageFacts`.
+- `src/application/queries/library.rs`: `fetch_library_publisher_page` reads the four new fields
+  from its one remote request. Its test fixture and two test assertions use the new field names.
+- `src/view_models/publisher_page.rs`: `PublisherPageFacts` holds the four new fields.
+  `PublisherPageVm` gained the constants `CONFIRMED_ARTISTS_LABEL` and `UNCONFIRMED_ARTISTS_LABEL`.
+  It gained the methods `confirmed_artist_count` and `unconfirmed_artist_count`, which replace
+  `derived_artist_count`. `header_facts` adds the confirmed fact, then the unconfirmed fact, each
+  only when its count is present.
+- The same file's tests: three earlier tests use the new field and method names. Four new tests
+  prove R7-02 through R7-05.
+- `docs/tasks/adr-0077-task-007-confirmed-and-unconfirmed-artists.md`: this packet document.
+
+No file needed creation. `src/ui/shells/publisher.rs` needed no change: it already loops over
+`header_facts()` and builds one `DetailHeaderDataRow` for each fact.
+
+### Tests
+
+- `cargo test --lib adr_0077_confirmed_artists_`: 6 passed. Two prove R7-01 in `src/api.rs`. Four
+  prove R7-02, R7-03, R7-04 and R7-05 in `src/view_models/publisher_page.rs`.
+- `cargo test`: 1,925 library tests and 283 architecture tests passed. 0 failed.
+- `cargo test --test architecture_tests`: 283 passed.
+- `cargo fmt -- --check`: Green.
+- `cargo clippy -- -D warnings`: Green, no warning.
+- `cargo check --all-targets`: Green, no warning.
+- `cargo build --bin v4vmm`: Green.
+
+### Behavior
+
+The publisher page no longer shows one "Artists" fact from `distinct_release_artist_count`. It
+shows two header facts, in this order. The first fact is labeled "Artists that name this feed." It
+states the confirmed count and the confirmed artist names. The second fact is labeled "Artists
+this feed lists without a link back." It states the unconfirmed count and the unconfirmed artist
+names.
+
+A count of 0 still shows its row. An absent field adds no row for that fact. The app stores and
+reads no fallback value. The old field is gone from both `Feed` and `PublisherPageFacts`.
+
+The Index query and the Library query each carry the four new fields on the one existing request.
+This packet sends no new request. The album groups, the page type rule, and the role display keep
+their present behavior.
+
+### Deviations
+
+- Required Change 2 states: "Delete their decode when no reader stays." After the page's use of
+  the two old fields was removed, no code under `src/` read them. `distinct_release_artist_count`
+  and `distinct_release_artists` are deleted from `api::Feed`, not only from the page facts. The
+  two ADR 0077 decode tests that had asserted those two fields are trimmed to match. Serde ignores
+  an unrecognized JSON key by default. The recorded JSON bodies in those tests stay as the
+  historical record.
+- The R7-01 decode test sits in a new `adr_0077_confirmed_artists` module in `src/api.rs`, beside
+  the existing `adr_0077_publisher_page` module. It follows the same recorded-response pattern as
+  that module.
+
+### Concerns
+
+No "Stop and report" condition came up during this task.
+
+- No reader other than the publisher page used `distinct_release_artist_count` or
+  `distinct_release_artists`.
+- `DetailHeaderDataRow` already accepts any number of rows. The header fact composition needed no
+  new shared composite to show two facts.
+- No change needed a file named in "Do not touch."
+
 ## Operator Visual Check
 
-The implementer writes this section at completion. It gives numbered steps for V1 to V4.
-It states the needed state, what counts as wrong, and the cleanup.
-
 The check only reads pages. It needs network access to `api.musicindex.org`.
-Do not delete `/tmp/v4vmm-governance.ie6k8TQf`. Color alone is not a valid difference.
+
+**Setup**
+
+1. Build and open the desktop binary:
+
+   ```bash
+   cargo build --bin v4vmm && target/debug/v4vmm
+   ```
+
+   Run this command first. A prior `cargo test` run can leave a GPUI test-support binary at
+   `target/debug/v4vmm`. This step is the only step that starts the app.
+2. Open Settings. Confirm the MusicIndex endpoint field holds a working endpoint.
+
+**V1 - the DETOX publisher page shows both counts**
+
+3. Open the publisher page for the "Official DETOX Music" feed
+   (`137aaa9c-75ff-4916-9f23-e02968b2d15e`), from the Index or from the Library.
+4. Read the header facts.
+   - Correct: a row labeled "Artists that name this feed" states 1, with the name "Official DETOX
+     Music."
+   - Correct: a row labeled "Artists this feed lists without a link back" states 0.
+   - Wrong: the page shows one plain "Artists" row.
+   - Wrong: either label is missing, or a row shows the wrong count for its label.
+
+**V2 - a publisher with unconfirmed artists and no confirmed link**
+
+5. Open the publisher page for a publisher feed whose listed albums do not name it back. The
+   packet's Recorded Facts name "Master's Scroll" as one example, on 2026-09-26.
+6. Read the header facts.
+   - Correct: "Artists that name this feed" states 0.
+   - Correct: "Artists this feed lists without a link back" states a count above 0, with its artist
+     names.
+   - Wrong: the page shows no fact for one or both rows.
+   - Wrong: an artist name appears under the wrong label.
+
+**V3 - the labels read clearly**
+
+7. Read both header labels on the pages from step 3 and step 5.
+   - Accept the labels "Artists that name this feed" and "Artists this feed lists without a link
+     back." Or, give new wording for either label.
+
+**V4 - normal and narrow widths, Light and Dark themes**
+
+8. Repeat step 3 and step 4 at the normal window width. Then repeat them at a narrow width. Pull
+   the window edge until the Library sidebar collapses. Or resize the window below the
+   narrow-layout width named in the sidebar and toolbar runbooks.
+9. Repeat step 8 in Light theme. Then repeat it in Dark theme (Settings > Appearance).
+   - Wrong: either header row clips its text at either width or in either theme.
+   - Color alone is not a valid difference between a correct result and a wrong one.
+
+**Cleanup**
+
+10. Close the app window. This packet writes no file and stores no new row. No step above changes
+    stored state. Do not delete `/tmp/v4vmm-governance.ie6k8TQf`.
 
 ## Prompt for lower-context coding model
 
@@ -166,3 +290,13 @@ Stop and report the problem, and do not guess, when:
 - A reader other than the publisher page uses `distinct_release_artist_count` or `distinct_release_artists`.
 - The header fact composition cannot show two facts without a new shared composite.
 - A change needs a file in "Do not touch".
+
+## Orchestrator Review - 2026-09-30
+
+The orchestrator reviewed the diff and ran each check. Each check is Green: 1,925 unit tests, 283 guards, and no warning.
+
+- The Index page and the Library page read the four fields from the present request. No request is added.
+- `distinct_release_artist_count` and `distinct_release_artists` have no reader, and their decode is deleted.
+- The screen needed no change. It shows each fact that `header_facts` gives.
+- The orchestrator rewrote two test comments that described earlier code. They now state the present code.
+- The operator decides the two labels at V3.

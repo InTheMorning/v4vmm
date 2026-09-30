@@ -720,8 +720,10 @@ fn publisher_page_facts_from_feed(publisher_feed_guid: &str, feed: &Feed) -> Pub
     PublisherPageFacts {
         publisher_feed_guid: publisher_feed_guid.to_owned(),
         feed_title: feed.title.clone(),
-        distinct_release_artist_count: feed.distinct_release_artist_count,
-        distinct_release_artists: feed.distinct_release_artists.clone().unwrap_or_default(),
+        confirmed_release_artist_count: feed.confirmed_release_artist_count,
+        confirmed_release_artists: feed.confirmed_release_artists.clone().unwrap_or_default(),
+        unconfirmed_release_artist_count: feed.unconfirmed_release_artist_count,
+        unconfirmed_release_artists: feed.unconfirmed_release_artists.clone().unwrap_or_default(),
         albums,
         other_albums_failure: None,
     }

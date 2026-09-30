@@ -1,11 +1,12 @@
-//! Publisher page view model (ADR 0077 Task 003, ADR 0078).
+//! Publisher page view model (ADR 0077 Task 003, ADR 0078, ADR 0077 Task 007).
 //!
 //! The Index publisher page query and the Library publisher page query, in
 //! `src/application/queries`, each build one [`PublisherPageFacts`] value
 //! from their own data. This module turns that value into the page type,
-//! the album groups, the title, and the artist count that the page shows.
-//! No renderer computes these facts. [`PublisherPageVm`] computes each one,
-//! and packet 004 wires a screen to it.
+//! the album groups, the title, and the confirmed and unconfirmed artist
+//! counts that the page shows. No renderer computes these facts.
+//! [`PublisherPageVm`] computes each one, and packet 004 wires a screen to
+//! it.
 
 #![warn(clippy::pedantic)]
 
@@ -92,10 +93,18 @@ pub(crate) struct PublisherPageFacts {
     pub(crate) publisher_feed_guid: String,
     /// The publisher feed's own `<title>`.
     pub(crate) feed_title: Option<String>,
-    /// `distinct_release_artist_count` of the publisher feed. `MusicIndex`
+    /// `confirmed_release_artist_count` of the publisher feed: the distinct
+    /// artists of the albums that name this publisher and that this
+    /// publisher also lists (Stophammer ADR 0061, ADR 0077 Task 007).
+    /// `MusicIndex` derives it; it never selects the page type (ADR 0078).
+    pub(crate) confirmed_release_artist_count: Option<i64>,
+    pub(crate) confirmed_release_artists: Vec<String>,
+    /// `unconfirmed_release_artist_count` of the publisher feed: the
+    /// distinct artists of the albums that this publisher lists but that do
+    /// not name it (Stophammer ADR 0061, ADR 0077 Task 007). `MusicIndex`
     /// derives it; it never selects the page type (ADR 0078).
-    pub(crate) distinct_release_artist_count: Option<i64>,
-    pub(crate) distinct_release_artists: Vec<String>,
+    pub(crate) unconfirmed_release_artist_count: Option<i64>,
+    pub(crate) unconfirmed_release_artists: Vec<String>,
     pub(crate) albums: Vec<PublisherPageAlbumFact>,
     /// R3-02a: the reason the request for the albums that are not in the
     /// Library failed. `None` when that request has not failed. The Library
@@ -377,8 +386,13 @@ impl PublisherPageVm {
     /// Row label for the "No title" fact, shown only when the feed states
     /// no title.
     pub(crate) const TITLE_LABEL: &'static str = "Title";
-    /// Row label for the derived artist count fact.
-    pub(crate) const ARTISTS_LABEL: &'static str = "Artists";
+    /// Row label for the confirmed artist count fact (ADR 0077 Task 007):
+    /// the artists of the albums that name this feed.
+    pub(crate) const CONFIRMED_ARTISTS_LABEL: &'static str = "Artists that name this feed";
+    /// Row label for the unconfirmed artist count fact (ADR 0077 Task 007):
+    /// the artists of the albums that this feed lists without a link back.
+    pub(crate) const UNCONFIRMED_ARTISTS_LABEL: &'static str =
+        "Artists this feed lists without a link back";
 
     #[must_use]
     pub(crate) const fn new(facts: PublisherPageFacts) -> Self {
@@ -420,9 +434,15 @@ impl PublisherPageVm {
                 value: TitleDisplay::MISSING_LABEL.to_owned(),
             });
         }
-        if let Some(count) = self.derived_artist_count() {
+        if let Some(count) = self.confirmed_artist_count() {
             facts.push(PublisherPageHeaderFact {
-                label: Self::ARTISTS_LABEL,
+                label: Self::CONFIRMED_ARTISTS_LABEL,
+                value: count.display_text(),
+            });
+        }
+        if let Some(count) = self.unconfirmed_artist_count() {
+            facts.push(PublisherPageHeaderFact {
+                label: Self::UNCONFIRMED_ARTISTS_LABEL,
                 value: count.display_text(),
             });
         }
@@ -475,14 +495,27 @@ impl PublisherPageVm {
             .collect()
     }
 
-    /// R3-11: the derived artist count, apart from `page_type`.
+    /// R3-11, R7-05 (ADR 0077 Task 007): the confirmed artist count, apart
+    /// from `page_type`. `None` when the response gives no confirmed count.
     #[must_use]
-    pub(crate) fn derived_artist_count(&self) -> Option<DerivedArtistCount> {
+    pub(crate) fn confirmed_artist_count(&self) -> Option<DerivedArtistCount> {
         self.facts
-            .distinct_release_artist_count
+            .confirmed_release_artist_count
             .map(|count| DerivedArtistCount {
                 count,
-                names: self.facts.distinct_release_artists.clone(),
+                names: self.facts.confirmed_release_artists.clone(),
+            })
+    }
+
+    /// R7-05 (ADR 0077 Task 007): the unconfirmed artist count, apart from
+    /// `page_type`. `None` when the response gives no unconfirmed count.
+    #[must_use]
+    pub(crate) fn unconfirmed_artist_count(&self) -> Option<DerivedArtistCount> {
+        self.facts
+            .unconfirmed_release_artist_count
+            .map(|count| DerivedArtistCount {
+                count,
+                names: self.facts.unconfirmed_release_artists.clone(),
             })
     }
 
@@ -624,12 +657,12 @@ mod tests {
             .map(|_| owned_album(Some("artist"), Some(RoleSource::Default)))
             .collect();
         let mut page_facts = facts(albums);
-        page_facts.distinct_release_artist_count = Some(5);
-        page_facts.distinct_release_artists = vec!["A".into(), "B".into(), "C".into()];
+        page_facts.confirmed_release_artist_count = Some(5);
+        page_facts.confirmed_release_artists = vec!["A".into(), "B".into(), "C".into()];
         let vm = PublisherPageVm::new(page_facts);
         assert_eq!(vm.page_type(), PublisherPageType::Artist);
         assert_eq!(
-            vm.derived_artist_count(),
+            vm.confirmed_artist_count(),
             Some(DerivedArtistCount {
                 count: 5,
                 names: vec!["A".into(), "B".into(), "C".into()],
@@ -751,12 +784,12 @@ mod tests {
             Some("label"),
             Some(RoleSource::PublisherRel),
         )]);
-        page_facts.distinct_release_artist_count = Some(3);
-        page_facts.distinct_release_artists = vec!["A".into(), "B".into(), "C".into()];
+        page_facts.confirmed_release_artist_count = Some(3);
+        page_facts.confirmed_release_artists = vec!["A".into(), "B".into(), "C".into()];
         let vm = PublisherPageVm::new(page_facts);
 
         assert_eq!(vm.page_type(), PublisherPageType::Label);
-        let count = vm.derived_artist_count().expect("a count is present");
+        let count = vm.confirmed_artist_count().expect("a count is present");
         assert_eq!(count.count, 3);
         assert_eq!(DerivedArtistCount::LABEL, "Derived from album credits");
     }
@@ -876,21 +909,21 @@ mod tests {
         assert_eq!(title_row.value, TitleDisplay::MISSING_LABEL);
     }
 
-    /// Packet 004: the derived artist count header fact names the count as
-    /// derived, and lists the artist names.
+    /// Packet 004: the confirmed artist count header fact names the count
+    /// as derived, and lists the artist names.
     #[test]
     fn adr_0077_publisher_navigation_header_facts_name_the_count_as_derived() {
         let mut page_facts = facts(vec![owned_album(Some("artist"), Some(RoleSource::Default))]);
-        page_facts.distinct_release_artist_count = Some(2);
-        page_facts.distinct_release_artists = vec!["A".into(), "B".into()];
+        page_facts.confirmed_release_artist_count = Some(2);
+        page_facts.confirmed_release_artists = vec!["A".into(), "B".into()];
         let vm = PublisherPageVm::new(page_facts);
 
         let facts = vm.header_facts();
 
         let artists_row = facts
             .iter()
-            .find(|fact| fact.label == PublisherPageVm::ARTISTS_LABEL)
-            .expect("a derived count adds an Artists row");
+            .find(|fact| fact.label == PublisherPageVm::CONFIRMED_ARTISTS_LABEL)
+            .expect("a confirmed count adds an artist row");
         assert!(artists_row.value.contains("2"));
         assert!(artists_row.value.contains(DerivedArtistCount::LABEL));
         assert!(artists_row.value.contains("A, B"));
@@ -967,5 +1000,94 @@ mod tests {
             vm.album_image_urls(),
             vec!["https://example.test/a.png".to_string()]
         );
+    }
+
+    /// R7-02 (ADR 0077 Task 007, Stophammer ADR 0061): confirmed 1 and
+    /// unconfirmed 0 give two header facts, with the confirmed name and
+    /// both counts.
+    #[test]
+    fn adr_0077_confirmed_artists_two_facts_show_confirmed_and_unconfirmed_counts() {
+        let mut page_facts = facts(vec![]);
+        page_facts.confirmed_release_artist_count = Some(1);
+        page_facts.confirmed_release_artists = vec!["Official DETOX Music".into()];
+        page_facts.unconfirmed_release_artist_count = Some(0);
+        let vm = PublisherPageVm::new(page_facts);
+
+        let header_facts = vm.header_facts();
+        let confirmed = header_facts
+            .iter()
+            .find(|fact| fact.label == PublisherPageVm::CONFIRMED_ARTISTS_LABEL)
+            .expect("a confirmed count adds a header fact");
+        assert!(confirmed.value.contains('1'));
+        assert!(confirmed.value.contains("Official DETOX Music"));
+
+        let unconfirmed = header_facts
+            .iter()
+            .find(|fact| fact.label == PublisherPageVm::UNCONFIRMED_ARTISTS_LABEL)
+            .expect("an unconfirmed count of 0 still adds a header fact");
+        assert!(unconfirmed.value.contains('0'));
+    }
+
+    /// R7-03: confirmed 0 and unconfirmed 33 give two header facts with
+    /// those counts, and the unconfirmed fact lists the unconfirmed names.
+    #[test]
+    fn adr_0077_confirmed_artists_unconfirmed_names_show_when_confirmed_is_zero() {
+        let mut page_facts = facts(vec![]);
+        page_facts.confirmed_release_artist_count = Some(0);
+        page_facts.unconfirmed_release_artist_count = Some(33);
+        page_facts.unconfirmed_release_artists = vec!["Artist One".into(), "Artist Two".into()];
+        let vm = PublisherPageVm::new(page_facts);
+
+        let header_facts = vm.header_facts();
+        let confirmed = header_facts
+            .iter()
+            .find(|fact| fact.label == PublisherPageVm::CONFIRMED_ARTISTS_LABEL)
+            .expect("a confirmed count of 0 still adds a header fact");
+        assert!(confirmed.value.contains('0'));
+
+        let unconfirmed = header_facts
+            .iter()
+            .find(|fact| fact.label == PublisherPageVm::UNCONFIRMED_ARTISTS_LABEL)
+            .expect("an unconfirmed count adds a header fact");
+        assert!(unconfirmed.value.contains("33"));
+        assert!(unconfirmed.value.contains("Artist One"));
+        assert!(unconfirmed.value.contains("Artist Two"));
+    }
+
+    /// R7-04: facts with none of the four fields give no artist fact.
+    /// `PublisherPageFacts` holds no other artist count, so no fallback can
+    /// supply one.
+    #[test]
+    fn adr_0077_confirmed_artists_absent_fields_give_no_artist_fact() {
+        let page_facts = facts(vec![owned_album(Some("artist"), Some(RoleSource::Default))]);
+        let vm = PublisherPageVm::new(page_facts);
+
+        let header_facts = vm.header_facts();
+        assert!(
+            header_facts.iter().all(
+                |fact| fact.label != PublisherPageVm::CONFIRMED_ARTISTS_LABEL
+                    && fact.label != PublisherPageVm::UNCONFIRMED_ARTISTS_LABEL
+            ),
+            "an absent confirmed and unconfirmed count must add no artist fact"
+        );
+    }
+
+    /// R7-05: the page type stays equal for two pages that differ only in
+    /// their confirmed and unconfirmed artist lists (ADR 0078).
+    #[test]
+    fn adr_0077_confirmed_artists_page_type_is_equal_across_different_artist_lists() {
+        let mut few_artists = facts(vec![owned_album(Some("artist"), Some(RoleSource::Default))]);
+        few_artists.confirmed_release_artist_count = Some(1);
+        few_artists.confirmed_release_artists = vec!["A".into()];
+
+        let mut many_artists = facts(vec![owned_album(Some("artist"), Some(RoleSource::Default))]);
+        many_artists.confirmed_release_artist_count = Some(33);
+        many_artists.confirmed_release_artists = (0..33).map(|n| format!("Artist {n}")).collect();
+        many_artists.unconfirmed_release_artist_count = Some(10);
+        many_artists.unconfirmed_release_artists = vec!["Other Artist".into()];
+
+        let vm_few = PublisherPageVm::new(few_artists);
+        let vm_many = PublisherPageVm::new(many_artists);
+        assert_eq!(vm_few.page_type(), vm_many.page_type());
     }
 }

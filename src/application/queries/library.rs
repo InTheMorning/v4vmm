@@ -810,19 +810,24 @@ pub(crate) fn fetch_library_publisher_page(
     let client = crate::api::Client::new_with_base_url(endpoint.clone());
     let provider_identity = endpoint.require().map(str::to_owned).unwrap_or_default();
     let mut other_albums_failure = None;
-    let mut distinct_release_artist_count = None;
-    let mut distinct_release_artists = Vec::new();
+    let mut confirmed_release_artist_count = None;
+    let mut confirmed_release_artists = Vec::new();
+    let mut unconfirmed_release_artist_count = None;
+    let mut unconfirmed_release_artists = Vec::new();
     match crate::application::queries::feed::fetch_index_publisher_page_albums(
         &client,
         &provider_identity,
         publisher_feed_guid,
     ) {
         Ok(remote) => {
-            // The one request also carries the publisher feed's own derived
-            // artist count (ADR 0077, ADR 0078). The Library page shows it
-            // when that request succeeds, the same as the Index page.
-            distinct_release_artist_count = remote.distinct_release_artist_count;
-            distinct_release_artists = remote.distinct_release_artists;
+            // The one request also carries the publisher feed's own
+            // confirmed and unconfirmed artist counts (ADR 0077 Task 007,
+            // ADR 0078). The Library page shows them when that request
+            // succeeds, the same as the Index page.
+            confirmed_release_artist_count = remote.confirmed_release_artist_count;
+            confirmed_release_artists = remote.confirmed_release_artists;
+            unconfirmed_release_artist_count = remote.unconfirmed_release_artist_count;
+            unconfirmed_release_artists = remote.unconfirmed_release_artists;
             for album in remote.albums {
                 let already_local = album
                     .feed_guid
@@ -839,8 +844,10 @@ pub(crate) fn fetch_library_publisher_page(
     Ok(PublisherPageFacts {
         publisher_feed_guid: publisher_feed_guid.to_owned(),
         feed_title,
-        distinct_release_artist_count,
-        distinct_release_artists,
+        confirmed_release_artist_count,
+        confirmed_release_artists,
+        unconfirmed_release_artist_count,
+        unconfirmed_release_artists,
         albums,
         other_albums_failure,
     })
@@ -3273,8 +3280,8 @@ mod adr_0077_publisher_page_tests {
                             let body = serde_json::json!({"data": {
                                 "feed_guid": "publisher-guid",
                                 "title": "Publisher Feed",
-                                "distinct_release_artist_count": 2,
-                                "distinct_release_artists": ["Remote Artist", "Local Artist"],
+                                "confirmed_release_artist_count": 2,
+                                "confirmed_release_artists": ["Remote Artist", "Local Artist"],
                                 "publisher": [
                                     {
                                         "direction": "publisher_to_music",
@@ -3406,9 +3413,9 @@ mod adr_0077_publisher_page_tests {
         assert!(!remote.in_library);
         assert_eq!(facts.other_albums_failure, None);
         assert_eq!(
-            facts.distinct_release_artist_count,
+            facts.confirmed_release_artist_count,
             Some(2),
-            "the one request also carries the derived artist count"
+            "the one request also carries the confirmed artist count"
         );
     }
 
@@ -3433,8 +3440,8 @@ mod adr_0077_publisher_page_tests {
             "the other group's failure is reported"
         );
         assert_eq!(
-            facts.distinct_release_artist_count, None,
-            "a failed request carries no derived artist count"
+            facts.confirmed_release_artist_count, None,
+            "a failed request carries no confirmed artist count"
         );
     }
 
