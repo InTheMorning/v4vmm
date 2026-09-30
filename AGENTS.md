@@ -133,7 +133,8 @@ tags. The "Update n files" confirmation owns each metadata tag write. The operat
 details on 2026-09-25. Packet 005 (limits, copy action, scan triggers, and the in-place update after
 Confirm) and packet 006 (one credit list for each owner) are implemented on 2026-09-25, with their
 visual gates open and paused. [Packet 007](docs/tasks/adr-0076-task-007-guard-reads-test-files-as-test-code.md)
-corrects a guard helper that reads a test-only file as production code. It is Ready on 2026-09-30.
+corrects a guard helper that reads a test-only file as production code. It is implemented on 2026-09-30, with no visual gate.
+No ADR 0076 packet is open.
 Schema version 17 is current, and each route write to a file reads the stored route. One projection in
 `src/application/queries/stored_values.rs` owns the order of stored values.
 Packet 002 dropped the unused ADR 0075 discrepancy and field-selection tables. The operator accepted the

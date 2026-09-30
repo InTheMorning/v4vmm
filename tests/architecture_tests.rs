@@ -6079,7 +6079,7 @@ fn adr_0079_removed_artist_storage_stays_deleted() {
             continue;
         }
         let file = rel_path(&path);
-        let mut source = without_unit_test_module(&read_source(&path));
+        let mut source = without_unit_test_module(&path, &read_source(&path));
         if file == "src/db.rs" {
             for (start, end) in schema_history {
                 let span = source_between(&source, start, end).to_owned();
@@ -6108,8 +6108,13 @@ fn adr_0079_removed_artist_storage_stays_deleted() {
     );
 }
 
-/// Source text before the `#[cfg(test)] mod name {` block at the end of a file.
-fn without_unit_test_module(source: &str) -> String {
+/// Source text before the `#[cfg(test)] mod name {` block at the end of a
+/// file. A file that only a test build compiles has no production text: its
+/// parent module marks it test-only. ADR 0076 Decision 9 (packet 007).
+fn without_unit_test_module(path: &Path, source: &str) -> String {
+    if is_test_only_source_file(path) {
+        return String::new();
+    }
     let lines = source.lines().collect::<Vec<_>>();
     let end = lines
         .windows(2)
@@ -6120,6 +6125,56 @@ fn without_unit_test_module(source: &str) -> String {
         })
         .unwrap_or(lines.len());
     lines[..end].join("\n")
+}
+
+/// True when a test build is the only build that compiles the file at
+/// `path`. The parent module file declares such a file with `#[cfg(test)]`
+/// on the line before `mod <name>;`. ADR 0076 packet 007.
+///
+/// The parent is `<dir>.rs`, next to the directory that holds `path`, for a
+/// file such as `src/discover/tests.rs` under `src/discover.rs`. The parent
+/// is `mod.rs` or `lib.rs` in the same directory as `path` otherwise, for a
+/// file such as `src/view_models/workspace/tests.rs` under
+/// `src/view_models/workspace/mod.rs`.
+fn is_test_only_source_file(path: &Path) -> bool {
+    let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
+        return false;
+    };
+    let Some(dir) = path.parent() else {
+        return false;
+    };
+    let mut parents = vec![dir.join("mod.rs"), dir.join("lib.rs")];
+    if let Some(dir_name) = dir.file_name().and_then(|value| value.to_str()) {
+        if let Some(sibling_dir) = dir.parent() {
+            parents.push(sibling_dir.join(format!("{dir_name}.rs")));
+        }
+    }
+    parents
+        .into_iter()
+        .filter(|parent| parent.is_file())
+        .any(|parent| module_declares_test_only_child(&read_source(&parent), name))
+}
+
+/// True when `source` declares `mod <name>;` on the line after
+/// `#[cfg(test)]`.
+fn module_declares_test_only_child(source: &str, name: &str) -> bool {
+    let lines = source.lines().collect::<Vec<_>>();
+    lines
+        .windows(2)
+        .any(|pair| pair[0].trim() == "#[cfg(test)]" && line_declares_mod(pair[1], name))
+}
+
+/// True when `line` reads `mod <name>;`. An optional leading visibility
+/// keyword, such as `pub` or `pub(crate)`, may come before `mod`.
+fn line_declares_mod(line: &str, name: &str) -> bool {
+    let Some(rest) = line.trim().strip_suffix(';') else {
+        return false;
+    };
+    match rest.split_whitespace().collect::<Vec<_>>().as_slice() {
+        ["mod", declared] => *declared == name,
+        [visibility, "mod", declared] if visibility.starts_with("pub") => *declared == name,
+        _ => false,
+    }
 }
 
 #[test]
@@ -12519,7 +12574,7 @@ fn route_source_violations(file: &str, source: &str) -> Vec<String> {
     if file == "src/audio_tags.rs" {
         return Vec::new();
     }
-    let production = code_only(&without_unit_test_module(source));
+    let production = code_only(&without_unit_test_module(&manifest_path(file), source));
     let starts = production
         .match_indices("fn ")
         .map(|(index, _)| index)
@@ -12588,7 +12643,7 @@ fn adr_0076_route_readiness_route_frame_writes_read_the_stored_route() {
     for path in rust_files_under("src") {
         let file = rel_path(&path);
         let source = read_source(&path);
-        let production = code_only(&without_unit_test_module(&source));
+        let production = code_only(&without_unit_test_module(&path, &source));
         if file != "src/audio_tags.rs"
             && TAG_WRITE_CALLS.iter().any(|call| production.contains(call))
         {
@@ -12614,6 +12669,49 @@ fn adr_0076_route_readiness_route_frame_writes_read_the_stored_route() {
         violations.is_empty(),
         "ADR 0076 Decision 9 route source violations:\n{}",
         violations.join("\n")
+    );
+}
+
+/// Situational ADR 0076 Decision 9 (packet 007): the route guard reads a
+/// test-only file as test code, never as production code. A file that only
+/// a test build compiles cannot give a false route violation.
+///
+/// Incident, ADR 0080 packet 002 on 2026-09-29: a test in
+/// `src/discover/tests.rs` wrote a file with `write_id3v24_edits`, and the
+/// guard reported it as a route frame write.
+#[test]
+fn adr_0076_route_readiness_ignores_test_only_files() {
+    // R76-7-01: the parent-declared test-only files, and their production kin.
+    for test_only_file in [
+        "src/discover/tests.rs",
+        "src/view_models/workspace/tests.rs",
+        "src/view_models/search/tests.rs",
+        "src/view_models/search_results/tests.rs",
+    ] {
+        assert!(
+            is_test_only_source_file(&manifest_path(test_only_file)),
+            "{test_only_file}: its parent declares it under `#[cfg(test)]` and must count as test-only"
+        );
+    }
+    for production_file in ["src/discover.rs", "src/metadata.rs"] {
+        assert!(
+            !is_test_only_source_file(&manifest_path(production_file)),
+            "{production_file} is production code and must not count as test-only"
+        );
+    }
+
+    // R76-7-02 and R76-7-03: the same tag write, in a test-only file and in
+    // a production file.
+    const SAMPLE_WRITE: &str =
+        "fn a_test_writes_a_tag() {\n    write_id3v24_edits(path, &edits).unwrap();\n}\n";
+    assert!(
+        route_source_violations("src/discover/tests.rs", SAMPLE_WRITE).is_empty(),
+        "a test-only file must give the route guard no production text"
+    );
+    assert_eq!(
+        route_source_violations("src/discover.rs", SAMPLE_WRITE).len(),
+        1,
+        "a production file must still report the route violation"
     );
 }
 
@@ -12659,10 +12757,11 @@ fn adr_0076_tag_update_checks_and_scans_write_no_tag() {
         "src/runtime/playlist_rss_check.rs",
         "src/application/queries/tag_update.rs",
     ] {
-        let source = read_source(&manifest_path(file));
+        let path = manifest_path(file);
+        let source = read_source(&path);
         violations.extend(tag_write_violations(
             file,
-            &code_only(&without_unit_test_module(&source)),
+            &code_only(&without_unit_test_module(&path, &source)),
         ));
     }
     let service = read_source(&manifest_path("src/feed_service.rs"));
@@ -12696,9 +12795,8 @@ fn adr_0076_tag_update_checks_and_scans_write_no_tag() {
         "src/view_models/tag_update.rs",
         "src/ui/shells/tag_update_confirmation.rs",
     ] {
-        let source = code_only(&without_unit_test_module(&read_source(&manifest_path(
-            file,
-        ))));
+        let path = manifest_path(file);
+        let source = code_only(&without_unit_test_module(&path, &read_source(&path)));
         for forbidden in [
             "read_audio_tags(",
             "plan_tag_update_scan(",
@@ -20085,7 +20183,7 @@ fn adr_0076_rss_comparison_musicindex_writers_call_the_hold_gate() {
         for path in rust_files_under("src") {
             let file = rel_path(&path);
             let source = read_source(&path);
-            let production = without_unit_test_module(&source);
+            let production = without_unit_test_module(&path, &source);
             for (line_number, line) in code_lines(&production) {
                 if line.contains(write) && !allowed.contains(&file.as_str()) {
                     violations.push(format!(
@@ -20122,7 +20220,7 @@ fn adr_0076_credit_list_readers_use_the_projection() {
             continue;
         }
         let source = read_source(&path);
-        let production = without_unit_test_module(&source);
+        let production = without_unit_test_module(&path, &source);
         for (line_number, line) in code_lines(&production) {
             if line.contains(READ) {
                 violations.push(format!(
