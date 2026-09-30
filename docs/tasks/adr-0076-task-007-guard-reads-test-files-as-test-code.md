@@ -1,0 +1,103 @@
+# ADR 0076 Task 007: A Guard Reads Test Files As Test Code
+
+Status: Ready - 2026-09-30. Implementation has not started. This packet has no visual gate.
+
+## Goal
+
+The guard helper that removes test code from a source file also removes each file that only a test build compiles.
+A test in such a file then cannot give a false guard result.
+
+## Authority
+
+- [ADR 0076](../adr/0076-playlist-rss-check-for-stale-musicindex-records.md) Decision 9 and its guard `adr_0076_route_readiness_route_frame_writes_read_the_stored_route`.
+- The working rules in [AGENTS.md](../../AGENTS.md): "A guard names its class and its ADR" and "Every fix gets a guard".
+
+## Recorded Facts - 2026-09-30
+
+- `without_unit_test_module` in `tests/architecture_tests.rs` cuts a file at the first line pair `#[cfg(test)]` and `mod ... {`.
+- Four files hold only test code. Their parent declares each one with `#[cfg(test)]` and `mod tests;`:
+  - `src/discover/tests.rs` (from `src/discover.rs`)
+  - `src/view_models/workspace/tests.rs`
+  - `src/view_models/search/tests.rs`
+  - `src/view_models/search_results/tests.rs`
+- The helper reads each of these files as production code, because the file has no `mod tests {` line.
+- Incident, ADR 0080 packet 002 on 2026-09-29: a test in `src/discover/tests.rs` wrote a file with `write_id3v24_edits`. The ADR 0076 guard reported it as a route frame write. The implementer moved the test to avoid the false result.
+
+## Required Changes
+
+1. Add one guard helper that tells if a source file only compiles in a test build. A file is test-only when its parent module file declares it with `#[cfg(test)]` on the line before `mod <name>;`.
+2. `without_unit_test_module`, or each caller of it, gives an empty production text for a test-only file.
+3. Keep every other result of the helper equal.
+4. Move the test of ADR 0080 packet 002 (the R82-09 round trip in the `mod tests` block of `src/metadata.rs`) only if it belongs better in `src/discover/tests.rs`. Do not move it for any other reason.
+
+## Mechanical Acceptance Criteria
+
+| Case | Required proof |
+|---|---|
+| R76-7-01 | The helper marks the four files of "Recorded Facts" as test-only, and marks `src/discover.rs` and `src/metadata.rs` as not test-only |
+| R76-7-02 | A sample test-only source with a `write_id3v24_edits(` call gives no ADR 0076 route violation |
+| R76-7-03 | A sample production source with the same call still gives one violation |
+| R76-7-04 | Each guard in `tests/architecture_tests.rs` passes with the same count as before, 283 or more |
+
+## Exclusions
+
+- No change to any rule that a guard enforces.
+- No change to `src/`.
+
+## Files To Inspect
+
+- [Agent rules](../../AGENTS.md).
+- `tests/architecture_tests.rs`: `without_unit_test_module`, `production_source`, `code_only`, `rust_files_under`, `route_source_violations`, and each caller of `without_unit_test_module`.
+
+## Checks
+
+```bash
+cargo test --test architecture_tests
+cargo test
+cargo fmt -- --check
+cargo clippy -- -D warnings
+cargo check --all-targets
+cargo build --bin v4vmm
+```
+
+## Rollback
+
+Revert the working tree.
+
+## Prompt for lower-context coding model
+
+You are implementing one bounded task from a larger plan.
+
+Implement only this task. Do not redesign the architecture.
+
+Read:
+- `AGENTS.md`
+- This packet: `docs/tasks/adr-0076-task-007-guard-reads-test-files-as-test-code.md`
+- Each file in "Files To Inspect"
+
+Goal:
+- Make each change in "Required Changes": detect a test-only file, and give it no production text.
+
+Constraints:
+- Write each comment and each document sentence in ASD-STE100 Simplified Technical English. Use the shared skill at `~/.agents/skills/asd-ste100/SKILL.md`.
+- A guard failure message names the owning ADR and the fix.
+- Do not commit. Do not run the app: no `cargo run`, no `xvfb-run` and no display attempt.
+
+Do not touch:
+- Any file in `src/`.
+- Any ADR, and each document other than this packet.
+
+Acceptance criteria:
+- Each case R76-7-01 to R76-7-04 has a passing test.
+- Each command in "Checks" is Green, and `cargo check --all-targets` gives no warning.
+
+At the end, report:
+1. files changed
+2. tests run
+3. behavior changed
+4. deviations from task
+5. unresolved concerns
+
+Stop and report the problem, and do not guess, when:
+- A guard starts to fail after the change, because it found real production code in a file that it did not read before.
+- A change needs a file in "Do not touch".

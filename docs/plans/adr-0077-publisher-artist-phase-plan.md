@@ -44,7 +44,7 @@ Packet 001 recorded these findings on 2026-09-24. No packet owns them yet.
 - `ApiSource::fetch_artist` always returns an error, because MusicIndex has no artist route. `ApiSource` has no constructor outside `src/sources.rs`.
 - Packet 002 corrected the ADR 0075 evidence rule for `publisher`. Commit `82c3c06` treated the collection as an object. The live contract sends an array.
 - A stored publisher relationship is never deleted. Packet 013 keeps MusicIndex replacement disabled until Stophammer states that the collection is complete.
-- `SearchApp` in `src/discover.rs` is parked under `#![allow(dead_code)]`, and no composition root constructs it. AGENTS.md requires the deletion of code that no composition root reaches. Packet 005 found this on 2026-09-26. A decision must state which discover code stays live, because some discover screens are live.
+- [ADR 0060 packet 005](../tasks/adr-0060-task-005-delete-parked-discover-code.md) owns this finding, Ready on 2026-09-30. `SearchApp` in `src/discover.rs` is parked under `#![allow(dead_code)]`, and no composition root constructs it. AGENTS.md requires the deletion of code that no composition root reaches. Packet 005 found this on 2026-09-26. A decision must state which discover code stays live, because some discover screens are live.
 - `src/audio_format/probe.rs` test `adr_0066_converter_failures_are_distinct_and_output_is_not_retained` failed once in a full run and passed when run again. It writes a script and runs it at once. A parallel run can cause this failure.
 
 ## Session Rules

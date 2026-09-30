@@ -281,8 +281,8 @@ The operator accepted both cuts on 2026-09-21.
 | `feed_release_pubdate` gives an oldest-item date as a release date, against the accepted feed release-date evidence rule. `TDRC` gets it | [Packet 049](../tasks/adr-0075-task-049-no-derived-release-date.md), Implemented on 2026-09-29. Mechanical checks Green. Visual gate open and paused |
 | `TrackView.artwork` has no reader. `TrackView::display_artwork_url` gives the track artwork | No packet. Packet 048 recorded it on 2026-09-29 |
 | A feed artwork fallback to the first track image puts a track value on a feed (`index_feed_artwork_url`) | No packet. Packet 048 recorded it on 2026-09-29 |
-| The app reads no RSS channel `pubDate`. The accepted feed publication-date rules have no source | No packet |
-| A guard that compares the fields that the app decodes with a stored copy of the MusicIndex contract. The incident: Stophammer removed `artist_credit` on 2026-04-08, and the app read `None` for five months without a report | No packet and no decision. The operator can decide it separately |
+| The app reads no RSS channel `pubDate`. The accepted feed publication-date rules have no source. The album page shows the oldest-item date as "Release Date" | [Packet 050](../tasks/adr-0075-task-050-feed-dates-by-owner.md), waits for two operator decisions |
+| A guard that compares the fields that the app decodes with a stored copy of the MusicIndex contract. The incident: Stophammer removed `artist_credit` on 2026-04-08, and the app read `None` for five months without a report | [Packet 051](../tasks/adr-0075-task-051-contract-field-guard.md), waits for the operator decision |
 | A typed RSS refresh-failure state. ADR 0075 §2 and §6 require the app to report a failed refresh. Deleted packet 019 owned it | No packet |
 | Combined isolation, restart, rollback, and superseded-response tests for provider snapshots. Deleted packet 015 owned them | No packet |
 

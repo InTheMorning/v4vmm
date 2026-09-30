@@ -105,6 +105,11 @@ against the deployed API.
 Packets [047](docs/tasks/adr-0075-task-047-search-rows-from-summary-fields.md), [048](docs/tasks/adr-0075-task-048-separate-track-artwork.md)
 and [049](docs/tasks/adr-0075-task-049-no-derived-release-date.md) implement the three landed changes on 2026-09-29.
 Their mechanical checks are Green, and their visual gates are open and paused.
+
+Two more ADR 0075 packets wait for operator decisions of 2026-09-30.
+[Packet 050](docs/tasks/adr-0075-task-050-feed-dates-by-owner.md) shows each feed date with its true meaning.
+[Packet 051](docs/tasks/adr-0075-task-051-contract-field-guard.md) guards each decoded field against a stored copy of the contract.
+[ADR 0060 packet 005](docs/tasks/adr-0060-task-005-delete-parked-discover-code.md) deletes the parked Discover code. It is Ready on 2026-09-30.
 ADR 0076, amended on 2026-09-26, makes the app ignore `last_build_date`. Three decoded fields no
 longer arrive. [Packet 046](docs/tasks/adr-0075-task-046-remove-undeclared-api-fields.md)
 removed them on 2026-09-26. Its mechanical checks are Green, and it needs no visual acceptance.
@@ -126,7 +131,8 @@ mechanical checks Green and their visual gates open and paused. A feed update no
 tags. The "Update n files" confirmation owns each metadata tag write. The operator decided four more
 details on 2026-09-25. Packet 005 (limits, copy action, scan triggers, and the in-place update after
 Confirm) and packet 006 (one credit list for each owner) are implemented on 2026-09-25, with their
-visual gates open and paused. No ADR 0076 packet is open.
+visual gates open and paused. [Packet 007](docs/tasks/adr-0076-task-007-guard-reads-test-files-as-test-code.md)
+corrects a guard helper that reads a test-only file as production code. It is Ready on 2026-09-30.
 Schema version 17 is current, and each route write to a file reads the stored route. One projection in
 `src/application/queries/stored_values.rs` owns the order of stored values.
 Packet 002 dropped the unused ADR 0075 discrepancy and field-selection tables. The operator accepted the
