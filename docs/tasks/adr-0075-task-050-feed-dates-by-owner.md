@@ -1,6 +1,6 @@
 # ADR 0075 Task 050: Feed Dates By Owner
 
-Status: Waits for the operator decisions of 2026-09-30. Implementation has not started.
+Status: Ready - 2026-09-30. The operator decided D50-1 and D50-2 on 2026-09-30. Implementation has not started.
 Its visual gate opens when the implementation is complete. Visual checks are paused, so the gate stays open.
 
 ## Goal
@@ -11,7 +11,7 @@ A track without its own date shows the feed publication date as a separate value
 
 ## Operator Decisions
 
-The operator decides these details before dispatch. The recommendation is in the second column.
+The operator accepted each recommendation below on 2026-09-30. ADR 0075 records both as an amendment of 2026-09-30.
 
 | Detail | Recommendation |
 |---|---|
@@ -39,7 +39,7 @@ The operator decides these details before dispatch. The recommendation is in the
 
 ## Required Changes
 
-These changes assume the recommended decisions. Change them to match the recorded decisions.
+These changes apply the recorded decisions.
 
 ### 1. Read The Channel Date
 

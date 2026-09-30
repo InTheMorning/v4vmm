@@ -1,6 +1,6 @@
 # ADR 0075 Task 051: Contract Field Guard
 
-Status: Waits for the operator decision of 2026-09-30. Implementation has not started. This packet has no visual gate.
+Status: Ready - 2026-09-30. The operator accepted the guard as designed on 2026-09-30. Implementation has not started. This packet has no visual gate.
 
 ## Goal
 
@@ -9,7 +9,7 @@ A decoded field that the contract does not declare fails the guard. A removed or
 
 ## Operator Decision
 
-The operator decides these details before dispatch. The recommendation is in the second column.
+The operator accepted each recommendation below on 2026-09-30.
 
 | Detail | Recommendation |
 |---|---|

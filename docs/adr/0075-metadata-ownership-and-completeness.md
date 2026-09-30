@@ -12,6 +12,9 @@ The app reports a stale MusicIndex record and directs the operator to podping.me
 
 Amended 2026-09-26: the MusicIndex title refinements no longer name the legacy `name` field. The contract declares no such field.
 
+Amended 2026-09-30: a MusicIndex `release_date` claim with the path `feed.pub_date` now proves a channel publication date. The operator decided this on 2026-09-30.
+The MusicIndex oldest-item date shows as the derived fact "First track published", never as a release date.
+
 Amended 2026-09-24: [ADR 0076](0076-playlist-rss-check-for-stale-musicindex-records.md) supersedes Decisions F, G and H.
 It also supersedes two Decision I rules. One rule gives fresh RSS the value. The other rule limits MusicIndex to a feed that the app has not fetched.
 It supersedes the provider priority, freshness, expiry and stale-label parts of each field refinement. The other parts stay in force.
@@ -199,7 +202,10 @@ Do not present those values as track-owned explicit-state assertions.
 
 Feed publication-date source priority, accepted on 2026-09-20: prefer valid fresh RSS channel `pubDate`.
 Then use MusicIndex claims that prove an actual channel publication date.
-The current `feed.pub_date` claim path alone cannot prove publication because the upstream parser can substitute `lastBuildDate`.
+A MusicIndex `release_date` claim with the path `feed.pub_date` proves a channel publication date, accepted on 2026-09-30.
+Stophammer stopped the `lastBuildDate` substitution on 2026-09-23, and its refresh pass of 2026-09-24 read each feed again.
+A claim with the path `oldest_item.pub_date` never proves a publication date or a release date.
+Oldest-item date presentation, accepted on 2026-09-30: show it as the derived fact "First track published", with MusicIndex as its source.
 
 Feed publication-date refinements, accepted separately: apply the description fields' removal, conflict, and stale-state rules.
 Retain original date text and source evidence. Retain the last selected field state after expiry, including selected absence.
