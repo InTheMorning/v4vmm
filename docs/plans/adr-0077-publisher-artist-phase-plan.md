@@ -16,7 +16,7 @@ and [ADR 0079](../adr/0079-remove-musicindex-artist-subject-storage.md) own the 
 | [004](../tasks/adr-0077-task-004-publisher-navigation-and-presentation.md) | Publisher page, navigation from an album and a track, and the Library album values | ADR 0077 Decisions 1 and 2, ADR 0078 | 003 | Implemented 2026-09-26. Mechanical checks Green. Visual gate open and paused |
 | [005](../tasks/adr-0077-task-005-feed-owner-text-and-name-search.md) | Feed owner text, removal of the `publisher_text` inspector, the name search and the name grouping label | ADR 0077 Decisions 1, 2 and 6 | 004 | Implemented 2026-09-26. Mechanical checks Green. Visual gate open and paused. Its name search reached only parked code |
 | [006](../tasks/adr-0077-task-006-name-matches-are-search-results.md) | The live name match: an `IndexArtistCandidate` row becomes `Tracks matching "<name>"`, and its page lists the tracks of `/v1/tracks?artist=<name>` | ADR 0077 Decision 1 and the refinement "Index artist page by name" | 005 | Implemented 2026-09-29. Mechanical checks Green. Visual gate open and paused |
-| 007 | Show the confirmed and unconfirmed artists of a publisher page apart, with the four fields of Stophammer ADR 0061 | ADR 0077, Stophammer ADR 0061 | 004, and the deploy of Stophammer 0.2.0 | Unblocked 2026-09-29. No task document yet |
+| [007](../tasks/adr-0077-task-007-confirmed-and-unconfirmed-artists.md) | Show the confirmed and unconfirmed artists of a publisher page apart, with the four fields of Stophammer ADR 0061 | ADR 0077, Stophammer ADR 0061 | 004, and the deploy of Stophammer 0.2.0 | Ready 2026-09-29 |
 
 Packet 001 added schema version 13, and packet 002 added schema version 14.
 
