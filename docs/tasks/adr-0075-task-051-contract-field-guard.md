@@ -1,6 +1,6 @@
 # ADR 0075 Task 051: Contract Field Guard
 
-Status: Ready - 2026-09-30. The operator accepted the guard as designed on 2026-09-30. Implementation has not started. This packet has no visual gate.
+Status: Held - 2026-09-30. The operator accepted the guard as designed on 2026-09-30. It waits for ADR 0060 packets 005 and 006. This packet has no visual gate.
 
 ## Goal
 
@@ -163,3 +163,14 @@ Stop and report the problem, and do not guess, when:
 - A decoded type with a live reader has no schema in the contract.
 - The present code fails the guard. Report each field, and do not remove a field that a live screen reads.
 - A change needs a file in "Do not touch".
+
+## Dispatch Stop - 2026-09-30
+
+The first implementer stopped before any change, under the stop conditions of this packet. The stop was correct.
+
+- `Artist`, `Release`, `Recording`, `ArtistCredit`, `ReleaseReference` and `Source` have readers. Each reader serves only the parked `discover::SearchApp`, which no entry point constructs.
+- `Client::fetch_detail` decodes `Release` and `Recording` from `/v1/releases/{id}` and `/v1/recordings/{id}`. Contract `0.2.0` declares neither path.
+- Their deletion needs files outside the edit scope of this packet.
+- `LiveItemCreateResponse` and `LiveMetadataSnapshot` decode `/v1/liveitems` and `/v1/liveitems/{event_id}/metadata` of the live relay (archived ADR 0018). They map to another service.
+
+[ADR 0060 packet 005](adr-0060-task-005-delete-parked-discover-code.md) and [packet 006](adr-0060-task-006-delete-parked-discover-queries.md) delete the parked code and these six types first. This packet then runs with the six types gone.
