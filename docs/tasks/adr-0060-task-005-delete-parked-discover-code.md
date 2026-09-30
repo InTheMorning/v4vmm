@@ -1,7 +1,10 @@
 # ADR 0060 Task 005: Delete The Parked Discover Code
 
-Status: Ready - 2026-09-30, after division. The first session completed Required Change 1 and stopped at the size limit.
-The orchestrator divided the work on 2026-09-30. This packet deletes the UI and state layer. [Packet 006](adr-0060-task-006-delete-parked-discover-queries.md) deletes the query layer.
+Status: Implemented - 2026-09-30. Mechanical checks Green. Visual gate open and paused.
+
+The orchestrator divided the work on 2026-09-30. The first session completed Required Change 1 and stopped at the size limit. A second session completed Required Change 2 on 2026-09-30.
+
+This packet deletes the UI and state layer. [Packet 006](adr-0060-task-006-delete-parked-discover-queries.md) deletes the query layer.
 
 ## Goal
 
@@ -56,7 +59,7 @@ The division of 2026-09-30 limits this packet to the UI and state layer. The mea
 | R60-5-01 | The packet records the measurement method and the unreachable list before deletion |
 | R60-5-02 | No file under `src/discover*` and `src/ui/shells/discover/` has `allow(dead_code)` |
 | R60-5-03 | `src/discover.rs`, `src/discover/`, `src/ui/shells/discover/` and `src/ui/shells/feed.rs` do not exist, and no `SearchApp` item stays in `src/` |
-| R60-5-05 | A guard, named for ADR 0060, fails when `src/discover.rs` or a file under `src/ui/shells/discover/` has `allow(dead_code)` |
+| R60-5-05 | A guard, named for ADR 0060, fails when a `SearchApp` item or a `discover` module returns under `src/`, or when `src/ui/shells/discover/` exists |
 
 ## Visual Acceptance Criteria
 
@@ -186,12 +189,183 @@ not compile. The two files are not separable work.
 
 ### Files Deleted Or Changed
 
-None. This packet made no lasting source change. The nine files touched for
-measurement are back to their committed state.
+Session 1 made no lasting source change, as recorded above. Session 2, on
+2026-09-30, deleted the measured list and changed each file that named it.
+
+Deleted:
+
+| File | Lines |
+|---|---|
+| `src/discover.rs` | 191 |
+| `src/discover/app_impl.rs` | 2,170 |
+| `src/discover/tests.rs` | 1,674 |
+| `src/ui/shells/discover/` (15 files) | 3,544 |
+| `src/ui/shells/feed.rs` | 65 |
+| **Total** | **7,644** |
+
+Changed:
+
+- `src/lib.rs`: removed the `pub mod discover;` declaration (1 line).
+- `src/ui/shells/mod.rs`: removed the `pub mod discover;` and `pub mod feed;`
+  declarations, and corrected the module doc comment's `SearchApp` example.
+- `src/ui/shells/track.rs`: deleted `TrackRowMode`, `playlist_options`,
+  `render_track_row` and `render_discover_track_row` (about 140 lines). It
+  also removed the imports that only those four items used. The file keeps
+  `render_track_page_identity_actions`, `render_track_feed_identity_section`,
+  `build_track_detail_surface` and `TrackDetailBehaviorSlots`. The Library
+  track page (`src/ui/shells/library/track_detail.rs`) and the Index
+  search-results inspector (`src/ui/shells/search_results_inspector.rs`) each
+  call these four kept items. The session did not change these two files.
+- `src/view_models/search/mod.rs`, `actions.rs`, `common.rs`, `controls.rs`,
+  `feed_detail.rs`, `lazy.rs`, `recent.rs`, `results.rs` and `track.rs`: each
+  file gained one dead-code marker for its now-caller-less content. See "Dead
+  Code Markers Added" below.
+- `src/application/queries/search.rs`, `feed.rs`, `library.rs` and
+  `images.rs`: each item with no remaining caller gained one dead-code
+  marker. See "Dead Code Markers Added" below. No file in this list deletes a
+  type or a function. Packet 006 owns that deletion.
+- `src/application/commands/metadata.rs`: two commands that only
+  `src/discover/app_impl.rs` built gained the same marker. See "Deviations".
+
+### Helpers Moved
+
+None. No live screen imported a helper through `crate::discover` after the
+Required Change 1 measurement corrected Recorded Facts. `render_track_row`
+and `render_discover_track_row`, the two `src/ui/shells/track.rs` functions
+that called `render_play_icon_button_with_id` and
+`render_track_download_button`, are themselves part of the deleted set. Their
+removal took the last caller of each helper with it, so
+`src/ui/shells/discover/actions.rs`, where each helper lived, deletes clean.
 
 ### Tests And Guards Deleted Or Changed
 
-None.
+Session 2 deleted four tests that named only deleted code. It changed
+nineteen tests and one helper doc comment, each of which also covers a live
+path. It added one guard.
+
+Deleted:
+
+1. `discover_module_public_surface_is_pinned`, with its two dedicated helpers
+   `name_from_decl` and `pub_crate_use_names`.
+2. `discover_type_filter_uses_segmented_control_contract`.
+3. `discover_screen_modules_are_decomposed_under_src_ui_shells_discover`, with
+   the `DISCOVER_SCREEN_SURFACE_FILES` constant it alone read.
+4. `discovery_recent_tiles_use_shared_composite`.
+
+Changed, each keeping its ADR citation:
+
+1. `adr_0066_missing_runtime_has_no_implicit_runner` (ADR 0066): dropped two
+   `src/discover/app_impl.rs` entries from its file lists.
+2. `adr_0047_task_016_retires_standalone_search_module_and_workspace_toggle`
+   (ADR 0047): dropped the check that `src/lib.rs` declares `discover` and
+   the check that `src/discover.rs` declares `SearchApp`.
+3. `global_search_replaces_screen_local_search_chrome` (ADR 0043): dropped
+   its reads of `src/discover/app_impl.rs` and
+   `src/ui/shells/discover/search_input.rs`.
+4. `interactive_surfaces_route_through_minimum_hit_target_token` (HIG hit
+   target): dropped the `src/ui/shells/discover/actions.rs` entry.
+5. `pressable_button_chrome_does_not_use_on_accent_on_ghost_surfaces` (token
+   discipline): dropped its two discover file entries.
+6. `screen_contributor_panels_use_shared_projection_facts` (ADR 0026/0028):
+   dropped the `src/discover.rs` entry.
+7. `adr_0042_composite_call_site_reconciliation_is_current` (ADR 0042):
+   dropped its `skeleton_feed_tile` and two-caller `MusicBrainzPanel` checks,
+   which named only discover files.
+8. `is_test_only_source_file`'s doc comment (ADR 0076 packet 007): replaced
+   its `src/discover/tests.rs` example, since that was the only file using
+   the sibling-`<dir>.rs` pattern it illustrated. See "Concerns".
+9. `adr_0047_membership_buttons_use_download_remove_vocabulary` (ADR 0047):
+   dropped the `src/ui/shells/discover/actions.rs` entry.
+10. `screen_entry_modules_under_500_loc` (ADR 0038 Task 007): dropped the
+    `src/discover.rs` ceiling.
+11. `track_identity_links_use_shared_renderer` (ADR 0037): dropped its
+    `src/ui/shells/discover/track_inspector.rs` checks.
+12. `screens_do_not_construct_track_inspector_pane_locally` (ADR 0035):
+    dropped the `src/discover.rs` entry.
+13. `track_surface_consumers_use_track_detail_vm` (ADR 0035): dropped the
+    `src/discover.rs` and `src/ui/shells/track.rs` consumers. The second one
+    named the deleted `render_discover_track_row`. Only the `src/library.rs`
+    consumer stays.
+14. `entity_detail_pages_render_through_shell_helper_and_page_vm` (ADR 0038
+    Task 006): dropped the "Discover release detail"
+    (`src/ui/shells/feed.rs`) and "Discover track detail"
+    (`src/ui/shells/discover/track_inspector.rs`) rows, and the
+    `src/discover.rs` entry in its second check.
+15. `view_models_own_display_fallbacks_for_library_and_search` (ADR 0038):
+    dropped 180 `src/discover.rs` rows and 2 `src/ui/shells/feed.rs` rows
+    from its 391-row table. The 179 `src/library.rs` rows are unchanged.
+16. `screen_level_fallback_expressions_stay_domain_only` (ADR 0038): dropped
+    11 `src/discover.rs` rows and the `src/discover.rs` file entry.
+17. `adr_0076_route_readiness_ignores_test_only_files` (ADR 0076 Decision 9):
+    replaced its `src/discover/tests.rs` and `src/discover.rs` examples with
+    `src/view_models/workspace/tests.rs` and `src/metadata.rs`. See
+    "Concerns".
+18. `release_feed_identity_actions_use_shared_renderer` (ADR 0037): dropped
+    the `src/ui/shells/feed.rs` entry.
+19. `release_surface_consumers_use_release_detail_vm` (ADR 0036): dropped the
+    `src/ui/shells/feed.rs` consumer. Only the `src/library.rs` consumer
+    stays.
+
+Shared fixture constants also dropped their discover entries:
+`SCREEN_FILES`, `SCREEN_SURFACE_DIRS`, `LIBRARY_REMOVAL_PRESENTATION_FILES`,
+`DEPRECATED_VISUAL_HELPER_BASELINES`, `DIRECT_COMPONENT_BUTTON_BASELINES`,
+`PROVENANCE_DIFF_HELPER_BASELINES`, `SCREEN_LOCAL_PLAYLIST_POPOVER_BASELINES`,
+`PLAYLIST_POPOVER_CALLSITE_FILES` and `PRESENTATION_GLUE_FILES`. Some of
+these feed `screen_enforcement_files()`, which reads each file it lists. An
+entry left for a deleted path would panic the guards that call it.
+
+Added:
+
+- `adr_0060_discover_surface_stays_deleted` (R60-5-05, ADR 0060). It scans
+  each file below `src/` for a `SearchApp` item or a `discover` module
+  declaration, and checks that `src/ui/shells/discover/` does not exist.
+
+### Dead Code Markers Added
+
+Each marker reads `#[expect(dead_code, reason = "ADR 0060 packet 006 deletes
+this parked query layer")]`, or the same `expect` wrapped in
+`#[cfg_attr(not(test), ...)]` where the item's own test module calls it
+directly too. Packet 006 removes each marker with the code it covers.
+
+- `src/view_models/search/mod.rs`, `actions.rs`, `controls.rs`,
+  `feed_detail.rs`, `lazy.rs`, `recent.rs`, `results.rs` and `track.rs`: one
+  file-level marker each. Each file's full body is the parked search view
+  model. `mod.rs` keeps its existing per-re-export `unused_imports` markers
+  too.
+- `src/view_models/search/common.rs`: one file-level marker, wrapped in
+  `cfg_attr(not(test), ...)`. Its one function is called by
+  `src/view_models/search/recent.rs` and `results.rs` in the test build. An
+  unconditional marker was unfulfilled in that build.
+- `src/application/queries/search.rs`: 18 item-level markers, on
+  `SharedConnection`, `DiscoverSearchResults`, `FetchDiscoverSearchResults`
+  and its `new`, `fetch_discover_search_results`, `fetch_search_batch`,
+  `PartitionedSearchCursor`, `fetch_partitioned_search_batch`,
+  `fetch_typed_search_batch`, `encode_partitioned_search_cursor`,
+  `decode_partitioned_search_cursor`, `fetch_local_library_search_rows`,
+  `fetch_artist_search_batch`, `search_hit_to_result_row`,
+  `enrich_artist_rows`, `fetch_scoped_detail`, `fetch_scoped_track` and
+  `bounded_i32_count`.
+- `src/application/queries/feed.rs`: 25 item-level markers.
+  - Nineteen markers are unconditional, on `FetchDiscoverRecentFeeds` and
+    its `new`, `InspectorDetailData`, `ArtistContextData`,
+    `InspectorDetailResult`, `FetchInspectorDetail` and its `new`, and
+    `FetchContributors` and its `new`. The same nineteen also cover
+    `FetchValueRoutes` and its `new`, `ResolvePodrollFeeds` and its `new`,
+    `fetch_inspector_detail`, `fetch_artist_detail`,
+    `artist_feeds_and_image`, `artist_feed_for_guid`,
+    `resolve_podroll_feeds` and `bounded_i32_count`.
+  - Six markers use `cfg_attr(not(test), ...)`, on `fetch_feed_detail`,
+    `fetch_track_detail`, `fetch_scoped_track`,
+    `hydrate_feed_track_play_urls`, `merge_track_play_fields` and
+    `nonempty_url`. The file's own tests call these six directly.
+  - `owner_fetch_feed` keeps no marker. It stays live. The live publisher
+    page reaches it through `fetch_index_publisher_page_albums`.
+- `src/application/queries/library.rs`: one unconditional marker, on
+  `LocalTrackContextResult`. Four more markers use
+  `cfg_attr(not(test), ...)`, on `FetchLocalTrackContext` and its `new`,
+  `fetch_local_track_context` and `nonempty_url`.
+- `src/application/queries/images.rs`: two `cfg_attr(not(test), ...)`
+  markers, on `DownloadInspectorImage` and its `new`.
 
 ### Section 3: Other `allow(dead_code)` Files
 
@@ -223,6 +397,21 @@ from that noise needs its own pass. This section is not complete.
   `allow(dead_code)` I removed for the measurement are back to their committed
   state.
 - Section 3 is not measured cleanly for six of its seven named files. See above.
+- Session 2 changed `src/application/commands/metadata.rs`, a file not in
+  the three locations named for the dead-code marker
+  (`src/view_models/search/`, `src/application/queries/` and `src/api.rs`).
+  Two commands there, `LookupRemoteMusicBrainzTrack` and
+  `DownloadAndCompareTrack`, no longer had a caller after the same
+  `src/discover/app_impl.rs` deletion. An unmarked pair would not pass
+  `cargo check --all-targets` or `cargo clippy -- -D warnings`. See
+  "Concerns".
+- Session 2 corrected R60-5-05 in the Mechanical Acceptance Criteria table.
+  Its earlier text checked for `allow(dead_code)` on files this packet
+  deletes, so a check against it could not pass after those files were
+  gone. The corrected text matches the guard added below.
+- `src/api.rs` needed no marker. Its six types and its
+  `fetch_contributors`/`fetch_value_routes` methods stay `pub`, so
+  `cargo check` does not flag them. Packet 006 owns their deletion too.
 
 ### Concerns
 
@@ -246,12 +435,86 @@ from that noise needs its own pass. This section is not complete.
   one by one. Recorded Facts already names these as `SearchApp`-only
   surfaces. I traced a sample of their functions myself. A plain build also
   stays silent about them today.
+- Marking `FetchInspectorDetail` and its siblings dead in
+  `src/application/queries/feed.rs` also cleared warnings for the five
+  constants and one enum variant they alone read in
+  `src/application/request_profiles.rs`. The Rust dead-code pass treats an
+  `expect`/`allow`-marked item as reachable for what it calls, so this
+  packet did not edit `request_profiles.rs`. It did edit
+  `src/application/commands/metadata.rs`: two commands there call no marked
+  item, so each kept its own warning until a marker on it cleared that
+  warning. Packet 006 should include `request_profiles.rs` and
+  `commands/metadata.rs` in the query layer it deletes, since their dead
+  content traces to the same deleted caller.
+- `adr_0076_route_readiness_ignores_test_only_files` (ADR 0076 Decision 9,
+  packet 007) proved its parent-is-`<dir>.rs` condition against
+  `src/discover/tests.rs`, the one file in `src/` that used that layout. No
+  other file uses that layout. The changed guard proves the same function
+  against a path string, not a file in the tree. A future packet that
+  builds a screen module with a sibling test directory should give this
+  condition a file in the tree again.
+- `view_models_own_display_fallbacks_for_library_and_search` (ADR 0038) keeps
+  the word "Search" in its name. Its table names only `src/library.rs` rows.
+  Packet 006 deletes `src/view_models/search/`. Its author should say if
+  this guard's name needs the word "Search" when that directory is gone.
+- I did not add a marker to `src/discover/tests.rs`'s counterpart assertions
+  in the eight `src/view_models/search/` files' own `#[cfg(test)] mod tests`
+  blocks. `cargo test` proves each of these 1,886 unit tests continues to
+  pass, so the parked view model keeps its own coverage. Packet 006 reads
+  that coverage before it deletes the code the tests exercise.
 
 ## Operator Visual Check
 
-The implementer writes this section at completion. It gives numbered steps for V1 and V2.
-It states the needed state, what counts as wrong, and the cleanup. The check only reads pages.
-Do not delete `/tmp/v4vmm-governance.ie6k8TQf`. Color alone is not a valid difference.
+These two checks read pages only. They write nothing to the library or the
+database. A private fixture and a cleanup step are not necessary. Use your
+usual desktop session and your usual `v4vmm` configuration.
+
+Do not remove `/tmp/v4vmm-governance.ie6k8TQf`. Its cleanup is its own open
+item, tracked elsewhere. Color alone does not count as a difference in this
+check or the next one.
+
+### V1: Music Search, Index, Library Track, And Album Pages
+
+1. At a terminal, in the repository root, type these commands to open the
+   app:
+   ```bash
+   cargo build --bin v4vmm
+   target/debug/v4vmm
+   ```
+2. Select the `Music` section. Use the toolbar search field to find a term
+   that returns Index results. Make sure the results list and the
+   toolbar render as before: labels, thumbnails, and the source tags
+   (`In Library` or `Index`) all show.
+3. Open one Index feed result. Make sure the feed page shows its title,
+   artwork, identity actions and track list, the same as before this
+   packet.
+4. Open one track row from that feed. Make sure the track page shows its
+   title, artist, identity actions and available actions, the same as
+   before this packet.
+5. Select a `Library` track that has local files. Make sure its track page
+   opens with the same layout: header, identity actions and metadata
+   section.
+6. Open an album (release) page. Use one from the Library, then one from
+   the Index. Make sure each header, track list and identity actions render
+   as before.
+7. What would count as incorrect: a missing row, a missing thumbnail, a
+   blank page, an error message, or a control that no longer responds.
+
+### V2: Library Track Metadata Compare Grid
+
+1. With the app open from V1, stay on a `Library` track page that has a
+   downloaded file.
+2. Open its metadata compare grid. Make sure it shows the RSS column, the
+   ID3 column and the `MusicBrainz` column side by side.
+3. Make sure the grouped rows and the expand/collapse controls work the
+   same as before this packet.
+4. Make sure the `MusicBrainz` column renders through `MusicBrainzPanel`,
+   the same as before this packet: a lookup control, and a candidate list
+   when a lookup ran.
+5. Make sure the "no candidate" and "no lookup yet" status text reads the
+   same as before this packet.
+6. What would count as incorrect: a missing column, a missing lookup
+   control, a blank grid, or a row that no longer expands.
 
 ## Prompt for lower-context coding model
 
@@ -298,3 +561,12 @@ Stop and report the problem, and do not guess, when:
 - A live screen needs `SearchApp` itself, not only a function in its module.
 - A deletion needs an item that is not in the measured list of this packet.
 - A change needs a file in "Do not touch".
+
+## Orchestrator Review - 2026-09-30
+
+The orchestrator reviewed the diff and ran each check. Each check is Green: 1,886 unit tests, 281 guards, and no warning.
+
+- The diff deletes 7,827 lines and adds 317, in 36 source files.
+- Four guards named only deleted code, and the implementer deleted them. The new guard `adr_0060_discover_surface_stays_deleted` replaces their purpose.
+- Each of 63 new `expect(dead_code)` markers names ADR 0060 packet 006 as its reason. Packet 006 deletes the marked items and each marker.
+- `src/application/commands/metadata.rs` also received markers. Its two commands lost their only caller in the same deletion. Packet 006 now owns them.

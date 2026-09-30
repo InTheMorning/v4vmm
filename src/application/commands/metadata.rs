@@ -48,6 +48,10 @@ impl ApplicationCommand for LookupMusicBrainzTrack {
 
 /// Looks up `MusicBrainz` candidates for one remote MusicIndex track.
 #[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 pub(crate) struct LookupRemoteMusicBrainzTrack {
     endpoint: crate::config::MusicIndexEndpoint,
     entity_id: String,
@@ -56,6 +60,10 @@ pub(crate) struct LookupRemoteMusicBrainzTrack {
 impl LookupRemoteMusicBrainzTrack {
     /// Creates a remote track `MusicBrainz` lookup command.
     #[must_use]
+    #[expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
+    )]
     pub(crate) fn new(
         endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         entity_id: impl Into<String>,
@@ -244,6 +252,10 @@ impl ApplicationCommand for ApplyTrackId3Edits {
 
 /// Downloads or rereads a remote track and compares its ID3 metadata.
 #[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 pub(crate) struct DownloadAndCompareTrack {
     endpoint: crate::config::MusicIndexEndpoint,
     entity_id: String,
@@ -253,6 +265,10 @@ pub(crate) struct DownloadAndCompareTrack {
 impl DownloadAndCompareTrack {
     /// Creates a remote track tag-comparison command.
     #[must_use]
+    #[expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
+    )]
     pub(crate) fn new(
         endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         entity_id: impl Into<String>,

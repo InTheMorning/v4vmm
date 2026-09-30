@@ -71,6 +71,10 @@ impl ApplicationCommand for FetchRecentFeedsPage {
 
 /// Fetches one parked Discover recent-feeds page.
 #[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 pub(crate) struct FetchDiscoverRecentFeeds {
     endpoint: crate::config::MusicIndexEndpoint,
     cursor: Option<String>,
@@ -79,6 +83,10 @@ pub(crate) struct FetchDiscoverRecentFeeds {
 impl FetchDiscoverRecentFeeds {
     /// Creates a parked Discover recent-feeds query command.
     #[must_use]
+    #[expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
+    )]
     pub(crate) fn new(
         endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         cursor: Option<String>,
@@ -107,6 +115,10 @@ impl ApplicationCommand for FetchDiscoverRecentFeeds {
 
 /// Neutral inspector detail payload for parked Discover.
 #[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 pub(crate) enum InspectorDetailData {
     /// Artist detail payload.
     Artist(Box<ArtistContextData>),
@@ -118,6 +130,10 @@ pub(crate) enum InspectorDetailData {
 
 /// Neutral artist detail payload for parked Discover.
 #[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 pub(crate) struct ArtistContextData {
     pub(crate) artist: Artist,
     pub(crate) tracks: Vec<Track>,
@@ -127,6 +143,10 @@ pub(crate) struct ArtistContextData {
 
 /// Structured inspector detail plus the hero image URL to fetch separately.
 #[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 pub(crate) struct InspectorDetailResult {
     pub(crate) detail: InspectorDetailData,
     pub(crate) image_url: Option<String>,
@@ -134,6 +154,10 @@ pub(crate) struct InspectorDetailResult {
 
 /// Fetches a parked Discover inspector detail payload.
 #[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 pub(crate) struct FetchInspectorDetail {
     endpoint: crate::config::MusicIndexEndpoint,
     entity_type: String,
@@ -144,6 +168,10 @@ pub(crate) struct FetchInspectorDetail {
 impl FetchInspectorDetail {
     /// Creates an inspector detail query command.
     #[must_use]
+    #[expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
+    )]
     pub(crate) fn new(
         endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         entity_type: impl Into<String>,
@@ -186,6 +214,10 @@ impl ApplicationCommand for FetchInspectorDetail {
 
 /// Fetches source contributors for a parked Discover inspector entity.
 #[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 pub(crate) struct FetchContributors {
     endpoint: crate::config::MusicIndexEndpoint,
     entity_type: String,
@@ -195,6 +227,10 @@ pub(crate) struct FetchContributors {
 impl FetchContributors {
     /// Creates a contributors query command.
     #[must_use]
+    #[expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
+    )]
     pub(crate) fn new(
         endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         entity_type: impl Into<String>,
@@ -225,6 +261,10 @@ impl ApplicationCommand for FetchContributors {
 
 /// Fetches value routes for a parked Discover inspector entity.
 #[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 pub(crate) struct FetchValueRoutes {
     endpoint: crate::config::MusicIndexEndpoint,
     entity_type: String,
@@ -234,6 +274,10 @@ pub(crate) struct FetchValueRoutes {
 impl FetchValueRoutes {
     /// Creates a value-routes query command.
     #[must_use]
+    #[expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
+    )]
     pub(crate) fn new(
         endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         entity_type: impl Into<String>,
@@ -264,6 +308,10 @@ impl ApplicationCommand for FetchValueRoutes {
 
 /// Resolves podroll feed references for a parked Discover feed inspector.
 #[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 pub(crate) struct ResolvePodrollFeeds {
     endpoint: crate::config::MusicIndexEndpoint,
     feed_url: String,
@@ -272,6 +320,10 @@ pub(crate) struct ResolvePodrollFeeds {
 impl ResolvePodrollFeeds {
     /// Creates a podroll resolution query command.
     #[must_use]
+    #[expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
+    )]
     pub(crate) fn new(
         endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         feed_url: impl Into<String>,
@@ -392,6 +444,10 @@ fn recent_feed_activation_id(feed: &crate::api::Feed, index: usize) -> String {
     .map_or_else(|| format!("recent-feed-{index}"), str::to_string)
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn fetch_inspector_detail(
     client: &Client,
     provider_identity: &str,
@@ -409,6 +465,10 @@ fn fetch_inspector_detail(
     }
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn fetch_artist_detail(
     client: &Client,
     provider_identity: &str,
@@ -438,6 +498,10 @@ fn fetch_artist_detail(
     })
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn artist_feeds_and_image(
     client: &Client,
     provider_identity: &str,
@@ -485,6 +549,10 @@ fn artist_feeds_and_image(
     (feeds, image_url)
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn artist_feed_for_guid(
     client: &Client,
     provider_identity: &str,
@@ -516,6 +584,13 @@ fn artist_feed_for_guid(
     }
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
+    )
+)]
 fn fetch_feed_detail(
     client: &Client,
     provider_identity: &str,
@@ -540,6 +615,13 @@ fn fetch_feed_detail(
     })
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
+    )
+)]
 fn fetch_track_detail(
     client: &Client,
     provider_identity: &str,
@@ -585,6 +667,13 @@ fn fetch_track_detail(
 /// active request (`MetadataRequestOwner::fetch_track_shared`'s own
 /// documentation) without retaining a completed one for a later reuse. It
 /// sends no request that a concurrent duplicate could join more than once.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
+    )
+)]
 fn fetch_scoped_track(
     client: &Client,
     provider_identity: &str,
@@ -729,6 +818,10 @@ fn publisher_page_facts_from_feed(publisher_feed_guid: &str, feed: &Feed) -> Pub
     }
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn resolve_podroll_feeds(client: &Client, feed_url: &str) -> Result<Vec<Feed>> {
     let entries = rss::fetch_feed_podroll(feed_url)?;
     let mut feeds: Vec<Feed> = Vec::new();
@@ -760,6 +853,13 @@ fn resolve_podroll_feeds(client: &Client, feed_url: &str) -> Result<Vec<Feed>> {
     Ok(feeds)
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
+    )
+)]
 fn hydrate_feed_track_play_urls(client: &Client, provider_identity: &str, feed: &mut Feed) {
     let Some(tracks) = feed.tracks.as_mut() else {
         return;
@@ -785,6 +885,13 @@ fn hydrate_feed_track_play_urls(client: &Client, provider_identity: &str, feed: 
     }
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
+    )
+)]
 fn merge_track_play_fields(track: &mut Track, hydrated: Track) {
     if nonempty_url(track.enclosure_url.as_deref()).is_none() {
         track.enclosure_url = hydrated.enclosure_url;
@@ -800,10 +907,21 @@ fn merge_track_play_fields(track: &mut Track, hydrated: Track) {
     }
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
+    )
+)]
 fn nonempty_url(url: Option<&str>) -> Option<&str> {
     url.map(str::trim).filter(|url| !url.is_empty())
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn bounded_i32_count(len: usize) -> i32 {
     i32::try_from(len).unwrap_or(i32::MAX)
 }

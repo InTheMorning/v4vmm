@@ -569,3 +569,12 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-3
 - V2: a publisher whose listed albums do not name it shows 0 confirmed artists and its unconfirmed artists with their names.
 - V3: the two labels read clearly. The operator accepts them or gives new labels.
 - V4: normal and narrow widths show each fact in its place, in Light and Dark themes, with no clipped text.
+
+## 30. Parked Discover Deletion — ADR 0060 Task 005
+
+Open and paused - implementation and mechanical checks are complete on 2026-09-30. Operator inspection is pending.
+
+- Owner: [packet 005](tasks/adr-0060-task-005-delete-parked-discover-code.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks. It only reads pages.
+- V1: Music search, the Index feed and track pages, the Library track page and the album page work as before.
+- V2: the metadata compare grid on a Library track page works as before, with its MusicBrainz column.

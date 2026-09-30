@@ -57,6 +57,13 @@ impl ApplicationCommand for FetchThumbnail {
 
 /// Downloads and decodes one uncached inspector image.
 #[derive(Clone, Debug)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
+    )
+)]
 pub(crate) struct DownloadInspectorImage {
     url: String,
 }
@@ -64,6 +71,13 @@ pub(crate) struct DownloadInspectorImage {
 impl DownloadInspectorImage {
     /// Creates an inspector image download query command.
     #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0060 packet 006 deletes this parked query layer"
+        )
+    )]
     pub(crate) fn new(url: impl Into<String>) -> Self {
         Self { url: url.into() }
     }

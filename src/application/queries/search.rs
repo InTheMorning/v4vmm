@@ -27,10 +27,18 @@ use crate::{db, library_service};
 
 pub const DEFAULT_LOCAL_LIBRARY_SEARCH_LIMIT: usize = 50;
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 type SharedConnection = Arc<Mutex<Connection>>;
 
 /// Neutral output for one Discover global search load.
 #[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 pub(crate) struct DiscoverSearchResults {
     pub(crate) library_rows: Vec<ResultRow>,
     pub(crate) index_batch: Option<SearchBatch>,
@@ -38,6 +46,10 @@ pub(crate) struct DiscoverSearchResults {
 
 /// Fetches Discover global search rows without binding to GPUI or Discover.
 #[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 pub(crate) struct FetchDiscoverSearchResults {
     conn: SharedConnection,
     query_service: Arc<ApplicationQueryService>,
@@ -56,6 +68,10 @@ impl FetchDiscoverSearchResults {
     #[expect(
         clippy::too_many_arguments,
         reason = "captures the existing SearchViewModel load intent without inventing a new app-layer intent type"
+    )]
+    #[expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
     )]
     pub(crate) fn new(
         conn: SharedConnection,
@@ -269,6 +285,10 @@ fn fetch_index_search_result_rows(
     Ok(rows)
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn fetch_discover_search_results(
     command: FetchDiscoverSearchResults,
 ) -> Result<DiscoverSearchResults> {
@@ -303,6 +323,10 @@ fn fetch_discover_search_results(
     })
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn fetch_search_batch(
     client: &Client,
     query: &str,
@@ -347,11 +371,19 @@ fn fetch_search_batch(
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 struct PartitionedSearchCursor {
     feed: Option<String>,
     track: Option<String>,
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn fetch_partitioned_search_batch(
     client: &Client,
     query: &str,
@@ -426,6 +458,10 @@ fn fetch_partitioned_search_batch(
     }
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn fetch_typed_search_batch(
     client: &Client,
     query: &str,
@@ -446,6 +482,10 @@ fn fetch_typed_search_batch(
     })
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn encode_partitioned_search_cursor(feed: Option<&str>, track: Option<&str>) -> Option<String> {
     if feed.is_none() && track.is_none() {
         return None;
@@ -458,12 +498,20 @@ fn encode_partitioned_search_cursor(feed: Option<&str>, track: Option<&str>) -> 
     .map(|cursor| format!("partitioned:{cursor}"))
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn decode_partitioned_search_cursor(cursor: &str) -> Option<PartitionedSearchCursor> {
     cursor
         .strip_prefix("partitioned:")
         .and_then(|value| serde_json::from_str(value).ok())
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn fetch_local_library_search_rows(
     conn: &SharedConnection,
     query_service: &ApplicationQueryService,
@@ -487,6 +535,10 @@ fn fetch_local_library_search_rows(
         .collect()
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn fetch_artist_search_batch(
     client: &Client,
     query: &str,
@@ -506,6 +558,10 @@ fn fetch_artist_search_batch(
     })
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn search_hit_to_result_row(client: &Client, hit: &SearchResult) -> ResultRow {
     let detail = fetch_scoped_detail(
         client,
@@ -528,6 +584,10 @@ fn search_hit_to_result_row(client: &Client, hit: &SearchResult) -> ResultRow {
     }
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn enrich_artist_rows(client: &Client, rows: &mut [ResultRow]) {
     for row in rows.iter_mut() {
         if row.entity_type != "artist" {
@@ -578,6 +638,10 @@ fn enrich_artist_rows(client: &Client, rows: &mut [ResultRow]) {
     }
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn fetch_scoped_detail(
     client: &Client,
     entity_type: &str,
@@ -593,6 +657,10 @@ fn fetch_scoped_detail(
     }
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn fetch_scoped_track(
     client: &Client,
     track_guid: &str,
@@ -1118,6 +1186,10 @@ fn non_empty_string(value: Option<String>) -> Option<String> {
     })
 }
 
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 fn bounded_i32_count(len: usize) -> i32 {
     i32::try_from(len).unwrap_or(i32::MAX)
 }

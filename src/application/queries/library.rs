@@ -56,6 +56,10 @@ pub(crate) struct LibraryTrackCompare {
 
 /// Local track inspector payload plus an optional artwork URL.
 #[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 pub(crate) struct LocalTrackContextResult {
     pub(crate) context: TrackContext,
     pub(crate) image_url: Option<String>,
@@ -164,6 +168,13 @@ impl ApplicationCommand for FetchLibraryTrackContext {
 
 /// Fetches local track context for a parked Discover inspector.
 #[derive(Clone, Debug)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
+    )
+)]
 pub(crate) struct FetchLocalTrackContext {
     conn: SharedConnection,
     track_id: i64,
@@ -172,6 +183,13 @@ pub(crate) struct FetchLocalTrackContext {
 impl FetchLocalTrackContext {
     /// Creates a local track inspector query command.
     #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0060 packet 006 deletes this parked query layer"
+        )
+    )]
     pub(crate) const fn new(conn: SharedConnection, track_id: i64) -> Self {
         Self { conn, track_id }
     }
@@ -1038,6 +1056,13 @@ fn observation_storage_failure(error: &anyhow::Error) -> Option<ObservationComma
     })
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
+    )
+)]
 fn fetch_local_track_context(
     conn: &SharedConnection,
     track_id: i64,
@@ -1068,6 +1093,13 @@ fn fetch_local_track_context(
     Ok(LocalTrackContextResult { context, image_url })
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0060 packet 006 deletes this parked query layer"
+    )
+)]
 fn nonempty_url(url: &str) -> Option<&str> {
     let trimmed = url.trim();
     (!trimmed.is_empty()).then_some(trimmed)

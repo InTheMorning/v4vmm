@@ -1,6 +1,10 @@
 //! Search pane controls, filters, sections, and render snapshots.
 
 #![warn(clippy::pedantic)]
+#![expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 
 use super::ResultRow;
 

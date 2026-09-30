@@ -1,6 +1,10 @@
 //! Search result row display and navigation projections.
 
 #![warn(clippy::pedantic)]
+#![expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 
 use std::collections::{BTreeMap, BTreeSet};
 

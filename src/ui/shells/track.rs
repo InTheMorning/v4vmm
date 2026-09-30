@@ -1,38 +1,26 @@
 #![warn(clippy::pedantic)]
-//! Discover-mode track row renderer.
+//! Shared track-detail identity and surface assembly.
 //!
-//! Thin screen-level glue: projects [`api::Track`] through shared release row
-//! view-models, then adds screen-specific trailing actions (download button,
-//! playlist popover, play button). All layout lives inside shared composites;
+//! Thin screen-level glue: renders a track page's identity actions and feed
+//! identity section, then assembles the shared `TrackDetailSurface` from
+//! typed behavior slots. The Library track page and the Index track page
+//! both call into this module. All layout lives inside shared composites;
 //! this module only wires callbacks.
 
 use std::sync::Arc;
 
-use gpui::{prelude::*, AnyElement, App, ClickEvent, ClipboardItem, Context, Image, SharedString};
+use gpui::{prelude::*, App, ClipboardItem, Image, SharedString};
 
-use crate::api::{Feed, Track};
-use crate::db;
-use crate::discover::{render_play_icon_button_with_id, render_track_download_button, SearchApp};
 use crate::ui::composites::{
-    identity_action_button, render_feed_identity_panel, AddToPlaylistDisplay, AddToPlaylistPopover,
-    IdentityActionButtonDisplay, IdentityActionKind, PlaylistOption, PlaylistOptionDisplay,
-    TrackDetailSurface, TrackRow, TrackSurfaceElement,
+    identity_action_button, render_feed_identity_panel, IdentityActionButtonDisplay,
+    IdentityActionKind, TrackDetailSurface, TrackSurfaceElement,
 };
 use crate::view_models::entity_detail::{
     EntityActionVm, IdentityActionDisplay, IdentityActionDisplayKind,
 };
-use crate::view_models::playlist_option_displays;
-use crate::view_models::track::{TrackRowControlsDisplay, TrackVm};
 use crate::view_models::track_detail::{
-    TrackDetailLoadState, TrackDetailPageVm, TrackDetailSection, TrackDetailSurfaceContext,
-    TrackDetailVm,
+    TrackDetailLoadState, TrackDetailPageVm, TrackDetailSection,
 };
-use crate::views::TrackView;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TrackRowMode {
-    Discover,
-}
 
 #[derive(Default)]
 pub(crate) struct TrackDetailBehaviorSlots {
@@ -44,19 +32,6 @@ pub(crate) struct TrackDetailBehaviorSlots {
     pub sections: Vec<TrackDetailSection>,
     pub section_elements: Vec<TrackSurfaceElement>,
     pub advanced_panels: Vec<TrackSurfaceElement>,
-}
-
-fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
-    playlist_option_displays(playlists)
-        .into_iter()
-        .map(|option| {
-            PlaylistOption::new(PlaylistOptionDisplay {
-                id: option.id,
-                name: SharedString::from(option.name),
-                a11y_label: SharedString::from(option.a11y_label),
-            })
-        })
-        .collect()
 }
 
 #[must_use]
@@ -161,137 +136,4 @@ pub(crate) fn build_track_detail_surface(
     }
 
     surface
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "staged extraction preserves the existing Discover row contract"
-)]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "caller in search.rs passes Track by move; switching to &Track cascades outside this module"
-)]
-pub(crate) fn render_track_row(
-    track: Track,
-    thumbnail: Option<Arc<Image>>,
-    feed: Option<Feed>,
-    is_downloaded: bool,
-    is_in_flight: bool,
-    feed_guid: Option<&str>,
-    feed_url: Option<&str>,
-    playlists: &[db::Playlist],
-    mode: TrackRowMode,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    match mode {
-        TrackRowMode::Discover => render_discover_track_row(
-            &track,
-            thumbnail,
-            feed,
-            is_downloaded,
-            is_in_flight,
-            feed_guid,
-            feed_url,
-            playlists,
-            cx,
-        ),
-    }
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "shared row still needs the existing Discover inputs during rollout"
-)]
-fn render_discover_track_row(
-    track: &Track,
-    thumbnail: Option<Arc<Image>>,
-    feed: Option<Feed>,
-    is_downloaded: bool,
-    is_in_flight: bool,
-    feed_guid: Option<&str>,
-    feed_url: Option<&str>,
-    playlists: &[db::Playlist],
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    let vm = TrackVm::new(track);
-    let guid = vm.guid();
-    let title = vm.title();
-    let TrackRowControlsDisplay {
-        row_id,
-        play_button_id,
-        playlist_popover_id,
-        playlist_trigger_label,
-    } = vm.row_controls_display();
-    let audio_display = vm.play_audio_display();
-    let guid_for_click = guid.clone();
-    let title_for_click = title.clone();
-    let feed_guid_owned = feed_guid.map(str::to_string);
-    let track_view = TrackView::from_api(track.clone());
-    let row_vm = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Discover).row();
-
-    let download_btn =
-        render_track_download_button(track.clone(), feed, is_downloaded, is_in_flight, cx)
-            .into_any_element();
-    let play_btn =
-        render_play_icon_button_with_id(SharedString::from(play_button_id), audio_display, cx)
-            .into_any_element();
-    let mut actions = vec![download_btn];
-
-    if let Some(ref fguid) = feed_guid_owned {
-        if !guid.is_empty() {
-            let feed_guid_sel = fguid.clone();
-            let feed_url_sel = feed_url.map(str::to_string);
-            let track_guid_sel = guid.clone();
-            let feed_guid_cre = feed_guid_sel.clone();
-            let feed_url_cre = feed_url_sel.clone();
-            let track_guid_cre = track_guid_sel.clone();
-            let popover = AddToPlaylistPopover::new(AddToPlaylistDisplay {
-                id: SharedString::from(playlist_popover_id),
-                playlists: playlist_options(playlists),
-                trigger_label: SharedString::from(playlist_trigger_label),
-                trigger_a11y_label: SharedString::from("Add track to playlist"),
-                new_playlist_a11y_label: SharedString::from("Create a new playlist"),
-                back_a11y_label: SharedString::from("Back to playlist choices"),
-                create_a11y_label: SharedString::from("Create playlist and add track"),
-            })
-            .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
-                this.add_search_track_to_playlist(
-                    &feed_guid_sel,
-                    feed_url_sel.as_deref(),
-                    &track_guid_sel,
-                    *playlist_id,
-                    cx,
-                );
-            }))
-            .on_create(cx.listener(move |this, name: &String, _window, cx| {
-                this.create_playlist_and_add_discover_track(
-                    name,
-                    &feed_guid_cre,
-                    feed_url_cre.as_deref(),
-                    &track_guid_cre,
-                    cx,
-                );
-            }));
-            actions.push(popover.into_any_element());
-        }
-    }
-
-    actions.push(play_btn);
-
-    let mut row = TrackRow::from_vm(SharedString::from(row_id), &row_vm)
-        .thumbnail(thumbnail)
-        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-            this.push_inspector(
-                "track".into(),
-                guid_for_click.clone(),
-                title_for_click.clone(),
-                cx,
-            );
-        }));
-
-    for action in actions {
-        row = row.trailing_child(action);
-    }
-
-    row.into_any_element()
 }

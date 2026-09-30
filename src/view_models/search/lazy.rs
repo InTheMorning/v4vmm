@@ -1,6 +1,10 @@
 //! Lazy and deferred inspector panel state.
 
 #![warn(clippy::pedantic)]
+#![expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 
 /// Deferred inspector panel state.
 ///

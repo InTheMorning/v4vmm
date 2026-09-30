@@ -1,6 +1,10 @@
 //! Track row and track inspector display projections.
 
 #![warn(clippy::pedantic)]
+#![expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 
 use crate::api::Track;
 use crate::view_models::entity_detail::{

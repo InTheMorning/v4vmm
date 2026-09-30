@@ -110,8 +110,8 @@ Their mechanical checks are Green, and their visual gates are open and paused.
 The operator decided its two details on 2026-09-30, and ADR 0075 records them. It is Ready.
 [Packet 051](docs/tasks/adr-0075-task-051-contract-field-guard.md) guards each decoded field against a stored copy of the contract.
 The operator accepted its design on 2026-09-30. It waits for ADR 0060 packets 005 and 006, which delete six decoded types that only parked code reads.
-[ADR 0060 packet 005](docs/tasks/adr-0060-task-005-delete-parked-discover-code.md) deletes the parked Discover UI and state, about 12,000 lines.
-[Packet 006](docs/tasks/adr-0060-task-006-delete-parked-discover-queries.md) then deletes its query layer and six unused MusicIndex types. Both are Ready on 2026-09-30.
+[ADR 0060 packet 005](docs/tasks/adr-0060-task-005-delete-parked-discover-code.md) deletes the parked Discover UI and state. It is implemented on 2026-09-30,
+with its visual gate open and paused. [Packet 006](docs/tasks/adr-0060-task-006-delete-parked-discover-queries.md) deletes its query layer and six unused MusicIndex types. It is Ready.
 ADR 0076, amended on 2026-09-26, makes the app ignore `last_build_date`. Three decoded fields no
 longer arrive. [Packet 046](docs/tasks/adr-0075-task-046-remove-undeclared-api-fields.md)
 removed them on 2026-09-26. Its mechanical checks are Green, and it needs no visual acceptance.

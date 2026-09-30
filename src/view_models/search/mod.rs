@@ -6,6 +6,10 @@
 //! fields that result and inspector rows need to render.
 
 #![warn(clippy::pedantic)]
+#![expect(
+    dead_code,
+    reason = "ADR 0060 packet 006 deletes this parked query layer"
+)]
 
 mod actions;
 mod common;
@@ -63,11 +67,6 @@ pub(crate) use feed_detail::{PaymentRouteGroupDisplay, PaymentRouteVm};
     )
 )]
 pub(crate) use lazy::{DeferredPanelDisplay, DeferredPanelKind, LazyPanel, LazyPanelToggle};
-pub(crate) use recent::{
-    PodrollSectionDisplay, RecentFeedTileVm, RecentFeedsDisplay, RecentFeedsSnapshot,
-    SearchFeedListSectionDisplay,
-};
-pub use recent::{RecentFeedTileDisplay, RecentFeedTileOpenTarget};
 #[cfg_attr(
     not(test),
     expect(
@@ -75,12 +74,22 @@ pub use recent::{RecentFeedTileDisplay, RecentFeedTileOpenTarget};
         reason = "root re-export preserves the view_models::search import surface after decomposition"
     )
 )]
+pub(crate) use recent::{
+    PodrollSectionDisplay, RecentFeedTileVm, RecentFeedsDisplay, RecentFeedsSnapshot,
+    SearchFeedListSectionDisplay,
+};
+pub use recent::{RecentFeedTileDisplay, RecentFeedTileOpenTarget};
+#[expect(
+    unused_imports,
+    reason = "root re-export preserves the view_models::search import surface after decomposition"
+)]
 pub(crate) use results::{
     artist_rows_from_result_rows, feed_display_title, normalized_search_query,
-    search_result_type_is_visible, ResultRow, ResultRowDisplay, ResultRowRenderItem, ResultRowVm,
-    SearchLibraryMembership, SearchLibraryMembershipDisplay, SearchResultSource,
+    search_result_type_is_visible, ResultRowDisplay, ResultRowRenderItem, ResultRowVm,
+    SearchLibraryMembership, SearchLibraryMembershipDisplay,
 };
 use results::{entity_key, source_entity_key};
+pub(crate) use results::{ResultRow, SearchResultSource};
 #[cfg_attr(
     not(test),
     expect(
