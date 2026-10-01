@@ -113,6 +113,8 @@ on 2026-10-01, with its visual gate open and paused.
 in the same change as the decode changes.
 [ADR 0060 packet 005](docs/tasks/adr-0060-task-005-delete-parked-discover-code.md) deletes the parked Discover UI and state. It is implemented on 2026-09-30,
 with its visual gate open and paused. [Packet 006](docs/tasks/adr-0060-task-006-delete-parked-discover-queries.md) deleted its query layer and six unused MusicIndex types on 2026-09-30, with no new visual gate.
+[Dead code removal task 001](docs/tasks/dead-code-removal-task-001-measure-and-delete-unreachable-code.md) measures and deletes the remaining
+unreachable code, and removes each `allow(dead_code)`. It is Ready on 2026-10-01.
 ADR 0076, amended on 2026-09-26, makes the app ignore `last_build_date`. Three decoded fields no
 longer arrive. [Packet 046](docs/tasks/adr-0075-task-046-remove-undeclared-api-fields.md)
 removed them on 2026-09-26. Its mechanical checks are Green, and it needs no visual acceptance.
