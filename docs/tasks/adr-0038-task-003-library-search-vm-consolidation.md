@@ -49,7 +49,7 @@ Verified starting notes, 2026-05-03:
 - `src/library.rs`, `src/search.rs` — call-site sweep.
 - `src/ui/shells/*.rs` — call-site sweep.
 - `tests/architecture_tests.rs` — tighten existing fallback guards;
-  add `view_models_own_display_fallbacks_for_library_and_search`.
+  add `view_models_own_display_fallbacks_for_library`.
 
 ## Migration Order
 
@@ -59,27 +59,27 @@ Verified starting notes, 2026-05-03:
      presence, feed-title label fallback, and URL fallback.
    - Remove `src/search.rs` render-glue fallback from
      `feed_link_label.unwrap_or_else`.
-   - Add `view_models_own_display_fallbacks_for_library_and_search`.
+   - Add `view_models_own_display_fallbacks_for_library`.
 2. Re-grep the remaining `library.rs` / `search.rs` fallback inventory.
 3. Payment-route address display
    - Add `PaymentRouteVm::address()` so value-route address presence
      and empty-string preservation live in the VM.
    - Remove `src/search.rs` render-glue coercion from
      `route.address.clone().unwrap_or_default()`.
-   - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+   - Extend `view_models_own_display_fallbacks_for_library`.
 4. Payment-route custom field display
    - Add `PaymentRouteVm::custom_fields()` so `key ...` / `value ...`
      formatting and empty-string preservation live in the VM.
    - Remove `src/search.rs` render-glue checks of `custom_key` and
      `custom_value`.
-   - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+   - Extend `view_models_own_display_fallbacks_for_library`.
 5. Payment-route summary display
    - Add `PaymentRouteVm::summary()` so recipient, route type, split,
      and fee/split label fallbacks enter the renderer as one display
      string.
    - Remove `src/search.rs` render-glue formatting of the primary
      payment-route line.
-   - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+   - Extend `view_models_own_display_fallbacks_for_library`.
 6. Discover feed-list tile display
    - Extend `RecentFeedTileDisplay` with the tile id and episode-count
      note.
@@ -87,60 +87,60 @@ Verified starting notes, 2026-05-03:
      missing-episode-note handling for feed-list tiles.
    - Remove `src/search.rs` render-glue formatting of the feed tile id,
      title fallback, and episode note.
-   - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+   - Extend `view_models_own_display_fallbacks_for_library`.
 7. Library tree track-number prefix
    - Add `LibraryTrackRowVm::tree_number_prefix()` so the Library
      tree-row zero-padded track-number prefix is VM-owned.
    - Remove `src/library.rs` render-glue formatting of
      `"{n:02} - "`.
-   - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+   - Extend `view_models_own_display_fallbacks_for_library`.
 8. Metadata RSS cell value display
    - Add `TrackMetadataGridVm::rss_cell_value()` so missing RSS
      metadata values are normalized by the metadata-grid VM.
    - Remove `row.rss_value.as_deref().unwrap_or("")` from Library and
      Discover metadata cell renderers.
-   - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+   - Extend `view_models_own_display_fallbacks_for_library`.
 9. Metadata ID3 cell value display
    - Add `TrackMetadataGridVm::id3_cell_value()` so pending edit value
      precedence and missing ID3 metadata value fallback are normalized
      by the metadata-grid VM.
    - Remove screen-local `pending.value -> row.id3_value -> ""`
      fallback from Library and Discover metadata cell renderers.
-   - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+   - Extend `view_models_own_display_fallbacks_for_library`.
 10. Metadata MusicBrainz cell value display
     - Add `TrackMetadataGridVm::musicbrainz_cell_value()` so missing
       MusicBrainz metadata values are normalized by the metadata-grid
       VM.
     - Remove `row.musicbrainz_value.as_deref().unwrap_or("")` from
       Library and Discover metadata cell renderers.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 11. Metadata ID3 cell frame display
     - Add `TrackMetadataGridVm::id3_cell_frame()` so pending edit frame
       precedence and stored ID3 frame fallback are normalized by the
       metadata-grid VM.
     - Remove screen-local `pending.frame -> row.id3_frame` fallback
       from Library and Discover metadata cell renderers.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 12. Metadata drag frame display
     - Add `TrackMetadataGridVm::id3_drag_frame()` so missing source
       frame hints in Discover metadata drag payloads are normalized by
       the metadata-grid VM.
     - Remove `row.id3_frame.clone().unwrap_or_default()` from
       Discover metadata drag payload assembly.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 13. Metadata displayed frame label
     - Add `TrackMetadataGridVm::id3_frame_label()` so missing displayed
       ID3 frame labels are normalized by the metadata-grid VM.
     - Remove screen-local `frame_id.unwrap_or_default()` fallbacks from
       Discover metadata tag renderers.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 14. Metadata contributor summary display
     - Add `TrackMetadataGridVm::contributor_summary()` so contributor
       summarization and fallback-to-display-value policy are normalized
       by the metadata-grid VM.
     - Remove screen-local `summarize_contributor_value(...).unwrap_or_else(...)`
       fallbacks from Library and Discover metadata cell summary helpers.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 15. Metadata value-route summary display
     - Add `TrackMetadataGridVm::value_routes_summary()` so collapsed
       value-route count and malformed-value fallback policy are
@@ -149,13 +149,13 @@ Verified starting notes, 2026-05-03:
       an explicit `ValueRoutesSummaryFallback` context policy.
     - Remove screen-local `"[N items]"` and Discover `"[N lines]"`
       summary formatting from metadata cell summary helpers.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 16. Discover track play-audio action display
     - Add `TrackVm::play_audio_display()` so play-audio URL, tooltip,
       and disabled state are projected together by the track VM.
     - Remove the screen-local `"No audio URL"` tooltip fallback from
       Discover's play-audio button.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 17. Discover dead Nostr action renderer cleanup
     - Remove the unused screen-local `render_nostr_icon_button()` helper
       from Discover now that track identity actions render through
@@ -168,7 +168,7 @@ Verified starting notes, 2026-05-03:
       by the metadata-grid VM.
     - Remove duplicated screen-local unused-group heading formatting
       from Library and Discover.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 19. Metadata value-route item label display
     - Add `TrackMetadataGridVm::value_route_item_label()` and
       `TrackMetadataGridVm::value_route_split_label()` so expanded
@@ -177,7 +177,7 @@ Verified starting notes, 2026-05-03:
     - Preserve the existing context difference: Library includes the
       split suffix in the collapsed sub-item label, while Discover keeps
       the split in the expanded child rows.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 20. Metadata value-route field label display
     - Add `TrackMetadataGridVm::value_route_field_key_label()` and
       `TrackMetadataGridVm::value_route_field_value_label()` so
@@ -185,13 +185,13 @@ Verified starting notes, 2026-05-03:
       by the metadata-grid VM.
     - Remove the Library-local `route_value_label()` helper and the
       Discover-local JSON value formatter from Value Routes rendering.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 21. Discover track feed-link tooltip display
     - Add `TrackFeedLinkDisplay::tooltip` so the feed-link tooltip is
       carried by the track-inspector header VM.
     - Remove screen-local `guid` cloning for the feed-link tooltip from
       Discover.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 22. Metadata comparison role/glyph display
     - Add `TrackMetadataGridVm::comparison_role()`,
       `TrackMetadataGridVm::comparison_glyph()`, and
@@ -200,367 +200,367 @@ Verified starting notes, 2026-05-03:
       metadata-grid VM.
     - Remove duplicated screen-local comparison role/glyph helpers from
       Library and Discover.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 23. Metadata pending-source role display
     - Add `TrackMetadataGridVm::pending_source_role()` so staged ID3
       copy previews decide match/different state in the metadata-grid
       VM.
     - Remove duplicated Library/Discover pending-source role helpers.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 24. Metadata standalone-ID3 status display
     - Add `TrackMetadataGridVm::id3_status_role()` and
       `TrackMetadataGridVm::id3_status_uses_primary_fallback()` so the
       standalone ID3 primary-color exception is a named VM policy.
     - Remove duplicated Library/Discover raw standalone-ID3 checks.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 25. Discover result-pane chrome display
     - Add `SearchRenderSnapshot::pane_display` so the Discover result
       pane title, search button label, fuzzy-toggle label, empty label,
       and load-more label are VM-owned.
     - Remove screen-local result-pane chrome labels from Discover.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 26. Discover status error-prefix display
     - Add `SearchStatusSnapshot::display_text` so the error glyph
       prefix is projected by the search VM.
     - Remove screen-local `StatusRole::Danger.glyph()` prefix
       formatting from Discover.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 27. Discover recent-feeds chrome display
     - Add `RecentFeedsSnapshot::display` and
       `SearchViewModel::recents_root_title()` so recent-feed panel
       title, empty label, and load-more label are VM-owned.
     - Remove screen-local recent-feed chrome labels from Discover.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 28. Discover publisher-link tooltip display
     - Add `PublisherLinkDisplay` so publisher link id, title, target,
       and tooltip are VM-owned.
     - Remove screen-local publisher tooltip formatting and trimming
       from Discover.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 29. Discover inspector chrome display
     - Add `SearchViewModel::inspector_chrome_display()` so the
       inspector back label and empty-state icon/label are VM-owned.
     - Remove screen-local inspector back/empty chrome from Discover.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 30. Discover inspector status display
     - Add `SearchViewModel::inspector_loading_message()` and
       `SearchViewModel::inspector_error_message()` so inspector loading
       and error messages are VM-owned.
     - Remove screen-local inspector loading/error formatting from
       Discover.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 31. Discover deferred-panel loading display
     - Add `SearchViewModel::deferred_panel_display()` so contributor
       and value-route panel loading labels are VM-owned.
     - Remove screen-local deferred-panel loading labels from Discover.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 32. Library shell chrome display
     - Add `LibraryViewModel::chrome_display()` so Library search
       placeholders, search pane labels, empty-list label, and
       empty-detail label are VM-owned.
     - Remove screen-local Library shell chrome labels from `library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 33. Library playlist sidebar chrome display
     - Extend `PlaylistSidebarVm` so the playlist heading, add button
       label, and new-playlist add label are projected with the existing
       disclosure and sort labels.
     - Remove screen-local playlist sidebar chrome labels from
       `library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 34. Library feed-update toolbar display
     - Add `LibraryViewModel::feed_update_display()` so the feed-update
       action kind, label, disabled state, and status message are
       VM-owned.
     - Remove screen-local feed-update action label and disabled-state
       branching from `library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 35. Library status and empty-state display
     - Add `LibraryViewModel::status_snapshot()` and
       `LibraryViewModel::should_show_empty_library()` so status
       severity and empty-list visibility are VM-owned.
     - Remove screen-local `Error:` prefix checks from Library render
       glue.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 36. Library artist tree row display
     - Add `ArtistNode::tree_display()` so the Library artist tree row
       id, disclosure glyph, and album-count label are VM-owned.
     - Remove screen-local artist row id, arrow, and album-count
       formatting from `library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 37. Library album tree row display
     - Add `AlbumNode::tree_display()` so the Library album tree row id,
       disclosure glyph, and track-count label are VM-owned.
     - Remove screen-local album row id, arrow, and track-count
       formatting from `library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 38. Library tree track row display
     - Add `LibraryTrackRowVm::tree_display()` so the Library tree
       track row id and prefixed compact title are VM-owned.
     - Remove screen-local tree track row id and
       `tree_number_prefix + compact_title` formatting from
       `library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 39. Library artist feed-summary row display
     - Add `ArtistFeedSummaryVm::display()` so the artist detail feed
       row id and track-count label are VM-owned.
     - Remove screen-local artist feed-summary row id and
       `"{count} tracks"` formatting from `library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 40. Library album MusicBrainz action display
     - Add `LibraryAlbumDetailVm::musicbrainz_action_vm()` so the
       action label and disabled state are VM-owned.
     - Remove screen-local `MusicBrainz` action label and active-lookup
       disabled-state check from `library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 41. Library album playlist popover display
     - Add `LibraryAlbumDetailVm::playlist_display()` so the album
       playlist popover id and trigger label are VM-owned.
     - Remove screen-local album playlist popover id formatting from
       `library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 42. Contributor identity action display
     - Add `ContributorRowVm::identity_actions()` so Library and
       Discover contributor website/Nostr action ids, kinds, and
       targets are VM-owned.
     - Remove screen-local contributor identity id formatting from
       `library.rs` and `search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 43. Discover deferred-panel heading display
     - Extend `SearchViewModel::deferred_panel_display()` so contributor
       and value-route panel section ids and heading labels are VM-owned.
     - Remove screen-local deferred-panel heading ids and labels from
       Discover.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 44. Library contributor panel chrome display
     - Add `ReleaseDetailVm::contributor_panel_display()` so Library
       contributor panel id and heading title are VM-owned.
     - Remove screen-local Library contributor panel id/title literals
       from `library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 45. Metadata group disclosure display
     - Add `TrackMetadataGridVm::group_heading_display()` so shared
       metadata group labels and disclosure ids are VM-owned.
     - Remove screen-local metadata group disclosure id formatting from
       `library.rs` and `search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 46. Feed identity action display
     - Add `EntityActionVm::identity_display()` so feed identity action
       ids, display kinds, and payloads are VM-owned.
     - Remove feed identity action id formatting and slug mapping from
       `ui::shells::entity`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 47. Track identity action display
     - Reuse `EntityActionVm::identity_display()` so track identity
       action ids, display kinds, and payloads are VM-owned.
     - Remove track identity action id formatting and slug mapping from
       `ui::shells::track`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 48. Discover track row control display
     - Add `TrackVm::row_controls_display()` so Discover track row ids,
       play-button ids, playlist popover ids, and playlist trigger labels
       are VM-owned.
     - Remove row-control id formatting and local playlist trigger
       literals from `ui::shells::track`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 49. Discover track row download display
     - Add `TrackRowActionVm::download_display()` so download button and
       busy-spinner ids plus the busy tooltip are VM-owned.
     - Remove download-control id formatting from `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 50. Discover inspector playlist popover display
     - Add `ActionRowVm::inspector_playlist_display()` so Discover
       inspector playlist popover ids enter the renderer through a VM
       display contract while preserving the existing action label.
     - Remove inspector playlist popover id formatting from
       `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 51. Library track playlist popover display
     - Add `LibraryTrackRowVm::playlist_display()` and
       `LibraryTrackActionVm::playlist_display()` so album-row and track
       inspector playlist popover ids and trigger labels are VM-owned.
     - Remove album-row and inspector playlist popover id/label
       formatting from `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 52. Discover feed tile id display
     - Extend `RecentFeedTileVm::display()` so feed-list, recent-feed,
       and podroll tile ids are VM-owned alongside the feed guid.
     - Remove those tile id formats from `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 53. Discover track inspector play/feed-link id display
     - Extend `TrackVm::play_audio_display()` with the track-inspector
       play button id and glyph.
     - Extend `TrackFeedLinkDisplay` with the feed-link element id.
     - Remove those id/glyph literals from `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 54. Library playlist track controls display
     - Add `PlaylistTrackRowVm::controls_display()` so playlist row ids,
       body ids, button ids, button glyphs, and availability are
       VM-owned.
     - Remove playlist-track control id/glyph formatting from
       `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 55. Library album track row control display
     - Add `LibraryTrackRowVm::row_display()` so album track row ids and
       primary toggle button ids are VM-owned.
     - Remove album-track row and toggle id formatting from
       `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 56. Library playlist detail action display
     - Add `PlaylistDetailVm::actions_display()` so playlist rename and
       delete button ids and labels are VM-owned.
     - Remove playlist detail action id/label literals from
       `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 57. Library metadata panel loading display
     - Add `TrackMetadataActionState` loading-message accessors for ID3
       compare and MusicBrainz panels.
     - Remove metadata panel loading label literals from `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 58. Library staged ID3 edits display
     - Add `TrackMetadataActionState::staged_id3_edits_display()` so
       staged edit count text, apply label, conflict message, discard
       label, and availability are VM-owned.
     - Remove staged ID3 action/message formatting from `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 59. Deferred-panel error-prefix display
     - Add `LazyPanel::error()` for Discover deferred panels and
       `LibraryViewModel::deferred_panel_error_message()` for Library's
       still-local panel enum.
     - Remove screen-local deferred-panel `"Error: ..."` formatting from
       `src/search.rs` and `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 60. Library file-header metadata action display
     - Add `TrackMetadataActionState::file_actions_display()` so
       Re-read/Re-download file action labels are VM-owned.
     - Remove file-header metadata action label literals from
       `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 61. Duplicate ID3 target message display
     - Add `TrackMetadataActionState::duplicate_id3_target_message()` so
       duplicate-target singular/plural formatting is VM-owned.
     - Remove duplicate ID3 target message formatting from
       `src/library.rs` and `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 62. ID3 apply error display
     - Add `TrackMetadataActionState::id3_apply_error_message()` so ID3
       apply error-prefix formatting is VM-owned.
     - Remove ID3 apply error formatting from `src/library.rs` and
       `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 63. Discover download success ID3 edit display
     - Extend `SearchSubscriptionCommand` with `success_message()` so
       Downloaded-track and applied-ID3-edit success text is VM-owned.
     - Remove Discover subscription success-message suffix formatting
       from `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 64. Discover results empty-state icon display
     - Extend `SearchPaneDisplay` with `empty_icon`.
     - Remove raw Discover result empty-state icon glyphs from
       `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 65. Discover result row id display
     - Extend `ResultRowDisplay` with the list-row element id.
     - Remove result-row id formatting from `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 66. Discover podroll section display
     - Add `PodrollSectionDisplay` so the podroll heading and scroll id
       are VM-owned.
     - Remove podroll heading and scroll-id literals from `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 67. Library hover thumbnail id display
     - Add `LibraryViewModel::hover_thumb_display()` so hover thumbnail
       ids are VM-owned.
     - Remove hover thumbnail id formatting from `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 68. Library album thumbnail fallback display
     - Add `LibraryViewModel::album_thumb_display()` so the fallback
       thumbnail glyph is VM-owned.
     - Remove the raw album thumbnail fallback glyph from
       `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 69. Discover results pane control id display
     - Extend `SearchPaneDisplay` with search, fuzzy-toggle, results
       scroll, and load-more ids.
     - Remove results-pane control and scroll id literals from
       `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 70. Discover inspector chrome id display
     - Extend `InspectorChromeDisplay` with back-button and scroll ids.
     - Remove inspector chrome id literals from `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 71. Discover recent-feeds load-more id display
     - Extend `RecentFeedsDisplay` with the recent-feeds load-more id.
     - Remove the recent-feeds load-more id literal from `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 72. Library sidebar, search, feed-update, and list control id display
     - Extend `PlaylistSidebarVm`, `LibraryChromeDisplay`, and
       `FeedUpdateActionDisplay` with static control ids used by the
       Library shell.
     - Remove those static Library control and scroll id literals from
       `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 73. Library artist detail scroll id display
     - Extend `LibraryChromeDisplay` with the artist detail scroll id.
     - Remove the artist detail scroll id literal from `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 74. Library playlist detail scroll id display
     - Extend `LibraryChromeDisplay` with the playlist detail scroll id.
     - Remove the playlist detail scroll id literal from `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 75. Library track detail scroll id display
     - Extend `LibraryChromeDisplay` with the track detail scroll id.
     - Remove the track detail scroll id literal from `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 76. Library metadata expandable cell display
     - Add `TrackMetadataGridVm::library_expandable_cell_display()` so
       metadata cell keys, ids, header ids, and disclosure glyphs are
       VM-owned for Library metadata cells.
     - Remove Library metadata expandable cell id/glyph formatting from
       `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 77. Discover metadata expandable cell display
     - Add `TrackMetadataGridVm::discover_expandable_cell_display()` so
       metadata cell keys, ids, header ids, and disclosure glyphs are
       VM-owned for Discover metadata cells.
     - Remove Discover RSS/ID3 expandable cell id/glyph formatting from
       `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 78. Library Value Routes item display
     - Add `TrackMetadataGridVm::library_value_route_item_display()` so
       nested Value Routes item keys, ids, header ids, and disclosure
       glyphs are VM-owned for Library metadata cells.
     - Remove Library nested Value Routes item id/glyph formatting from
       `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 79. Discover Value Routes item display
     - Add `TrackMetadataGridVm::discover_value_route_item_display()` so
       nested Value Routes item keys, ids, and disclosure glyphs are
       VM-owned for Discover metadata cells.
     - Remove Discover nested Value Routes item id/glyph formatting from
       `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 80. Discover metadata compare-row slug display
     - Add `TrackMetadataGridVm::compare_row_id()` so test-row slug
       generation is metadata-grid-owned.
     - Remove `compare_row_id()` from `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 81. Discover generated unused-ID3 row display
     - Add `TrackMetadataGridVm::unused_id3_frame_row_id()` and
       `id3_field_display_label()` so generated unused-frame row ids and
       labels are metadata-grid-owned.
     - Remove unused-ID3 row id/label formatting from `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 82. Discover generated used-ID3 row display
     - Add `TrackMetadataGridVm::used_id3_field_row_id()` and reuse
       `id3_field_display_label()` so generated used-frame row ids and
       labels are metadata-grid-owned.
     - Remove used-ID3 row id/label formatting from `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 83. Discover metadata source-drag id display
     - Add `TrackMetadataGridVm::source_drag_display()` so RSS and
       MusicBrainz source-drag cell ids are metadata-grid-owned.
     - Remove source-drag id formatting from `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 84. Metadata expandable-cell summary display
     - Add `TrackMetadataGridVm::expandable_cell_summary()` so
       Contributors, Value Routes, Artwork, and transcript collapsed
@@ -569,27 +569,27 @@ Verified starting notes, 2026-05-03:
       difference as the named `ValueRoutesSummaryFallback` context.
     - Remove summary match/fallback duplication from `src/library.rs`
       and `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 85. Metadata artwork URL display policy
     - Add `TrackMetadataGridVm::artwork_url()` and
       `artwork_summary()` so HTTP/HTTPS artwork URL recognition and
       filename summary display are metadata-grid-owned.
     - Remove screen-local URL-prefix checks used for summary and
       expanded artwork-link activation.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 86. Discover transcript blank-line display
     - Add `TrackMetadataGridVm::transcript_line_display()` so blank
       transcript lines keep their visual row without a screen-local
       fallback.
     - Remove local blank-line replacement from Discover transcript and
       JSON line renderers.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 87. Library metadata logical-field aliases
     - Add `TrackMetadataGridVm::logical_field()` so raw MusicIndex TXXX
       aliases for Contributors and Value Routes are metadata-grid-owned.
     - Remove the screen-local `metadata_logical_field()` helper from
       `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 88. Value Routes child-field visibility
     - Add `ValueRouteFieldContext` and
       `TrackMetadataGridVm::value_route_child_field_is_visible()` so
@@ -599,18 +599,18 @@ Verified starting notes, 2026-05-03:
       carries split, while Discover keeps showing it in expanded rows.
     - Remove screen-local `recipient_name`/`split` field checks from
       Library and Discover.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 89. Discover JSON-tree scalar display
     - Add `TrackMetadataGridVm::json_tree_scalar_label()` so Discover
       expanded JSON leaves, including `null`, are metadata-grid-owned.
     - Remove screen-local JSON scalar match arms from `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 90. Shared action-row status message display
     - Add `ActionStatusMessageDisplay` so action-row status message
       text, severity, and width policy are VM-owned and GPUI-free.
     - Add a composite binding method that maps the VM contract to
       `ActionRowMessage` without screen-local severity branching.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 91. Library action-row status message display
     - Add `LibraryTrackActionVm::subscription_message_display()` so
       Library track subscription message severity and width are
@@ -619,27 +619,27 @@ Verified starting notes, 2026-05-03:
       apply-error message tone/width into `TrackMetadataActionState`.
     - Remove screen-local `ActionRowMessageTone` and `max_width`
       decisions from `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 92. Discover action-row status message display
     - Add `ActionRowVm::subscription_message_display()` so Discover
       inspector subscription message severity and width are VM-owned.
     - Remove screen-local `ActionRowMessageTone` and
       `message_is_error()` branching from `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 93. Metadata expanded field-kind display
     - Add `TrackMetadataGridVm::expanded_field_kind()` so Artwork,
       Transcript, and Value Routes expanded rendering branches are
       metadata-grid-owned field classification.
     - Remove screen-local expanded metadata `Artwork`, `Transcript`,
       and `Value Routes` branch checks from Library and Discover.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 94. Metadata expandability gate
     - Add `TrackMetadataGridVm::field_is_expandable()` so the
       `metadata_field_is_expandable(...) && !raw_value.is_empty()`
       gate is VM-owned.
     - Remove direct expandability gate duplication from Library and
       Discover metadata cell renderers.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 95. Library playlist track row display
     - Add `PlaylistTrackRowVm::display()` so playlist row position
       labels, title/artist fallbacks, duration text, thumbnail lookup
@@ -647,177 +647,177 @@ Verified starting notes, 2026-05-03:
       one VM-owned row projection.
     - Remove direct calls to the individual playlist row fallback and
       control accessors from `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 96. Metadata field label display
     - Add `TrackMetadataGridVm::field_label()` so metadata field labels
       enter Library and Discover renderers through the metadata-grid VM.
     - Remove screen-local `row.field.clone()` display labels from
       metadata field-label cells.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 97. Metadata ID3 frame display label
     - Add `TrackMetadataGridVm::id3_frame_display_label()` so Library
       and Discover ID3 frame labels enter renderers as VM-owned display
       strings.
     - Remove screen-local frame-label `to_string()` display conversion
       from Library and Discover metadata tag cells.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 98. Metadata drag preview display
     - Add `TrackMetadataGridVm::drag_preview_display()` so Discover
       metadata drag previews receive VM-owned label/value display.
     - Route Discover metadata drag source field labels through
       `TrackMetadataGridVm::field_label()`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 99. Metadata ID3 frame color role
     - Add `TrackMetadataGridVm::id3_frame_color_role()` so Library and
       Discover ID3 frame color classification is VM-owned.
     - Keep GPUI color-token mapping in the screens while removing
       screen-local ID3 version/color classification.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 100. Metadata text value display
     - Add `TrackMetadataGridVm::text_value_display()` so Library and
       Discover metadata text cells receive VM-owned display strings.
     - Remove screen-local text-cell `to_string()` projection from
       metadata compare cells, transcript lines, and raw fallback rows.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 101. Expanded metadata raw/display value policy
     - Add `TrackMetadataGridVm::expanded_display_value()` so Library
       and Discover expanded metadata cells use a VM-owned
       raw-vs-display fallback policy.
     - Remove direct screen calls to `expanded_metadata_display_string`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 102. Discover deferred-panel empty-line display
     - Add `SearchViewModel::deferred_panel_empty_line()` so
       contributor and value-route empty/error line text is projected by
       the Discover VM before rendering.
     - Remove screen-local `muted_line(&str)` text projection from
       `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 103. Discover expanded artwork URL display
     - Add `TrackMetadataGridVm::artwork_url_display()` so expanded
       Artwork URL text is metadata-grid-owned.
     - Remove screen-local `raw_value.to_string()` display projection
       from Discover's expanded artwork link row.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 104. Discover feed-header title/subtitle display
     - Add `SearchViewModel::feed_header_display()` so title projection
       and subtitle trim/empty filtering are Discover VM-owned.
     - Remove screen-local title conversion and subtitle filtering from
       `render_feed_header`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 105. Discover type-filter display
     - Add `SearchViewModel::type_filter_options()` and
       `SearchViewModel::type_filter_value()` so segmented filter labels
       and query values are Discover VM-owned.
     - Remove screen-local `TYPE_LABELS` / `TYPE_VALUES` tables from
       `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 106. Discover feed-list section heading display
     - Add `SearchViewModel::feed_list_section_display()` so the
       Discover feed-list section heading enters the renderer through a
       VM-owned display contract.
     - Remove screen-local `"Feeds"` section-heading arguments from
       `render_feed_list_section`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 107. Discover result type badge display
     - Add `ResultRowDisplay::kind_label` so result badge text is
       projected by the Discover result-row VM contract.
     - Remove screen-local `row.entity_type` cloning from the
       `TagBadgeDisplay` binding.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 108. Discover inspector title display
     - Add `SearchViewModel::inspector_title_display()` so recents-root,
       frame-title, and empty-title policy are VM-owned.
     - Remove screen-local inspector title branching and
       `Label::new(title.to_string())`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 109. Discover playlist trigger fallback display
     - Add `ActionRowVm::playlist_trigger_label()` so release playlist
       action labels and feed/track fallback labels are VM-owned.
     - Remove screen-local `add_to_playlist_label().to_string()`
       fallback branching from the inspector action row.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 110. Discover payment-route group heading display
     - Add `PaymentRouteVm::group_display()` so value-route group
       headings enter the renderer as VM-owned display.
     - Remove screen-local `group.to_string()` heading projection.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 111. Library MusicBrainz row status display binding
     - Keep `LibraryTrackRowVm::mb_status_text()` as the status-text
       owner and bind its string directly to the renderer.
     - Remove the remaining screen-local `text.to_string()` projection
       in the Library album track action row.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 112. Discover dead collapsed-text helper cleanup
     - Remove the unused `render_collapsed_text_section()` helper so it
       cannot reintroduce screen-local label/value projections.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 113. Library artist tree-row title display
     - Add `LibraryArtistTreeDisplay::title` so sidebar artist titles
       enter the renderer through `ArtistNode::tree_display()`.
     - Remove screen-local `artist.name` display binding from the
       Library tree renderer.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 114. Library album tree-row title display
     - Add `LibraryAlbumTreeDisplay::title` so sidebar album titles
       enter the renderer through `AlbumNode::tree_display()`.
     - Remove screen-local `album.name` display binding from the
       Library tree renderer.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 115. Library artist feed-summary display
     - Add `ArtistFeedSummaryDisplay::title` and `thumb_url` so artist
       detail feed-summary text and media lookup enter the renderer
       through `ArtistFeedSummaryVm::display()`.
     - Remove screen-local `summary.feed_name` and `summary.thumb_url`
       display binding from the artist detail renderer.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 116. Library playlist detail header display
     - Add `PlaylistDetailVm::header_display()` so playlist detail
       header title display is VM-owned.
     - Remove screen-local playlist-name string projection from
       `render_playlist_detail`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 117. Library metadata disclosure id binding
     - Consume `TrackMetadataGridVm::group_heading_display()` disclosure
       ids directly in the Library metadata group renderer.
     - Remove the remaining renderer-side `disclosure_id.to_string()`
       projection.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 118. Discover metadata disclosure id binding
     - Consume `TrackMetadataGridVm::group_heading_display()` disclosure
       ids directly in the Discover metadata group renderer.
     - Remove the remaining renderer-side `disclosure_id.to_string()`
       projection.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 119. Library playlist popover option display
     - Add shared `playlist_option_displays()` so playlist option ids and
       names are projected by the VM layer before Library popovers adapt
       them into GPUI playlist options.
     - Remove screen-local `playlist.name.clone()` option projection
       from the Library popover helper.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 120. Discover playlist popover option display
     - Reuse shared `playlist_option_displays()` for Discover popovers.
     - Remove screen-local `playlist.name.clone()` option projection
       from the Discover popover helper.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 121. Track shell playlist popover option display
     - Reuse shared `playlist_option_displays()` for the shared track
       shell popover.
     - Remove screen-local `playlist.name.clone()` option projection
       from `src/ui/shells/track.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 122. Discover deferred-panel empty labels
     - Extend `DeferredPanelDisplay` with the empty-state label for the
       Contributors and Value Routes deferred panels.
     - Remove the Discover screen-local `"No contributors found"` and
       `"No value routes found"` fetch-result labels.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 123. Discover feed-inspector track-list fallback
     - Add `SearchViewModel::feed_inspector_tracks()` so missing feed
       track lists normalize before the renderer calls the shared feed
       shell.
     - Remove screen-local `feed.tracks.clone().unwrap_or_default()`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 124. Library local subscription messages
     - Add `LibraryTrackActionVm::subscription_busy_message()` and
       `subscription_error_message()` so local track subscription progress
@@ -825,154 +825,154 @@ Verified starting notes, 2026-05-03:
       contract.
     - Remove screen-local `"Subscribing..."`, `"Unsubscribing..."`, and
       action-name error formatting from `LibraryApp`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 125. Library track subscribe busy status
     - Add `LibraryTrackActionVm::track_subscribe_begin_status()` so the
       Library track-download operation status lives in the action VM.
     - Remove screen-local `"Subscribing track..."`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 126. Library track subscribe success label
     - Add `LibraryTrackActionVm::track_subscribe_success_message()` so
       the `SubscribeTrack` command completion label is VM-owned.
     - Remove screen-local `"Downloaded track"` from Library command
       construction.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 127. Discover track row download success label
     - Add `SearchSubscriptionCommand::track_download_success_message()`
       so Discover track-row download command construction does not own
       the completion label.
     - Remove screen-local `"Downloaded track"` from the row download
       command path.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 128. Discover inspector track download success label
     - Reuse `SearchSubscriptionCommand::track_download_success_message()`
       for inspector track download command construction.
     - Remove screen-local `"Downloaded track"` from the inspector
       download command path.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 129. Library feed-check error formatting
     - Add `LibraryViewModel::finish_feed_view_check_error()` and make
       `set_feed_check_error()` accept displayable errors directly.
     - Remove screen-local `format!("{error:#}")`/`format!("{err:#}")`
       feed-check error projections.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 130. Library feed-update apply error formatting
     - Add `LibraryViewModel::finish_apply_feed_updates_error()` so the
       `"Feed update error: ..."` prefix lives with feed-update state.
     - Remove screen-local apply-error message formatting from
       `LibraryApp`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 131. Library split-pane chrome id display
     - Extend `LibraryChromeDisplay` with the split-pane container id and
       resize-handle id used by the Library shell.
     - Remove `SplitPane::new("library-pane-container")` and
       `resize_handle_id("library-resize-handle")` from `src/library.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 132. Discover split-pane chrome id display
     - Extend `SearchPaneDisplay` with the split-pane container id and
       resize-handle id used by the Discover shell.
     - Remove `SplitPane::new("pane-container")` and
       `resize_handle_id("resize-handle")` from `src/search.rs`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 133. Library feed identity-action prefix display
     - Extend `ReleaseDetailPageVm` with the Library feed
       identity-action id prefix derived from `EntitySurfaceContext`.
     - Remove the Library screen-local `"library-feed"` prefix argument
       from `render_feed_identity_actions`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 134. Discover feed identity-action prefix display
     - Reuse `ReleaseDetailPageVm::identity_action_prefix` for the
       Discover feed shell prefix derived from `EntitySurfaceContext`.
     - Remove the Discover shell-local `"discover-feed"` prefix argument
       from `render_feed_identity_actions`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 135. Track identity-action prefix display
     - Add `TrackDetailVm::identity_action_prefix()` so Library and
       Discover track identity action ids derive from
       `TrackDetailSurfaceContext`.
     - Remove screen-local `"library-track"` and `"discover-track"`
       prefix arguments from `render_track_identity_actions`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 136. Contributor identity-action prefix display
     - Carry `EntitySurfaceContext` through `ContributorListVm` and
       `ContributorRowVm` so contributor action ids derive from the VM.
     - Remove screen-local `"contributor"` and `"library-contributor"`
       prefix arguments from Library and Discover contributor action
       render glue.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 137. Library release detail scroll id display
     - Extend `ReleaseDetailPageVm` with the Library feed/release detail
       scroll id derived from `EntitySurfaceContext`.
     - Remove screen-local `"album-detail-scroll"` from Library release
       detail render glue.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 138. Discover feed detail scroll id display
     - Reuse `ReleaseDetailPageVm::detail_scroll_id` for the Discover
       feed detail scroll id derived from `EntitySurfaceContext`.
     - Remove screen-local `"discover-feed-detail"` from the Discover
       feed shell.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 139. Contributor row chrome display
     - Add contributor person row ids and role row ids/labels to
       `ContributorPersonVm`.
     - Remove shared-shell contributor row id, role row id, and dash
       label formatting from `ui::shells::entity`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 140. Release track row chrome display
     - Add default release track row ids to `SharedTrackRowVm`.
     - Remove shared-shell `entity-track:{index}` id formatting from
       `ui::shells::entity`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 141. Discover search input placeholder display
     - Add `SearchViewModel::search_input_display()` so Discover search
       input placeholder text is VM-owned.
     - Remove screen-local `"Discover artists, feeds, and tracks..."`
       from `SearchApp::new`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 142. Contributor person row content display
     - Add `ContributorPersonVm::row_display()` so contributor row id,
       name, and href text enter the shared shell as one display
       contract.
     - Remove shared-shell `person.name().to_string()` and
       `contributor.href()` display reads from contributor row rendering.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 143. Discover result thumbnail kind display
     - Reuse `ResultRowDisplay::kind_label` for Discover result
       thumbnail kind mapping so badge and thumbnail kind use the same
       VM-owned projection.
     - Remove renderer-side `EntityKind::from_legacy_str(&row.entity_type)`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 144. Discover result row render item display
     - Add `ResultRowRenderItem` so Discover result display, selection
       key, and click navigation target enter the renderer as one
       VM-owned projection.
     - Remove renderer-side result-row key and raw entity-id/entity-type
       navigation target assembly.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 145. Release description panel text display
     - Add `ReleasePanelVm::text_display()` so description panel title
       and missing-body fallback enter shared entity shells as one
       VM-owned projection.
     - Remove shared-shell `panel.body.as_deref().unwrap_or_default()`
       fallback from release panel rendering.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 146. Release hero header display
     - Add `ReleaseHeroVm::display()` so release header kind, title,
       subtitle, and supporting-line data row projection are VM-owned.
     - Remove shared-shell hero title/subtitle string projection and
       hardcoded publisher data-row assembly.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 147. Release text-panel display consumption
     - Make the shared entity shell render `ReleaseTextPanelDisplay`
       directly instead of accepting loose title/body arguments.
     - Remove shared-shell `SharedString::from(title.to_string())`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 148. Contributor role row display consumption
     - Consume `ContributorRoleRowVm` directly in the shared entity
       shell so role row id and label are not cloned/re-projected.
     - Remove shared-shell `role.id.clone()` and `role.label.clone()`
       display binding.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 149. Discover track-row control display consumption
     - Destructure `TrackRowControlsDisplay` in the shared track shell
       so row, play-button, and playlist-popover ids are consumed
@@ -980,174 +980,174 @@ Verified starting notes, 2026-05-03:
     - Remove renderer-side `controls_display.play_button_id.clone()`
       and `controls_display.playlist_popover_id.clone()` display
       binding.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 150. Library album-track row display consumption
     - Destructure `LibraryTrackRowDisplay` in the Library album-track
       renderer so row/toggle ids are consumed directly.
     - Remove renderer-side `row_display.toggle_button_id.clone()`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 151. Library playlist track control display consumption
     - Destructure `PlaylistTrackControlsDisplay` in the playlist detail
       renderer so row/body/action ids and labels are consumed directly.
     - Remove renderer-side playlist control id clones for move-up,
       move-down, remove, and play actions.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 152. Playlist sidebar row display consumption
     - Destructure `PlaylistSidebarVm` and `PlaylistSidebarRowVm` in
       the Library sidebar so playlist row ids, names, and count labels
       are consumed directly.
     - Remove renderer-side `row.element_id.clone()`, `row.name.clone()`,
       and `row.track_count_label.clone()` display binding.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 153. Library artist tree display consumption
     - Destructure `LibraryArtistTreeDisplay` in the Library tree
       renderer so artist row id, title, disclosure glyph, and album
       count label are consumed directly.
     - Remove renderer-side `artist_display.element_id.clone()`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 154. Library album tree display consumption
     - Destructure `LibraryAlbumTreeDisplay` in the Library tree
       renderer so album row id, title, disclosure glyph, and track
       count label are consumed directly.
     - Remove renderer-side `album_display.element_id.clone()`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 155. Library tree track display consumption
     - Destructure `LibraryTreeTrackDisplay` in the Library tree
       renderer so track row id and title are consumed directly.
     - Remove renderer-side `track_display.element_id.clone()`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 156. Artist feed-summary display consumption
     - Destructure `ArtistFeedSummaryDisplay` in the artist detail
       renderer so row id, title, thumbnail URL, and count label are
       consumed directly.
     - Remove renderer-side `display.title.clone()` click-title binding.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 157. Discover podroll tile display consumption
     - Destructure `RecentFeedTileDisplay` in the podroll renderer so
       tile id, feed id, title, and image URL are consumed directly.
     - Remove renderer-side `display.id.clone()` and
       `display.podroll_tile_id` binding.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 158. Discover feed-list tile display consumption
     - Destructure `RecentFeedTileDisplay` in the Discover feed-list
       renderer so tile id, feed id, title, episode note, and image URL
       are consumed directly.
     - Remove renderer-side `display.id.clone()` and
       `display.feed_list_tile_id` binding.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 159. Discover track feed-link display consumption
     - Destructure `TrackFeedLinkDisplay` before rendering the track
       feed link value.
     - Remove loose `link.element_id` and `link.label` local binding.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 160. Discover publisher link display consumption
     - Destructure `PublisherLinkDisplay` before rendering publisher
       links.
     - Remove screen-local `let display = PublisherLinkDisplay::new`
       projection binding.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 161. Discover recent-feed tile open-target and element-id consumption
     - Add `RecentFeedTileDisplay::open_target()` and let
       `RecentFeedTile` consume its recent tile id internally.
     - Remove screen-local `feed.feed_guid.clone()` matching and
       `display.recent_tile_id.clone()` from the recent-feeds renderer.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 162. Discover track play-button display consumption
     - Add a renderer path that consumes `TrackPlayAudioDisplay`
       directly for inspector header play controls.
     - Keep the row-specific `render_play_icon_button_with_id()` path
       for callers that intentionally supply contextual ids.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 163. Library playlist row display consumption
     - Destructure `PlaylistTrackRowDisplay` in the playlist detail
       renderer so position, text, duration, thumbnail URL, and controls
       are consumed directly.
     - Remove residual `row_display.*` field reads from the renderer.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 164. Library metadata group label consumption
     - Consume `TrackMetadataGroupHeadingDisplay::label` once before
       composing `TrackMetadataGroupCell` and `DisclosureGroup`.
     - Remove renderer-side `display.label.clone()` from Library
       metadata group headings.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 165. Discover metadata drag-preview display consumption
     - Store `TrackMetadataDragPreviewDisplay` directly in
       `MetadataDragPreview`.
     - Remove duplicate screen-local label/value fields from the drag
       preview.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 166. Discover status text consumption
     - Consume `SearchRenderSnapshot::status.display_text` directly
       before rendering the status row.
     - Remove renderer-side `snapshot.status.display_text.clone()`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 167. Library status text consumption
     - Consume `LibraryStatusSnapshot::text` directly before rendering
       the library status row.
     - Remove renderer-side `status.text.clone()`.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 168. Discover action label consumption
     - Destructure `EntityActionVm` in Discover subscription/download
       action renderers so labels, enabled state, tone, and kind are
       consumed directly.
     - Remove residual action-label clones from Discover render code.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 169. Library action label consumption
     - Destructure `EntityActionVm` in the Library track row renderer so
       the primary action label, enabled state, tone, and kind are
       consumed directly.
     - Remove residual primary-action label clones from Library render
       code.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 170. Library feed-update display consumption
     - Destructure `FeedUpdateDisplay` and `FeedUpdateActionDisplay`
       before rendering the feed-update toolbar.
     - Remove renderer-side feed-update status/action clones.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 171. Track identity-action payload consumption
     - Destructure `IdentityActionDisplay` in the shared track shell.
     - Remove setup-time `display.payload.clone()` from identity action
       rendering.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 172. Library contributor identity-action display consumption
     - Destructure `ContributorIdentityActionDisplay` before rendering
       Library contributor identity actions.
     - Remove setup-time `action.target.clone()` from the Library
       contributor identity renderer.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 173. Discover contributor identity-action display consumption
     - Destructure `ContributorIdentityActionDisplay` before rendering
       Discover contributor identity actions.
     - Remove setup-time `action.target.clone()` from the Discover
       contributor identity renderer.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 174. Library metadata expandable-cell key consumption
     - Destructure `TrackMetadataExpandableCellDisplay` before rendering
       Library metadata expansion controls.
     - Remove renderer-side `display.cell_key.clone()` from Library
       metadata cells while preserving repeated-click cloning inside the
       event listener.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 175. Discover RSS metadata expandable-cell key consumption
     - Destructure `TrackMetadataExpandableCellDisplay` before rendering
       Discover RSS metadata expansion controls.
     - Remove renderer-side `display.cell_key.clone()` from Discover RSS
       metadata cells while preserving repeated-click cloning inside the
       event listener.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 176. Discover ID3 metadata expandable-cell key consumption
     - Destructure `TrackMetadataExpandableCellDisplay` before rendering
       Discover ID3 metadata expansion controls.
     - Remove renderer-side `display.cell_key.clone()` from Discover ID3
       metadata cells while preserving repeated-click cloning inside the
       event listener.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 177. Value Routes item-key display consumption
     - Destructure `TrackMetadataValueRouteItemDisplay` in Library and
       Discover Value Routes item renderers.
     - Remove renderer-side `display.item_key.clone()` from both
       screens while preserving repeated-click cloning inside listeners.
-    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+    - Extend `view_models_own_display_fallbacks_for_library`.
 178. Loading-message borrowed-text ownership
     - Add `LoadingMessage::from_text()` so borrowed VM strings can be
       converted to owned GPUI text inside the primitive.
@@ -1164,54 +1164,54 @@ Verified starting notes, 2026-05-03:
     - Consume `TrackMetadataDragPreviewDisplay` in the drag-preview
       renderer without cloning the display value directly in the screen.
     - Route the multiline value through `MultilineText::from_text()`.
-    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+    - Tighten `view_models_own_display_fallbacks_for_library`.
 181. Discover inspector loading-message consumption
     - Consume the VM-owned inspector loading message through
       `LoadingMessage::from_text()`.
     - Remove `LoadingMessage::new(message.clone())` from Discover
       inspector rendering.
-    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+    - Tighten `view_models_own_display_fallbacks_for_library`.
 182. Library metadata-panel empty-message consumption
     - Consume Library deferred metadata-panel empty messages through
       `LoadingMessage::from_text()`.
     - Remove `LoadingMessage::new(label.clone())` from Library compare
       and MusicBrainz panel rendering.
-    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+    - Tighten `view_models_own_display_fallbacks_for_library`.
 183. Feed identity-action payload consumption
     - Destructure `IdentityActionDisplay` in the shared entity feed
       identity-action renderer.
     - Remove setup-time `display.payload.clone()` from feed identity
       action rendering.
-    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+    - Tighten `view_models_own_display_fallbacks_for_library`.
 184. Discover ID3 frame-label display consumption
     - Consume `TrackMetadataGridVm::id3_frame_display_label()` directly
       in the expanded Discover Value Routes header.
     - Remove renderer-side `frame_label.clone()` from that branch.
-    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+    - Tighten `view_models_own_display_fallbacks_for_library`.
 185. Library metadata group disclosure display consumption
     - Add `TrackMetadataGroupCell::disclosure_group()` so the composite
       owns the label duplication between the group cell and disclosure
       header.
     - Remove renderer-side `label.clone()` from Library metadata group
       rendering.
-    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+    - Tighten `view_models_own_display_fallbacks_for_library`.
 186. Library sidebar disclosure indicator chrome
     - Add `DisclosureIndicator` so playlist, artist, and album
       disclosure glyph cells use one shared fixed-width composite.
     - Remove screen-local muted disclosure glyph cell construction
       from Library sidebar/tree rendering.
-    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+    - Tighten `view_models_own_display_fallbacks_for_library`.
 187. Library sidebar supplemental count labels
     - Add `DisclosureSupplementLabel` so adjacent count labels share
       the same muted caption chrome.
     - Remove screen-local muted count label construction from Library
       artist, album, and feed-summary rows.
-    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+    - Tighten `view_models_own_display_fallbacks_for_library`.
 188. Library playlist sidebar supplemental count label
     - Reuse `DisclosureSupplementLabel` for playlist sidebar row
       track-count labels.
     - Remove the remaining sidebar-local muted caption count label.
-    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+    - Tighten `view_models_own_display_fallbacks_for_library`.
 189. Completion sweep and residual-domain guard
     - Add an architecture guard that keeps remaining screen-level
       `unwrap_or*` expressions limited to documented domain/control
@@ -1250,7 +1250,7 @@ Verified starting notes, 2026-05-03:
   accessor.
 - Screens contain zero string-literal fallbacks for these concepts.
 - New guard
-  `view_models_own_display_fallbacks_for_library_and_search` is green.
+  `view_models_own_display_fallbacks_for_library` is green.
 - VM unit tests cover present / empty / `None` per accessor.
 
 ## First-Slice Implementation Notes
@@ -1265,7 +1265,7 @@ Verified starting notes, 2026-05-03:
 - `src/search.rs` no longer accepts an optional feed-link label and no
   longer reconstructs the guid fallback in render glue.
 - The new architecture guard
-  `view_models_own_display_fallbacks_for_library_and_search` blocks the
+  `view_models_own_display_fallbacks_for_library` blocks the
   separated feed-link fallback calls from returning to `src/search.rs`.
 
 ## Second-Slice Implementation Notes
@@ -3205,7 +3205,7 @@ cargo test library_view_model_playlist_sidebar_projects_rows_and_header_state
 cargo test library_chrome_display_projects_shell_labels
 cargo test feed_update_display_projects_toolbar_action_labels
 cargo test library_chrome_display_projects_shell_labels
-cargo test view_models_own_display_fallbacks_for_library_and_search
+cargo test view_models_own_display_fallbacks_for_library
 cargo test track_identity_links_use_shared_renderer
 cargo test
 cargo clippy -- -D warnings

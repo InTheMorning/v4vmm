@@ -10,9 +10,11 @@
 //! produce equal, hashable values. This module adds no cache and no
 //! expiry.
 //!
-//! The ten named constants below match the ten rows of packet 017's
-//! required-profile table. A constant's name is its name; the module adds
-//! no separate name field or name type.
+//! The eight named constants below match eight of the ten rows of packet
+//! 017's required-profile table. A constant's name is its name; the module
+//! adds no separate name field or name type. The two inspector track detail
+//! profiles are gone: their only caller was the parked Discover inspector,
+//! which ADR 0060 removed.
 
 /// The path shape one request profile requests.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -23,11 +25,6 @@ pub(crate) enum RequestPathShape {
     ScopedTrack,
     /// `/v1/tracks/{item_guid}`
     UnscopedTrack,
-    /// Scoped when the caller supplies a feed GUID, else unscoped. The
-    /// Index track detail profiles name this same choice as two separate
-    /// profiles. The inspector track detail profile names it as one
-    /// profile with one include list.
-    ScopedOrUnscopedTrack,
     /// `/v1/tracks?artist={name}` (ADR 0077 packet 006). This shape
     /// matches a name query, never a track GUID.
     TracksByArtistName,
@@ -73,14 +70,6 @@ const L1: &str = "source_links,source_ids,source_release_claims,source_contribut
 /// L2 and `publisher`. Eight collections. Used by the Index feed detail
 /// profile. ADR 0077 Decision 5 added `publisher` to L2.
 const L2_PUBLISHER: &str = "tracks,source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes,publisher";
-/// L3. Six collections. Used by the inspector track detail profile's
-/// track request.
-const L3: &str =
-    "source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes";
-/// L4. Six collections. Used by the inspector track detail profile's
-/// feed request.
-const L4: &str =
-    "tracks,source_enclosures,source_links,source_ids,source_release_claims,payment_routes";
 /// L5 and `publisher`. Five collections. Used by the Library album
 /// hydration profile. ADR 0077 Decision 5 added `publisher` to L5.
 const L5_PUBLISHER: &str =
@@ -109,10 +98,10 @@ pub(crate) const LIBRARY_FEED_UPDATE_FEED: RequestProfile =
 pub(crate) const LIBRARY_ALBUM_HYDRATION_FEED: RequestProfile =
     RequestProfile::new(RequestPathShape::Feed, Some(L5_PUBLISHER));
 
-/// Index feed detail. The only request of each of its three call sites:
+/// Index feed detail. The only request of each of its two call sites:
 /// `search::owner_fetch_feed` (through the detail-on-open command
-/// `search::FetchIndexFeedDetail`, ADR 0075 packet 047),
-/// `feed::fetch_recent_feed_result_rows`, and `feed::fetch_feed_detail`.
+/// `search::FetchIndexFeedDetail`, ADR 0075 packet 047) and
+/// `feed::fetch_recent_feed_result_rows`.
 pub(crate) const INDEX_FEED_DETAIL: RequestProfile =
     RequestProfile::new(RequestPathShape::Feed, Some(L2_PUBLISHER));
 
@@ -125,16 +114,6 @@ pub(crate) const INDEX_TRACK_DETAIL_SCOPED: RequestProfile =
 /// Owner: the same function.
 pub(crate) const INDEX_TRACK_DETAIL_UNSCOPED: RequestProfile =
     RequestProfile::new(RequestPathShape::UnscopedTrack, None);
-
-/// Inspector track detail, track. First. Owner: `feed::fetch_track_detail`,
-/// through `fetch_scoped_track`.
-pub(crate) const INSPECTOR_TRACK_DETAIL_TRACK: RequestProfile =
-    RequestProfile::new(RequestPathShape::ScopedOrUnscopedTrack, Some(L3));
-
-/// Inspector track detail, feed. Second. A failure returns no feed and
-/// stops no request. Owner: `feed::fetch_track_detail`.
-pub(crate) const INSPECTOR_TRACK_DETAIL_FEED: RequestProfile =
-    RequestProfile::new(RequestPathShape::Feed, Some(L4));
 
 /// Index publisher page. The one request of the Index and the Library
 /// publisher page queries (ADR 0077 Task 003). Owners:
@@ -153,11 +132,13 @@ pub(crate) const INDEX_NAME_MATCH_TRACKS: RequestProfile =
 mod tests {
     use super::*;
 
-    /// All ten registry profiles, in the packet's table order. Kept
+    /// All eight registry profiles, in the packet's table order. Kept
     /// test-only: nothing in production code enumerates the registry
     /// today. Packet 018 is the first production consumer of a profile
-    /// list.
-    const ALL: [RequestProfile; 10] = [
+    /// list. The two inspector track detail profiles are gone from this
+    /// list: their only caller was the parked Discover inspector, which
+    /// ADR 0060 removed.
+    const ALL: [RequestProfile; 8] = [
         LIBRARY_TRACK_DETAIL_SCOPED_TRACK,
         LIBRARY_TRACK_DETAIL_UNSCOPED_TRACK,
         LIBRARY_TRACK_DETAIL_FEED,
@@ -166,8 +147,6 @@ mod tests {
         INDEX_FEED_DETAIL,
         INDEX_TRACK_DETAIL_SCOPED,
         INDEX_TRACK_DETAIL_UNSCOPED,
-        INSPECTOR_TRACK_DETAIL_TRACK,
-        INSPECTOR_TRACK_DETAIL_FEED,
     ];
 
     /// R17-01: the registry exposes one named profile for each table row,
@@ -175,8 +154,12 @@ mod tests {
     /// each owning call site (R17-04, R17-05, R17-06, R17-07), where the
     /// actual request order and fallback are the mechanical fact.
     #[test]
-    fn adr_0075_request_profile_registry_names_ten_profiles() {
-        assert_eq!(ALL.len(), 10, "one named profile for each table row");
+    fn adr_0075_request_profile_registry_names_eight_profiles() {
+        assert_eq!(
+            ALL.len(),
+            8,
+            "one named profile for each surviving table row"
+        );
         assert_eq!(
             LIBRARY_TRACK_DETAIL_SCOPED_TRACK.path_shape(),
             RequestPathShape::ScopedTrack
@@ -206,14 +189,6 @@ mod tests {
             INDEX_TRACK_DETAIL_UNSCOPED.path_shape(),
             RequestPathShape::UnscopedTrack
         );
-        assert_eq!(
-            INSPECTOR_TRACK_DETAIL_TRACK.path_shape(),
-            RequestPathShape::ScopedOrUnscopedTrack
-        );
-        assert_eq!(
-            INSPECTOR_TRACK_DETAIL_FEED.path_shape(),
-            RequestPathShape::Feed
-        );
     }
 
     /// R17-02: each profile's include string equals its recorded literal,
@@ -229,9 +204,6 @@ mod tests {
         const RECORDED_L1: &str =
             "source_links,source_ids,source_release_claims,source_contributors,payment_routes";
         const RECORDED_L2: &str = "tracks,source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes";
-        const RECORDED_L3: &str = "source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes";
-        const RECORDED_L4: &str =
-            "tracks,source_enclosures,source_links,source_ids,source_release_claims,payment_routes";
         const RECORDED_L5: &str =
             "source_links,source_ids,source_release_claims,source_contributors";
         let recorded_l2_publisher = format!("{RECORDED_L2},publisher");
@@ -259,8 +231,6 @@ mod tests {
         );
         assert_eq!(INDEX_TRACK_DETAIL_SCOPED.include(), None);
         assert_eq!(INDEX_TRACK_DETAIL_UNSCOPED.include(), None);
-        assert_eq!(INSPECTOR_TRACK_DETAIL_TRACK.include(), Some(RECORDED_L3));
-        assert_eq!(INSPECTOR_TRACK_DETAIL_FEED.include(), Some(RECORDED_L4));
     }
 
     /// R17-09: a profile's own value is its identity. `RequestProfile` is
@@ -306,8 +276,6 @@ mod tests {
         assert_eq!(collection_count(&INDEX_FEED_DETAIL), 8);
         assert_eq!(collection_count(&INDEX_TRACK_DETAIL_SCOPED), 0);
         assert_eq!(collection_count(&INDEX_TRACK_DETAIL_UNSCOPED), 0);
-        assert_eq!(collection_count(&INSPECTOR_TRACK_DETAIL_TRACK), 6);
-        assert_eq!(collection_count(&INSPECTOR_TRACK_DETAIL_FEED), 6);
     }
 
     /// R2-04 (ADR 0077 Decision 5): the Library album hydration sends L5
@@ -343,14 +311,6 @@ mod tests {
             ),
             (INDEX_TRACK_DETAIL_SCOPED, None),
             (INDEX_TRACK_DETAIL_UNSCOPED, None),
-            (
-                INSPECTOR_TRACK_DETAIL_TRACK,
-                Some("source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes"),
-            ),
-            (
-                INSPECTOR_TRACK_DETAIL_FEED,
-                Some("tracks,source_enclosures,source_links,source_ids,source_release_claims,payment_routes"),
-            ),
         ];
         for (profile, include) in unchanged {
             assert_eq!(profile.include(), include, "{profile:?} must not change");

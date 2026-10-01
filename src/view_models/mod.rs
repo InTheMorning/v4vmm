@@ -48,8 +48,8 @@
 //!    tree is painted. This avoids any extra `Arc`/`clone` churn.
 //! 5. **One module per screen.** `view_models::artist`,
 //!    `view_models::feed`, `view_models::track`,
-//!    `view_models::library`, `view_models::search`. Shared helpers
-//!    live alongside in this `mod.rs` or a `common` submodule.
+//!    `view_models::library`, `view_models::search_results`. Shared
+//!    helpers live alongside in this `mod.rs` or a `common` submodule.
 //!
 //! ## Reference implementation
 //!
@@ -83,7 +83,6 @@ pub(crate) mod playlist_rss_check;
 pub(crate) mod publisher_page;
 pub(crate) mod queue_now_playing;
 pub(crate) mod recent_feeds;
-pub mod search;
 pub mod search_results;
 pub(crate) mod show;
 pub(crate) mod tag_update;

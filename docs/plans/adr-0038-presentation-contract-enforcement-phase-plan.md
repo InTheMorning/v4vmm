@@ -133,7 +133,7 @@ Targets (verified by grep on 2026-05-02):
 Deliverables:
 - VM accessors with unit tests (present / empty / `None`).
 - Screen call-site sweep.
-- New guard: `view_models_own_display_fallbacks_for_library_and_search`.
+- New guard: `view_models_own_display_fallbacks_for_library`.
 
 ### Phase 4 — HIG Foundations: Dark-Mode Parity Audit
 

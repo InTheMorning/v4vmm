@@ -6,8 +6,7 @@ use std::sync::Arc;
 use crate::application::command_bus::{ApplicationCommand, CommandOutcome, CommandResult};
 use crate::application::command_context::CommandContext;
 use crate::application::errors::command::CommandError;
-use crate::media::{image_from_bytes, CachedImage, ImageCache};
-use crate::subscribe_service::download_image;
+use crate::media::{CachedImage, ImageCache};
 
 /// Fetches one cached thumbnail for presentation.
 #[derive(Clone)]
@@ -51,46 +50,6 @@ impl ApplicationCommand for FetchThumbnail {
         } else {
             self.cache.fetch_static_blocking(&self.url)
         };
-        Ok(CommandOutcome::without_events(image))
-    }
-}
-
-/// Downloads and decodes one uncached inspector image.
-#[derive(Clone, Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ADR 0060 packet 006 deletes this parked query layer"
-    )
-)]
-pub(crate) struct DownloadInspectorImage {
-    url: String,
-}
-
-impl DownloadInspectorImage {
-    /// Creates an inspector image download query command.
-    #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0060 packet 006 deletes this parked query layer"
-        )
-    )]
-    pub(crate) fn new(url: impl Into<String>) -> Self {
-        Self { url: url.into() }
-    }
-}
-
-impl ApplicationCommand for DownloadInspectorImage {
-    type Output = Option<CachedImage>;
-
-    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
-        if context.cancellation().is_cancelled() {
-            return Err(CommandError::Cancelled);
-        }
-        let image = download_image(&self.url).and_then(image_from_bytes);
         Ok(CommandOutcome::without_events(image))
     }
 }
@@ -151,21 +110,6 @@ mod tests {
     }
 
     #[test]
-    fn download_inspector_image_downloads_uncached_image() {
-        let url = serve_image_once("image/png", TEST_IMAGE_BYTES);
-
-        let outcome = CommandBus::new()
-            .execute(DownloadInspectorImage::new(url), &CommandContext::next())
-            .expect("inspector image download succeeds");
-
-        assert!(
-            outcome.value().is_some(),
-            "inspector image should be downloaded"
-        );
-        assert!(outcome.events().is_empty(), "query should not emit events");
-    }
-
-    #[test]
     fn image_queries_honor_cancelled_context() {
         let temp = tempfile::tempdir().expect("tempdir");
         let cache = ImageCache::with_capacity(temp.path().join("thumbnails"), 1, 512, 1024 * 1024);
@@ -178,15 +122,7 @@ mod tests {
             Ok(_) => panic!("cancelled thumbnail query should fail"),
             Err(error) => error,
         };
-        let download_error = match bus.execute(
-            DownloadInspectorImage::new("http://127.0.0.1:1/inspector.png"),
-            &cancelled_context(),
-        ) {
-            Ok(_) => panic!("cancelled inspector query should fail"),
-            Err(error) => error,
-        };
 
         assert_eq!(fetch_error, CommandError::Cancelled);
-        assert_eq!(download_error, CommandError::Cancelled);
     }
 }

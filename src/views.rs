@@ -399,28 +399,6 @@ fn trimmed(value: Option<&str>) -> Option<&str> {
 }
 
 impl ArtistView {
-    pub fn from_api(a: api::Artist) -> Self {
-        let image_url = a.image_url;
-        let mut identity = EntityIdentityLinks::from_image_url(image_url.clone());
-        identity.website_url = a.url.clone();
-        Self {
-            id: None,
-            name: a.name,
-            sort_name: a.sort_name,
-            image_url: image_url.clone(),
-            artwork: artwork_from_url(&image_url),
-            identity,
-            area: a.area,
-            begin_year: a.begin_year,
-            end_year: a.end_year,
-            feed_count: a.feed_count,
-            track_count: a.track_count,
-            url: a.url,
-            aliases: a.aliases.unwrap_or_default(),
-            tags: a.tags.unwrap_or_default(),
-        }
-    }
-
     pub fn from_local_rows(name: &str, rows: &[db::TrackRow]) -> Self {
         // Count unique feed_ids
         let mut feed_ids = std::collections::HashSet::new();

@@ -282,7 +282,7 @@ The operator accepted both cuts on 2026-09-21.
 | `TrackView.artwork` has no reader. `TrackView::display_artwork_url` gives the track artwork | No packet. Packet 048 recorded it on 2026-09-29 |
 | A feed artwork fallback to the first track image puts a track value on a feed (`index_feed_artwork_url`) | No packet. Packet 048 recorded it on 2026-09-29 |
 | The app reads no RSS channel `pubDate`. The accepted feed publication-date rules have no source. The album page shows the oldest-item date as "Release Date" | [Packet 050](../tasks/adr-0075-task-050-feed-dates-by-owner.md), Ready on 2026-09-30. The operator decided both details |
-| A guard that compares the fields that the app decodes with a stored copy of the MusicIndex contract. The incident: Stophammer removed `artist_credit` on 2026-04-08, and the app read `None` for five months without a report | [Packet 051](../tasks/adr-0075-task-051-contract-field-guard.md), held on 2026-09-30. The operator accepted the design. It waits for ADR 0060 packets 005 and 006, which delete six schema-less types |
+| A guard that compares the fields that the app decodes with a stored copy of the MusicIndex contract. The incident: Stophammer removed `artist_credit` on 2026-04-08, and the app read `None` for five months without a report | [Packet 051](../tasks/adr-0075-task-051-contract-field-guard.md), Ready on 2026-09-30. The operator accepted the design. ADR 0060 packets 005 and 006 deleted the six schema-less types |
 | A typed RSS refresh-failure state. ADR 0075 §2 and §6 require the app to report a failed refresh. Deleted packet 019 owned it | No packet |
 | Combined isolation, restart, rollback, and superseded-response tests for provider snapshots. Deleted packet 015 owned them | No packet |
 

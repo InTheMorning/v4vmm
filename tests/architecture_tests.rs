@@ -4997,8 +4997,6 @@ fn global_search_replaces_screen_local_search_chrome() {
     let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
     let icon_source = read_source(&manifest_path("src/ui/icons.rs"));
     let library_source = read_source(&manifest_path("src/library/app_impl.rs"));
-    let search_query_source = read_source(&manifest_path("src/application/queries/search.rs"));
-    let search_vm_source = search_vm_source();
     let mut violations = Vec::new();
 
     if !app_source.contains("fn on_global_search_event(") {
@@ -5089,37 +5087,11 @@ fn global_search_replaces_screen_local_search_chrome() {
         }
     }
 
-    // ADR 0060 deleted `src/discover/app_impl.rs` and
-    // `src/ui/shells/discover/search_input.rs`. This guard no longer reads
-    // those paths; `adr_0060_discover_surface_stays_deleted` checks that they
-    // stay gone.
-
-    for required in [
-        "pub(crate) struct FetchDiscoverSearchResults",
-        "fn fetch_local_library_search_rows(",
-    ] {
-        if !search_query_source.contains(required) {
-            violations.push(format!(
-                "src/application/queries/search.rs: Search workspace query ownership missing `{required}`"
-            ));
-        }
-    }
-
-    for required in [
-        "pub(crate) enum SearchResultSource",
-        "pub(crate) struct SearchResultSection",
-        "library_results: Vec<ResultRow>",
-        "active_filter: ContentFilter",
-        "index_controls: IndexControlsVisibility",
-        "ContentFilter::All",
-        "show_recents_command = !show_recents_root",
-    ] {
-        if !search_vm_source.contains(required) {
-            violations.push(format!(
-                "src/view_models/search/: grouped search VM contract missing `{required}`"
-            ));
-        }
-    }
+    // ADR 0060 deleted `src/discover/app_impl.rs`,
+    // `src/ui/shells/discover/search_input.rs`, and the parked query layer
+    // and view models of `src/application/queries/search.rs` and
+    // `src/view_models/search/`. This guard no longer reads those paths;
+    // `adr_0060_discover_surface_stays_deleted` checks that they stay gone.
 
     for forbidden in [
         "show_scope_controls",
@@ -5138,103 +5110,6 @@ fn global_search_replaces_screen_local_search_chrome() {
     assert!(
         violations.is_empty(),
         "ADR 0043 duplicate-search replacement violations:\n{}",
-        violations.join("\n")
-    );
-}
-
-#[test]
-fn adr_0055_search_view_model_is_decomposed_under_module_tree() {
-    let mut violations = Vec::new();
-    let legacy_path = manifest_path("src/view_models/search.rs");
-    if legacy_path.exists() {
-        violations.push(
-            "src/view_models/search.rs: ADR 0055 retired the single-file search VM".to_string(),
-        );
-    }
-
-    let mod_path = manifest_path("src/view_models/search/mod.rs");
-    if !mod_path.is_file() {
-        violations.push("src/view_models/search/mod.rs: ADR 0055 module root missing".to_string());
-    }
-
-    let mod_source = read_source(&mod_path);
-    for required in [
-        "mod actions;",
-        "mod controls;",
-        "mod feed_detail;",
-        "mod lazy;",
-        "mod recent;",
-        "mod results;",
-        "mod track;",
-        "mod tests;",
-    ] {
-        if !mod_source.contains(required) {
-            violations.push(format!(
-                "src/view_models/search/mod.rs: ADR 0055 module wiring missing `{required}`"
-            ));
-        }
-    }
-
-    for required_file in [
-        "src/view_models/search/actions.rs",
-        "src/view_models/search/controls.rs",
-        "src/view_models/search/feed_detail.rs",
-        "src/view_models/search/lazy.rs",
-        "src/view_models/search/recent.rs",
-        "src/view_models/search/results.rs",
-        "src/view_models/search/track.rs",
-        "src/view_models/search/tests.rs",
-    ] {
-        if !manifest_path(required_file).is_file() {
-            violations.push(format!("{required_file}: ADR 0055 expected module missing"));
-        }
-    }
-
-    for (file, source) in search_vm_sources() {
-        for (line_number, line) in code_lines(&source) {
-            for forbidden in VIEW_MODEL_FORBIDDEN_PATTERNS {
-                if line.contains(forbidden) {
-                    violations.push(format!(
-                        "{file}:{line_number}: search view-model modules must remain GPUI-free and renderer-free; found `{forbidden}` in `{line}`"
-                    ));
-                }
-            }
-        }
-    }
-
-    let private_modules = [
-        "actions",
-        "common",
-        "controls",
-        "feed_detail",
-        "lazy",
-        "recent",
-        "results",
-        "track",
-    ];
-    for path in rust_files_under("src") {
-        let file = rel_path(&path);
-        if file.starts_with("src/view_models/search/") {
-            continue;
-        }
-        let source = read_source(&path);
-        for (line_number, line) in code_lines(&source) {
-            for module in private_modules {
-                if line.contains(&format!("view_models::search::{module}::"))
-                    || (line.contains("view_models::search::{")
-                        && line.contains(&format!("{module}::")))
-                {
-                    violations.push(format!(
-                        "{file}:{line_number}: callers must import through `crate::view_models::search`, not deep private search module `{module}`: `{line}`"
-                    ));
-                }
-            }
-        }
-    }
-
-    assert!(
-        violations.is_empty(),
-        "ADR 0055 search VM decomposition violations:\n{}",
         violations.join("\n")
     );
 }
@@ -6298,16 +6173,6 @@ fn adr_0047_membership_buttons_use_download_remove_vocabulary() {
             }
         }
     }
-    for (file, contents) in search_vm_sources() {
-        for pattern in forbidden {
-            if contents.contains(pattern) {
-                violations.push(format!(
-                    "{file}: membership action buttons must use Download/Remove vocabulary; found `{pattern}`"
-                ));
-            }
-        }
-    }
-
     assert!(
         violations.is_empty(),
         "ADR 0047 membership action vocabulary violations:\n{}",
@@ -6583,11 +6448,6 @@ fn interactive_composites_carry_accessibility_labels() {
             "a11y_label",
         ),
         ("ListRow", "src/ui/composites/list_row.rs", "a11y_label"),
-        (
-            "RecentFeedTileDisplay",
-            "src/view_models/search/recent.rs",
-            "a11y_label",
-        ),
         (
             "DisclosureGroupDisplay",
             "src/ui/composites/disclosure_group.rs",
@@ -7674,7 +7534,7 @@ fn screens_do_not_coerce_empty_feed_url_to_empty_string() {
 }
 
 #[test]
-fn view_models_own_display_fallbacks_for_library_and_search() {
+fn view_models_own_display_fallbacks_for_library() {
     let forbidden = [
         (
             "src/library.rs",
@@ -8735,7 +8595,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
 
     assert!(
         violations.is_empty(),
-        "ADR 0038 Library/Search VM fallback ownership violations:\n{}",
+        "ADR 0038 Library VM fallback ownership violations:\n{}",
         violations.join("\n")
     );
 }
@@ -9101,17 +8961,6 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
         );
     }
 
-    let search_source = read_source(&manifest_path("src/application/queries/feed.rs"));
-    for required in [
-        "sanitize_feed_source_text(&mut feed);",
-        "let mut track_context = TrackContext::new(track, feed);",
-        "sanitize_track_context_source_text(&mut track_context);",
-    ] {
-        assert!(
-            search_source.contains(required),
-            "Search inspector query facts must be sanitized before display: `{required}`"
-        );
-    }
     for required in [
         "apply_track_enrichment",
         "rss_enrichment_replaces_placeholder_core_fields",
@@ -10108,25 +9957,6 @@ fn workspace_vm_source() -> String {
     .map(|file| read_source(&manifest_path(file)))
     .collect::<Vec<_>>()
     .join("\n")
-}
-
-fn search_vm_sources() -> Vec<(String, String)> {
-    rust_files_under("src/view_models/search")
-        .into_iter()
-        .map(|path| {
-            let file = rel_path(&path);
-            let source = read_source(&path);
-            (file, source)
-        })
-        .collect()
-}
-
-fn search_vm_source() -> String {
-    search_vm_sources()
-        .into_iter()
-        .map(|(_, source)| source)
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn manifest_path(relative: &str) -> PathBuf {
@@ -11394,7 +11224,6 @@ fn adr_0076_route_readiness_ignores_test_only_files() {
     // R76-7-01: the parent-declared test-only files, and their production kin.
     for test_only_file in [
         "src/view_models/workspace/tests.rs",
-        "src/view_models/search/tests.rs",
         "src/view_models/search_results/tests.rs",
     ] {
         assert!(
@@ -17740,11 +17569,7 @@ fn adr_0075_library_observation_callers_and_consumers_are_guarded() {
         .map(|start| &comparison[start..]);
     assert!(query_call.is_some_and(|text| text.contains("&recorder,") && text.contains("result,")));
     assert!(!comparison.contains("fetch_library_track_context_with_local_fallback"));
-    let assembly = source_between(
-        &query,
-        "fn assemble_observed_query<",
-        "fn fetch_local_track_context(",
-    );
+    let assembly = source_between(&query, "fn assemble_observed_query<", "fn poisoned_lock(");
     assert_eq!(assembly.matches("take_receipts()").count(), 1);
     assert!(assembly.contains("CommandError::ObservedQueryFailure"));
     assert!(assembly.contains("CommandError::ObservationWriteFailure"));
@@ -17836,9 +17661,6 @@ fn adr_0075_snapshot_registry_transaction_and_local_read_boundaries() {
     assert!(assembly.contains("read_track_provider_state"));
     assert!(assembly.contains("write_failure: capsule"));
     assert!(assembly.contains("receipts: receipts.into()"));
-    let local = source_between(&query, "fn fetch_local_track_context(", "fn nonempty_url(");
-    assert!(local.contains("read_track_provider_state"));
-    assert!(!local.contains("ProviderObservationRecorder"));
     let rss = read_source(&manifest_path("src/rss/enrich.rs"));
     assert_eq!(
         production_source(&rss).matches("Document::parse(").count(),
@@ -18326,21 +18148,10 @@ request; found `{forbidden_helper}`. {NO_DETAIL_FIX}"
 
     let feed = read_source(&manifest_path("src/application/queries/feed.rs"));
     let feed_production = production_source(&feed);
-    let feed_owner_track = source_between(
-        feed_production,
-        "fn fetch_scoped_track(",
-        "fn owner_fetch_feed(",
-    );
-    if feed_owner_track.matches(".fetch_track_shared(key,").count() < 1 {
-        violations.push(format!(
-            "src/application/queries/feed.rs: `fetch_scoped_track` must ask the shared \
-request owner. {FIX}"
-        ));
-    }
     let feed_owner_feed = source_between(
         feed_production,
         "fn owner_fetch_feed(",
-        "fn resolve_podroll_feeds(",
+        "pub(crate) fn fetch_index_publisher_page_albums(",
     );
     if feed_owner_feed
         .matches(".fetch_feed_with_receipts(key,")
@@ -18351,43 +18162,6 @@ request owner. {FIX}"
             "src/application/queries/feed.rs: `owner_fetch_feed` must ask the shared request \
 owner. {FIX}"
         ));
-    }
-    for (start, end, calls_helper) in [
-        (
-            "fn artist_feed_for_guid(",
-            "fn fetch_feed_detail(",
-            "owner_fetch_feed(",
-        ),
-        (
-            "fn fetch_feed_detail(",
-            "fn fetch_track_detail(",
-            "owner_fetch_feed(",
-        ),
-        (
-            "fn fetch_track_detail(",
-            "fn fetch_scoped_track(",
-            "fetch_scoped_track(",
-        ),
-        (
-            "fn hydrate_feed_track_play_urls(",
-            "fn merge_track_play_fields(",
-            "fetch_scoped_track(",
-        ),
-    ] {
-        let body = source_between(feed_production, start, end);
-        if !body.contains(calls_helper) {
-            violations.push(format!(
-                "src/application/queries/feed.rs: `{start}` must call `{calls_helper}`. {FIX}"
-            ));
-        }
-        for forbidden in DIRECT_CLIENT_CALLS {
-            if body.contains(forbidden) {
-                violations.push(format!(
-                    "src/application/queries/feed.rs: `{start}` must not call `{forbidden}` \
-directly. {FIX}"
-                ));
-            }
-        }
     }
 
     assert!(violations.is_empty(), "{}", violations.join("\n"));

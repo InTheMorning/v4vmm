@@ -54,17 +54,6 @@ pub(crate) struct LibraryTrackCompare {
     pub(crate) track_context: TrackContext,
 }
 
-/// Local track inspector payload plus an optional artwork URL.
-#[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "ADR 0060 packet 006 deletes this parked query layer"
-)]
-pub(crate) struct LocalTrackContextResult {
-    pub(crate) context: TrackContext,
-    pub(crate) image_url: Option<String>,
-}
-
 /// Loads local library tracks into the sidebar tree.
 #[derive(Clone, Debug)]
 pub(crate) struct LoadLibraryTracksTree {
@@ -163,48 +152,6 @@ impl ApplicationCommand for FetchLibraryTrackContext {
         )
         .map_err(|error| query_error(&error))
         .map(CommandOutcome::without_events)
-    }
-}
-
-/// Fetches local track context for a parked Discover inspector.
-#[derive(Clone, Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ADR 0060 packet 006 deletes this parked query layer"
-    )
-)]
-pub(crate) struct FetchLocalTrackContext {
-    conn: SharedConnection,
-    track_id: i64,
-}
-
-impl FetchLocalTrackContext {
-    /// Creates a local track inspector query command.
-    #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0060 packet 006 deletes this parked query layer"
-        )
-    )]
-    pub(crate) const fn new(conn: SharedConnection, track_id: i64) -> Self {
-        Self { conn, track_id }
-    }
-}
-
-impl ApplicationCommand for FetchLocalTrackContext {
-    type Output = LocalTrackContextResult;
-
-    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
-        if context.cancellation().is_cancelled() {
-            return Err(CommandError::Cancelled);
-        }
-        fetch_local_track_context(&self.conn, self.track_id)
-            .map_err(|error| query_error(&error))
-            .map(CommandOutcome::without_events)
     }
 }
 
@@ -1054,55 +1001,6 @@ fn observation_storage_failure(error: &anyhow::Error) -> Option<ObservationComma
         receipts: Arc::from([]),
         read_error: None,
     })
-}
-
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ADR 0060 packet 006 deletes this parked query layer"
-    )
-)]
-fn fetch_local_track_context(
-    conn: &SharedConnection,
-    track_id: i64,
-) -> anyhow::Result<LocalTrackContextResult> {
-    let db = conn
-        .lock()
-        .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
-    let Some(track) = library_service::track_row_by_id(&db, track_id)? else {
-        anyhow::bail!("local track not found: {track_id}");
-    };
-    let mut context = feed_service::track_row_to_track_context_with_local_identity(&db, &track)?;
-    context.provider_state = feed_service::local_provider_request(&db, &track, &context)
-        .and_then(|request| {
-            db::provider_observations::read_track_provider_state(&db, request.as_ref())
-        })
-        .map_err(|_| crate::provider_observation::ObservationCommandFailure {
-            write_failure: None,
-            storage_error: None,
-            receipts: Arc::from([]),
-            read_error: Some(crate::provider_observation::ProviderReadError::Storage),
-        })?;
-    let image_url = context
-        .track
-        .image_url
-        .as_deref()
-        .and_then(nonempty_url)
-        .map(str::to_string);
-    Ok(LocalTrackContextResult { context, image_url })
-}
-
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ADR 0060 packet 006 deletes this parked query layer"
-    )
-)]
-fn nonempty_url(url: &str) -> Option<&str> {
-    let trimmed = url.trim();
-    (!trimmed.is_empty()).then_some(trimmed)
 }
 
 fn poisoned_lock() -> CommandError {
@@ -2914,39 +2812,6 @@ target=\"1 request set\" measured_requests={measured_requests} requests={all_req
             .collections
             .iter()
             .all(|c| matches!(c.state, CollectionState::CompleteEmpty(_))));
-        let changes = fixture.conn.lock().unwrap().total_changes();
-        let requests = fixture.requests.lock().unwrap().len();
-        let local = FetchLocalTrackContext::new(Arc::clone(&fixture.conn), fixture.tracks[0].id)
-            .execute(&CommandContext::next())
-            .unwrap()
-            .into_parts()
-            .0
-            .context;
-        assert_eq!(local.provider_state, empty.provider_state);
-        assert_eq!(fixture.conn.lock().unwrap().total_changes(), changes);
-        assert_eq!(fixture.requests.lock().unwrap().len(), requests);
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("local-context.sqlite");
-        {
-            let mut target = Connection::open(&path).unwrap();
-            let source = fixture.conn.lock().unwrap();
-            let backup = rusqlite::backup::Backup::new(&source, &mut target).unwrap();
-            backup
-                .run_to_completion(16, Duration::from_millis(1), None)
-                .unwrap();
-        }
-        let reopened = Arc::new(Mutex::new(Connection::open(path).unwrap()));
-        let reopened_changes = reopened.lock().unwrap().total_changes();
-        let reopened_local =
-            FetchLocalTrackContext::new(Arc::clone(&reopened), fixture.tracks[0].id)
-                .execute(&CommandContext::next())
-                .unwrap()
-                .into_parts()
-                .0
-                .context;
-        assert_eq!(reopened_local.provider_state, empty.provider_state);
-        assert_eq!(reopened.lock().unwrap().total_changes(), reopened_changes);
-        assert_eq!(fixture.requests.lock().unwrap().len(), requests);
         fixture.set_mode(14);
         let failed = fixture.load(0).unwrap();
         assert_eq!(

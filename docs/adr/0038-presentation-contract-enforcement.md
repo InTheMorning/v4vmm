@@ -266,7 +266,7 @@ Planned under ADR 0038:
   `KNOWN_SHARED_UI_SHELL_FILES` allowlist after Task 001.
 - `composite_signatures_take_display_contracts_not_loose_strings` —
   Task 002.
-- `view_models_own_display_fallbacks_for_library_and_search` — Task 003.
+- `view_models_own_display_fallbacks_for_library` — Task 003.
 - `interactive_composites_carry_accessibility_labels` — Task 005.
 - `entity_detail_pages_render_through_shell_helper_and_page_vm` —
   Task 006.

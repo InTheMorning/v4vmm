@@ -88,52 +88,6 @@ pub struct DetailResponse<T> {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
-pub struct Artist {
-    pub artist_id: Option<String>,
-    pub name: Option<String>,
-    pub sort_name: Option<String>,
-    pub feed_count: Option<i32>,
-    pub track_count: Option<i32>,
-    pub area: Option<String>,
-    pub begin_year: Option<i32>,
-    pub end_year: Option<i32>,
-    pub url: Option<String>,
-    pub aliases: Option<Vec<String>>,
-    pub tags: Option<Vec<String>>,
-    pub image_url: Option<String>,
-    pub updated_at: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct Release {
-    pub release_id: Option<String>,
-    pub name: Option<String>,
-    pub title: Option<String>,
-    pub release_date: Option<String>,
-    pub description: Option<String>,
-    pub image_url: Option<String>,
-    pub artist_credit: Option<ArtistCredit>,
-    pub tracks: Option<Vec<Track>>,
-    pub updated_at: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct Recording {
-    pub recording_id: Option<String>,
-    pub name: Option<String>,
-    pub title: Option<String>,
-    pub duration_secs: Option<i32>,
-    pub image_url: Option<String>,
-    pub artist_credit: Option<ArtistCredit>,
-    pub releases: Option<Vec<ReleaseReference>>,
-    pub sources: Option<Vec<Source>>,
-    pub updated_at: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
 pub struct Feed {
     pub feed_guid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -240,7 +194,6 @@ pub struct Track {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
     pub publisher_text: Option<String>,
-    pub artist_credit: Option<ArtistCredit>,
     #[serde(alias = "persons")]
     pub source_contributors: Option<Vec<Contributor>>,
     #[serde(alias = "links")]
@@ -645,27 +598,6 @@ pub struct ValueTimeSplit {
     pub split: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct ArtistCredit {
-    pub artist_id: Option<String>,
-    pub display_name: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct ReleaseReference {
-    pub position: Option<i32>,
-    pub title: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct Source {
-    pub title: Option<String>,
-    pub primary_enclosure_url: Option<String>,
-}
-
 #[derive(Clone, Serialize, Deserialize)]
 pub struct LiveItemCreateResponse {
     pub event_id: String,
@@ -702,11 +634,7 @@ pub struct LiveMetadataSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EntityDetail {
-    Artist(Artist),
-    Release(Release),
-    Recording(Recording),
     Feed(Feed),
-    Track(Track),
 }
 
 #[derive(Clone)]
@@ -748,7 +676,6 @@ impl Client {
         entity_type: Option<&str>,
         limit: Option<i32>,
         cursor: Option<&str>,
-        fuzzy: bool,
     ) -> Result<SearchResponse> {
         let mut params = vec![
             ("q", query.to_string()),
@@ -761,9 +688,6 @@ impl Client {
 
         if let Some(cursor) = cursor {
             params.push(("cursor", cursor.to_string()));
-        }
-        if fuzzy {
-            params.push(("fuzzy", "true".to_string()));
         }
 
         self.get_json(&["v1", "search"], &params)
@@ -779,28 +703,6 @@ impl Client {
             params.push(("cursor", cursor.to_string()));
         }
         self.get_json(&["v1", "feeds", "recent"], &params)
-    }
-
-    pub fn fetch_detail(&self, entity_type: &str, entity_id: &str) -> Result<EntityDetail> {
-        match entity_type {
-            "release" => {
-                let params = [("include", "tracks".to_string())];
-                Ok(EntityDetail::Release(self.fetch_wrapped_with_query(
-                    &["v1", "releases", entity_id],
-                    &params,
-                )?))
-            }
-            "recording" => {
-                let params = [("include", "sources,releases".to_string())];
-                Ok(EntityDetail::Recording(self.fetch_wrapped_with_query(
-                    &["v1", "recordings", entity_id],
-                    &params,
-                )?))
-            }
-            "feed" => Ok(EntityDetail::Feed(self.fetch_feed(entity_id, None)?)),
-            "track" => Ok(EntityDetail::Track(self.fetch_track(entity_id, None)?)),
-            _ => Err(anyhow!("unknown entity type: {entity_type}")),
-        }
     }
 
     pub fn fetch_feed(&self, feed_guid: &str, include: Option<&str>) -> Result<Feed> {
@@ -866,10 +768,7 @@ impl Client {
         profile: &RequestProfile,
     ) -> Result<Track> {
         debug_assert!(
-            matches!(
-                profile.path_shape(),
-                RequestPathShape::UnscopedTrack | RequestPathShape::ScopedOrUnscopedTrack
-            ),
+            profile.path_shape() == RequestPathShape::UnscopedTrack,
             "ADR 0075 packet 017: {profile:?} must name an unscoped track path shape"
         );
         self.fetch_track(track_guid, profile.include())
@@ -889,10 +788,7 @@ impl Client {
         profile: &RequestProfile,
     ) -> Result<Track> {
         debug_assert!(
-            matches!(
-                profile.path_shape(),
-                RequestPathShape::ScopedTrack | RequestPathShape::ScopedOrUnscopedTrack
-            ),
+            profile.path_shape() == RequestPathShape::ScopedTrack,
             "ADR 0075 packet 017: {profile:?} must name a scoped track path shape"
         );
         self.fetch_feed_track(feed_guid, track_guid, profile.include())
@@ -944,44 +840,6 @@ impl Client {
             params.push(("include", include.to_string()));
         }
         self.get_json(&["v1", "tracks"], &params)
-    }
-
-    pub fn fetch_contributors(
-        &self,
-        entity_type: &str,
-        entity_id: &str,
-    ) -> Result<Vec<Contributor>> {
-        let detail = match entity_type {
-            "feed" => EntityDetail::Feed(self.fetch_feed(entity_id, Some("source_contributors"))?),
-            "track" => {
-                EntityDetail::Track(self.fetch_track(entity_id, Some("source_contributors"))?)
-            }
-            _ => return Ok(Vec::new()),
-        };
-
-        Ok(match detail {
-            EntityDetail::Feed(feed) => feed.source_contributors.unwrap_or_default(),
-            EntityDetail::Track(track) => track.source_contributors.unwrap_or_default(),
-            _ => Vec::new(),
-        })
-    }
-
-    pub fn fetch_value_routes(
-        &self,
-        entity_type: &str,
-        entity_id: &str,
-    ) -> Result<Vec<PaymentRoute>> {
-        let detail = match entity_type {
-            "feed" => EntityDetail::Feed(self.fetch_feed(entity_id, Some("payment_routes"))?),
-            "track" => EntityDetail::Track(self.fetch_track(entity_id, Some("payment_routes"))?),
-            _ => return Ok(Vec::new()),
-        };
-
-        Ok(match detail {
-            EntityDetail::Feed(feed) => feed.payment_routes.unwrap_or_default(),
-            EntityDetail::Track(track) => track.payment_routes.unwrap_or_default(),
-            _ => Vec::new(),
-        })
     }
 
     pub fn health(&self) -> Result<String> {
@@ -1216,7 +1074,7 @@ pub(crate) mod tests {
         let client =
             Client::new_with_base_url("https://secret:credential@invalid host/?token=hidden");
         let error = client
-            .search("local", None, None, None, false)
+            .search("local", None, None, None)
             .unwrap_err()
             .to_string();
         assert!(error.contains("musicindex_endpoint"));
@@ -1448,10 +1306,6 @@ pub(crate) mod tests {
             r#"{
                 "track_guid": "track-1",
                 "author_name": "Track Artist",
-                "artist_credit": {
-                    "artist_id": "artist-123",
-                    "display_name": "Track Artist"
-                },
                 "persons": [{"name": "Bob", "role": "guitar"}],
                 "links": [{"link_type": "website", "url": "https://example.com/track"}],
                 "entity_ids": [{"scheme": "nostr_npub", "value": "npub1track"}]
@@ -1464,11 +1318,6 @@ pub(crate) mod tests {
         assert_eq!(feed.source_links.as_ref().map(Vec::len), Some(1));
         assert_eq!(feed.source_ids.as_ref().map(Vec::len), Some(1));
         assert_eq!(track.track_artist.as_deref(), Some("Track Artist"));
-        let artist_credit = track
-            .artist_credit
-            .expect("artist_credit should deserialize");
-        assert_eq!(artist_credit.artist_id.as_deref(), Some("artist-123"));
-        assert_eq!(artist_credit.display_name.as_deref(), Some("Track Artist"));
         assert_eq!(track.source_contributors.as_ref().map(Vec::len), Some(1));
         assert_eq!(track.source_links.as_ref().map(Vec::len), Some(1));
         assert_eq!(track.source_ids.as_ref().map(Vec::len), Some(1));

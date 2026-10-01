@@ -1,6 +1,6 @@
 # ADR 0075 Task 051: Contract Field Guard
 
-Status: Held - 2026-09-30. The operator accepted the guard as designed on 2026-09-30. It waits for ADR 0060 packets 005 and 006. This packet has no visual gate.
+Status: Ready - 2026-09-30. The operator accepted the guard as designed on 2026-09-30. ADR 0060 packets 005 and 006 deleted the six schema-less types. This packet has no visual gate.
 
 ## Goal
 
