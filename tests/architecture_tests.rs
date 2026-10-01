@@ -428,6 +428,11 @@ const ADR0054_FEED_FACT_KEYS: &[&str] = &[
     "language",
     "explicit",
     "description",
+    // ADR 0075 packet 050, operator decision D50-1: the feed's own
+    // publication date, kept as two separate fact keys apart from the
+    // oldest-item `release_date` fact above.
+    "channel_pub_date",
+    "feed_pub_date_claim",
     "rss_podcast_medium",
 ];
 

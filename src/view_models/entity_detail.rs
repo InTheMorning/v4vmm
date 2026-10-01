@@ -817,7 +817,10 @@ pub struct ReleaseDetailVm<'a> {
     context: EntitySurfaceContext,
 }
 
-const MAX_RELEASE_SUMMARY_FACTS: usize = 5;
+// ADR 0075 packet 050 raised this cap from 5 to 6: the "Published" and
+// "First track published" facts now both need room beside Release Kind,
+// Tracks, Duration and Language.
+const MAX_RELEASE_SUMMARY_FACTS: usize = 6;
 
 impl<'a> ReleaseDetailVm<'a> {
     #[must_use]
@@ -867,10 +870,26 @@ impl<'a> ReleaseDetailVm<'a> {
                 .clone()
                 .unwrap_or_else(|| "Unknown".to_string()),
         });
+        // ADR 0075 packet 050, operator decision D50-1: the feed's own
+        // publication date, named with the provider that supplied it.
+        if let Some(date) = self.view.published.as_deref() {
+            let value = match self.view.published_source {
+                Some(source) => format!("{date} ({source})"),
+                None => date.to_string(),
+            };
+            facts.push(ReleaseFactVm {
+                key: "Published",
+                value,
+            });
+        }
+        // ADR 0075 packet 050, operator decision D50-2: the MusicIndex
+        // oldest-item date shows as a derived fact, named with its source.
+        // This is never a release date, and the page shows no "Release
+        // Date" fact from `release_date`.
         if let Some(date) = self.view.release_date.and_then(fmt_date) {
             facts.push(ReleaseFactVm {
-                key: "Release Date",
-                value: date,
+                key: "First track published",
+                value: format!("{date} (MusicIndex)"),
             });
         }
         if let Some(count) = self.view.episode_count {
@@ -1551,11 +1570,16 @@ mod tests {
     #[test]
     fn release_page_summary_facts_are_ordered_and_capped() {
         let mut feed = feed_view();
+        feed.published = Some("Apr 1, 2024".into());
+        feed.published_source = Some("RSS");
         feed.release_date = Some(1_712_275_200);
 
         let facts = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).summary_facts();
 
-        assert_eq!(facts.len(), 5);
+        // ADR 0075 packet 050: "Published" and "First track published" are
+        // two separate facts, each named with its source. The cap of 6
+        // still drops the least important fact, "Explicit".
+        assert_eq!(facts.len(), 6);
         assert_eq!(
             facts
                 .iter()
@@ -1563,12 +1587,42 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 ("Release Kind", "album"),
-                ("Release Date", "Apr 5, 2024"),
+                ("Published", "Apr 1, 2024 (RSS)"),
+                ("First track published", "Apr 5, 2024 (MusicIndex)"),
                 ("Tracks", "2"),
                 ("Duration", "3 min"),
                 ("Language", "en"),
             ]
         );
+    }
+
+    /// R50-03 (ADR 0075 packet 050): the album view model exposes no
+    /// "Published" fact when the view carries no publication date.
+    #[test]
+    fn adr_0075_feed_dates_r50_03_album_view_model_omits_published_fact_when_absent() {
+        let feed = feed_view();
+        let facts = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).summary_facts();
+        assert!(!facts.iter().any(|fact| fact.key == "Published"));
+    }
+
+    /// R50-05 (ADR 0075 packet 050): the album view model shows no "Release
+    /// Date" fact from `release_date`. It shows "First track published"
+    /// instead, named with MusicIndex as its source, only when
+    /// `release_date` carries a value.
+    #[test]
+    fn adr_0075_feed_dates_r50_05_release_date_becomes_first_track_published() {
+        let mut feed = feed_view();
+        feed.release_date = Some(1_712_275_200);
+        let facts = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).summary_facts();
+        assert!(!facts.iter().any(|fact| fact.key == "Release Date"));
+        assert!(facts
+            .iter()
+            .any(|fact| fact.key == "First track published"
+                && fact.value == "Apr 5, 2024 (MusicIndex)"));
+
+        feed.release_date = None;
+        let facts = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).summary_facts();
+        assert!(!facts.iter().any(|fact| fact.key == "First track published"));
     }
 
     #[test]

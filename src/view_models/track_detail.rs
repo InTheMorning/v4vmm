@@ -79,6 +79,13 @@ impl TrackDetailLabels {
         "Release Date"
     }
 
+    /// ADR 0075 packet 050, operator decision D50-1: the label of the
+    /// track's feed publication-date fallback row.
+    #[must_use]
+    pub const fn feed_publication_date_label(self) -> &'static str {
+        "Feed publication date"
+    }
+
     #[must_use]
     pub const fn publisher_label(self) -> &'static str {
         "Publisher"
@@ -256,6 +263,20 @@ impl<'a> TrackDetailVm<'a> {
         self.track.pub_date.and_then(fmt_date)
     }
 
+    /// The feed's own publication date, shown apart from the track's own
+    /// date (ADR 0075 packet 050, Track publication-date fallback). `None`
+    /// when the track has a date of its own: this row is a fallback only,
+    /// and it creates no track-owned date assertion. `None` also when this
+    /// surface has no feed, or when the feed has no publication date.
+    #[must_use]
+    pub fn feed_publication_date_display(&self) -> Option<String> {
+        if self.track.pub_date.is_some() {
+            return None;
+        }
+        let (date, source) = crate::metadata::feed_publication_pubdate(self.feed?)?;
+        Some(format!("{date} ({source})"))
+    }
+
     #[must_use]
     pub fn publisher_display(&self) -> Option<String> {
         self.track
@@ -298,6 +319,12 @@ impl<'a> TrackDetailVm<'a> {
             &mut rows,
             labels.release_date_label(),
             self.release_date_display(),
+            1,
+        );
+        push_optional(
+            &mut rows,
+            labels.feed_publication_date_label(),
+            self.feed_publication_date_display(),
             1,
         );
         if self.track.explicit == Some(true) {
@@ -634,7 +661,7 @@ fn nonempty(value: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::{SourceEntityId, SourceEntityLink};
+    use crate::api::{SourceEntityId, SourceEntityLink, SourceReleaseClaim};
     use crate::views::{EntityIdentityLinks, IdentityIdFact, IdentityLinkFact, TrackRef};
 
     fn track() -> TrackView {
@@ -740,6 +767,71 @@ mod tests {
                 .all(|row| row.label.as_str() != "Explicit"),
             "explicit summary row should only render true state"
         );
+    }
+
+    /// R50-06 (ADR 0075 packet 050): a track without its own date exposes a
+    /// separate "Feed publication date", and it still gives no "Release
+    /// Date" value.
+    #[test]
+    fn adr_0075_feed_dates_r50_06_track_without_own_date_shows_feed_publication_date() {
+        let mut track = track();
+        track.pub_date = None;
+        let feed = Feed {
+            channel_pub_date: Some(1_758_369_600),
+            ..Default::default()
+        };
+        let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
+            .with_feed_identity(Some(&feed));
+        let rows = vm.summary_rows();
+
+        assert!(rows.iter().all(|row| row.label != "Release Date"));
+        assert!(rows
+            .iter()
+            .any(|row| row.label == "Feed publication date" && row.value == "Sep 20, 2025 (RSS)"));
+    }
+
+    /// R50-06: a track with its own date shows no "Feed publication date"
+    /// row, even when its feed has a publication date of its own.
+    #[test]
+    fn adr_0075_feed_dates_r50_06_track_with_own_date_shows_no_feed_publication_date() {
+        let track = track();
+        let feed = Feed {
+            channel_pub_date: Some(1_758_369_600),
+            ..Default::default()
+        };
+        let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
+            .with_feed_identity(Some(&feed));
+
+        assert!(vm
+            .summary_rows()
+            .iter()
+            .all(|row| row.label != "Feed publication date"));
+    }
+
+    /// R50-06: a feed publication date read from a MusicIndex
+    /// `release_date` claim with the path `feed.pub_date` also supplies the
+    /// track's fallback row.
+    #[test]
+    fn adr_0075_feed_dates_r50_06_feed_publication_date_claim_supplies_fallback() {
+        let mut track = track();
+        track.pub_date = None;
+        let feed = Feed {
+            source_release_claims: Some(vec![SourceReleaseClaim {
+                claim_type: Some("release_date".into()),
+                claim_value: Some("1704067200".into()),
+                extraction_path: Some("feed.pub_date".into()),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+        let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
+            .with_feed_identity(Some(&feed));
+
+        assert!(vm
+            .summary_rows()
+            .iter()
+            .any(|row| row.label == "Feed publication date"
+                && row.value == "Jan 1, 2024 (MusicIndex)"));
     }
 
     #[test]

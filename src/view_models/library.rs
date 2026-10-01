@@ -6556,6 +6556,7 @@ mod tests {
             language: Some("en".into()),
             explicit: Some(true),
             description: Some("Fact description".into()),
+            ..FeedMetadataFacts::default()
         };
 
         assert!(vm.update_album_metadata_facts(10, &facts));

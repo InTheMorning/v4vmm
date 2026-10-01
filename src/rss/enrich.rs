@@ -234,6 +234,16 @@ fn podroll_entries(exts: &ExtensionMap) -> Vec<PodrollEntry> {
     out
 }
 
+/// The RSS channel's own `pubDate`, kept with its original text (ADR 0075
+/// packet 050, Required Change 1). `instant` is `None` when the text does
+/// not parse as an RFC 2822 date; `text` stays filled either way, so the
+/// original value stays on record as evidence.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RssChannelPubDate {
+    pub instant: Option<i64>,
+    pub text: String,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RssTrackEnrichment {
     pub feed_title: Option<String>,
@@ -241,6 +251,11 @@ pub struct RssTrackEnrichment {
     pub feed_artist: Option<String>,
     pub feed_image_url: Option<String>,
     pub feed_episode_count: Option<i32>,
+    /// The channel's own `pubDate` (ADR 0075 packet 050). `None` when the
+    /// channel has no `pubDate` element. The feed publication date reads
+    /// this value first; `metadata::feed_publication_pubdate` is its one
+    /// reader.
+    pub channel_pub_date: Option<RssChannelPubDate>,
     pub track_title: Option<String>,
     pub track_description: Option<String>,
     pub track_artist: Option<String>,
@@ -917,6 +932,7 @@ fn enrichment_from_nodes(
                     .and_then(|image| text_child(image, "url"))
             }),
         feed_episode_count: item_count.try_into().ok(),
+        channel_pub_date: channel_pub_date(channel),
         track_title: text_child(item, "title"),
         track_description: text_child(item, "description"),
         track_artist: itunes_text(item, "author")
@@ -1180,6 +1196,15 @@ fn apply_track_enrichment(
             feed.episode_count = enrichment.feed_episode_count;
             changed |= feed.episode_count.is_some();
         }
+        // ADR 0075 packet 050: each RSS read carries the freshest channel
+        // `pubDate`. This field has no MusicIndex source to preserve, so
+        // this assignment does not guard on a present value the way the
+        // fields above do.
+        if let Some(channel_pub_date) = enrichment.channel_pub_date.clone() {
+            feed.channel_pub_date = channel_pub_date.instant;
+            feed.channel_pub_date_text = Some(channel_pub_date.text);
+            changed = true;
+        }
     }
     changed
 }
@@ -1197,6 +1222,15 @@ fn parse_rss_pub_date(value: &str) -> Option<i64> {
     chrono::DateTime::parse_from_rfc2822(value)
         .ok()
         .map(|date| date.timestamp())
+}
+/// Reads the channel's own `pubDate` (ADR 0075 packet 050, Required Change
+/// 1). `None` when the channel has no `pubDate` element. A present but
+/// unparsable value keeps its original text, with no instant: the caller
+/// must not invent a date from untrusted RSS text.
+fn channel_pub_date(channel: Node<'_, '_>) -> Option<RssChannelPubDate> {
+    let text = text_child(channel, "pubDate")?;
+    let instant = parse_rss_pub_date(&text);
+    Some(RssChannelPubDate { instant, text })
 }
 fn append_track_source_link(
     track: &mut Track,
@@ -1405,6 +1439,10 @@ mod tests {
                     .and_then(|value| clean_text(value.image()))
                     .or_else(|| old.image().and_then(|value| clean_text(Some(value.url())))),
                 feed_episode_count: old.items().len().try_into().ok(),
+                channel_pub_date: clean_text(old.pub_date()).map(|text| RssChannelPubDate {
+                    instant: parse_rss_pub_date(&text),
+                    text,
+                }),
                 track_title: clean_text(item.title()),
                 track_description: clean_text(item.description()),
                 track_artist: item
@@ -1474,6 +1512,72 @@ mod tests {
         assert_eq!(fields.feed_episode_count, Some(3));
         assert!(fields.pub_date.is_some());
         Ok(())
+    }
+
+    /// R50-01 (ADR 0075 packet 050): a channel `pubDate` that parses as an
+    /// RFC 2822 date gives that instant and keeps its original text.
+    #[test]
+    fn adr_0075_feed_dates_r50_01_channel_pub_date_parses_instant_and_text() -> Result<()> {
+        let xml = document(
+            "<pubDate>Sun, 20 Sep 2026 12:00:00 +0000</pubDate><item><guid>track</guid></item>",
+        );
+        let fields = parse(&xml, Some("track"), None)?.enrichment.unwrap();
+        let channel_pub_date = fields
+            .channel_pub_date
+            .expect("a channel pubDate element gives a value");
+        assert_eq!(channel_pub_date.instant, Some(1_789_905_600));
+        assert_eq!(channel_pub_date.text, "Sun, 20 Sep 2026 12:00:00 +0000");
+        Ok(())
+    }
+
+    /// R50-02: a channel `pubDate` that does not parse as an RFC 2822 date
+    /// gives no instant, and it keeps the original text as evidence.
+    #[test]
+    fn adr_0075_feed_dates_r50_02_unparsable_channel_pub_date_keeps_text() -> Result<()> {
+        let xml = document("<pubDate>not a date</pubDate><item><guid>track</guid></item>");
+        let fields = parse(&xml, Some("track"), None)?.enrichment.unwrap();
+        let channel_pub_date = fields
+            .channel_pub_date
+            .expect("a channel pubDate element gives a value even when unparsable");
+        assert_eq!(channel_pub_date.instant, None);
+        assert_eq!(channel_pub_date.text, "not a date");
+        Ok(())
+    }
+
+    /// A channel with no `pubDate` element gives no channel pub date.
+    #[test]
+    fn adr_0075_feed_dates_channel_with_no_pub_date_gives_none() -> Result<()> {
+        let xml = document("<item><guid>track</guid></item>");
+        let fields = parse(&xml, Some("track"), None)?.enrichment.unwrap();
+        assert_eq!(fields.channel_pub_date, None);
+        Ok(())
+    }
+
+    /// ADR 0075 packet 050, Required Change 1: `apply_track_enrichment`
+    /// merges a parsed channel `pubDate` into the feed, with its original
+    /// text kept beside it.
+    #[test]
+    fn adr_0075_feed_dates_apply_track_enrichment_merges_channel_pub_date() {
+        let mut track = Track::default();
+        let mut feed = Feed::default();
+        let enrichment = RssTrackEnrichment {
+            channel_pub_date: Some(RssChannelPubDate {
+                instant: Some(1_789_905_600),
+                text: "Sun, 20 Sep 2026 12:00:00 +0000".into(),
+            }),
+            ..Default::default()
+        };
+
+        assert!(apply_track_enrichment(
+            &mut track,
+            Some(&mut feed),
+            &enrichment
+        ));
+        assert_eq!(feed.channel_pub_date, Some(1_789_905_600));
+        assert_eq!(
+            feed.channel_pub_date_text.as_deref(),
+            Some("Sun, 20 Sep 2026 12:00:00 +0000")
+        );
     }
 
     #[test]

@@ -89,6 +89,14 @@ pub struct FeedMetadataFacts {
     pub language: Option<String>,
     pub explicit: Option<bool>,
     pub description: Option<String>,
+    /// The RSS channel `pubDate`, read from the `rss` source bucket (ADR
+    /// 0075 packet 050). `None` for the `musicindex` bucket: no MusicIndex
+    /// response states this value.
+    pub channel_pub_date: Option<i64>,
+    /// The raw value of a `release_date` claim with the path
+    /// `feed.pub_date`, read from the `musicindex` source bucket (ADR 0075
+    /// packet 050, operator decision D50-1). `None` for the `rss` bucket.
+    pub pub_date_claim: Option<String>,
 }
 
 impl FeedMetadataFacts {
@@ -131,7 +139,19 @@ pub struct FeedView {
     pub image_url: Option<String>,
     pub artwork: Option<ArtworkRef>,
     pub identity: EntityIdentityLinks,
+    /// The oldest-item date that MusicIndex computes (ADR 0075 Decision I).
+    /// The album page shows this as the derived fact "First track
+    /// published", named with MusicIndex as its source; it is never a
+    /// release date (ADR 0075 packet 050, operator decision D50-2).
     pub release_date: Option<i64>,
+    /// The feed's own publication date, already formatted (ADR 0075 packet
+    /// 050, operator decision D50-1): the fresh RSS channel `pubDate`, or a
+    /// MusicIndex `release_date` claim with the path `feed.pub_date`.
+    /// `None` when neither source has a value.
+    pub published: Option<String>,
+    /// The provider that supplied [`Self::published`]: `"RSS"` or
+    /// `"MusicIndex"`. `None` when `published` is `None`.
+    pub published_source: Option<&'static str>,
     pub language: Option<String>,
     pub explicit: Option<bool>,
     pub episode_count: Option<i32>,
@@ -432,6 +452,9 @@ impl ArtistView {
 
 impl FeedView {
     pub fn from_api(f: api::Feed) -> Self {
+        // ADR 0075 packet 050, operator decision D50-1: the feed's own
+        // publication date, read before the fields below move `f`.
+        let published = crate::metadata::feed_publication_pubdate(&f);
         let image_url = nonempty_owned(f.image_url);
         let source_description =
             description_from_release_claims(f.source_release_claims.as_deref());
@@ -449,6 +472,8 @@ impl FeedView {
             artwork: artwork_from_url(&image_url),
             identity,
             release_date: f.release_date,
+            published: published.as_ref().map(|(date, _)| date.clone()),
+            published_source: published.as_ref().map(|(_, source)| *source),
             language: nonempty_owned(f.language),
             explicit: f.explicit,
             episode_count: f.episode_count,
@@ -508,6 +533,12 @@ impl FeedView {
             facts.source_links,
             facts.source_ids,
         );
+        // ADR 0075 packet 050, operator decision D50-1: the feed's own
+        // publication date, built from its two stored facts.
+        let published = crate::metadata::feed_publication_date_from_parts(
+            values.channel_pub_date.value,
+            values.publication_claim.value.as_deref(),
+        );
 
         Self {
             id: Some(FeedRef::LocalFeedId(f.id)),
@@ -519,6 +550,8 @@ impl FeedView {
             artwork: artwork_from_url(&image_url),
             identity,
             release_date: values.release_date.value,
+            published: published.as_ref().map(|(date, _)| date.clone()),
+            published_source: published.as_ref().map(|(_, source)| *source),
             language: values.language.value,
             explicit: values.explicit.value,
             episode_count: Some(tracks.len() as i32),
@@ -684,6 +717,29 @@ impl TrackView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR 0075 packet 050, operator decision D50-1: the Index route
+    /// resolves the feed's own publication date directly from the decoded
+    /// `Feed`, preferring the RSS channel `pubDate` over the MusicIndex
+    /// claim.
+    #[test]
+    fn from_api_resolves_published_date_prefers_channel_pub_date() {
+        let feed = api::Feed {
+            channel_pub_date: Some(1_789_905_600),
+            source_release_claims: Some(vec![api::SourceReleaseClaim {
+                claim_type: Some("release_date".into()),
+                claim_value: Some("1704067200".into()),
+                extraction_path: Some("feed.pub_date".into()),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+
+        let view = FeedView::from_api(feed);
+
+        assert_eq!(view.published.as_deref(), Some("Sep 20, 2026"));
+        assert_eq!(view.published_source, Some("RSS"));
+    }
 
     /// R48-02 (ADR 0075 packet 048): a recorded track with its own image
     /// exposes it as the track image. `display_artwork_url` shows it.
@@ -1203,6 +1259,55 @@ mod tests {
         assert_eq!(view.explicit, Some(true));
         assert_eq!(view.description.as_deref(), Some("Fact description"));
         assert_eq!(view.artist.as_deref(), Some("Channel artist"));
+    }
+
+    /// ADR 0075 packet 050, operator decision D50-1: the Library route
+    /// resolves the feed's own publication date from its two stored facts,
+    /// preferring the RSS channel `pubDate` over the MusicIndex claim.
+    #[test]
+    fn from_local_feed_resolves_published_date_from_stored_facts() {
+        use crate::application::queries::stored_values::{Owned, ValueOwner};
+        let feed = db::FeedRow {
+            id: 1,
+            feed_url: "http://example.com".into(),
+            ..Default::default()
+        };
+        let values = FeedStoredValues {
+            channel_pub_date: Owned {
+                value: Some(1_789_905_600),
+                owner: ValueOwner::Channel,
+            },
+            publication_claim: Owned {
+                value: Some("1704067200".to_owned()),
+                owner: ValueOwner::Channel,
+            },
+            ..FeedStoredValues::default()
+        };
+
+        let view = FeedView::from_local_with_facts(
+            feed.clone(),
+            Vec::new(),
+            LocalIdentityFacts::default(),
+            values,
+        );
+        assert_eq!(view.published.as_deref(), Some("Sep 20, 2026"));
+        assert_eq!(view.published_source, Some("RSS"));
+
+        let claim_only = FeedStoredValues {
+            publication_claim: Owned {
+                value: Some("1704067200".to_owned()),
+                owner: ValueOwner::Channel,
+            },
+            ..FeedStoredValues::default()
+        };
+        let view = FeedView::from_local_with_facts(
+            feed,
+            Vec::new(),
+            LocalIdentityFacts::default(),
+            claim_only,
+        );
+        assert_eq!(view.published.as_deref(), Some("Jan 1, 2024"));
+        assert_eq!(view.published_source, Some("MusicIndex"));
     }
 
     #[test]

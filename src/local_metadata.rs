@@ -90,6 +90,12 @@ fn feed_facts_from_rows(rows: Vec<db::LocalMetadataFactRow>) -> FeedMetadataFact
             "release_date" if facts.release_date.is_none() => {
                 facts.release_date = integer_value(&row.value);
             }
+            "channel_pub_date" if facts.channel_pub_date.is_none() => {
+                facts.channel_pub_date = integer_value(&row.value);
+            }
+            "feed_pub_date_claim" if facts.pub_date_claim.is_none() => {
+                facts.pub_date_claim = text_value(row.value);
+            }
             "language" if facts.language.is_none() => {
                 facts.language = text_value(row.value);
             }
@@ -253,6 +259,34 @@ mod tests {
         ]);
 
         assert_eq!(facts.description.as_deref(), Some("RSS description"));
+    }
+
+    /// ADR 0075 packet 050: `channel_pub_date` and `feed_pub_date_claim`
+    /// project onto their own fields, apart from `release_date`'s
+    /// oldest-item meaning.
+    #[test]
+    fn feed_facts_project_channel_pub_date_and_pub_date_claim() {
+        let facts = feed_facts_from_rows(vec![
+            db::LocalMetadataFactRow {
+                fact_key: "channel_pub_date".into(),
+                value: LocalMetadataValue::Integer(1_789_905_600),
+                source: "rss".into(),
+                extraction_path: Some("channel.pub_date".into()),
+                observed_at: None,
+                raw_json: None,
+            },
+            db::LocalMetadataFactRow {
+                fact_key: "feed_pub_date_claim".into(),
+                value: LocalMetadataValue::Text("1704067200".into()),
+                source: "musicindex".into(),
+                extraction_path: Some("feed.pub_date".into()),
+                observed_at: None,
+                raw_json: None,
+            },
+        ]);
+
+        assert_eq!(facts.channel_pub_date, Some(1_789_905_600));
+        assert_eq!(facts.pub_date_claim.as_deref(), Some("1704067200"));
     }
 
     #[test]

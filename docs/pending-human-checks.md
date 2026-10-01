@@ -578,3 +578,13 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-3
 - Scheduling: run the procedure only after the operator resumes visual checks. It only reads pages.
 - V1: Music search, the Index feed and track pages, the Library track page and the album page work as before.
 - V2: the metadata compare grid on a Library track page works as before, with its MusicBrainz column.
+
+## 31. Feed Dates By Owner — ADR 0075 Task 050
+
+Open and paused - implementation and mechanical checks are complete on 2026-10-01. Operator inspection is pending.
+
+- Owner: [packet 050](tasks/adr-0075-task-050-feed-dates-by-owner.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks. It only reads pages.
+- V1: an album page shows "Published" and "First track published" as two facts, each with its source.
+- V2: a track without its own date shows "Feed publication date" apart from its other facts.
+- V3: normal and narrow widths show each fact in its place, in Light and Dark themes, with no clipped text.

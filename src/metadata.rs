@@ -423,6 +423,46 @@ pub fn feed_release_pubdate(feed: &Feed) -> Option<String> {
     )
 }
 
+/// Extraction paths that prove a MusicIndex `release_date` claim states the
+/// feed's own publication date (ADR 0075 packet 050, operator decision
+/// D50-1, accepted 2026-09-30). Stophammer fixed the `lastBuildDate`
+/// substitution that caused the accepted rule of 2026-09-20 to reject this
+/// path; its refresh pass of 2026-09-24 and its replay of 2026-09-25 sent
+/// each feed body again. A claim with the path `oldest_item.pub_date` never
+/// proves a publication date, and it stays off this list: `feed_release_pubdate`
+/// above is the release-date reader, and this list is its own, separate
+/// list for a different field.
+const FEED_PUBLICATION_DATE_PROVEN_PATHS: &[&str] = &["feed.pub_date"];
+
+/// The provider that supplied a feed's own publication date: the fresh RSS
+/// channel `pubDate`, or a MusicIndex `release_date` claim with the path
+/// `feed.pub_date` (ADR 0075 packet 050, operator decision D50-1).
+pub fn feed_publication_pubdate(feed: &Feed) -> Option<(String, &'static str)> {
+    feed_publication_date_from_parts(
+        feed.channel_pub_date,
+        find_release_date_claim(
+            feed.source_release_claims.as_deref(),
+            FEED_PUBLICATION_DATE_PROVEN_PATHS,
+        ),
+    )
+}
+
+/// The feed's own publication date, built from its two possible sources
+/// (ADR 0075 packet 050, operator decision D50-1). The RSS channel
+/// `pubDate` wins when present; else the raw value of a `release_date`
+/// claim with the path `feed.pub_date` supplies it. `None` when neither
+/// source has a value. This is a publication date; it is never a release
+/// date, and `feed_release_pubdate` stays the sole release-date reader.
+pub fn feed_publication_date_from_parts(
+    channel_pub_date: Option<i64>,
+    release_date_claim_value: Option<&str>,
+) -> Option<(String, &'static str)> {
+    if let Some(date) = channel_pub_date.and_then(fmt_date) {
+        return Some((date, "RSS"));
+    }
+    release_date_claim_value.map(|value| (format_release_claim_value(value), "MusicIndex"))
+}
+
 fn explicit_metadata_value(explicit: bool) -> Option<String> {
     explicit.then(|| "Yes".to_string())
 }
@@ -435,6 +475,38 @@ pub fn musicindex_release_date(track_context: &TrackContext) -> Option<String> {
     track_release_pubdate(&track_context.track)
 }
 
+/// Finds a `release_date` claim whose extraction path is in `proven_paths`
+/// (ADR 0075 Feed release-date evidence, packet 049), and returns its raw,
+/// unformatted value. A claim with no path, or with a path outside the
+/// proven set, is not a match: a claim type alone does not prove
+/// release-date meaning.
+fn find_release_date_claim<'a>(
+    claims: Option<&'a [SourceReleaseClaim]>,
+    proven_paths: &[&str],
+) -> Option<&'a str> {
+    claims?.iter().find_map(|claim| {
+        if claim.claim_type.as_deref() != Some("release_date") {
+            return None;
+        }
+        let path = claim.extraction_path.as_deref()?;
+        if !proven_paths.contains(&path) {
+            return None;
+        }
+        claim.claim_value.as_deref()
+    })
+}
+
+/// Formats a `release_date` claim's raw value: a value that parses as a
+/// Unix instant formats as a date, and any other text stays as its own
+/// value (ADR 0075 packet 049).
+fn format_release_claim_value(value: &str) -> String {
+    value
+        .parse::<i64>()
+        .ok()
+        .and_then(fmt_date)
+        .unwrap_or_else(|| value.to_string())
+}
+
 /// A `release_date` claim value, read only when the claim carries an
 /// extraction path in `proven_paths` (ADR 0075 Feed release-date evidence,
 /// packet 049). A claim with no path, or with a path outside the proven
@@ -444,22 +516,7 @@ pub fn release_pubdate_from_claims(
     claims: Option<&[SourceReleaseClaim]>,
     proven_paths: &[&str],
 ) -> Option<String> {
-    claims?.iter().find_map(|claim| {
-        if claim.claim_type.as_deref() != Some("release_date") {
-            return None;
-        }
-        let path = claim.extraction_path.as_deref()?;
-        if !proven_paths.contains(&path) {
-            return None;
-        }
-
-        let value = claim.claim_value.as_deref()?;
-        value
-            .parse::<i64>()
-            .ok()
-            .and_then(fmt_date)
-            .or_else(|| Some(value.to_string()))
-    })
+    find_release_date_claim(claims, proven_paths).map(format_release_claim_value)
 }
 
 pub fn normalized_compare_value(value: Option<&str>) -> Option<String> {
@@ -3833,11 +3890,11 @@ mod tests {
         aligned_compare_rows, auto_populated_pending_id3_edits, compare_track_rows,
         contributor_id3_rows, display_contributor_tree, display_metadata_value,
         expand_woar_metadata_rows, expanded_metadata_display_string,
-        expanded_metadata_display_value, feed_release_pubdate, id3_frame_base,
-        musicindex_contributors_id3_value, musicindex_release_date, pending_id3_edits_for_apply,
-        pending_id3_target_key, sanitize_track_context_source_text, source_text_is_placeholder,
-        summarize_contributor_value, track_metadata_rows, track_release_pubdate, MetadataGridRow,
-        TagCompareResult, TrackContext,
+        expanded_metadata_display_value, feed_publication_pubdate, feed_release_pubdate,
+        id3_frame_base, musicindex_contributors_id3_value, musicindex_release_date,
+        pending_id3_edits_for_apply, pending_id3_target_key, sanitize_track_context_source_text,
+        source_text_is_placeholder, summarize_contributor_value, track_metadata_rows,
+        track_release_pubdate, MetadataGridRow, TagCompareResult, TrackContext,
     };
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -4445,6 +4502,61 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(track_release_pubdate(&track), None);
+    }
+
+    /// R50-03 (ADR 0075 packet 050): the feed publication date prefers the
+    /// RSS channel `pubDate`. Without it, a `release_date` claim with the
+    /// path `feed.pub_date` supplies it. Without either, there is no
+    /// publication date.
+    #[test]
+    fn adr_0075_feed_dates_r50_03_publication_date_prefers_rss_then_feed_pub_date_claim() {
+        let feed_with_both = Feed {
+            channel_pub_date: Some(1_758_369_600),
+            source_release_claims: Some(vec![SourceReleaseClaim {
+                claim_type: Some("release_date".into()),
+                claim_value: Some("1704067200".into()),
+                extraction_path: Some("feed.pub_date".into()),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+        assert_eq!(
+            feed_publication_pubdate(&feed_with_both),
+            Some(("Sep 20, 2025".to_string(), "RSS"))
+        );
+
+        let feed_with_claim_only = Feed {
+            source_release_claims: Some(vec![SourceReleaseClaim {
+                claim_type: Some("release_date".into()),
+                claim_value: Some("1704067200".into()),
+                extraction_path: Some("feed.pub_date".into()),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+        assert_eq!(
+            feed_publication_pubdate(&feed_with_claim_only),
+            Some(("Jan 1, 2024".to_string(), "MusicIndex"))
+        );
+
+        assert_eq!(feed_publication_pubdate(&Feed::default()), None);
+    }
+
+    /// R50-04 (ADR 0075 packet 050): a `release_date` claim with the path
+    /// `oldest_item.pub_date` never gives the feed publication date. That
+    /// path names an oldest-item date, not a publication date.
+    #[test]
+    fn adr_0075_feed_dates_r50_04_oldest_item_path_gives_no_publication_date() {
+        let feed = Feed {
+            source_release_claims: Some(vec![SourceReleaseClaim {
+                claim_type: Some("release_date".into()),
+                claim_value: Some("1704067200".into()),
+                extraction_path: Some("oldest_item.pub_date".into()),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+        assert_eq!(feed_publication_pubdate(&feed), None);
     }
 
     fn data_row<'a>(

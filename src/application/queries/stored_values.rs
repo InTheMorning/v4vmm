@@ -101,6 +101,13 @@ pub struct FeedStoredValues {
     pub release_date: Owned<i64>,
     /// A value that `MusicIndex` computes. The check does not compare it.
     pub release_kind: Owned<String>,
+    /// The RSS channel `pubDate`, from the `rss` fact row (ADR 0075 packet
+    /// 050). The check does not compare it.
+    pub channel_pub_date: Owned<i64>,
+    /// The raw value of a `release_date` claim with the path
+    /// `feed.pub_date`, from the `musicindex` fact row (ADR 0075 packet
+    /// 050, operator decision D50-1). The check does not compare it.
+    pub publication_claim: Owned<String>,
     /// The `podcast:person` credits of the channel, in their stored order.
     pub credits: Vec<ContributorView>,
 }
@@ -308,6 +315,12 @@ fn project_feed(
         ),
         release_kind: Owned::channel(
             select(Hold::Absent, musicindex.release_kind.clone(), None).into_value(),
+        ),
+        channel_pub_date: Owned::channel(
+            select(Hold::Absent, rss.channel_pub_date, None).into_value(),
+        ),
+        publication_claim: Owned::channel(
+            select(Hold::Absent, musicindex.pub_date_claim.clone(), None).into_value(),
         ),
         credits: Vec::new(),
     }
@@ -690,6 +703,27 @@ mod tests {
         .unwrap();
     }
 
+    fn rss_fact(
+        conn: &Connection,
+        owner: LocalMetadataOwner,
+        key: &str,
+        value: LocalMetadataValue,
+    ) {
+        db::replace_local_metadata_fact(
+            conn,
+            owner,
+            "rss",
+            &LocalMetadataFactInput {
+                fact_key: key.to_owned(),
+                value,
+                extraction_path: Some(format!("channel.{key}")),
+                observed_at: Some(1),
+                raw_json: None,
+            },
+        )
+        .unwrap();
+    }
+
     fn hold(conn: &Connection, owner: HoldOwner, field: RssField, value: Option<Value>) {
         holds::write_hold(conn, owner, field, value.as_ref(), None, CHECKED_AT).unwrap();
     }
@@ -922,6 +956,8 @@ mod tests {
             feed.album_artist.owner,
             feed.release_date.owner,
             feed.release_kind.owner,
+            feed.channel_pub_date.owner,
+            feed.publication_claim.owner,
             track.album_title.owner,
             track.album_artist.owner,
         ] {
@@ -944,6 +980,33 @@ mod tests {
                 "a projected value names `{label}`: {text}"
             );
         }
+    }
+
+    /// ADR 0075 packet 050: the projection reads the feed's own publication
+    /// date from its two separate fact rows, each kept in its own source
+    /// bucket.
+    #[test]
+    fn adr_0075_feed_dates_projection_reads_channel_pub_date_and_claim() {
+        let conn = stored();
+        rss_fact(
+            &conn,
+            LocalMetadataOwner::Feed(FEED_ID),
+            "channel_pub_date",
+            LocalMetadataValue::Integer(1_789_905_600),
+        );
+        musicindex_fact(
+            &conn,
+            LocalMetadataOwner::Feed(FEED_ID),
+            "feed_pub_date_claim",
+            LocalMetadataValue::Text("1704067200".into()),
+        );
+
+        let feed = feed_values(&conn, FEED_ID).unwrap();
+
+        assert_eq!(feed.channel_pub_date.value, Some(1_789_905_600));
+        assert_eq!(feed.channel_pub_date.owner, ValueOwner::Channel);
+        assert_eq!(feed.publication_claim.value.as_deref(), Some("1704067200"));
+        assert_eq!(feed.publication_claim.owner, ValueOwner::Channel);
     }
 
     fn credit_list(conn: &mut Connection, owner: LocalEntityOwner, source: &str, names: &[&str]) {

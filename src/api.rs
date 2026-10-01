@@ -100,6 +100,17 @@ pub struct Feed {
     pub raw_medium: Option<String>,
     pub release_kind: Option<String>,
     pub release_date: Option<i64>,
+    /// The RSS channel `pubDate`, read directly by this app's own RSS parse
+    /// (ADR 0075 packet 050). This is a publication date, never a release
+    /// date. The MusicIndex contract declares no such field: this app's own
+    /// RSS enrichment is the only writer, so this field decodes nothing from
+    /// a MusicIndex response and carries no raw JSON of its own.
+    #[serde(skip)]
+    pub channel_pub_date: Option<i64>,
+    /// The original text of [`Self::channel_pub_date`], kept as evidence
+    /// even when the text does not parse (ADR 0075 packet 050).
+    #[serde(skip)]
+    pub channel_pub_date_text: Option<String>,
     pub publisher_text: Option<String>,
     pub language: Option<String>,
     pub explicit: Option<bool>,

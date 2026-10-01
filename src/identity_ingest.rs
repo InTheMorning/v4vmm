@@ -382,6 +382,16 @@ fn local_metadata_fact_input_from_row(row: db::LocalMetadataFactRow) -> LocalMet
     }
 }
 
+/// The extraction path of a MusicIndex `release_date` claim that proves the
+/// feed's own publication date (ADR 0075 packet 050, operator decision
+/// D50-1). `metadata::FEED_PUBLICATION_DATE_PROVEN_PATHS` names the same
+/// value for the reader that resolves it.
+const FEED_PUB_DATE_CLAIM_PATH: &str = "feed.pub_date";
+
+/// The recorded extraction path of the `channel_pub_date` fact (ADR 0075
+/// packet 050): the RSS channel's own `pubDate` element.
+const CHANNEL_PUB_DATE_EXTRACTION_PATH: &str = "channel.pub_date";
+
 fn feed_metadata_facts_by_source(feed: &Feed) -> BTreeMap<String, Vec<LocalMetadataFactInput>> {
     let mut grouped = BTreeMap::from([(MUSICINDEX_SOURCE.to_owned(), Vec::new())]);
     let feed_raw_json = raw_json(feed);
@@ -449,19 +459,58 @@ fn feed_metadata_facts_by_source(feed: &Feed) -> BTreeMap<String, Vec<LocalMetad
 
     if let Some(claims) = feed.source_release_claims.as_deref() {
         for claim in claims {
-            if claim.claim_type.as_deref() != Some("description") {
-                continue;
+            match claim.claim_type.as_deref() {
+                Some("description") => push_grouped_text_metadata_fact(
+                    &mut grouped,
+                    &source_token(claim.source.as_deref()),
+                    "description",
+                    claim.claim_value.as_deref(),
+                    claim.extraction_path.as_deref(),
+                    claim.observed_at,
+                    raw_json(claim),
+                ),
+                // ADR 0075 packet 050, operator decision D50-1: a
+                // `release_date` claim with the path `feed.pub_date` proves
+                // the feed's own publication date. Its own fact key keeps it
+                // apart from the oldest-item `release_date` fact above,
+                // which this app never shows as a publication date.
+                Some("release_date")
+                    if claim.extraction_path.as_deref() == Some(FEED_PUB_DATE_CLAIM_PATH) =>
+                {
+                    if let Some(value) = claim.claim_value.as_deref() {
+                        grouped
+                            .entry(MUSICINDEX_SOURCE.to_owned())
+                            .or_default()
+                            .push(LocalMetadataFactInput {
+                                fact_key: "feed_pub_date_claim".to_owned(),
+                                value: LocalMetadataValue::Text(value.to_owned()),
+                                extraction_path: Some(FEED_PUB_DATE_CLAIM_PATH.to_owned()),
+                                observed_at: claim.observed_at,
+                                raw_json: raw_json(claim),
+                            });
+                    }
+                }
+                _ => {}
             }
-            push_grouped_text_metadata_fact(
-                &mut grouped,
-                &source_token(claim.source.as_deref()),
-                "description",
-                claim.claim_value.as_deref(),
-                claim.extraction_path.as_deref(),
-                claim.observed_at,
-                raw_json(claim),
-            );
         }
+    }
+
+    // ADR 0075 packet 050: the RSS channel `pubDate` that an RSS read
+    // supplied, kept under the `rss` source so the stored value projection
+    // keeps it apart from a MusicIndex-sourced fact (ADR 0075 Decision I).
+    // `feed.channel_pub_date` is `None` for a feed that no RSS read has
+    // touched, so this call writes nothing for that feed.
+    if let Some(channel_pub_date) = feed.channel_pub_date {
+        grouped
+            .entry(RSS_SOURCE.to_owned())
+            .or_default()
+            .push(LocalMetadataFactInput {
+                fact_key: "channel_pub_date".to_owned(),
+                value: LocalMetadataValue::Integer(channel_pub_date),
+                extraction_path: Some(CHANNEL_PUB_DATE_EXTRACTION_PATH.to_owned()),
+                observed_at: feed.updated_at,
+                raw_json: feed.channel_pub_date_text.clone(),
+            });
     }
 
     grouped
@@ -837,6 +886,74 @@ mod tests {
                 .as_deref()
                 .is_some_and(|raw| raw.contains("Claim description")),
             "claim raw JSON should be retained"
+        );
+
+        Ok(())
+    }
+
+    /// ADR 0075 packet 050, operator decision D50-1: a `release_date` claim
+    /// with the path `feed.pub_date` persists as its own `musicindex` fact,
+    /// apart from the oldest-item `release_date` fact. A claim with another
+    /// path, even the same claim type, persists nothing new.
+    #[test]
+    fn adr_0075_feed_dates_persists_feed_pub_date_claim_and_channel_pub_date() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let (feed_id, _) = create_feed_and_track(&conn)?;
+        let feed = Feed {
+            channel_pub_date: Some(1_789_905_600),
+            channel_pub_date_text: Some("Sun, 20 Sep 2026 12:00:00 +0000".into()),
+            source_release_claims: Some(vec![
+                SourceReleaseClaim {
+                    claim_type: Some("release_date".into()),
+                    claim_value: Some("1704067200".into()),
+                    extraction_path: Some("feed.pub_date".into()),
+                    observed_at: Some(1_714_200_000),
+                    ..SourceReleaseClaim::default()
+                },
+                SourceReleaseClaim {
+                    claim_type: Some("release_date".into()),
+                    claim_value: Some("1600000000".into()),
+                    extraction_path: Some("oldest_item.pub_date".into()),
+                    ..SourceReleaseClaim::default()
+                },
+            ]),
+            ..Feed::default()
+        };
+
+        persist_musicindex_feed(&mut conn, feed_id, &feed)?;
+
+        let facts = db::local_metadata_facts(&conn, LocalMetadataOwner::Feed(feed_id))?;
+        let claim_fact = facts
+            .iter()
+            .find(|fact| fact.fact_key == "feed_pub_date_claim")
+            .context("the feed.pub_date claim should persist its own fact")?;
+        assert_eq!(claim_fact.source, "musicindex");
+        assert_eq!(
+            claim_fact.value,
+            LocalMetadataValue::Text("1704067200".to_owned())
+        );
+        assert_eq!(claim_fact.extraction_path.as_deref(), Some("feed.pub_date"));
+        assert_eq!(claim_fact.observed_at, Some(1_714_200_000));
+        assert!(
+            !facts
+                .iter()
+                .any(|fact| fact.fact_key == "feed_pub_date_claim"
+                    && fact.value == LocalMetadataValue::Text("1600000000".to_owned())),
+            "an oldest_item.pub_date claim must not persist as a publication-date fact"
+        );
+
+        let channel_fact = facts
+            .iter()
+            .find(|fact| fact.fact_key == "channel_pub_date")
+            .context("the RSS channel pubDate should persist its own fact")?;
+        assert_eq!(channel_fact.source, "rss");
+        assert_eq!(
+            channel_fact.value,
+            LocalMetadataValue::Integer(1_789_905_600)
+        );
+        assert_eq!(
+            channel_fact.extraction_path.as_deref(),
+            Some("channel.pub_date")
         );
 
         Ok(())
