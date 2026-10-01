@@ -1,6 +1,6 @@
 # ADR 0075 Task 051: Contract Field Guard
 
-Status: Ready - 2026-09-30. The operator accepted the guard as designed on 2026-09-30. ADR 0060 packets 005 and 006 deleted the six schema-less types. This packet has no visual gate.
+Status: Implemented - 2026-10-01. Mechanical checks Green. This packet has no visual gate.
 
 ## Goal
 
@@ -174,3 +174,120 @@ The first implementer stopped before any change, under the stop conditions of th
 - `LiveItemCreateResponse` and `LiveMetadataSnapshot` decode `/v1/liveitems` and `/v1/liveitems/{event_id}/metadata` of the live relay (archived ADR 0018). They map to another service.
 
 [ADR 0060 packet 005](adr-0060-task-005-delete-parked-discover-code.md) and [packet 006](adr-0060-task-006-delete-parked-discover-queries.md) delete the parked code and these six types first. This packet then runs with the six types gone.
+
+## Implementation Result - 2026-10-01
+
+### 1. Files Changed
+
+- `tests/fixtures/musicindex-openapi-0.2.0.json` is new. It is a byte-for-byte
+  copy of the live `/openapi.json`, fetched on 2026-10-01. `info.version` reads
+  `0.2.0`.
+- `tests/architecture_tests.rs` adds the contract field guard: the type map,
+  the recorded-result list, the struct-reading helpers, and five tests.
+- This packet document: the Status line and this section.
+- `src/api.rs` has no change. Each field the app decodes today is a declared
+  property of its mapped schema.
+
+### 2. The Type Map
+
+Each decoded MusicIndex type maps to a contract schema. A type with no schema
+states the cause in the table below.
+
+| Decoded type | Contract schema | Recorded cause (no per-field check) |
+|---|---|---|
+| `SearchResponse` | the `GET /v1/search` `200` response schema (an inline schema, not a named one) | |
+| `SearchResult` | `SearchResponseItem` | |
+| `TrackListResponse` | the `GET /v1/tracks` `200` response schema (inline) | |
+| `RecentFeedsResponse` | the `GET /v1/feeds/recent` `200` response schema (inline) | |
+| `Pagination` | `Pagination` | |
+| `DetailResponse` | the `GET /v1/feeds/{guid}` `200` response schema (an inline schema that each single-item path shares) | |
+| `Feed` | `FeedResponse` | |
+| `Track` | `TrackResponse` | |
+| `Contributor` | `SourceContributorClaimResponse` | |
+| `PaymentRoute` | `RouteResponse` | |
+| `SourceEntityLink` | `SourceEntityLinkResponse` | |
+| `SourceEntityId` | `SourceEntityIdResponse` | |
+| `SourceReleaseClaim` | `SourceReleaseClaimResponse` | |
+| `SourceEnclosure` | `SourceItemEnclosureResponse` | |
+| `SourceTranscript` | `SourceItemTranscriptResponse` | |
+| `SourcePlatformClaim` | `SourcePlatformClaimResponse` | |
+| `RemoteItem` | `FeedRemoteItemResponse` or `TrackRemoteItemResponse` (one Rust type decodes two endpoint shapes, and a field passes when one schema names it) | |
+| `PublisherRelationship` | `PublisherResponse` | |
+| `ValueTimeSplit` | `VtsResponse` | |
+| `PublisherLinkResolution` | | A plain string value, not an object. MusicIndex sends it as the text of `PublisherRelationship.publisher_link_resolution`, a field the map checks. It declares no properties of its own. |
+| `RoleSource` | | A plain string value, not an object, the same as `PublisherLinkResolution`. The map checks `PublisherRelationship.role_source` with the same rule. |
+| `LiveItemCreateResponse` | | Maps to a different service. It decodes `POST /v1/liveitems` of the live relay (archived ADR 0018), not the MusicIndex contract. |
+| `LiveMetadataSnapshot` | | Maps to a different service. It decodes `GET /v1/liveitems/{event_id}/metadata` of the live relay (archived ADR 0018), not the MusicIndex contract. |
+| `EntityDetail` | | Wraps the mapped `Feed` type in Rust code. The app builds it from a decoded `Feed`. It does not decode `EntityDetail` from a wire response. |
+
+No field was deleted. Each field that `src/api.rs` decodes today is a
+declared property of its mapped schema. The Deviations section below records
+one more check of this result, with a sample edit made and then reverted.
+
+### 3. Tests Run
+
+Each command ran at the repository root.
+
+- `cargo test --test architecture_tests`: 286 passed. Six tests carry the
+  `adr_0075_task_051_contract_field_guard` prefix. None showed an error.
+- `cargo test`: 1793 lib tests, 286 architecture tests, and 10 doc tests. All
+  lib and architecture tests passed. The doc tests are ignored by design. None
+  showed an error.
+- `cargo fmt -- --check`: Green.
+- `cargo clippy -- -D warnings`: Green.
+- `cargo check --all-targets`: Green. No warning appeared.
+- `cargo build --bin v4vmm`: Green.
+
+### 4. Behavior Changed
+
+None. The app decodes the same fields from the same endpoints as before. The
+new guard runs only in `cargo test`. It adds no live check of the contract.
+The Exclusions section asks for none.
+
+### 5. Deviations From Task
+
+- The orchestrator reviewed this packet on 2026-10-01 and asked for one
+  change. The census must examine `src/api.rs` for each `Deserialize`
+  derive, not read a fixed list. A new sample test must prove that an
+  unmapped type fails. This document and `tests/architecture_tests.rs`
+  reflect that change.
+- The Required Changes section names two causes for a type with no per-field
+  check. A type maps to a different service, or it has no reader and this
+  packet deletes it. Three types need a third cause, which the Type Map table
+  states for each one.
+- `PublisherLinkResolution` and `RoleSource` are plain string values, not
+  objects, so the guard finds no properties to examine. `EntityDetail` wraps
+  a mapped type in Rust code. It does not decode the wire response itself.
+  The operator should look at this selection.
+- `SearchResponse`, `TrackListResponse`, `RecentFeedsResponse`, and
+  `DetailResponse` decode a list or single-item envelope (`data` and `pagination`).
+  The contract declares each envelope's shape inline in its path's response,
+  not as a named schema. The guard reads the inline schema at one path for
+  each of these four types, rather than treating them as schema-less.
+- Before the Checks list ran, this session edited a saved copy of
+  `src/api.rs` to add one more, undeclared field on `Track`. It ran the new
+  guard test alone and confirmed the test reported the field by name, with
+  the ADR 0075 section 6 message. It then restored the saved copy. `git diff`
+  shows no change to `src/api.rs`. This check adds to the four accepted
+  proofs (R51-01 to R51-04). It gives a sign that the guard works on an
+  actual regression, not only on its own sample text.
+
+### 6. Unresolved Concerns
+
+- The guard finds each decoded type directly in `src/api.rs`. A new
+  `Deserialize` struct or enum with no map entry and no recorded cause fails
+  this test.
+- `decoded_field_names` reads one `#[serde(...)]` attribute for each line.
+  This matches each mapped struct's current layout. It panics with a named
+  cause if it meets `#[serde(flatten)]`, because no mapped struct uses it
+  today. A struct that spreads one attribute across more than one line, or
+  that flattens a nested type, needs this helper extended first.
+
+## Orchestrator Review - 2026-10-01
+
+The orchestrator reviewed the diff two times and ran each check. Each check is Green: 1,793 unit tests, 286 guards, and no warning.
+
+- The stored contract gives `info.version` `0.2.0`.
+- Each decoded field of the present code is a property of its mapped schema. `src/api.rs` did not change.
+- The first version checked only a fixed list of types. On the orchestrator's request, the guard now finds each `Deserialize` type in `src/api.rs`, and a type with no map entry and no recorded cause fails.
+- After each Stophammer release, replace the stored contract in the same change as the decode changes. The file name holds the version.

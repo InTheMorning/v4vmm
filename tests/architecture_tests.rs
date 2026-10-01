@@ -18822,3 +18822,606 @@ fn adr_0075_projection_views_combine_no_fact_and_column() {
         violations.join("\n")
     );
 }
+
+// ===== ADR 0075 Task 051: Contract Field Guard =====
+//
+// Situational — ADR 0075 section 6. `src/api.rs` must decode only fields
+// that the deployed MusicIndex contract declares. The guard below reads the
+// stored contract copy at `tests/fixtures/musicindex-openapi-0.2.0.json` and
+// each mapped struct body in `src/api.rs`, and fails when a decoded field is
+// not a declared property. Delete this guard when ADR 0075 is superseded.
+
+/// The stored MusicIndex contract (ADR 0075 section 6). The file name holds
+/// the contract version. A person or an agent replaces this file after each
+/// Stophammer release, in the same change as the decode changes.
+const MUSICINDEX_CONTRACT_FIXTURE: &str = "tests/fixtures/musicindex-openapi-0.2.0.json";
+
+/// Where a decoded type's declared fields live in the stored contract: a
+/// named schema under `components.schemas`, or the inline response schema
+/// of one path and method. MusicIndex names its list and detail envelopes
+/// inline instead of as a named schema.
+enum ContractSchemaRef {
+    Named(&'static str),
+    Inline {
+        path: &'static str,
+        method: &'static str,
+        status: &'static str,
+    },
+}
+
+impl ContractSchemaRef {
+    /// Returns the text that a failure message uses to name this schema.
+    fn display_name(&self) -> String {
+        match self {
+            ContractSchemaRef::Named(name) => (*name).to_string(),
+            ContractSchemaRef::Inline {
+                path,
+                method,
+                status,
+            } => format!(
+                "the {} {path} {status} response schema",
+                method.to_uppercase()
+            ),
+        }
+    }
+}
+
+/// One decoded MusicIndex type and the schema, or schemas, that must
+/// declare each of its fields. A field counts as declared when any listed
+/// schema declares it: `RemoteItem` decodes two endpoint shapes that both
+/// carry the fields this app reads.
+struct ContractTypeMapping {
+    rust_type: &'static str,
+    schemas: &'static [ContractSchemaRef],
+}
+
+/// ADR 0075 section 6, Required Changes 2: each decoded MusicIndex type
+/// with named fields, mapped to its contract schema. Built from the
+/// deployed contract version `0.2.0` on 2026-10-01.
+const CONTRACT_TYPE_MAP: &[ContractTypeMapping] = &[
+    ContractTypeMapping {
+        rust_type: "SearchResponse",
+        schemas: &[ContractSchemaRef::Inline {
+            path: "/v1/search",
+            method: "get",
+            status: "200",
+        }],
+    },
+    ContractTypeMapping {
+        rust_type: "SearchResult",
+        schemas: &[ContractSchemaRef::Named("SearchResponseItem")],
+    },
+    ContractTypeMapping {
+        rust_type: "TrackListResponse",
+        schemas: &[ContractSchemaRef::Inline {
+            path: "/v1/tracks",
+            method: "get",
+            status: "200",
+        }],
+    },
+    ContractTypeMapping {
+        rust_type: "RecentFeedsResponse",
+        schemas: &[ContractSchemaRef::Inline {
+            path: "/v1/feeds/recent",
+            method: "get",
+            status: "200",
+        }],
+    },
+    ContractTypeMapping {
+        rust_type: "Pagination",
+        schemas: &[ContractSchemaRef::Named("Pagination")],
+    },
+    ContractTypeMapping {
+        rust_type: "DetailResponse",
+        // Every single-resource route shares this envelope shape. The feed
+        // detail route stands for all of them.
+        schemas: &[ContractSchemaRef::Inline {
+            path: "/v1/feeds/{guid}",
+            method: "get",
+            status: "200",
+        }],
+    },
+    ContractTypeMapping {
+        rust_type: "Feed",
+        schemas: &[ContractSchemaRef::Named("FeedResponse")],
+    },
+    ContractTypeMapping {
+        rust_type: "Track",
+        schemas: &[ContractSchemaRef::Named("TrackResponse")],
+    },
+    ContractTypeMapping {
+        rust_type: "Contributor",
+        schemas: &[ContractSchemaRef::Named("SourceContributorClaimResponse")],
+    },
+    ContractTypeMapping {
+        rust_type: "PaymentRoute",
+        schemas: &[ContractSchemaRef::Named("RouteResponse")],
+    },
+    ContractTypeMapping {
+        rust_type: "SourceEntityLink",
+        schemas: &[ContractSchemaRef::Named("SourceEntityLinkResponse")],
+    },
+    ContractTypeMapping {
+        rust_type: "SourceEntityId",
+        schemas: &[ContractSchemaRef::Named("SourceEntityIdResponse")],
+    },
+    ContractTypeMapping {
+        rust_type: "SourceReleaseClaim",
+        schemas: &[ContractSchemaRef::Named("SourceReleaseClaimResponse")],
+    },
+    ContractTypeMapping {
+        rust_type: "SourceEnclosure",
+        schemas: &[ContractSchemaRef::Named("SourceItemEnclosureResponse")],
+    },
+    ContractTypeMapping {
+        rust_type: "SourceTranscript",
+        schemas: &[ContractSchemaRef::Named("SourceItemTranscriptResponse")],
+    },
+    ContractTypeMapping {
+        rust_type: "SourcePlatformClaim",
+        schemas: &[ContractSchemaRef::Named("SourcePlatformClaimResponse")],
+    },
+    ContractTypeMapping {
+        rust_type: "RemoteItem",
+        schemas: &[
+            ContractSchemaRef::Named("FeedRemoteItemResponse"),
+            ContractSchemaRef::Named("TrackRemoteItemResponse"),
+        ],
+    },
+    ContractTypeMapping {
+        rust_type: "PublisherRelationship",
+        schemas: &[ContractSchemaRef::Named("PublisherResponse")],
+    },
+    ContractTypeMapping {
+        rust_type: "ValueTimeSplit",
+        schemas: &[ContractSchemaRef::Named("VtsResponse")],
+    },
+];
+
+/// Decoded MusicIndex types with no per-field schema check, and the recorded
+/// reason (ADR 0075 section 6, Required Changes 2).
+const CONTRACT_TYPES_WITHOUT_A_FIELD_CHECK: &[(&str, &str)] = &[
+    (
+        "PublisherLinkResolution",
+        "a transparent string enum, not an object. MusicIndex sends it as the \
+plain string value of `PublisherRelationship.publisher_link_resolution`, a \
+field the map already checks. It has no properties of its own to declare.",
+    ),
+    (
+        "RoleSource",
+        "a transparent string enum, not an object. MusicIndex sends it as the \
+plain string value of `PublisherRelationship.role_source`, a field the map \
+already checks. It has no properties of its own to declare.",
+    ),
+    (
+        "LiveItemCreateResponse",
+        "maps to another service: it decodes `POST /v1/liveitems` of the live \
+relay (archived ADR 0018), not the MusicIndex contract.",
+    ),
+    (
+        "LiveMetadataSnapshot",
+        "maps to another service: it decodes `GET /v1/liveitems/{event_id}/metadata` \
+of the live relay (archived ADR 0018), not the MusicIndex contract.",
+    ),
+    (
+        "EntityDetail",
+        "wraps the already-mapped `Feed` type in Rust code. The app builds it \
+from a decoded `Feed`; it never deserializes `EntityDetail` from a wire \
+response.",
+    ),
+];
+
+/// Reads the stored MusicIndex contract fixture as a JSON document.
+fn load_musicindex_contract() -> serde_json::Value {
+    let text = read_source(&manifest_path(MUSICINDEX_CONTRACT_FIXTURE));
+    serde_json::from_str(&text).unwrap_or_else(|error| {
+        panic!("ADR 0075 task 051: {MUSICINDEX_CONTRACT_FIXTURE} is not valid JSON: {error}")
+    })
+}
+
+/// Returns the property names of one named contract schema.
+fn named_schema_properties(contract: &serde_json::Value, schema_name: &str) -> BTreeSet<String> {
+    contract["components"]["schemas"][schema_name]["properties"]
+        .as_object()
+        .unwrap_or_else(|| {
+            panic!(
+                "ADR 0075 task 051: {MUSICINDEX_CONTRACT_FIXTURE} has no schema named `{schema_name}`"
+            )
+        })
+        .keys()
+        .cloned()
+        .collect()
+}
+
+/// Returns the property names of one inline path response schema.
+fn inline_response_schema_properties(
+    contract: &serde_json::Value,
+    path: &str,
+    method: &str,
+    status: &str,
+) -> BTreeSet<String> {
+    contract["paths"][path][method]["responses"][status]["content"]["application/json"]["schema"]
+        ["properties"]
+        .as_object()
+        .unwrap_or_else(|| {
+            panic!(
+                "ADR 0075 task 051: {MUSICINDEX_CONTRACT_FIXTURE} has no response schema at \
+{method} {path} {status}"
+            )
+        })
+        .keys()
+        .cloned()
+        .collect()
+}
+
+/// Returns the property names that `schema_ref` declares.
+fn schema_ref_properties(
+    contract: &serde_json::Value,
+    schema_ref: &ContractSchemaRef,
+) -> BTreeSet<String> {
+    match schema_ref {
+        ContractSchemaRef::Named(name) => named_schema_properties(contract, name),
+        ContractSchemaRef::Inline {
+            path,
+            method,
+            status,
+        } => inline_response_schema_properties(contract, path, method, status),
+    }
+}
+
+/// Joins each schema's display name for a failure message.
+fn schema_descriptions(schemas: &[ContractSchemaRef]) -> String {
+    schemas
+        .iter()
+        .map(ContractSchemaRef::display_name)
+        .collect::<Vec<_>>()
+        .join(" or ")
+}
+
+/// Returns the text inside the outer braces of `pub struct {name}` (or
+/// `pub enum {name}`) in `source`. It counts braces so a field's generic
+/// type, such as `Option<Vec<Track>>`, does not close the struct early.
+fn struct_or_enum_body<'a>(source: &'a str, name: &str) -> &'a str {
+    let marker = format!("struct {name}");
+    let header_index = source
+        .match_indices(&marker)
+        .map(|(index, _)| index)
+        .find(|index| {
+            let after = &source[index + marker.len()..];
+            after.starts_with('<') || after.starts_with(' ') || after.starts_with('{')
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "ADR 0075 task 051: `{name}` is missing its own struct declaration in src/api.rs"
+            )
+        });
+    let open_offset = source[header_index..]
+        .find('{')
+        .unwrap_or_else(|| panic!("ADR 0075 task 051: `{name}` has no struct body in src/api.rs"));
+    let open_index = header_index + open_offset;
+    let bytes = source.as_bytes();
+    let mut depth = 0usize;
+    let mut index = open_index;
+    loop {
+        assert!(
+            index < bytes.len(),
+            "ADR 0075 task 051: `{name}` has no closing brace in src/api.rs"
+        );
+        match bytes[index] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &source[open_index + 1..index];
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+}
+
+/// Returns the string value of a `key = "value"` entry inside one
+/// `#[serde(...)]` attribute line.
+fn attribute_string_value(line: &str, key: &str) -> Option<String> {
+    let marker = format!("{key} = \"");
+    let start = line.find(&marker)? + marker.len();
+    let rest = &line[start..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
+}
+
+/// Returns `true` when one `#[serde(...)]` attribute line carries a bare
+/// `skip`, which exempts the field below it from this guard (ADR 0075
+/// section 6, Required Changes 3). `skip_serializing_if` does not count: the
+/// field still decodes from a wire response.
+fn has_bare_skip_attribute(line: &str) -> bool {
+    let Some(start) = line.find("serde(") else {
+        return false;
+    };
+    let rest = &line[start + "serde(".len()..];
+    let Some(end) = rest.rfind(')') else {
+        return false;
+    };
+    rest[..end].split(',').any(|part| part.trim() == "skip")
+}
+
+/// Extracts the JSON field names that `struct_name` decodes, applying each
+/// `#[serde(rename = "...")]` and dropping a field marked `#[serde(skip)]`
+/// (ADR 0075 section 6). It reads one attribute per line, which matches this
+/// file's formatting. `#[serde(alias = "...")]` keeps a field's primary name
+/// as its own backward-compatible alias; this guard checks only the primary
+/// name the operator accepted for the stored contract to declare.
+fn decoded_field_names(source: &str, struct_name: &str) -> Vec<String> {
+    let body = struct_or_enum_body(source, struct_name);
+    let mut names = Vec::new();
+    let mut pending_rename: Option<String> = None;
+    let mut pending_skip = false;
+    for raw_line in body.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with("///") || line.starts_with("//") {
+            continue;
+        }
+        if line.starts_with("#[serde(") {
+            assert!(
+                !line.contains("flatten"),
+                "ADR 0075 task 051: `{struct_name}` uses #[serde(flatten)], which \
+decoded_field_names does not yet read. Extend it before mapping this type."
+            );
+            if let Some(rename) = attribute_string_value(line, "rename") {
+                pending_rename = Some(rename);
+            }
+            if has_bare_skip_attribute(line) {
+                pending_skip = true;
+            }
+            continue;
+        }
+        if line.starts_with('#') {
+            continue;
+        }
+        if let Some(field_name) = field_declaration_name(line) {
+            if !pending_skip {
+                names.push(pending_rename.take().unwrap_or(field_name));
+            }
+            pending_rename = None;
+            pending_skip = false;
+        }
+    }
+    names
+}
+
+/// Returns the field name of one `pub field_name: Type,` struct body line.
+fn field_declaration_name(line: &str) -> Option<String> {
+    let rest = line.strip_prefix("pub ")?;
+    let colon = rest.find(':')?;
+    Some(rest[..colon].trim().to_string())
+}
+
+/// Returns each field in `decoded` that no schema in `declared` names
+/// (ADR 0075 section 6).
+fn undeclared_fields(decoded: &[String], declared: &BTreeSet<String>) -> Vec<String> {
+    decoded
+        .iter()
+        .filter(|field| !declared.contains(field.as_str()))
+        .cloned()
+        .collect()
+}
+
+/// Builds the failure message for one undeclared field, in the form ADR
+/// 0075 task 051 specifies.
+fn contract_field_violation(rust_type: &str, field: &str, schema_description: &str) -> String {
+    format!(
+        "ADR 0075 section 6: api::{rust_type} decodes `{field}`, and MusicIndex contract 0.2.0 \
+does not declare it in {schema_description}.\n\
+Remove the field, or replace {MUSICINDEX_CONTRACT_FIXTURE} with the contract that declares it."
+    )
+}
+
+/// Returns the name of every `struct` or `enum` in `source` whose
+/// `#[derive(...)]` list names `Deserialize` (ADR 0075 section 6, R51-04).
+/// This is the live census of decoded MusicIndex types: it reads
+/// `src/api.rs` itself, instead of a fixed list that a later change could
+/// outgrow.
+fn deserialize_derived_type_names(source: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut search_from = 0usize;
+    while let Some(relative_start) = source[search_from..].find("#[derive(") {
+        let start = search_from + relative_start;
+        let content_start = start + "#[derive(".len();
+        let Some(relative_end) = source[content_start..].find(")]") else {
+            break;
+        };
+        let content_end = content_start + relative_end;
+        let derive_list = &source[content_start..content_end];
+        search_from = content_end + ")]".len();
+
+        let names_deserialize = derive_list
+            .split(',')
+            .any(|name| name.trim() == "Deserialize");
+        if !names_deserialize {
+            continue;
+        }
+        if let Some(type_name) = next_struct_or_enum_name(&source[search_from..]) {
+            names.push(type_name);
+        }
+    }
+    names
+}
+
+/// Returns the name after the next `struct ` or `enum ` keyword in `rest`.
+/// A mapped type's derive attributes sit right above its own declaration,
+/// with only other attributes or doc comments between them, so the nearest
+/// keyword names the derived type.
+fn next_struct_or_enum_name(rest: &str) -> Option<String> {
+    let struct_index = rest.find("struct ");
+    let enum_index = rest.find("enum ");
+    let (keyword_index, keyword_length) = match (struct_index, enum_index) {
+        (Some(struct_at), Some(enum_at)) if enum_at < struct_at => (enum_at, "enum ".len()),
+        (Some(struct_at), _) => (struct_at, "struct ".len()),
+        (None, Some(enum_at)) => (enum_at, "enum ".len()),
+        (None, None) => return None,
+    };
+    let after_keyword = &rest[keyword_index + keyword_length..];
+    let name_end = after_keyword
+        .find(|ch: char| ch.is_whitespace() || ch == '<' || ch == '{' || ch == '(')
+        .unwrap_or(after_keyword.len());
+    let name = after_keyword[..name_end].trim();
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+/// Builds the failure message for one `Deserialize` type that the census
+/// found in neither list, in the form ADR 0075 task 051 specifies.
+fn contract_census_violation(rust_type: &str) -> String {
+    format!(
+        "ADR 0075 section 6: api::{rust_type} derives `Deserialize`, and tests/architecture_tests.rs \
+maps it in neither CONTRACT_TYPE_MAP nor CONTRACT_TYPES_WITHOUT_A_FIELD_CHECK.\n\
+Add the type to the contract type map, or record its cause, in tests/architecture_tests.rs."
+    )
+}
+
+/// R51-01: the guard passes on the present code and the stored `0.2.0`
+/// contract.
+#[test]
+fn adr_0075_task_051_contract_field_guard_passes_on_present_code() {
+    let source = production_source(&read_source(&manifest_path("src/api.rs"))).to_owned();
+    let contract = load_musicindex_contract();
+    let mut violations = Vec::new();
+
+    for mapping in CONTRACT_TYPE_MAP {
+        let decoded = decoded_field_names(&source, mapping.rust_type);
+        let mut declared = BTreeSet::new();
+        for schema_ref in mapping.schemas {
+            declared.extend(schema_ref_properties(&contract, schema_ref));
+        }
+        for field in undeclared_fields(&decoded, &declared) {
+            violations.push(contract_field_violation(
+                mapping.rust_type,
+                &field,
+                &schema_descriptions(mapping.schemas),
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0075 task 051 contract field guard violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R51-02: a sample struct with a field the schema does not declare gives
+/// one failure that names ADR 0075.
+#[test]
+fn adr_0075_task_051_contract_field_guard_r51_02_flags_one_undeclared_field() {
+    let sample = "
+pub struct SampleType {
+    pub known_field: Option<String>,
+    pub mystery_field: Option<String>,
+}
+";
+    let decoded = decoded_field_names(sample, "SampleType");
+    let declared: BTreeSet<String> = ["known_field".to_string()].into_iter().collect();
+    let violations: Vec<String> = undeclared_fields(&decoded, &declared)
+        .iter()
+        .map(|field| contract_field_violation("SampleType", field, "SampleSchema"))
+        .collect();
+
+    assert_eq!(violations.len(), 1, "expected exactly one failure");
+    assert!(violations[0].contains("ADR 0075 section 6"));
+    assert!(violations[0].contains("mystery_field"));
+}
+
+/// R51-03: a sample struct with a renamed field passes when the rename
+/// matches the schema.
+#[test]
+fn adr_0075_task_051_contract_field_guard_r51_03_rename_matches_schema() {
+    let sample = "
+pub struct SampleType {
+    #[serde(rename = \"wire_name\")]
+    pub local_name: Option<String>,
+}
+";
+    let decoded = decoded_field_names(sample, "SampleType");
+    let declared: BTreeSet<String> = ["wire_name".to_string()].into_iter().collect();
+
+    assert!(undeclared_fields(&decoded, &declared).is_empty());
+}
+
+/// ADR 0075 section 6, Required Changes 3: a field marked `#[serde(skip)]`
+/// is exempt from this guard, and `skip_serializing_if` does not exempt a
+/// field, because the field still decodes from a wire response.
+#[test]
+fn adr_0075_task_051_contract_field_guard_skip_attribute_is_exempt() {
+    let sample = "
+pub struct SampleType {
+    #[serde(skip)]
+    pub local_only_field: Option<String>,
+    #[serde(skip_serializing_if = \"Option::is_none\")]
+    pub wire_field: Option<String>,
+}
+";
+    let decoded = decoded_field_names(sample, "SampleType");
+    assert_eq!(decoded, vec!["wire_field".to_string()]);
+}
+
+/// R51-04 (orchestrator review, 2026-10-01): the census reads `src/api.rs`
+/// itself. Each struct or enum that derives `Deserialize` needs a
+/// `CONTRACT_TYPE_MAP` entry or a `CONTRACT_TYPES_WITHOUT_A_FIELD_CHECK`
+/// entry.
+#[test]
+fn adr_0075_task_051_contract_field_guard_r51_04_finds_every_decoded_type_from_the_file() {
+    let source = production_source(&read_source(&manifest_path("src/api.rs"))).to_owned();
+    let found_types = deserialize_derived_type_names(&source);
+    assert!(
+        found_types.len() >= 20,
+        "ADR 0075 task 051: the census scan found only {} Deserialize types in src/api.rs; \
+check the scan itself before trusting this count",
+        found_types.len()
+    );
+
+    let mapped: BTreeSet<&str> = CONTRACT_TYPE_MAP.iter().map(|m| m.rust_type).collect();
+    let recorded: BTreeSet<&str> = CONTRACT_TYPES_WITHOUT_A_FIELD_CHECK
+        .iter()
+        .map(|(name, _)| *name)
+        .collect();
+    let mut violations = Vec::new();
+    for type_name in &found_types {
+        if !mapped.contains(type_name.as_str()) && !recorded.contains(type_name.as_str()) {
+            violations.push(contract_census_violation(type_name));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0075 task 051 contract census violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Orchestrator review, 2026-10-01: a sample source with one new
+/// `Deserialize` struct, named in neither list, fails the census with the
+/// ADR 0075 section 6 message.
+#[test]
+fn adr_0075_task_051_contract_field_guard_census_flags_an_unmapped_deserialize_type() {
+    let sample = "
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UnmappedSampleType {
+    pub field: Option<String>,
+}
+";
+    let found_types = deserialize_derived_type_names(sample);
+    assert_eq!(found_types, vec!["UnmappedSampleType".to_string()]);
+
+    let mapped: BTreeSet<&str> = CONTRACT_TYPE_MAP.iter().map(|m| m.rust_type).collect();
+    let recorded: BTreeSet<&str> = CONTRACT_TYPES_WITHOUT_A_FIELD_CHECK
+        .iter()
+        .map(|(name, _)| *name)
+        .collect();
+    assert!(!mapped.contains("UnmappedSampleType"));
+    assert!(!recorded.contains("UnmappedSampleType"));
+
+    let violation = contract_census_violation("UnmappedSampleType");
+    assert!(violation.contains("ADR 0075 section 6"));
+    assert!(violation.contains("UnmappedSampleType"));
+    assert!(violation.contains("tests/architecture_tests.rs"));
+}
