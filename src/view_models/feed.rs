@@ -12,7 +12,7 @@
 #![warn(clippy::pedantic)]
 
 use crate::api::{Feed, Track};
-use crate::view_models::format::{fmt_date, fmt_runtime};
+use crate::view_models::format::fmt_runtime;
 use crate::view_models::text_filter::{contains_normalized, normalize};
 use crate::views::{contributor_views_to_api, FeedView};
 
@@ -21,13 +21,6 @@ pub struct FeedVm<'a> {
     view: &'a FeedView,
     tracks: &'a [Track],
     text_filter: Option<String>,
-}
-
-/// One scalar key/value entry in the feed-inspector detail grid.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DetailEntry {
-    pub key: &'static str,
-    pub value: String,
 }
 
 impl<'a> FeedVm<'a> {
@@ -77,53 +70,6 @@ impl<'a> FeedVm<'a> {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string)
-    }
-
-    /// Scalar detail entries in display order: Release Kind, Release
-    /// Date (when known), Language (when known), Explicit (only when
-    /// `true`), and Tracks (when known).
-    #[must_use]
-    pub fn scalar_detail_entries(&self) -> Vec<DetailEntry> {
-        let mut rows: Vec<DetailEntry> = Vec::with_capacity(5);
-        rows.push(DetailEntry {
-            key: "Release Kind",
-            value: self
-                .view
-                .release_kind
-                .clone()
-                .unwrap_or_else(|| "Unknown".to_string()),
-        });
-        if let Some(date) = self.view.release_date.and_then(fmt_date) {
-            rows.push(DetailEntry {
-                key: "Release Date",
-                value: date,
-            });
-        }
-        if let Some(lang) = self
-            .view
-            .language
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-        {
-            rows.push(DetailEntry {
-                key: "Language",
-                value: lang,
-            });
-        }
-        if self.view.explicit == Some(true) {
-            rows.push(DetailEntry {
-                key: "Explicit",
-                value: "Yes".to_string(),
-            });
-        }
-        if let Some(count) = self.view.episode_count {
-            rows.push(DetailEntry {
-                key: "Tracks",
-                value: count.to_string(),
-            });
-        }
-        rows
     }
 
     /// Tracks sorted for inspector display: ascending track number
@@ -267,68 +213,6 @@ mod tests {
         );
         let none_view = empty_view();
         assert_eq!(FeedVm::new(&none_view, &[]).publisher_text(), None);
-    }
-
-    #[test]
-    fn scalar_detail_entries_release_kind_unknown_when_missing() {
-        let view = empty_view();
-        let vm = FeedVm::new(&view, &[]);
-        let rows = vm.scalar_detail_entries();
-        assert_eq!(rows[0].key, "Release Kind");
-        assert_eq!(rows[0].value, "Unknown");
-    }
-
-    #[test]
-    fn scalar_detail_entries_only_include_known_optionals() {
-        let view = FeedView {
-            release_kind: Some("album".into()),
-            language: None,
-            explicit: Some(false),
-            episode_count: None,
-            release_date: None,
-            ..FeedView::default()
-        };
-        let vm = FeedVm::new(&view, &[]);
-        let keys: Vec<&'static str> = vm.scalar_detail_entries().iter().map(|r| r.key).collect();
-        assert_eq!(keys, vec!["Release Kind"]);
-    }
-
-    #[test]
-    fn scalar_detail_entries_explicit_only_when_true() {
-        let mut view = FeedView {
-            release_kind: Some("album".into()),
-            ..FeedView::default()
-        };
-        view.explicit = Some(true);
-        let vm = FeedVm::new(&view, &[]);
-        let keys: Vec<&'static str> = vm.scalar_detail_entries().iter().map(|r| r.key).collect();
-        assert_eq!(keys, vec!["Release Kind", "Explicit"]);
-    }
-
-    #[test]
-    fn scalar_detail_entries_full_row_set() {
-        let view = FeedView {
-            release_kind: Some("album".into()),
-            release_date: Some(1_712_275_200), // Apr 5, 2024
-            language: Some("en".into()),
-            explicit: Some(true),
-            episode_count: Some(12),
-            ..FeedView::default()
-        };
-        let vm = FeedVm::new(&view, &[]);
-        let rows = vm.scalar_detail_entries();
-        let pairs: Vec<(&'static str, &str)> =
-            rows.iter().map(|r| (r.key, r.value.as_str())).collect();
-        assert_eq!(
-            pairs,
-            vec![
-                ("Release Kind", "album"),
-                ("Release Date", "Apr 5, 2024"),
-                ("Language", "en"),
-                ("Explicit", "Yes"),
-                ("Tracks", "12"),
-            ]
-        );
     }
 
     fn track(num: Option<i32>, dur: Option<i32>, pub_date: Option<i64>) -> Track {

@@ -10,12 +10,11 @@
 //!
 //! Same layer rules as the rest of `view_models/`: no GPUI, no service
 //! mutation, constructed fresh each render.
+//!
+//! `ui/shells/library/playlist_detail.rs` reads [`PagedPlaylistDetailVm::new`],
+//! [`PagedPlaylistDetailVm::track_count`] and [`PagedPlaylistDetailVm::row`] for
+//! the paged playlist page. These three are its whole live surface.
 #![warn(clippy::pedantic)]
-// Scaffold for `library-track-list-paged-vm`: the screen layer
-// (`ui/shells/library/playlist_detail.rs`) will consume these items in
-// the follow-up slice. Suppressed here to keep the clippy gate green
-// while the parallel/additive path is in flight.
-#![allow(dead_code)]
 
 use std::sync::{Arc, Mutex};
 
@@ -40,41 +39,18 @@ pub(crate) enum PagedPlaylistRow {
     },
 }
 
-impl PagedPlaylistRow {
-    #[must_use]
-    pub(crate) fn position(&self) -> usize {
-        match self {
-            PagedPlaylistRow::Pending { position } | PagedPlaylistRow::Ready { position, .. } => {
-                *position
-            }
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn is_pending(&self) -> bool {
-        matches!(self, PagedPlaylistRow::Pending { .. })
-    }
-}
-
 /// Paged playlist detail VM. Cheap to construct each render.
 pub(crate) struct PagedPlaylistDetailVm<'a> {
-    playlist: &'a db::Playlist,
     backing: &'a PagedTrackListHandle,
 }
 
 impl<'a> PagedPlaylistDetailVm<'a> {
-    pub(crate) fn new(playlist: &'a db::Playlist, backing: &'a PagedTrackListHandle) -> Self {
-        Self { playlist, backing }
-    }
-
-    #[must_use]
-    pub(crate) fn playlist_id(&self) -> i64 {
-        self.playlist.id
-    }
-
-    #[must_use]
-    pub(crate) fn title(&self) -> &str {
-        &self.playlist.name
+    /// `playlist` is unread today. The live caller,
+    /// `ui/shells/library/playlist_detail.rs`, already holds the playlist's
+    /// name and id for its own header, so this VM takes the reference to
+    /// keep its constructor shape stable, but stores nothing from it.
+    pub(crate) fn new(_playlist: &'a db::Playlist, backing: &'a PagedTrackListHandle) -> Self {
+        Self { backing }
     }
 
     /// Total row count from the eager identity index.
@@ -90,11 +66,6 @@ impl<'a> PagedPlaylistDetailVm<'a> {
             .lock()
             .expect("paged track list mutex poisoned")
             .total()
-    }
-
-    #[must_use]
-    pub(crate) fn is_empty(&self) -> bool {
-        self.track_count() == 0
     }
 
     /// Read the row at `position` without mutating the backing VM.
@@ -157,9 +128,6 @@ mod tests {
         let h = handle(Vec::new());
         let vm = PagedPlaylistDetailVm::new(&pl, &h);
         assert_eq!(vm.track_count(), 0);
-        assert!(vm.is_empty());
-        assert_eq!(vm.playlist_id(), 1);
-        assert_eq!(vm.title(), "empty");
     }
 
     #[test]
@@ -169,9 +137,10 @@ mod tests {
         let vm = PagedPlaylistDetailVm::new(&pl, &h);
         assert_eq!(vm.track_count(), 3);
 
-        let row = vm.row(1);
-        assert!(row.is_pending());
-        assert_eq!(row.position(), 1);
+        match vm.row(1) {
+            PagedPlaylistRow::Pending { position } => assert_eq!(position, 1),
+            PagedPlaylistRow::Ready { .. } => panic!("expected pending row"),
+        }
     }
 
     #[test]

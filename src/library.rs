@@ -205,7 +205,6 @@ pub struct LibraryApp {
 pub(crate) struct PlaylistActorState {
     pub(crate) playlist_id: i64,
     pub(crate) snapshot: PagedTrackListSnapshot,
-    #[allow(dead_code)]
     pub(crate) handle: ActorHandle<PagedTrackListMsg, PagedTrackListSnapshot>,
 }
 

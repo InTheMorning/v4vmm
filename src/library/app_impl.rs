@@ -14,9 +14,7 @@ use crate::application::commands::feed::{
     CheckFeedsAndRepairRoutes, CheckFeedsAndRepairRoutesResult, SubscribeFeed,
 };
 use crate::application::commands::library_removal::RemoveFromLibrary;
-use crate::application::commands::metadata::{
-    ApplyTrackId3Edits, LookupMusicBrainzTrack, StageMusicBrainzTrack,
-};
+use crate::application::commands::metadata::{ApplyTrackId3Edits, LookupMusicBrainzTrack};
 use crate::application::commands::payment_routes::{
     PaymentRouteRepairStatus, PaymentRouteRepairTrackResult, RepairPaymentRoutesForTrack,
 };
@@ -593,26 +591,6 @@ impl LibraryApp {
     ) -> Option<crate::view_models::search_results::IndexDetailDisplay> {
         self.vm
             .content_list_index_feed_detail(activation_id, fallback_id, fallback_label)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn set_content_list_text_filter(
-        &mut self,
-        filter: Option<String>,
-        cx: &mut Context<Self>,
-    ) {
-        self.vm.set_content_text_filter(filter);
-        cx.notify();
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn set_detail_text_filter(
-        &mut self,
-        filter: Option<String>,
-        cx: &mut Context<Self>,
-    ) {
-        self.vm.set_detail_text_filter(filter);
-        cx.notify();
     }
 
     fn open_saved_search(&mut self, saved_search_id: i64, cx: &mut Context<Self>) {
@@ -2869,30 +2847,6 @@ impl LibraryApp {
             .flatten()
     }
 
-    #[allow(dead_code)]
-    fn musicbrainz_track(&mut self, track: TrackRow, cx: &mut Context<Self>) {
-        if !self.vm.begin_musicbrainz_track_lookup(track.id) {
-            return;
-        }
-        cx.notify();
-
-        let track_id = track.id;
-        present_command(
-            &self.command_runner,
-            StageMusicBrainzTrack::new(track),
-            CommandContext::next(),
-            cx,
-            move |this, staged, _cx| {
-                let n = staged.edit_count;
-                this.stage_musicbrainz_lookup_for_track(track_id, staged.lookup);
-                this.vm.finish_musicbrainz_track_lookup(track_id, n);
-            },
-            move |this, error, _cx| {
-                this.vm.fail_musicbrainz_track_lookup(track_id, error);
-            },
-        );
-    }
-
     pub(crate) fn musicbrainz_feed(&mut self, album: AlbumNode, cx: &mut Context<Self>) {
         let downloadable: Vec<TrackRow> = album
             .tracks
@@ -2968,13 +2922,12 @@ impl LibraryApp {
                 track_id,
                 progress,
                 total,
-                reason,
                 ..
             } => {
                 self.vm
                     .begin_musicbrainz_album_track_stage(track_id, progress, total);
                 self.vm
-                    .finish_musicbrainz_album_track_stage(track_id, MbTrackStatus::Skipped(reason));
+                    .finish_musicbrainz_album_track_stage(track_id, MbTrackStatus::Skipped);
             }
             MusicBrainzFeedSagaState::Completed {
                 total_edits,

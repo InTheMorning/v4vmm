@@ -72,27 +72,3 @@ where
     })
     .detach();
 }
-
-#[cfg(test)]
-mod tests {
-    //! Headful GPUI tests are out of scope; the reactive primitive
-    //! used here (`watch::Receiver::changed` + coalescing) is covered
-    //! by the runtime suite. We only assert that the public API
-    //! compiles and accepts the expected closures.
-
-    use super::*;
-
-    #[allow(dead_code)]
-    fn type_check_compiles() {
-        // Compile-time check that the generic bounds are satisfiable.
-        fn _use<T: 'static>(rx: watch::Receiver<i64>, cx: &mut Context<T>) {
-            bridge_watch(
-                rx,
-                |_this, snapshot, _cx| {
-                    let _ = snapshot;
-                },
-                cx,
-            );
-        }
-    }
-}

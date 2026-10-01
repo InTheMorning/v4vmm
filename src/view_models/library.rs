@@ -298,13 +298,12 @@ pub(crate) struct SavedSearchesSectionDisplay {
 
 /// Per-track `MusicBrainz` lookup state owned by the library screen and
 /// projected into display by [`LibraryTrackRowVm`].
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(crate) enum MbTrackStatus {
     Pending,
     Processing,
     Done(usize),
-    Skipped(String),
+    Skipped,
 }
 
 /// Display-ready projection of a [`TrackRow`] in the library album
@@ -1704,11 +1703,6 @@ impl ContentListPageVm {
         self.text_filter.as_deref()
     }
 
-    /// Sets or clears the frame-local text filter.
-    pub(crate) fn set_text_filter(&mut self, filter: Option<String>) {
-        self.text_filter = normalize(filter);
-    }
-
     /// Replaces the cached rows while preserving the frame-local filter.
     pub(crate) fn replace_rows(&mut self, cached_rows: Vec<ContentListRowDisplay>) {
         self.library_rows.clone_from(&cached_rows);
@@ -2039,6 +2033,17 @@ impl ContentListPageVm {
     }
 }
 
+/// `set_text_filter` is Phase 1 text-filter infrastructure (ADR 0060 packet
+/// dead-code-removal-task-001; `docs/plans/active-frame-search-dispatch-plan.md`).
+/// No screen calls it today. `library_view_model_content_text_filter_does_not_filter_source_tree`
+/// needs it as a direct helper, so it stays here, compiled only for tests.
+#[cfg(test)]
+impl ContentListPageVm {
+    pub(crate) fn set_text_filter(&mut self, filter: Option<String>) {
+        self.text_filter = normalize(filter);
+    }
+}
+
 impl<'a> LibraryTrackActionVm<'a> {
     #[must_use]
     pub(crate) fn new(
@@ -2242,8 +2247,6 @@ pub(crate) struct LibraryViewModel {
     search_query: String,
     creating_playlist: bool,
     renaming_playlist_id: Option<i64>,
-    // Phase 3: detail frame text filter state.
-    detail_text_filter: Option<String>,
 }
 
 impl LibraryViewModel {
@@ -2278,7 +2281,6 @@ impl LibraryViewModel {
             search_query: String::new(),
             creating_playlist: false,
             renaming_playlist_id: None,
-            detail_text_filter: None,
         }
     }
 
@@ -2467,26 +2469,11 @@ impl LibraryViewModel {
         not(test),
         expect(
             dead_code,
-            reason = "tested in library_view_model_content_text_filter_uses_content_list_page_vm"
+            reason = "tested in library_view_model_content_text_filter_does_not_filter_source_tree"
         )
     )]
     pub(crate) fn content_text_filter(&self) -> Option<&str> {
         self.content_list_page.text_filter()
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn set_content_text_filter(&mut self, filter: Option<String>) {
-        self.content_list_page.set_text_filter(filter);
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn set_detail_text_filter(&mut self, filter: Option<String>) {
-        self.detail_text_filter = filter;
-    }
-
-    #[allow(dead_code, reason = "part of public API for testing and diagnostic")]
-    pub(crate) fn detail_text_filter(&self) -> Option<&String> {
-        self.detail_text_filter.as_ref()
     }
 
     #[must_use]
@@ -3141,11 +3128,6 @@ impl LibraryViewModel {
         &self.snapshot.mb_status
     }
 
-    #[must_use]
-    pub(crate) fn has_mb_status(&self, track_id: i64) -> bool {
-        self.snapshot.mb_status.contains_key(&track_id)
-    }
-
     pub(crate) fn set_mb_status(&mut self, track_id: i64, status: MbTrackStatus) {
         self.snapshot.mb_status.insert(track_id, status);
     }
@@ -3158,32 +3140,6 @@ impl LibraryViewModel {
 
     pub(crate) fn clear_mb_status(&mut self) {
         self.snapshot.mb_status.clear();
-    }
-
-    pub(crate) fn begin_musicbrainz_track_lookup(&mut self, track_id: i64) -> bool {
-        if self.has_mb_status(track_id) {
-            return false;
-        }
-        self.set_mb_status(track_id, MbTrackStatus::Processing);
-        self.status = "MusicBrainz lookup...".into();
-        true
-    }
-
-    pub(crate) fn finish_musicbrainz_track_lookup(&mut self, track_id: i64, edit_count: usize) {
-        self.set_mb_status(track_id, MbTrackStatus::Done(edit_count));
-        self.status = format!(
-            "MusicBrainz: staged {edit_count} edit{}",
-            plural(edit_count)
-        );
-    }
-
-    pub(crate) fn fail_musicbrainz_track_lookup(
-        &mut self,
-        track_id: i64,
-        error: impl std::fmt::Display,
-    ) {
-        self.set_mb_status(track_id, MbTrackStatus::Skipped(format!("{error:#}")));
-        self.status = format!("MusicBrainz error: {error:#}");
     }
 
     pub(crate) fn begin_musicbrainz_album_lookup(
@@ -3517,6 +3473,17 @@ impl LibraryViewModel {
     }
 }
 
+/// `set_content_text_filter` is Phase 1 text-filter infrastructure (ADR 0060
+/// packet dead-code-removal-task-001; `docs/plans/active-frame-search-dispatch-plan.md`).
+/// No screen calls it today. `library_view_model_content_text_filter_does_not_filter_source_tree`
+/// needs it as a direct helper, so it stays here, compiled only for tests.
+#[cfg(test)]
+impl LibraryViewModel {
+    pub(crate) fn set_content_text_filter(&mut self, filter: Option<String>) {
+        self.content_list_page.set_text_filter(filter);
+    }
+}
+
 fn feed_change_count_label(count: usize) -> String {
     format!("{count} feed{} changed", plural(count))
 }
@@ -3844,7 +3811,7 @@ impl<'a> LibraryTrackRowVm<'a> {
             MbTrackStatus::Processing => Some("MB: looking up..."),
             MbTrackStatus::Done(0) => Some("MB: no missing fields"),
             MbTrackStatus::Done(_) => Some("MB: done"),
-            MbTrackStatus::Skipped(_) => Some("MB: skipped"),
+            MbTrackStatus::Skipped => Some("MB: skipped"),
         }
     }
 
@@ -3854,7 +3821,7 @@ impl<'a> LibraryTrackRowVm<'a> {
     pub(crate) fn mb_status_kind(&self) -> Option<MbStatusKind> {
         match self.mb? {
             MbTrackStatus::Done(n) if *n > 0 => Some(MbStatusKind::Success),
-            MbTrackStatus::Skipped(_) => Some(MbStatusKind::Danger),
+            MbTrackStatus::Skipped => Some(MbStatusKind::Danger),
             MbTrackStatus::Processing => Some(MbStatusKind::Warning),
             _ => Some(MbStatusKind::Muted),
         }
@@ -5697,7 +5664,7 @@ mod tests {
         let processing = MbTrackStatus::Processing;
         let done_zero = MbTrackStatus::Done(0);
         let done_some = MbTrackStatus::Done(2);
-        let skipped = MbTrackStatus::Skipped("bad".into());
+        let skipped = MbTrackStatus::Skipped;
 
         assert_eq!(LibraryTrackRowVm::new(&r, None).mb_status_text(), None);
         assert_eq!(
@@ -5728,7 +5695,7 @@ mod tests {
         let done_zero = MbTrackStatus::Done(0);
         let done_some = MbTrackStatus::Done(3);
         let processing = MbTrackStatus::Processing;
-        let skipped = MbTrackStatus::Skipped("nope".into());
+        let skipped = MbTrackStatus::Skipped;
         let pending = MbTrackStatus::Pending;
 
         assert_eq!(
@@ -6480,7 +6447,7 @@ mod tests {
         mb.insert(20, MbTrackStatus::Processing);
         let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
         assert!(vm.has_active_musicbrainz());
-        mb.insert(20, MbTrackStatus::Skipped("err".into()));
+        mb.insert(20, MbTrackStatus::Skipped);
         let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
         assert!(!vm.has_active_musicbrainz());
     }
@@ -8033,7 +8000,6 @@ mod tests {
     fn library_view_model_tracks_musicbrainz_status_and_staged_lookup() {
         let mut vm = LibraryViewModel::new();
         vm.set_mb_status(7, MbTrackStatus::Processing);
-        assert!(vm.has_mb_status(7));
         assert!(matches!(
             vm.mb_status().get(&7),
             Some(MbTrackStatus::Processing)
@@ -8065,32 +8031,6 @@ mod tests {
 
         vm.clear_mb_status();
         assert!(vm.mb_status().is_empty());
-    }
-
-    #[test]
-    fn library_view_model_musicbrainz_track_lookup_transitions_are_pure() {
-        let mut vm = LibraryViewModel::new();
-        assert!(vm.begin_musicbrainz_track_lookup(7));
-        assert!(!vm.begin_musicbrainz_track_lookup(7));
-        assert_eq!(vm.status(), "MusicBrainz lookup...");
-        assert!(matches!(
-            vm.mb_status().get(&7),
-            Some(MbTrackStatus::Processing)
-        ));
-
-        vm.finish_musicbrainz_track_lookup(7, 1);
-        assert_eq!(vm.status(), "MusicBrainz: staged 1 edit");
-        assert!(matches!(
-            vm.mb_status().get(&7),
-            Some(MbTrackStatus::Done(1))
-        ));
-
-        vm.fail_musicbrainz_track_lookup(8, "offline");
-        assert_eq!(vm.status(), "MusicBrainz error: offline");
-        assert!(matches!(
-            vm.mb_status().get(&8),
-            Some(MbTrackStatus::Skipped(message)) if message == "offline"
-        ));
     }
 
     #[test]

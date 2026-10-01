@@ -16,10 +16,9 @@ use crate::identity_ingest;
 use crate::library_path::LibraryRelativePath;
 use crate::metadata::{
     sanitize_feed_source_text, sanitize_track_context_source_text, sanitize_track_source_text,
-    source_text_missing, MusicBrainzLookupResult, TagCompareResult, TrackContext,
+    source_text_missing, TagCompareResult, TrackContext,
 };
-use crate::metadata_service::{id3_edits_for_track_context, musicbrainz_lookup_metadata};
-use crate::musicbrainz::lookup_recordings;
+use crate::metadata_service::id3_edits_for_track_context;
 use crate::rss;
 use crate::track_compare::{download_track, local_track_path, select_audio_enclosure};
 
@@ -590,78 +589,6 @@ pub(crate) fn prepare_track_for_subscription_internal(
     Ok(PreparedTrack::Downloaded(Box::new(download_track(
         cfg, track,
     )?)))
-}
-
-pub fn download_and_compare_track(
-    client: &Client,
-    entity_id: &str,
-    force_download: bool,
-) -> Result<TagCompareResult> {
-    let track = client.fetch_track(
-        entity_id,
-        Some(
-            "source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes",
-        ),
-    )?;
-    let feed = match track.feed_guid.as_deref() {
-        Some(feed_guid) => client
-            .fetch_feed(
-                feed_guid,
-                Some("tracks,source_enclosures,source_links,source_ids,source_release_claims"),
-            )
-            .ok(),
-        None => None,
-    };
-    let mut track_context = TrackContext::new(track, feed);
-    enrich_track_context_from_rss(&mut track_context);
-    sanitize_track_context_source_text(&mut track_context);
-    let cfg_path = config::config_path()?;
-    let cfg = config::ConfigSnapshot::read_existing(&cfg_path)?.downloads()?;
-    config::prepare_artists_directory(&cfg.music_dir)?;
-    if !force_download {
-        if let Some(enclosure) = select_audio_enclosure(&track_context.track) {
-            let candidate = local_track_path(
-                &cfg,
-                &track_context.track,
-                enclosure.format.canonical_extension(),
-            );
-            if candidate.exists() {
-                let path = crate::track_compare::ensure_taggable_local_path(&cfg, &candidate);
-                return compare_downloaded_track_path(&path, &track_context);
-            }
-        }
-    }
-    let downloaded = download_track(&cfg, &track_context.track)?;
-    compare_downloaded_track_path(&downloaded.path, &track_context)
-}
-
-pub fn lookup_musicbrainz_track(
-    client: &Client,
-    entity_id: &str,
-) -> Result<MusicBrainzLookupResult> {
-    let track = client.fetch_track(entity_id, Some("source_enclosures"))?;
-    let cfg_path = config::config_path()?;
-    let cfg = config::ConfigSnapshot::read_existing(&cfg_path)?.downloads()?;
-    config::prepare_artists_directory(&cfg.music_dir)?;
-    let downloaded = download_track(&cfg, &track)?;
-    let tags = read_audio_tags(&downloaded.path)?;
-    let metadata = musicbrainz_lookup_metadata(&track, &tags);
-    let musicbrainz_client = crate::http_client::document_builder()
-        .user_agent(format!(
-            "v4vmm/{} (MusicBrainz metadata lookup)",
-            env!("CARGO_PKG_VERSION")
-        ))
-        .build()?;
-    let lookup = lookup_recordings(&musicbrainz_client, &metadata, 5)?;
-    let image = lookup
-        .candidates
-        .first()
-        .and_then(|candidate| candidate.release_id.as_deref())
-        .and_then(|release_id| {
-            let url = format!("https://coverartarchive.org/release/{release_id}/front-250");
-            download_image(&url)
-        });
-    Ok(MusicBrainzLookupResult { lookup, image })
 }
 
 pub fn download_image(url: &str) -> Option<crate::metadata::ImageBytes> {

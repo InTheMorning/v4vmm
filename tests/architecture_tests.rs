@@ -5712,12 +5712,15 @@ fn adr_0079_removed_artist_storage_stays_deleted() {
     );
 }
 
-/// Situational ADR 0060, packet 005: the parked Discover screen (`SearchApp`,
-/// `src/discover.rs`, `src/discover/`, and `src/ui/shells/discover/`) stays
-/// deleted. Delete this guard if ADR 0060 is superseded.
+/// Situational ADR 0060, packets 005 and 006: the parked Discover screen
+/// (`SearchApp`, `src/discover.rs`, `src/discover/`, and
+/// `src/ui/shells/discover/`) stays deleted, and no file in `src/` carries
+/// an `allow(dead_code)` marker. Delete this guard if ADR 0060 is
+/// superseded.
 #[test]
 fn adr_0060_discover_surface_stays_deleted() {
     const FIX: &str = "ADR 0060: Music replaced the Discover surface, and the parked screen is deleted. Build the surface from the live Music view models under src/view_models/search_results/, not a revived SearchApp.";
+    const DEAD_CODE_FIX: &str = "ADR 0060: a file in src/ must not carry allow(dead_code). Delete the unreachable item, or move a test-only item into a #[cfg(test)] module.";
     let mut violations = Vec::new();
 
     for path in rust_files_under("src") {
@@ -5732,6 +5735,11 @@ fn adr_0060_discover_surface_stays_deleted() {
             if line.contains("mod discover") {
                 violations.push(format!(
                     "{file}:{line_number}: a discover module returned: `{line}`\n  {FIX}"
+                ));
+            }
+            if line.contains("allow(dead_code") {
+                violations.push(format!(
+                    "{file}:{line_number}: an allow(dead_code) marker returned: `{line}`\n  {DEAD_CODE_FIX}"
                 ));
             }
         }

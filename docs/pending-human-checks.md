@@ -588,3 +588,12 @@ Open and paused - implementation and mechanical checks are complete on 2026-10-0
 - V1: an album page shows "Published" and "First track published" as two facts, each with its source.
 - V2: a track without its own date shows "Feed publication date" apart from its other facts.
 - V3: normal and narrow widths show each fact in its place, in Light and Dark themes, with no clipped text.
+
+## 32. Dead Code Removal — Task 001
+
+Open and paused - implementation and mechanical checks are complete on 2026-10-01. Operator inspection is pending.
+
+- Owner: [dead code removal task 001](tasks/dead-code-removal-task-001-measure-and-delete-unreachable-code.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks. It only reads pages.
+- V1: the Library list, an album page, a playlist page and a track page work as before, with paging.
+- V2: Music search, the Index pages, the publisher page and the Show section work as before.
