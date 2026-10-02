@@ -185,6 +185,16 @@ The node keeps no artist credit (ADR 0034 §11). `release_artist` and
 `track_artist` do not change. The event types `artist_upserted` and
 `artist_credit_created` stop.
 
+## Release 0.7.0 - Checked By v4vmm On 2026-10-02
+
+- `info.version` of `/openapi.json` gives `0.7.0`. `GET /node/info` gives `git_revision` `5ba3d1f`.
+- The contract adds `role_agreement` and `album_names_as` to `PublisherResponse`, and `agreed_roles`, `co_credited_feeds`, `stated_rels` and `two_way_link_count` to `FeedResponse`. It removes no field.
+- The DETOX publisher feed `137aaa9c-75ff-4916-9f23-e02968b2d15e` gives 30 rows with `album_names_as` `publisher`, a null `role`, `role_source` `default` and a null `role_agreement`.
+- v4vmm ADR 0082 groups the albums of a publisher page by `album_names_as` and by `role_agreement`. Its packets decode these fields.
+
+**Request: correct the `album_names_as` text of the contract.** The 0.7.0 contract text says `"publisher"`, `"credit"` or null.
+The release record and task 014 of ADR 0049 say `publisher` or null. v4vmm reads the release record. Please correct the description in `src/openapi.rs` or in the doc comment that it comes from.
+
 ## Release 0.6.0 - 2026-10-02
 
 **One change of meaning (ADR 0049 §6):** when neither side of a publisher

@@ -20,6 +20,8 @@ The page type comes from a stated role only. The label threshold proposal is rem
 
 Amended 2026-09-24: the operator accepted proposals as refinements. "Accepted Refinements" records them.
 
+
+Amended 2026-10-02: [ADR 0082](0082-publisher-roles-belong-to-each-album-link.md) gives roles to each album link and no page type. Decision 2 stays for the publisher that an album names. A role never makes the album page show the publisher as its artist.
 ## Context
 
 ADR 0045 bound a Library track to a MusicIndex artist identifier. `src/identity_ingest.rs` reads that identifier from `Track.artist_credit`.

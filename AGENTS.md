@@ -121,8 +121,8 @@ No `dead_code` lint attribute stays in `src/`, and the ADR 0060 guard forbids on
 [ADR 0081](docs/adr/0081-remove-the-staged-frame-model.md) is Accepted on 2026-10-02. It removes the staged frame model and the reserved slots.
 [ADR 0046 task 015](docs/tasks/adr-0046-task-015-forward-navigation.md) wired Forward and the Back and Forward keys on 2026-10-02,
 with its visual gate open and paused. [ADR 0081 task 001](docs/tasks/adr-0081-task-001-remove-the-staged-frame-model.md) deletes the model. It is Ready.
-[ADR 0082](docs/adr/0082-publisher-roles-belong-to-each-album-link.md) is Proposed on 2026-10-02. It gives roles to each album link and no page type.
-The operator holds it for Stophammer 0.7.0, which removes the credit link and adds `role_agreement`.
+[ADR 0082](docs/adr/0082-publisher-roles-belong-to-each-album-link.md) is Accepted on 2026-10-02. It gives roles to each album link and no page type,
+against Stophammer 0.7.0. It supersedes ADR 0078. Its [phase plan](docs/plans/adr-0082-publisher-roles-phase-plan.md) registers three packets.
 ADR 0076, amended on 2026-09-26, makes the app ignore `last_build_date`. Three decoded fields no
 longer arrive. [Packet 046](docs/tasks/adr-0075-task-046-remove-undeclared-api-fields.md)
 removed them on 2026-09-26. Its mechanical checks are Green, and it needs no visual acceptance.
