@@ -5,6 +5,9 @@
 Implemented - 2026-05-15. v1 shipped. Supersedes the earlier workspace
 frame planning artifacts.
 
+Amended 2026-10-02: [ADR 0081](0081-remove-the-staged-frame-model.md) supersedes Architectural Invariant 8 and the model sentence of
+Resolved Open Question 5. Task 015 wires the Forward control of Invariant 2.
+
 Amended 2026-09-16 for the narrow Library defect found during ADR 0066 task 007:
 the shared split-pane owner fits the source navigation and content to their
 allocated viewport. Side-by-side layout reserves the content minimum width and

@@ -116,7 +116,11 @@ with its visual gate open and paused. [Packet 006](docs/tasks/adr-0060-task-006-
 [Dead code removal task 001](docs/tasks/dead-code-removal-task-001-measure-and-delete-unreachable-code.md) measures and deletes the remaining
 unreachable code, and removes each `allow(dead_code)`. It is implemented on 2026-10-01, with its visual gate open and paused.
 [Dead code removal task 002](docs/tasks/dead-code-removal-task-002-expected-dead-code.md) deletes the items behind 35 older
-`expect(dead_code)` markers that name deferred work. It is Ready on 2026-10-01.
+`expect(dead_code)` markers that name deferred work. It is implemented on 2026-10-01, with its visual gate open and paused.
+No `dead_code` lint attribute stays in `src/`, and the ADR 0060 guard forbids one.
+[ADR 0081](docs/adr/0081-remove-the-staged-frame-model.md) is Accepted on 2026-10-02. It removes the staged frame model and the reserved slots.
+[ADR 0046 task 015](docs/tasks/adr-0046-task-015-forward-navigation.md) wires Forward first, then
+[ADR 0081 task 001](docs/tasks/adr-0081-task-001-remove-the-staged-frame-model.md) deletes the model. Both are Ready.
 ADR 0076, amended on 2026-09-26, makes the app ignore `last_build_date`. Three decoded fields no
 longer arrive. [Packet 046](docs/tasks/adr-0075-task-046-remove-undeclared-api-fields.md)
 removed them on 2026-09-26. Its mechanical checks are Green, and it needs no visual acceptance.
