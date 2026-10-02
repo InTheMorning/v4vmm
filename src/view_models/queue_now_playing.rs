@@ -7,13 +7,6 @@
 //! owning playback state.
 
 #![warn(clippy::pedantic)]
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "active-frame search dispatch lands queue filter VM state before UI routing consumes it"
-    )
-)]
 
 use crate::view_models::format::fmt_total_runtime_clock;
 use crate::view_models::text_filter::{contains_normalized, normalize};
@@ -227,6 +220,10 @@ impl QueueNowPlayingPageVm {
     }
 
     /// Returns the active queue text filter, if any.
+    ///
+    /// Only this type's own tests read the filter back; the live queue shell
+    /// renders from `rows` instead. Compiled only for tests.
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn text_filter(&self) -> Option<&str> {
         self.text_filter.as_deref()

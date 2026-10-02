@@ -49,6 +49,10 @@ pub(crate) enum LibraryFilterControlTreatment {
     StruckThrough,
 }
 
+/// `line_through` has no caller outside its own dedicated test: the shared
+/// filter-chip composite reads `treatment` directly today. It stays here,
+/// compiled only for tests.
+#[cfg(test)]
 impl LibraryFilterControlTreatment {
     /// Returns whether this treatment needs strike-through text.
     #[must_use]
@@ -104,16 +108,6 @@ impl LibraryFilterControlDisplay {
         }
     }
 
-    /// Returns every state in documented keyboard activation order.
-    #[must_use]
-    pub(crate) const fn state_displays() -> [LibraryFilterControlStateDisplay; 3] {
-        [
-            Self::state_display(ContentFilter::All),
-            Self::state_display(ContentFilter::Library),
-            Self::state_display(ContentFilter::Index),
-        ]
-    }
-
     const fn state_display(filter: ContentFilter) -> LibraryFilterControlStateDisplay {
         match filter {
             ContentFilter::All => LibraryFilterControlStateDisplay {
@@ -146,6 +140,22 @@ impl LibraryFilterControlDisplay {
             ContentFilter::Library => ContentFilter::Index,
             ContentFilter::Index => ContentFilter::All,
         }
+    }
+}
+
+/// `state_displays` has no caller outside its own dedicated test: no screen
+/// renders all three states at once today. It stays here, compiled only for
+/// tests.
+#[cfg(test)]
+impl LibraryFilterControlDisplay {
+    /// Returns every state in documented keyboard activation order.
+    #[must_use]
+    pub(crate) const fn state_displays() -> [LibraryFilterControlStateDisplay; 3] {
+        [
+            Self::state_display(ContentFilter::All),
+            Self::state_display(ContentFilter::Library),
+            Self::state_display(ContentFilter::Index),
+        ]
     }
 }
 

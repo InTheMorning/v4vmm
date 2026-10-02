@@ -5,13 +5,6 @@
 //! rows, empty-state copy, and windowed result lists backed by ADR 0041
 //! [`PagedListVm`] instances.
 #![warn(clippy::pedantic)]
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ADR 0048 routing consumes these VM contracts from GPUI renderers"
-    )
-)]
 
 use crate::db::TrackRow;
 use crate::runtime::paged_list_vm::{PagedListVm, RowSlot};
@@ -71,33 +64,6 @@ impl SearchResultsInspectorPageVm {
         };
         page.refresh_empty_state();
         page
-    }
-
-    /// Returns this page with artist result windows attached.
-    #[must_use]
-    pub(crate) fn with_artists(
-        mut self,
-        artists: SearchResultsPagedTab<ArtistResultDisplay>,
-    ) -> Self {
-        self.artists = artists;
-        self.refresh_empty_state();
-        self
-    }
-
-    /// Returns this page with feed result windows attached.
-    #[must_use]
-    pub(crate) fn with_feeds(mut self, feeds: SearchResultsPagedTab<FeedResultDisplay>) -> Self {
-        self.feeds = feeds;
-        self.refresh_empty_state();
-        self
-    }
-
-    /// Returns this page with track result windows attached.
-    #[must_use]
-    pub(crate) fn with_tracks(mut self, tracks: SearchResultsPagedTab<TrackResultDisplay>) -> Self {
-        self.tracks = tracks;
-        self.refresh_empty_state();
-        self
     }
 
     /// Creates a search-results page from local library track matches.
@@ -181,17 +147,6 @@ impl SearchResultsInspectorPageVm {
         &self.query
     }
 
-    /// Updates the query represented by this page.
-    pub(crate) fn set_query(&mut self, query: String) {
-        self.query = query;
-        self.refresh_empty_state();
-    }
-
-    /// Clears the query represented by this page.
-    pub(crate) fn clear_query(&mut self) {
-        self.set_query(String::new());
-    }
-
     /// Returns the selected tab.
     #[must_use]
     pub(crate) const fn tab(&self) -> SearchResultsTab {
@@ -209,12 +164,6 @@ impl SearchResultsInspectorPageVm {
     #[must_use]
     pub(crate) const fn filter(&self) -> ContentFilter {
         self.filter
-    }
-
-    /// Returns the frame-chrome filter display for this inspector.
-    #[must_use]
-    pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay {
-        self.filter_chip_strip_for_width_class(FilterChipStripWidthClass::Normal)
     }
 
     /// Returns the frame-chrome filter display for the requested width.
@@ -294,31 +243,16 @@ impl SearchResultsInspectorPageVm {
         &self.artists
     }
 
-    /// Returns mutable artist result windows.
-    pub(crate) const fn artists_mut(&mut self) -> &mut SearchResultsPagedTab<ArtistResultDisplay> {
-        &mut self.artists
-    }
-
     /// Returns feed result windows.
     #[must_use]
     pub(crate) const fn feeds(&self) -> &SearchResultsPagedTab<FeedResultDisplay> {
         &self.feeds
     }
 
-    /// Returns mutable feed result windows.
-    pub(crate) const fn feeds_mut(&mut self) -> &mut SearchResultsPagedTab<FeedResultDisplay> {
-        &mut self.feeds
-    }
-
     /// Returns track result windows.
     #[must_use]
     pub(crate) const fn tracks(&self) -> &SearchResultsPagedTab<TrackResultDisplay> {
         &self.tracks
-    }
-
-    /// Returns mutable track result windows.
-    pub(crate) const fn tracks_mut(&mut self) -> &mut SearchResultsPagedTab<TrackResultDisplay> {
-        &mut self.tracks
     }
 
     fn refresh_empty_state(&mut self) {
@@ -359,6 +293,63 @@ impl SearchResultsInspectorPageVm {
         {
             self.tab = tab;
         }
+    }
+}
+
+/// `with_artists`, `with_feeds`, `with_tracks`, `artists_mut`, `feeds_mut`,
+/// `tracks_mut` and `filter_chip_strip` have no caller outside their own
+/// dedicated tests: production code builds a page through
+/// `from_local_library_tracks` and `replace_index_results` instead, and reads
+/// the frame-chrome filter display through `filter_chip_strip_for_width_class`.
+/// Each stays here, compiled only for tests.
+#[cfg(test)]
+impl SearchResultsInspectorPageVm {
+    /// Returns this page with artist result windows attached.
+    #[must_use]
+    pub(crate) fn with_artists(
+        mut self,
+        artists: SearchResultsPagedTab<ArtistResultDisplay>,
+    ) -> Self {
+        self.artists = artists;
+        self.refresh_empty_state();
+        self
+    }
+
+    /// Returns this page with feed result windows attached.
+    #[must_use]
+    pub(crate) fn with_feeds(mut self, feeds: SearchResultsPagedTab<FeedResultDisplay>) -> Self {
+        self.feeds = feeds;
+        self.refresh_empty_state();
+        self
+    }
+
+    /// Returns this page with track result windows attached.
+    #[must_use]
+    pub(crate) fn with_tracks(mut self, tracks: SearchResultsPagedTab<TrackResultDisplay>) -> Self {
+        self.tracks = tracks;
+        self.refresh_empty_state();
+        self
+    }
+
+    /// Returns the frame-chrome filter display for this inspector.
+    #[must_use]
+    pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay {
+        self.filter_chip_strip_for_width_class(FilterChipStripWidthClass::Normal)
+    }
+
+    /// Returns mutable artist result windows.
+    pub(crate) const fn artists_mut(&mut self) -> &mut SearchResultsPagedTab<ArtistResultDisplay> {
+        &mut self.artists
+    }
+
+    /// Returns mutable feed result windows.
+    pub(crate) const fn feeds_mut(&mut self) -> &mut SearchResultsPagedTab<FeedResultDisplay> {
+        &mut self.feeds
+    }
+
+    /// Returns mutable track result windows.
+    pub(crate) const fn tracks_mut(&mut self) -> &mut SearchResultsPagedTab<TrackResultDisplay> {
+        &mut self.tracks
     }
 }
 

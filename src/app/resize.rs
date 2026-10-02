@@ -58,12 +58,6 @@ impl TopApp {
             .min(f32::from(layout::CONTENT_PANE_MAX_WIDTH))
     }
 
-    #[expect(dead_code, reason = "called via closure in render_workspace_content")]
-    pub(super) fn set_content_pane_width(&mut self, width: gpui::Pixels, cx: &mut Context<Self>) {
-        self.content_pane_width = width;
-        cx.notify();
-    }
-
     pub(super) fn begin_content_pane_resize(&mut self, cx: &mut Context<Self>) {
         self.is_content_pane_resizing = true;
         cx.notify();
@@ -86,11 +80,6 @@ impl TopApp {
             self.settings_status = format!("Error: {error:#}");
         }
         cx.notify();
-    }
-
-    #[expect(dead_code, reason = "called via closure in render_workspace_content")]
-    pub(super) fn is_content_pane_resizing(&self) -> bool {
-        self.is_content_pane_resizing
     }
 }
 

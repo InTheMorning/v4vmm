@@ -6,13 +6,6 @@
 //! later tasks.
 
 #![warn(clippy::pedantic)]
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "workspace contracts land before every frame action is wired"
-    )
-)]
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -36,11 +29,14 @@ pub(crate) use chrome::{
     FrameChromeMenuItemDisplay, FrameShellDisplay, LibraryFilterControlDisplay,
     LibraryFilterControlTreatment,
 };
-pub(crate) use frame::{
-    FrameDetachEligibility, FrameDockTarget, FrameSearchDescriptor, FrameSearchScope,
-    WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState,
-};
+pub(crate) use frame::{WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState};
 pub(crate) use nav::{FrameNavigationEntry, FrameNavigationState};
+
+/// `FrameDetachEligibility` and `FrameDockTarget` are ADR 0046 Task 014
+/// model-only types with no caller outside their own dedicated tests. See
+/// `src/view_models/workspace/frame.rs` for why they are test-only.
+#[cfg(test)]
+pub(crate) use frame::{FrameDetachEligibility, FrameDockTarget};
 
 /// Workspace model mutation failure.
 ///
@@ -53,24 +49,40 @@ pub(crate) enum WorkspaceModelError {
     FrameNotFound(WorkspaceFrameId),
     /// A new frame would duplicate an existing identifier.
     DuplicateFrameId(WorkspaceFrameId),
-    /// The requested frame removal would leave the workspace empty.
-    LastFrameRemoval,
     /// The requested operation needs at least one frame.
     EmptyLayout,
     /// The frame has no back-history entry to select.
     CannotNavigateBack,
+    /// The requested frame removal would leave the workspace empty.
+    ///
+    /// ADR 0046 Task 012 names this variant in its layout-persistence
+    /// contract, but only the test-only `remove_frame` constructs it today.
+    #[cfg(test)]
+    LastFrameRemoval,
     /// The frame has no forward-history entry to select.
+    ///
+    /// Only the test-only `FrameNavigationState::go_forward` constructs this
+    /// today; no caller wires a Forward command yet.
+    #[cfg(test)]
     CannotNavigateForward,
     /// The detach request is valid but windowing support is deferred.
+    ///
+    /// ADR 0046 Task 014 keeps detach model-only; only the test-only
+    /// `request_detach` constructs this today.
+    #[cfg(test)]
     DetachDeferred(WorkspaceFrameId),
-    /// The dock request is valid but windowing support is deferred.
+    /// The dock request is valid but windowing support is deferred. See
+    /// `DetachDeferred` above for why this is test-only.
+    #[cfg(test)]
     DockDeferred {
         /// Frame that requested docking.
         frame_id: WorkspaceFrameId,
         /// Requested dock lane.
         target: FrameDockTarget,
     },
-    /// The frame is anchored and cannot detach or dock.
+    /// The frame is anchored and cannot detach or dock. See `DetachDeferred`
+    /// above for why this is test-only.
+    #[cfg(test)]
     NotDetachable(WorkspaceFrameId),
 }
 
@@ -81,21 +93,26 @@ impl fmt::Display for WorkspaceModelError {
             Self::DuplicateFrameId(id) => {
                 write!(f, "workspace frame {} already exists", id.value())
             }
-            Self::LastFrameRemoval => f.write_str("cannot remove the last workspace frame"),
             Self::EmptyLayout => f.write_str("workspace layout contains no frames"),
             Self::CannotNavigateBack => f.write_str("workspace frame has no back history"),
+            #[cfg(test)]
+            Self::LastFrameRemoval => f.write_str("cannot remove the last workspace frame"),
+            #[cfg(test)]
             Self::CannotNavigateForward => f.write_str("workspace frame has no forward history"),
+            #[cfg(test)]
             Self::DetachDeferred(id) => write!(
                 f,
                 "workspace frame {} detach is deferred until windowing support exists",
                 id.value()
             ),
+            #[cfg(test)]
             Self::DockDeferred { frame_id, target } => write!(
                 f,
                 "workspace frame {} dock to {} is deferred until windowing support exists",
                 frame_id.value(),
                 target.label()
             ),
+            #[cfg(test)]
             Self::NotDetachable(id) => {
                 write!(f, "workspace frame {} is not detachable", id.value())
             }
@@ -160,12 +177,6 @@ impl WorkspaceLayout {
         Self::CONTENT_LIST_ID
     }
 
-    /// Returns the default detail frame identifier.
-    #[must_use]
-    pub(crate) const fn default_detail_frame_id() -> WorkspaceFrameId {
-        Self::DETAIL_ID
-    }
-
     /// Creates the ADR 0060 default curation workspace layout.
     #[must_use]
     pub(crate) fn default_layout() -> Self {
@@ -188,16 +199,6 @@ impl WorkspaceLayout {
         layout.ensure_frame_navigation_entries();
         layout.sync_focus_flags();
         layout
-    }
-
-    /// Creates an empty workspace layout.
-    #[must_use]
-    pub(crate) fn empty() -> Self {
-        Self {
-            frames: Vec::new(),
-            focused_frame_id: None,
-            frame_navigation: BTreeMap::new(),
-        }
     }
 
     /// Creates a workspace layout from ordered frames and optional focus.
@@ -383,48 +384,6 @@ impl WorkspaceLayout {
         self.focused_frame_id
     }
 
-    /// Returns the currently focused frame.
-    #[must_use]
-    pub(crate) fn focused_frame(&self) -> Option<&WorkspaceFrameState> {
-        let focused_id = self.focused_frame_id?;
-        self.frames.iter().find(|frame| frame.id() == focused_id)
-    }
-
-    /// Projects the focused frame into a toolbar search descriptor.
-    #[must_use]
-    pub(crate) fn focused_search_descriptor(&self) -> Option<FrameSearchDescriptor> {
-        let frame = self.focused_frame()?;
-        let nav = self.frame_nav(frame.id())?.current().clone();
-        let (scope, placeholder) = match (frame.kind(), &nav) {
-            (WorkspaceFrameKind::SourceList, _) => (FrameSearchScope::Sidebar, "Filter sidebar..."),
-            (WorkspaceFrameKind::ContentList, FrameNavigationEntry::Settings) => {
-                (FrameSearchScope::SettingsRows, "Search settings...")
-            }
-            (
-                WorkspaceFrameKind::ContentList,
-                FrameNavigationEntry::SourceList | FrameNavigationEntry::Search(_),
-            ) => (FrameSearchScope::LibraryRows, "Search library..."),
-            (WorkspaceFrameKind::ContentList, _) => {
-                (FrameSearchScope::DetailTracks, "Filter tracks...")
-            }
-            (WorkspaceFrameKind::Detail, FrameNavigationEntry::Search(_)) => {
-                (FrameSearchScope::InspectorQuery, "Refine search...")
-            }
-            (WorkspaceFrameKind::Detail, _) => (FrameSearchScope::DetailTracks, "Filter tracks..."),
-            (WorkspaceFrameKind::QueueNowPlaying, _) => {
-                (FrameSearchScope::QueueRows, "Filter queue...")
-            }
-        };
-
-        Some(FrameSearchDescriptor {
-            frame_id: frame.id(),
-            kind: frame.kind(),
-            nav,
-            scope,
-            placeholder,
-        })
-    }
-
     /// Focuses an existing frame.
     ///
     /// # Errors
@@ -442,6 +401,105 @@ impl WorkspaceLayout {
         self.focused_frame_id = Some(id);
         self.sync_focus_flags();
         Ok(())
+    }
+
+    /// Converts this layout to a serializable configuration DTO.
+    #[must_use]
+    pub(crate) fn to_config(&self) -> WorkspaceLayoutConfig {
+        WorkspaceLayoutConfig {
+            frames: self
+                .frames
+                .iter()
+                .map(|frame| WorkspaceFrameConfig {
+                    id: frame.id().value(),
+                    kind: frame.kind(),
+                })
+                .collect(),
+            focused_frame_id: self.focused_frame_id.map(WorkspaceFrameId::value),
+        }
+    }
+
+    /// Creates a workspace layout from an optional configuration DTO.
+    ///
+    /// Missing, empty, duplicate, or otherwise invalid configs fall back to the
+    /// ADR 0046 default layout.
+    #[must_use]
+    pub(crate) fn from_config(config: Option<&WorkspaceLayoutConfig>) -> Self {
+        let Some(config) = config else {
+            return Self::default_layout();
+        };
+        if config.frames.is_empty() {
+            return Self::default_layout();
+        }
+
+        let frames: Vec<_> = config
+            .frames
+            .iter()
+            .map(|frame| {
+                WorkspaceFrameState::with_default_title(WorkspaceFrameId::new(frame.id), frame.kind)
+            })
+            .collect();
+        let focused_frame_id = config.focused_frame_id.map(WorkspaceFrameId::new);
+
+        Self::new(frames, focused_frame_id).unwrap_or_else(|_| Self::default_layout())
+    }
+
+    fn ensure_unique_frame_ids(&self) -> Result<(), WorkspaceModelError> {
+        let mut seen = Vec::with_capacity(self.frames.len());
+        for frame in &self.frames {
+            if seen.contains(&frame.id()) {
+                return Err(WorkspaceModelError::DuplicateFrameId(frame.id()));
+            }
+            seen.push(frame.id());
+        }
+        Ok(())
+    }
+
+    fn sync_focus_flags(&mut self) {
+        for frame in &mut self.frames {
+            frame.set_focused(Some(frame.id()) == self.focused_frame_id);
+        }
+    }
+
+    fn ensure_frame_navigation_entries(&mut self) {
+        for frame in &self.frames {
+            self.frame_navigation.entry(frame.id()).or_insert_with(|| {
+                FrameNavigationState::new(default_navigation_entry(frame.kind()))
+            });
+        }
+    }
+}
+
+/// ADR 0046 Tasks 012-014 keep multi-frame commands, detach, and dock
+/// model-only: `workspace_frame_phase_5_multi_frame_commands_are_deferred_until_content_frames_exist`
+/// and `workspace_frame_phase_6_detach_dock_model_only_contract` in
+/// `tests/architecture_tests.rs` forbid wiring any of this into `src/ui/` or
+/// `src/app.rs` until a later, not-yet-scheduled task lifts that guard. Each
+/// method here has its own dedicated test; they stay compiled only for
+/// tests until that task exists.
+#[cfg(test)]
+impl WorkspaceLayout {
+    /// Returns the default detail frame identifier.
+    #[must_use]
+    pub(crate) const fn default_detail_frame_id() -> WorkspaceFrameId {
+        Self::DETAIL_ID
+    }
+
+    /// Creates an empty workspace layout.
+    #[must_use]
+    pub(crate) fn empty() -> Self {
+        Self {
+            frames: Vec::new(),
+            focused_frame_id: None,
+            frame_navigation: BTreeMap::new(),
+        }
+    }
+
+    /// Returns the currently focused frame.
+    #[must_use]
+    pub(crate) fn focused_frame(&self) -> Option<&WorkspaceFrameState> {
+        let focused_id = self.focused_frame_id?;
+        self.frames.iter().find(|frame| frame.id() == focused_id)
     }
 
     /// Adds a frame kind to the end of the workspace.
@@ -554,58 +612,6 @@ impl WorkspaceLayout {
         }
     }
 
-    /// Converts this layout to a serializable configuration DTO.
-    #[must_use]
-    pub(crate) fn to_config(&self) -> WorkspaceLayoutConfig {
-        WorkspaceLayoutConfig {
-            frames: self
-                .frames
-                .iter()
-                .map(|frame| WorkspaceFrameConfig {
-                    id: frame.id().value(),
-                    kind: frame.kind(),
-                })
-                .collect(),
-            focused_frame_id: self.focused_frame_id.map(WorkspaceFrameId::value),
-        }
-    }
-
-    /// Creates a workspace layout from an optional configuration DTO.
-    ///
-    /// Missing, empty, duplicate, or otherwise invalid configs fall back to the
-    /// ADR 0046 default layout.
-    #[must_use]
-    pub(crate) fn from_config(config: Option<&WorkspaceLayoutConfig>) -> Self {
-        let Some(config) = config else {
-            return Self::default_layout();
-        };
-        if config.frames.is_empty() {
-            return Self::default_layout();
-        }
-
-        let frames: Vec<_> = config
-            .frames
-            .iter()
-            .map(|frame| {
-                WorkspaceFrameState::with_default_title(WorkspaceFrameId::new(frame.id), frame.kind)
-            })
-            .collect();
-        let focused_frame_id = config.focused_frame_id.map(WorkspaceFrameId::new);
-
-        Self::new(frames, focused_frame_id).unwrap_or_else(|_| Self::default_layout())
-    }
-
-    fn ensure_unique_frame_ids(&self) -> Result<(), WorkspaceModelError> {
-        let mut seen = Vec::with_capacity(self.frames.len());
-        for frame in &self.frames {
-            if seen.contains(&frame.id()) {
-                return Err(WorkspaceModelError::DuplicateFrameId(frame.id()));
-            }
-            seen.push(frame.id());
-        }
-        Ok(())
-    }
-
     fn frame_detach_eligibility(
         &self,
         id: WorkspaceFrameId,
@@ -626,20 +632,6 @@ impl WorkspaceLayout {
             .unwrap_or(0)
             .saturating_add(1);
         WorkspaceFrameId::new(next)
-    }
-
-    fn sync_focus_flags(&mut self) {
-        for frame in &mut self.frames {
-            frame.set_focused(Some(frame.id()) == self.focused_frame_id);
-        }
-    }
-
-    fn ensure_frame_navigation_entries(&mut self) {
-        for frame in &self.frames {
-            self.frame_navigation.entry(frame.id()).or_insert_with(|| {
-                FrameNavigationState::new(default_navigation_entry(frame.kind()))
-            });
-        }
     }
 }
 

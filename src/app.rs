@@ -95,16 +95,6 @@ enum WorkspaceScreenMount {
     Settings,
 }
 
-impl WorkspaceScreenMount {
-    const fn frame_title(self) -> &'static str {
-        match self {
-            Self::Music => "Music",
-            Self::Show => "Show",
-            Self::Settings => "Settings",
-        }
-    }
-}
-
 fn filter_chip_strip_width_class(width: gpui::Pixels) -> FilterChipStripWidthClass {
     if width < layout::FILTER_CHIP_STRIP_NARROW_COLLAPSE_BREAKPOINT {
         FilterChipStripWidthClass::Narrow
@@ -1333,22 +1323,6 @@ impl TopApp {
         // (kept in model for future workflows but not auto-projected)
 
         render_workspace(&layout, workspace_slots, cx).into_any_element()
-    }
-
-    #[expect(
-        dead_code,
-        reason = "ADR 0046 Task 007 architecture guard keeps the legacy fallback constructor visible"
-    )]
-    fn transitional_workspace_layout(mount: WorkspaceScreenMount) -> WorkspaceLayout {
-        WorkspaceLayout::new(
-            vec![WorkspaceFrameState::new(
-                WORKSPACE_CONTENT_FRAME_ID,
-                WorkspaceFrameKind::ContentList,
-                mount.frame_title(),
-            )],
-            Some(WORKSPACE_CONTENT_FRAME_ID),
-        )
-        .expect("transitional workspace layout has stable unique frame ids")
     }
 }
 

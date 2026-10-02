@@ -1,17 +1,8 @@
 //! Workspace frame identity and display models.
 
 #![warn(clippy::pedantic)]
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "workspace contracts land before every frame action is wired"
-    )
-)]
 
 use serde::{Deserialize, Serialize};
-
-use super::nav::FrameNavigationEntry;
 
 /// Stable identifier for a workspace frame.
 ///
@@ -53,69 +44,6 @@ pub(crate) enum WorkspaceFrameKind {
     QueueNowPlaying,
 }
 
-/// Detach availability for a workspace frame kind.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FrameDetachEligibility {
-    /// The frame can request detach once window support exists.
-    Detachable,
-    /// The frame is anchored in the workspace and cannot detach.
-    NotDetachable,
-}
-
-/// Dock lane for a workspace frame.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FrameDockTarget {
-    /// Dock the frame into the leading workspace lane.
-    Leading,
-    /// Dock the frame into the center workspace lane.
-    Center,
-    /// Dock the frame into the trailing workspace lane.
-    Trailing,
-}
-
-/// Search interpretation for the currently focused workspace frame.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FrameSearchScope {
-    /// Filter source-list rows.
-    Sidebar,
-    /// Search or filter library/content rows.
-    LibraryRows,
-    /// Search or filter settings rows.
-    SettingsRows,
-    /// Filter queue rows.
-    QueueRows,
-    /// Refine a search-results inspector query.
-    InspectorQuery,
-    /// Filter track rows in an entity detail inspector.
-    DetailTracks,
-}
-
-/// GPUI-free search descriptor projected from the focused workspace frame.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct FrameSearchDescriptor {
-    /// Focused frame identifier.
-    pub(crate) frame_id: WorkspaceFrameId,
-    /// Focused frame kind.
-    pub(crate) kind: WorkspaceFrameKind,
-    /// Focused frame's current navigation entry.
-    pub(crate) nav: FrameNavigationEntry,
-    /// Frame-local destination for submitted search text.
-    pub(crate) scope: FrameSearchScope,
-    /// Toolbar placeholder for the focused frame.
-    pub(crate) placeholder: &'static str,
-}
-
-impl FrameDockTarget {
-    /// Returns the stable lane label used in diagnostics.
-    pub(super) const fn label(self) -> &'static str {
-        match self {
-            Self::Leading => "leading",
-            Self::Center => "center",
-            Self::Trailing => "trailing",
-        }
-    }
-}
-
 impl WorkspaceFrameKind {
     /// Returns the default title for this frame kind.
     #[must_use]
@@ -127,7 +55,49 @@ impl WorkspaceFrameKind {
             Self::QueueNowPlaying => "Queue",
         }
     }
+}
 
+/// ADR 0046 Task 014 keeps detach and dock model-only: `src/ui/` and
+/// `src/app.rs` must not wire a detach or dock command yet. This type, and
+/// `WorkspaceFrameKind::detach_eligibility` below, have no caller outside
+/// their own dedicated tests until a later task lifts that guard, so they
+/// are compiled only for tests.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FrameDetachEligibility {
+    /// The frame can request detach once window support exists.
+    Detachable,
+    /// The frame is anchored in the workspace and cannot detach.
+    NotDetachable,
+}
+
+/// Dock lane for a workspace frame. See `FrameDetachEligibility` above for
+/// why this is test-only.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FrameDockTarget {
+    /// Dock the frame into the leading workspace lane.
+    Leading,
+    /// Dock the frame into the center workspace lane.
+    Center,
+    /// Dock the frame into the trailing workspace lane.
+    Trailing,
+}
+
+#[cfg(test)]
+impl FrameDockTarget {
+    /// Returns the stable lane label used in diagnostics.
+    pub(super) const fn label(self) -> &'static str {
+        match self {
+            Self::Leading => "leading",
+            Self::Center => "center",
+            Self::Trailing => "trailing",
+        }
+    }
+}
+
+#[cfg(test)]
+impl WorkspaceFrameKind {
     /// Returns whether frames of this kind can request detach.
     #[must_use]
     pub(crate) const fn detach_eligibility(self) -> FrameDetachEligibility {
@@ -215,6 +185,17 @@ impl WorkspaceFrameState {
         self.focused
     }
 
+    /// Updates the focus flag used by the workspace layout.
+    pub(super) fn set_focused(&mut self, focused: bool) {
+        self.focused = focused;
+    }
+}
+
+/// `with_subtitle` and `with_status` have no caller outside their own
+/// dedicated tests: no frame is built with a subtitle or a status line
+/// today. They stay here, compiled only for tests.
+#[cfg(test)]
+impl WorkspaceFrameState {
     /// Returns this frame with subtitle text attached.
     #[must_use]
     pub(crate) fn with_subtitle(mut self, subtitle: impl Into<String>) -> Self {
@@ -227,10 +208,5 @@ impl WorkspaceFrameState {
     pub(crate) fn with_status(mut self, status: impl Into<String>) -> Self {
         self.status = Some(status.into());
         self
-    }
-
-    /// Updates the focus flag used by the workspace layout.
-    pub(super) fn set_focused(&mut self, focused: bool) {
-        self.focused = focused;
     }
 }

@@ -2,6 +2,7 @@
 
 #![warn(clippy::pedantic)]
 
+#[cfg(test)]
 use crate::view_models::workspace::ContentFilter;
 
 /// Stable numeric identity for one search-result row.
@@ -40,6 +41,11 @@ pub(crate) enum SearchResultOrigin {
     Index,
 }
 
+/// `matches_filter` has no caller outside its own dedicated test:
+/// `src/view_models/library.rs`'s `ContentListRowSource::from_search_result_origin`
+/// projects origin into row-source filtering instead of calling this method
+/// directly. It stays here, compiled only for tests.
+#[cfg(test)]
 impl SearchResultOrigin {
     /// Returns whether this origin is visible under the given filter.
     #[must_use]

@@ -1498,7 +1498,6 @@ fn workspace_layout_render_uses_frame_shell_without_screen_internals() {
 
     for required in [
         "fn render_workspace_content(",
-        "fn transitional_workspace_layout(",
         "WorkspaceSlots::new()",
         "match &current_nav",
         "FrameNavigationEntry::Settings",
@@ -1611,11 +1610,9 @@ fn workspace_split_pane_uses_fluid_resize_pattern() {
     }
 
     for required in [
-        "fn set_content_pane_width(&mut self",
         "fn begin_content_pane_resize(&mut self",
         "fn resize_content_pane(&mut self",
         "fn end_content_pane_resize(&mut self",
-        "fn is_content_pane_resizing(&self) -> bool",
     ] {
         if !resize_source.contains(required) {
             violations.push(format!(
@@ -3489,7 +3486,6 @@ fn adr_0047_task_012_frame_navigation_is_workspace_vm_owned() {
         "fn default_workspace_layout() -> WorkspaceLayout",
         ".reset_nav(Self::content_frame_id(), FrameNavigationEntry::SourceList)",
         ".push_nav(Self::content_frame_id(), entry)",
-        "self.workspace_layout\n            .pop_nav(Self::content_frame_id())",
         "self.workspace_layout.frame_nav(Self::content_frame_id())",
     ] {
         let source = if required == "workspace_layout: WorkspaceLayout" {
@@ -3908,130 +3904,6 @@ fn adr_0047_task_016_retires_standalone_search_module_and_workspace_toggle() {
 }
 
 #[test]
-fn active_frame_search_dispatch_phase_1_vm_contracts_are_owned_by_view_models() {
-    let workspace_source = workspace_vm_source();
-    let library_source = read_source(&manifest_path("src/view_models/library.rs"));
-    let feed_source = read_source(&manifest_path("src/view_models/feed.rs"));
-    let playlist_detail_source = read_source(&manifest_path("src/view_models/playlist_detail.rs"));
-    let search_results_source =
-        read_source(&manifest_path("src/view_models/search_results/mod.rs"));
-    let queue_source = read_source(&manifest_path("src/view_models/queue_now_playing.rs"));
-    let mut violations = Vec::new();
-
-    for required in [
-        "pub(crate) enum FrameSearchScope",
-        "pub(crate) struct FrameSearchDescriptor",
-        "pub(crate) fn focused_search_descriptor(&self) -> Option<FrameSearchDescriptor>",
-        "frame_id: WorkspaceFrameId",
-        "kind: WorkspaceFrameKind",
-        "nav: FrameNavigationEntry",
-        "scope: FrameSearchScope",
-        "placeholder: &'static str",
-        "FrameSearchScope::Sidebar",
-        "FrameSearchScope::LibraryRows",
-        "FrameSearchScope::SettingsRows",
-        "FrameSearchScope::InspectorQuery",
-        "FrameSearchScope::DetailTracks",
-        "FrameSearchScope::QueueRows",
-        "Filter sidebar...",
-        "Search library...",
-        "Search settings...",
-        "Refine search...",
-        "Filter tracks...",
-        "Filter queue...",
-    ] {
-        if !workspace_source.contains(required) {
-            violations.push(format!(
-                "src/view_models/workspace/mod.rs: active-frame search descriptor contract missing `{required}`"
-            ));
-        }
-    }
-
-    for required in [
-        "text_filter: Option<String>",
-        "pub(crate) fn set_text_filter(&mut self, filter: Option<String>)",
-        "pub(crate) fn text_filter(&self) -> Option<&str>",
-        "pub(crate) fn set_content_text_filter(&mut self, filter: Option<String>)",
-        "pub(crate) fn set_source_text_filter(&mut self, filter: Option<String>)",
-        "normalize(filter)",
-    ] {
-        if !library_source.contains(required) {
-            violations.push(format!(
-                "src/view_models/library.rs: active-frame content/source text filter contract missing `{required}`"
-            ));
-        }
-    }
-
-    for required in [
-        "pub fn set_text_filter(&mut self, filter: Option<String>)",
-        "pub fn text_filter(&self) -> Option<&str>",
-        "fn track_matches_text_filter(&self, track: &Track) -> bool",
-    ] {
-        if !feed_source.contains(required) {
-            violations.push(format!(
-                "src/view_models/feed.rs: active-frame feed detail text filter contract missing `{required}`"
-            ));
-        }
-    }
-
-    for required in [
-        "pub(crate) fn set_text_filter(&mut self, filter: Option<String>)",
-        "pub(crate) fn text_filter(&self) -> Option<&str>",
-        "self.detail.set_text_filter(filter);",
-    ] {
-        if !playlist_detail_source.contains(required) {
-            violations.push(format!(
-                "src/view_models/playlist_detail.rs: active-frame playlist page text filter contract missing `{required}`"
-            ));
-        }
-    }
-
-    for required in [
-        "pub(crate) fn set_query(&mut self, query: String)",
-        "pub(crate) fn clear_query(&mut self)",
-        "self.refresh_empty_state();",
-    ] {
-        if !search_results_source.contains(required) {
-            violations.push(format!(
-                "src/view_models/search_results/mod.rs: active-frame search inspector query contract missing `{required}`"
-            ));
-        }
-    }
-
-    for required in [
-        "all_rows: Vec<QueueRowDisplay>",
-        "text_filter: Option<String>",
-        "pub(crate) fn set_text_filter(&mut self, filter: Option<String>)",
-        "pub(crate) fn text_filter(&self) -> Option<&str>",
-        "queue_row_matches_text_filter(row, filter)",
-    ] {
-        if !queue_source.contains(required) {
-            violations.push(format!(
-                "src/view_models/queue_now_playing.rs: active-frame queue text filter contract missing `{required}`"
-            ));
-        }
-    }
-
-    for forbidden in [
-        "static QUEUE_TEXT_FILTERS",
-        "OnceLock<Mutex<HashMap",
-        "thread_local!",
-    ] {
-        if queue_source.contains(forbidden) {
-            violations.push(format!(
-                "src/view_models/queue_now_playing.rs: queue text filter state must be owned by QueueNowPlayingPageVm, found `{forbidden}`"
-            ));
-        }
-    }
-
-    assert!(
-        violations.is_empty(),
-        "Active-frame search dispatch Phase 1 VM contract violations:\n{}",
-        violations.join("\n")
-    );
-}
-
-#[test]
 fn view_models_do_not_reintroduce_file_local_text_filter_normalizers() {
     let mut violations = Vec::new();
 
@@ -4354,13 +4226,9 @@ fn workspace_frame_phase_2_guards_frame_navigation_is_wired_in_library_app_impl(
         "fn default_workspace_layout() -> WorkspaceLayout",
         ".reset_nav(Self::content_frame_id(), FrameNavigationEntry::SourceList)",
         "fn push_frame_navigation(",
-        "fn restore_frame_navigation(",
-        "fn frame_back_destination(&self)",
         ".push_nav(Self::content_frame_id(), entry)",
-        "self.workspace_layout\n            .pop_nav(Self::content_frame_id())",
         "FrameNavigationEntry::PlaylistDetail(playlist_id)",
         "FrameNavigationEntry::TrackDetail(track.id)",
-        "self.restore_frame_navigation()",
     ] {
         assert!(
             source.contains(required),
@@ -5712,15 +5580,87 @@ fn adr_0079_removed_artist_storage_stays_deleted() {
     );
 }
 
-/// Situational ADR 0060, packets 005 and 006: the parked Discover screen
-/// (`SearchApp`, `src/discover.rs`, `src/discover/`, and
-/// `src/ui/shells/discover/`) stays deleted, and no file in `src/` carries
-/// an `allow(dead_code)` marker. Delete this guard if ADR 0060 is
-/// superseded.
+/// Returns the line number of each `dead_code` lint attribute in `source`.
+///
+/// This finds every `#[...]` and `#![...]` attribute by matching brackets,
+/// not by scanning one line at a time, so it catches a marker that spans
+/// several lines, for example:
+///
+/// ```text
+/// #[cfg_attr(
+///     not(test),
+///     expect(dead_code, reason = "...")
+/// )]
+/// ```
+///
+/// This one scan catches every current form: `#[allow(dead_code)]`,
+/// `#[expect(dead_code, reason = "...")]`, `#![expect(dead_code, ...)]` at
+/// the top of a module, and `#[cfg_attr(not(test), expect(dead_code, ...))]`.
+fn dead_code_attribute_lines(source: &str) -> Vec<usize> {
+    let bytes = source.as_bytes();
+    let mut found_at = Vec::new();
+    let mut line_number = 1;
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'\n' {
+            line_number += 1;
+            index += 1;
+            continue;
+        }
+        if bytes[index] != b'#' {
+            index += 1;
+            continue;
+        }
+        let attr_start_line = line_number;
+        let mut bracket_index = index + 1;
+        if bytes.get(bracket_index) == Some(&b'!') {
+            bracket_index += 1;
+        }
+        if bytes.get(bracket_index) != Some(&b'[') {
+            index += 1;
+            continue;
+        }
+        let mut depth = 0usize;
+        let mut scan = bracket_index;
+        let mut attr_end = None;
+        while scan < bytes.len() {
+            match bytes[scan] {
+                b'[' => depth += 1,
+                b']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        attr_end = Some(scan);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            scan += 1;
+        }
+        let Some(end) = attr_end else {
+            index += 1;
+            continue;
+        };
+        let attribute_text = &source[index..=end];
+        if attribute_text.contains("dead_code") {
+            found_at.push(attr_start_line);
+        }
+        line_number += attribute_text.matches('\n').count();
+        index = end + 1;
+    }
+    found_at
+}
+
+/// Situational ADR 0060, packets 005 and 006, and dead-code-removal task 002:
+/// the parked Discover screen (`SearchApp`, `src/discover.rs`,
+/// `src/discover/`, and `src/ui/shells/discover/`) stays deleted, and no
+/// file in `src/` carries a `dead_code` lint attribute in any form. Delete
+/// this guard if ADR 0060 is superseded.
+const ADR_0060_DEAD_CODE_FIX: &str = "ADR 0060: a file in src/ must not carry a dead_code lint attribute, in any form. Delete the unreachable item, or move a test-only item into a #[cfg(test)] module.";
+
 #[test]
 fn adr_0060_discover_surface_stays_deleted() {
     const FIX: &str = "ADR 0060: Music replaced the Discover surface, and the parked screen is deleted. Build the surface from the live Music view models under src/view_models/search_results/, not a revived SearchApp.";
-    const DEAD_CODE_FIX: &str = "ADR 0060: a file in src/ must not carry allow(dead_code). Delete the unreachable item, or move a test-only item into a #[cfg(test)] module.";
     let mut violations = Vec::new();
 
     for path in rust_files_under("src") {
@@ -5737,11 +5677,11 @@ fn adr_0060_discover_surface_stays_deleted() {
                     "{file}:{line_number}: a discover module returned: `{line}`\n  {FIX}"
                 ));
             }
-            if line.contains("allow(dead_code") {
-                violations.push(format!(
-                    "{file}:{line_number}: an allow(dead_code) marker returned: `{line}`\n  {DEAD_CODE_FIX}"
-                ));
-            }
+        }
+        for line_number in dead_code_attribute_lines(&source) {
+            violations.push(format!(
+                "{file}:{line_number}: a dead_code lint attribute returned\n  {ADR_0060_DEAD_CODE_FIX}"
+            ));
         }
     }
 
@@ -5753,6 +5693,89 @@ fn adr_0060_discover_surface_stays_deleted() {
         violations.is_empty(),
         "ADR 0060 Discover surface deletion violations:\n{}",
         violations.join("\n")
+    );
+}
+
+/// RDC2-03: `adr_0060_discover_surface_stays_deleted` must fail on every
+/// current `dead_code` lint attribute form, and its fix message must name
+/// ADR 0060 and the fix. These sample sources are strings, not files under
+/// `src/`, so they prove the detection logic without writing a throwaway
+/// file into the tree.
+#[test]
+fn adr_0060_discover_surface_guard_catches_every_dead_code_attribute_form() {
+    let single_line_expect = r#"
+pub(crate) struct FrameShellSlots {
+    on_forward: Option<FrameButtonHandler>,
+}
+
+impl FrameShellSlots {
+    #[expect(dead_code, reason = "deferred frame action wiring consumes this slot")]
+    pub(crate) fn on_forward(mut self, handler: Handler) -> Self {
+        self.on_forward = Some(handler);
+        self
+    }
+}
+"#;
+    assert_eq!(
+        dead_code_attribute_lines(single_line_expect),
+        vec![7],
+        "a single-line #[expect(dead_code, ...)] must be caught"
+    );
+
+    let whole_module_expect = r#"
+#![warn(clippy::pedantic)]
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "workspace contracts land before every frame action is wired"
+    )
+)]
+
+use super::WorkspaceModelError;
+"#;
+    assert_eq!(
+        dead_code_attribute_lines(whole_module_expect),
+        vec![3],
+        "a whole-module #![expect(dead_code, ...)] spanning several lines must be caught"
+    );
+
+    let cfg_attr_expect = r#"
+impl ContentListPageVm {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "tested in library_view_model_content_text_filter_does_not_filter_source_tree"
+        )
+    )]
+    pub(crate) fn content_text_filter(&self) -> Option<&str> {
+        self.content_list_page.text_filter()
+    }
+}
+"#;
+    assert_eq!(
+        dead_code_attribute_lines(cfg_attr_expect),
+        vec![3],
+        "a #[cfg_attr(not(test), expect(dead_code, ...))] spanning several lines must be caught"
+    );
+
+    let clean_source = r#"
+impl ContentListPageVm {
+    #[cfg(test)]
+    pub(crate) fn text_filter(&self) -> Option<&str> {
+        self.text_filter.as_deref()
+    }
+}
+"#;
+    assert!(
+        dead_code_attribute_lines(clean_source).is_empty(),
+        "a #[cfg(test)] attribute with no dead_code marker must not be flagged"
+    );
+
+    assert!(
+        ADR_0060_DEAD_CODE_FIX.contains("ADR 0060"),
+        "the dead_code fix message must name ADR 0060"
     );
 }
 
@@ -8763,7 +8786,6 @@ fn playlist_refresh_and_frame_navigation_preserve_context() {
         "pub(crate) fn select_playlist_track(",
         "FrameNavigationEntry::PlaylistDetail(playlist_id)",
         "FrameNavigationEntry::TrackDetail(track.id)",
-        "self.restore_frame_navigation()",
         "self.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);",
         "fn apply_library_removal_result_to_selected_detail(",
         "this.apply_library_removal_result_to_selected_detail(result.target());",
@@ -12621,7 +12643,7 @@ fn adr_0060_queue_is_not_mounted_in_curation_workspace() {
     let render_workspace_content = source_between(
         &app_source,
         "fn render_workspace_content(",
-        "fn transitional_workspace_layout(",
+        "impl Drop for TopApp",
     );
     let visible_workspace_layout = source_between(
         &app_source,
@@ -12818,7 +12840,7 @@ fn adr_0060_music_surface_vocabulary_and_primary_filter_are_guarded() {
     let render_workspace_content = source_between(
         &app_source,
         "fn render_workspace_content(",
-        "fn transitional_workspace_layout(",
+        "impl Drop for TopApp",
     );
     let set_frame_filter = source_between(
         &app_source,
@@ -13018,7 +13040,7 @@ fn adr_0060_music_surface_is_dominant_content_without_operational_panes() {
     let render_workspace_content = source_between(
         &app_source,
         "fn render_workspace_content(",
-        "fn transitional_workspace_layout(",
+        "impl Drop for TopApp",
     );
     let visible_workspace_layout = source_between(
         &app_source,
@@ -14124,16 +14146,11 @@ fn adr_0062_mixed_entity_row_contract_is_kind_backed() {
 
     for required in [
         "pub(crate) enum ContentListRowKind",
-        "Artist(ArtistResultDisplay)",
         "Release(FeedResultDisplay)",
         "Track(TrackResultDisplay)",
         "pub(crate) struct ContentListEntityBadgeDisplay",
         "pub(crate) struct ContentListLibraryBadgeDisplay",
-        "pub(crate) enum ContentListRowExpansionDisplay",
-        "pub(crate) enum ContentListRowExpansionState",
         "ContentListLibraryBadgeDisplay::for_source(source)",
-        "ContentListRowExpansionDisplay::for_kind(entity_kind, expanded)",
-        "pub(crate) fn from_artist_result(",
         "pub(crate) fn from_release_result(",
         "pub(crate) fn from_track_result(",
     ] {
@@ -14144,13 +14161,16 @@ fn adr_0062_mixed_entity_row_contract_is_kind_backed() {
         }
     }
 
-    let variant_count = ["Artist(", "Release(", "Track("]
+    // Artist rows and the row-level expansion affordance are deferred until
+    // the index recency source exposes artist rows; ADR 0062 scopes the live
+    // contract to Release and Track. See dead-code-removal-task-002.
+    let variant_count = ["Release(", "Track("]
         .into_iter()
         .filter(|variant| row_contract.contains(variant))
         .count();
-    if variant_count != 3 {
+    if variant_count != 2 {
         violations.push(format!(
-            "src/view_models/library.rs: Situational ADR 0062 mixed entity row contract must have exactly three row-kind cases; found {variant_count}"
+            "src/view_models/library.rs: Situational ADR 0062 mixed entity row contract must have exactly two row-kind cases; found {variant_count}"
         ));
     }
 
@@ -14160,7 +14180,6 @@ fn adr_0062_mixed_entity_row_contract_is_kind_backed() {
         "pub(crate) entity_badge: ContentListEntityBadgeDisplay",
         "pub(crate) library_badge: ContentListLibraryBadgeDisplay",
         "pub(crate) source: ContentListRowSource",
-        "pub(crate) expansion: ContentListRowExpansionDisplay",
     ] {
         if !row_struct.contains(required) {
             violations.push(format!(
@@ -14250,7 +14269,7 @@ fn adr_0062_music_default_content_projects_recent_music_rows() {
         "pub(crate) fn begin_recent_music_load(&mut self, append: bool)",
         "pub(crate) fn replace_recent_feeds_page(&mut self, page: &RecentFeedsPageVm)",
         "fn content_list_rows_from_recent_feeds(",
-        "ContentListRowDisplay::from_release_result(row.clone(), false)",
+        "ContentListRowDisplay::from_release_result(row.clone())",
         "pub(crate) fn page_state_display(&self) -> Option<ContentListPageStateDisplay>",
         "pub(crate) fn load_more_display(&self) -> Option<ContentListLoadMoreDisplay>",
     ] {
@@ -17529,7 +17548,7 @@ fn adr_0075_observation_writer_and_library_retention_have_one_owner() {
     let callback = source_between(
         &app,
         "fn load_track_source_context(",
-        "fn navigate_back_to_frame_history(",
+        "fn track_breadcrumb_display(",
     );
     assert!(callback.contains("retain_observation_failure(&error)"));
     let vm = read_source(&manifest_path("src/view_models/library.rs"));

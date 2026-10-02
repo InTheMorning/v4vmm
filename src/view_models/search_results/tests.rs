@@ -558,33 +558,3 @@ fn filter_chip_strip_uses_search_inspector_contract() {
         "search inspector filters should collapse in narrow detail frames"
     );
 }
-
-#[test]
-fn query_update_refreshes_empty_state_copy() {
-    let mut vm = SearchResultsInspectorPageVm::new("old query");
-
-    vm.set_query("new query".to_string());
-
-    assert_eq!(vm.query(), "new query");
-    assert_eq!(
-        vm.empty_state()
-            .expect("empty inspector should expose empty state")
-            .secondary,
-        "No results matched \"new query\"."
-    );
-}
-
-#[test]
-fn clear_query_refreshes_empty_state_copy() {
-    let mut vm = SearchResultsInspectorPageVm::new("old query");
-
-    vm.clear_query();
-
-    assert_eq!(vm.query(), "");
-    assert_eq!(
-        vm.empty_state()
-            .expect("empty inspector should expose empty state")
-            .secondary,
-        "No results matched \"\"."
-    );
-}

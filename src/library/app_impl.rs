@@ -639,50 +639,6 @@ impl LibraryApp {
             .push_nav(Self::content_frame_id(), entry)
     }
 
-    fn restore_frame_navigation(&mut self) -> Result<FrameNavigationEntry, WorkspaceModelError> {
-        self.workspace_layout
-            .pop_nav(Self::content_frame_id())
-            .ok_or(WorkspaceModelError::CannotNavigateBack)
-    }
-
-    #[expect(
-        dead_code,
-        reason = "ADR 0046 frame chrome back controls will consume this when navigation buttons are wired"
-    )]
-    fn frame_back_destination(&self) -> Option<FrameNavigationEntry> {
-        self.workspace_layout
-            .frame_nav(Self::content_frame_id())
-            .and_then(FrameNavigationState::back_destination)
-            .cloned()
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "top-level app bootstrap still wires shared library surface dependencies explicitly"
-    )]
-    pub fn new(
-        conn: Arc<Mutex<Connection>>,
-        cache: Arc<ImageCache>,
-        musicindex_endpoint: crate::config::MusicIndexEndpoint,
-        music_dir: PathBuf,
-        application_services: Arc<ApplicationServices>,
-        runtime_host: Option<Arc<crate::presentation::RuntimeHost>>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        Self::new_with_content_view_mode(
-            conn,
-            cache,
-            musicindex_endpoint,
-            music_dir,
-            application_services,
-            runtime_host,
-            ContentViewMode::default(),
-            window,
-            cx,
-        )
-    }
-
     #[expect(
         clippy::too_many_arguments,
         reason = "top-level app bootstrap passes persisted content mode into the library surface"
@@ -2152,23 +2108,6 @@ impl LibraryApp {
             },
             |this, error, _| this.vm.retain_observation_failure(&error),
         );
-    }
-
-    #[expect(
-        dead_code,
-        reason = "ADR 0046 frame chrome back controls will consume this when navigation buttons are wired"
-    )]
-    fn navigate_back_to_frame_history(&mut self, cx: &mut Context<Self>) {
-        match self.restore_frame_navigation() {
-            Ok(FrameNavigationEntry::PlaylistDetail(playlist_id)) => {
-                self.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);
-            }
-            Ok(_) | Err(WorkspaceModelError::CannotNavigateBack) => cx.notify(),
-            Err(err) => {
-                self.vm.set_error_status(err);
-                cx.notify();
-            }
-        }
     }
 
     fn track_breadcrumb_display(&self) -> Option<BreadcrumbDisplay> {

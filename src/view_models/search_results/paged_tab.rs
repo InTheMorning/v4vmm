@@ -57,6 +57,19 @@ impl<Row> SearchResultsPagedTab<Row> {
         }
     }
 
+    /// Returns whether the filtered window is empty.
+    #[must_use]
+    pub(crate) fn is_empty(&self, filter: ContentFilter) -> bool {
+        self.window(filter).total() == 0
+    }
+}
+
+/// `window_mut` has no caller outside its own dedicated test: production
+/// code reads windows through `window` and mutates them through the typed
+/// `replace_index_rows` method below. It stays here, compiled only for
+/// tests.
+#[cfg(test)]
+impl<Row> SearchResultsPagedTab<Row> {
     /// Returns the mutable paged window for a filter.
     pub(crate) const fn window_mut(
         &mut self,
@@ -67,12 +80,6 @@ impl<Row> SearchResultsPagedTab<Row> {
             ContentFilter::Library => &mut self.library,
             ContentFilter::Index => &mut self.index,
         }
-    }
-
-    /// Returns whether the filtered window is empty.
-    #[must_use]
-    pub(crate) fn is_empty(&self, filter: ContentFilter) -> bool {
-        self.window(filter).total() == 0
     }
 }
 

@@ -67,36 +67,9 @@ impl WorkspaceSlots {
         Self::default()
     }
 
-    /// Supplies content for the source-list frame.
-    #[expect(dead_code, reason = "ADR 0046 Task 008+ wires source-list content")]
-    pub(crate) fn source_list(mut self, content: impl IntoElement) -> Self {
-        self.source_list = Some(content.into_any_element());
-        self
-    }
-
     /// Supplies content for the content-list frame.
     pub(crate) fn content_list(mut self, content: impl IntoElement) -> Self {
         self.content_list = Some(content.into_any_element());
-        self
-    }
-
-    /// Supplies content for the detail frame.
-    #[expect(
-        dead_code,
-        reason = "Stage 5: Detail frame reserved for future workflows"
-    )]
-    pub(crate) fn detail(mut self, content: impl IntoElement) -> Self {
-        self.detail = Some(content.into_any_element());
-        self
-    }
-
-    /// Supplies content for the queue/now-playing frame.
-    #[expect(
-        dead_code,
-        reason = "ADR 0060 task 002 keeps the QueueNowPlaying frame slot until the frame kind is removed"
-    )]
-    pub(crate) fn queue_now_playing(mut self, content: impl IntoElement) -> Self {
-        self.queue_now_playing = Some(content.into_any_element());
         self
     }
 
@@ -127,16 +100,6 @@ impl WorkspaceSlots {
         self
     }
 
-    /// Supplies frame-local filter chrome for the detail frame.
-    #[expect(
-        dead_code,
-        reason = "Stage 5: Detail frame reserved for future workflows"
-    )]
-    pub(crate) fn detail_filter_chip_strip(mut self, display: FilterChipStripDisplay) -> Self {
-        self.detail_filter_chip_strip = Some(display);
-        self
-    }
-
     /// Supplies the content-list filter callback.
     pub(crate) fn on_content_list_filter_select(
         mut self,
@@ -152,19 +115,6 @@ impl WorkspaceSlots {
         handler: impl Fn(ContentViewMode, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_content_list_view_mode_select = Some(Rc::new(handler));
-        self
-    }
-
-    /// Supplies the detail-frame filter callback.
-    #[expect(
-        dead_code,
-        reason = "Stage 5: Detail frame reserved for future workflows"
-    )]
-    pub(crate) fn on_detail_filter_select(
-        mut self,
-        handler: impl Fn(ContentFilter, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.on_detail_filter_select = Some(Rc::new(handler));
         self
     }
 
@@ -332,6 +282,38 @@ impl WorkspaceSlots {
             | WorkspaceFrameKind::SourceList
             | WorkspaceFrameKind::QueueNowPlaying => None,
         }
+    }
+}
+
+/// `queue_now_playing`, `detail_filter_chip_strip` and `on_detail_filter_select`
+/// have no caller outside their own dedicated tests today. ADR 0060 task 002
+/// keeps the `queue_now_playing` slot until the frame kind is removed, and
+/// ADR 0047 Task 014's search-results inspector shell contract
+/// (`adr_0047_task_014_search_results_inspector_shell_contract` in
+/// `tests/architecture_tests.rs`) requires the other two builders to exist
+/// so the Detail frame can later mount filter chrome. Each stays here,
+/// compiled only for tests.
+#[cfg(test)]
+impl WorkspaceSlots {
+    /// Supplies content for the queue/now-playing frame.
+    pub(crate) fn queue_now_playing(mut self, content: impl IntoElement) -> Self {
+        self.queue_now_playing = Some(content.into_any_element());
+        self
+    }
+
+    /// Supplies frame-local filter chrome for the detail frame.
+    pub(crate) fn detail_filter_chip_strip(mut self, display: FilterChipStripDisplay) -> Self {
+        self.detail_filter_chip_strip = Some(display);
+        self
+    }
+
+    /// Supplies the detail-frame filter callback.
+    pub(crate) fn on_detail_filter_select(
+        mut self,
+        handler: impl Fn(ContentFilter, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_detail_filter_select = Some(Rc::new(handler));
+        self
     }
 }
 
@@ -591,4 +573,55 @@ fn placeholder(frame: &WorkspaceFrameState, cx: &App) -> AnyElement {
         .text_color(resolve_color(cx, SemanticColor::TertiaryLabel, None))
         .child(frame.title().to_owned())
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn queue_now_playing_slot_accepts_content() {
+        let slots = WorkspaceSlots::new().queue_now_playing(div());
+
+        assert!(
+            slots.queue_now_playing.is_some(),
+            "queue_now_playing must store the supplied content"
+        );
+    }
+
+    #[test]
+    fn detail_filter_chip_strip_slot_is_read_back_for_the_detail_frame() {
+        let display =
+            FilterChipStripDisplay::default_for_search_inspector(ContentFilter::Library, false);
+        let slots = WorkspaceSlots::new().detail_filter_chip_strip(display.clone());
+
+        assert_eq!(
+            slots.filter_chip_strip_for(WorkspaceFrameKind::Detail),
+            Some(display),
+            "detail_filter_chip_strip must be read back for the detail frame"
+        );
+        assert_eq!(
+            slots.filter_chip_strip_for(WorkspaceFrameKind::SourceList),
+            None,
+            "the detail-frame filter chip strip must not leak to other frames"
+        );
+    }
+
+    #[test]
+    fn on_detail_filter_select_handler_is_read_back_for_the_detail_frame() {
+        let slots = WorkspaceSlots::new().on_detail_filter_select(|_, _, _| {});
+
+        assert!(
+            slots
+                .filter_select_handler_for(WorkspaceFrameKind::Detail)
+                .is_some(),
+            "on_detail_filter_select must be read back for the detail frame"
+        );
+        assert!(
+            slots
+                .filter_select_handler_for(WorkspaceFrameKind::SourceList)
+                .is_none(),
+            "the detail-frame filter select handler must not leak to other frames"
+        );
+    }
 }

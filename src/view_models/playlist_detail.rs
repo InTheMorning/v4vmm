@@ -42,18 +42,6 @@ impl<'a> PlaylistDetailPageVm<'a> {
     }
 
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "kept as a focused state accessor; shell now consults slot emptiness"
-        )
-    )]
-    pub(crate) fn is_empty(&self) -> bool {
-        self.detail.is_empty()
-    }
-
-    #[must_use]
     pub(crate) fn empty_message(&self) -> &'static str {
         self.detail.empty_message()
     }
@@ -72,31 +60,18 @@ impl<'a> PlaylistDetailPageVm<'a> {
     }
 
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "active-frame search dispatch lands playlist text state before toolbar routing"
-        )
-    )]
-    pub(crate) fn text_filter(&self) -> Option<&str> {
-        self.detail.text_filter()
-    }
-
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "active-frame search dispatch lands playlist text state before toolbar routing"
-        )
-    )]
-    pub(crate) fn set_text_filter(&mut self, filter: Option<String>) {
-        self.detail.set_text_filter(filter);
-    }
-
-    #[must_use]
     pub(crate) fn track_rows(&self) -> Vec<PlaylistTrackRowVm<'a>> {
         self.detail.track_rows()
+    }
+}
+
+/// `is_empty` has no caller outside its own dedicated test: the playlist
+/// screen checks slot emptiness instead. Compiled only for tests.
+#[cfg(test)]
+impl<'a> PlaylistDetailPageVm<'a> {
+    #[must_use]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.detail.is_empty()
     }
 }
 
@@ -143,39 +118,5 @@ mod tests {
             page.actions_display().rename_button_id,
             "playlist-rename-42"
         );
-    }
-
-    #[test]
-    fn playlist_detail_page_vm_filters_track_rows_by_text() {
-        let playlist = playlist("Mix");
-        let mut first = crate::db::TrackRow {
-            id: 1,
-            track_title: Some("Opening".into()),
-            artist_name: Some("Alice".into()),
-            ..Default::default()
-        };
-        first.is_in_library = true;
-        let mut second = crate::db::TrackRow {
-            id: 2,
-            track_title: Some("Closing".into()),
-            artist_name: Some("Bob".into()),
-            ..Default::default()
-        };
-        second.is_in_library = true;
-        let tracks = vec![first, second];
-        let detail = PlaylistDetailVm::new(&playlist, &tracks);
-        let mut page = PlaylistDetailPageVm::new(detail, "playlist-detail-scroll");
-
-        page.set_text_filter(Some("alice".into()));
-
-        let rows = page.track_rows();
-        assert_eq!(page.text_filter(), Some("alice"));
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].track().id, 1);
-
-        page.set_text_filter(Some("   ".into()));
-
-        assert_eq!(page.text_filter(), None);
-        assert_eq!(page.track_rows().len(), 2);
     }
 }

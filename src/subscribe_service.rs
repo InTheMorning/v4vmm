@@ -90,24 +90,6 @@ impl PreparedTrack {
     }
 }
 
-pub fn subscribe_track(
-    conn: Arc<Mutex<Connection>>,
-    request: SubscribeTrackRequest,
-) -> Result<SubscribeTrackOutcome> {
-    let cfg_path = config::config_path()?;
-    let cfg = config::ConfigSnapshot::read_existing(&cfg_path)?.downloads()?;
-    config::prepare_artists_directory(&cfg.music_dir)?;
-    subscribe_track_with_config(conn, &cfg, request)
-}
-
-pub(crate) fn subscribe_track_with_config(
-    conn: Arc<Mutex<Connection>>,
-    cfg: &config::DownloadConfig,
-    request: SubscribeTrackRequest,
-) -> Result<SubscribeTrackOutcome> {
-    subscribe_track_retaining(conn, cfg, request, &mut None)
-}
-
 pub(crate) fn subscribe_track_retaining(
     conn: Arc<Mutex<Connection>>,
     cfg: &config::DownloadConfig,
@@ -138,24 +120,6 @@ pub(crate) fn subscribe_track_retaining(
             retained,
         ),
     }
-}
-
-pub fn subscribe_feed(
-    conn: Arc<Mutex<Connection>>,
-    request: SubscribeFeedRequest,
-) -> Result<SubscribeFeedOutcome> {
-    let cfg_path = config::config_path()?;
-    let cfg = config::ConfigSnapshot::read_existing(&cfg_path)?.downloads()?;
-    config::prepare_artists_directory(&cfg.music_dir)?;
-    subscribe_feed_with_config(conn, &cfg, request)
-}
-
-pub(crate) fn subscribe_feed_with_config(
-    conn: Arc<Mutex<Connection>>,
-    cfg: &config::DownloadConfig,
-    request: SubscribeFeedRequest,
-) -> Result<SubscribeFeedOutcome> {
-    subscribe_feed_retaining(conn, cfg, request, |_, _, _| Ok(()))
 }
 
 pub(crate) fn subscribe_feed_retaining(

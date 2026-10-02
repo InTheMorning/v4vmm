@@ -597,3 +597,12 @@ Open and paused - implementation and mechanical checks are complete on 2026-10-0
 - Scheduling: run the procedure only after the operator resumes visual checks. It only reads pages.
 - V1: the Library list, an album page, a playlist page and a track page work as before, with paging.
 - V2: Music search, the Index pages, the publisher page and the Show section work as before.
+
+## 33. Expected Dead Code Removal — Task 002
+
+Open and paused - implementation and mechanical checks are complete on 2026-10-01. Operator inspection is pending.
+
+- Owner: [dead code removal task 002](tasks/dead-code-removal-task-002-expected-dead-code.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks. It only reads pages and resizes panes.
+- V1: the workspace frames, the breadcrumb, Back and Forward, and the pane resize work as before.
+- V2: the Library list, a playlist page with rename, Music search and the Show queue work as before.

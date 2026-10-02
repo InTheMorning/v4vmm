@@ -45,15 +45,16 @@ use crate::view_models::recent_feeds::{
     RecentFeedResultRow, RecentFeedsPageState, RecentFeedsPageVm,
 };
 use crate::view_models::search_results::{
-    ArtistResultDisplay, FeedResultDisplay, IndexDetailDisplay, SearchResultOrigin,
-    TrackResultDisplay,
+    FeedResultDisplay, IndexDetailDisplay, SearchResultOrigin, TrackResultDisplay,
 };
-use crate::view_models::text_filter::{contains_normalized, normalize};
+use crate::view_models::text_filter::contains_normalized;
+#[cfg(test)]
+use crate::view_models::text_filter::normalize;
 use crate::view_models::workspace::{
     ContentFilter, ContentViewMode, ContentViewModeControlDisplay, LibraryFilterControlDisplay,
 };
 use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
-use crate::views::{FeedMetadataFacts, FeedRef, FeedView, LocalIdentityFacts, TrackRef};
+use crate::views::{FeedMetadataFacts, FeedRef, LocalIdentityFacts, TrackRef};
 
 const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
 const UPDATE_AVAILABLE_LABEL: &str = "Update available";
@@ -785,8 +786,6 @@ const fn row_state_label_for_source(source: ContentListRowSource) -> Option<&'st
 /// Entity kind carried by a mixed Music content row.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ContentListEntityKind {
-    /// Artist row.
-    Artist,
     /// Release row.
     Release,
     /// Track row.
@@ -796,7 +795,6 @@ pub(crate) enum ContentListEntityKind {
 impl ContentListEntityKind {
     const fn label(self) -> &'static str {
         match self {
-            Self::Artist => "Artist",
             Self::Release => "Release",
             Self::Track => "Track",
         }
@@ -804,7 +802,6 @@ impl ContentListEntityKind {
 
     const fn a11y_label(self) -> &'static str {
         match self {
-            Self::Artist => "Entity type: Artist",
             Self::Release => "Entity type: Release",
             Self::Track => "Entity type: Track",
         }
@@ -1009,72 +1006,14 @@ impl ContentListRowActionDisplay {
     }
 }
 
-/// Expansion state for rows that reveal child rows.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ContentListRowExpansionState {
-    /// Child rows are hidden.
-    Collapsed,
-    /// Child rows are visible.
-    Expanded,
-}
-
-/// Display-ready expansion fact for a mixed Music content row.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ContentListRowExpansionDisplay {
-    /// This row can expand or collapse.
-    Available {
-        /// Current expansion state.
-        state: ContentListRowExpansionState,
-        /// Accessibility label for the expansion affordance.
-        a11y_label: &'static str,
-    },
-    /// This row has no child rows.
-    Unavailable,
-}
-
-impl ContentListRowExpansionDisplay {
-    const fn for_kind(kind: ContentListEntityKind, expanded: bool) -> Self {
-        match kind {
-            ContentListEntityKind::Artist | ContentListEntityKind::Release => Self::Available {
-                state: if expanded {
-                    ContentListRowExpansionState::Expanded
-                } else {
-                    ContentListRowExpansionState::Collapsed
-                },
-                a11y_label: if expanded {
-                    kind.collapse_a11y_label()
-                } else {
-                    kind.expand_a11y_label()
-                },
-            },
-            ContentListEntityKind::Track => Self::Unavailable,
-        }
-    }
-}
-
-impl ContentListEntityKind {
-    const fn expand_a11y_label(self) -> &'static str {
-        match self {
-            Self::Artist => "Expand artist row",
-            Self::Release => "Expand release row",
-            Self::Track => "Track row cannot expand",
-        }
-    }
-
-    const fn collapse_a11y_label(self) -> &'static str {
-        match self {
-            Self::Artist => "Collapse artist row",
-            Self::Release => "Collapse release row",
-            Self::Track => "Track row cannot collapse",
-        }
-    }
-}
-
 /// Existing entity display carried by a mixed Music content row.
+///
+/// ADR 0062 scoped this to Release and Track rows. Artist rows, and the
+/// expansion affordance both row kinds once carried, are deferred until the
+/// index recency source exposes artist rows; see
+/// `docs/adr/0062-content-list-tri-state-and-recency-rows.md`.
 #[derive(Clone, Debug)]
 pub(crate) enum ContentListRowKind {
-    /// Artist search-result display.
-    Artist(ArtistResultDisplay),
     /// Release/feed search-result display.
     Release(FeedResultDisplay),
     /// Track search-result display.
@@ -1086,7 +1025,6 @@ impl ContentListRowKind {
     #[must_use]
     pub(crate) const fn entity_kind(&self) -> ContentListEntityKind {
         match self {
-            Self::Artist(_) => ContentListEntityKind::Artist,
             Self::Release(_) => ContentListEntityKind::Release,
             Self::Track(_) => ContentListEntityKind::Track,
         }
@@ -1094,7 +1032,6 @@ impl ContentListRowKind {
 
     fn id(&self) -> &str {
         match self {
-            Self::Artist(display) => &display.id,
             Self::Release(display) => &display.id,
             Self::Track(display) => &display.id,
         }
@@ -1102,7 +1039,6 @@ impl ContentListRowKind {
 
     fn label(&self) -> &str {
         match self {
-            Self::Artist(display) => &display.label,
             Self::Release(display) => &display.label,
             Self::Track(display) => &display.label,
         }
@@ -1110,7 +1046,6 @@ impl ContentListRowKind {
 
     fn secondary_text(&self) -> &str {
         match self {
-            Self::Artist(display) => &display.secondary_text,
             Self::Release(display) => &display.secondary_text,
             Self::Track(display) => &display.secondary_text,
         }
@@ -1118,7 +1053,6 @@ impl ContentListRowKind {
 
     fn thumbnail_href(&self) -> Option<&str> {
         match self {
-            Self::Artist(display) => display.thumbnail_href.as_deref(),
             Self::Release(display) => display.thumbnail_href.as_deref(),
             Self::Track(display) => display.thumbnail_href.as_deref(),
         }
@@ -1126,7 +1060,6 @@ impl ContentListRowKind {
 
     fn a11y_label(&self) -> &str {
         match self {
-            Self::Artist(display) => &display.a11y_label,
             Self::Release(display) => &display.a11y_label,
             Self::Track(display) => &display.a11y_label,
         }
@@ -1134,9 +1067,6 @@ impl ContentListRowKind {
 
     const fn source(&self) -> ContentListRowSource {
         match self {
-            Self::Artist(display) => {
-                ContentListRowSource::from_search_result_origin(display.origin)
-            }
             Self::Release(display) => {
                 ContentListRowSource::from_search_result_origin(display.origin)
             }
@@ -1158,15 +1088,6 @@ pub(crate) struct ContentListRowDisplay {
     pub(crate) library_badge: ContentListLibraryBadgeDisplay,
     /// Local-vs-index provenance used by per-frame filtering.
     pub(crate) source: ContentListRowSource,
-    /// Expansion state for entity kinds with children.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0062 task 002 renders release rows before expansion controls are wired"
-        )
-    )]
-    pub(crate) expansion: ContentListRowExpansionDisplay,
     /// Optional curator-facing state label for the row.
     pub(crate) state_label: Option<&'static str>,
     /// Whole-row activation behavior.
@@ -1192,29 +1113,16 @@ impl ContentListRowDisplay {
         )
     }
 
-    /// Projects an artist display into the mixed content-list row contract.
-    #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0062 task 002 consumes release recency rows; artist rows land when the index recency source exposes them"
-        )
-    )]
-    pub(crate) fn from_artist_result(display: ArtistResultDisplay, expanded: bool) -> Self {
-        Self::from_kind(ContentListRowKind::Artist(display), expanded)
-    }
-
     /// Projects a release/feed display into the mixed content-list row contract.
     #[must_use]
-    pub(crate) fn from_release_result(display: FeedResultDisplay, expanded: bool) -> Self {
-        Self::from_kind(ContentListRowKind::Release(display), expanded)
+    pub(crate) fn from_release_result(display: FeedResultDisplay) -> Self {
+        Self::from_kind(ContentListRowKind::Release(display))
     }
 
     /// Projects a track display into the mixed content-list row contract.
     #[must_use]
     pub(crate) fn from_track_result(display: TrackResultDisplay) -> Self {
-        Self::from_kind(ContentListRowKind::Track(display), false)
+        Self::from_kind(ContentListRowKind::Track(display))
     }
 
     /// Projects a database track row into content-list display data.
@@ -1332,7 +1240,7 @@ impl ContentListRowDisplay {
         self.activation.accepts_click()
     }
 
-    fn from_kind(kind: ContentListRowKind, expanded: bool) -> Self {
+    fn from_kind(kind: ContentListRowKind) -> Self {
         let source = kind.source();
         let entity_kind = kind.entity_kind();
         Self {
@@ -1341,7 +1249,6 @@ impl ContentListRowDisplay {
             entity_badge: ContentListEntityBadgeDisplay::for_kind(entity_kind),
             library_badge: ContentListLibraryBadgeDisplay::for_source(source),
             source,
-            expansion: ContentListRowExpansionDisplay::for_kind(entity_kind, expanded),
             state_label: row_state_label_for_source(source),
             activation: ContentListRowActivation::OpenContentRow,
             actions: Vec::new(),
@@ -1697,12 +1604,6 @@ impl ContentListPageVm {
         ContentViewModeControlDisplay::default_for_content_list(self.view_mode)
     }
 
-    /// Returns the active text filter, when set.
-    #[must_use]
-    pub(crate) fn text_filter(&self) -> Option<&str> {
-        self.text_filter.as_deref()
-    }
-
     /// Replaces the cached rows while preserving the frame-local filter.
     pub(crate) fn replace_rows(&mut self, cached_rows: Vec<ContentListRowDisplay>) {
         self.library_rows.clone_from(&cached_rows);
@@ -1978,9 +1879,7 @@ impl ContentListPageVm {
     ) -> Option<IndexDetailDisplay> {
         let row = self.cached_rows.iter().find_map(|row| match &row.kind {
             ContentListRowKind::Release(release) if row.id == activation_id => Some(release),
-            ContentListRowKind::Artist(_)
-            | ContentListRowKind::Release(_)
-            | ContentListRowKind::Track(_) => None,
+            ContentListRowKind::Release(_) | ContentListRowKind::Track(_) => None,
         })?;
         Some(IndexDetailDisplay::feed_or_fallback(
             Some(row),
@@ -2033,14 +1932,21 @@ impl ContentListPageVm {
     }
 }
 
-/// `set_text_filter` is Phase 1 text-filter infrastructure (ADR 0060 packet
-/// dead-code-removal-task-001; `docs/plans/active-frame-search-dispatch-plan.md`).
-/// No screen calls it today. `library_view_model_content_text_filter_does_not_filter_source_tree`
-/// needs it as a direct helper, so it stays here, compiled only for tests.
+/// `set_text_filter` and `text_filter` are ADR 0048 active-frame text-filter
+/// infrastructure with no production caller: no screen wires a frame-local
+/// search box to this page yet. Several of this type's own tests need them
+/// as direct helpers to exercise the live `set_filter`/`replace_rows`
+/// composition, so they stay here, compiled only for tests.
 #[cfg(test)]
 impl ContentListPageVm {
     pub(crate) fn set_text_filter(&mut self, filter: Option<String>) {
         self.text_filter = normalize(filter);
+    }
+
+    /// Returns the active text filter, when set.
+    #[must_use]
+    pub(crate) fn text_filter(&self) -> Option<&str> {
+        self.text_filter.as_deref()
     }
 }
 
@@ -2465,18 +2371,6 @@ impl LibraryViewModel {
     }
 
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "tested in library_view_model_content_text_filter_does_not_filter_source_tree"
-        )
-    )]
-    pub(crate) fn content_text_filter(&self) -> Option<&str> {
-        self.content_list_page.text_filter()
-    }
-
-    #[must_use]
     pub(crate) fn content_library_filter_control(&self) -> LibraryFilterControlDisplay {
         self.content_list_page.library_filter_control_display()
     }
@@ -2610,13 +2504,10 @@ impl LibraryViewModel {
         &self.saved_searches
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0047 Phase B adds the in-memory contract before the loader is wired"
-        )
-    )]
+    /// `saved_searches` and `saved_searches_section` are live; no loader
+    /// calls this setter yet, so this type's own test needs it as a direct
+    /// helper to seed saved searches.
+    #[cfg(test)]
     pub(crate) fn set_saved_searches(&mut self, saved_searches: Vec<SavedSearchEntry>) {
         self.saved_searches = saved_searches;
     }
@@ -2846,14 +2737,10 @@ impl LibraryViewModel {
         self.selected_id
     }
 
+    /// Only this type's own tests read the selection back; the live screen
+    /// uses the playlist selection helpers below instead.
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "screen migration uses playlist selection helpers before this accessor"
-        )
-    )]
+    #[cfg(test)]
     pub(crate) fn selected_playlist_id(&self) -> Option<i64> {
         self.selected_playlist_id
     }
@@ -2903,13 +2790,9 @@ impl LibraryViewModel {
         self.status = status.into();
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "kept as a focused escape hatch for future cancellable operations"
-        )
-    )]
+    /// Only this type's own tests call this directly today; production code
+    /// clears `busy_track` as part of a finish/fail transition instead.
+    #[cfg(test)]
     pub(crate) fn clear_busy_track(&mut self) {
         self.busy_track = None;
     }
@@ -2958,37 +2841,25 @@ impl LibraryViewModel {
         self.status = format!("Error downloading feed: {error:#}");
     }
 
+    /// Only this type's own tests read status text back directly; the
+    /// screen renders status through the typed report views instead.
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "kept as a focused state accessor for library view-model tests"
-        )
-    )]
+    #[cfg(test)]
     pub(crate) fn status(&self) -> &str {
         &self.status
     }
 
+    /// Only this type's own tests read the query back directly; the screen
+    /// has no wired search box yet.
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "kept as a focused state accessor for search-field migration tests"
-        )
-    )]
+    #[cfg(test)]
     pub(crate) fn search_query(&self) -> &str {
         &self.search_query
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "active-frame search dispatch lands source-list text state before toolbar routing"
-        )
-    )]
+    /// `apply_search_query` below needs this as a direct helper; no screen
+    /// wires a source-list search box yet.
+    #[cfg(test)]
     pub(crate) fn set_source_text_filter(&mut self, filter: Option<String>) {
         self.search_query = normalize(filter).unwrap_or_default();
         self.selected_id = None;
@@ -3383,14 +3254,10 @@ impl LibraryViewModel {
         self.renaming_playlist_id
     }
 
+    /// Only this type's own tests call this directly; the live screen reads
+    /// `renaming_playlist_id` instead.
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "kept as a focused state accessor for playlist rename tests and future shell guards"
-        )
-    )]
+    #[cfg(test)]
     pub(crate) fn is_renaming_playlist(&self, playlist_id: i64) -> bool {
         self.renaming_playlist_id == Some(playlist_id)
     }
@@ -3442,25 +3309,13 @@ impl LibraryViewModel {
 
     // Both lookups are exercised by the unit tests below but not yet
     // by the legacy renderer (which still uses `LibraryTreeProjection`).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "kept as focused expansion predicates for future tree rendering"
-        )
-    )]
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn is_artist_expanded(&self, name: &str) -> bool {
         self.expanded_artists.contains(name)
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "kept as focused expansion predicates for future tree rendering"
-        )
-    )]
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn is_album_expanded(&self, artist: &str, album: &str) -> bool {
         self.expanded_albums
@@ -3470,17 +3325,6 @@ impl LibraryViewModel {
     #[must_use]
     pub(crate) fn playlist_sort_label(&self) -> &'static str {
         self.playlist_sort.label()
-    }
-}
-
-/// `set_content_text_filter` is Phase 1 text-filter infrastructure (ADR 0060
-/// packet dead-code-removal-task-001; `docs/plans/active-frame-search-dispatch-plan.md`).
-/// No screen calls it today. `library_view_model_content_text_filter_does_not_filter_source_tree`
-/// needs it as a direct helper, so it stays here, compiled only for tests.
-#[cfg(test)]
-impl LibraryViewModel {
-    pub(crate) fn set_content_text_filter(&mut self, filter: Option<String>) {
-        self.content_list_page.set_text_filter(filter);
     }
 }
 
@@ -3653,7 +3497,7 @@ fn content_list_rows_from_tree(tree: &LibraryTree) -> Vec<ContentListRowDisplay>
 
 fn content_list_rows_from_recent_feeds(rows: &[RecentFeedResultRow]) -> Vec<ContentListRowDisplay> {
     rows.iter()
-        .map(|(_id, row)| ContentListRowDisplay::from_release_result(row.clone(), false))
+        .map(|(_id, row)| ContentListRowDisplay::from_release_result(row.clone()))
         .collect()
 }
 
@@ -3990,7 +3834,6 @@ impl<'a> LibraryArtistDetailVm<'a> {
 /// action-state projections the Library screen needs to bind handlers.
 pub(crate) struct LibraryAlbumDetailVm<'a> {
     mb_status: &'a BTreeMap<i64, MbTrackStatus>,
-    description_state: DescriptionState,
     has_library_tracks: bool,
 }
 
@@ -4011,30 +3854,11 @@ pub(crate) struct LibraryAlbumPlaylistDisplay {
 
 impl<'a> LibraryAlbumDetailVm<'a> {
     #[must_use]
-    pub(crate) fn new(
-        feed_view: &'a FeedView,
-        tracks: &'a [TrackRow],
-        mb_status: &'a BTreeMap<i64, MbTrackStatus>,
-    ) -> Self {
+    pub(crate) fn new(tracks: &'a [TrackRow], mb_status: &'a BTreeMap<i64, MbTrackStatus>) -> Self {
         Self {
             mb_status,
             has_library_tracks: tracks.iter().any(|track| track.is_in_library),
-            description_state: DescriptionState::project(description_line_count(
-                feed_view.description.as_deref(),
-            )),
         }
-    }
-
-    #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0047 Phase B projects description state before Phase C renders it"
-        )
-    )]
-    pub(crate) const fn description_state(&self) -> DescriptionState {
-        self.description_state
     }
 
     /// `true` when any track has an in-flight `MusicBrainz` lookup —
@@ -4456,20 +4280,6 @@ impl<'a> PlaylistDetailVm<'a> {
         self.visible_tracks().len()
     }
 
-    #[must_use]
-    pub(crate) fn is_empty(&self) -> bool {
-        self.visible_tracks().is_empty()
-    }
-
-    #[must_use]
-    pub(crate) fn text_filter(&self) -> Option<&str> {
-        self.text_filter.as_deref()
-    }
-
-    pub(crate) fn set_text_filter(&mut self, filter: Option<String>) {
-        self.text_filter = normalize(filter);
-    }
-
     /// Sum of all track durations in seconds.
     #[must_use]
     pub(crate) fn total_duration_seconds(&self) -> i64 {
@@ -4580,6 +4390,17 @@ impl<'a> PlaylistDetailVm<'a> {
     }
 }
 
+/// `is_empty` has no caller outside tests of this type and its
+/// `PlaylistDetailPageVm` wrapper: the playlist screen checks slot
+/// emptiness instead. Compiled only for tests.
+#[cfg(test)]
+impl<'a> PlaylistDetailVm<'a> {
+    #[must_use]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.visible_tracks().is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4635,10 +4456,6 @@ mod tests {
         }
     }
 
-    fn artist_result(id: &str, label: &str, origin: SearchResultOrigin) -> ArtistResultDisplay {
-        ArtistResultDisplay::new(id, label, origin).with_secondary_text("2 releases")
-    }
-
     fn release_result(id: &str, label: &str, origin: SearchResultOrigin) -> FeedResultDisplay {
         FeedResultDisplay::new(id, label, origin).with_secondary_text("12 tracks")
     }
@@ -4670,47 +4487,12 @@ mod tests {
     }
 
     #[test]
-    fn content_list_row_projects_artist_result_contract() {
-        let row = ContentListRowDisplay::from_artist_result(
-            artist_result("artist-1", "Alice", SearchResultOrigin::Library),
-            true,
-        );
-
-        assert_eq!(row.id, "artist-1");
-        assert_eq!(row.title(), "Alice");
-        assert_eq!(row.secondary_text(), "2 releases");
-        assert_eq!(row.entity_kind(), ContentListEntityKind::Artist);
-        assert_eq!(
-            row.entity_badge,
-            ContentListEntityBadgeDisplay {
-                kind: ContentListEntityKind::Artist,
-                label: "Artist",
-                a11y_label: "Entity type: Artist",
-            }
-        );
-        assert_eq!(
-            row.library_badge,
-            ContentListLibraryBadgeDisplay {
-                state: ContentListLibraryBadgeState::InLibrary,
-                label: "In library",
-                a11y_label: "Library status: In library",
-            }
-        );
-        assert_eq!(
-            row.expansion,
-            ContentListRowExpansionDisplay::Available {
-                state: ContentListRowExpansionState::Expanded,
-                a11y_label: "Collapse artist row",
-            }
-        );
-    }
-
-    #[test]
     fn content_list_row_projects_release_result_contract() {
-        let row = ContentListRowDisplay::from_release_result(
-            release_result("release-1", "Release", SearchResultOrigin::Index),
-            false,
-        );
+        let row = ContentListRowDisplay::from_release_result(release_result(
+            "release-1",
+            "Release",
+            SearchResultOrigin::Index,
+        ));
 
         assert_eq!(row.id, "release-1");
         assert_eq!(row.title(), "Release");
@@ -4730,13 +4512,6 @@ mod tests {
                 state: ContentListLibraryBadgeState::NotInLibrary,
                 label: "Not in library",
                 a11y_label: "Library status: Not in library",
-            }
-        );
-        assert_eq!(
-            row.expansion,
-            ContentListRowExpansionDisplay::Available {
-                state: ContentListRowExpansionState::Collapsed,
-                a11y_label: "Expand release row",
             }
         );
     }
@@ -4769,20 +4544,16 @@ mod tests {
                 a11y_label: "Library status: Not in library",
             }
         );
-        assert_eq!(row.expansion, ContentListRowExpansionDisplay::Unavailable);
     }
 
     #[test]
     fn content_list_page_vm_filters_every_mixed_row_kind_by_source() {
         let mut page = ContentListPageVm::new(vec![
-            ContentListRowDisplay::from_artist_result(
-                artist_result("artist", "Artist", SearchResultOrigin::Library),
-                false,
-            ),
-            ContentListRowDisplay::from_release_result(
-                release_result("release", "Release", SearchResultOrigin::Index),
-                false,
-            ),
+            ContentListRowDisplay::from_release_result(release_result(
+                "release",
+                "Release",
+                SearchResultOrigin::Library,
+            )),
             ContentListRowDisplay::from_track_result(track_result(
                 "track",
                 "Track",
@@ -4792,21 +4563,21 @@ mod tests {
 
         assert_eq!(
             page.visible_row_ids(),
-            ["artist", "release", "track"],
+            ["release", "track"],
             "ContentFilter::All should preserve every mixed row kind"
         );
 
         page.set_filter(ContentFilter::Library);
         assert_eq!(
             page.visible_row_ids(),
-            ["artist"],
+            ["release"],
             "ContentFilter::Library should keep source semantics for mixed rows"
         );
 
         page.set_filter(ContentFilter::Index);
         assert_eq!(
             page.visible_row_ids(),
-            ["release", "track"],
+            ["track"],
             "ContentFilter::Index should keep source semantics for mixed rows"
         );
     }
@@ -5909,48 +5680,6 @@ mod tests {
     }
 
     #[test]
-    fn playlist_detail_vm_text_filter_preserves_original_positions() {
-        let pl = playlist("Mix");
-        let mut first = row();
-        first.id = 1;
-        first.track_title = Some("Opening".into());
-        first.artist_name = Some("Alice".into());
-        first.duration_seconds = Some(60);
-        let mut second = row();
-        second.id = 2;
-        second.track_title = Some("Middle".into());
-        second.artist_name = Some("Bob".into());
-        second.duration_seconds = Some(120);
-        let mut third = row();
-        third.id = 3;
-        third.track_title = Some("Finale".into());
-        third.artist_name = Some("Alice".into());
-        third.duration_seconds = Some(180);
-        let tracks = vec![first, second, third];
-        let mut vm = PlaylistDetailVm::new(&pl, &tracks);
-
-        vm.set_text_filter(Some("alice".to_string()));
-
-        let rows = vm.track_rows();
-        assert_eq!(vm.text_filter(), Some("alice"));
-        assert_eq!(vm.track_count(), 2);
-        assert_eq!(vm.total_duration_seconds(), 240);
-        assert_eq!(
-            rows.iter()
-                .map(PlaylistTrackRowVm::position)
-                .collect::<Vec<_>>(),
-            [0, 2],
-            "filtered playlist rows should keep original playlist positions for commands"
-        );
-
-        vm.set_text_filter(Some("   ".to_string()));
-
-        assert_eq!(vm.text_filter(), None);
-        assert_eq!(vm.track_count(), 3);
-        assert_eq!(vm.track_rows().len(), 3);
-    }
-
-    #[test]
     fn playlist_detail_vm_projects_rename_and_delete_controls() {
         let mut pl = playlist("Mix");
         pl.id = 42;
@@ -6349,14 +6078,6 @@ mod tests {
         assert_eq!(rows[1].thumb_url(), Some("album-only"));
     }
 
-    fn feed_view_with(title: Option<&str>, artist: Option<&str>) -> FeedView {
-        FeedView {
-            title: title.map(str::to_string),
-            artist: artist.map(str::to_string),
-            ..FeedView::default()
-        }
-    }
-
     fn library_tree() -> LibraryTree {
         let mut rhubarb = row();
         rhubarb.id = 1;
@@ -6432,55 +6153,38 @@ mod tests {
 
     #[test]
     fn album_detail_vm_has_active_musicbrainz_when_any_track_pending_or_processing() {
-        let view = feed_view_with(None, None);
         let mut tracks = [row(), row(), row()];
         tracks[0].id = 10;
         tracks[1].id = 20;
         tracks[2].id = 30;
         let mut mb: BTreeMap<i64, MbTrackStatus> = BTreeMap::new();
         mb.insert(10, MbTrackStatus::Done(2));
-        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+        let vm = LibraryAlbumDetailVm::new(&tracks, &mb);
         assert!(!vm.has_active_musicbrainz());
         mb.insert(20, MbTrackStatus::Pending);
-        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+        let vm = LibraryAlbumDetailVm::new(&tracks, &mb);
         assert!(vm.has_active_musicbrainz());
         mb.insert(20, MbTrackStatus::Processing);
-        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+        let vm = LibraryAlbumDetailVm::new(&tracks, &mb);
         assert!(vm.has_active_musicbrainz());
         mb.insert(20, MbTrackStatus::Skipped);
-        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+        let vm = LibraryAlbumDetailVm::new(&tracks, &mb);
         assert!(!vm.has_active_musicbrainz());
     }
 
     #[test]
     fn album_detail_vm_musicbrainz_action_projects_label_and_disabled_state() {
-        let view = feed_view_with(None, None);
         let mut mb = BTreeMap::new();
-        let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
+        let vm = LibraryAlbumDetailVm::new(&[], &mb);
         let action = vm.musicbrainz_action_vm();
         assert_eq!(action.label, "MusicBrainz");
         assert!(!action.disabled);
 
         mb.insert(7, MbTrackStatus::Processing);
-        let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
+        let vm = LibraryAlbumDetailVm::new(&[], &mb);
         let action = vm.musicbrainz_action_vm();
         assert_eq!(action.label, "MusicBrainz");
         assert!(action.disabled);
-    }
-
-    #[test]
-    fn album_detail_vm_projects_description_state_from_feed_description() {
-        let mut view = feed_view_with(None, None);
-        view.description = Some("one\ntwo\nthree\nfour\nfive".into());
-        let mb = BTreeMap::new();
-        let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
-
-        assert_eq!(vm.description_state(), DescriptionState::AutoExpanded);
-
-        view.description = Some("one\ntwo\nthree\nfour\nfive\nsix".into());
-        let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
-
-        assert_eq!(vm.description_state(), DescriptionState::AutoCollapsed);
     }
 
     #[test]
@@ -6954,46 +6658,6 @@ mod tests {
             vm.content_view_mode_control().selected,
             ContentViewMode::List,
             "Situational ADR 0062 content-list view mode guard: LibraryViewModel should project the selected mode into chrome display"
-        );
-    }
-
-    #[test]
-    fn library_view_model_content_text_filter_does_not_filter_source_tree() {
-        let mut vm = LibraryViewModel::new();
-        vm.replace_tree(library_tree());
-
-        vm.set_content_text_filter(Some("cliff".to_string()));
-        let projection = vm.tree_projection();
-
-        assert_eq!(vm.content_text_filter(), Some("cliff"));
-        assert_eq!(
-            projection.tree.artists.len(),
-            2,
-            "content-list text filtering must not hide source-tree rows"
-        );
-        let visible_rows = vm.content_list_page.visible_rows();
-        assert_eq!(visible_rows.len(), 1);
-        assert_eq!(visible_rows[0].title(), "Cliffs");
-
-        vm.set_content_text_filter(None);
-        let projection = vm.tree_projection();
-
-        assert_eq!(vm.content_text_filter(), None);
-        assert_eq!(
-            vm.content_list_page.visible_rows().len(),
-            4,
-            "clearing the content-list text filter should restore page VM rows"
-        );
-        assert_eq!(
-            projection
-                .tree
-                .artists
-                .iter()
-                .flat_map(|artist| &artist.albums)
-                .flat_map(|album| &album.tracks)
-                .count(),
-            4,
-            "source-tree rows should remain stable across content-list text filtering"
         );
     }
 
@@ -8184,9 +7848,8 @@ mod tests {
 
     #[test]
     fn album_detail_vm_playlist_action_uses_shared_feed_vocabulary() {
-        let view = feed_view_with(None, None);
         let mb = BTreeMap::new();
-        let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
+        let vm = LibraryAlbumDetailVm::new(&[], &mb);
         let action = vm
             .playlist_action_vm(7)
             .expect("playlist action should render");
@@ -8196,9 +7859,8 @@ mod tests {
 
     #[test]
     fn album_detail_vm_playlist_display_projects_popover_id_and_label() {
-        let view = feed_view_with(None, None);
         let mb = BTreeMap::new();
-        let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
+        let vm = LibraryAlbumDetailVm::new(&[], &mb);
         let display = vm
             .playlist_display(7)
             .expect("playlist display should render");
@@ -8209,13 +7871,12 @@ mod tests {
 
     #[test]
     fn album_detail_vm_release_actions_use_shared_feed_vocabulary() {
-        let view = feed_view_with(None, None);
         let mb = BTreeMap::new();
         let tracks = vec![TrackRow {
             is_in_library: true,
             ..TrackRow::default()
         }];
-        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+        let vm = LibraryAlbumDetailVm::new(&tracks, &mb);
         let primary = vm.primary_action_vm(7, false);
         let busy = vm.primary_action_vm(7, true);
         let playlist = vm
@@ -8231,13 +7892,12 @@ mod tests {
 
     #[test]
     fn album_detail_vm_empty_library_album_is_downloadable() {
-        let view = feed_view_with(None, None);
         let mb = BTreeMap::new();
         let tracks = vec![TrackRow {
             is_in_library: false,
             ..TrackRow::default()
         }];
-        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+        let vm = LibraryAlbumDetailVm::new(&tracks, &mb);
 
         let primary = vm.primary_action_vm(7, false);
 
@@ -8250,13 +7910,12 @@ mod tests {
 
     #[test]
     fn album_detail_vm_empty_library_album_busy_action_is_downloading() {
-        let view = feed_view_with(None, None);
         let mb = BTreeMap::new();
         let tracks = vec![TrackRow {
             is_in_library: false,
             ..TrackRow::default()
         }];
-        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+        let vm = LibraryAlbumDetailVm::new(&tracks, &mb);
 
         let primary = vm.primary_action_vm(7, true);
 
@@ -8270,21 +7929,19 @@ mod tests {
 
     #[test]
     fn album_detail_vm_feed_download_marks_remote_rows_busy() {
-        let view = feed_view_with(None, None);
         let mb = BTreeMap::new();
         let track = TrackRow {
             is_in_library: false,
             ..TrackRow::default()
         };
         let tracks = vec![track.clone()];
-        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+        let vm = LibraryAlbumDetailVm::new(&tracks, &mb);
 
         assert!(vm.track_row_busy(&track, false, true));
     }
 
     #[test]
     fn album_detail_vm_feed_removal_marks_only_library_rows_busy() {
-        let view = feed_view_with(None, None);
         let mb = BTreeMap::new();
         let library_track = TrackRow {
             is_in_library: true,
@@ -8295,7 +7952,7 @@ mod tests {
             ..TrackRow::default()
         };
         let tracks = vec![library_track.clone(), remote_track.clone()];
-        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+        let vm = LibraryAlbumDetailVm::new(&tracks, &mb);
 
         assert!(vm.track_row_busy(&library_track, false, true));
         assert!(!vm.track_row_busy(&remote_track, false, true));

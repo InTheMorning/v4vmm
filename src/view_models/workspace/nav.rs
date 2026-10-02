@@ -5,13 +5,6 @@
 //! callers keep the same import path after decomposition.
 
 #![warn(clippy::pedantic)]
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "workspace contracts land before every frame action is wired"
-    )
-)]
 
 use super::WorkspaceModelError;
 
@@ -245,6 +238,21 @@ impl FrameNavigationState {
         Ok(&self.current)
     }
 
+    /// Returns whether the navigation state has more than the root entry.
+    ///
+    /// Returns true when a back action would be valid (i.e., the `back_stack`
+    /// is non-empty), indicating the user can meaningfully press back or a
+    /// breadcrumb-segment button.
+    #[must_use]
+    pub(crate) fn has_history(&self) -> bool {
+        !self.back_stack.is_empty()
+    }
+}
+
+/// `go_forward` has no caller outside its own dedicated test: no command
+/// wires a Forward action today. It stays here, compiled only for tests.
+#[cfg(test)]
+impl FrameNavigationState {
     /// Moves forward one navigation entry.
     ///
     /// # Errors
@@ -259,15 +267,5 @@ impl FrameNavigationState {
         let current = std::mem::replace(&mut self.current, next);
         self.back_stack.push(current);
         Ok(&self.current)
-    }
-
-    /// Returns whether the navigation state has more than the root entry.
-    ///
-    /// Returns true when a back action would be valid (i.e., the `back_stack`
-    /// is non-empty), indicating the user can meaningfully press back or a
-    /// breadcrumb-segment button.
-    #[must_use]
-    pub(crate) fn has_history(&self) -> bool {
-        !self.back_stack.is_empty()
     }
 }

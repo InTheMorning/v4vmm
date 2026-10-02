@@ -75,39 +75,6 @@ impl FrameShellSlots {
         self
     }
 
-    /// Supplies the forward-navigation callback.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "deferred frame action wiring consumes this slot")
-    )]
-    pub(crate) fn on_forward(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
-        self.on_forward = Some(Rc::new(handler));
-        self
-    }
-
-    /// Supplies the close-frame callback.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "deferred frame action wiring consumes this slot")
-    )]
-    pub(crate) fn on_close(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
-        self.on_close = Some(Rc::new(handler));
-        self
-    }
-
-    /// Supplies the action-menu selection callback.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "deferred frame action wiring consumes this slot")
-    )]
-    pub(crate) fn on_menu_select(
-        mut self,
-        handler: impl Fn(SharedString, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.on_menu_select = Some(Rc::new(handler));
-        self
-    }
-
     /// Supplies the frame-local content-filter selection callback.
     pub(crate) fn on_filter_select(
         mut self,
@@ -134,11 +101,32 @@ impl FrameShellSlots {
         self.on_breadcrumb_select = Some(Rc::new(handler));
         self
     }
+}
 
-    /// Overrides appearance resolution for this shell.
-    #[expect(dead_code, reason = "ADR 0046 Task 008+ wires per-frame appearance")]
-    pub(crate) fn appearance(mut self, appearance: Appearance) -> Self {
-        self.appearance = Some(appearance);
+/// `on_forward`, `on_close` and `on_menu_select` are ADR 0046 frame chrome
+/// slots with no production caller yet: the workspace shell wires only
+/// `on_back` today. `frame_shell`'s own rendering test needs each builder
+/// as a direct helper, so each one stays here, compiled only for tests.
+#[cfg(test)]
+impl FrameShellSlots {
+    /// Supplies the forward-navigation callback.
+    pub(crate) fn on_forward(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_forward = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the close-frame callback.
+    pub(crate) fn on_close(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_close = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the action-menu selection callback.
+    pub(crate) fn on_menu_select(
+        mut self,
+        handler: impl Fn(SharedString, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_menu_select = Some(Rc::new(handler));
         self
     }
 }

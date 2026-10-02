@@ -93,7 +93,7 @@ pub(crate) fn render_library_feed_detail(
         .and_then(|url| album_thumbs.get(url.as_str()))
         .and_then(Clone::clone);
 
-    let vm = LibraryAlbumDetailVm::new(&feed_view, &album.tracks, mb_status);
+    let vm = LibraryAlbumDetailVm::new(&album.tracks, mb_status);
     let feed_busy = album
         .feed_id
         .is_some_and(|feed_id| library_vm.busy_feed() == Some(feed_id));

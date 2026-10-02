@@ -78,15 +78,6 @@ pub fn set_track_in_library_by_match(
     db::set_track_in_library_by_match(conn, feed_url, item_guid, enclosure_url, in_library)
 }
 
-pub fn track_is_in_library_by_match(
-    conn: &Connection,
-    feed_url: Option<&str>,
-    item_guid: Option<&str>,
-    enclosure_url: Option<&str>,
-) -> Result<bool> {
-    db::track_is_in_library_by_match(conn, feed_url, item_guid, enclosure_url)
-}
-
 pub fn mark_track_downloaded(
     conn: &Connection,
     track_id: i64,
@@ -94,24 +85,6 @@ pub fn mark_track_downloaded(
     file_size_bytes: Option<i64>,
 ) -> Result<()> {
     db::mark_track_downloaded(conn, track_id, path, file_size_bytes)
-}
-
-pub fn mark_track_downloaded_by_match(
-    conn: &Connection,
-    feed_url: Option<&str>,
-    item_guid: Option<&str>,
-    enclosure_url: Option<&str>,
-    path: &LibraryRelativePath,
-    file_size_bytes: Option<i64>,
-) -> Result<bool> {
-    db::mark_track_downloaded_by_match(
-        conn,
-        feed_url,
-        item_guid,
-        enclosure_url,
-        path,
-        file_size_bytes,
-    )
 }
 
 pub fn delete_local_file(conn: &Connection, local_file_path: &LibraryRelativePath) -> Result<()> {
@@ -149,20 +122,6 @@ fn cleanup_empty_parents(music_dir: &Path, path: &Path) {
             break;
         }
     }
-}
-
-pub fn subscribe_then_append_to_playlist(
-    conn: Arc<Mutex<Connection>>,
-    playlist_id: i64,
-    track_ids: Vec<i64>,
-) -> Result<AppendToPlaylistOutcome> {
-    subscribe_then_append_with(
-        conn,
-        playlist_id,
-        track_ids,
-        subscribe_service::subscribe_track,
-        |_| {},
-    )
 }
 
 pub(crate) fn subscribe_then_append_with(

@@ -485,7 +485,6 @@ fn render_content_list_load_more(
 
 const fn entity_kind_for_content(kind: ContentListEntityKind) -> EntityKind {
     match kind {
-        ContentListEntityKind::Artist => EntityKind::Artist,
         ContentListEntityKind::Release => EntityKind::Release,
         ContentListEntityKind::Track => EntityKind::Track,
     }
