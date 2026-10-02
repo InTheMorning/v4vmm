@@ -41,6 +41,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0079](0079-remove-musicindex-artist-subject-storage.md) | MusicIndex artist subject storage is deleted. The publisher feed is the only artist identity. Person identity stays deferred. Supersedes ADR 0029 | Accepted |
 | [0080](0080-tag-frames-follow-their-owner.md) | Tag frames follow their owner: one resolved Nostr key, the item page in `WOAF` and the channel website in `WOAR`, a separate album description frame, idempotent writes that keep MusicBrainz values, plain URLs in URL frames, and a compare that uses the resolution of the writer | Accepted |
 | [0081](0081-remove-the-staged-frame-model.md) | Remove the staged frame model: no frame add, remove, detach or dock model with no caller, no reserved slots, and Forward completes ADR 0046 Invariant 2. Supersedes ADR 0046 Invariant 8 | Accepted |
+| [0082](0082-publisher-roles-belong-to-each-album-link.md) | Publisher roles belong to each album link: no page type, albums grouped by `album_names_as`, a role set on each row, and the feeds that share albums. Supersedes ADR 0078 when accepted. Held for Stophammer 0.7.0 | Proposed |
 | [0004](0004-format-neutral-audio-tag-boundary.md) | Format-neutral audio tag boundary | Accepted |
 | [0005](0005-musicbrainz-metadata-lookup.md) | Metadata-based MusicBrainz lookup. No fingerprinting | Accepted |
 | [0006](0006-musicbrainz-release-detail-enrichment.md) | MusicBrainz release detail enrichment | Accepted |
