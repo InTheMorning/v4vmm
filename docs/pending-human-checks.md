@@ -606,3 +606,13 @@ Open and paused - implementation and mechanical checks are complete on 2026-10-0
 - Scheduling: run the procedure only after the operator resumes visual checks. It only reads pages and resizes panes.
 - V1: the workspace frames, the breadcrumb, Back and Forward, and the pane resize work as before.
 - V2: the Library list, a playlist page with rename, Music search and the Show queue work as before.
+
+## 34. Forward Navigation — ADR 0046 Task 015
+
+Open and paused - implementation and mechanical checks are complete on 2026-10-02. Operator inspection is pending.
+
+- Owner: [task 015](tasks/adr-0046-task-015-forward-navigation.md#operator-visual-check).
+- Scheduling: run the procedure only after the operator resumes visual checks. It only reads pages. The macOS key steps need a macOS desktop session.
+- V1: the frame chrome shows Forward adjacent to Back, in the same style. Forward is unavailable until the operator goes Back.
+- V2: Back and then Forward return to the same page. `alt-left` and `alt-right` on Linux, and `cmd-[` and `cmd-]` outside a text box on macOS, do the same. Indent and outdent still work in a macOS text box.
+- V3: normal and narrow widths, Light and Dark themes, and the larger type sizes show both controls with no clipped element.

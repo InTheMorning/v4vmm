@@ -32,6 +32,7 @@ type WorkspaceBreadcrumbSelectHandler =
     Rc<dyn Fn(FrameNavigationEntry, &mut Window, &mut App) + 'static>;
 type WorkspaceBreadcrumbLabeler = Rc<dyn Fn(&FrameNavigationEntry) -> String + 'static>;
 type WorkspaceBackSelectHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+type WorkspaceForwardSelectHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
 type WorkspaceContentPaneResizeHandler = Box<dyn Fn(Pixels, &mut Window, &mut App) + 'static>;
 type WorkspaceContentPaneResizeStartHandler = Box<dyn Fn(&mut Window, &mut App) + 'static>;
@@ -55,6 +56,7 @@ pub(crate) struct WorkspaceSlots {
     on_content_list_breadcrumb_select: Option<WorkspaceBreadcrumbSelectHandler>,
     content_list_breadcrumb_labeler: Option<WorkspaceBreadcrumbLabeler>,
     on_content_list_back_select: Option<WorkspaceBackSelectHandler>,
+    on_content_list_forward_select: Option<WorkspaceForwardSelectHandler>,
     content_pane_width: Option<Pixels>,
     on_content_pane_resize_start: Option<WorkspaceContentPaneResizeStartHandler>,
     on_content_pane_resize_move: Option<WorkspaceContentPaneResizeMoveHandler>,
@@ -142,6 +144,15 @@ impl WorkspaceSlots {
         handler: impl Fn(&mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_content_list_back_select = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the content-list forward button callback.
+    pub(crate) fn on_content_list_forward_select(
+        mut self,
+        handler: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_content_list_forward_select = Some(Rc::new(handler));
         self
     }
 
@@ -283,6 +294,18 @@ impl WorkspaceSlots {
             | WorkspaceFrameKind::QueueNowPlaying => None,
         }
     }
+
+    fn forward_select_handler_for(
+        &self,
+        kind: WorkspaceFrameKind,
+    ) -> Option<WorkspaceForwardSelectHandler> {
+        match kind {
+            WorkspaceFrameKind::ContentList => self.on_content_list_forward_select.clone(),
+            WorkspaceFrameKind::Detail
+            | WorkspaceFrameKind::SourceList
+            | WorkspaceFrameKind::QueueNowPlaying => None,
+        }
+    }
 }
 
 /// `queue_now_playing`, `detail_filter_chip_strip` and `on_detail_filter_select`
@@ -405,6 +428,11 @@ impl RenderOnce for WorkspaceShell {
             }
             if let Some(handler) = self.slots.back_select_handler_for(frame_kind) {
                 shell_slots = shell_slots.on_back(move |window, cx| {
+                    handler(window, cx);
+                });
+            }
+            if let Some(handler) = self.slots.forward_select_handler_for(frame_kind) {
+                shell_slots = shell_slots.on_forward(move |window, cx| {
                     handler(window, cx);
                 });
             }

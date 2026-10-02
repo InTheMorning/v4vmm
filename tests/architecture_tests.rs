@@ -878,6 +878,109 @@ fn workspace_frame_shell_display_contract_lives_in_workspace_vm() {
     );
 }
 
+/// R15-05 (ADR 0046 Task 015, ADR 0081 Decision 3): `go_forward` and
+/// `FrameShellSlots::on_forward` must have a production caller, so neither
+/// one stays behind a `#[cfg(test)]` block.
+#[test]
+fn adr_0046_forward_go_forward_and_on_forward_have_production_callers() {
+    let nav_source = read_source(&manifest_path("src/view_models/workspace/nav.rs"));
+    assert!(
+        nav_source.contains("pub(crate) fn go_forward"),
+        "ADR 0046 Task 015: src/view_models/workspace/nav.rs must declare go_forward"
+    );
+    assert!(
+        !nav_source.contains("#[cfg(test)]"),
+        "ADR 0046 Task 015: src/view_models/workspace/nav.rs must not gate go_forward behind #[cfg(test)]"
+    );
+
+    let mod_source = read_source(&manifest_path("src/view_models/workspace/mod.rs"));
+    assert!(
+        mod_source.contains("    CannotNavigateForward,")
+            && !mod_source.contains("#[cfg(test)]\n    CannotNavigateForward,"),
+        "ADR 0046 Task 015: WorkspaceModelError::CannotNavigateForward must not stay test-only"
+    );
+
+    let frame_shell_source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
+    let production_frame_shell = frame_shell_source
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(frame_shell_source.as_str());
+    assert!(
+        production_frame_shell.contains("pub(crate) fn on_forward"),
+        "ADR 0046 Task 015: FrameShellSlots::on_forward must have a production caller outside #[cfg(test)]"
+    );
+
+    let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
+    for required in [
+        "on_content_list_forward_select",
+        "forward_select_handler_for",
+        "shell_slots.on_forward(",
+    ] {
+        assert!(
+            workspace_shell_source.contains(required),
+            "ADR 0046 Task 015: src/ui/shells/workspace.rs must wire `{required}`"
+        );
+    }
+
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    for required in [
+        "fn handle_content_list_forward_select",
+        "pop_nav_forward",
+        "on_content_list_forward_select",
+    ] {
+        assert!(
+            app_source.contains(required),
+            "ADR 0046 Task 015: src/app.rs must wire `{required}`"
+        );
+    }
+}
+
+/// R15-02 and R15-06 (ADR 0046 Task 015): Forward must restore a page
+/// through the same function calls Back uses, so a publisher page, a
+/// name-match page, and every other restored page keep the one stale-result
+/// check Back already proves.
+#[test]
+fn adr_0046_forward_restores_pages_through_the_shared_back_restore_path() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let back_body = source_between(
+        &app_source,
+        "fn handle_content_list_back_select(&mut self, cx: &mut Context<Self>) {",
+        "fn handle_content_list_forward_select",
+    );
+    let forward_body = source_between(
+        &app_source,
+        "fn handle_content_list_forward_select(&mut self, cx: &mut Context<Self>) {",
+        "fn restore_content_list_nav_entry(",
+    );
+    let shared_body = source_between(
+        &app_source,
+        "fn restore_content_list_nav_entry(",
+        "pub(super) fn focus_global_search(",
+    );
+
+    assert!(
+        back_body.contains("self.restore_content_list_nav_entry(content_list_id, &entry, cx)"),
+        "ADR 0046 Task 015: Back must restore its entry through restore_content_list_nav_entry"
+    );
+    assert!(
+        forward_body.contains("self.restore_content_list_nav_entry(content_list_id, &entry, cx)"),
+        "ADR 0046 Task 015: Forward must restore its entry through the same restore_content_list_nav_entry Back uses"
+    );
+
+    for required in [
+        "restore_publisher_page_for_nav",
+        "restore_name_match_page_for_nav",
+        "restore_index_feed_detail_for_nav",
+        "restore_index_track_detail_for_nav",
+        "hydrate_detail_from_nav",
+    ] {
+        assert!(
+            shared_body.contains(required),
+            "ADR 0046 Task 015: the shared restore path must call `{required}`"
+        );
+    }
+}
+
 #[test]
 fn adr_0047_phase_b_view_model_contracts_are_gpui_free_and_shared() {
     let workspace_source = workspace_vm_source();
@@ -4553,17 +4656,31 @@ fn top_level_keyboard_shortcuts_route_through_key_binding_taxonomy() {
 
 #[test]
 fn adr_0067_keyboard_and_menu_share_platform_modifier_resolution() {
-    for file in ["src/app/keyboard.rs", "src/app/menu.rs"] {
-        let source = read_source(&manifest_path(file));
-        assert!(
-            source.contains("platform_keystroke(self.keystroke, is_macos)"),
-            "Situational ADR 0067: {file} must resolve its registry through the shared platform adapter"
-        );
-        assert!(
-            !source.contains("KeyBinding::new(self.keystroke,"),
-            "Situational ADR 0067: {file} must not bypass platform resolution"
-        );
-    }
+    let keyboard_source = read_source(&manifest_path("src/app/keyboard.rs"));
+    assert!(
+        keyboard_source.contains("platform_keystroke(self.keystroke, is_macos)"),
+        "Situational ADR 0067: src/app/keyboard.rs must resolve its registry through the shared platform adapter"
+    );
+    assert!(
+        !keyboard_source.contains("KeyBinding::new(self.keystroke,"),
+        "Situational ADR 0067: src/app/keyboard.rs must not bypass platform resolution"
+    );
+
+    // ADR 0046 Task 015 gave src/app/menu.rs a second entry shape,
+    // `AppMenuKeystroke::PerPlatform`, beside the original `Shared` shape, so
+    // one entry can carry a different keystroke and context for macOS and
+    // for every other platform (the Back and Forward binds). The `Shared`
+    // shape still resolves every original entry through the one shared
+    // platform adapter.
+    let menu_source = read_source(&manifest_path("src/app/menu.rs"));
+    assert!(
+        menu_source.contains("platform_keystroke(keystroke, is_macos)"),
+        "Situational ADR 0067: src/app/menu.rs must resolve its Shared entries through the shared platform adapter"
+    );
+    assert!(
+        !menu_source.contains("KeyBinding::new(self.keystroke,"),
+        "Situational ADR 0067: src/app/menu.rs must not bypass platform resolution"
+    );
 }
 
 #[test]
@@ -4631,10 +4748,10 @@ fn macos_app_menu_bootstrap_exposes_standard_app_commands() {
         "MenuItem::action(\"Hide Others\", HideOtherApps)",
         "MenuItem::action(\"Show All\", ShowAllApps)",
         "MenuItem::action(\"Quit Application\", QuitApp)",
-        "keystroke: \"cmd-,\"",
-        "keystroke: \"cmd-h\"",
-        "keystroke: \"cmd-alt-h\"",
-        "keystroke: \"cmd-q\"",
+        "AppMenuKeystroke::Shared(\"cmd-,\")",
+        "AppMenuKeystroke::Shared(\"cmd-h\")",
+        "AppMenuKeystroke::Shared(\"cmd-alt-h\")",
+        "AppMenuKeystroke::Shared(\"cmd-q\")",
     ] {
         if !menu_source.contains(required) {
             violations.push(format!(

@@ -247,12 +247,7 @@ impl FrameNavigationState {
     pub(crate) fn has_history(&self) -> bool {
         !self.back_stack.is_empty()
     }
-}
 
-/// `go_forward` has no caller outside its own dedicated test: no command
-/// wires a Forward action today. It stays here, compiled only for tests.
-#[cfg(test)]
-impl FrameNavigationState {
     /// Moves forward one navigation entry.
     ///
     /// # Errors

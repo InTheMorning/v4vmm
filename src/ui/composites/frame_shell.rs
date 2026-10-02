@@ -75,6 +75,12 @@ impl FrameShellSlots {
         self
     }
 
+    /// Supplies the forward-navigation callback.
+    pub(crate) fn on_forward(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_forward = Some(Rc::new(handler));
+        self
+    }
+
     /// Supplies the frame-local content-filter selection callback.
     pub(crate) fn on_filter_select(
         mut self,
@@ -103,18 +109,12 @@ impl FrameShellSlots {
     }
 }
 
-/// `on_forward`, `on_close` and `on_menu_select` are ADR 0046 frame chrome
-/// slots with no production caller yet: the workspace shell wires only
-/// `on_back` today. `frame_shell`'s own rendering test needs each builder
+/// `on_close` and `on_menu_select` are ADR 0046 frame chrome slots with no
+/// production caller yet: the workspace shell wires only `on_back` and
+/// `on_forward` today. `frame_shell`'s own rendering test needs each builder
 /// as a direct helper, so each one stays here, compiled only for tests.
 #[cfg(test)]
 impl FrameShellSlots {
-    /// Supplies the forward-navigation callback.
-    pub(crate) fn on_forward(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
-        self.on_forward = Some(Rc::new(handler));
-        self
-    }
-
     /// Supplies the close-frame callback.
     pub(crate) fn on_close(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_close = Some(Rc::new(handler));

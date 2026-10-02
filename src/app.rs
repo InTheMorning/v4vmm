@@ -649,19 +649,46 @@ impl TopApp {
         };
 
         if let Some(entry) = self.workspace_layout.pop_nav(content_list_id) {
-            self.sync_search_results_detail_with_nav(content_list_id);
-            self.library.update(cx, |library, cx| {
-                library.hydrate_detail_from_nav(&entry, cx);
-            });
-            self.restore_publisher_page_for_nav(&entry, cx);
-            self.restore_name_match_page_for_nav(&entry, cx);
-            self.restore_index_feed_detail_for_nav(&entry, content_list_id, cx);
-            self.restore_index_track_detail_for_nav(&entry, cx);
-            if let FrameNavigationEntry::Search(query) = &entry {
-                self.start_index_search_for_query(query, cx);
-            }
-            cx.notify();
+            self.restore_content_list_nav_entry(content_list_id, &entry, cx);
         }
+    }
+
+    /// Handles a Forward press on the content-list frame (ADR 0046 Task 015).
+    ///
+    /// Forward reuses the Back restore path: it moves the frame's navigation
+    /// state ahead by one entry, then restores that entry's page through the
+    /// same functions Back uses, so both directions keep one page restore
+    /// path and the same stale-result checks.
+    fn handle_content_list_forward_select(&mut self, cx: &mut Context<Self>) {
+        let Some(content_list_id) = self.content_list_frame_id() else {
+            return;
+        };
+
+        if let Some(entry) = self.workspace_layout.pop_nav_forward(content_list_id) {
+            self.restore_content_list_nav_entry(content_list_id, &entry, cx);
+        }
+    }
+
+    /// Restores the page for a navigation entry that Back or Forward just
+    /// selected on the content-list frame (ADR 0046 Task 015).
+    fn restore_content_list_nav_entry(
+        &mut self,
+        content_list_id: WorkspaceFrameId,
+        entry: &FrameNavigationEntry,
+        cx: &mut Context<Self>,
+    ) {
+        self.sync_search_results_detail_with_nav(content_list_id);
+        self.library.update(cx, |library, cx| {
+            library.hydrate_detail_from_nav(entry, cx);
+        });
+        self.restore_publisher_page_for_nav(entry, cx);
+        self.restore_name_match_page_for_nav(entry, cx);
+        self.restore_index_feed_detail_for_nav(entry, content_list_id, cx);
+        self.restore_index_track_detail_for_nav(entry, cx);
+        if let FrameNavigationEntry::Search(query) = entry {
+            self.start_index_search_for_query(query, cx);
+        }
+        cx.notify();
     }
 
     pub(super) fn focus_global_search(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1291,6 +1318,13 @@ impl TopApp {
             });
         });
 
+        let forward_entity = entity.clone();
+        workspace_slots = workspace_slots.on_content_list_forward_select(move |_window, cx| {
+            forward_entity.update(cx, |this, cx| {
+                this.handle_content_list_forward_select(cx);
+            });
+        });
+
         // Stage 6: Wire content pane width and resize handler
         workspace_slots = workspace_slots
             .content_pane_width(self.content_pane_width)
@@ -1384,6 +1418,8 @@ impl Render for TopApp {
             .on_action(cx.listener(TopApp::handle_skip_playback_next))
             .on_action(cx.listener(TopApp::handle_skip_playback_previous))
             .on_action(cx.listener(TopApp::handle_open_preferences))
+            .on_action(cx.listener(TopApp::handle_navigate_back))
+            .on_action(cx.listener(TopApp::handle_navigate_forward))
             .on_action(cx.listener(TopApp::handle_focus_search))
             .on_action(cx.listener(TopApp::handle_new_playlist))
             .on_action(cx.listener(TopApp::handle_select_music_tab))

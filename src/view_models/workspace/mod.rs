@@ -60,10 +60,6 @@ pub(crate) enum WorkspaceModelError {
     #[cfg(test)]
     LastFrameRemoval,
     /// The frame has no forward-history entry to select.
-    ///
-    /// Only the test-only `FrameNavigationState::go_forward` constructs this
-    /// today; no caller wires a Forward command yet.
-    #[cfg(test)]
     CannotNavigateForward,
     /// The detach request is valid but windowing support is deferred.
     ///
@@ -97,7 +93,6 @@ impl fmt::Display for WorkspaceModelError {
             Self::CannotNavigateBack => f.write_str("workspace frame has no back history"),
             #[cfg(test)]
             Self::LastFrameRemoval => f.write_str("cannot remove the last workspace frame"),
-            #[cfg(test)]
             Self::CannotNavigateForward => f.write_str("workspace frame has no forward history"),
             #[cfg(test)]
             Self::DetachDeferred(id) => write!(
@@ -287,6 +282,15 @@ impl WorkspaceLayout {
     /// Pops a frame's back-history entry and returns the new current entry.
     pub(crate) fn pop_nav(&mut self, id: WorkspaceFrameId) -> Option<FrameNavigationEntry> {
         self.frame_navigation.get_mut(&id)?.go_back().ok().cloned()
+    }
+
+    /// Pops a frame's forward-history entry and returns the new current entry.
+    pub(crate) fn pop_nav_forward(&mut self, id: WorkspaceFrameId) -> Option<FrameNavigationEntry> {
+        self.frame_navigation
+            .get_mut(&id)?
+            .go_forward()
+            .ok()
+            .cloned()
     }
 
     /// Replaces a frame's full navigation state.

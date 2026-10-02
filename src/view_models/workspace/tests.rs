@@ -1212,6 +1212,94 @@ fn navigation_push_pop_round_trip() {
     );
 }
 
+/// R15-01 (ADR 0046 Task 015): the chrome display exposes Forward as
+/// unavailable before a Back press, and as available once a Back press
+/// leaves forward history behind.
+#[test]
+fn adr_0046_forward_chrome_display_enables_forward_after_back() {
+    let frame = frame(7, WorkspaceFrameKind::Detail);
+    let mut nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(1));
+    nav.push(FrameNavigationEntry::TrackDetail(42));
+
+    let before_back = FrameShellDisplay::from_frame(&frame, &nav, true);
+    assert!(
+        before_back.forward.disabled,
+        "Forward must stay unavailable before a Back press"
+    );
+
+    nav.go_back()
+        .expect("pushed navigation should allow going back");
+    let after_back = FrameShellDisplay::from_frame(&frame, &nav, true);
+    assert!(
+        !after_back.forward.disabled,
+        "Forward must become available once a Back press leaves forward history"
+    );
+}
+
+/// R15-03 (ADR 0046 Task 015): a push after a Back clears the forward
+/// history, and the chrome display exposes Forward as unavailable again.
+#[test]
+fn adr_0046_forward_push_after_back_clears_forward_history() {
+    let frame = frame(7, WorkspaceFrameKind::Detail);
+    let mut nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(1));
+    nav.push(FrameNavigationEntry::TrackDetail(42));
+    nav.go_back()
+        .expect("pushed navigation should allow going back");
+    assert!(
+        nav.can_go_forward(),
+        "a Back press must leave forward history for this test to be meaningful"
+    );
+
+    nav.push(FrameNavigationEntry::AlbumDetail(5));
+
+    let display = FrameShellDisplay::from_frame(&frame, &nav, true);
+    assert!(
+        display.forward.disabled,
+        "a push after a Back must clear forward history"
+    );
+}
+
+/// R15-02 (ADR 0046 Task 015): `WorkspaceLayout::pop_nav_forward` restores
+/// the entry that `pop_nav` (Back) left, and the chrome then shows Forward
+/// as unavailable again.
+#[test]
+fn adr_0046_forward_pop_nav_forward_restores_entry_back_left() {
+    let mut layout = WorkspaceLayout::default_layout();
+    let content_list_id = WorkspaceLayout::default_content_frame_id();
+
+    layout
+        .push_nav(content_list_id, FrameNavigationEntry::TrackDetail(42))
+        .expect("content-list frame should exist");
+
+    let entry_back_left = layout
+        .pop_nav(content_list_id)
+        .expect("a pushed entry should allow going back");
+    assert_eq!(
+        entry_back_left,
+        FrameNavigationEntry::SourceList,
+        "Back should restore the entry that preceded the push"
+    );
+
+    let restored_by_forward = layout
+        .pop_nav_forward(content_list_id)
+        .expect("a Back press should leave a forward entry");
+    assert_eq!(
+        restored_by_forward,
+        FrameNavigationEntry::TrackDetail(42),
+        "Forward should restore the entry that Back left"
+    );
+
+    let frame = frame(content_list_id.value(), WorkspaceFrameKind::ContentList);
+    let nav = layout
+        .frame_nav(content_list_id)
+        .expect("content-list frame navigation should exist");
+    let display = FrameShellDisplay::from_frame(&frame, nav, true);
+    assert!(
+        display.forward.disabled,
+        "Forward must become unavailable once its only entry is restored"
+    );
+}
+
 /// R4-04 (ADR 0077 packet 004): the publisher navigation entry keys on the
 /// publisher feed GUID, so two different GUIDs are two different entries
 /// and pushing a repeated GUID is a no-op, the same as every other entry.
