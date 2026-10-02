@@ -185,6 +185,23 @@ The node keeps no artist credit (ADR 0034 §11). `release_artist` and
 `track_artist` do not change. The event types `artist_upserted` and
 `artist_credit_created` stop.
 
+## Release 0.6.0 - 2026-10-02
+
+**One change of meaning (ADR 0049 §6):** when neither side of a publisher
+link states a `rel`, `role` is now null. Before, it was the guess
+`"artist"`. `role_source` stays `"default"`. A client that reads `role` alone
+must accept null. A client that treats `role_source: "default"` as "not
+stated" sees no change.
+
+Each `publisher` row also gives `album_names_as`, and a publisher read gives
+`co_credited_feeds` (ADR 0069). Both are additions.
+
+## Release 0.5.0 - 2026-10-02
+
+The node signs fewer events: a source event only when a source fact changes.
+A community node and a sync client receive fewer events, with the same
+content.
+
 ## Release 0.4.0 - 2026-10-02
 
 Release 0.4.0 adds fields for musicindex.org (ADR 0059 §5 and ADR 0068). One
