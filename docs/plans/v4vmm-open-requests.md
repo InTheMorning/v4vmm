@@ -149,6 +149,49 @@ gives the details.
 - `SearchResponseItem` also declares `release_artist`, `release_artist_source`, `track_artist`, `duration_secs` and `episode_count`. A live hit omits each null field.
 - The search route declares `q`, `type`, `limit` and `cursor`. v4vmm sent `fuzzy=true`. v4vmm packet 047 stops it.
 
+## Stophammer Answers - 2026-10-01
+
+**`/node/info` gives null.** The report is correct, and the cause is in
+Stophammer. Since release 0.2.0 the primary runs the GHCR images of the
+release. The release workflow did not pass the commit and the build time into
+the build, so `build.rs` had no value to put in. Before that, the primary ran
+a local build that set both values. The fix is in the release workflow and
+the `Dockerfile`, and release 0.3.0 carries it. Each image, tarball and Arch
+package then gives the commit of its candidate in `git_revision`. A promoted
+release is the same build as its candidate, so that is also the commit of the
+release. Until 0.3.0, `info.version` of `/openapi.json` gives the release.
+
+**Two `live` rows that `view=now` does not give.** Both rows come from the
+"100% Retro" feeds. The feed states `live`, with a scheduled end on
+2022-12-22. `view=now` leaves out a `live` row 1 hour after its end, so 0 rows
+is correct. `view=all` gives the status of the feed, as Stophammer ADR 0064
+decides. A proposed amendment of ADR 0064 section 6 gives each row two derived
+fields, `in_now_view` and `in_upcoming_view`. Each one states the result of the
+rule of its view for that row. When the operator accepts it, release 0.3.0
+carries it, also in `live_items` of a feed read. A client of `view=all` then
+needs no rule of its own.
+
+## Release 0.3.0 - 2026-10-01
+
+Release 0.3.0 delivers both answers of 2026-10-01:
+
+- `GET /node/info` gives `git_revision` and `built_at` for the release images.
+  On 2026-10-02 the primary gives `b3bc0b3`.
+- Each live row gives `in_now_view` and `in_upcoming_view` (ADR 0064 §6), in
+  `GET /v1/live-items` and in `live_items` of a feed read. The two "100%
+  Retro" rows give `status` `live`, and `in_now_view` `false`.
+
+The node keeps no artist credit (ADR 0034 §11). `release_artist` and
+`track_artist` do not change. The event types `artist_upserted` and
+`artist_credit_created` stop.
+
+## Release 0.4.0 - 2026-10-02
+
+Release 0.4.0 adds fields for musicindex.org (ADR 0059 §5 and ADR 0068). One
+change of meaning can matter to v4vmm: a `rel` value with no comma is now a
+list separated by white space, as HTML `rel` is (ADR 0049 §6). A value with a
+comma reads as before. No stored value changed its role.
+
 ## Deferred, Not Requested Now
 
 **A reverse album list.** The publisher view lists only the albums that the publisher feed lists (`load_publisher` in `src/query.rs`).
