@@ -25,7 +25,7 @@ Complete this packet in one session; do not start its successor.
 - src/db.rs — open_db, init_schema, migrate_schema, repair_local_file_paths, LocalPathRepairSkip
 - src/presentation/mod.rs; src/ui/composites/mod.rs; src/view_models/mod.rs
 - src/ui/primitives/button.rs; src/ui/tokens.rs; src/ui/control_styles.rs; src/ui/theme_bridge.rs
-- docs/adr/0040-async-vm-runtime.md; docs/adr/0064-local-file-addressing.md
+- docs/adr/0040-async-vm-runtime.md; docs/adr/archive/0064-local-file-addressing.md
 - `tests/architecture_tests.rs`; `AGENTS.md`
 
 ## Changed Owners

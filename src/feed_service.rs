@@ -977,6 +977,7 @@ mod tests {
         Ok(())
     }
 
+    /// ADR 0011: the feed GUID maps to the `TXXX:MusicIndex Feed Guid` frame.
     #[test]
     fn library_track_context_preserves_feed_guid_for_id3_provenance() {
         let track = TrackRow {
@@ -1006,9 +1007,12 @@ mod tests {
         let context = track_row_to_track_context(&track);
         let edits = id3_edits_for_track_context(&context);
 
-        assert!(edits.iter().any(|edit| {
-            edit.frame_label == "TXXX:MusicIndex Feed Guid" && edit.value == "feed-guid"
-        }));
+        assert!(
+            edits.iter().any(|edit| {
+                edit.frame_label == "TXXX:MusicIndex Feed Guid" && edit.value == "feed-guid"
+            }),
+            "ADR 0011: the feed GUID must map to the TXXX:MusicIndex Feed Guid frame"
+        );
     }
 
     /// ADR 0075 packet 022 (R22-01): the track still inherits feed-level

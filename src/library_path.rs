@@ -113,7 +113,11 @@ mod tests {
 
         let relative = LibraryRelativePath::from_absolute(music_dir, absolute)?;
 
-        assert_eq!(relative.as_stored(), "artists/artist/feed/track.mp3");
+        assert_eq!(
+            relative.as_stored(),
+            "artists/artist/feed/track.mp3",
+            "ADR 0064: the stored path is the part of the absolute path under music_dir"
+        );
         Ok(())
     }
 
@@ -123,7 +127,10 @@ mod tests {
             LibraryRelativePath::from_absolute(Path::new("/music"), Path::new("/other/track.mp3"))
                 .expect_err("outside path should fail");
 
-        assert!(error.to_string().contains("under music_dir"));
+        assert!(
+            error.to_string().contains("under music_dir"),
+            "ADR 0064: a path outside music_dir must fail to resolve"
+        );
     }
 
     #[test]
@@ -131,7 +138,10 @@ mod tests {
         let error = LibraryRelativePath::from_stored("/artist/track.mp3")
             .expect_err("absolute stored path should fail");
 
-        assert!(error.to_string().contains("relative"));
+        assert!(
+            error.to_string().contains("relative"),
+            "ADR 0064: a stored path must carry no leading separator"
+        );
     }
 
     #[test]
@@ -142,7 +152,10 @@ mod tests {
         )
         .expect_err("parent segment should fail");
 
-        assert!(error.to_string().contains("parent directory"));
+        assert!(
+            error.to_string().contains("parent directory"),
+            "ADR 0064: a stored path must carry no parent-directory segment"
+        );
     }
 
     #[test]
@@ -151,7 +164,11 @@ mod tests {
         let absolute = Path::new("/music/artists/artist/feed/track.mp3");
         let relative = LibraryRelativePath::from_absolute(music_dir, absolute)?;
 
-        assert_eq!(relative.resolve(music_dir), absolute);
+        assert_eq!(
+            relative.resolve(music_dir),
+            absolute,
+            "ADR 0064: the one resolver round-trips a stored path back to its absolute path"
+        );
         Ok(())
     }
 }

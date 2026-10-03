@@ -18,7 +18,7 @@ Add the command that starts the check from the playlist page. Add the automatic 
 - [ADR 0040](../adr/0040-async-vm-runtime.md): the check is a runtime actor. `src/runtime/playback_polling.rs` is the reference.
 - [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md) sections 1 and 2: each request records an observation.
 - [ADR 0058](../adr/0058-outbound-http-client-policy.md): the blocking client comes from `src/http_client.rs`.
-- [ADR 0016](../adr/0016-schema-migration-discipline.md): the run tables go through the migration registry.
+- [ADR 0016](../adr/archive/0016-schema-migration-discipline.md): the run tables go through the migration registry.
 - The [phase plan](../plans/adr-0076-playlist-rss-check-phase-plan.md) records the trigger mapping and the open details.
 
 ## Recorded Facts - 2026-09-24

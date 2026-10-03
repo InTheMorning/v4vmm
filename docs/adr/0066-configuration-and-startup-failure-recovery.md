@@ -313,7 +313,7 @@ fails. Their commands do not depend on `TopApp` holding an open connection:
 | **Repair interrupted upgrade** | Recognize a supported incomplete schema upgrade and offer its named, tested migration recipe after making a preservation backup. Work on a candidate copy, validate it, and apply it through the same controlled replacement path as Restore. Report what changed. Arbitrary corruption is not evidence that replaying migrations will repair it; unsupported cases offer preservation and restore instead of guessing. |
 
 Upgrade repair remains a migration under
-[ADR 0016](0016-schema-migration-discipline.md). It uses the same registry and
+[ADR 0016](archive/0016-schema-migration-discipline.md). It uses the same registry and
 execution/version-recording path as normal startup: currently `MIGRATIONS`,
 `migrate_schema`, and `record_migration` in `src/db.rs`. Running against a
 candidate changes the destination connection, not the schema authority.
@@ -690,12 +690,12 @@ packets; no unnamed final cleanup owns this obligation.
 
 - [Deferred work, items 6 and 7](../plans/deferred-architecture-work-index.md#priority-order).
 - [ADR 0010: MusicIndex endpoint](0010-musicindex-endpoint-setting.md).
-- [ADR 0016: Schema migrations](0016-schema-migration-discipline.md).
+- [ADR 0016: Schema migrations](archive/0016-schema-migration-discipline.md).
 - [ADR 0021: Playback driver](0021-mpv-playback-driver.md).
 - [ADR 0040: Runtime ownership](0040-async-vm-runtime.md).
 - [ADR 0060: App sections](0060-workflow-surface-structure.md).
 - [ADR 0061: Governance and shared UI ownership](0061-executable-governance.md).
-- [ADR 0064: Local path repair](0064-local-file-addressing.md).
+- [ADR 0064: Local path repair](archive/0064-local-file-addressing.md).
 
 
 Task 010 implements database inspection and verified snapshots through

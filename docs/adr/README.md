@@ -22,7 +22,6 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | ADR | Scope | Status |
 |---|---|---|
 | [0012](0012-root-desktop-crate.md) | One root desktop crate | Accepted |
-| [0016](0016-schema-migration-discipline.md) | New tables and columns go through the migration registry | Accepted |
 | [0028](0028-local-identity-source-fact-persistence.md) | Source links, ids, and contributors persist as source facts. ADR 0075 replaces its replacement key | Implemented |
 | [0053](0053-local-detail-source-fact-parity.md) | Source-fact route for parity gaps not locally durable | Accepted |
 | [0054](0054-local-metadata-source-fact-persistence.md) | Feed and track metadata facts persist by source; hydration visual checks remain open. ADR 0075 replaces its replacement key | Accepted, partial |
@@ -45,7 +44,6 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0006](0006-musicbrainz-release-detail-enrichment.md) | MusicBrainz release detail enrichment | Accepted |
 | [0007](0007-metadata-compare-table-drag-copy.md) | Compare table drag copy | Accepted |
 | [0008](0008-explicit-id3v24-write-boundary.md) | Only explicit ID3v2.4 frames are written | Accepted |
-| [0011](0011-musicindex-guid-id3-tags.md) | MusicIndex feed and track GUIDs in TXXX frames | Accepted |
 
 ## Services And Boundaries
 
@@ -54,7 +52,6 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0010](0010-musicindex-endpoint-setting.md) | Configurable MusicIndex endpoint | Accepted |
 | [0015](0015-non-ui-service-boundaries.md) | Services stay free of UI concerns | Accepted |
 | [0017](0017-cli-debug-contracts.md) | CLI debug contract and JSON output | Accepted |
-| [0022](0022-ui-agnostic-core-extraction.md) | Core is free of renderer types | Implemented |
 | [0024](0024-command-query-event-application-layer.md) | Command, query, and event application layer | Implemented |
 | [0040](0040-async-vm-runtime.md) | Async view-model runtime. Actors in `src/runtime/` | Implemented |
 | [0041](0041-windowed-paged-view-models.md) | Windowed paged view models | Implemented |
@@ -87,7 +84,6 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0060](0060-workflow-surface-structure.md) | Music, Show and Settings structure is delivered. Independent audition remains unfinished under proposed ADR 0068. | Accepted |
 | [0062](0062-music-content-surface.md) | Five Music packets are complete. The default Index order returns releases. Broader mixed-row search/expansion still needs an evidence review. | Accepted |
 | [0063](0063-show-dashboard-layout.md) | Show cards and diagnostics; [shared log frames and following](../tasks/adr-0063-task-005-shared-log-frames-and-following.md) complete with operator acceptance, preservation and cleanup | Implemented |
-| [0064](0064-local-file-addressing.md) | Downloaded files live under music_dir and store a relative path | Accepted |
 | [0069](0069-grouped-settings-and-selective-presets.md) | Grouped Settings, live metadata resource selection, independent audio configuration and selective preset snapshots. Task 001 is complete. [Task 002 is Ready](../tasks/adr-0069-task-002-shared-guarded-editor.md). Implementation of task 002 has not started. | Accepted |
 | [0074](0074-repair-and-diagnostics-pages.md) | Separate repair/diagnostics pages, action columns, report views and consistent text. Visual and preservation gates accepted; task 013 cleanup confirmed | Implemented |
 

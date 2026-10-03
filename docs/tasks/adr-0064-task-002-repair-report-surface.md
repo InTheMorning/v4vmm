@@ -10,7 +10,7 @@ files can be moved into `music_dir` and downloaded again.
 
 ## Files To Inspect
 
-- `docs/adr/0064-local-file-addressing.md`
+- `docs/adr/archive/0064-local-file-addressing.md`
 - `docs/tasks/adr-0064-task-001-relative-local-paths.md`
 - `src/library_path.rs`, for `repair_local_file_paths` and the repair row shape
 - `src/application/queries/broadcast.rs`, for the readiness report precedent
@@ -125,7 +125,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0064-local-file-addressing.md`
+- `docs/adr/archive/0064-local-file-addressing.md`
 - `docs/tasks/adr-0064-task-001-relative-local-paths.md`
 - `src/application/queries/broadcast.rs` for the readiness report precedent
 

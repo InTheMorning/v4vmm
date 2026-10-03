@@ -239,7 +239,8 @@ mod tests {
     /// `COMM:MusicIndex Album Description` (Decision 5) because the item
     /// has none, and the channel's Nostr key resolves into
     /// `TXXX:RSS Nostr Handle` (Decision 1) because the item has none. This
-    /// test holds the expected edits as fixed values.
+    /// test holds the expected edits as fixed values. It also proves ADR
+    /// 0011: the feed and track GUIDs map to their own `TXXX` frames.
     #[test]
     fn adr_0075_track_header_r22_06_tag_edits_stay_equal_without_own_identity() {
         let context = track_context_without_own_identity();
@@ -255,7 +256,8 @@ mod tests {
                 edit("TXXX:MusicIndex Track Guid", "track-guid"),
                 edit("TXXX:RSS Nostr Handle", NPUB_FEED),
                 edit("WOAR", "https://example.test/feed"),
-            ]
+            ],
+            "ADR 0011 feed/track GUID frames and ADR 0075/0080 track header tags must match exactly"
         );
     }
 
@@ -265,7 +267,8 @@ mod tests {
     /// channel website to `WOAR` (Decision 2), the item's own Nostr key
     /// wins over the channel's (Decision 1), and the item's own description
     /// stays in `COMM:MusicIndex Description` with no album row (Decision
-    /// 5).
+    /// 5). It also proves ADR 0011: the feed and track GUIDs map to their
+    /// own `TXXX` frames.
     #[test]
     fn adr_0075_track_header_r22_06_tag_edits_stay_equal_with_own_identity() {
         let context = track_context_with_own_identity();
@@ -282,7 +285,8 @@ mod tests {
                 edit("TXXX:RSS Nostr Handle", NPUB_TRACK),
                 edit("WOAF", "https://example.test/track"),
                 edit("WOAR", "https://example.test/feed"),
-            ]
+            ],
+            "ADR 0011 feed/track GUID frames and ADR 0075/0080 track header tags must match exactly"
         );
     }
 

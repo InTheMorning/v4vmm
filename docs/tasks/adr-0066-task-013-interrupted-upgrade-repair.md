@@ -28,7 +28,7 @@ created a listed owner, extend that owner.
 - src/db.rs — MIGRATIONS, migrate_schema, record_migration, migration_applied, create_broadcast_event_selection_table
 - src/db/maintenance.rs — validated candidate and install path
 - src/application/commands/maintenance.rs; src/view_models/startup.rs; src/ui/composites/maintenance_forms.rs
-- docs/adr/0016-schema-migration-discipline.md
+- docs/adr/archive/0016-schema-migration-discipline.md
 - docs/reviews/adr-0066-startup-recovery-review-checklist.md
 - `tests/architecture_tests.rs`; `AGENTS.md`
 

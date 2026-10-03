@@ -21,7 +21,7 @@ It adds no field policy or provider observation writes.
 - [AGENTS.md](../../AGENTS.md) and [source map](../../.github/copilot-instructions.md).
 - [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md), [phase plan](../plans/adr-0075-metadata-contract-phase-plan.md), and [packet 011](adr-0075-task-011-provider-snapshot-schema.md).
 - [Storage schema](../schema/adr-0075-provider-snapshot-storage.md), especially migration, preservation, and implementation owners.
-- [ADR 0016](../adr/0016-schema-migration-discipline.md) and [ADR 0066 repair packet](adr-0066-task-013-interrupted-upgrade-repair.md).
+- [ADR 0016](../adr/archive/0016-schema-migration-discipline.md) and [ADR 0066 repair packet](adr-0066-task-013-interrupted-upgrade-repair.md).
 - Shared skills: `/home/citizen/.agents/skills/asd-ste100/SKILL.md`, `/home/citizen/.agents/skills/repo-docs-organizer/SKILL.md`, and `/home/citizen/.agents/skills/feature-orchestrator/SKILL.md`.
 - Rust skill: `/home/citizen/.agents/skills/rust-skills/rust-dev/SKILL.md`.
 

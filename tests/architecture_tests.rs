@@ -5388,6 +5388,9 @@ fn pressable_button_chrome_does_not_use_on_accent_on_ghost_surfaces() {
     );
 }
 
+/// ADR 0022 with ADR 0025: service modules own their domain and stay
+/// UI-free. No non-UI core file imports `gpui`, `gpui_component`, or a UI
+/// module.
 #[test]
 fn core_non_ui_modules_do_not_import_ui_modules() {
     let mut violations = Vec::new();
@@ -5407,7 +5410,7 @@ fn core_non_ui_modules_do_not_import_ui_modules() {
 
     assert!(
         violations.is_empty(),
-        "ADR 0025 core non-UI boundary violations:\n{}",
+        "ADR 0022 and ADR 0025 core non-UI boundary violations:\n{}",
         violations.join("\n")
     );
 }

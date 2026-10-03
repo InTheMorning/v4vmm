@@ -6,6 +6,8 @@ Implemented - 2026-05-01. Green criteria met: `subscribe_service`,
 `feed_service`, and `metadata_service` own their domains, and `src/metadata.rs`
 has no GPUI imports.
 
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
+
 ## Context
 
 ADR 0015 established that workflow behavior should live in non-UI service

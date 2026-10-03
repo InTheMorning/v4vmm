@@ -10,7 +10,7 @@ function, and repair the rows that hold an absolute path today.
 
 ## Files To Inspect
 
-- `docs/adr/0064-local-file-addressing.md`
+- `docs/adr/archive/0064-local-file-addressing.md`
 - `src/db.rs`, for `local_files`, `upsert_local_file`, `mark_track_downloaded`,
   the five queries that select `lf.path`, and `migrate_schema`
 - `src/config.rs`, for `music_dir`
@@ -157,7 +157,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0064-local-file-addressing.md`
+- `docs/adr/archive/0064-local-file-addressing.md`
 - `src/db.rs`, `src/config.rs`, `src/app/bootstrap.rs`
 
 Goal:

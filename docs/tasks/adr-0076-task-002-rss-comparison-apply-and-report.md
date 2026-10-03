@@ -19,7 +19,7 @@ Store a new track. Mark a removed track. Show one report for each check.
 - The [comparison contract](../schema/adr-0075-comparison-and-discrepancy-contract.md#description-comparison-version-1): readable-text comparison of descriptions. It stays in force.
 - The [link rules](../schema/adr-0075-field-rules-links-and-media.md): URL normalization of scheme, host and default ports.
 - [ADR 0075 Decision E](../adr/0075-metadata-ownership-and-completeness.md): supported enclosure selection.
-- [ADR 0016](../adr/0016-schema-migration-discipline.md): the new tables and columns go through the migration registry.
+- [ADR 0016](../adr/archive/0016-schema-migration-discipline.md): the new tables and columns go through the migration registry.
 
 ## Release Condition - Decision 5
 

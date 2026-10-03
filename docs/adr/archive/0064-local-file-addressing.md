@@ -4,6 +4,8 @@
 
 Accepted - 2026-09-08.
 
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
+
 ## Context
 
 `local_files.path` holds an absolute path. Every writer passes one, and every

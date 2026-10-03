@@ -24,7 +24,7 @@ Complete this packet in one session; do not start its successor.
 - Cargo.toml; Cargo.lock — rusqlite 0.38 with bundled, backup and hooks features
 - src/application/commands/maintenance.rs; src/view_models/startup.rs
 - src/presentation/maintenance_executor.rs; src/ui/composites/maintenance_forms.rs
-- docs/adr/0016-schema-migration-discipline.md
+- docs/adr/archive/0016-schema-migration-discipline.md
 - `tests/architecture_tests.rs`; `AGENTS.md`
 
 ## Changed Owners

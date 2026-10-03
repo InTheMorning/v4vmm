@@ -16,7 +16,7 @@ The stored rows can never refresh.
 
 - [ADR 0077](../adr/0077-publisher-feed-artist-binding.md) Decision 7 deletes the ADR 0045 binding.
 - [ADR 0079](../adr/0079-remove-musicindex-artist-subject-storage.md) Decision 1 deletes the artist subject storage.
-- [ADR 0016](../adr/0016-schema-migration-discipline.md) owns the migration registry.
+- [ADR 0016](../adr/archive/0016-schema-migration-discipline.md) owns the migration registry.
 - [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md) owns the startup schema check, the backup and the repair of an interrupted upgrade.
 
 ## Why One Packet

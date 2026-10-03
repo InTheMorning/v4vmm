@@ -10,7 +10,7 @@ mode `0600`. No service, no CLI, no UI.
 ## Files To Inspect
 
 - `docs/adr/0059-broadcast-control-surface.md`
-- `docs/adr/0016-schema-migration-discipline.md`
+- `docs/adr/archive/0016-schema-migration-discipline.md`
 - `docs/architecture/broadcast-chain.md`
 - `src/db.rs` (the `MIGRATIONS` registry and `migrate_schema`)
 - `src/config.rs` (config directory resolution)
@@ -117,7 +117,7 @@ Implement only this task. Do not redesign the architecture.
 
 Read:
 - `docs/adr/0059-broadcast-control-surface.md`
-- `docs/adr/0016-schema-migration-discipline.md`
+- `docs/adr/archive/0016-schema-migration-discipline.md`
 - `src/db.rs`
 - `src/config.rs`
 

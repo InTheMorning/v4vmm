@@ -15,7 +15,7 @@ Packets 003 and 004 read this data. This packet adds no reader for a screen.
 
 - [ADR 0077](../adr/0077-publisher-feed-artist-binding.md) Decisions 2 and 5, and its accepted refinements.
 - [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md) Decision I and section 2, collection state.
-- [ADR 0016](../adr/0016-schema-migration-discipline.md), the migration registry.
+- [ADR 0016](../adr/archive/0016-schema-migration-discipline.md), the migration registry.
 - [Packet 013](adr-0075-task-013-verified-snapshot-replacement.md): MusicIndex collection replacement stays disabled.
 - [Packet 017](adr-0075-task-017-named-request-profiles.md): the named request profiles.
 - [Packet 018](adr-0075-task-018-request-reuse-and-freshness.md): the shared request owner and its key.

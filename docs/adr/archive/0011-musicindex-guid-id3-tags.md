@@ -4,6 +4,8 @@
 
 Accepted - 2026-04-21.
 
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
+
 ## Context
 
 The RSS-to-ID3 staging flow already writes MusicIndex-derived metadata such as contributors, value routes, transcript references, and publisher fields into explicit ID3v2.4 targets. Operators also need stable MusicIndex feed and track identifiers embedded in downloaded files so those files can be matched back to source entities later.

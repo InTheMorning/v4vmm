@@ -4143,10 +4143,10 @@ mod tests {
         absolute_local_file_rows(conn).map(|rows| rows.len())
     }
 
-    /// The repair removes a row it can not resolve. With the music folder gone,
-    /// no row resolves, so every row would be removed and the app would forget
-    /// the whole library. The files are still on disk, and the download index is
-    /// not. It must do nothing instead.
+    /// ADR 0064: the repair removes a row it can not resolve. With the music
+    /// folder gone, no row resolves, so every row would be removed and the
+    /// app would forget the whole library. The files are still on disk, and
+    /// the download index is not. It must do nothing instead.
     #[test]
     fn repair_local_file_paths_does_nothing_when_the_music_folder_is_missing() -> Result<()> {
         let conn = setup_test_db()?;
@@ -4164,7 +4164,8 @@ mod tests {
 
         assert_eq!(
             repair.skipped,
-            Some(LocalPathRepairSkip::MusicFolderMissing)
+            Some(LocalPathRepairSkip::MusicFolderMissing),
+            "ADR 0064: repair must skip rather than remove rows when music_dir is absent"
         );
         assert_eq!(repair.repaired, 0);
         assert_eq!(repair.removed, 0);
@@ -4181,8 +4182,8 @@ mod tests {
         Ok(())
     }
 
-    /// A folder that holds none of the library reads the same way as a wrong
-    /// folder. Removing every row on that evidence is not safe.
+    /// ADR 0064: a folder that holds none of the library reads the same way
+    /// as a wrong folder. Removing every row on that evidence is not safe.
     #[test]
     fn repair_local_file_paths_does_nothing_when_no_row_resolves() -> Result<()> {
         let conn = setup_test_db()?;
@@ -4195,12 +4196,18 @@ mod tests {
 
         let repair = repair_local_file_paths(&conn, &music_dir)?;
 
-        assert_eq!(repair.skipped, Some(LocalPathRepairSkip::NothingResolved));
+        assert_eq!(
+            repair.skipped,
+            Some(LocalPathRepairSkip::NothingResolved),
+            "ADR 0064: repair must skip rather than remove every row when none resolves"
+        );
         assert_eq!(repair.removed, 0);
         assert_eq!(absolute_local_file_path_count(&conn)?, 1);
         Ok(())
     }
 
+    /// ADR 0064: the repair converts an absolute path left by a folder move
+    /// into a path stored relative to the current `music_dir`.
     #[test]
     fn repair_local_file_paths_converts_moved_layout() -> Result<()> {
         let conn = setup_test_db()?;
@@ -4228,7 +4235,8 @@ mod tests {
         assert!(repair.unresolved.is_empty());
         assert_eq!(
             local_file_path_for_track(&conn, track_id)?.as_deref(),
-            Some("artists/artist/feed/track.mp3")
+            Some("artists/artist/feed/track.mp3"),
+            "ADR 0064: repair stores the path relative to music_dir after a layout move"
         );
         assert_eq!(absolute_local_file_path_count(&conn)?, 0);
         let track = track_row_by_id(&conn, track_id)?.context("track row")?;
@@ -4243,6 +4251,8 @@ mod tests {
         Ok(())
     }
 
+    /// ADR 0064: an unresolved row is reported, with its old path, before it
+    /// is removed.
     #[test]
     fn repair_local_file_paths_records_and_removes_unresolved_row() -> Result<()> {
         let conn = setup_test_db()?;
@@ -4265,7 +4275,10 @@ mod tests {
         let repair = repair_local_file_paths(&conn, &music_dir)?;
 
         assert_eq!(repair.repaired, 1);
-        assert_eq!(repair.removed, 1);
+        assert_eq!(
+            repair.removed, 1,
+            "ADR 0064: an unresolved row is removed after it is reported"
+        );
         assert_eq!(repair.unresolved.len(), 1);
         assert_eq!(repair.unresolved[0].track_id, Some(track_id));
         assert_eq!(repair.unresolved[0].old_path, "/old/music/missing.mp3");
@@ -4285,6 +4298,8 @@ mod tests {
         Ok(())
     }
 
+    /// ADR 0064: the repair step is idempotent and needs no operator action
+    /// to run again.
     #[test]
     fn repair_local_file_paths_is_idempotent() -> Result<()> {
         let conn = setup_test_db()?;
@@ -4304,7 +4319,10 @@ mod tests {
 
         assert_eq!(first.repaired, 1);
         assert_eq!(first.removed, 1);
-        assert_eq!(second.repaired, 0);
+        assert_eq!(
+            second.repaired, 0,
+            "ADR 0064: a second repair run repairs nothing already repaired"
+        );
         assert_eq!(second.removed, 0);
         assert_eq!(second.unresolved, first.unresolved);
         assert_eq!(
@@ -4653,27 +4671,31 @@ mod tests {
         Ok(())
     }
 
+    /// ADR 0016: the migration registry runs safely on a fresh database and
+    /// records every applied version.
     #[test]
     fn test_migrations_record_versions_on_fresh_schema() -> Result<()> {
         let conn = setup_test_db()?;
 
         assert!(
             table_has_column(&conn, "feeds", "musicindex_updated_at")?,
-            "fresh schema should include feeds.musicindex_updated_at"
+            "ADR 0016: fresh schema should include feeds.musicindex_updated_at"
         );
         assert!(
             table_has_column(&conn, "tracks", "enclosure_type")?,
-            "fresh schema should include tracks.enclosure_type"
+            "ADR 0016: fresh schema should include tracks.enclosure_type"
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
             vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
-            "fresh schema should record all registry migrations"
+            "ADR 0016: fresh schema should record all registry migrations"
         );
 
         Ok(())
     }
 
+    /// ADR 0016: the migration registry runs safely on an existing legacy
+    /// database and stays idempotent when run again.
     #[test]
     fn test_migrations_update_legacy_schema() -> Result<()> {
         let conn = Connection::open_in_memory()?;
@@ -4703,20 +4725,20 @@ mod tests {
 
         assert!(
             table_has_column(&conn, "feeds", "musicindex_updated_at")?,
-            "migration should add feeds.musicindex_updated_at"
+            "ADR 0016: migration should add feeds.musicindex_updated_at"
         );
         assert!(
             table_has_column(&conn, "tracks", "enclosure_type")?,
-            "migration should add tracks.enclosure_type"
+            "ADR 0016: migration should add tracks.enclosure_type"
         );
         assert!(
             table_exists(&conn, "broadcast_events")?,
-            "migration should add broadcast_events"
+            "ADR 0016: migration should add broadcast_events"
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
             vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-            "migration registry should be idempotent"
+            "ADR 0016: migration registry should be idempotent"
         );
 
         Ok(())

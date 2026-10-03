@@ -11,9 +11,12 @@ research. Never read it to find a live rule.
 | 0002 | Rust CLI With Local SQLite State | Superseded by ADR 0012 |
 | 0003 | MusicIndex Search UI Module | Superseded by ADR 0060 |
 | 0009 | Search Thumbnail Cache and Feed Batch Tagging | Superseded by ADR 0076 |
+| 0011 | MusicIndex GUID in ID3 TXXX frames | Fully guarded |
 | 0013 | Shared Discover Track Row Module | Superseded by ADR 0060 |
+| 0016 | Schema Migration Discipline | Fully guarded |
 | 0018 | Live item metadata publish contract | Superseded by ADR 0059 |
 | 0019 | Live relay debug CLI | Superseded by ADR 0059 |
+| 0022 | UI-Agnostic Core Extraction | Fully guarded |
 | 0029 | Artist identity persistence | Superseded by ADR 0079 |
 | 0034 | Scale-Aware UI Tokens and Controls | Fully guarded |
 | 0036 | Feed, Visual, and Provenance Surface Consistency | Fully guarded |
@@ -27,6 +30,7 @@ research. Never read it to find a live rule.
 | 0051 | Workspace pane width persistence | Fully guarded |
 | 0052 | Library / Index data parity triage | Superseded by ADR 0053 |
 | 0055 | Search view-model module decomposition | Superseded by ADR 0060 |
+| 0064 | Local File Addressing | Fully guarded |
 | 0065 | Payment Route Tag Repair | Fully guarded |
 | 0067 | Platform Shortcut Modifiers | Fully guarded |
 | 0070 | Show Log Space Priority | Fully guarded |

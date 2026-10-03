@@ -4,6 +4,8 @@
 
 Accepted - 2026-04-26.
 
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
+
 ## Context
 
 The current database setup is mostly inline schema creation with a small
