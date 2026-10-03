@@ -12,6 +12,9 @@ Amended 2026-09-25: the operator limited the `Retry-After` wait to 60 seconds. T
 Amended 2026-09-26: the operator decided that the app ignores the channel `lastBuildDate` and the MusicIndex `last_build_date` field.
 This tightens Decision 3. Section 3 states the rule.
 
+Amended 2026-10-03: the operator decided that a download writes the tags of the stored values. Section 10 states the rule.
+On 2026-10-03 two fresh HeyCitizen downloads had no `WOAR` frame, and the next scan listed them at once. [Packet 009](../tasks/adr-0076-task-009-download-writes-stored-values.md) implements the rule.
+
 ## Context
 
 ADR 0075 made the app select a source for each field each time it showed that field.
@@ -144,6 +147,12 @@ It never replaces a route that the RSS check set.
 A playlist track whose file route differs from the stored route is not ready for a show.
 The track stays not ready until the operator confirms "Update n file(s)".
 The operator therefore cannot go live with a known wrong payment route without a warning.
+
+### 10. A Download Writes The Stored Values
+
+A download writes the tags of the stored values of its track. It builds them after the RSS update of its feed, with the same projection that the "Update n file(s)" scan uses.
+The live response only finds and fetches the enclosure. Thus a fresh download shows no difference in the next scan.
+Decision 9 is the same rule for the payment route. The operator decided this on 2026-10-03.
 
 ## Accepted Values
 

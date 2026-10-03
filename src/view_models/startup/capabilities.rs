@@ -10,6 +10,7 @@ use crate::application::capability::{
     CapabilityFailure, CapabilityObservation, CapabilitySnapshot, Dependency,
 };
 use crate::application::capability_recovery::{RecoveryAction, RecoveryIntent, RecoveryIntents};
+use crate::application::conversion_recovery::FailureClass;
 
 #[derive(Clone, Debug)]
 pub struct CapabilityActionDisplay {
@@ -149,15 +150,23 @@ impl CapabilityReportVm {
                 label: recovery_summary(entry),
                 help: if entry.completed() {
                     None
+                } else if expanded && !entry.action.requires_check() {
+                    Some(run_help(&entry.action))
                 } else if expanded {
                     Some(format!("{} {} {}", edit_help(entry.dependency), check_help(entry.dependency), run_help(&entry.action)))
-                } else if entry.checked.is_some() {
+                } else if entry.checked.is_some() || !entry.action.requires_check() {
                     Some("This button opens the original action's controls in Settings. It does not run the action.".into())
                 } else {
                     Some(format!("{} It does not run the original action.", edit_help(entry.dependency)))
                 },
+                // ADR 0066 task 014: each row of the notice and of Settings has Dismiss.
                 actions: if entry.completed() {
                     vec![CapabilityAction::Dismiss(entry.id)]
+                } else if expanded && !entry.action.requires_check() {
+                    vec![
+                        CapabilityAction::Retry(entry.id),
+                        CapabilityAction::Dismiss(entry.id),
+                    ]
                 } else if expanded {
                     vec![
                         CapabilityAction::Repair(entry.id),
@@ -165,10 +174,16 @@ impl CapabilityReportVm {
                         CapabilityAction::Retry(entry.id),
                         CapabilityAction::Dismiss(entry.id),
                     ]
-                } else if entry.checked.is_some() {
-                    vec![CapabilityAction::Review(entry.id)]
+                } else if entry.checked.is_some() || !entry.action.requires_check() {
+                    vec![
+                        CapabilityAction::Review(entry.id),
+                        CapabilityAction::Dismiss(entry.id),
+                    ]
                 } else {
-                    vec![CapabilityAction::Repair(entry.id)]
+                    vec![
+                        CapabilityAction::Repair(entry.id),
+                        CapabilityAction::Dismiss(entry.id),
+                    ]
                 }
                 .into_iter()
                 .map(|action| self.action(action))
@@ -255,7 +270,8 @@ impl CapabilityReportVm {
                                     && !self.repair_blocked.contains(&entry.dependency)
                             }
                             CapabilityAction::Retry(_) => {
-                                entry.checked.is_some() && self.running.is_none()
+                                (entry.checked.is_some() || !entry.action.requires_check())
+                                    && self.running.is_none()
                             }
                             _ => true,
                         }
@@ -483,8 +499,11 @@ pub(crate) fn correction_field(
 pub(crate) fn recovery_title(entry: &RecoveryIntent) -> String {
     match &entry.action {
         RecoveryAction::Conversion {
-            title, track_id, ..
-        } => format!("Conversion: {title} (track {track_id})"),
+            title,
+            track_id,
+            failure,
+            ..
+        } => format!("{}: {title} (track {track_id})", failure_title(*failure)),
         RecoveryAction::IndexSearch { query } => format!(
             "Index search: {}",
             crate::diagnostics::redact_endpoint_details(query)
@@ -532,6 +551,14 @@ pub(crate) fn recovery_title(entry: &RecoveryIntent) -> String {
                     crate::diagnostics::redact_endpoint_details
                 )
         ),
+    }
+}
+
+fn failure_title(failure: FailureClass) -> &'static str {
+    match failure {
+        FailureClass::Download => "Download",
+        FailureClass::Conversion => "Conversion",
+        FailureClass::Storage(_) => "Storage",
     }
 }
 
@@ -648,7 +675,15 @@ fn check_help(dependency: Dependency) -> &'static str {
 
 fn review_label(action: &RecoveryAction) -> &'static str {
     match action {
-        RecoveryAction::Conversion { .. } => "View conversion actions",
+        RecoveryAction::Conversion {
+            failure: FailureClass::Conversion,
+            ..
+        } => "View conversion actions",
+        RecoveryAction::Conversion {
+            failure: FailureClass::Download,
+            ..
+        } => "View download actions",
+        RecoveryAction::Conversion { .. } => "View storage actions",
         RecoveryAction::IndexSearch { .. } => "View search actions",
         RecoveryAction::Playback { .. } => "View playback actions",
         RecoveryAction::Publisher { .. } => "View service actions",
@@ -668,8 +703,13 @@ fn run_label(action: &RecoveryAction) -> &'static str {
             redownload: true, ..
         } => "Redownload original track",
         RecoveryAction::Conversion {
-            redownload: false, ..
+            redownload: false,
+            failure: FailureClass::Conversion,
+            ..
         } => "Retry original conversion",
+        RecoveryAction::Conversion {
+            redownload: false, ..
+        } => "Retry original track",
         RecoveryAction::IndexSearch { .. } => "Run search again",
         RecoveryAction::Playback { operation, .. } => match operation {
             PlaybackOperation::Playlist { .. } => "Play original track",
@@ -721,10 +761,14 @@ fn run_help(action: &RecoveryAction) -> String {
         RecoveryAction::Event { .. } => "runs the original event command",
         RecoveryAction::Encoder { .. } => "sends the original stream command",
     };
-    format!(
-        "{} {effect} after a successful setup check.",
-        run_label(action)
-    )
+    if action.requires_check() {
+        format!(
+            "{} {effect} after a successful setup check.",
+            run_label(action)
+        )
+    } else {
+        format!("{} {effect}.", run_label(action))
+    }
 }
 
 #[cfg(test)]
@@ -864,6 +908,7 @@ mod tests {
             track_id: 41,
             title: "Original track".into(),
             state: ConversionState::WavRetained,
+            failure: crate::application::conversion_recovery::FailureClass::Conversion,
             message: "App kept usable WAV input in the library.".into(),
             recorded_at: SystemTime::now(),
         };
@@ -909,6 +954,56 @@ mod tests {
             .unwrap()
             .contains("same original enclosure"));
         assert!(vm.report().contains("/music/original.wav"));
+    }
+
+    /// R66-14-05: the collapsed notice gives Dismiss to a failed row and to a completed row.
+    #[test]
+    fn adr_0066_download_failure_collapsed_notice_dismisses_each_row() {
+        use crate::application::conversion_recovery::{
+            ConversionReport, ConversionState, StorageOperation,
+        };
+        let row = |id, state, failure| ConversionReport {
+            id,
+            track_id: 40 + i64::try_from(id).unwrap(),
+            title: format!("Track {id}"),
+            state,
+            failure,
+            message: "App recorded the fixture result.".into(),
+            recorded_at: SystemTime::now(),
+        };
+        let mut vm = CapabilityReportVm::new(CapabilitySnapshot::default(), true);
+        vm.pending.sync_conversions(
+            &[
+                row(
+                    1,
+                    ConversionState::RedownloadRequired,
+                    FailureClass::Download,
+                ),
+                row(2, ConversionState::WavRetained, FailureClass::Conversion),
+                row(
+                    3,
+                    ConversionState::Failed,
+                    FailureClass::Storage(StorageOperation::File),
+                ),
+                row(4, ConversionState::Completed, FailureClass::Conversion),
+            ],
+            1,
+        );
+        let rows = vm.rows(false);
+        assert_eq!(rows.len(), 4);
+        for (row, entry) in rows.iter().zip(vm.pending.entries()) {
+            let dismiss = row
+                .actions
+                .iter()
+                .find(|action| action.action == CapabilityAction::Dismiss(entry.id))
+                .expect("each collapsed row has Dismiss");
+            assert_eq!(dismiss.label, "Dismiss");
+            assert_eq!(dismiss.availability, StartupAvailability::Available);
+        }
+        assert!(rows[0].label.contains("Download: Track 1 (track 41)"));
+        assert_eq!(rows[0].actions[0].label, "View download actions");
+        assert_eq!(rows[1].actions[0].label, "Edit converter setting");
+        assert!(rows[2].label.contains("Storage: Track 3 (track 43)"));
     }
 
     #[test]

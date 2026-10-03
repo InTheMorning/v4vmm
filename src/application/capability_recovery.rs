@@ -10,6 +10,7 @@ use crate::runtime::BroadcastServiceRole;
 use crate::{db, playback};
 
 use super::capability::{Dependency, ExecutionUnavailable, FeatureAvailability};
+use super::conversion_recovery::FailureClass;
 use super::session_lifecycle::SessionLifecycle;
 use super::{ApplicationCommand, CommandContext, CommandError, CommandResult};
 
@@ -45,6 +46,7 @@ pub(crate) enum RecoveryAction {
         track_id: i64,
         title: String,
         redownload: bool,
+        failure: FailureClass,
     },
     IndexSearch {
         query: String,
@@ -85,7 +87,12 @@ impl std::fmt::Debug for RecoveryAction {
 impl RecoveryAction {
     pub(crate) fn dependency(&self) -> Dependency {
         match self {
-            Self::Conversion { .. } => Dependency::Converter,
+            // ADR 0066 task 014: only a conversion failure depends on the converter.
+            Self::Conversion {
+                failure: FailureClass::Conversion,
+                ..
+            } => Dependency::Converter,
+            Self::Conversion { .. } => Dependency::LibraryPaths,
             Self::IndexSearch { .. } => Dependency::MusicIndex,
             Self::Playback { .. } => Dependency::Playback,
             Self::Publisher { .. } => Dependency::Publisher,
@@ -97,6 +104,18 @@ impl RecoveryAction {
                 _ => Dependency::Publisher,
             },
         }
+    }
+
+    /// A download or storage failure has no setup to check. Its retry validates
+    /// the subject, the music directory and the database path itself.
+    pub(crate) fn requires_check(&self) -> bool {
+        !matches!(
+            self,
+            Self::Conversion {
+                failure: FailureClass::Download | FailureClass::Storage(_),
+                ..
+            }
+        )
     }
 
     pub(crate) fn event_target_name(&self) -> Result<String, RetryRejection> {
@@ -413,9 +432,11 @@ impl RecoveryIntents {
                 track_id: report.track_id,
                 title: report.title.clone(),
                 redownload: report.state == ConversionState::RedownloadRequired,
+                failure: report.failure,
             };
+            let dependency = action.dependency();
             let id = self.entries.iter().find(|entry| matches!(entry.action, RecoveryAction::Conversion { operation_id, .. } if operation_id == report.id)).map(|entry| entry.id)
-                .unwrap_or_else(|| self.retain(action.clone(), Dependency::Converter, session));
+                .unwrap_or_else(|| self.retain(action.clone(), dependency, session));
             if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) {
                 // Watch snapshots contain unchanged rows too; their check state must survive.
                 if entry.conversion_report_at == Some(report.recorded_at) {
@@ -423,6 +444,7 @@ impl RecoveryIntents {
                 }
                 entry.conversion_report_at = Some(report.recorded_at);
                 entry.action = action;
+                entry.dependency = dependency;
                 entry.running = report.state == ConversionState::Running;
                 entry.recorded_at = report.recorded_at;
                 entry.checked = None;
@@ -525,10 +547,13 @@ impl RecoveryIntents {
         if entry.completed() {
             return Err(RetryRejection::Completed);
         }
-        if entry.running
-            || entry.checked.is_none()
-            || entry.checked_generation != Some(self.config_generation)
-            || entry.config_generation > self.config_generation
+        if entry.running {
+            return Err(RetryRejection::CheckRequired);
+        }
+        if entry.action.requires_check()
+            && (entry.checked.is_none()
+                || entry.checked_generation != Some(self.config_generation)
+                || entry.config_generation > self.config_generation)
         {
             return Err(RetryRejection::CheckRequired);
         }
@@ -623,11 +648,12 @@ impl<C> RetryCommand<C> {
         }
         let snapshot = ConfigSnapshot::read_existing(Path::new(&self.path))
             .map_err(|_| RetryRejection::ConfigurationChanged)?;
-        if self.intent.checked.as_ref()
-            != Some(&CapabilityRevision::of(
-                &snapshot,
-                self.intent.action.dependency(),
-            ))
+        if self.intent.action.requires_check()
+            && self.intent.checked.as_ref()
+                != Some(&CapabilityRevision::of(
+                    &snapshot,
+                    self.intent.action.dependency(),
+                ))
         {
             return Err(RetryRejection::ConfigurationChanged);
         }

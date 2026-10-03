@@ -17,6 +17,24 @@ use crate::metadata_service::{with_stored_route_frame, RouteFrameWrite};
 use crate::track_compare::retained::{stage_existing, RetainedArtifact};
 use crate::track_compare::{download_track, select_audio_enclosure, SelectedEnclosure};
 
+/// The class of a materialization failure. The step that fails sets it (ADR 0066 task 014).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FailureClass {
+    /// The app could not download the original enclosure.
+    Download,
+    /// The configured converter could not convert the WAV input.
+    Conversion,
+    /// A database or file operation failed.
+    Storage(StorageOperation),
+}
+
+/// The storage operation that failed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StorageOperation {
+    Database,
+    File,
+}
+
 pub(crate) struct Materialization {
     row: TrackRow,
     context: TrackContext,
@@ -25,6 +43,7 @@ pub(crate) struct Materialization {
     enclosure: Option<SelectedEnclosure>,
     prepared: Option<PreparedTrack>,
     binding: Option<RetainedArtifact>,
+    failure: Option<FailureClass>,
     pub(super) return_tag_compare: bool,
     pub(super) reconcile_feed: Option<String>,
 }
@@ -53,6 +72,7 @@ impl Materialization {
             enclosure,
             prepared: None,
             binding: None,
+            failure: None,
             return_tag_compare: false,
             reconcile_feed: None,
         }
@@ -69,6 +89,16 @@ impl Materialization {
                 .as_deref()
                 .unwrap_or(&self.row.item_guid),
         )
+    }
+
+    /// The class of the failure of the last run, or `None` after a success.
+    pub(crate) fn failure(&self) -> Option<FailureClass> {
+        self.failure
+    }
+
+    /// True when the downloaded or bound input still exists and is valid.
+    pub(crate) fn has_retained_input(&self) -> bool {
+        self.validate_input().is_ok()
     }
 
     pub(crate) fn validate_subject(&self, conn: &Connection, cfg: &DownloadConfig) -> Result<()> {
@@ -119,6 +149,24 @@ impl Materialization {
         retry: bool,
         redownload: bool,
     ) -> Result<SubscribeTrackOutcome> {
+        let mut class = FailureClass::Storage(StorageOperation::Database);
+        let result = self.run_steps(conn, cfg, retry, redownload, &mut class);
+        self.failure = result.as_ref().err().map(|_| class);
+        result
+    }
+
+    /// Each step sets `class` before it starts, so an error keeps the class of its step.
+    fn run_steps(
+        &mut self,
+        conn: &Arc<Mutex<Connection>>,
+        cfg: &DownloadConfig,
+        retry: bool,
+        redownload: bool,
+        class: &mut FailureClass,
+    ) -> Result<SubscribeTrackOutcome> {
+        const DATABASE: FailureClass = FailureClass::Storage(StorageOperation::Database);
+        const FILE: FailureClass = FailureClass::Storage(StorageOperation::File);
+        *class = DATABASE;
         {
             let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
             self.validate_subject(&db, cfg)?;
@@ -134,18 +182,24 @@ impl Materialization {
             )?;
         }
         if retry && !redownload {
+            // Input that is not available needs a new download.
+            *class = FailureClass::Download;
             self.validate_input()?;
         }
         if redownload {
+            *class = FILE;
             self.cleanup()?;
             self.binding = None;
+            *class = FailureClass::Download;
             self.prepared = Some(PreparedTrack::Downloaded(Box::new(download_track(
                 cfg,
                 &self.context.track,
             )?)));
         } else if let Some(PreparedTrack::Downloaded(download)) = &mut self.prepared {
+            *class = FailureClass::Conversion;
             download.retry_conversion(cfg)?;
         } else {
+            *class = FailureClass::Download;
             let existing = self
                 .row
                 .local_path
@@ -157,6 +211,7 @@ impl Materialization {
                 existing.as_deref(),
             )?);
             if let Some(PreparedTrack::Existing { path }) = &self.prepared {
+                *class = FILE;
                 if AudioFormat::detect_from_file(path)? == AudioFormat::Wav {
                     let binding = RetainedArtifact::capture(&cfg.music_dir, path)?;
                     let enclosure = self
@@ -177,6 +232,7 @@ impl Materialization {
         };
         let warning = prepared.format_warning();
         if conversion == ConversionOutcome::WavRetained {
+            *class = FILE;
             if let Some(binding) = &self.binding {
                 binding.validate()?;
                 let path = binding.path().to_path_buf();
@@ -184,10 +240,12 @@ impl Materialization {
                 return self.outcome(path, conversion, warning, 0);
             }
             // On retry, a previously materialized file (even now invalid) is never overwritten.
+            *class = FailureClass::Conversion;
             anyhow::ensure!(!retry || self.row.local_path.is_none(), "conversion failed; original library file was preserved and downloaded WAV input is retained for another retry");
         }
 
         let working_path = prepared.working_path().to_path_buf();
+        *class = FILE;
         let applied_edits = if conversion == ConversionOutcome::WavRetained {
             0
         } else if retry || self.binding.is_some() {
@@ -199,8 +257,10 @@ impl Materialization {
             super::apply_id3_edits_nonfatal(&working_path, &self.edits)
         };
 
+        *class = DATABASE;
         let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
         self.validate_subject(&db, cfg)?;
+        *class = FILE;
         if let Some(binding) = &self.binding {
             binding.validate()?;
         }
@@ -213,6 +273,7 @@ impl Materialization {
             }
         };
         let relative_path = LibraryRelativePath::from_absolute(&cfg.music_dir, &path)?;
+        *class = DATABASE;
         let save = (|| -> Result<()> {
             let transaction = db.transaction()?;
             let size = std::fs::metadata(&path)?.len().try_into().ok();
@@ -238,11 +299,14 @@ impl Materialization {
             Ok(())
         })();
         if let Err(error) = save {
+            *class = FILE;
             if let PreparedTrack::Downloaded(download) = prepared {
                 download.undo_promotion(&working_path)?;
             }
+            *class = DATABASE;
             return Err(error);
         }
+        *class = FILE;
         self.row.local_path = Some(relative_path);
         self.row.is_in_library = true;
         drop(db);

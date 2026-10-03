@@ -626,3 +626,13 @@ Open - implementation and mechanical checks are complete on 2026-10-03. Operator
 - V1: "Update n files" with more files than the column holds shows each file with its title, album and frames. The list scrolls.
 - V2: a removal confirmation with one item still shows that item.
 - V3: normal and narrow widths, in Light and Dark themes, show the item with no clipped text.
+
+## 36. Download Failures And Dismissal — ADR 0066 Task 014
+
+Open - implementation and mechanical checks are complete on 2026-10-03. Operator inspection is pending.
+
+- Owner: [task 014](tasks/adr-0066-task-014-download-failures-and-dismissal.md#operator-visual-check).
+- Scheduling: the check uses an isolated fixture and a closed local port. V2 needs network access and the `flac` binary.
+- V1: a download failure shows "Download: <track>" with "Redownload original track" and "Dismiss", and no converter action. Check in Light and Dark themes.
+- V2: after a failed conversion and a successful retry of the same feed, the notice shows no row for those tracks.
+- V3: each row of the collapsed notice has "Dismiss", and a click removes the row in place.

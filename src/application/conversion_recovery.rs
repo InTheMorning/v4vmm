@@ -12,6 +12,7 @@ use tokio::sync::watch;
 use crate::audio_format::ConversionOutcome;
 use crate::config::ConfigSnapshot;
 use crate::subscribe_service::materialization::Materialization;
+pub(crate) use crate::subscribe_service::materialization::{FailureClass, StorageOperation};
 use crate::subscribe_service::{self, SubscribeTrackOutcome, SubscribeTrackRequest};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -29,6 +30,8 @@ pub(crate) struct ConversionReport {
     pub(crate) track_id: i64,
     pub(crate) title: String,
     pub(crate) state: ConversionState,
+    /// The class of the failure that this report records (ADR 0066 task 014).
+    pub(crate) failure: FailureClass,
     pub(crate) message: String,
     pub(crate) recorded_at: SystemTime,
 }
@@ -47,6 +50,8 @@ struct State {
     sequence: u64,
     entries: HashMap<u64, Entry>,
     reports: Vec<ConversionReport>,
+    /// The track key of each report. A later success of the key supersedes the report.
+    report_keys: HashMap<u64, String>,
     running: HashSet<String>,
     closed: bool,
 }
@@ -112,7 +117,10 @@ impl ConversionRecovery {
                 "this track already has a running download"
             );
             anyhow::ensure!(
-                !state.entries.values().any(|entry| entry.key == key),
+                !state
+                    .entries
+                    .values()
+                    .any(|entry| entry.key == key && entry.operation.has_retained_input()),
                 "this track has retained input; use its conversion action in Settings"
             );
             state.running.insert(key.clone());
@@ -147,27 +155,29 @@ impl ConversionRecovery {
         result
     }
 
+    /// A success supersedes each earlier report of the same track key. A failure
+    /// supersedes only earlier reports that keep no input. A success that keeps no
+    /// staging records no report.
     fn record_entry(&self, entry: Entry, result: &Result<SubscribeTrackOutcome>) -> Result<()> {
-        let keep = entry.operation.has_owned_staging()
-            || result.as_ref().map_or(true, |outcome| {
-                outcome.conversion == ConversionOutcome::WavRetained
-            });
-        if !keep
-            && result
-                .as_ref()
-                .is_ok_and(|outcome| outcome.conversion == ConversionOutcome::NotRequired)
-        {
-            return Ok(());
-        }
+        let succeeded = result
+            .as_ref()
+            .is_ok_and(|outcome| outcome.conversion != ConversionOutcome::WavRetained);
+        let keep = entry.operation.has_owned_staging() || !succeeded;
         let mut state = self
             .state
             .lock()
             .map_err(|_| anyhow!("conversion owner unavailable"))?;
-        state.sequence += 1;
-        let id = state.sequence;
-        state.reports.push(report(id, &entry.operation, result));
+        let superseded = supersede(&mut state, &entry.key, None, !succeeded);
         if keep {
+            state.sequence += 1;
+            let id = state.sequence;
+            state
+                .reports
+                .push(report(id, &entry.operation, result, None));
+            state.report_keys.insert(id, entry.key.clone());
             state.entries.insert(id, entry);
+        } else if !superseded {
+            return Ok(());
         }
         self.updates.send_replace(state.reports.clone());
         Ok(())
@@ -178,7 +188,16 @@ impl ConversionRecovery {
         conn: Arc<Mutex<Connection>>,
         request: subscribe_service::SubscribeFeedRequest,
     ) -> Result<subscribe_service::SubscribeFeedOutcome> {
-        let snapshot = ConfigSnapshot::read_existing(&crate::config::config_path()?)?;
+        self.subscribe_feed_at(conn, request, &crate::config::config_path()?)
+    }
+
+    fn subscribe_feed_at(
+        &self,
+        conn: Arc<Mutex<Connection>>,
+        request: subscribe_service::SubscribeFeedRequest,
+        config_path: &Path,
+    ) -> Result<subscribe_service::SubscribeFeedOutcome> {
+        let snapshot = ConfigSnapshot::read_existing(config_path)?;
         let cfg = snapshot.downloads()?;
         crate::config::prepare_artists_directory(&cfg.music_dir)?;
         let db_path = snapshot.db_path?;
@@ -213,7 +232,7 @@ impl ConversionRecovery {
         conn: &Arc<Mutex<Connection>>,
         path: &Path,
     ) -> Result<SubscribeTrackOutcome> {
-        let mut entry = {
+        let (mut entry, previous) = {
             let mut state = self
                 .state
                 .lock()
@@ -231,6 +250,11 @@ impl ConversionRecovery {
                 .entries
                 .remove(&id)
                 .context("this conversion is running, completed or discarded")?;
+            let previous = state
+                .reports
+                .iter()
+                .find(|row| row.id == id)
+                .map(|row| row.failure);
             state.running.insert(entry.key.clone());
             update_report(
                 &mut state,
@@ -239,7 +263,7 @@ impl ConversionRecovery {
                 "App is retrying the original track with its retained edits.".into(),
             );
             self.updates.send_replace(state.reports.clone());
-            entry
+            (entry, previous)
         };
         let mut needs_redownload = false;
         let result = (|| {
@@ -292,7 +316,7 @@ impl ConversionRecovery {
         let complete = result
             .as_ref()
             .is_ok_and(|outcome| outcome.conversion != ConversionOutcome::WavRetained);
-        let mut current = report(id, &entry.operation, &result);
+        let mut current = report(id, &entry.operation, &result, previous);
         if needs_redownload {
             current.state = ConversionState::RedownloadRequired;
         }
@@ -303,6 +327,9 @@ impl ConversionRecovery {
         state.running.remove(&entry.key);
         if let Some(row) = state.reports.iter_mut().find(|row| row.id == id) {
             *row = current;
+        }
+        if complete {
+            supersede(&mut state, &entry.key, Some(id), false);
         }
         if !complete || entry.operation.has_owned_staging() {
             state.entries.insert(id, entry);
@@ -327,6 +354,7 @@ impl ConversionRecovery {
             "conversion is still running"
         );
         state.entries.remove(&id);
+        state.report_keys.remove(&id);
         state.reports.retain(|row| row.id != id);
         self.updates.send_replace(state.reports.clone());
         Ok(())
@@ -354,6 +382,7 @@ impl ConversionRecovery {
         }
         state.entries.clear();
         state.reports.clear();
+        state.report_keys.clear();
         self.updates.send_replace(Vec::new());
         Ok(())
     }
@@ -382,11 +411,71 @@ fn request_key(request: &SubscribeTrackRequest) -> String {
     }
 }
 
+/// Removes earlier reports of `key`, except `keep` and running reports. With
+/// `without_input`, a report keeps its place while its entry keeps input. Returns
+/// true when it removed a report.
+fn supersede(state: &mut State, key: &str, keep: Option<u64>, without_input: bool) -> bool {
+    let ids: Vec<u64> = state
+        .reports
+        .iter()
+        .filter(|row| {
+            Some(row.id) != keep
+                && row.state != ConversionState::Running
+                && state.report_keys.get(&row.id).is_some_and(|k| k == key)
+        })
+        .map(|row| row.id)
+        .collect();
+    let mut removed = false;
+    for id in ids {
+        if let Some(entry) = state.entries.get_mut(&id) {
+            if without_input && entry.operation.has_retained_input() {
+                continue;
+            }
+            // An entry with staging that the app cannot release stays. Dismiss retries cleanup.
+            if entry.operation.cleanup().is_err() {
+                continue;
+            }
+        }
+        state.entries.remove(&id);
+        state.report_keys.remove(&id);
+        state.reports.retain(|row| row.id != id);
+        removed = true;
+    }
+    removed
+}
+
+fn failure_subject(failure: FailureClass) -> &'static str {
+    match failure {
+        FailureClass::Download => "App could not download the original enclosure",
+        FailureClass::Conversion => "App could not convert the WAV input",
+        FailureClass::Storage(StorageOperation::Database) => {
+            "App could not complete the library database operation for this track"
+        }
+        FailureClass::Storage(StorageOperation::File) => {
+            "App could not complete the music file operation for this track"
+        }
+    }
+}
+
 fn report(
     id: u64,
     operation: &Materialization,
     outcome: &Result<SubscribeTrackOutcome>,
+    previous: Option<FailureClass>,
 ) -> ConversionReport {
+    let failure = match outcome {
+        Ok(outcome) if outcome.conversion == ConversionOutcome::WavRetained => {
+            FailureClass::Conversion
+        }
+        Ok(outcome) => previous.unwrap_or(match outcome.conversion {
+            ConversionOutcome::NotRequired => FailureClass::Download,
+            _ => FailureClass::Conversion,
+        }),
+        Err(_) => operation
+            .failure()
+            .or(previous)
+            .unwrap_or(FailureClass::Storage(StorageOperation::Database)),
+    };
     let (state, mut message) = match outcome {
         Ok(outcome) => match outcome.conversion {
             ConversionOutcome::WavRetained => (ConversionState::WavRetained, format!("App kept usable WAV {} in the library. {} Open converter setup, check it, then retry this track.", outcome.path.display(), outcome.format_warning.as_deref().unwrap_or("Conversion did not complete."))),
@@ -394,7 +483,16 @@ fn report(
             ConversionOutcome::FfmpegFallback => (ConversionState::Completed, format!("ffmpeg fallback converted the original track. App updated its existing library entry: {}.", outcome.path.display())),
             ConversionOutcome::NotRequired => (ConversionState::Completed, format!("App completed the original track: {}.", outcome.path.display())),
         },
-        Err(error) => (ConversionState::Failed, format!("App could not finish materializing this track: {error:#}. Available input is retained for this session.")),
+        Err(error) => {
+            let subject = failure_subject(failure);
+            if operation.has_retained_input() {
+                (ConversionState::Failed, format!("{subject}: {error:#}. Available input is retained for this session."))
+            } else if failure == FailureClass::Download {
+                (ConversionState::RedownloadRequired, format!("{subject}: {error:#}. App deleted the downloaded input."))
+            } else {
+                (ConversionState::RedownloadRequired, format!("{subject}: {error:#}. App has no retained input for this track."))
+            }
+        }
     };
     if let Ok(outcome) = outcome {
         if outcome.conversion != ConversionOutcome::WavRetained {
@@ -409,6 +507,7 @@ fn report(
         track_id: operation.track_id(),
         title: operation.title(),
         state,
+        failure,
         message: crate::diagnostics::redact_endpoint_details(&message),
         recorded_at: SystemTime::now(),
     }
@@ -489,6 +588,297 @@ mod tests {
             .unwrap()
             .replace("flac_path = false", &format!("flac_path = {:?}", binary));
         fs::write(config, document).unwrap();
+    }
+
+    /// A local HTTP fixture. `respond` maps a request path and its count to a status and a body.
+    struct Server {
+        addr: std::net::SocketAddr,
+        stop: Arc<std::sync::atomic::AtomicBool>,
+        worker: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl Server {
+        fn start(respond: impl Fn(&str, usize) -> (u16, Vec<u8>) + Send + 'static) -> Self {
+            use std::io::{Read, Write};
+            use std::sync::atomic::Ordering;
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let addr = listener.local_addr().unwrap();
+            let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let ended = Arc::clone(&stop);
+            let worker = std::thread::spawn(move || {
+                let mut counts: HashMap<String, usize> = HashMap::new();
+                while !ended.load(Ordering::SeqCst) {
+                    let Ok((mut stream, _)) = listener.accept() else {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                        continue;
+                    };
+                    stream.set_nonblocking(false).unwrap();
+                    stream
+                        .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                        .unwrap();
+                    let mut buffer = [0; 4096];
+                    let size = stream.read(&mut buffer).unwrap_or(0);
+                    let request = String::from_utf8_lossy(&buffer[..size]);
+                    let path = request.split_whitespace().nth(1).unwrap_or("/").to_owned();
+                    let count = counts.entry(path.clone()).or_default();
+                    *count += 1;
+                    let (status, body) = respond(&path, *count);
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 {status} Fixture\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(&body);
+                }
+            });
+            Self {
+                addr,
+                stop,
+                worker: Some(worker),
+            }
+        }
+
+        fn url(&self, path: &str) -> String {
+            format!("http://{}{path}", self.addr)
+        }
+    }
+
+    impl Drop for Server {
+        fn drop(&mut self) {
+            self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+            if let Some(worker) = self.worker.take() {
+                let _ = worker.join();
+            }
+        }
+    }
+
+    const MP3: &[u8] = b"ID3\x04\x00\x00\x00\x00\x00\x00mp3data";
+
+    fn closed_port_url() -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/closed.mp3", listener.local_addr().unwrap());
+        drop(listener);
+        url
+    }
+
+    /// Adds a library track with no local file and returns its single-track request.
+    fn remote_track(conn: &Arc<Mutex<Connection>>, id: i64, url: &str) -> SubscribeTrackRequest {
+        let db = conn.lock().unwrap();
+        db.execute(
+            "INSERT INTO tracks (id, feed_id, item_guid, track_title, enclosure_url, enclosure_type, is_in_library) VALUES (?1, 1, ?2, ?3, ?4, 'audio/mpeg', 1)",
+            rusqlite::params![id, format!("remote-{id}"), format!("Remote {id}"), url],
+        )
+        .unwrap();
+        SubscribeTrackRequest::LibraryTrack {
+            track: Box::new(crate::db::track_row_by_id(&db, id).unwrap().unwrap()),
+        }
+    }
+
+    fn view(
+        reports: &[ConversionReport],
+    ) -> crate::view_models::startup::capabilities::CapabilityReportVm {
+        let mut vm = crate::view_models::startup::capabilities::CapabilityReportVm::new(
+            Default::default(),
+            true,
+        );
+        vm.pending.sync_conversions(reports, 1);
+        vm
+    }
+
+    fn action_labels(
+        vm: &crate::view_models::startup::capabilities::CapabilityReportVm,
+    ) -> Vec<&'static str> {
+        [false, true]
+            .into_iter()
+            // The first row is the retained action. Settings adds a row for each tool after it.
+            .flat_map(|expanded| vm.rows(expanded).swap_remove(0).actions)
+            .map(|action| action.label)
+            .collect()
+    }
+
+    /// R66-14-01: an HTTP status and a transport error give a download report.
+    #[test]
+    fn adr_0066_download_failure_gives_download_class_and_redownload_action() {
+        use crate::application::capability::{CapabilityAction, Dependency};
+        let (_temp, config, conn, _) = fixture();
+        let server = Server::start(|_, _| (500, b"fixture failure".to_vec()));
+        for (id, url) in [(2, server.url("/status.mp3")), (3, closed_port_url())] {
+            let recovery = ConversionRecovery::default();
+            let request = remote_track(&conn, id, &url);
+            assert!(recovery
+                .subscribe_to_at(Arc::clone(&conn), request, None, &config)
+                .is_err());
+            let reports = recovery.subscribe().borrow().clone();
+            assert_eq!(reports.len(), 1);
+            assert_eq!(reports[0].failure, FailureClass::Download);
+            assert_eq!(reports[0].state, ConversionState::RedownloadRequired);
+            assert!(reports[0]
+                .message
+                .starts_with("App could not download the original enclosure"));
+            let vm = view(&reports);
+            let entry = &vm.pending.entries()[0];
+            assert_ne!(entry.dependency, Dependency::Converter);
+            assert_ne!(entry.action.dependency(), Dependency::Converter);
+            let retry = vm.action(CapabilityAction::Retry(entry.id));
+            assert_eq!(retry.label, "Redownload original track");
+            assert_eq!(
+                retry.availability,
+                crate::view_models::startup::StartupAvailability::Available
+            );
+            assert!(vm.rows(true)[0]
+                .label
+                .contains(&format!("Download: Remote {id}")));
+            let labels = action_labels(&vm);
+            assert!(labels.contains(&"Redownload original track"));
+            assert!(labels.contains(&"Dismiss"));
+            assert!(!labels.iter().any(|label| label.contains("converter")));
+        }
+    }
+
+    /// R66-14-02: a WAV conversion failure keeps the converter repair action.
+    #[test]
+    fn adr_0066_download_failure_conversion_keeps_converter_action() {
+        use crate::application::capability::{CapabilityAction, Dependency};
+        let (_temp, config, conn, request) = fixture();
+        let recovery = ConversionRecovery::default();
+        let outcome = recovery
+            .subscribe_to_at(Arc::clone(&conn), request, None, &config)
+            .unwrap();
+        assert_eq!(outcome.conversion, ConversionOutcome::WavRetained);
+        let reports = recovery.subscribe().borrow().clone();
+        assert_eq!(reports[0].failure, FailureClass::Conversion);
+        let vm = view(&reports);
+        let entry = &vm.pending.entries()[0];
+        assert_eq!(entry.dependency, Dependency::Converter);
+        assert_eq!(
+            vm.action(CapabilityAction::Repair(entry.id)).label,
+            "Edit converter setting"
+        );
+        assert!(vm.rows(true)[0].label.contains("Conversion: Original"));
+        assert!(action_labels(&vm).contains(&"Edit converter setting"));
+    }
+
+    /// R66-14-03: a database error gives a storage report with no converter action.
+    #[test]
+    fn adr_0066_download_failure_database_error_gives_storage_class() {
+        use crate::application::capability::Dependency;
+        let (_temp, config, conn, request) = fixture();
+        working_converter(&config, false);
+        conn.lock().unwrap().execute_batch("CREATE TRIGGER reject_binding BEFORE INSERT ON local_files BEGIN SELECT RAISE(FAIL, 'fixture write denied'); END;").unwrap();
+        let recovery = ConversionRecovery::default();
+        assert!(recovery
+            .subscribe_to_at(Arc::clone(&conn), request, None, &config)
+            .is_err());
+        let reports = recovery.subscribe().borrow().clone();
+        assert_eq!(
+            reports[0].failure,
+            FailureClass::Storage(StorageOperation::Database)
+        );
+        assert_eq!(reports[0].state, ConversionState::Failed);
+        assert!(reports[0].message.contains("library database operation"));
+        assert!(reports[0]
+            .message
+            .contains("Available input is retained for this session."));
+        let vm = view(&reports);
+        assert_ne!(vm.pending.entries()[0].dependency, Dependency::Converter);
+        assert!(vm.rows(true)[0].label.contains("Storage: Original"));
+        let labels = action_labels(&vm);
+        assert!(labels.contains(&"Retry original track"));
+        assert!(!labels.iter().any(|label| label.contains("onver")));
+    }
+
+    /// R66-14-04: a later successful feed download supersedes the failed entry.
+    #[test]
+    fn adr_0066_download_failure_feed_success_supersedes_failure() {
+        let (_temp, config, conn, _) = fixture();
+        // The feed names the enclosure on the same server, so the server reads its own address.
+        let rss = Arc::new(Mutex::new(String::new()));
+        let body = Arc::clone(&rss);
+        let server = Server::start(move |path, count| match path {
+            "/track.mp3" if count == 1 => (500, b"fixture failure".to_vec()),
+            "/track.mp3" => (200, MP3.to_vec()),
+            "/feed.xml" => (200, body.lock().unwrap().clone().into_bytes()),
+            _ => (404, Vec::new()),
+        });
+        *rss.lock().unwrap() = format!(
+            r#"<rss version="2.0"><channel><title>Feed</title><link>https://feed.test</link><description>Fixture</description><item><guid>feed-track</guid><title>Feed track</title><enclosure url="{}" type="audio/mpeg" length="17"/></item></channel></rss>"#,
+            server.url("/track.mp3")
+        );
+        let request = || subscribe_service::SubscribeFeedRequest {
+            feed: crate::api::Feed {
+                feed_url: Some(server.url("/feed.xml")),
+                title: Some("Feed".into()),
+                tracks: Some(vec![crate::api::Track {
+                    track_guid: Some("feed-track".into()),
+                    title: Some("Feed track".into()),
+                    enclosure_url: Some(server.url("/track.mp3")),
+                    enclosure_type: Some("audio/mpeg".into()),
+                    ..crate::api::Track::default()
+                }]),
+                ..crate::api::Feed::default()
+            },
+            musicindex_endpoint: "invalid endpoint".into(),
+        };
+        let recovery = ConversionRecovery::default();
+        assert!(recovery
+            .subscribe_feed_at(Arc::clone(&conn), request(), &config)
+            .is_err());
+        let failed = recovery.subscribe().borrow().clone();
+        assert_eq!(failed.len(), 1);
+        assert_eq!(failed[0].failure, FailureClass::Download);
+        let mut vm = view(&failed);
+        assert_eq!(vm.notice_summary(), "1 retained action");
+        let outcome = recovery
+            .subscribe_feed_at(Arc::clone(&conn), request(), &config)
+            .unwrap();
+        assert_eq!(outcome.downloaded, 1);
+        let reports = recovery.subscribe().borrow().clone();
+        assert!(reports.is_empty());
+        vm.pending.sync_conversions(&reports, 1);
+        assert_eq!(vm.notice_summary(), "");
+    }
+
+    /// A later successful single-track download supersedes the failed entry.
+    #[test]
+    fn adr_0066_download_failure_single_track_success_supersedes_failure() {
+        let (_temp, config, conn, _) = fixture();
+        let server = Server::start(|_, count| {
+            if count == 1 {
+                (503, b"fixture failure".to_vec())
+            } else {
+                (200, MP3.to_vec())
+            }
+        });
+        let request = remote_track(&conn, 2, &server.url("/single.mp3"));
+        let recovery = ConversionRecovery::default();
+        assert!(recovery
+            .subscribe_to_at(Arc::clone(&conn), request.clone(), None, &config)
+            .is_err());
+        assert_eq!(recovery.subscribe().borrow().len(), 1);
+        recovery
+            .subscribe_to_at(Arc::clone(&conn), request, None, &config)
+            .unwrap();
+        assert!(recovery.subscribe().borrow().is_empty());
+    }
+
+    /// R66-14-06: a failure that deleted the staging directory does not claim retained input.
+    #[test]
+    fn adr_0066_download_failure_deleted_staging_gives_no_retained_text() {
+        let (temp, config, conn, _) = fixture();
+        let server = Server::start(|_, _| (200, b"<html>not audio</html>".to_vec()));
+        let request = remote_track(&conn, 2, &server.url("/page.mp3"));
+        let recovery = ConversionRecovery::default();
+        assert!(recovery
+            .subscribe_to_at(Arc::clone(&conn), request, None, &config)
+            .is_err());
+        let staging = temp.path().join(".v4vmm-staging");
+        assert!(fs::read_dir(&staging).map_or(true, |mut dir| dir.next().is_none()));
+        let reports = recovery.subscribe().borrow().clone();
+        assert!(!reports[0].message.contains("Available input is retained"));
+        assert!(reports[0]
+            .message
+            .contains("App deleted the downloaded input."));
     }
 
     #[test]
