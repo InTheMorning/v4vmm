@@ -2,7 +2,9 @@
 
 ## Status
 
-Superseded - 2026-10-02 by [ADR 0082](0082-publisher-roles-belong-to-each-album-link.md). A page has no type. This file moves to the archive with ADR 0082 packet 002.
+Superseded by ADR 0082 - 2026-10-02. A page has no type.
+
+[ADR 0082](0082-publisher-roles-belong-to-each-album-link.md) moves this file to the archive with its packet 002.
 
 Accepted - 2026-09-24. The operator gave this decision on 2026-09-24, during the review of the ADR 0077 proposals.
 Implementation has not started.

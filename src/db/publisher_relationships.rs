@@ -3,6 +3,10 @@
 //! Migration 14 creates `feed_publisher_relationships`. The table keeps one
 //! row for each publisher relationship entry of a local feed, with each
 //! field of the live `PublisherResponse` contract and the observation time.
+//! Migration 18 (`publisher_link_facts`) adds `album_names_as` and
+//! `role_agreement`, the two Stophammer 0.7.0 link facts of ADR 0082
+//! Decision 2, to the same table. This module still owns the write and the
+//! read of every column.
 //!
 //! Packet 013 keeps `MusicIndex` collection replacement disabled. Thus a write
 //! inserts or updates the rows of the entries in a response, and it deletes
@@ -120,9 +124,9 @@ pub(crate) fn upsert_feed_publisher_relationships(
                 music_names_publisher, publisher_lists_music, publisher_link_resolution,
                 publisher_link_observed_at, reciprocal_declared, reciprocal_medium,
                 two_way_validated, publisher_rel, music_rel, role, role_source,
-                publisher_feed_title, observed_at
+                publisher_feed_title, observed_at, album_names_as, role_agreement
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
-                ?17, ?18, ?19, ?20, ?21, ?22)
+                ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
             ON CONFLICT (feed_id, direction, publisher_feed_guid, remote_feed_guid) DO UPDATE SET
                 music_feed_guid = excluded.music_feed_guid,
                 remote_feed_url = excluded.remote_feed_url,
@@ -141,7 +145,9 @@ pub(crate) fn upsert_feed_publisher_relationships(
                 role = excluded.role,
                 role_source = excluded.role_source,
                 publisher_feed_title = excluded.publisher_feed_title,
-                observed_at = excluded.observed_at",
+                observed_at = excluded.observed_at,
+                album_names_as = excluded.album_names_as,
+                role_agreement = excluded.role_agreement",
         )?;
         for entry in relationships {
             let (Some(direction), Some(publisher_feed_guid), Some(remote_feed_guid)) = (
@@ -181,6 +187,14 @@ pub(crate) fn upsert_feed_publisher_relationships(
                         .map(crate::api::RoleSource::as_str),
                     publisher_feed_title,
                     observed_at,
+                    entry
+                        .album_names_as
+                        .as_ref()
+                        .map(crate::api::AlbumNamesAs::as_str),
+                    entry
+                        .role_agreement
+                        .as_ref()
+                        .map(crate::api::RoleAgreement::as_str),
                 ])
                 .context("Write feed publisher relationship")?;
             written += 1;
@@ -782,6 +796,114 @@ mod tests {
             owned_publisher_feed_guid(&conn, 99).unwrap(),
             None,
             "a feed with no stored relationship row exposes no publisher feed GUID"
+        );
+    }
+
+    /// R82-1-05 (ADR 0082 packet 001): migration 18 adds `album_names_as`
+    /// and `role_agreement` to a version 17 database, and its existing row
+    /// reads null in each new column.
+    #[test]
+    fn adr_0082_link_facts_version_17_migrates_to_18_with_null_link_facts() {
+        let conn = Connection::open_in_memory().unwrap();
+        upgrades::create_fixture(&conn, 17).unwrap();
+        conn.execute(
+            "INSERT INTO feeds(id, feed_url, feed_guid) VALUES (1, 'https://example.test/one.xml', 'f1')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO feed_publisher_relationships (
+                feed_id, direction, publisher_feed_guid, remote_feed_guid, observed_at
+            ) VALUES (1, 'music_to_publisher', 'publisher-a', 'publisher-a', 10)",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            inspect_schema(&conn).unwrap(),
+            SchemaCompatibility::UpgradeRequired {
+                applied: 17,
+                current: MIGRATIONS.len()
+            }
+        );
+
+        crate::db::migrate_schema_to(&conn, 18).unwrap();
+
+        assert_eq!(inspect_schema(&conn).unwrap(), SchemaCompatibility::Current);
+        upgrades::verify_target(&conn, 18).unwrap();
+        let name: String = conn
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 18",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(name, "publisher_link_facts");
+        let rows = test_support::rows(&conn, 1);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            test_support::value(&rows[0], "album_names_as"),
+            rusqlite::types::Value::Null,
+            "an existing row reads null in the new album_names_as column"
+        );
+        assert_eq!(
+            test_support::value(&rows[0], "role_agreement"),
+            rusqlite::types::Value::Null,
+            "an existing row reads null in the new role_agreement column"
+        );
+    }
+
+    /// R82-1-06 (ADR 0082 packet 001): a stored relationship round-trips
+    /// `album_names_as` and `role_agreement`, and a relationship that states
+    /// neither keeps both columns null, the same as the migration-14 fields.
+    #[test]
+    fn adr_0082_link_facts_stored_relationship_round_trips_link_facts() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        upgrades::create_fixture(&conn, CURRENT_VERSION).unwrap();
+        conn.execute(
+            "INSERT INTO feeds(id, feed_url, feed_guid) VALUES (1, 'https://example.test/one.xml', 'f1')",
+            [],
+        )
+        .unwrap();
+        let stated = PublisherRelationship {
+            album_names_as: Some(crate::api::AlbumNamesAs::Publisher),
+            role_agreement: Some(crate::api::RoleAgreement::OneSide),
+            ..entry("publisher-a", None)
+        };
+        let unstated = entry("publisher-b", None);
+        upsert_feed_publisher_relationships(&mut conn, 1, None, Some(&[stated, unstated]), 10)
+            .unwrap();
+
+        let rows = test_support::rows(&conn, 1);
+        assert_eq!(rows.len(), 2);
+        let stated_row = rows
+            .iter()
+            .find(|row| {
+                test_support::value(row, "publisher_feed_guid")
+                    == rusqlite::types::Value::Text("publisher-a".to_owned())
+            })
+            .expect("the stated row should be written");
+        assert_eq!(
+            test_support::value(stated_row, "album_names_as"),
+            rusqlite::types::Value::Text("publisher".to_owned())
+        );
+        assert_eq!(
+            test_support::value(stated_row, "role_agreement"),
+            rusqlite::types::Value::Text("one_side".to_owned())
+        );
+        let unstated_row = rows
+            .iter()
+            .find(|row| {
+                test_support::value(row, "publisher_feed_guid")
+                    == rusqlite::types::Value::Text("publisher-b".to_owned())
+            })
+            .expect("the unstated row should be written");
+        assert_eq!(
+            test_support::value(unstated_row, "album_names_as"),
+            rusqlite::types::Value::Null
+        );
+        assert_eq!(
+            test_support::value(unstated_row, "role_agreement"),
+            rusqlite::types::Value::Null
         );
     }
 }

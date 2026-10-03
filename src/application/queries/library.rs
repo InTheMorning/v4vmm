@@ -1496,6 +1496,8 @@ mod observation_tests {
             ("role_source", text("default")),
             ("publisher_feed_title", text("Liberthea Anadara")),
             ("observed_at", observed_at.clone()),
+            ("album_names_as", Value::Null),
+            ("role_agreement", Value::Null),
         ]
         .into_iter()
         .map(|(name, value)| (name.to_owned(), value))
@@ -1524,6 +1526,8 @@ mod observation_tests {
             ("role_source", text("conflict")),
             ("publisher_feed_title", text("Liberthea Anadara")),
             ("observed_at", observed_at),
+            ("album_names_as", Value::Null),
+            ("role_agreement", Value::Null),
         ]
         .into_iter()
         .map(|(name, value)| (name.to_owned(), value))

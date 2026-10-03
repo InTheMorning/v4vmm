@@ -133,6 +133,11 @@ pub struct Feed {
     pub remote_items: Option<Vec<RemoteItem>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub publisher: Option<Vec<PublisherRelationship>>,
+    /// Each other publisher feed that shares a confirmed album with this
+    /// feed (ADR 0082 Decision 5). Present only on a read of a publisher
+    /// feed with `include=publisher`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub co_credited_feeds: Option<Vec<CoCreditedFeed>>,
     /// The title of the publisher feed that this album names (ADR 0077 Decision 5).
     /// MusicIndex derives it. It is null when the album names no publisher.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -520,12 +525,126 @@ impl From<RoleSource> for String {
     }
 }
 
+/// How an album names a publisher feed (ADR 0082 Decision 2, Stophammer ADR
+/// 0069 §3).
+///
+/// The 0.7.0 contract text still names `credit` beside `publisher`, though
+/// the live node sends only `publisher` or null (ADR 0082 Recorded Facts,
+/// 2026-10-02). This type keeps `credit` as a known value, because the
+/// contract still declares it. An unrecognized value keeps its raw text.
+/// It does not fail the response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+pub enum AlbumNamesAs {
+    Publisher,
+    Credit,
+    Unknown(String),
+}
+
+impl AlbumNamesAs {
+    /// Returns the wire text of this value.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Publisher => "publisher",
+            Self::Credit => "credit",
+            Self::Unknown(raw) => raw,
+        }
+    }
+}
+
+impl From<String> for AlbumNamesAs {
+    fn from(raw: String) -> Self {
+        match raw.as_str() {
+            "publisher" => Self::Publisher,
+            "credit" => Self::Credit,
+            _ => Self::Unknown(raw),
+        }
+    }
+}
+
+impl From<AlbumNamesAs> for String {
+    fn from(value: AlbumNamesAs) -> Self {
+        match value {
+            AlbumNamesAs::Unknown(raw) => raw,
+            known => known.as_str().to_owned(),
+        }
+    }
+}
+
+/// Whether the two sides of a publisher relationship agree on its role
+/// (ADR 0082 Decision 2, Stophammer ADR 0049 §6a).
+///
+/// `None` on the relationship means that no side states a role. A
+/// `Conflict` row is not a confirmed link. An unrecognized value keeps its
+/// raw text. It does not fail the response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+pub enum RoleAgreement {
+    Both,
+    OneSide,
+    Conflict,
+    Unknown(String),
+}
+
+impl RoleAgreement {
+    /// Returns the wire text of this value.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Both => "both",
+            Self::OneSide => "one_side",
+            Self::Conflict => "conflict",
+            Self::Unknown(raw) => raw,
+        }
+    }
+}
+
+impl From<String> for RoleAgreement {
+    fn from(raw: String) -> Self {
+        match raw.as_str() {
+            "both" => Self::Both,
+            "one_side" => Self::OneSide,
+            "conflict" => Self::Conflict,
+            _ => Self::Unknown(raw),
+        }
+    }
+}
+
+impl From<RoleAgreement> for String {
+    fn from(value: RoleAgreement) -> Self {
+        match value {
+            RoleAgreement::Unknown(raw) => raw,
+            known => known.as_str().to_owned(),
+        }
+    }
+}
+
+/// One entry of `co_credited_feeds`: another publisher feed that shares a
+/// confirmed album with the feed that a response describes (ADR 0082
+/// Decision 5, Stophammer ADR 0069 §4).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct CoCreditedFeed {
+    pub feed_guid: Option<String>,
+    /// The title of the co-credited feed, or null when the node holds no
+    /// feed for it.
+    pub title: Option<String>,
+    /// The different raw `rel` values the shared albums give this feed,
+    /// sorted. Empty when no album states one.
+    pub roles: Option<Vec<String>>,
+    /// The number of shared confirmed albums.
+    pub album_count: Option<i64>,
+}
+
 /// One publisher relationship from an API response (ADRs 0075 and 0077).
 ///
-/// The fields follow the live `PublisherResponse` contract of 2026-09-24.
-/// The legacy fields stay, because the live contract still sends them.
-/// Stophammer ADR 0059 added the four `remote_*` summary fields. Stophammer
-/// deployed that change on 2026-09-26 (ADR 0077 Task 003).
+/// The fields follow the live `PublisherResponse` contract of 2026-09-24,
+/// extended on 2026-10-02 with the Stophammer 0.7.0 link facts of ADR 0082
+/// Decision 2. The legacy fields stay, because the live contract still
+/// sends them. Stophammer ADR 0059 added the four `remote_*` summary
+/// fields. Stophammer deployed that change on 2026-09-26 (ADR 0077 Task
+/// 003).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct PublisherRelationship {
@@ -568,11 +687,19 @@ pub struct PublisherRelationship {
     /// The raw `rel` of the album feed item that names this publisher.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub music_rel: Option<String>,
-    /// The stated role, or the assumed default. Null on a conflict.
+    /// The role set of this link, sorted and joined by `", "`. Null when
+    /// neither side states one, and null on a conflict (ADR 0082 Decision
+    /// 2, amended 2026-10-02: the node gives no assumed default).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role_source: Option<RoleSource>,
+    /// How the album names this publisher feed (ADR 0082 Decision 2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_names_as: Option<AlbumNamesAs>,
+    /// Whether the two sides agree on `role` (ADR 0082 Decision 2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role_agreement: Option<RoleAgreement>,
     /// The title of the feed that `remote_feed_guid` names (Stophammer ADR
     /// 0059, ADR 0077 Task 003). On a `music_to_publisher` entry, this
     /// describes the publisher feed. On a `publisher_to_music` entry, this
@@ -3355,6 +3482,187 @@ pub(crate) mod tests {
             assert!(
                 serialized.get("remote_feed_title").is_none(),
                 "an absent summary field must stay out of the serialized entry"
+            );
+        }
+    }
+
+    /// ADR 0082 packet 001: the Stophammer 0.7.0 link-fact contract. The
+    /// node deployed this contract on 2026-10-02 (ADR 0082 Context).
+    mod adr_0082_link_facts {
+        use crate::api::{AlbumNamesAs, DetailResponse, Feed, RoleAgreement, RoleSource};
+
+        /// Recorded on 2026-10-02 from
+        /// `GET https://api.musicindex.org/v1/feeds/137aaa9c-75ff-4916-9f23-e02968b2d15e?include=publisher`
+        /// (the DETOX publisher feed). Trimmed to the fields the test
+        /// needs. ADR 0082 Context names this exact row shape.
+        const RECORDED_DETOX_PUBLISHER_ROW: &str = r#"{
+            "data": {
+                "feed_guid": "137aaa9c-75ff-4916-9f23-e02968b2d15e",
+                "publisher": [
+                    {
+                        "direction": "publisher_to_music",
+                        "remote_feed_guid": "album-guid-1",
+                        "publisher_feed_guid": "137aaa9c-75ff-4916-9f23-e02968b2d15e",
+                        "album_names_as": "publisher",
+                        "role": null,
+                        "role_source": "default",
+                        "role_agreement": null,
+                        "two_way_validated": true,
+                        "music_names_publisher": true
+                    }
+                ]
+            },
+            "pagination": {"cursor": null, "has_more": false}
+        }"#;
+
+        /// R82-1-02: the recorded 0.7.0 DETOX publisher row decodes
+        /// `album_names_as` `publisher`, a null `role`, `role_source`
+        /// `default` and a null `role_agreement`.
+        #[test]
+        fn adr_0082_link_facts_recorded_detox_row_decodes_0_7_0_shape() {
+            let response: DetailResponse<Feed> = serde_json::from_str(RECORDED_DETOX_PUBLISHER_ROW)
+                .expect("the recorded DETOX publisher row should decode");
+            let entries = response
+                .data
+                .publisher
+                .expect("the feed should carry publisher");
+            let entry = &entries[0];
+            assert_eq!(entry.album_names_as, Some(AlbumNamesAs::Publisher));
+            assert_eq!(entry.role, None);
+            assert_eq!(entry.role_source, Some(RoleSource::Default));
+            assert_eq!(entry.role_agreement, None);
+            assert_eq!(entry.two_way_validated, Some(true));
+            assert_eq!(entry.music_names_publisher, Some(true));
+        }
+
+        /// R82-1-03: a recorded row with each declared `role_agreement`
+        /// value decodes it, and an unknown value decodes to the fallback.
+        #[test]
+        fn adr_0082_link_facts_role_agreement_values_decode() {
+            for (raw, expected) in [
+                ("both", RoleAgreement::Both),
+                ("one_side", RoleAgreement::OneSide),
+                ("conflict", RoleAgreement::Conflict),
+                (
+                    "future_agreement",
+                    RoleAgreement::Unknown("future_agreement".to_owned()),
+                ),
+            ] {
+                let feed: Feed = serde_json::from_str(&format!(
+                    r#"{{"publisher": [{{
+                        "direction": "publisher_to_music",
+                        "publisher_feed_guid": "publisher-feed-1",
+                        "role": "artist, label",
+                        "role_source": "publisher_rel",
+                        "role_agreement": "{raw}"
+                    }}]}}"#
+                ))
+                .unwrap_or_else(|error| {
+                    panic!("a recorded role_agreement of {raw} must not fail the response: {error}")
+                });
+                let entry = &feed.publisher.unwrap()[0];
+                assert_eq!(
+                    entry.role_agreement,
+                    Some(expected),
+                    "role_agreement {raw} should round trip"
+                );
+            }
+        }
+
+        /// R82-1-04: a recorded publisher read decodes `co_credited_feeds`
+        /// with each field.
+        #[test]
+        fn adr_0082_link_facts_co_credited_feeds_decode_each_field() {
+            let feed: Feed = serde_json::from_str(
+                r#"{
+                    "feed_guid": "137aaa9c-75ff-4916-9f23-e02968b2d15e",
+                    "co_credited_feeds": [
+                        {
+                            "feed_guid": "other-publisher-feed",
+                            "title": "Other Publisher",
+                            "roles": ["artist", "label"],
+                            "album_count": 3
+                        },
+                        {
+                            "feed_guid": "untitled-publisher-feed",
+                            "title": null,
+                            "roles": [],
+                            "album_count": 1
+                        }
+                    ]
+                }"#,
+            )
+            .expect("a recorded co_credited_feeds list should decode");
+            let co_credited = feed
+                .co_credited_feeds
+                .expect("the feed should carry co_credited_feeds");
+            assert_eq!(co_credited.len(), 2);
+            assert_eq!(
+                co_credited[0].feed_guid.as_deref(),
+                Some("other-publisher-feed")
+            );
+            assert_eq!(co_credited[0].title.as_deref(), Some("Other Publisher"));
+            assert_eq!(
+                co_credited[0].roles,
+                Some(vec!["artist".to_owned(), "label".to_owned()])
+            );
+            assert_eq!(co_credited[0].album_count, Some(3));
+            assert_eq!(co_credited[1].title, None);
+            assert_eq!(co_credited[1].roles, Some(vec![]));
+        }
+
+        /// The 0.7.0 contract text still declares `credit` beside
+        /// `publisher`. `AlbumNamesAs` keeps it as a known value, and an
+        /// unrecognized value keeps its own raw text.
+        #[test]
+        fn adr_0082_link_facts_album_names_as_known_and_unknown_values() {
+            for (raw, expected) in [
+                ("publisher", AlbumNamesAs::Publisher),
+                ("credit", AlbumNamesAs::Credit),
+                (
+                    "future_label",
+                    AlbumNamesAs::Unknown("future_label".to_owned()),
+                ),
+            ] {
+                let feed: Feed = serde_json::from_str(&format!(
+                    r#"{{"publisher": [{{
+                        "direction": "music_to_publisher",
+                        "publisher_feed_guid": "publisher-feed-1",
+                        "album_names_as": "{raw}"
+                    }}]}}"#
+                ))
+                .unwrap_or_else(|error| {
+                    panic!("a recorded album_names_as of {raw} must not fail the response: {error}")
+                });
+                let entry = &feed.publisher.unwrap()[0];
+                assert_eq!(
+                    entry.album_names_as,
+                    Some(expected),
+                    "album_names_as {raw} should round trip"
+                );
+                assert_eq!(entry.album_names_as.as_ref().unwrap().as_str(), raw);
+            }
+        }
+
+        /// A null `role` round-trips as an absent field, the same as every
+        /// other optional `PublisherRelationship` value.
+        #[test]
+        fn adr_0082_link_facts_null_role_stays_absent_on_round_trip() {
+            let feed: Feed = serde_json::from_str(
+                r#"{"publisher": [{
+                    "direction": "publisher_to_music",
+                    "publisher_feed_guid": "publisher-feed-1",
+                    "role": null,
+                    "role_source": "default"
+                }]}"#,
+            )
+            .expect("a null role must not fail the response");
+            let entry = &feed.publisher.unwrap()[0];
+            assert_eq!(entry.role, None);
+            let serialized = serde_json::to_value(entry).unwrap();
+            assert!(
+                serialized.get("role").is_none(),
+                "a null role should stay absent on round trip"
             );
         }
     }

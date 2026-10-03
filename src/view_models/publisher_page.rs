@@ -134,39 +134,43 @@ impl TitleDisplay {
     }
 }
 
-/// The stated, assumed, or conflicting role of one album/publisher pair
-/// (ADR 0077 Decision 3, R3-06, R3-07).
+/// The stated or conflicting role of one album/publisher pair (ADR 0077
+/// Decision 3, R3-06, R3-07).
+///
+/// ADR 0082 Decision 2, Recorded Facts (2026-10-02): the Stophammer 0.7.0
+/// node never sends a stated role with `role_source` `default`. It gives
+/// no assumed default. `AlbumRoleDisplay` dropped its `Assumed` variant for
+/// this reason (ADR 0082 packet 001, Required Change 4): no 0.7.0 response
+/// can reach it. A role with no stated source still decodes, and
+/// `role_display` reads it as `Unknown`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AlbumRoleDisplay {
     /// A feed stated this role. `source` names which feed stated it.
     Stated { role: String, source: RoleSource },
-    /// No feed stated a role. Stophammer's assumed default.
-    Assumed { role: String },
     /// The two feeds stated different roles. Neither value wins.
     Conflict {
         publisher_role: Option<String>,
         music_role: Option<String>,
     },
-    /// Neither a stated role nor an assumed one is present.
+    /// No feed stated a role, or the row names no stated source for it.
     Unknown,
 }
 
 impl AlbumRoleDisplay {
-    /// The word this role shows, when one side or the default names it
-    /// (ADR 0077 packet 004). `None` for a conflict or an unknown role: the
-    /// screen reads `Self::Conflict`'s own two stated values instead of a
-    /// single word.
+    /// The word this role shows, when a feed stated it (ADR 0077 packet
+    /// 004). `None` for a conflict or an unknown role: the screen reads
+    /// `Self::Conflict`'s own two stated values instead of a single word.
     #[must_use]
     pub(crate) fn text(&self) -> Option<&str> {
         match self {
-            Self::Stated { role, .. } | Self::Assumed { role } => Some(role.as_str()),
+            Self::Stated { role, .. } => Some(role.as_str()),
             Self::Conflict { .. } | Self::Unknown => None,
         }
     }
 
-    /// `true` only when a feed stated this role. `false` for an assumed
-    /// default, a conflict, or an unknown role (R3-07: a default role never
-    /// shows as stated).
+    /// `true` only when a feed stated this role. `false` for a conflict or
+    /// an unknown role (R3-07: a role with no stated source never shows as
+    /// stated).
     #[must_use]
     pub(crate) const fn is_stated(&self) -> bool {
         matches!(self, Self::Stated { .. })
@@ -185,7 +189,7 @@ impl AlbumRoleDisplay {
                 publisher_role.as_deref().unwrap_or(Self::CONFLICT_UNSTATED),
                 music_role.as_deref().unwrap_or(Self::CONFLICT_UNSTATED),
             )),
-            Self::Stated { .. } | Self::Assumed { .. } | Self::Unknown => None,
+            Self::Stated { .. } | Self::Unknown => None,
         }
     }
 
@@ -594,6 +598,11 @@ impl PublisherPageVm {
         }
     }
 
+    /// ADR 0082 packet 001, Required Change 4: a 0.7.0 row never pairs a
+    /// stated `role` with `role_source` `default`, so this function keeps
+    /// no arm for that pairing. A row that still reaches it, for example
+    /// from the fixture era before 2026-10-02, reads as `Unknown`, the same
+    /// display that a role with no stated source already gave.
     fn role_display(album: &PublisherPageAlbumFact) -> AlbumRoleDisplay {
         match (&album.role, &album.role_source) {
             (Some(role), Some(source @ (RoleSource::PublisherRel | RoleSource::MusicRel))) => {
@@ -601,9 +610,6 @@ impl PublisherPageVm {
                     role: role.clone(),
                     source: source.clone(),
                 }
-            }
-            (Some(role), Some(RoleSource::Default)) => {
-                AlbumRoleDisplay::Assumed { role: role.clone() }
             }
             (None, Some(RoleSource::Conflict)) => AlbumRoleDisplay::Conflict {
                 publisher_role: album.publisher_rel.clone(),
@@ -699,20 +705,16 @@ mod tests {
         );
     }
 
-    /// R3-07: a `default` role is exposed as assumed, never as stated.
+    /// ADR 0082 packet 001, Required Change 4: the recorded 0.7.0 DETOX
+    /// shape, a null `role` with `role_source` `default`, is exposed as
+    /// `Unknown`, never as stated. This replaces R3-07 (ADR 0077): the
+    /// `Assumed` variant it checked is gone, because no 0.7.0 row pairs a
+    /// stated role with a `default` source.
     #[test]
-    fn adr_0077_publisher_page_default_role_is_exposed_as_assumed() {
-        let vm = PublisherPageVm::new(facts(vec![owned_album(
-            Some("artist"),
-            Some(RoleSource::Default),
-        )]));
+    fn adr_0082_link_facts_default_role_source_with_null_role_is_unknown() {
+        let vm = PublisherPageVm::new(facts(vec![owned_album(None, Some(RoleSource::Default))]));
         let albums = vm.owned_albums();
-        assert_eq!(
-            albums[0].role,
-            AlbumRoleDisplay::Assumed {
-                role: "artist".into()
-            }
-        );
+        assert_eq!(albums[0].role, AlbumRoleDisplay::Unknown);
         assert_ne!(
             albums[0].role,
             AlbumRoleDisplay::Stated {

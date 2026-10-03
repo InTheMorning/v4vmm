@@ -245,8 +245,9 @@ fn title_display_text(title: &TitleDisplay) -> (String, Option<&'static str>) {
     }
 }
 
-/// A role, ready to view. `Stated` and `Assumed` show through a different
-/// color, so an assumed role never looks like a stated fact (R3-07).
+/// A role, ready to view. A stated role shows through a different color
+/// than an unstated one (R3-07). ADR 0082 packet 001: `AlbumRoleDisplay`
+/// dropped its `Assumed` variant, because no 0.7.0 row reaches it.
 fn render_role(role: &AlbumRoleDisplay) -> Option<AnyElement> {
     if let Some(conflict_text) = role.conflict_text() {
         return Some(

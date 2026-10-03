@@ -128,7 +128,7 @@ pub(crate) fn create_fixture(conn: &Connection, target: i64) -> anyhow::Result<(
         "Fixture database must be empty"
     );
     anyhow::ensure!(
-        matches!(target, 10..=17),
+        matches!(target, 10..=18),
         "Unsupported fixture schema target"
     );
     conn.pragma_update(None, "foreign_keys", true)?;
@@ -238,7 +238,7 @@ mod tests {
             inspect_schema(&conn).unwrap(),
             SchemaCompatibility::UpgradeRequired {
                 applied: 11,
-                current: 17
+                current: 18
             }
         );
         crate::db::migrate_schema_to(&conn, 12).unwrap();
@@ -432,12 +432,12 @@ mod tests {
                 match boundary {
                     MigrationBoundary::BeforeApply => SchemaCompatibility::UpgradeRequired {
                         applied: 10,
-                        current: 17
+                        current: 18
                     },
                     MigrationBoundary::AfterApply => SchemaCompatibility::InterruptedUpgrade,
                     MigrationBoundary::AfterRecord => SchemaCompatibility::UpgradeRequired {
                         applied: 11,
-                        current: 17
+                        current: 18
                     },
                 }
             );

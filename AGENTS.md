@@ -109,7 +109,7 @@ Their mechanical checks are Green, and their visual gates are open and paused.
 [Packet 050](docs/tasks/adr-0075-task-050-feed-dates-by-owner.md) shows each feed date with its true meaning. It is implemented
 on 2026-10-01, with its visual gate open and paused.
 [Packet 051](docs/tasks/adr-0075-task-051-contract-field-guard.md) guards each decoded field against the stored contract
-`tests/fixtures/musicindex-openapi-0.2.0.json`. It is implemented on 2026-10-01. After each Stophammer release, replace that copy
+`tests/fixtures/musicindex-openapi-0.7.0.json`. It is implemented on 2026-10-01. After each Stophammer release, replace that copy
 in the same change as the decode changes.
 [ADR 0060 packet 005](docs/tasks/adr-0060-task-005-delete-parked-discover-code.md) deletes the parked Discover UI and state. It is implemented on 2026-09-30,
 with its visual gate open and paused. [Packet 006](docs/tasks/adr-0060-task-006-delete-parked-discover-queries.md) deleted its query layer and six unused MusicIndex types on 2026-09-30, with no new visual gate.
@@ -123,6 +123,8 @@ No `dead_code` lint attribute stays in `src/`, and the ADR 0060 guard forbids on
 with its visual gate open and paused. [ADR 0081 task 001](docs/tasks/adr-0081-task-001-remove-the-staged-frame-model.md) deletes the model. It is Ready.
 [ADR 0082](docs/adr/0082-publisher-roles-belong-to-each-album-link.md) is Accepted on 2026-10-02. It gives roles to each album link and no page type,
 against Stophammer 0.7.0. It supersedes ADR 0078. Its [phase plan](docs/plans/adr-0082-publisher-roles-phase-plan.md) registers three packets.
+[Packet 001](docs/tasks/adr-0082-task-001-contract-0-7-0-and-link-facts.md) is implemented on 2026-10-02. It decodes and stores the 0.7.0 link facts in schema version 18.
+Its mechanical checks are Green, and it needs no visual acceptance. Packets 002 and 003 are Ready.
 ADR 0076, amended on 2026-09-26, makes the app ignore `last_build_date`. Three decoded fields no
 longer arrive. [Packet 046](docs/tasks/adr-0075-task-046-remove-undeclared-api-fields.md)
 removed them on 2026-09-26. Its mechanical checks are Green, and it needs no visual acceptance.
@@ -147,7 +149,7 @@ Confirm) and packet 006 (one credit list for each owner) are implemented on 2026
 visual gates open and paused. [Packet 007](docs/tasks/adr-0076-task-007-guard-reads-test-files-as-test-code.md)
 corrects a guard helper that reads a test-only file as production code. It is implemented on 2026-09-30, with no visual gate.
 No ADR 0076 packet is open.
-Schema version 17 is current, and each route write to a file reads the stored route. One projection in
+Schema version 18 is current, and each route write to a file reads the stored route. One projection in
 `src/application/queries/stored_values.rs` owns the order of stored values.
 Packet 002 dropped the unused ADR 0075 discrepancy and field-selection tables. The operator accepted the
 three numeric values and three packet details on 2026-09-24. The plan records the trigger mapping.
