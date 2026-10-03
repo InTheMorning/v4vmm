@@ -773,7 +773,6 @@ mod tests {
         let conn = setup_test_db()?;
         let request = SubscribeTrackRequest::SearchTrack {
             track_context: Box::new(TrackContext::new(Track::default(), None)),
-            edits: Vec::new(),
             musicindex_endpoint: "https://api.example.test".into(),
             mark_feed_subscribed: false,
             return_tag_compare: false,

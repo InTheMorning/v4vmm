@@ -497,6 +497,18 @@ pub fn feed_tracks(conn: &Connection, feed_id: i64) -> Result<Vec<TrackRow>> {
     Ok(rows)
 }
 
+/// The number of stored tracks of one feed that the feed still lists. The
+/// stored projection gives it as the `TRCK` total (ADR 0076 Decision 10). A
+/// track that the RSS check marked as removed (Decision 7) is not counted.
+pub fn feed_track_count(conn: &Connection, feed_id: i64) -> Result<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM tracks WHERE feed_id = ?1 AND removed_from_feed_at IS NULL",
+        [feed_id],
+        |row| row.get(0),
+    )
+    .context("count the stored tracks of the feed")
+}
+
 pub fn track_row_by_id(conn: &Connection, track_id: i64) -> Result<Option<TrackRow>> {
     let mut stmt = conn
         .prepare(

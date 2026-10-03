@@ -1174,7 +1174,6 @@ impl TopApp {
                     api_track_from_view(feed, track),
                     Some(api_feed_from_view(feed)),
                 )),
-                edits: Vec::new(),
                 musicindex_endpoint: self.musicindex_endpoint.clone(),
                 mark_feed_subscribed: false,
                 return_tag_compare: true,

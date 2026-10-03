@@ -636,6 +636,9 @@ pub fn track_row_to_track_context_with_local_identity(
 
 fn hydrate_feed_identity(conn: &Connection, feed_id: i64, feed: Option<Feed>) -> Result<Feed> {
     let mut feed = feed.unwrap_or_default();
+    // ADR 0076 Decision 10: the `TRCK` total is the count of the stored
+    // tracks of the feed. The scan and the download both read it here.
+    feed.episode_count = i32::try_from(db::feed_track_count(conn, feed_id)?).ok();
     feed.source_links = Some(
         db::local_identity_links(conn, db::LocalIdentityOwner::Feed(feed_id))?
             .into_iter()
@@ -930,6 +933,48 @@ mod tests {
             feed_title: Some("Feed".into()),
             ..TrackRow::default()
         })
+    }
+
+    /// R76-9-06: the stored projection of a track of a feed with 19 stored
+    /// tracks gives `TRCK` with the total 19.
+    #[test]
+    fn adr_0076_download_stored_values_r76_9_06_track_total_counts_stored_tracks() -> Result<()> {
+        let conn = setup_test_db()?;
+        let track = insert_track(&conn)?;
+        conn.execute(
+            "UPDATE tracks SET track_number = 4 WHERE id = ?1",
+            [track.id],
+        )?;
+        for number in 2..=19 {
+            conn.execute(
+                "INSERT INTO tracks (feed_id, item_guid, track_title, track_number)
+                 VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![
+                    track.feed_id,
+                    format!("track-guid-{number}"),
+                    format!("Track {number}"),
+                    number
+                ],
+            )?;
+        }
+        // A track that the feed no longer lists is not in the total.
+        conn.execute(
+            "INSERT INTO tracks (feed_id, item_guid, track_title, removed_from_feed_at)
+             VALUES (?1, 'removed-guid', 'Removed track', 1)",
+            [track.feed_id],
+        )?;
+        let row = db::track_row_by_id(&conn, track.id)?.expect("stored track");
+
+        let context = track_row_to_track_context_with_local_identity(&conn, &row)?;
+        let edits = id3_edits_for_track_context(&context);
+
+        let trck = edits
+            .iter()
+            .filter(|edit| edit.frame_label == "TRCK")
+            .map(|edit| edit.value.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(trck, vec!["4/19"]);
+        Ok(())
     }
 
     #[test]

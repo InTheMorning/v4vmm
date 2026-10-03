@@ -303,7 +303,6 @@ mod tests {
         let context = cancelled_context();
         let track_request = SubscribeTrackRequest::SearchTrack {
             track_context: Box::new(TrackContext::new(Track::default(), None)),
-            edits: Vec::new(),
             musicindex_endpoint: "https://api.example.test".into(),
             mark_feed_subscribed: false,
             return_tag_compare: false,

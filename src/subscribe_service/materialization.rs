@@ -1,4 +1,8 @@
 //! One subscription/materialization path for original work and explicit retry (ADR 0066).
+//!
+//! ADR 0076 Decision 10: each run builds the tag edits from the stored row,
+//! with the projection of the "Update n file(s)" scan. The live request
+//! context only finds and fetches the enclosure.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -8,12 +12,14 @@ use rusqlite::Connection;
 
 use super::{PreparedTrack, SubscribeTrackOutcome};
 use crate::audio_format::{AudioFormat, ConversionOutcome};
-use crate::audio_tags::{write_id3v24_edits, Id3v24Edit};
+use crate::audio_tags::write_id3v24_edits;
 use crate::config::DownloadConfig;
 use crate::db::{self, TrackRow};
 use crate::library_path::LibraryRelativePath;
 use crate::metadata::TrackContext;
-use crate::metadata_service::{with_stored_route_frame, RouteFrameWrite};
+use crate::metadata_service::{
+    id3_edits_for_track_context, with_stored_route_frame, RouteFrameWrite,
+};
 use crate::track_compare::retained::{stage_existing, RetainedArtifact};
 use crate::track_compare::{download_track, select_audio_enclosure, SelectedEnclosure};
 
@@ -38,7 +44,6 @@ pub(crate) enum StorageOperation {
 pub(crate) struct Materialization {
     row: TrackRow,
     context: TrackContext,
-    edits: Vec<Id3v24Edit>,
     music_dir: PathBuf,
     enclosure: Option<SelectedEnclosure>,
     prepared: Option<PreparedTrack>,
@@ -57,17 +62,11 @@ impl std::fmt::Debug for Materialization {
 }
 
 impl Materialization {
-    pub(super) fn new(
-        row: TrackRow,
-        context: TrackContext,
-        edits: Vec<Id3v24Edit>,
-        music_dir: PathBuf,
-    ) -> Self {
+    pub(super) fn new(row: TrackRow, context: TrackContext, music_dir: PathBuf) -> Self {
         let enclosure = select_audio_enclosure(&context.track);
         Self {
             row,
             context,
-            edits,
             music_dir,
             enclosure,
             prepared: None,
@@ -118,6 +117,13 @@ impl Materialization {
         Ok(())
     }
 
+    /// ADR 0076 Decision 10: the stored context of the track. The scan
+    /// uses the same projection.
+    fn stored_context(&self, conn: &Connection) -> Result<TrackContext> {
+        let row = db::track_row_by_id(conn, self.row.id)?.context("original track was removed")?;
+        crate::feed_service::track_row_to_track_context_with_local_identity(conn, &row)
+    }
+
     pub(crate) fn validate_input(&self) -> Result<()> {
         if let Some(binding) = &self.binding {
             binding.validate()?;
@@ -141,7 +147,8 @@ impl Materialization {
         matches!(self.prepared, Some(PreparedTrack::Downloaded(_)))
     }
 
-    /// Retry passes retained input explicitly; source lookup and metadata selection do not run again.
+    /// Retry passes retained input explicitly. Source lookup does not run
+    /// again. Each run reads the stored values again for its tag edits.
     pub(crate) fn run(
         &mut self,
         conn: &Arc<Mutex<Connection>>,
@@ -167,20 +174,22 @@ impl Materialization {
         const DATABASE: FailureClass = FailureClass::Storage(StorageOperation::Database);
         const FILE: FailureClass = FailureClass::Storage(StorageOperation::File);
         *class = DATABASE;
-        {
+        let (stored, edits) = {
             let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
             self.validate_subject(&db, cfg)?;
+            let stored = self.stored_context(&db)?;
             // ADR 0076 Decision 9: the route frame comes from the stored route.
-            // The MusicIndex route of the download goes into the database only
+            // The MusicIndex route of the request goes into the database only
             // when the track has no stored route.
-            self.edits = with_stored_route_frame(
+            let edits = with_stored_route_frame(
                 &db,
                 self.row.id,
                 self.context.track.payment_routes.as_deref(),
-                std::mem::take(&mut self.edits),
+                id3_edits_for_track_context(&stored),
                 RouteFrameWrite::Always,
             )?;
-        }
+            (stored, edits)
+        };
         if retry && !redownload {
             // Input that is not available needs a new download.
             *class = FailureClass::Download;
@@ -237,7 +246,7 @@ impl Materialization {
                 binding.validate()?;
                 let path = binding.path().to_path_buf();
                 self.cleanup()?;
-                return self.outcome(path, conversion, warning, 0);
+                return self.outcome(path, &stored, conversion, warning, 0);
             }
             // On retry, a previously materialized file (even now invalid) is never overwritten.
             *class = FailureClass::Conversion;
@@ -249,12 +258,12 @@ impl Materialization {
         let applied_edits = if conversion == ConversionOutcome::WavRetained {
             0
         } else if retry || self.binding.is_some() {
-            if !self.edits.is_empty() {
-                write_id3v24_edits(&working_path, &self.edits)?;
+            if !edits.is_empty() {
+                write_id3v24_edits(&working_path, &edits)?;
             }
-            self.edits.len()
+            edits.len()
         } else {
-            super::apply_id3_edits_nonfatal(&working_path, &self.edits)
+            super::apply_id3_edits_nonfatal(&working_path, &edits)
         };
 
         *class = DATABASE;
@@ -320,18 +329,21 @@ impl Materialization {
             let message = format!("App saved the track but could not release its staging: {error:#}. Dismiss retries cleanup of owned staging only.");
             Some(warning.map_or_else(|| message.clone(), |warning| format!("{warning}; {message}")))
         });
-        self.outcome(path, conversion, warning, applied_edits)
+        self.outcome(path, &stored, conversion, warning, applied_edits)
     }
 
+    /// The tag comparison reads the stored context, so that it compares the
+    /// file with the values that the run wrote.
     fn outcome(
         &self,
         path: PathBuf,
+        stored: &TrackContext,
         conversion: ConversionOutcome,
         mut format_warning: Option<String>,
         applied_edits: usize,
     ) -> Result<SubscribeTrackOutcome> {
         let compare = if self.return_tag_compare {
-            match super::compare_downloaded_track_path(&path, &self.context) {
+            match super::compare_downloaded_track_path(&path, stored) {
                 Ok(compare) => Some(compare),
                 Err(error) => {
                     let message = crate::diagnostics::redact_endpoint_details(&format!(
@@ -362,6 +374,7 @@ impl Materialization {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audio_tags::Id3v24Edit;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
@@ -393,15 +406,7 @@ mod tests {
         fs::write(temp.path().join("original.wav"), b"RIFF\x24\0\0\0WAVEfmt ").unwrap();
         let row = db::track_row_by_id(&conn, 1).unwrap().unwrap();
         let context = TrackContext::new(super::super::track_row_to_api_track(&row), None);
-        let operation = Materialization::new(
-            row,
-            context,
-            vec![Id3v24Edit {
-                frame_label: "TIT2".into(),
-                value: "Retained edit".into(),
-            }],
-            cfg.music_dir.clone(),
-        );
+        let operation = Materialization::new(row, context, cfg.music_dir.clone());
         (temp, cfg, Arc::new(Mutex::new(conn)), operation)
     }
 
@@ -445,8 +450,7 @@ mod tests {
         crate::rss::enrich_track_from_feed_rss(&mut context, &url).unwrap();
         worker.join().unwrap();
         let observation = Arc::clone(context.rss_observation.as_ref().unwrap());
-        let mut operation =
-            Materialization::new(operation.row, context, operation.edits, operation.music_dir);
+        let mut operation = Materialization::new(operation.row, context, operation.music_dir);
         let first = operation.run(&conn, &cfg, false, false).unwrap();
         assert_eq!(first.conversion, ConversionOutcome::WavRetained);
         cfg.flac_path = Ok(Some(converter(temp.path())));
@@ -477,13 +481,13 @@ mod tests {
         cfg.flac_path = Ok(Some(converter(temp.path())));
         let result = operation.run(&conn, &cfg, true, false).unwrap();
         assert_eq!(result.conversion, ConversionOutcome::Flac);
-        assert_eq!(result.applied_edits, 1);
+        assert!(result.applied_edits > 0);
         assert_eq!(
             crate::audio_tags::read_audio_tags(&result.path)
                 .unwrap()
                 .title
                 .as_deref(),
-            Some("Retained edit")
+            Some("Original")
         );
         assert_eq!(
             fs::read(temp.path().join("original.wav")).unwrap(),
@@ -596,9 +600,7 @@ mod tests {
     #[test]
     fn adr_0076_route_readiness_download_writes_the_stored_route() {
         use crate::api::PaymentRoute;
-        use crate::metadata::{
-            audio_tags_value_routes, parse_value_routes, MUSICINDEX_VALUE_ROUTES_FRAME,
-        };
+        use crate::metadata::{audio_tags_value_routes, parse_value_routes};
 
         let route = |name: &str| PaymentRoute {
             recipient_name: Some(name.into()),
@@ -637,12 +639,8 @@ mod tests {
         let mut api_track = super::super::track_row_to_api_track(&row);
         api_track.payment_routes = Some(vec![route("MusicIndex")]);
         let context = TrackContext::new(api_track, None);
-        let edits = crate::metadata_service::id3_edits_for_track_context(&context);
-        assert!(edits
-            .iter()
-            .any(|edit| edit.frame_label == MUSICINDEX_VALUE_ROUTES_FRAME));
 
-        let mut operation = Materialization::new(row, context, edits, cfg.music_dir.clone());
+        let mut operation = Materialization::new(row, context, cfg.music_dir.clone());
         let outcome = operation.run(&conn, &cfg, false, false).unwrap();
 
         let tags = crate::audio_tags::read_audio_tags(&outcome.path).unwrap();
@@ -652,5 +650,48 @@ mod tests {
             .map(|route| route.recipient_name)
             .collect::<Vec<_>>();
         assert_eq!(names, vec![Some("Stored".to_owned())]);
+    }
+
+    /// R76-9-04: a retained conversion retry writes the stored edits. The
+    /// stored title changes after the first run, and the retry writes the
+    /// new stored value. The next scan gives no changed frame.
+    #[test]
+    fn adr_0076_download_stored_values_r76_9_04_retry_writes_stored_edits() {
+        let (temp, mut cfg, conn, mut operation) = fixture();
+        let first = operation.run(&conn, &cfg, false, false).unwrap();
+        assert_eq!(first.conversion, ConversionOutcome::WavRetained);
+        conn.lock()
+            .unwrap()
+            .execute(
+                "UPDATE tracks SET track_title = 'Stored title' WHERE id = 1",
+                [],
+            )
+            .unwrap();
+        cfg.flac_path = Ok(Some(converter(temp.path())));
+
+        let retried = operation.run(&conn, &cfg, true, false).unwrap();
+
+        assert_eq!(retried.conversion, ConversionOutcome::Flac);
+        let db = conn.lock().unwrap();
+        let row = db::track_row_by_id(&db, 1).unwrap().unwrap();
+        let context =
+            crate::feed_service::track_row_to_track_context_with_local_identity(&db, &row).unwrap();
+        let expected = id3_edits_for_track_context(&context);
+        assert_eq!(retried.applied_edits, expected.len());
+        assert_eq!(
+            crate::audio_tags::read_audio_tags(&retried.path)
+                .unwrap()
+                .title
+                .as_deref(),
+            Some("Stored title")
+        );
+        let scan =
+            crate::application::queries::tag_update::scan_tag_updates(&db, temp.path()).unwrap();
+        assert_eq!(
+            scan.count(),
+            0,
+            "the retry must write the stored edits: {:?}",
+            scan.files
+        );
     }
 }

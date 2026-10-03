@@ -636,3 +636,11 @@ Open - implementation and mechanical checks are complete on 2026-10-03. Operator
 - V1: a download failure shows "Download: <track>" with "Redownload original track" and "Dismiss", and no converter action. Check in Light and Dark themes.
 - V2: after a failed conversion and a successful retry of the same feed, the notice shows no row for those tracks.
 - V3: each row of the collapsed notice has "Dismiss", and a click removes the row in place.
+
+## 37. A Download Writes The Stored Values — ADR 0076 Task 009
+
+Open - implementation and mechanical checks are complete on 2026-10-03. Operator inspection is pending.
+
+- Owner: [task 009](tasks/adr-0076-task-009-download-writes-stored-values.md#operator-visual-check).
+- Scheduling: the check downloads one album into an isolated fixture. It never writes the real Library.
+- V1: after the download, "Update n files" counts no new file. A new file holds `WOAR` with the channel link and `TRCK` with the track total.

@@ -18,7 +18,6 @@ use crate::metadata::{
     sanitize_feed_source_text, sanitize_track_context_source_text, sanitize_track_source_text,
     source_text_missing, TagCompareResult, TrackContext,
 };
-use crate::metadata_service::id3_edits_for_track_context;
 use crate::rss;
 use crate::track_compare::{download_track, local_track_path, select_audio_enclosure};
 
@@ -32,7 +31,6 @@ pub enum SubscribeTrackRequest {
     },
     SearchTrack {
         track_context: Box<TrackContext>,
-        edits: Vec<Id3v24Edit>,
         musicindex_endpoint: crate::config::MusicIndexEndpoint,
         mark_feed_subscribed: bool,
         return_tag_compare: bool,
@@ -63,7 +61,6 @@ pub struct SubscribeFeedOutcome {
 struct SearchTrackSubscription {
     track_context: TrackContext,
     persistence_track: Option<Track>,
-    edits: Vec<Id3v24Edit>,
     musicindex_endpoint: crate::config::MusicIndexEndpoint,
     mark_feed_subscribed: bool,
     return_tag_compare: bool,
@@ -102,7 +99,6 @@ pub(crate) fn subscribe_track_retaining(
         }
         SubscribeTrackRequest::SearchTrack {
             track_context,
-            edits,
             musicindex_endpoint,
             mark_feed_subscribed,
             return_tag_compare,
@@ -112,7 +108,6 @@ pub(crate) fn subscribe_track_retaining(
             SearchTrackSubscription {
                 track_context: *track_context,
                 persistence_track: None,
-                edits,
                 musicindex_endpoint,
                 mark_feed_subscribed,
                 return_tag_compare,
@@ -192,19 +187,18 @@ pub(crate) fn subscribe_feed_retaining(
             )?;
         }
         let track = track_with_feed_defaults(track_for_metadata, Some(&feed));
+        // ADR 0076 Decision 10: this context only finds and fetches the
+        // enclosure. The materialization reads RSS and the stored values.
         let mut track_context = TrackContext::new(track, Some(feed.clone()));
-        enrich_track_context_from_rss(&mut track_context);
         sanitize_track_context_source_text(&mut track_context);
         let error_title = track_context
             .track
             .title
             .clone()
             .unwrap_or_else(|| "(untitled)".to_owned());
-        let edits = id3_edits_for_track_context(&track_context);
 
         let original_request = SubscribeTrackRequest::SearchTrack {
             track_context: Box::new(track_context.clone()),
-            edits: edits.clone(),
             musicindex_endpoint: musicindex_endpoint.clone(),
             mark_feed_subscribed: true,
             return_tag_compare: false,
@@ -216,7 +210,6 @@ pub(crate) fn subscribe_feed_retaining(
             SearchTrackSubscription {
                 track_context,
                 persistence_track: Some(track_for_persistence),
-                edits: edits.clone(),
                 musicindex_endpoint: musicindex_endpoint.clone(),
                 mark_feed_subscribed: true,
                 return_tag_compare: false,
@@ -339,14 +332,10 @@ fn subscribe_library_track_internal(
     track: TrackRow,
     retained: &mut Option<materialization::Materialization>,
 ) -> Result<SubscribeTrackOutcome> {
-    let api_track = track_row_to_api_track(&track);
-
-    let track_context = TrackContext::new(api_track, None);
-    let edits = id3_edits_for_track_context(&track_context);
+    let track_context = TrackContext::new(track_row_to_api_track(&track), None);
     *retained = Some(materialization::Materialization::new(
         track,
         track_context,
-        edits,
         cfg.music_dir.clone(),
     ));
     retained
@@ -364,7 +353,6 @@ fn subscribe_track_from_search_internal(
     let SearchTrackSubscription {
         track_context,
         persistence_track,
-        edits,
         musicindex_endpoint,
         mark_feed_subscribed,
         return_tag_compare,
@@ -421,7 +409,7 @@ fn subscribe_track_from_search_internal(
         db::track_row_by_id(&db, id)?.ok_or_else(|| anyhow!("original track no longer exists"))?
     };
     let mut operation =
-        materialization::Materialization::new(row, refreshed_context, edits, cfg.music_dir.clone());
+        materialization::Materialization::new(row, refreshed_context, cfg.music_dir.clone());
     operation.return_tag_compare = return_tag_compare;
     operation.reconcile_feed = (!mark_feed_subscribed).then(|| feed_url.clone());
     *retained = Some(operation);
@@ -660,6 +648,7 @@ mod tests {
     use super::*;
     use crate::api::SourceEnclosure;
     use crate::config::DownloadConfig;
+    use crate::metadata_service::id3_edits_for_track_context;
 
     fn cfg(temp: &std::path::Path) -> DownloadConfig {
         DownloadConfig {
@@ -900,6 +889,285 @@ mod tests {
         let before = context.track.clone();
         enrich_track_context_from_rss(&mut context);
         assert_eq!(context.track.title, before.title);
+    }
+
+    /// A local HTTP server for the ADR 0076 task 009 tests. It gives each
+    /// listed path its body, and 404 for each other path. No request goes
+    /// to a remote host.
+    struct FixtureServer {
+        base: String,
+        stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        worker: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl FixtureServer {
+        fn start(routes: impl Fn(&str, &str) -> Option<Vec<u8>> + Send + 'static) -> Self {
+            use std::io::{Read, Write};
+            use std::sync::atomic::{AtomicBool, Ordering};
+
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let base = format!("http://{}", listener.local_addr().unwrap());
+            listener.set_nonblocking(true).unwrap();
+            let stop = Arc::new(AtomicBool::new(false));
+            let worker_stop = Arc::clone(&stop);
+            let worker_base = base.clone();
+            let worker = std::thread::spawn(move || {
+                while !worker_stop.load(Ordering::Relaxed) {
+                    let Ok((mut stream, _)) = listener.accept() else {
+                        std::thread::sleep(std::time::Duration::from_millis(2));
+                        continue;
+                    };
+                    stream.set_nonblocking(false).unwrap();
+                    stream
+                        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                        .unwrap();
+                    let mut request = Vec::new();
+                    let mut buffer = [0_u8; 4096];
+                    while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        match stream.read(&mut buffer) {
+                            Ok(0) | Err(_) => break,
+                            Ok(read) => request.extend_from_slice(&buffer[..read]),
+                        }
+                    }
+                    let text = String::from_utf8_lossy(&request);
+                    let path = text.split_whitespace().nth(1).unwrap_or("/").to_owned();
+                    let (status, body) = match routes(&worker_base, &path) {
+                        Some(body) => ("200 OK", body),
+                        None => ("404 Not Found", Vec::new()),
+                    };
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(&body);
+                }
+            });
+            Self {
+                base,
+                stop,
+                worker: Some(worker),
+            }
+        }
+    }
+
+    impl Drop for FixtureServer {
+        fn drop(&mut self) {
+            self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            if let Some(worker) = self.worker.take() {
+                let _ = worker.join();
+            }
+        }
+    }
+
+    const CHANNEL_LINK: &str = "https://v4vmusic.com/?publisher=fixture-publisher";
+    const MP3_BODY: &[u8] = b"ID3\x04\x00\x00\x00\x00\x00\x00mp3data";
+
+    /// A parsed RSS fixture of two items. The channel has a `<link>`.
+    fn rss_document(base: &str) -> Vec<u8> {
+        let items = [(1, "Song One"), (2, "Song Two")]
+            .iter()
+            .map(|(number, title)| {
+                format!(
+                    r#"<item><title>{title}</title><guid isPermaLink="false">item-{number}</guid><description>Song notes</description><pubDate>Tue, 01 Sep 2026 10:00:00 +0000</pubDate><enclosure url="{base}/song-{number}.mp3" type="audio/mpeg" length="17"/><itunes:duration>3:05</itunes:duration><itunes:author>The Band</itunes:author><podcast:episode>{number}</podcast:episode><podcast:value type="lightning" method="keysend"><podcast:valueRecipient name="Band" type="node" address="03abcdef" split="100"/></podcast:value></item>"#
+                )
+            })
+            .collect::<String>();
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:podcast="https://podcastindex.org/namespace/1.0"><channel><title>Album One</title><link>{CHANNEL_LINK}</link><description>Album notes</description><language>en</language><itunes:author>The Band</itunes:author><podcast:guid>feed-guid-1</podcast:guid><podcast:medium>music</podcast:medium><podcast:value type="lightning" method="keysend"><podcast:valueRecipient name="Band" type="node" address="03abcdef" split="100"/></podcast:value>{items}</channel></rss>"#
+        )
+        .into_bytes()
+    }
+
+    /// The request feed of a Index download. Its values equal the RSS
+    /// values, and it has no `source_links`, as `api_feed_from_view` gives.
+    fn request_feed(base: &str) -> Feed {
+        let route = crate::api::PaymentRoute {
+            recipient_name: Some("Band".into()),
+            route_type: Some("node".into()),
+            address: Some("03abcdef".into()),
+            split: Some(100.0),
+            fee: Some(false),
+            ..crate::api::PaymentRoute::default()
+        };
+        let track = |number: i32, title: &str| Track {
+            track_guid: Some(format!("item-{number}")),
+            feed_guid: Some("feed-guid-1".into()),
+            feed_title: Some("Album One".into()),
+            title: Some(title.into()),
+            track_number: Some(number),
+            duration_secs: Some(185),
+            description: Some("Song notes".into()),
+            enclosure_url: Some(format!("{base}/song-{number}.mp3")),
+            enclosure_type: Some("audio/mpeg".into()),
+            track_artist: Some("The Band".into()),
+            release_artist: Some("The Band".into()),
+            payment_routes: Some(vec![route.clone()]),
+            ..Track::default()
+        };
+        Feed {
+            feed_guid: Some("feed-guid-1".into()),
+            feed_url: Some(format!("{base}/feed.xml")),
+            title: Some("Album One".into()),
+            release_artist: Some("The Band".into()),
+            language: Some("en".into()),
+            description: Some("Album notes".into()),
+            episode_count: Some(2),
+            tracks: Some(vec![track(1, "Song One"), track(2, "Song Two")]),
+            payment_routes: Some(vec![route.clone()]),
+            ..Feed::default()
+        }
+    }
+
+    /// Download the request feed of `request_feed` into a fresh database
+    /// and music folder.
+    fn download_fixture_feed() -> (
+        tempfile::TempDir,
+        Arc<Mutex<Connection>>,
+        Result<SubscribeFeedOutcome>,
+    ) {
+        let temp = tempfile::tempdir().unwrap();
+        let server = FixtureServer::start(|base, path| match path {
+            "/feed.xml" => Some(rss_document(base)),
+            "/song-1.mp3" | "/song-2.mp3" => Some(MP3_BODY.to_vec()),
+            _ => None,
+        });
+        let conn = Connection::open_in_memory().unwrap();
+        db::init_schema(&conn).unwrap();
+        db::migrate_schema(&conn).unwrap();
+        let conn = Arc::new(Mutex::new(conn));
+        let outcome = subscribe_feed_retaining(
+            Arc::clone(&conn),
+            &cfg(temp.path()),
+            SubscribeFeedRequest {
+                feed: request_feed(&server.base),
+                musicindex_endpoint: server.base.as_str().into(),
+            },
+            |_, _, _| Ok(()),
+        );
+        drop(server);
+        (temp, conn, outcome)
+    }
+
+    /// The stored projection of each Library track: the frames that the
+    /// scan expects, and then the stored route frame.
+    fn stored_projection_edits(conn: &Connection) -> Vec<(TrackRow, Vec<Id3v24Edit>)> {
+        db::library_tracks(conn)
+            .unwrap()
+            .into_iter()
+            .map(|row| {
+                let context =
+                    crate::feed_service::track_row_to_track_context_with_local_identity(conn, &row)
+                        .unwrap();
+                let mut edits = id3_edits_for_track_context(&context);
+                edits.retain(|edit| {
+                    edit.frame_label != crate::metadata::MUSICINDEX_VALUE_ROUTES_FRAME
+                });
+                if let Some(value) = db::payment_routes::stored_route(conn, row.id)
+                    .unwrap()
+                    .as_deref()
+                    .and_then(crate::metadata::summarize_value_routes)
+                {
+                    edits.push(Id3v24Edit {
+                        frame_label: crate::metadata::MUSICINDEX_VALUE_ROUTES_FRAME.into(),
+                        value,
+                    });
+                }
+                (row, edits)
+            })
+            .collect()
+    }
+
+    fn file_values(path: &Path, frame_id: &str) -> Vec<String> {
+        read_audio_tags(path)
+            .unwrap()
+            .fields
+            .into_iter()
+            .filter(|field| field.frame_id == frame_id)
+            .map(|field| field.value)
+            .collect()
+    }
+
+    /// R76-9-01: a download from a request feed with no `source_links`
+    /// writes `WOAR` with the channel `<link>` of the RSS document.
+    #[test]
+    fn adr_0076_download_stored_values_r76_9_01_download_writes_channel_link() {
+        let (temp, conn, outcome) = download_fixture_feed();
+        assert_eq!(outcome.unwrap().downloaded, 2);
+        let music_dir = cfg(temp.path()).music_dir;
+        let rows = db::library_tracks(&conn.lock().unwrap()).unwrap();
+        assert_eq!(rows.len(), 2);
+        for row in rows {
+            let path = row.local_path.unwrap().resolve(&music_dir);
+            assert_eq!(
+                file_values(&path, "WOAR"),
+                vec![CHANNEL_LINK.to_owned()],
+                "the download must write the channel link to {}",
+                path.display()
+            );
+        }
+    }
+
+    /// R76-9-02: after the download of R76-9-01, the scan gives no changed
+    /// frame for each new file.
+    #[test]
+    fn adr_0076_download_stored_values_r76_9_02_scan_after_download_is_empty() {
+        let (temp, conn, outcome) = download_fixture_feed();
+        outcome.unwrap();
+        let scan = crate::application::queries::tag_update::scan_tag_updates(
+            &conn.lock().unwrap(),
+            &cfg(temp.path()).music_dir,
+        )
+        .unwrap();
+        assert_eq!(
+            scan.count(),
+            0,
+            "a fresh download must not differ: {:?}",
+            scan.files
+        );
+    }
+
+    /// R76-9-03: the edits that the download writes equal the edits that
+    /// the scan expects. The writer writes each edit as one value, so the
+    /// count and the file values prove the equality.
+    #[test]
+    fn adr_0076_download_stored_values_r76_9_03_download_edits_equal_scan_edits() {
+        let (temp, conn, outcome) = download_fixture_feed();
+        let outcome = outcome.unwrap();
+        let music_dir = cfg(temp.path()).music_dir;
+        let db = conn.lock().unwrap();
+        let expected = stored_projection_edits(&db);
+        assert_eq!(expected.len(), 2);
+        assert_eq!(
+            outcome.applied_edits,
+            expected.iter().map(|(_, edits)| edits.len()).sum::<usize>(),
+            "the download must write each expected edit and no other edit"
+        );
+        for (row, edits) in expected {
+            let path = row.local_path.as_ref().unwrap().resolve(&music_dir);
+            for edit in &edits {
+                // The scan compares the route frame as routes, not as text.
+                if edit.frame_label == crate::metadata::MUSICINDEX_VALUE_ROUTES_FRAME {
+                    continue;
+                }
+                let values = read_audio_tags(&path)
+                    .unwrap()
+                    .fields
+                    .into_iter()
+                    .filter(|field| {
+                        crate::metadata::pending_id3_target_key(&field.frame_id)
+                            == crate::metadata::pending_id3_target_key(&edit.frame_label)
+                    })
+                    .map(|field| field.value)
+                    .collect::<Vec<_>>();
+                assert!(
+                    values.iter().any(|value| value.trim() == edit.value.trim()),
+                    "{} must hold {:?}, file values {values:?}",
+                    edit.frame_label,
+                    edit.value
+                );
+            }
+        }
     }
 
     /// R46-04: RSS enrichment of a context with a feed address reads the

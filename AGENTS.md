@@ -138,7 +138,7 @@ An MP4 file has the same date defect, and no packet owns it yet.
 [ADR 0056](docs/adr/0056-remote-media-fetch-validation-boundary.md) is amended on 2026-10-03: a download does not check the declared enclosure length.
 [Its task 005](docs/tasks/adr-0056-task-005-remove-enclosure-length-check.md) removed the check on 2026-10-03, with mechanical checks Green and no visual gate.
 [ADR 0066 task 014](docs/tasks/adr-0066-task-014-download-failures-and-dismissal.md) classifies download failures and dismisses retained actions. It is implemented on 2026-10-03, with its visual gate open.
-ADR 0076 is amended on 2026-10-03 with Decision 10: a download writes the stored values. [Its packet 009](docs/tasks/adr-0076-task-009-download-writes-stored-values.md) is Ready.
+ADR 0076 is amended on 2026-10-03 with Decision 10: a download writes the stored values. [Its packet 009](docs/tasks/adr-0076-task-009-download-writes-stored-values.md) is implemented on 2026-10-03, with its operator check open.
 
 [ADR 0076](docs/adr/0076-playlist-rss-check-for-stale-musicindex-records.md) is Accepted on
 2026-09-24, after the operator reviewed each decision. It replaces the per-field source

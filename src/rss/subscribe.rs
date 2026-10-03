@@ -697,7 +697,9 @@ fn contributor_inputs_from_extensions(exts: &ExtensionMap) -> Vec<db::LocalContr
         .collect()
 }
 
-fn rss_feed_link_inputs(
+/// The feed `rss` website row of the channel link. The subscribe and the
+/// RSS check both write it (ADR 0076 Decision 10).
+pub(crate) fn rss_feed_link_inputs(
     feed_guid: Option<&str>,
     feed_link: Option<&str>,
 ) -> Vec<db::LocalIdentityLinkInput> {

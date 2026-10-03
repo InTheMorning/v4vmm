@@ -20,8 +20,8 @@ use serde_json::{json, Value};
 
 use super::compare::{self, TextRepresentation};
 use super::subscribe::{
-    parse_feed_document, upsert_item_columns, ParsedChannel, ParsedFeedDocument, ParsedItem,
-    ParsedNostrId,
+    parse_feed_document, rss_feed_link_inputs, upsert_item_columns, ParsedChannel,
+    ParsedFeedDocument, ParsedItem, ParsedNostrId,
 };
 use crate::application::queries::stored_values;
 use crate::db::rss_field_holds::{
@@ -276,12 +276,23 @@ impl Apply<'_> {
         )?;
 
         let link = channel.link.clone();
+        let link_rows = rss_feed_link_inputs(channel.feed_guid.as_deref(), link.as_deref());
         self.element(
             owner,
             RssField::Link,
             Stored::rss(text(stored.link.as_deref())),
             text(link.as_deref()),
-            |conn| set_feed_column(conn, feed_id, "link", link.as_deref()),
+            |conn| {
+                set_feed_column(conn, feed_id, "link", link.as_deref())?;
+                // The `WOAR` projection reads the feed `rss` website row.
+                // Both copies of the channel link keep the same value.
+                db::write_local_identity_links(
+                    conn,
+                    LocalIdentityOwner::Feed(feed_id),
+                    RSS_SOURCE,
+                    &link_rows,
+                )
+            },
         )?;
 
         let explicit = self.fact_backed(owner, RssField::Explicit, None)?;
@@ -1309,6 +1320,34 @@ mod tests {
             updated_at: Some(updated_at_us.div_euclid(1_000_000)),
             ..Default::default()
         }
+    }
+
+    /// R76-9-05: an RSS check that changes the channel link updates
+    /// `feeds.link` and the feed `rss` website identity row to the same
+    /// value.
+    #[test]
+    fn adr_0076_download_stored_values_r76_9_05_check_updates_both_link_copies() {
+        let (conn, feed_id) = subscribed(&document(&first()));
+        let run_id = run(&conn, T1);
+
+        apply_checked_document(&conn, run_id, feed_id, &document(&second()), T1).unwrap();
+
+        let column: Option<String> = conn
+            .query_row("SELECT link FROM feeds WHERE id = ?1", [feed_id], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let websites = db::local_identity_links(&conn, LocalIdentityOwner::Feed(feed_id))
+            .unwrap()
+            .into_iter()
+            .filter(|row| row.source == RSS_SOURCE)
+            .map(|row| (row.link_type, row.url))
+            .collect::<Vec<_>>();
+        assert_eq!(column.as_deref(), Some(second().link));
+        assert_eq!(
+            websites,
+            vec![(Some("website".to_owned()), Some(second().link.to_owned()))]
+        );
     }
 
     /// R20-09: after a check, a new subscribe with a changed description
