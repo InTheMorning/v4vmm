@@ -158,7 +158,7 @@ impl Materialization {
             )?);
             if let Some(PreparedTrack::Existing { path }) = &self.prepared {
                 if AudioFormat::detect_from_file(path)? == AudioFormat::Wav {
-                    let binding = RetainedArtifact::capture(&cfg.music_dir, path, None)?;
+                    let binding = RetainedArtifact::capture(&cfg.music_dir, path)?;
                     let enclosure = self
                         .enclosure
                         .clone()
@@ -247,7 +247,7 @@ impl Materialization {
         self.row.is_in_library = true;
         drop(db);
         self.binding = if conversion == ConversionOutcome::WavRetained {
-            Some(RetainedArtifact::capture(&cfg.music_dir, &path, None)?)
+            Some(RetainedArtifact::capture(&cfg.music_dir, &path)?)
         } else {
             None
         };

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 
-use super::{create_staging_dir, validate_downloaded_size, DownloadedTrack, SelectedEnclosure};
+use super::{create_staging_dir, DownloadedTrack, SelectedEnclosure};
 use crate::audio_format::{AudioFormat, ConversionOutcome};
 use crate::config::DownloadConfig;
 use crate::library_path::LibraryRelativePath;
@@ -79,13 +79,12 @@ pub(crate) struct RetainedArtifact {
     path: PathBuf,
     canonical: PathBuf,
     digest: [u8; 32],
-    bytes: Option<i64>,
     #[cfg(unix)]
     identity: (u64, u64),
 }
 
 impl RetainedArtifact {
-    pub(crate) fn capture(music_dir: &Path, path: &Path, bytes: Option<i64>) -> Result<Self> {
+    pub(crate) fn capture(music_dir: &Path, path: &Path) -> Result<Self> {
         LibraryRelativePath::from_absolute(music_dir, path)?;
         validate_destination(music_dir, path)?;
         let metadata = fs::symlink_metadata(path)
@@ -95,7 +94,6 @@ impl RetainedArtifact {
             "retained input is not a regular file: {}",
             path.display()
         );
-        validate_downloaded_size(path, bytes)?;
         AudioFormat::detect_from_file(path)?;
         #[cfg(unix)]
         use std::os::unix::fs::MetadataExt;
@@ -104,7 +102,6 @@ impl RetainedArtifact {
             path: path.to_path_buf(),
             canonical: path.canonicalize()?,
             digest: fingerprint(path)?,
-            bytes,
             #[cfg(unix)]
             identity: (metadata.dev(), metadata.ino()),
         })
@@ -118,7 +115,7 @@ impl RetainedArtifact {
     }
 
     pub(crate) fn validate(&self) -> Result<()> {
-        let current = Self::capture(&self.music_dir, &self.path, self.bytes)?;
+        let current = Self::capture(&self.music_dir, &self.path)?;
         anyhow::ensure!(
             self.canonical == current.canonical && self.digest == current.digest,
             "retained input moved or changed: {}",
@@ -196,7 +193,7 @@ pub(crate) fn stage_existing(
     };
     fs::copy(artifact.path(), &path)
         .with_context(|| format!("stage retained WAV {}", artifact.path().display()))?;
-    downloaded.input = Some(RetainedArtifact::capture(&cfg.music_dir, &path, None)?);
+    downloaded.input = Some(RetainedArtifact::capture(&cfg.music_dir, &path)?);
     downloaded.convert(cfg);
     Ok(downloaded)
 }
@@ -207,13 +204,12 @@ mod tests {
     use std::os::unix::fs::symlink;
 
     #[test]
-    fn adr_0066_retained_artifact_checks_size_bytes_identity_and_containment() {
+    fn adr_0066_retained_artifact_checks_identity_and_containment() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("input.wav");
         let wav = b"RIFF\x24\0\0\0WAVEfmt ";
         fs::write(&path, wav).unwrap();
-        assert!(RetainedArtifact::capture(temp.path(), &path, Some(100)).is_err());
-        let input = RetainedArtifact::capture(temp.path(), &path, Some(16)).unwrap();
+        let input = RetainedArtifact::capture(temp.path(), &path).unwrap();
         input.validate().unwrap();
         fs::rename(&path, temp.path().join("old.wav")).unwrap();
         fs::write(&path, wav).unwrap();
@@ -223,7 +219,7 @@ mod tests {
         );
         fs::remove_file(&path).unwrap();
         symlink(temp.path().join("old.wav"), &path).unwrap();
-        assert!(RetainedArtifact::capture(temp.path(), &path, None).is_err());
+        assert!(RetainedArtifact::capture(temp.path(), &path).is_err());
         let outside = tempfile::tempdir().unwrap();
         symlink(outside.path(), temp.path().join("moved")).unwrap();
         assert!(validate_destination(temp.path(), &temp.path().join("moved/output.flac")).is_err());

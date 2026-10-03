@@ -23,7 +23,6 @@ const MAX_PATH_PART_CHARS: usize = 120;
 pub struct SelectedEnclosure {
     pub url: String,
     pub mime_type: Option<String>,
-    pub bytes: Option<i64>,
     pub is_primary: bool,
     pub format: AudioFormat,
 }
@@ -316,9 +315,6 @@ pub fn download_track(cfg: &DownloadConfig, track: &Track) -> Result<DownloadedT
     if let Err(err) = download_enclosure(&enclosure.url, &staged) {
         return Err(cleanup_on_err(err));
     }
-    if let Err(err) = validate_downloaded_size(&staged, enclosure.bytes) {
-        return Err(cleanup_on_err(err));
-    }
 
     // The bytes must be a container we support. Falling back to the declared
     // format here would relabel a redirect landing page as the expected audio
@@ -375,7 +371,7 @@ pub fn download_track(cfg: &DownloadConfig, track: &Track) -> Result<DownloadedT
         Some(warnings.join("; "))
     };
 
-    let input = retained::RetainedArtifact::capture(&cfg.music_dir, &current_path, enclosure.bytes)
+    let input = retained::RetainedArtifact::capture(&cfg.music_dir, &current_path)
         .map_err(cleanup_on_err)?;
     let mut downloaded = DownloadedTrack {
         path: current_path,
@@ -422,25 +418,6 @@ pub fn download_enclosure(url: &str, path: &Path) -> Result<()> {
     copy(&mut response, &mut output)
         .with_context(|| format!("write download {}", path.display()))?;
 
-    Ok(())
-}
-
-fn validate_downloaded_size(path: &Path, expected_bytes: Option<i64>) -> Result<()> {
-    let Some(expected_bytes) = expected_bytes.filter(|bytes| *bytes > 0) else {
-        return Ok(());
-    };
-    let expected_bytes =
-        u64::try_from(expected_bytes).context("convert expected enclosure bytes")?;
-    let actual_bytes = fs::metadata(path)
-        .with_context(|| format!("stat downloaded enclosure {}", path.display()))?
-        .len();
-    anyhow::ensure!(
-        actual_bytes == expected_bytes,
-        "downloaded enclosure size mismatch for {}: expected {} bytes, got {} bytes",
-        path.display(),
-        expected_bytes,
-        actual_bytes
-    );
     Ok(())
 }
 
@@ -492,7 +469,6 @@ fn selected_source_enclosure(enclosure: &SourceEnclosure) -> Option<SelectedEncl
     Some(SelectedEnclosure {
         url,
         mime_type: normalized(enclosure.mime_type.as_deref()),
-        bytes: enclosure.bytes,
         is_primary: enclosure.is_primary.unwrap_or(false),
         format,
     })
@@ -505,7 +481,6 @@ fn selected_track_enclosure(track: &Track) -> Option<SelectedEnclosure> {
     Some(SelectedEnclosure {
         url,
         mime_type: normalized(track.enclosure_type.as_deref()),
-        bytes: track.enclosure_bytes,
         is_primary: true,
         format,
     })
@@ -751,7 +726,6 @@ mod tests {
             Some(SelectedEnclosure {
                 url: "https://example.com/song.mp3".into(),
                 mime_type: Some("audio/mpeg".into()),
-                bytes: Some(123),
                 is_primary: true,
                 format: AudioFormat::Mp3,
             })
@@ -990,11 +964,12 @@ mod tests {
         );
     }
 
-    /// A feed that declares no byte count still cannot promote a redirect
-    /// landing page as a playable track: the staged bytes have to be a
-    /// container we support (ADR 0056).
+    /// R56-5-02: container detection, not a byte-count comparison, rejects a
+    /// non-audio body. The declared count equals the served length, so only
+    /// container detection can cause the rejection (ADR 0056, amended
+    /// 2026-10-03).
     #[test]
-    fn rejects_downloaded_enclosure_that_is_not_a_supported_container() {
+    fn adr_0056_no_length_check_container_detection_rejects_non_audio_body() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind listener");
         let addr = listener.local_addr().expect("listener addr");
         std::thread::spawn(move || {
@@ -1015,7 +990,7 @@ mod tests {
         };
         let mut track = track();
         track.enclosure_url = Some(format!("http://{addr}/song.mp3"));
-        track.enclosure_bytes = None;
+        track.enclosure_bytes = Some(18);
 
         let error = download_track(&cfg, &track)
             .expect_err("a non-audio body must not be promoted as a track");
@@ -1035,8 +1010,57 @@ mod tests {
         );
     }
 
+    /// R56-5-01: a declared enclosure byte count that disagrees with the
+    /// served body, larger and smaller, does not block the download (ADR
+    /// 0056, amended 2026-10-03).
     #[test]
-    fn rejects_downloaded_enclosure_when_advertised_size_does_not_match() {
+    fn adr_0056_no_length_check_downloads_and_promotes_mismatched_lengths() {
+        for (declared_bytes, body) in [
+            (
+                8_i64,
+                b"ID3\x04\x00\x00\x00\x00\x00\x00much-longer-than-declared".as_slice(),
+            ),
+            (
+                10_000_i64,
+                b"ID3\x04\x00\x00\x00\x00\x00\x00short".as_slice(),
+            ),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind listener");
+            let addr = listener.local_addr().expect("listener addr");
+            let response_body = body.to_vec();
+            std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().expect("accept request");
+                let mut buf = [0_u8; 1024];
+                let _ = std::io::Read::read(&mut stream, &mut buf);
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    response_body.len()
+                );
+                std::io::Write::write_all(&mut stream, header.as_bytes()).expect("write header");
+                std::io::Write::write_all(&mut stream, &response_body).expect("write body");
+            });
+
+            let temp = tempfile::tempdir().expect("tempdir");
+            let cfg = DownloadConfig {
+                music_dir: temp.path().join("music"),
+                flac_path: Ok(None),
+            };
+            let mut track = track();
+            track.enclosure_url = Some(format!("http://{addr}/song.mp3"));
+            track.enclosure_bytes = Some(declared_bytes);
+
+            let downloaded = download_track(&cfg, &track)
+                .expect("a declared byte count must not block a valid download");
+            let final_path = downloaded.finalize().expect("finalize");
+            assert_eq!(fs::read(&final_path).expect("read final"), body);
+        }
+    }
+
+    /// R56-5-03: the transport, not an enclosure byte-count comparison this
+    /// app owns, fails a body that ends before its declared `Content-Length`
+    /// (ADR 0056, amended 2026-10-03).
+    #[test]
+    fn adr_0056_no_length_check_truncated_transfer_fails_the_download() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind listener");
         let addr = listener.local_addr().expect("listener addr");
         std::thread::spawn(move || {
@@ -1045,9 +1069,10 @@ mod tests {
             let _ = std::io::Read::read(&mut stream, &mut buf);
             std::io::Write::write_all(
                 &mut stream,
-                b"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: 7\r\nConnection: close\r\n\r\nmp3data",
+                b"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: 20\r\nConnection: close\r\n\r\nID3\x04\x00\x00\x00\x00\x00\x00short",
             )
-            .expect("write response");
+            .expect("write truncated response");
+            // The stream closes here, before the declared 20 bytes arrive.
         });
 
         let temp = tempfile::tempdir().expect("tempdir");
@@ -1057,21 +1082,53 @@ mod tests {
         };
         let mut track = track();
         track.enclosure_url = Some(format!("http://{addr}/song.mp3"));
-        track.enclosure_bytes = Some(8);
+        track.enclosure_bytes = None;
 
-        let error = download_track(&cfg, &track)
-            .expect_err("size mismatch should reject partial downloads");
+        download_track(&cfg, &track)
+            .expect_err("a body shorter than its declared Content-Length must fail");
 
-        assert!(
-            error.to_string().contains("size mismatch"),
-            "error should explain the byte-count mismatch: {error}"
-        );
         assert!(
             fs::read_dir(cfg.music_dir.join(".v4vmm-staging"))
                 .expect("read staging root")
                 .next()
                 .is_none(),
-            "rejected downloads should clean up per-download staging files"
+            "staging must be cleaned after a rejected download"
+        );
+    }
+
+    /// R56-5-04: the removed length check leaves no trace in `src/` (ADR
+    /// 0056, amended 2026-10-03). The banned text is split into parts so this
+    /// check does not flag its own source line.
+    #[test]
+    fn adr_0056_no_length_check_leaves_no_trace_in_src() {
+        let banned_fn = ["validate_downloaded", "_size"].concat();
+        let banned_phrase = ["size", " ", "mismatch"].concat();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut violations = Vec::new();
+        let mut stack = vec![root];
+        while let Some(dir) = stack.pop() {
+            for entry in fs::read_dir(&dir).expect("read a src directory") {
+                let entry = entry.expect("read a src directory entry");
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+                    continue;
+                }
+                let source = fs::read_to_string(&path).expect("read a source file");
+                for (line_number, line) in source.lines().enumerate() {
+                    if line.contains(banned_fn.as_str()) || line.contains(banned_phrase.as_str()) {
+                        violations.push(format!("{}:{}: {line}", path.display(), line_number + 1));
+                    }
+                }
+            }
+        }
+        assert!(
+            violations.is_empty(),
+            "ADR 0056 removed enclosure length check left a trace:\n{}",
+            violations.join("\n")
         );
     }
 }

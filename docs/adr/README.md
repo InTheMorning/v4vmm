@@ -60,7 +60,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0024](0024-command-query-event-application-layer.md) | Command, query, and event application layer | Implemented |
 | [0040](0040-async-vm-runtime.md) | Async view-model runtime. Actors in `src/runtime/` | Implemented |
 | [0041](0041-windowed-paged-view-models.md) | Windowed paged view models | Implemented |
-| [0056](0056-remote-media-fetch-validation-boundary.md) | Remote media fetch validation and redirect policy. Amended 2026-10-03: no enclosure length check | Implemented. Task 005 is Ready |
+| [0056](0056-remote-media-fetch-validation-boundary.md) | Remote media fetch validation and redirect policy. Amended 2026-10-03: no enclosure length check | Implemented |
 | [0058](0058-outbound-http-client-policy.md) | All blocking HTTP clients built in `src/http_client.rs` | Implemented |
 
 ## Playback And Broadcast
