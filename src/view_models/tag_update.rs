@@ -151,7 +151,7 @@ pub(crate) fn popup(snapshot: Option<&TagUpdateSnapshot>) -> Option<TagUpdatePop
 
 fn file_display(file: &TagUpdateFile) -> TagUpdateFileDisplay {
     let (lines, unreadable) = match &file.content {
-        TagUpdateFileContent::Differs { frames } => {
+        TagUpdateFileContent::Differs { frames, .. } => {
             (frames.iter().map(frame_line).collect(), false)
         }
         TagUpdateFileContent::Unreadable { error } => (
@@ -341,6 +341,7 @@ mod tests {
                     file_value: Some("Old title".into()),
                     expected_value: format!("Song {track_id}"),
                 }],
+                shared_key_edits: Vec::new(),
             },
         }
     }

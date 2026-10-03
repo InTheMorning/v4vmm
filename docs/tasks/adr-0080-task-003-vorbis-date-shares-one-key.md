@@ -1,6 +1,6 @@
 # ADR 0080 Task 003: The Vorbis Date Shares One Key
 
-Status: Ready - 2026-10-03. Implementation has not started.
+Status: Implemented - 2026-10-03. Mechanical checks Green. Its operator check is open.
 This packet changes no presentation. Its operator check reads tags and the button count.
 
 ## Goal
@@ -81,9 +81,61 @@ Revert the working tree. This packet adds no migration and no stored data.
 
 ## Operator Visual Check
 
-The implementer writes this section at completion. It gives numbered steps for V1.
-The steps read one Delta OG FLAC file with `metaflac --export-tags-to=-` before and after one write, and read the button count.
-Do not delete `/tmp/v4vmm-governance.ie6k8TQf`.
+This check writes tags to the real Library once. It reads the tags of one Delta OG FLAC file before and after that write.
+It does not change the database, and it starts no fixture.
+
+Needs: a Linux desktop session, the `metaflac` command (package `flac`), and the 6 Delta OG FLAC files under
+`/home/citizen/V4Vmusic/artists/Delta OG/Aged Friends & Old Whiskey/`. Before this check, each file holds only `DATE=2024`,
+and the "Update n files" button shows 6. Close the app before step 1.
+
+**Setup**
+
+1. Read the tags of each Delta OG file before the write:
+
+   ```bash
+   cd "/home/citizen/V4Vmusic/artists/Delta OG/Aged Friends & Old Whiskey/"
+   for f in *.flac; do echo "== $f"; metaflac --export-tags-to=- "$f" | grep '^DATE='; done
+   ```
+
+   Each file shows one line, `DATE=2024`. Record the output.
+
+2. Build and open the desktop binary:
+
+   ```bash
+   cd /home/citizen/build/v4vmm && cargo build --bin v4vmm && target/debug/v4vmm
+   ```
+
+   Run this command first. A prior `cargo test` run can leave a GPUI test-support binary at `target/debug/v4vmm`.
+
+**V1 - one write settles each FLAC file**
+
+3. Open Music's Library. Wait for the "Update n files" button. Read its count.
+   - Expected: 6, or 6 plus other files that differ.
+4. Select the button. In the popup, read the frames of one Delta OG file.
+   - Expected: the file shows a `TDRC` frame.
+   - This result is wrong: the file shows a `TYER` frame.
+5. Select "Write Tags". Wait until the write report shows.
+6. Read the "Update n files" button again.
+   - Expected: the count goes to 0, when no other file differs.
+   - This result is wrong: the count stays at 6.
+   - When the count is above 0, select the button. Confirm that no Delta OG file is in the list.
+7. Close the app. Read the tags of each Delta OG file again:
+
+   ```bash
+   cd "/home/citizen/V4Vmusic/artists/Delta OG/Aged Friends & Old Whiskey/"
+   for f in *.flac; do echo "== $f"; metaflac --export-tags-to=- "$f" | grep '^DATE='; done
+   ```
+
+   - Expected: each file shows two lines. One line is `DATE=2024`. The other line is a full date, for example `DATE=2024-05-20`.
+   - This result is wrong: a file shows only one `DATE` line.
+   - This result is wrong: a file shows the same `DATE` line two times.
+8. Open the app again with `target/debug/v4vmm`. Open Music's Library.
+   - Expected: no Delta OG file comes back in the "Update n files" count.
+
+**Cleanup**
+
+9. No cleanup is necessary. The write is the intended correction of the Library files.
+   The app made no fixture. Do not delete `/tmp/v4vmm-governance.ie6k8TQf`.
 
 ## Prompt for lower-context coding model
 
@@ -128,3 +180,39 @@ Stop and report the problem, and do not guess, when:
 - The reader gives the two `DATE` values in a form that a key comparison cannot separate.
 - A change needs a different set of frames than the app writes today.
 - A change needs a file in "Do not touch".
+
+## Implementation Result - 2026-10-03
+
+### Files Changed
+
+- `src/audio_tags.rs`: the new `vorbis_storage_key` gives the Vorbis Comment key of a frame label. It uses the key function of the writer.
+- `src/application/queries/tag_update.rs`: the scan finds the file values of a frame by its storage key on FLAC, Ogg Vorbis and Ogg Opus.
+  The `Differs` content holds `shared_key_edits`, and `TagUpdateFile::edits` adds them after the changed frames. Four tests have the prefix `adr_0080_shared_key_`.
+- `src/view_models/tag_update.rs`: the match on `Differs` ignores the new field. The test fixture gives an empty list.
+- This packet: the status line, this result, and the operator check.
+
+### Tests Run
+
+- `cargo test --lib adr_0080_shared_key_`: 4 passed.
+- `cargo test`: 1791 library tests and 289 guard tests passed. 10 documentation tests are ignored.
+- `cargo test --test architecture_tests`: 289 passed.
+- `cargo fmt -- --check`, `cargo clippy -- -D warnings`, `cargo check --all-targets` and `cargo build --bin v4vmm`: Green, with no warning.
+- Each new FLAC test fails without the fix. R80-3-01, R80-3-02 and R80-3-03 fail without the key comparison.
+  R80-3-02 also fails without the shared-key edits. R80-3-04 passes with and without the fix, because it guards the MP3 result.
+
+### Behavior Changed
+
+- On a FLAC, Ogg Vorbis or Ogg Opus file, the `TYER` edit and the `TDRC` edit both read the `DATE` values. Each edit is equal when one `DATE` value matches it.
+- A write of a changed `TDRC` edit also writes the unchanged `TYER` edit, and the reverse. The file keeps both values.
+- On these formats, each other frame also uses its Vorbis key. The description frame thus reads each `COMMENT` value, not only the first one.
+- MP3 and MP4 files keep the ID3 target key. Their scan result and their write do not change.
+
+### Deviations From Task
+
+- `src/view_models/tag_update.rs` changed in two lines, because it matches and builds the `Differs` content. The popup text does not change.
+
+### Unresolved Concerns
+
+- MP4 files have a related defect. The writer keeps `TDRC` and `TYER` in two freeform atoms, but the reader gives both as `TDRC`.
+  Thus the scan always reports `TYER` on an MP4 file with a date. The reader label cannot show the atom, so a key comparison cannot separate the two values.
+  This packet does not change MP4. A later packet must decide the MP4 fix.

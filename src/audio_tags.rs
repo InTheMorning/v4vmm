@@ -516,6 +516,25 @@ fn lofty_generic_key(frame_label: &str, tag_type: lofty::tag::TagType) -> Option
     }
 }
 
+/// ADR 0080 Decision 6: the Vorbis Comment key that `frame_label` stores
+/// under in a FLAC, Ogg Vorbis or Ogg Opus file. The writer uses the same
+/// key. Two labels can share one key, for example `TDRC` and `TYER`, both
+/// `DATE`. The function gives `None` for other formats and for a label
+/// without a Vorbis key.
+pub(crate) fn vorbis_storage_key(
+    frame_label: &str,
+    format: crate::audio_format::AudioFormat,
+) -> Option<String> {
+    use crate::audio_format::AudioFormat;
+    match format {
+        AudioFormat::Flac | AudioFormat::OggVorbis | AudioFormat::OggOpus => {
+            lofty_generic_key(frame_label, lofty::tag::TagType::VorbisComments)
+                .map(|key| key.to_ascii_uppercase())
+        }
+        AudioFormat::Mp3 | AudioFormat::Mp4 | AudioFormat::Wav => None,
+    }
+}
+
 /// `true` for the two logical fields that map to `WOAR` and `WOAF`. A
 /// website edit is not part of the once-per-key removal that
 /// `remove_stale_lofty_keyed_items` does: `WOAR` can hold more than one

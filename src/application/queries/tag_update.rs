@@ -23,7 +23,9 @@ use rusqlite::Connection;
 
 use crate::api::PaymentRoute;
 use crate::audio_format::AudioFormat;
-use crate::audio_tags::{read_audio_tags, sanitize_title_text, AudioTags, Id3v24Edit};
+use crate::audio_tags::{
+    read_audio_tags, sanitize_title_text, vorbis_storage_key, AudioTags, Id3v24Edit,
+};
 use crate::db;
 use crate::metadata::{
     audio_tags_value_routes, frame_destination_for_format, id3_frame_base, parse_value_routes,
@@ -69,15 +71,24 @@ pub(crate) struct TagUpdateFile {
 
 impl TagUpdateFile {
     /// The edits that a confirm writes. An unreadable file has none.
+    ///
+    /// The edits are the changed frames, and then each unchanged expected
+    /// frame that shares a storage key with a changed frame (ADR 0080
+    /// Decision 6). The write removes each value of a key before it adds
+    /// the edits. Thus it must also add the unchanged value again.
     #[must_use]
     pub(crate) fn edits(&self) -> Vec<Id3v24Edit> {
         match &self.content {
-            TagUpdateFileContent::Differs { frames } => frames
+            TagUpdateFileContent::Differs {
+                frames,
+                shared_key_edits,
+            } => frames
                 .iter()
                 .map(|frame| Id3v24Edit {
                     frame_label: frame.frame_label.clone(),
                     value: frame.expected_value.clone(),
                 })
+                .chain(shared_key_edits.iter().cloned())
                 .collect(),
             TagUpdateFileContent::Unreadable { .. } => Vec::new(),
         }
@@ -94,7 +105,13 @@ impl TagUpdateFile {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum TagUpdateFileContent {
     /// Each frame whose file value differs from the stored value.
-    Differs { frames: Vec<TagFrameChange> },
+    Differs {
+        frames: Vec<TagFrameChange>,
+        /// Each expected frame that is equal in the file, but that shares a
+        /// storage key with a changed frame. A confirm writes it again, so
+        /// that the write keeps its value. The scan does not list it.
+        shared_key_edits: Vec<Id3v24Edit>,
+    },
     /// The scan could not read the tags. The file has no write action.
     Unreadable { error: String },
 }
@@ -206,7 +223,11 @@ pub(crate) fn compare_planned_files(planned: Vec<PlannedFile>) -> TagUpdateScan 
                     if frames.is_empty() {
                         return None;
                     }
-                    TagUpdateFileContent::Differs { frames }
+                    let shared_key_edits = shared_key_edits(&file, &frames, format);
+                    TagUpdateFileContent::Differs {
+                        frames,
+                        shared_key_edits,
+                    }
                 }
                 Err(error) => TagUpdateFileContent::Unreadable {
                     error: format!("{error:#}"),
@@ -249,11 +270,11 @@ fn changed_frames(
         if !frame_is_compared(&edit.frame_label, format) {
             continue;
         }
-        let target = pending_id3_target_key(&edit.frame_label);
+        let target = compare_key(&edit.frame_label, format);
         let file_values = tags
             .fields
             .iter()
-            .filter(|field| pending_id3_target_key(&field.frame_id) == target)
+            .filter(|field| compare_key(&field.frame_id, format) == target)
             .map(|field| field.value.as_str())
             .collect::<Vec<_>>();
         if file_values
@@ -284,6 +305,65 @@ fn changed_frames(
         }
     }
     frames
+}
+
+/// The key that the scan uses to find the file values of one frame.
+#[derive(Debug, PartialEq, Eq)]
+enum CompareKey {
+    /// The Vorbis Comment key of a FLAC, Ogg Vorbis or Ogg Opus file. The
+    /// `TDRC` and `TYER` frames both read the `DATE` values.
+    Stored(String),
+    /// The ID3 target key. An MP3 file keeps each frame apart.
+    Frame(String),
+}
+
+/// ADR 0080 Decision 6: the scan finds the file values of a frame by the
+/// storage key of the file format. The reader gives each value under one
+/// frame label for its key. Thus the scan must use the key, not the label.
+fn compare_key(frame_label: &str, format: Option<AudioFormat>) -> CompareKey {
+    format
+        .and_then(|format| vorbis_storage_key(frame_label, format))
+        .map_or_else(
+            || CompareKey::Frame(pending_id3_target_key(frame_label)),
+            CompareKey::Stored,
+        )
+}
+
+/// Each compared expected frame that the scan did not list, but that shares
+/// a Vorbis Comment key with a listed frame. The write removes each value
+/// of a key that it writes. Thus a write of the listed frame alone would
+/// also remove the value of this frame. An MP3 file gives no such frame.
+fn shared_key_edits(
+    file: &PlannedFile,
+    frames: &[TagFrameChange],
+    format: Option<AudioFormat>,
+) -> Vec<Id3v24Edit> {
+    let changed_keys = frames
+        .iter()
+        .filter_map(|frame| match compare_key(&frame.frame_label, format) {
+            CompareKey::Stored(key) => Some(key),
+            CompareKey::Frame(_) => None,
+        })
+        .collect::<BTreeSet<_>>();
+    if changed_keys.is_empty() {
+        return Vec::new();
+    }
+    file.expected
+        .iter()
+        .filter(|edit| frame_is_compared(&edit.frame_label, format))
+        .filter(|edit| {
+            !frames.iter().any(|frame| {
+                frame.frame_label == edit.frame_label && frame.expected_value == edit.value
+            })
+        })
+        .filter(|edit| {
+            matches!(
+                compare_key(&edit.frame_label, format),
+                CompareKey::Stored(key) if changed_keys.contains(&key)
+            )
+        })
+        .cloned()
+        .collect()
 }
 
 /// The scan does not compare a frame whose stored value is a reference to
@@ -330,7 +410,7 @@ mod tests {
 
     fn frame<'a>(file: &'a TagUpdateFile, label: &str) -> Option<&'a TagFrameChange> {
         match &file.content {
-            TagUpdateFileContent::Differs { frames } => {
+            TagUpdateFileContent::Differs { frames, .. } => {
                 frames.iter().find(|frame| frame.frame_label == label)
             }
             TagUpdateFileContent::Unreadable { .. } => None,
@@ -571,6 +651,186 @@ mod tests {
             frames.is_empty(),
             "a FLAC file the app wrote must show no difference: {frames:?}"
         );
+    }
+
+    /// The stored item date of the Delta OG record of 2026-10-03.
+    const ITEM_DATE: &str = "Mon, 20 May 2024 19:54:50 +0000";
+
+    /// A fixture database with track 1 and a copy of the FLAC fixture as its
+    /// file. The track has an item date.
+    fn flac_library(dir: &Path) -> (Connection, PathBuf) {
+        let conn = library(dir, &[1]);
+        conn.execute("UPDATE tracks SET pub_date = ?1 WHERE id = 1", [ITEM_DATE])
+            .unwrap();
+        conn.execute(
+            "UPDATE local_files SET path = 'song-1.flac' WHERE track_id = 1",
+            [],
+        )
+        .unwrap();
+        let path = dir.join("song-1.flac");
+        std::fs::write(
+            &path,
+            include_bytes!("../../../docs/runbooks/fixtures/conversion.flac"),
+        )
+        .unwrap();
+        (conn, path)
+    }
+
+    /// The full output of `id3_edits_for_track_context` for track 1.
+    fn full_edits(conn: &Connection) -> Vec<Id3v24Edit> {
+        let tracks = db::library_tracks(conn).unwrap();
+        let context =
+            crate::feed_service::track_row_to_track_context_with_local_identity(conn, &tracks[0])
+                .unwrap();
+        let edits = crate::metadata_service::id3_edits_for_track_context(&context);
+        for label in ["TDRC", "TYER"] {
+            assert!(
+                edits.iter().any(|edit| edit.frame_label == label),
+                "the full edits must hold {label}: {edits:?}"
+            );
+        }
+        edits
+    }
+
+    /// The values of each field that the reader gives as `frame_label`.
+    fn field_values(path: &Path, frame_label: &str) -> Vec<String> {
+        read_audio_tags(path)
+            .unwrap()
+            .fields
+            .into_iter()
+            .filter(|field| field.frame_id == frame_label)
+            .map(|field| field.value)
+            .collect()
+    }
+
+    fn changed_labels(file: &TagUpdateFile) -> Vec<&str> {
+        match &file.content {
+            TagUpdateFileContent::Differs { frames, .. } => frames
+                .iter()
+                .map(|frame| frame.frame_label.as_str())
+                .collect(),
+            TagUpdateFileContent::Unreadable { .. } => Vec::new(),
+        }
+    }
+
+    /// R80-3-01: a FLAC file written with the full edits of a track with an
+    /// item date gives no changed frame in the next scan.
+    #[test]
+    fn adr_0080_shared_key_full_flac_write_settles() {
+        let dir = tempfile::tempdir().unwrap();
+        let (conn, path) = flac_library(dir.path());
+        let edits = full_edits(&conn);
+
+        write_id3v24_edits(&path, &edits).unwrap();
+
+        let scan = scan_tag_updates(&conn, dir.path()).unwrap();
+        assert_eq!(
+            scan.count(),
+            0,
+            "a FLAC file with the full edits must not differ: {:?}",
+            scan.files
+        );
+    }
+
+    /// R80-3-02: a FLAC file that holds only `DATE=<year>` lists the `TDRC`
+    /// change. After the write of that scan, the file holds both values and
+    /// the next scan gives no changed frame.
+    #[test]
+    fn adr_0080_shared_key_year_only_flac_settles_after_one_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let (conn, path) = flac_library(dir.path());
+        let edits = full_edits(&conn);
+        let year = edits
+            .iter()
+            .find(|edit| edit.frame_label == "TYER")
+            .cloned()
+            .unwrap();
+        let date = edits
+            .iter()
+            .find(|edit| edit.frame_label == "TDRC")
+            .cloned()
+            .unwrap();
+        write_id3v24_edits(&path, &edits).unwrap();
+        // A write of the year alone removes the other `DATE` value. This
+        // gives the state of the recorded Delta OG file.
+        write_id3v24_edits(&path, std::slice::from_ref(&year)).unwrap();
+        assert_eq!(field_values(&path, "TDRC"), vec![year.value.clone()]);
+
+        let scan = scan_tag_updates(&conn, dir.path()).unwrap();
+        assert_eq!(scan.count(), 1);
+        assert_eq!(changed_labels(&scan.files[0]), vec!["TDRC"]);
+        let written = scan.files[0].edits();
+        assert!(written.contains(&date), "the write holds TDRC: {written:?}");
+        assert!(written.contains(&year), "the write keeps TYER: {written:?}");
+        write_id3v24_edits(&path, &written).unwrap();
+
+        let mut dates = field_values(&path, "TDRC");
+        dates.sort();
+        let mut expected = vec![date.value, year.value];
+        expected.sort();
+        assert_eq!(dates, expected, "the file must hold both DATE values");
+        assert_eq!(scan_tag_updates(&conn, dir.path()).unwrap().count(), 0);
+    }
+
+    /// R80-3-03: a second write of the R80-3-01 file changes no value and
+    /// adds no duplicate `DATE` value.
+    #[test]
+    fn adr_0080_shared_key_second_flac_write_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let (conn, path) = flac_library(dir.path());
+        let edits = full_edits(&conn);
+        write_id3v24_edits(&path, &edits).unwrap();
+        let first = read_audio_tags(&path).unwrap().fields;
+
+        write_id3v24_edits(&path, &edits).unwrap();
+
+        let second = read_audio_tags(&path).unwrap().fields;
+        assert_eq!(first, second, "a second write must change no value");
+        assert_eq!(
+            field_values(&path, "TDRC").len(),
+            2,
+            "the file must hold one value for each DATE edit"
+        );
+        assert_eq!(scan_tag_updates(&conn, dir.path()).unwrap().count(), 0);
+    }
+
+    /// R80-3-04: an MP3 file of the same track keeps `TDRC` and `TYER` as
+    /// two frames. The scan lists only the missing `TDRC` frame, and the
+    /// write holds only that frame.
+    #[test]
+    fn adr_0080_shared_key_mp3_scan_is_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = library(dir.path(), &[1]);
+        conn.execute("UPDATE tracks SET pub_date = ?1 WHERE id = 1", [ITEM_DATE])
+            .unwrap();
+        let path = dir.path().join("song-1.mp3");
+        let edits = full_edits(&conn);
+        let year = edits
+            .iter()
+            .find(|edit| edit.frame_label == "TYER")
+            .cloned()
+            .unwrap();
+        write_id3v24_edits(&path, &edits).unwrap();
+        assert_eq!(scan_tag_updates(&conn, dir.path()).unwrap().count(), 0);
+
+        // An MP3 write of the year alone keeps the `TDRC` frame.
+        write_id3v24_edits(&path, std::slice::from_ref(&year)).unwrap();
+        assert_eq!(scan_tag_updates(&conn, dir.path()).unwrap().count(), 0);
+
+        let mut tag = id3::Tag::read_from_path(&path).unwrap();
+        id3::TagLike::remove(&mut tag, "TDRC");
+        tag.write_to_path(&path, id3::Version::Id3v24).unwrap();
+
+        let scan = scan_tag_updates(&conn, dir.path()).unwrap();
+        assert_eq!(scan.count(), 1);
+        let file = &scan.files[0];
+        assert_eq!(changed_labels(file), vec!["TDRC"]);
+        assert_eq!(frame(file, "TDRC").unwrap().file_value, None);
+        assert_eq!(file.edits().len(), 1, "an MP3 write holds no other frame");
+        assert!(matches!(
+            &file.content,
+            TagUpdateFileContent::Differs { shared_key_edits, .. } if shared_key_edits.is_empty()
+        ));
     }
 }
 
