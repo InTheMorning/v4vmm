@@ -644,3 +644,11 @@ Open - implementation and mechanical checks are complete on 2026-10-03. Operator
 - Owner: [task 009](tasks/adr-0076-task-009-download-writes-stored-values.md#operator-visual-check).
 - Scheduling: the check downloads one album into an isolated fixture. It never writes the real Library.
 - V1: after the download, "Update n files" counts no new file. A new file holds `WOAR` with the channel link and `TRCK` with the track total.
+
+## 38. The Scan Compares Descriptions As Readable Text — ADR 0076 Task 010
+
+Open - implementation and mechanical checks are complete on 2026-10-03. Operator inspection is pending.
+
+- Owner: [task 010](tasks/adr-0076-task-010-scan-compares-descriptions-as-readable-text.md#operator-visual-check).
+- Scheduling: the check only reads the "Update n files" popup on the real Library and cancels it.
+- V1: no Disco Swag file is listed with only a description line.

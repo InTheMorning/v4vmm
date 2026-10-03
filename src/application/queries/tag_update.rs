@@ -32,6 +32,7 @@ use crate::metadata::{
     payment_routes_equal, pending_id3_target_key, summarize_value_routes,
     MUSICINDEX_VALUE_ROUTES_FRAME,
 };
+use crate::rss::compare::{description_equal, TextRepresentation};
 
 /// The result of one scan: each Library file whose tags differ from the
 /// stored metadata, and each file that the scan could not read.
@@ -391,6 +392,18 @@ fn values_match(frame_label: &str, file_value: &str, expected: &str) -> bool {
         // The track and disc numbers compare their own number. A total that
         // only one side has is not a difference.
         "TRCK" | "TPOS" => leading_number(file_value) == leading_number(expected),
+        // ADR 0075/0076: a description compares by readable text. HTML
+        // formatting and equivalent whitespace alone are not a discrepancy.
+        // Each `COMM` frame that the app writes holds a description (the
+        // item description, the album description, or another description
+        // this app adds). The shared owner in `src/rss/compare.rs` gives the
+        // readable text, so this module writes no second HTML reader.
+        "COMM" => description_equal(
+            Some(file_value),
+            TextRepresentation::Html,
+            Some(expected),
+            TextRepresentation::Html,
+        ),
         _ => file_value == expected,
     }
 }
@@ -830,6 +843,94 @@ mod tests {
         assert!(matches!(
             &file.content,
             TagUpdateFileContent::Differs { shared_key_edits, .. } if shared_key_edits.is_empty()
+        ));
+    }
+
+    /// R76-10-01 (ADR 0076 task 010): a stored description
+    /// `<p>1. Disco Swag</p>` and a file value `1. Disco Swag` give no
+    /// changed frame. HTML formatting alone is not a discrepancy.
+    #[test]
+    fn adr_0076_scan_readable_description_html_and_plain_text_are_equal() {
+        assert!(values_match(
+            "COMM:MusicIndex Description",
+            "1. Disco Swag",
+            "<p>1. Disco Swag</p>",
+        ));
+    }
+
+    /// R76-10-02: values that differ only in whitespace or HTML entities
+    /// give no changed frame.
+    #[test]
+    fn adr_0076_scan_readable_description_whitespace_and_entities_are_equal() {
+        assert!(values_match(
+            "COMM:MusicIndex Album Description",
+            "A B",
+            "A&nbsp;B",
+        ));
+        assert!(values_match(
+            "COMM:MusicIndex Description",
+            "Line one Line two",
+            "<p>Line one</p>\n<p>Line two</p>",
+        ));
+    }
+
+    /// R76-10-03: a description with different readable text gives a
+    /// changed frame. The expected value is the stored value, not its
+    /// readable text (Required Change 3: a write puts the same value into
+    /// the file as before this packet).
+    #[test]
+    fn adr_0076_scan_readable_description_different_text_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("song.mp3");
+        std::fs::write(&path, b"not really an mp3").unwrap();
+        write_id3v24_edits(
+            &path,
+            &[Id3v24Edit {
+                frame_label: "COMM:MusicIndex Description".into(),
+                value: "Old text".into(),
+            }],
+        )
+        .unwrap();
+        let tags = read_audio_tags(&path).unwrap();
+        let planned = PlannedFile {
+            track_id: 1,
+            title: "Song".into(),
+            album: None,
+            path,
+            in_use: false,
+            expected: vec![Id3v24Edit {
+                frame_label: "COMM:MusicIndex Description".into(),
+                value: "<p>New text</p>".into(),
+            }],
+            route: None,
+        };
+
+        let frames = changed_frames(&planned, &tags, None);
+
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].frame_label, "COMM:MusicIndex Description");
+        assert_eq!(frames[0].file_value.as_deref(), Some("Old text"));
+        assert_eq!(frames[0].expected_value, "<p>New text</p>");
+    }
+
+    /// R76-10-04: a `TIT2`, `TRCK` and `WOAR` comparison gives the same
+    /// result as before this packet. Only a `COMM` description compares by
+    /// readable text.
+    #[test]
+    fn adr_0076_scan_readable_description_other_frames_unchanged() {
+        assert!(values_match("TIT2", "Song Title", "Song Title"));
+        assert!(!values_match("TIT2", "Song Title", "Other Title"));
+        assert!(values_match("TRCK", "3", "3/12"));
+        assert!(!values_match("TRCK", "3", "4"));
+        assert!(values_match(
+            "WOAR",
+            "https://example.test/feed",
+            "https://example.test/feed",
+        ));
+        assert!(!values_match(
+            "WOAR",
+            "https://example.test/feed",
+            "https://example.test/other",
         ));
     }
 }
