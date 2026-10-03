@@ -51,6 +51,16 @@ Each binding change in it needs its own ADR or ADR amendment before code changes
 2. Static HTML mockups of three screens with the website tokens: the Library grid, an album page with an "Inspect" disclosure for the RSS and ID3 values, and Settings. The operator reviews them in a browser.
 3. A design-language ADR records the accepted mockups as the target.
 
+### Design Direction - 2026-10-03
+
+The operator chose this direction on 2026-10-03, from the [mockup canvas](https://claude.ai/artifact/CaY8T2NUdDosRV9uoFy9bk) (private to the operator). The design-language ADR will record it.
+
+- Version 2 of the mockups is the target: real covers, and each album page tinted by a blurred copy of its cover, as on `search.html`.
+- Browsing follows Apple Music: a Music home, an album grid, album pages with one main Play action.
+- Value for value is visible: the payment split as a bar, and the show readiness of an album.
+- Inspection stays one step away: an "Inspect sources" view with RSS, MusicIndex and file tags side by side.
+- From Raycast, the app takes a cohesive status bar and simple icons. The app is not a keyboard-driven power tool: each action works with the mouse, and a "⋯" menu holds the secondary actions.
+
 ### Phase 3: Tokens
 
 One packet maps the website palette, radii and font onto `src/ui/tokens.rs` and the theme profiles. The operator walks the visual check right after the packet.
@@ -69,7 +79,7 @@ A separate ADR, after the Library work. The playback defect of one song that doe
 
 ### Throughout: Code Correctness
 
-- Single source of truth audit: read-only agents find data written in two places, two paths that compute one output, errors that only stderr shows, and live values where the stored value is the rule. Each finding becomes a failing test and then a fix.
+- Single source of truth audit: read-only agents find data written in two places and two paths that compute one output. They also find errors that only stderr shows, and live values where the stored value is the rule. Each finding becomes a failing test and then a fix.
 - Split the largest files at their natural seams. No behavior changes in those packets.
 - Add `cargo clippy --all-targets -- -D warnings` to the gate. Correct the release build.
 - No complete rewrite. Change one surface at a time and keep the gate Green.
