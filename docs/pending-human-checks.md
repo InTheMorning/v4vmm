@@ -652,3 +652,11 @@ Open - implementation and mechanical checks are complete on 2026-10-03. Operator
 - Owner: [task 010](tasks/adr-0076-task-010-scan-compares-descriptions-as-readable-text.md#operator-visual-check).
 - Scheduling: the check only reads the "Update n files" popup on the real Library and cancels it.
 - V1: no Disco Swag file is listed with only a description line.
+
+## 39. Old iTunes Frames And Safe Tag Writes — ADR 0080 Task 004
+
+Open - implementation and mechanical checks are complete on 2026-10-03. Operator inspection is pending.
+
+- Owner: [task 004](tasks/adr-0080-task-004-old-itunes-frames-and-safe-tag-writes.md#operator-visual-check).
+- Scheduling: the check downloads the Disco Swag album into an isolated fixture. It needs `mid3v2`.
+- V1: "Make It" holds its title and `TSOP=Doerfels` after the download.

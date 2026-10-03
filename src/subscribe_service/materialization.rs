@@ -255,6 +255,7 @@ impl Materialization {
 
         let working_path = prepared.working_path().to_path_buf();
         *class = FILE;
+        let mut warning = warning;
         let applied_edits = if conversion == ConversionOutcome::WavRetained {
             0
         } else if retry || self.binding.is_some() {
@@ -263,7 +264,14 @@ impl Materialization {
             }
             edits.len()
         } else {
-            super::apply_id3_edits_nonfatal(&working_path, &edits)
+            let (applied, tag_warning) = super::apply_id3_edits_nonfatal(&working_path, &edits);
+            if let Some(message) = tag_warning {
+                warning = Some(warning.map_or_else(
+                    || message.clone(),
+                    |warning| format!("{warning}; {message}"),
+                ));
+            }
+            applied
         };
 
         *class = DATABASE;
@@ -692,6 +700,53 @@ mod tests {
             0,
             "the retry must write the stored edits: {:?}",
             scan.files
+        );
+    }
+
+    /// R80-4-04: a download whose tag write fails saves the track. The
+    /// result carries the tag-write warning, and the run is no failure. The
+    /// fixture file starts like a FLAC file, but its tags cannot be read.
+    #[test]
+    fn adr_0080_old_itunes_frames_failed_tag_write_is_a_download_warning() {
+        let (temp, cfg, conn, _operation) = fixture();
+        let path = temp.path().join("song.flac");
+        fs::write(&path, b"fLaCnot a real stream").unwrap();
+        let row = {
+            let db = conn.lock().unwrap();
+            db.execute(
+                "INSERT INTO tracks (id, feed_id, item_guid, track_title, enclosure_url, enclosure_type, is_in_library)
+                 VALUES (2, 1, 'song', 'Song', 'https://example.test/song.flac', 'audio/flac', 1)",
+                [],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO local_files (path, track_id) VALUES ('song.flac', 2)",
+                [],
+            )
+            .unwrap();
+            db::track_row_by_id(&db, 2).unwrap().unwrap()
+        };
+        let context = TrackContext::new(super::super::track_row_to_api_track(&row), None);
+        let mut operation = Materialization::new(row, context, cfg.music_dir.clone());
+
+        let outcome = operation.run(&conn, &cfg, false, false).unwrap();
+
+        assert!(outcome.marked_downloaded);
+        assert_eq!(outcome.applied_edits, 0);
+        let warning = outcome.format_warning.as_deref().unwrap_or_default();
+        assert!(
+            warning.starts_with("App saved the track but could not write its tags: "),
+            "{warning}"
+        );
+        assert_eq!(fs::read(&path).unwrap(), b"fLaCnot a real stream");
+        assert_eq!(
+            db::track_row_by_id(&conn.lock().unwrap(), 2)
+                .unwrap()
+                .unwrap()
+                .local_path
+                .unwrap()
+                .as_stored(),
+            "song.flac"
         );
     }
 }

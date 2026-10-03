@@ -491,7 +491,7 @@ fn write_stored_route(
     };
 
     match write_id3v24_edits(path, &edits) {
-        Ok(frames_written) if frames_written > 0 => {
+        Ok(write) if write.applied > 0 => {
             if let Some(fetched_track) = musicindex {
                 if let Err(error) =
                     record_payment_routes_absent(conn, track.id, false, fetched_track)
@@ -503,7 +503,7 @@ fn write_stored_route(
                     );
                 }
             }
-            PaymentRouteRepairTrackResult::repaired(track, frames_written)
+            PaymentRouteRepairTrackResult::repaired(track, write.applied)
         }
         Ok(_) => PaymentRouteRepairTrackResult::failed(
             track.id,

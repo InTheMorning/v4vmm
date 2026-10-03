@@ -111,9 +111,11 @@ pub(crate) fn write_tag_updates(
                     )
                 });
             match edits.and_then(|edits| write_id3v24_edits(&file.path, &edits)) {
-                Ok(frames) => {
+                Ok(write) => {
                     on_written(file.track_id);
-                    TagUpdateWriteStatus::Written { frames }
+                    TagUpdateWriteStatus::Written {
+                        frames: write.applied,
+                    }
                 }
                 Err(error) => TagUpdateWriteStatus::Failed {
                     error: format!("{error:#}"),

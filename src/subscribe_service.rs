@@ -426,16 +426,21 @@ fn subscribe_track_from_search_internal(
         })
 }
 
-fn apply_id3_edits_nonfatal(path: &Path, edits: &[Id3v24Edit]) -> usize {
+/// A download keeps the track when its tag write fails (ADR 0080 task 004).
+/// The function returns the number of applied edits, and the warning for the
+/// download result when the write fails.
+fn apply_id3_edits_nonfatal(path: &Path, edits: &[Id3v24Edit]) -> (usize, Option<String>) {
     if edits.is_empty() {
-        return 0;
+        return (0, None);
     }
     match write_id3v24_edits(path, edits) {
-        Ok(_) => edits.len(),
-        Err(err) => {
-            eprintln!("skip tag write for {}: {err:#}", path.display());
-            0
-        }
+        Ok(_) => (edits.len(), None),
+        Err(err) => (
+            0,
+            Some(crate::diagnostics::redact_endpoint_details(&format!(
+                "App saved the track but could not write its tags: {err:#}"
+            ))),
+        ),
     }
 }
 

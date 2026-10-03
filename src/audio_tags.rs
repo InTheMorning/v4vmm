@@ -285,18 +285,30 @@ fn lofty_item_label(key: &lofty::prelude::ItemKey) -> String {
     }
 }
 
-pub fn write_id3v24_edits(path: &Path, edits: &[Id3v24Edit]) -> Result<usize> {
+/// The result of one tag write (ADR 0080 task 004).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TagWriteResult {
+    /// The number of edits that the write applied.
+    pub applied: usize,
+    /// The ID of each old frame that the write removed, because an ID3v2.4
+    /// tag cannot hold its ID.
+    pub removed_frames: Vec<String>,
+}
+
+pub fn write_id3v24_edits(path: &Path, edits: &[Id3v24Edit]) -> Result<TagWriteResult> {
     if edits.is_empty() {
-        return Ok(0);
+        return Ok(TagWriteResult::default());
     }
 
     use crate::audio_format::AudioFormat;
     match AudioFormat::detect_from_file(path) {
         Ok(AudioFormat::Mp3) | Err(_) => write_mp3_edits(path, edits),
         Ok(AudioFormat::Flac) | Ok(AudioFormat::OggVorbis) | Ok(AudioFormat::OggOpus) => {
-            write_lofty_edits(path, edits, lofty::tag::TagType::VorbisComments)
+            write_lofty_edits(path, edits, lofty::tag::TagType::VorbisComments).map(lofty_result)
         }
-        Ok(AudioFormat::Mp4) => write_lofty_edits(path, edits, lofty::tag::TagType::Mp4Ilst),
+        Ok(AudioFormat::Mp4) => {
+            write_lofty_edits(path, edits, lofty::tag::TagType::Mp4Ilst).map(lofty_result)
+        }
         Ok(AudioFormat::Wav) => Err(anyhow!(
             "cannot tag raw WAV ({}); re-subscribe with `flac` installed to upgrade",
             path.display()
@@ -304,10 +316,18 @@ pub fn write_id3v24_edits(path: &Path, edits: &[Id3v24Edit]) -> Result<usize> {
     }
 }
 
-fn write_mp3_edits(path: &Path, edits: &[Id3v24Edit]) -> Result<usize> {
+fn lofty_result(applied: usize) -> TagWriteResult {
+    TagWriteResult {
+        applied,
+        removed_frames: Vec::new(),
+    }
+}
+
+fn write_mp3_edits(path: &Path, edits: &[Id3v24Edit]) -> Result<TagWriteResult> {
     let mut tag = no_tag_ok(Tag::read_from_path(path))
         .with_context(|| format!("read embedded MP3 tags from {}", path.display()))?
         .unwrap_or_default();
+    let removed_frames = convert_old_v22_frames(&mut tag);
     remove_stale_id3_website_frames(&mut tag, edits);
     remove_stale_id3_description_frames(&mut tag, edits);
     let mut applied = 0;
@@ -318,9 +338,99 @@ fn write_mp3_edits(path: &Path, edits: &[Id3v24Edit]) -> Result<usize> {
         applied += 1;
     }
 
-    tag.write_to_path(path, Version::Id3v24)
-        .with_context(|| format!("write ID3v2.4 tags to {}", path.display()))?;
-    Ok(applied)
+    write_id3_tag_safely(path, &tag)?;
+    Ok(TagWriteResult {
+        applied,
+        removed_frames,
+    })
+}
+
+/// The ID3v2.2 frames from iTunes that the conversion table of the id3
+/// crate does not convert, with their ID3v2.4 IDs (ADR 0080 task 004).
+const OLD_ITUNES_FRAME_IDS: [(&str, &str); 6] = [
+    ("TSP", "TSOP"),
+    ("TSA", "TSOA"),
+    ("TST", "TSOT"),
+    ("TS2", "TSO2"),
+    ("TSC", "TSOC"),
+    ("TCP", "TCMP"),
+];
+
+/// ADR 0080 Decision 6: a write keeps each value from another tool. This
+/// function gives each old iTunes frame its ID3v2.4 ID and keeps its value.
+/// It removes each other frame whose ID is not 4 bytes long, because an
+/// ID3v2.4 tag cannot hold that frame. It returns the ID of each removed
+/// frame.
+fn convert_old_v22_frames(tag: &mut Tag) -> Vec<String> {
+    let mut removed = Vec::new();
+    let mut converted = Vec::new();
+    tag.frames_vec_mut().retain(|frame| {
+        if frame.id().len() == 4 {
+            return true;
+        }
+        match OLD_ITUNES_FRAME_IDS
+            .iter()
+            .find(|(old_id, _)| *old_id == frame.id())
+        {
+            Some((_, new_id)) => {
+                converted.push(Frame::with_content(*new_id, frame.content().clone()));
+            }
+            None => removed.push(frame.id().to_owned()),
+        }
+        false
+    });
+    for frame in converted {
+        tag.add_frame(frame);
+    }
+    removed
+}
+
+/// ADR 0080 task 004: a failed write never changes the file. The writer
+/// encodes the tag into memory first. It then writes the tag into a staged
+/// copy in the same directory and renames the copy over the file. The copy
+/// keeps the file mode. The id3 crate writes the copy, so the bytes after
+/// the tag stay equal to the bytes of the original file.
+fn write_id3_tag_safely(path: &Path, tag: &Tag) -> Result<()> {
+    tag.write_to(std::io::sink(), Version::Id3v24)
+        .with_context(|| format!("encode ID3v2.4 tags for {}", path.display()))?;
+    let target = fs::canonicalize(path)
+        .with_context(|| format!("resolve the tag write target {}", path.display()))?;
+    let staged = staged_tag_path(&target)?;
+    let written = fs::copy(&target, &staged)
+        .with_context(|| format!("copy {} to {}", target.display(), staged.display()))
+        .and_then(|_| {
+            tag.write_to_path(&staged, Version::Id3v24)
+                .with_context(|| format!("write ID3v2.4 tags to {}", staged.display()))
+        })
+        .and_then(|()| {
+            fs::rename(&staged, &target)
+                .with_context(|| format!("replace {} with {}", target.display(), staged.display()))
+        });
+    if written.is_err() {
+        let _ = fs::remove_file(&staged);
+    }
+    written.with_context(|| format!("write ID3v2.4 tags to {}", path.display()))
+}
+
+/// A path for the staged copy of `target`, in the directory of `target`.
+fn staged_tag_path(target: &Path) -> Result<std::path::PathBuf> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let directory = target
+        .parent()
+        .with_context(|| format!("find the directory of {}", target.display()))?;
+    let name = target
+        .file_name()
+        .with_context(|| format!("find the file name of {}", target.display()))?;
+    let mut staged_name = std::ffi::OsString::from(".");
+    staged_name.push(name);
+    staged_name.push(format!(
+        ".v4vmm-tag-{}-{}",
+        std::process::id(),
+        SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    Ok(directory.join(staged_name))
 }
 
 /// ADR 0080 Decision 6: a write removes a `WOAR` or `WOAF` value under
@@ -1572,7 +1682,9 @@ mod tests {
         ];
 
         assert_eq!(
-            write_id3v24_edits(temp.path(), &edits).expect("write ID3v2.4 edits"),
+            write_id3v24_edits(temp.path(), &edits)
+                .expect("write ID3v2.4 edits")
+                .applied,
             10
         );
 
@@ -1994,5 +2106,222 @@ mod tests {
             first, second,
             "a repeated write must not duplicate a WOAR frame"
         );
+    }
+
+    /// The audio bytes after each fixture tag: the header of one MPEG frame
+    /// and a few data bytes. The first byte is not zero, so no reader takes
+    /// it as tag padding.
+    const OLD_ITUNES_AUDIO: &[u8] = &[
+        0xFF, 0xFB, 0x90, 0x64, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA,
+    ];
+
+    fn syncsafe(size: usize) -> [u8; 4] {
+        let size = u32::try_from(size).expect("fixture size");
+        [
+            u8::try_from((size >> 21) & 0x7F).expect("byte"),
+            u8::try_from((size >> 14) & 0x7F).expect("byte"),
+            u8::try_from((size >> 7) & 0x7F).expect("byte"),
+            u8::try_from(size & 0x7F).expect("byte"),
+        ]
+    }
+
+    /// An ID3v2.2 text frame with ISO-8859-1 text.
+    fn v22_text_frame(id: &[u8; 3], text: &str) -> Vec<u8> {
+        let size = u32::try_from(text.len() + 1).expect("frame size");
+        let mut frame = id.to_vec();
+        frame.extend_from_slice(&size.to_be_bytes()[1..]);
+        frame.push(0);
+        frame.extend_from_slice(text.as_bytes());
+        frame
+    }
+
+    /// An ID3v2.4 frame with no flags.
+    fn v24_frame(id: &[u8; 4], content: &[u8]) -> Vec<u8> {
+        let mut frame = id.to_vec();
+        frame.extend_from_slice(&syncsafe(content.len()));
+        frame.extend_from_slice(&[0, 0]);
+        frame.extend_from_slice(content);
+        frame
+    }
+
+    /// A file of one ID3v2 tag with `frames`, followed by the fixture audio.
+    fn tagged_fixture(major_version: u8, frames: &[Vec<u8>]) -> Vec<u8> {
+        let body = frames.concat();
+        let mut bytes = b"ID3".to_vec();
+        bytes.extend_from_slice(&[major_version, 0, 0]);
+        bytes.extend_from_slice(&syncsafe(body.len()));
+        bytes.extend_from_slice(&body);
+        bytes.extend_from_slice(OLD_ITUNES_AUDIO);
+        bytes
+    }
+
+    /// The bytes that follow the ID3v2 tag at the start of `bytes`.
+    fn audio_after_tag(bytes: &[u8]) -> &[u8] {
+        assert_eq!(&bytes[..3], b"ID3", "the file must start with a tag");
+        let size = bytes[6..10]
+            .iter()
+            .fold(0_usize, |size, byte| (size << 7) | usize::from(*byte));
+        &bytes[10 + size..]
+    }
+
+    fn old_itunes_edits() -> Vec<Id3v24Edit> {
+        [
+            ("TIT2", "Make It"),
+            ("TALB", "Disco Swag - The Album"),
+            ("TPE1", "The Doerfels"),
+            ("TXXX:RSS Item GUID", "item-guid"),
+        ]
+        .into_iter()
+        .map(|(frame_label, value)| Id3v24Edit {
+            frame_label: frame_label.into(),
+            value: value.into(),
+        })
+        .collect()
+    }
+
+    /// R80-4-01: a write on a file with an ID3v2.2 tag from iTunes gives an
+    /// ID3v2.4 tag. The `TSP` value moves to `TSOP`, the audio bytes stay
+    /// equal, and the file mode stays the same.
+    #[test]
+    fn adr_0080_old_itunes_frames_v22_sort_frame_becomes_tsop() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().expect("temp dir");
+        let path = temp.path().join("make-it.mp3");
+        let fixture = tagged_fixture(
+            2,
+            &[
+                v22_text_frame(b"TT2", "Make It (old)"),
+                v22_text_frame(b"TSP", "Doerfels"),
+            ],
+        );
+        fs::write(&path, &fixture).expect("write fixture");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).expect("set mode");
+
+        write_id3v24_edits(&path, &old_itunes_edits()).expect("write tags");
+
+        let tag = Tag::read_from_path(&path).expect("read written tag");
+        assert_eq!(tag.version(), id3::Version::Id3v24);
+        assert_eq!(tag.title(), Some("Make It"));
+        assert_eq!(tag.album(), Some("Disco Swag - The Album"));
+        assert_eq!(tag.artist(), Some("The Doerfels"));
+        assert_eq!(
+            tag.get("TSOP").and_then(|frame| frame.content().text()),
+            Some("Doerfels")
+        );
+        assert!(tag
+            .extended_texts()
+            .any(|text| text.description == "RSS Item GUID" && text.value == "item-guid"));
+        let written = fs::read(&path).expect("read written file");
+        assert_eq!(audio_after_tag(&written), OLD_ITUNES_AUDIO);
+        let mode = fs::metadata(&path).expect("metadata").permissions().mode();
+        assert_eq!(mode & 0o777, 0o640);
+    }
+
+    /// R80-4-03: a write that fails during the encode leaves each byte of
+    /// the file unchanged and leaves no staged copy. The fixture `MLLT`
+    /// frame decodes, but its field widths cannot be encoded.
+    #[test]
+    fn adr_0080_old_itunes_frames_failed_encode_leaves_file_unchanged() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let path = temp.path().join("track.mp3");
+        let mllt = [0, 1, 0, 0, 1, 0, 0, 1, 1, 1];
+        let fixture = tagged_fixture(
+            4,
+            &[
+                v24_frame(b"TIT2", b"\x03Old title"),
+                v24_frame(b"MLLT", &mllt),
+            ],
+        );
+        fs::write(&path, &fixture).expect("write fixture");
+
+        let result = write_id3v24_edits(&path, &old_itunes_edits());
+
+        assert!(result.is_err(), "the encode must fail: {result:?}");
+        assert_eq!(fs::read(&path).expect("read file"), fixture);
+        let entries = fs::read_dir(temp.path()).expect("read dir").count();
+        assert_eq!(entries, 1, "a failed write must leave no staged copy");
+    }
+
+    /// R80-4-02: a write removes an ID3v2.2 frame that has no ID3v2.4 ID,
+    /// and the write result names that frame. The write keeps the other
+    /// old values.
+    #[test]
+    fn adr_0080_old_itunes_frames_unmapped_frame_is_removed_and_named() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let path = temp.path().join("track.mp3");
+        let fixture = tagged_fixture(
+            2,
+            &[
+                v22_text_frame(b"TT2", "Old title"),
+                v22_text_frame(b"TCP", "1"),
+                v22_text_frame(b"XYZ", "unknown"),
+            ],
+        );
+        fs::write(&path, &fixture).expect("write fixture");
+
+        let result = write_id3v24_edits(&path, &old_itunes_edits()).expect("write tags");
+
+        assert_eq!(result.applied, 4);
+        assert_eq!(result.removed_frames, vec!["XYZ".to_owned()]);
+        let tag = Tag::read_from_path(&path).expect("read written tag");
+        assert!(tag.frames().all(|frame| frame.id() != "XYZ"));
+        assert_eq!(
+            tag.get("TCMP").and_then(|frame| frame.content().text()),
+            Some("1")
+        );
+        let written = fs::read(&path).expect("read written file");
+        assert_eq!(audio_after_tag(&written), OLD_ITUNES_AUDIO);
+    }
+
+    /// R80-4-05: on a file with an ID3v2.3 or ID3v2.4 tag, the write gives
+    /// the same bytes as the earlier write in place.
+    #[test]
+    fn adr_0080_old_itunes_frames_v23_and_v24_writes_are_unchanged() {
+        for major_version in [3, 4] {
+            let temp = tempfile::tempdir().expect("temp dir");
+            let path = temp.path().join("track.mp3");
+            let expected_path = temp.path().join("expected.mp3");
+            let text = |value: &str| {
+                let mut content = vec![if major_version == 4 { 3 } else { 0 }];
+                content.extend_from_slice(value.as_bytes());
+                content
+            };
+            let frame = |id: &[u8; 4], content: &[u8]| {
+                let mut frame = v24_frame(id, content);
+                if major_version == 3 {
+                    let size = u32::try_from(content.len()).expect("frame size");
+                    frame[4..8].copy_from_slice(&size.to_be_bytes());
+                }
+                frame
+            };
+            let fixture = tagged_fixture(
+                major_version,
+                &[
+                    frame(b"TIT2", &text("Old title")),
+                    frame(b"TPE2", &text("Other tool artist")),
+                    frame(b"TSOP", &text("Doerfels")),
+                ],
+            );
+            fs::write(&path, &fixture).expect("write fixture");
+            fs::write(&expected_path, &fixture).expect("write expected fixture");
+            let edits = old_itunes_edits();
+
+            let result = write_id3v24_edits(&path, &edits).expect("write tags");
+
+            let mut tag = Tag::read_from_path(&expected_path).expect("read fixture tag");
+            for edit in &edits {
+                tag.add_frame(super::id3v24_edit_frame(edit).expect("edit frame"));
+            }
+            tag.write_to_path(&expected_path, id3::Version::Id3v24)
+                .expect("write in place");
+            assert_eq!(result.applied, edits.len());
+            assert!(result.removed_frames.is_empty());
+            assert_eq!(
+                fs::read(&path).expect("read written file"),
+                fs::read(&expected_path).expect("read expected file"),
+                "ID3v2.{major_version}"
+            );
+        }
     }
 }

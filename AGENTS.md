@@ -135,6 +135,7 @@ owner and fixes the tag round-trip defect. The [phase plan](docs/plans/adr-0080-
 registers two packets. [Packet 001](docs/tasks/adr-0080-task-001-rss-frames-and-idempotent-writes.md) is implemented on 2026-09-29.
 Its mechanical checks are Green. Its visual gate is open and paused. [Packet 002](docs/tasks/adr-0080-task-002-musicbrainz-url-relations-by-type.md) is implemented on 2026-09-29, with its visual gate open and paused. [Packet 003](docs/tasks/adr-0080-task-003-vorbis-date-shares-one-key.md) settles the shared FLAC date key. It is complete on 2026-10-03, including operator acceptance.
 An MP4 file has the same date defect, and no packet owns it yet.
+[Packet 004](docs/tasks/adr-0080-task-004-old-itunes-frames-and-safe-tag-writes.md) converts old iTunes v2.2 frames and writes tags through a staged copy. It is implemented on 2026-10-03, with its operator check open.
 [ADR 0056](docs/adr/0056-remote-media-fetch-validation-boundary.md) is amended on 2026-10-03: a download does not check the declared enclosure length.
 [Its task 005](docs/tasks/adr-0056-task-005-remove-enclosure-length-check.md) removed the check on 2026-10-03, with mechanical checks Green and no visual gate.
 [ADR 0066 task 014](docs/tasks/adr-0066-task-014-download-failures-and-dismissal.md) classifies download failures and dismisses retained actions. It is implemented on 2026-10-03, with its visual gate open.
