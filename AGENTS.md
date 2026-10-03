@@ -11,373 +11,40 @@ Governance model: ADR 0061.
 
 ## Where The Work Stands
 
-Current priority - 2026-09-19: the operator paused visual checks to address
-metadata handling in v4vmm and MusicIndex. [ADR 0075](docs/adr/0075-metadata-ownership-and-completeness.md)
-is Accepted. Its [audit](docs/reviews/adr-0075-metadata-contract-review.md),
-[plan](docs/plans/adr-0075-metadata-contract-phase-plan.md) and
-[first packet](docs/tasks/archive/adr-0075-task-001-contributor-claim-transport.md) are written.
+The [overhaul plan](docs/plans/design-and-cleanup-overhaul-plan.md) is the current priority. It orders the
+design and cleanup work in six phases. Phase 1, the documents, ends with this file. Phase 2, the design language, is next.
 
-[Packet 001](docs/tasks/archive/adr-0075-task-001-contributor-claim-transport.md) is complete on
-2026-09-19. The contributor type for API data preserves the seven claim fields.
-Its mechanical checks are Green. It needs no visual acceptance.
-Storage and display still lose those fields. The
-[review](docs/reviews/adr-0075-metadata-contract-review.md#fields-that-later-layers-still-lose)
-lists the loss at each layer.
+Each file in `docs/tasks/` is open: it is Ready, or it waits for an operator check. Finished tasks are in
+`docs/tasks/archive/`. Each file in `docs/plans/` is an active plan.
 
-Document packets 002–008 contain corrected deliverables. Their remaining review gates are open.
-The [field inventory](docs/schema/adr-0075-metadata-field-inventory.md) assigns uncovered fields to packets 031 and 034.
-Those proposed rules are written. Their product-policy review remains open. Full metadata coverage is not complete.
+The operator resumed visual checks on 2026-10-02. [Pending human checks](docs/pending-human-checks.md)
+holds each open check. Walk a new check right after its packet. The procedures in `docs/runbooks/` stay
+regression checks.
 
-The operator accepted ADR 0075 Decisions D through G.
-Decisions D and E cover supported Nostr purposes and supported enclosures. ADR 0076 supersedes Decisions F to H.
-Description comparison uses readable text. A possible MusicIndex update hook remains deferred.
+Ready packets include [ADR 0081 task 001](docs/tasks/adr-0081-task-001-remove-the-staged-frame-model.md),
+[ADR 0082 packets 002 and 003](docs/plans/adr-0082-publisher-roles-phase-plan.md) and
+[ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md). ADR 0082 packet 002 also moves
+ADR 0078 to the archive.
 
-[Packet 030](docs/tasks/archive/adr-0075-task-030-enclosure-claim-transport.md) is complete on
-2026-09-20. The operator released this held packet on the same day. The
-enclosure type for API data preserves the four claim fields. Its mechanical
-checks are Green. It needs no visual acceptance.
+Known open defects:
 
-Storage and display still lose those fields. The
-[implementation result](docs/tasks/archive/adr-0075-task-030-enclosure-claim-transport.md#preservation-by-layer)
-lists the loss at each layer. The
-[phase plan](docs/plans/adr-0075-metadata-contract-phase-plan.md) assigns remaining transport, comparison, and storage work.
-The [proposal queue](docs/reviews/adr-0075-metadata-contract-review.md#proposals-awaiting-operator-acceptance)
-keeps unaccepted policy details separate from the operator's decisions.
+- The live status shows one song that does not change. Playback work waits for
+  [ADR 0068](docs/adr/0068-show-cue-and-audition-isolation.md), which is Proposed, and for the mpv IPC error.
+- An MP4 file always shows a `TYER` difference in "Update n files". The
+  [ADR 0080 plan](docs/plans/adr-0080-tag-frames-phase-plan.md) records it. No packet owns it.
+- `cargo build --release` fails in `gpui-pre-macros 0.3.1`. No release binary exists.
+- [The live value URI plan](docs/plans/livevalue-uri-is-a-url.md) is Ready.
 
-The operator authorized orchestration of ADR 0075 completion on 2026-09-20.
-The orchestrator dispatches bounded tasks and reviews each result.
-Accepted-rule code can proceed. New product policies retain their review gate.
-The operator requires individual field-policy review, confirmed on 2026-09-20.
-Each delegated implementation session owns one packet.
+Stored facts that agents need:
 
-Code packets 009, 010, 032, 033, and 037 are complete. Technical review and integrated checks are Green.
-The [phase plan](docs/plans/adr-0075-metadata-contract-phase-plan.md#active-orchestration--2026-09-20) records active assignments and integrated verification.
-Packet 009 corrects direct RSS identity ownership and preserves rejected evidence in the active context.
-
-[Packet 012](docs/tasks/adr-0075-task-012-provider-snapshot-migration.md) implementation, technical review, and mechanical checks are complete on 2026-09-20.
-Its repair-report presentation gate remains open and paused.
-
-[Packet 014](docs/tasks/adr-0075-task-014-provider-observation-retention.md) implementation, technical review, and mechanical checks are complete on 2026-09-21.
-It retains original observations through the shared writer and Library track-detail command. Its storage-failure presentation gate remains open and paused.
-
-[Packet 013](docs/tasks/adr-0075-task-013-verified-snapshot-replacement.md) implementation, technical review, and mechanical checks are complete on 2026-09-21.
-It covers verified RSS identity collection replacement and typed local collection reads. MusicIndex replacement remains disabled pending completeness proof.
-Inherited presentation gates remain open and paused.
-
-[Packet 038](docs/tasks/adr-0075-task-038-library-reader-observation-retention.md) implementation, technical review, and mechanical checks are complete on 2026-09-21.
-It retains observations from Library comparison and album hydration without changing field policies. Its presentation gate remains open and paused.
-
-[Packet 039](docs/tasks/adr-0075-task-039-feed-check-and-update-observation-retention.md) implementation, technical review, and mechanical checks are complete on 2026-09-21.
-It retains observations from feed checks, explicit feed updates, and the combined ADR 0065 workflow. Its presentation gate remains open and paused.
-The other caller families keep their current behavior. Their conversion packets are deleted.
-
-ADR 0075 is amended on 2026-09-21. Decision I states that MusicIndex is a cache of RSS and
-that RSS is the only provenance. The app reports a stale MusicIndex record and directs the
-operator to podping.me. It sends no podping. Provider-ownership display work is superseded.
-Decision A is reduced, and nine field policies are deferred.
-
-The [packet register](docs/plans/adr-0075-metadata-contract-phase-plan.md#packet-register)
-was reorganized on 2026-09-21 into complete work and a committed path.
-The committed path is packets 017, 018, 045, 020, and 022. The operator accepted both
-dependency cuts on 2026-09-21 and deleted sixteen packets.
-
-[Packet 017](docs/tasks/archive/adr-0075-task-017-named-request-profiles.md) is complete on
-2026-09-21. Ten named profiles own the include lists of the Library route and the Index
-route. Its mechanical checks are Green. It changes no request, and it needs no visual
-acceptance.
-
-[Packet 018](docs/tasks/archive/adr-0075-task-018-request-reuse-and-freshness.md) is complete on
-2026-09-22. One shared owner holds the MusicIndex requests and the retained responses. A
-concurrent duplicate request joins the active one, and a repeated request inside its window
-sends nothing. Its mechanical checks are Green, and it needs no visual acceptance.
-
-A reused response replays the receipt of the fetch that produced it. The app writes no new
-observation for a reuse. The operator accepted nine reuse policies, on 2026-09-21 and
-2026-09-22. Packet 045 is next on the committed path, and no packet document exists for it.
-The API change request replaces packet 008
-as the request to Stophammer.
-
-The operator sent that request on 2026-09-22, and its fixes are live on 2026-09-23.
-Summary search fields, separate track artwork, and a truthful publication-date label are
-verified (a deleted plan, in git history)
-against the deployed API.
-
-Packets [047](docs/tasks/adr-0075-task-047-search-rows-from-summary-fields.md), [048](docs/tasks/adr-0075-task-048-separate-track-artwork.md)
-and [049](docs/tasks/adr-0075-task-049-no-derived-release-date.md) implement the three landed changes on 2026-09-29.
-Their mechanical checks are Green, and their visual gates are open and paused.
-
-[Packet 050](docs/tasks/adr-0075-task-050-feed-dates-by-owner.md) shows each feed date with its true meaning. It is implemented
-on 2026-10-01, with its visual gate open and paused.
-[Packet 051](docs/tasks/archive/adr-0075-task-051-contract-field-guard.md) guards each decoded field against the stored contract
-`tests/fixtures/musicindex-openapi-0.7.0.json`. It is implemented on 2026-10-01. After each Stophammer release, replace that copy
-in the same change as the decode changes.
-[ADR 0060 packet 005](docs/tasks/adr-0060-task-005-delete-parked-discover-code.md) deletes the parked Discover UI and state. It is implemented on 2026-09-30,
-with its visual gate open and paused. [Packet 006](docs/tasks/archive/adr-0060-task-006-delete-parked-discover-queries.md) deleted its query layer and six unused MusicIndex types on 2026-09-30, with no new visual gate.
-[Dead code removal task 001](docs/tasks/dead-code-removal-task-001-measure-and-delete-unreachable-code.md) measures and deletes the remaining
-unreachable code, and removes each `allow(dead_code)`. It is implemented on 2026-10-01, with its visual gate open and paused.
-[Dead code removal task 002](docs/tasks/dead-code-removal-task-002-expected-dead-code.md) deletes the items behind 35 older
-`expect(dead_code)` markers that name deferred work. It is implemented on 2026-10-01, with its visual gate open and paused.
-No `dead_code` lint attribute stays in `src/`, and the ADR 0060 guard forbids one.
-[ADR 0081](docs/adr/0081-remove-the-staged-frame-model.md) is Accepted on 2026-10-02. It removes the staged frame model and the reserved slots.
-[ADR 0046 task 015](docs/tasks/adr-0046-task-015-forward-navigation.md) wired Forward and the Back and Forward keys on 2026-10-02,
-with its visual gate open and paused. [ADR 0081 task 001](docs/tasks/adr-0081-task-001-remove-the-staged-frame-model.md) deletes the model. It is Ready.
-[ADR 0082](docs/adr/0082-publisher-roles-belong-to-each-album-link.md) is Accepted on 2026-10-02. It gives roles to each album link and no page type,
-against Stophammer 0.7.0. It supersedes ADR 0078. Its [phase plan](docs/plans/adr-0082-publisher-roles-phase-plan.md) registers three packets.
-[Packet 001](docs/tasks/archive/adr-0082-task-001-contract-0-7-0-and-link-facts.md) is implemented on 2026-10-02. It decodes and stores the 0.7.0 link facts in schema version 18.
-Its mechanical checks are Green, and it needs no visual acceptance. Packets 002 and 003 are Ready.
-ADR 0076, amended on 2026-09-26, makes the app ignore `last_build_date`. Three decoded fields no
-longer arrive. [Packet 046](docs/tasks/archive/adr-0075-task-046-remove-undeclared-api-fields.md)
-removed them on 2026-09-26. Its mechanical checks are Green, and it needs no visual acceptance.
-[Packet 022](docs/tasks/adr-0075-task-022-track-header-identities.md) is implemented on 2026-09-28. It shows track and feed identities apart and keeps the tag output equal.
-Its mechanical checks are Green. Its visual gate is open and paused.
-[ADR 0080](docs/adr/0080-tag-frames-follow-their-owner.md) is Accepted on 2026-09-29. It maps tag frames by
-owner and fixes the tag round-trip defect. The [phase plan](docs/plans/adr-0080-tag-frames-phase-plan.md)
-registers two packets. [Packet 001](docs/tasks/adr-0080-task-001-rss-frames-and-idempotent-writes.md) is implemented on 2026-09-29.
-Its mechanical checks are Green. Its visual gate is open and paused. [Packet 002](docs/tasks/adr-0080-task-002-musicbrainz-url-relations-by-type.md) is implemented on 2026-09-29, with its visual gate open and paused. [Packet 003](docs/tasks/archive/adr-0080-task-003-vorbis-date-shares-one-key.md) settles the shared FLAC date key. It is complete on 2026-10-03, including operator acceptance.
-An MP4 file has the same date defect, and no packet owns it yet.
-[Packet 004](docs/tasks/archive/adr-0080-task-004-old-itunes-frames-and-safe-tag-writes.md) converts old iTunes v2.2 frames and writes tags through a staged copy. It is complete on 2026-10-03, including operator acceptance.
-[ADR 0056](docs/adr/0056-remote-media-fetch-validation-boundary.md) is amended on 2026-10-03: a download does not check the declared enclosure length.
-[Its task 005](docs/tasks/archive/adr-0056-task-005-remove-enclosure-length-check.md) removed the check on 2026-10-03, with mechanical checks Green and no visual gate.
-[ADR 0066 task 014](docs/tasks/adr-0066-task-014-download-failures-and-dismissal.md) classifies download failures and dismisses retained actions. It is implemented on 2026-10-03, with its visual gate open.
-ADR 0076 is amended on 2026-10-03 with Decision 10: a download writes the stored values. [Its packet 009](docs/tasks/adr-0076-task-009-download-writes-stored-values.md) is implemented on 2026-10-03, with its operator check open.
-[Packet 010](docs/tasks/archive/adr-0076-task-010-scan-compares-descriptions-as-readable-text.md) makes the scan compare descriptions as readable text. It is complete on 2026-10-03, including operator acceptance.
-
-[ADR 0076](docs/adr/0076-playlist-rss-check-for-stale-musicindex-records.md) is Accepted on
-2026-09-24, after the operator reviewed each decision. It replaces the per-field source
-selection of ADR 0075 with an RSS check of the feeds in a playlist, which also runs when a show
-selects that playlist. It supersedes ADR 0075 Decisions F to H and amends ADRs 0059 and 0065.
-Its packets replace packet 045, and packet 020 projects stored values without source selection.
-The [ADR 0076 phase plan](docs/plans/adr-0076-playlist-rss-check-phase-plan.md) registers five
-packets in dispatch order: 001, 002, 020, 003, 004. All five are implemented on 2026-09-24, with
-mechanical checks Green and their visual gates open and paused. A feed update no longer writes audio
-tags. The "Update n files" confirmation owns each metadata tag write. The operator decided four more
-details on 2026-09-25. Packet 005 (limits, copy action, scan triggers, and the in-place update after
-Confirm) and packet 006 (one credit list for each owner) are implemented on 2026-09-25, with their
-visual gates open and paused. [Packet 008](docs/tasks/adr-0076-task-008-confirmation-list-with-many-items.md) keeps each confirmation item at its height in a long list.
-It is implemented on 2026-10-03, with its visual gate open. [Packet 007](docs/tasks/archive/adr-0076-task-007-guard-reads-test-files-as-test-code.md)
-corrects a guard helper that reads a test-only file as production code. It is implemented on 2026-09-30, with no visual gate.
-No ADR 0076 packet is open.
-Schema version 18 is current, and each route write to a file reads the stored route. One projection in
-`src/application/queries/stored_values.rs` owns the order of stored values.
-Packet 002 dropped the unused ADR 0075 discrepancy and field-selection tables. The operator accepted the
-three numeric values and three packet details on 2026-09-24. The plan records the trigger mapping.
-
-The publisher relationship request
-records the operator's decisions of 2026-09-23 for Stophammer. Stophammer ADR 0049 owns the result.
-Its fields are verified (a deleted plan, in git history)
-against the deployed API on 2026-09-24. The contract at `/openapi.json` is the specification.
-A track publisher view is empty when the item states no publisher (Stophammer ADR 0038).
-v4vmm reads the relationship from the feed route.
-
-[ADR 0077](docs/adr/0077-publisher-feed-artist-binding.md) is Accepted on 2026-09-24. It keys an
-artist page on the publisher feed GUID and supersedes ADR 0045, which is archived. Implementation
-has not started, and no v4vmm code reads the publisher fields.
-[ADR 0078](docs/adr/0078-publisher-page-type-from-stated-role.md) is Accepted on 2026-09-24. It
-supersedes ADR 0077 Decision 4: only a stated label role gives a label page.
-[ADR 0079](docs/adr/0079-remove-musicindex-artist-subject-storage.md) is Accepted on 2026-09-24. It
-supersedes ADR 0029 and deletes the stale MusicIndex artist subject storage. Person identity stays
-deferred. The operator reviewed each ADR 0077 proposal on 2026-09-24, and none is open.
-The [phase plan](docs/plans/adr-0077-publisher-artist-phase-plan.md) registers seven packets.
-[Packet 001](docs/tasks/adr-0077-task-001-remove-dead-artist-storage.md) is implemented on 2026-09-24.
-It deletes the ADR 0045 binding and the ADR 0029 artist storage, and schema version 13 drops the four
-tables. Its mechanical checks are Green. Its visual gate is open and paused.
-[Packet 002](docs/tasks/archive/adr-0077-task-002-publisher-relationship-transport-and-storage.md) is
-implemented on 2026-09-24. It decodes the publisher relationship, requests it on the Library album
-hydration and the Index feed detail, and stores it in schema version 14. Its mechanical checks are
-Green, and it needs no visual acceptance. Stophammer deployed the album summary fields on 2026-09-26.
-Packet 003 is implemented on 2026-09-26. Its mechanical checks are Green, and it needs no
-visual acceptance. Packet 004 is implemented on 2026-09-26, with mechanical checks Green and its
-visual gate open and paused. Packet 005 is implemented on 2026-09-26, with its visual gate open and
-paused. Its name search reached only the parked `SearchApp`.
-
-[Packet 006](docs/tasks/adr-0077-task-006-name-matches-are-search-results.md) is implemented on 2026-09-29, with mechanical checks Green and its visual gate open and paused.
-It shows the live Index name match as a search result, `Tracks matching "<name>"`.
-Packet 007 shows the confirmed and unconfirmed artists of Stophammer ADR 0061. Stophammer 0.2.0 is deployed
-with those fields on 2026-09-29. [Packet 007](docs/tasks/adr-0077-task-007-confirmed-and-unconfirmed-artists.md) is implemented on 2026-09-30,
-with its visual gate open and paused. No ADR 0077 packet is open.
-
-[Open Stophammer requests](docs/plans/v4vmm-open-requests.md) consolidates each open request
-to Stophammer on 2026-09-25. The Stophammer repository holds an equal copy. Update both copies together. A reverse album list
-is deferred while Stophammer corrects the relationship data.
-
-Storage, shared projections, remaining field policies, and upstream changes remain open. Visual checks stay paused.
-
-Do not request another visual batch during this pause. Existing acceptance gates
-remain open. Cleanup of the evidence fixture
-`/tmp/v4vmm-governance.ie6k8TQf` remains unconfirmed.
-
-Music and Show are built. ADR 0059 tasks 001-017 are complete. ADRs 0059 and
-0063 are Implemented, including operator acceptance and fixture cleanup.
-
-[Show action feedback task 001](docs/tasks/archive/show-action-feedback-task-001-command-state-and-result.md)
-is complete, including operator visual acceptance.
-
-Inherited operator checks remain open for scrolling, track identity/detail parity,
-and metadata hydration. Their current
-requirements are indexed in [pending human checks](docs/pending-human-checks.md).
-Task 017's acceptance remains closed.
-
-[ADR 0037 task 001](docs/tasks/archive/adr-0037-task-001-feed-identity-action-parity.md)
-is complete on 2026-09-19. The operator accepted feed controls and action
-targets through local and Index routes in Light and Dark and confirmed fixture
-cleanup. The fixture browser correction is accepted. Task 002 retains its track
-parity gate. ADR 0037 remains Accepted. The
-[feed procedure](docs/runbooks/inherited-ui-checks.md#identity-and-detail-parity--adr-0037-tasks-001-and-002)
-remains a regression check.
-
-[ADR 0043 task 004](docs/tasks/archive/adr-0043-task-004-guards-and-visual-readiness.md)
-is complete on 2026-09-18. The operator accepted normal/narrow toolbar checks
-in Light and Dark and confirmed fixture cleanup. ADR 0043 is Implemented.
-The [toolbar procedure](docs/runbooks/inherited-ui-checks.md#search-toolbar--adr-0043-task-004)
-remains a regression check.
-
-[ADR 0044 task 003](docs/tasks/archive/adr-0044-task-003-playlist-reorder-guards-visual.md)
-is complete on 2026-09-19. The operator accepted Light/Dark playlist interaction,
-library removal and immediate row updates, and confirmed fixture cleanup.
-ADR 0044 is Implemented. The
-[playlist procedure](docs/runbooks/inherited-ui-checks.md#playlist-reordering--adr-0044-task-003)
-remains a regression check.
-
-ADR 0066 tasks 001–003 are complete, including operator acceptance,
-preservation inspection and fixture cleanup. ADR 0067 is Implemented;
-its platform-shortcut packet is complete with all operator checks accepted.
-Settings responsiveness and cached-file recovery are accepted, and the
-temporary timing/profiling tools are removed.
-
-[ADR 0069 task 001: Grouped Settings foundation](docs/tasks/archive/adr-0069-task-001-grouped-settings-foundation.md)
-is complete with mechanical checks Green, operator V1–V3 and preservation
-acceptance, and confirmed fixture cleanup. Its
-[operator procedure](docs/runbooks/settings-foundation-check.md) remains a regression check.
-The packet groups existing controls and reports without changing the configuration format.
-[ADR 0069](docs/adr/0069-grouped-settings-and-selective-presets.md) remains Accepted;
-later implementation has not started. The
-[Settings phase plan](docs/plans/adr-0069-settings-presets-phase-plan.md)
-records completed recovery prerequisites for phase 002.
-[Task 002: Shared guarded editor](docs/tasks/adr-0069-task-002-shared-guarded-editor.md)
-is Ready on 2026-09-18. Implementation has not started. Its operator criteria
-are prospective. New metadata and preset formats still require full
-ADR 0066 acceptance. Audio integration remains deferred.
-
-[ADR 0066 task 004: Optional tool isolation](docs/tasks/adr-0066-task-004-optional-tool-isolation.md)
-still has an open acceptance gate.
-Implementation and mechanical checks are complete; presentation acceptance and
-producer preservation passed. Remaining operator checks and fixture cleanup
-are open.
-[Task 005: Session drain and resumption](docs/tasks/archive/adr-0066-task-005-session-drain-and-resumption.md)
-is complete with mechanical checks Green, operator V1–V3 and preservation
-accepted, and fixture cleanup confirmed.
-[Task 006: Configuration repair and resumption](docs/tasks/archive/adr-0066-task-006-configuration-repair-and-resumption.md)
-is complete with mechanical checks Green, operator V1–V6 and preservation
-accepted, and fixture cleanup confirmed on 2026-09-13. Its
-[procedure](docs/runbooks/startup-recovery-check.md#task-006-configuration-repair-and-resumption)
-remains a regression check.
-[Task 007: Optional tool correction and retry](docs/tasks/archive/adr-0066-task-007-optional-tool-correction-and-retry.md)
-is complete on 2026-09-16 with mechanical checks Green, operator V1–V3 and
-preservation accepted. The narrow Library and
-[ADR 0073 Show card overflow](docs/adr/archive/0073-show-card-overflow-scrolling.md)
-follow-ups are accepted, including preservation and cleanup. V2/V3 cleanup is
-confirmed; no earlier startup fixtures remain in the checked temporary
-directories. ADR 0073 is Implemented. The
-[operator procedure](docs/runbooks/startup-recovery-check.md#task-007-optional-tool-correction-and-retry)
-remains a regression check with isolated Index/service stubs and Null playback.
-Task 004 retains its remaining checks under the recorded scheduling exception.
-[Task 008: Converter verification and setup](docs/tasks/archive/adr-0066-task-008-converter-verification-and-setup.md)
-is complete on 2026-09-17 with mechanical checks Green; operator V1–V3,
-Settings/core-recovery presentation and preservation in both fixture cases are
-accepted. Normal-mode restoration and fixture cleanup are confirmed. The
-[operator procedure](docs/runbooks/startup-recovery-check.md#task-008-converter-verification-and-setup)
-remains a regression check.
-[Task 009: Conversion retry and retained input](docs/tasks/archive/adr-0066-task-009-conversion-retry-and-retained-input.md)
-is complete on 2026-09-17 with mechanical checks Green. Operator V1–V3,
-normal/narrow presentation, configuration restoration and preservation are
-accepted; fixture cleanup is confirmed. Its
-[procedure](docs/runbooks/startup-recovery-check.md#task-009-conversion-retry-and-retained-input)
-remains a regression check.
-[Task 010: Database check and backup](docs/tasks/archive/adr-0066-task-010-database-check-and-backup.md)
-is complete on 2026-09-17 with mechanical checks Green. Operator V1–V3,
-Settings/recovery presentation, report copy, responsiveness and preservation in
-both fixture cases are accepted; all 28 final database preservation flags are
-Green. Normal-mode restoration and fixture cleanup are confirmed. The fixture
-lock correction has two real-process regression tests. Its
-[procedure](docs/runbooks/startup-recovery-check.md#task-010-database-check-and-backup)
-remains a regression check.
-[Task 011: Database maintenance and preservation](docs/tasks/archive/adr-0066-task-011-database-maintenance-and-preservation.md)
-is complete on 2026-09-17 with mechanical checks Green. Operator V1–V3,
-Settings/recovery normal/narrow presentation, report retention, preservation in
-both cases, normal-mode restoration and fixture cleanup are accepted. Its
-[operator procedure](docs/runbooks/startup-recovery-check.md#task-011-database-maintenance-and-preservation)
-remains a regression check. Task 012 is complete in the
-[phase plan](docs/plans/adr-0066-startup-recovery-phase-plan.md).
-
-[Task 012: Database restore](docs/tasks/archive/adr-0066-task-012-database-restore.md)
-is complete on 2026-09-17 with mechanical checks Green. Operator V1–V3,
-Settings/recovery normal/narrow presentation, report copy, input-change
-protection, same-window resumption and both preservation inspections are
-accepted; cleanup of all three operator fixtures is confirmed. Its
-[procedure](docs/runbooks/startup-recovery-check.md#task-012-database-restore)
-remains a regression check. Task 013 is complete, including operator acceptance, preservation and cleanup.
-
-[Task 013: Interrupted upgrade repair](docs/tasks/archive/adr-0066-task-013-interrupted-upgrade-repair.md)
-is complete on 2026-09-18 with mechanical checks Green.
-Operator V1–V3, Settings/recovery presentation and both final preservation
-inspections are accepted. The
-[ADR 0074 page correction](docs/adr/0074-repair-and-diagnostics-pages.md) is
-Implemented. Its visual gate is accepted, including normal/narrow and short
-heights, Settings XL scale in both themes, report copy, scrolling, retained
-inputs and preference restoration. Cleanup of both fixtures is confirmed. The
-[focused check](docs/runbooks/startup-recovery-check.md#repair-and-diagnostics-pages--adr-0074)
-remains a regression procedure.
-Use the asd-ste100 skill for repair and diagnostics text. ADR 0066 stays Accepted.
-Task 004 retains its independent gate. Configuration-format work stays gated.
-
-[ADR 0063 task 005](docs/tasks/archive/adr-0063-task-005-shared-log-frames-and-following.md)
-is complete on 2026-09-13 with mechanical checks Green, V1–V3 operator checks,
-configuration-editor disclosure and Escape follow-ups, final preservation and
-fixture cleanup accepted. ADRs 0063 and 0070 are Implemented. Show, Diagnostics
-and recovery share the frame and reading-state owner. The
-[operator procedure](docs/runbooks/log-frame-check.md) remains a regression
-check. ADR 0066 task 007 completion is recorded above.
-
-[ADR 0071 task 001: Shared text selection](docs/tasks/archive/adr-0071-task-001-shared-text-selection.md)
-is complete on 2026-09-15, with mechanical checks Green, available X11 operator
-checks, preservation and cleanup accepted. ADRs 0071 and 0072 are Implemented;
-the narrow gpui-base correction is commit-pinned. IME composition and Wayland
-remain untested coverage limits. The packet owns double/triple-click selection
-and Linux primary paste across shared logs and inputs. The completed log packet
-stays closed. Its separate [operator procedure](docs/runbooks/text-selection-check.md)
-covers Unicode, paths, cross-application paste, Undo/Redo and accepted Escape.
-ADR 0066 tasks 007–012 are complete, including operator acceptance, preservation
-and cleanup. Task 013 is complete, including operator acceptance, preservation and cleanup.
-
-[ADR 0068: Show cue and audition isolation](docs/adr/0068-show-cue-and-audition-isolation.md)
-is Proposed; its implementation has not started. Task 004's playback checks
-remain paused pending that separation and resolution of the observed mpv IPC error.
-Playback work is deferred; independent report/path-repair and Music checks
-remain available in the pending-human index.
-Relay durability through reserved-event adoption follows.
-The delivery order also schedules remaining narrow Show layout,
-external UTC timestamp corrections, and steady-state work.
-When a real show is scheduled, publisher show-log task 001 takes priority.
-
-[ADR 0039: Dynamic type ramp](docs/adr/archive/0039-dynamic-type-ramp.md) is Implemented
-on 2026-09-18. All three packets in the
-phase plan are complete.
-Mechanical checks are Green. The app uses the ratified type curves.
-
-The operator passed all thirteen visual checks and confirmed fixture removal.
-The agent inferred preservation and preference restoration from the conditional
-cleanup command. The
-[review checklist](docs/reviews/adr-0039-review-checklist.md#operator-visual-check--task-003)
-records this inference and its evidence limits.
-
-The [operator procedure](docs/runbooks/dynamic-type-ramp-check.md) remains a
-regression check. A debug assertion and source guards check the reservation.
-They do not control rendered dimensions. Possible enforcement during layout
-remains a separate design question in the phase plan. The `UiScale` variants
-and configuration format are unchanged. ADR 0066's independent gate remains open.
-
-`docs/plans/broadcast-chain-delivery-order.md` is the only cross-repository
-order. Read it before starting a session on broadcast work.
+- Schema version 18 is current. The migration registry of ADR 0016 owns each schema change.
+- `tests/fixtures/musicindex-openapi-0.7.0.json` is the stored MusicIndex contract. After each Stophammer
+  release, replace it in the same change as the decode changes (ADR 0075 section 6).
+- [Open Stophammer requests](docs/plans/v4vmm-open-requests.md) has an equal copy in the Stophammer
+  repository. Update both copies together.
+- `docs/plans/broadcast-chain-delivery-order.md` is the only cross-repository order. Read it before a session
+  on broadcast work. When a real show is scheduled, publisher show-log task 001 takes priority.
+- Do not delete the evidence fixture `/tmp/v4vmm-governance.ie6k8TQf`. Its cleanup is unconfirmed.
 
 ## Current Design Philosophy
 
@@ -546,7 +213,7 @@ fixture's `run` command rebuilds the normal binary before opening it.
 
 ```bash
 cargo build                          # Debug build
-cargo build --release                # Production build
+cargo build --release                # Production build (fails today, see above)
 cargo test                           # All tests
 cargo test --test architecture_tests # The guards
 cargo fmt -- --check                 # Check formatting
@@ -607,6 +274,3 @@ do not overlap, and neither one holds the other's rules.
 - **Code shape lives in an ADR.** Layering, ownership, element hierarchy, a
   contract between two modules, how a surface is built. This file may point at
   such a rule and name the ADR that decides it. It never states one as its own.
-
-Corrected 2026-09-09, after two code-shape rules were written here as though
-this file decided them.

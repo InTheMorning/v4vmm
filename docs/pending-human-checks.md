@@ -2,31 +2,10 @@
 
 ## Scheduling
 
-The operator paused visual checks on 2026-09-19. Prioritise the
-[metadata contract refactor](plans/adr-0075-metadata-contract-phase-plan.md)
-before requesting more visual checks. The first four groups retain five open visual packets.
-Their acceptance and configuration gates remain open. Group 5 records the remaining metadata document review.
-Groups 6 and 7 record the metadata migration and storage-failure presentation gates.
+The operator resumed visual checks on 2026-10-02. Walk a new check right after its packet.
+The older checks below stay open until a person walks them. The operator walked part of a visual batch on 2026-10-02 and stopped after its Part A step 8. Section 28 passed V1 to V4 in that batch. The record of that pass is open work.
 
-Group 8 records the Library comparison and hydration presentation gate.
-Group 9 records the feed check and feed update presentation gate.
-Group 12 records the Library artist view gate of the ADR 0079 artist storage removal.
-
-Group 13 records the playlist RSS check gate of ADR 0076 packet 001.
-Group 14 records the RSS comparison and report gate of ADR 0076 packet 002.
-Group 15 records the stored value projection gate of ADR 0075 packet 020.
-Group 16 records the stored payment route and readiness gate of ADR 0076 packet 003.
-Group 17 records the tag update confirmation gate of ADR 0076 packet 004.
-Group 18 records the check and scan follow-up gate of ADR 0076 packet 005.
-
-Group 19 records the credit list gate of ADR 0076 packet 006.
-
-The operator accepted ADR 0075 on 2026-09-19. Its placement decision adds future
-visual checks for the labelled identity sections on a track page. Phase 005 owns
-those checks. Do not request them during this pause.
-
-The current evidence fixture is `/tmp/v4vmm-governance.ie6k8TQf`.
-Its cleanup remains unconfirmed. No app launch is requested during this pause.
+The current evidence fixture is `/tmp/v4vmm-governance.ie6k8TQf`. Its cleanup remains unconfirmed.
 
 ## Purpose
 

@@ -40,6 +40,7 @@ Each binding change in it needs its own ADR or ADR amendment before code changes
 3. Guard audit. Delete each guard that cites a superseded ADR. A guard of an ADR that archived because each rule is enforced stays.
 4. Retire each pending check whose requirement a later decision replaced.
 5. Rewrite `AGENTS.md` to the present only: what the project is, where the work stands, the philosophy and the working rules.
+   Done on 2026-10-03: `AGENTS.md` went from 612 to 276 lines.
 
 ### Phase 2: Design Language
 
