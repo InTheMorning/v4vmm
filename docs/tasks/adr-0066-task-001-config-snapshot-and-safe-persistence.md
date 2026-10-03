@@ -23,7 +23,7 @@ mechanics. The handoff table identifies the owners of the later work.
 - src/app/resize.rs — pane preference saves
 - src/cli.rs — configured readers and first-run output
 - src/theme_profile.rs; src/config.rs — UiScale
-- docs/adr/0010-musicindex-endpoint-setting.md; docs/adr/0046-workspace-frame-architecture.md; docs/adr/0051-workspace-pane-width-persistence.md
+- docs/adr/0010-musicindex-endpoint-setting.md; docs/adr/0046-workspace-frame-architecture.md; docs/adr/archive/0051-workspace-pane-width-persistence.md
 - `tests/architecture_tests.rs`; `AGENTS.md`
 
 ## Files Changed

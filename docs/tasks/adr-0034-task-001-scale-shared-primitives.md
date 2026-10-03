@@ -8,7 +8,7 @@ multiline text size/line height, and icon size.
 
 ## Files to Inspect
 
-- `docs/adr/0034-scale-aware-ui-tokens-and-controls.md`
+- `docs/adr/archive/0034-scale-aware-ui-tokens-and-controls.md`
 - `docs/plans/adr-0034-scale-aware-ui-tokens-phase-plan.md`
 - `src/ui/tokens.rs`
 - `src/ui/primitives/surface.rs`
@@ -82,7 +82,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0034-scale-aware-ui-tokens-and-controls.md`
+- `docs/adr/archive/0034-scale-aware-ui-tokens-and-controls.md`
 - `docs/plans/adr-0034-scale-aware-ui-tokens-phase-plan.md`
 - `docs/tasks/adr-0034-task-001-scale-shared-primitives.md`
 - `src/ui/tokens.rs`

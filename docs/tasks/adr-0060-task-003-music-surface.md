@@ -15,7 +15,7 @@ region of the window shows music instead of an empty prompt.
 
 - `docs/adr/0060-workflow-surface-structure.md`
 - `docs/adr/0047-library-search-unification.md`
-- `docs/adr/0048-content-list-frame-breadcrumb-search.md`
+- `docs/adr/archive/0048-content-list-frame-breadcrumb-search.md`
 - `src/view_models/workspace/chrome.rs`, for `ContentFilter`
 - `src/view_models/app_toolbar.rs`
 - `src/app.rs`

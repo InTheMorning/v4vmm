@@ -67,7 +67,7 @@ Mechanical enforcement: `tests/architecture_tests.rs` contains roughly 125 guard
 
 7. **Resize is fluid.** `SplitPane` (`src/ui/composites/split_pane.rs`) exposes `on_resize_start` / `_move` / `_end` accepting GPUI mouse events. `WorkspaceSlots` wires these handlers into `TopApp::begin_content_pane_resize` / `resize_content_pane` / `end_content_pane_resize` (`src/app.rs:1956-1978`). The divider's hover affordance shifts from `SemanticColor::border_subtle` to `accent` — the HIG-style drag cue, not a static grab line.
 
-8. **Doc governance closeout complete.** ADR 0048 (`docs/adr/0048-content-list-frame-breadcrumb-search.md`) and ADR 0049 (`docs/adr/0049-inspector-source-ownership.md`) are now in place. ADR 0047 carries a forward-pointer to ADR 0048. The superseded `active-frame-search-dispatch-plan.md` is marked `Superseded 2026-05-16`. Review checklists exist for active-frame-search-dispatch (Superseded), ADR 0047, and inspector-source-ownership.
+8. **Doc governance closeout complete.** ADR 0048 (`docs/adr/archive/0048-content-list-frame-breadcrumb-search.md`) and ADR 0049 (`docs/adr/0049-inspector-source-ownership.md`) are now in place. ADR 0047 carries a forward-pointer to ADR 0048. The superseded `active-frame-search-dispatch-plan.md` is marked `Superseded 2026-05-16`. Review checklists exist for active-frame-search-dispatch (Superseded), ADR 0047, and inspector-source-ownership.
 
 ## Findings — drift and concerns
 

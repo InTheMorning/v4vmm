@@ -2,7 +2,8 @@
 
 ## Status
 
-Open - 2026-10-03. This record is advisory. It states no rule. The operator decides each group.
+Decided - 2026-10-03. The operator accepted each group recommendation on 2026-10-03.
+This record is advisory. It states no rule.
 The [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md) owns this work.
 
 ## Method
@@ -30,6 +31,15 @@ The batch files stay in the orchestrator scratchpad. This record keeps the decis
 | B2 | Archive as fully guarded after a citation packet. The enforcing tests cite another ADR, or the status text is wrong | 0011, 0016, 0022, 0064, 0065 |
 | C | Archive after code work | 0078, after ADR 0082 packet 002 |
 | K | Keep current | The other 52 |
+
+## Decisions - 2026-10-03
+
+The operator accepted these actions on 2026-10-03:
+
+- Groups A and B1 archive on 2026-10-03. ADR 0065 archives on 2026-10-03 too, after its status-text fix.
+- Group B2 (ADRs 0011, 0016, 0022 and 0064) archives after a citation packet.
+- ADR 0078 archives with ADR 0082 packet 002.
+- The text corrections apply to ADRs 0049, 0059 and 0065, and to `docs/adr/README.md`.
 
 ## Text Corrections For Current ADRs
 

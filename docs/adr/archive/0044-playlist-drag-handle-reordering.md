@@ -6,15 +6,17 @@ Implemented - 2026-09-19.
 
 Status updated - 2026-09-19. The operator accepted all Light/Dark visual checks
 and confirmed fixture cleanup.
-[Task 003](../tasks/adr-0044-task-003-playlist-reorder-guards-visual.md) is complete.
-The [review checklist](../reviews/adr-0044-review-checklist.md#operator-batches--2026-09-19)
+[Task 003](../../tasks/adr-0044-task-003-playlist-reorder-guards-visual.md) is complete.
+The [review checklist](../../reviews/adr-0044-review-checklist.md#operator-batches--2026-09-19)
 records the results and cleanup. No gate under this ADR remains open.
 
 Amended 2026-09-10: the reorder contract survives. ADRs 0046/0047 replace the
 inspector-owned Back to Playlist button and `InspectorOrigin` with frame
 navigation. ADR 0060 places playlists in Music. The
-[review checklist](../reviews/adr-0044-review-checklist.md) retains insertion,
+[review checklist](../../reviews/adr-0044-review-checklist.md) retains insertion,
 menu, availability, and in-place update checks on the current paths.
+
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
 
 ## Context
 

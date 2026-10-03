@@ -9,7 +9,7 @@ without asking whether the feed changed upstream.
 
 ## Files To Inspect
 
-- `docs/adr/0065-payment-route-tag-repair.md`
+- `docs/adr/archive/0065-payment-route-tag-repair.md`
 - `src/feed_service.rs`, for `check_feed_staleness` and `refresh_stale_feed`,
   the path this task does not use
 - `src/metadata_service.rs`, for `id3_edits_for_track_context`
@@ -144,7 +144,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0065-payment-route-tag-repair.md`
+- `docs/adr/archive/0065-payment-route-tag-repair.md`
 - `src/metadata_service.rs`, `src/audio_tags.rs`, `src/api.rs`
 - `src/application/commands/metadata.rs` for the command precedent
 

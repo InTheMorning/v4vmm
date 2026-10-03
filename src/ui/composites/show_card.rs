@@ -67,7 +67,7 @@ impl RenderOnce for ShowCard {
         debug_assert!(
             layouts::show_card_summary_reservation(ScaleFactor::current(cx))
                 <= layouts::show_card_available_inner_height(ScaleFactor::current(cx)),
-            "ADR 0039 (docs/adr/0039-dynamic-type-ramp.md#wrapping-and-fixed-height-reservation): \
+            "ADR 0039 (docs/adr/archive/0039-dynamic-type-ramp.md#wrapping-and-fixed-height-reservation): \
              ShowCard's reserved header+summary block exceeds Size::MenuCompact's available \
              inner height at this scale step. Fix: report the measured mismatch to ADR 0039. \
              Do not shrink the font, drop a line, or grow chrome to pass this check."

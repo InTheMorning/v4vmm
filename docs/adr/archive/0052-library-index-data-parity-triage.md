@@ -2,6 +2,8 @@
 
 ## Status
 
+Superseded by ADR 0053 - 2026-10-03. ADR 0053 holds the parity contract that this triage drafted.
+
 Implemented - 2026-05-17. Documentation-only triage complete.
 
 Amended 2026-09-24: ADR 0079 supersedes ADR 0029. Artist identity routes to ADR 0077, and person identity routes to ADR 0079.

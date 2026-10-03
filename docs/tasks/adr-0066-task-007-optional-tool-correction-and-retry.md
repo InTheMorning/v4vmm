@@ -634,7 +634,7 @@ No preservation or cleanup result accompanied this confirmation.
 
 The accompanying Show screenshot exposes clipped cards with logs closed, three
 setup issues and a wrapped configuration-save failure. `ShowLogPane` only mounted
-the scrolling card viewport in its open-log branch. [ADR 0073](../adr/0073-show-card-overflow-scrolling.md)
+the scrolling card viewport in its open-log branch. [ADR 0073](../adr/archive/0073-show-card-overflow-scrolling.md)
 records the correction before implementation: reuse that shared viewport in both
 branches. Existing card geometry, view-model state, log priority, sidebar and
 transport ownership remain unchanged. The focused Show visual gate and the

@@ -17,6 +17,8 @@ Verified files:
 ADR 0062 later removed the Recent Feeds route module without weakening the
 decomposition boundary.
 
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
+
 ## Context
 
 The ADR-0047 / 0048 / 0049 arc landed the ContentList-frame breadcrumb search

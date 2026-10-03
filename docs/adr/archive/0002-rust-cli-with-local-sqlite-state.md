@@ -2,6 +2,8 @@
 
 ## Status
 
+Superseded by ADR 0012 - 2026-10-03. ADR 0012 made the desktop app the primary surface.
+
 Accepted - 2026-04-11.
 
 ## Context

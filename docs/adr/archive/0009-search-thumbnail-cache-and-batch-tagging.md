@@ -2,6 +2,8 @@
 
 ## Status
 
+Superseded by ADR 0076 - 2026-10-03. ADR 0066 owns the cache. ADR 0076 Decisions 8 and 10 own each tag write.
+
 Accepted - 2026-04-16.
 
 ## Context

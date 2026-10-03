@@ -12,7 +12,7 @@ arrive when the revised ADR 0059 packets fill them.
 
 - `docs/adr/0060-workflow-surface-structure.md`
 - `docs/adr/0046-workspace-frame-architecture.md`
-- `docs/adr/0048-content-list-frame-breadcrumb-search.md`
+- `docs/adr/archive/0048-content-list-frame-breadcrumb-search.md`
 - `src/app.rs`, for `AppTab` and `WorkspaceScreenMount`
 - `src/view_models/app_toolbar.rs`, for `AppToolbarTabKey`
 - `src/view_models/queue_now_playing.rs`

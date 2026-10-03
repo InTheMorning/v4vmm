@@ -13,7 +13,7 @@ Composite reuses existing segmented-control and pull-down primitives.
 - `docs/plans/library-search-unification-plan.md`
 - `docs/tasks/adr-0047-task-001-content-filter-vm.md`
 - `docs/adr/0033-hig-ui-architecture-governance.md`
-- `docs/adr/0038-presentation-contract-enforcement.md`
+- `docs/adr/archive/0038-presentation-contract-enforcement.md`
 - `src/view_models/workspace.rs`
 - `src/ui/composites/frame_shell.rs`
 - `src/ui/composites.rs`

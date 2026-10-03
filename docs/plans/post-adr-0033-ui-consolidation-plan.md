@@ -2,7 +2,7 @@
 
 > **Superseded by ADR 0038** on 2026-05-03. Render-helper consolidation
 > and shell relocation are absorbed into
-> `docs/adr/0038-presentation-contract-enforcement.md` and
+> `docs/adr/archive/0038-presentation-contract-enforcement.md` and
 > `docs/plans/adr-0038-presentation-contract-enforcement-phase-plan.md`.
 > Retained as historical context; not maintained.
 

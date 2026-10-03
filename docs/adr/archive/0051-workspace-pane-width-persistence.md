@@ -4,6 +4,8 @@
 
 Implemented - 2026-05-17.
 
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
+
 ## Context
 
 The ADR-0048 implementation ships fluid resize between the ContentList and

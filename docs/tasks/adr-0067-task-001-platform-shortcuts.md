@@ -5,7 +5,7 @@ Status: Complete - 2026-09-11; mechanical gate Green, including focus correction
 ## Goal And Owners
 
 Make existing app shortcuts reachable with Ctrl on Linux. Read
-[ADR 0067](../adr/0067-platform-shortcut-modifiers.md).
+[ADR 0067](../adr/archive/0067-platform-shortcut-modifiers.md).
 
 - `src/app/keyboard.rs`: shared platform resolver, action binding registry,
   real GPUI keymap tests for both platforms and input contexts.

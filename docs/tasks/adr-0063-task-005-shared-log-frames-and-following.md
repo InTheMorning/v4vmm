@@ -288,7 +288,7 @@ card column the source header consumes almost all of the remaining log pane.
 ## Open Log Height Correction — ADR 0070
 
 The operator requested usable logs at the expense of cards while keeping
-sidebar Logs actions reachable. [ADR 0070](../adr/0070-show-log-space-priority.md)
+sidebar Logs actions reachable. [ADR 0070](../adr/archive/0070-show-log-space-priority.md)
 records the exception to simultaneous card visibility before implementation.
 The Show view model now budgets the log before card space, retains a preferred
 height across temporary constraints, and bounds both by the available region.

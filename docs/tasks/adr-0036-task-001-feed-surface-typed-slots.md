@@ -7,7 +7,7 @@ surface slots with typed surface elements and adding architecture guards.
 
 ## Files To Inspect
 
-- `docs/adr/0036-feed-visual-and-provenance-surface-consistency.md`
+- `docs/adr/archive/0036-feed-visual-and-provenance-surface-consistency.md`
 - `docs/plans/adr-0036-feed-visual-and-provenance-consistency-phase-plan.md`
 - `src/ui/composites/release_detail_surface.rs`
 - `src/ui_entity.rs`
@@ -75,7 +75,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0036-feed-visual-and-provenance-surface-consistency.md`
+- `docs/adr/archive/0036-feed-visual-and-provenance-surface-consistency.md`
 - `docs/tasks/adr-0036-task-001-feed-surface-typed-slots.md`
 - `src/ui/composites/release_detail_surface.rs`
 - `src/ui_entity.rs`

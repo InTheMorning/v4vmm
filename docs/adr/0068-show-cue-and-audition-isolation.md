@@ -381,6 +381,6 @@ and regression proof before audible playback acceptance. This draft claims no fi
 
 - [ADR 0059: Broadcast control surface](0059-broadcast-control-surface.md)
 - [ADR 0064: Local file addressing](0064-local-file-addressing.md)
-- [ADR 0067: Platform shortcuts](0067-platform-shortcut-modifiers.md)
+- [ADR 0067: Platform shortcuts](archive/0067-platform-shortcut-modifiers.md)
 - [Curator workflow design brief](../plans/curator-workflow-ui-design-brief.md#auditioning)
 - [Pending human checks](../pending-human-checks.md#4-optional-tool-isolation--adr-0066-task-004)

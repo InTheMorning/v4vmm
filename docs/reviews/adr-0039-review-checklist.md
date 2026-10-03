@@ -17,7 +17,7 @@ Tasks 001 and 002 have no separate visual gate. This review does not close inher
 
 ## Reviewed Artifacts
 
-- [ADR 0039](../adr/0039-dynamic-type-ramp.md).
+- [ADR 0039](../adr/archive/0039-dynamic-type-ramp.md).
 - [Phase plan](../plans/adr-0039-dynamic-type-ramp-phase-plan.md).
 - [Task 001](../tasks/adr-0039-task-001-scale-domains-and-type-curves.md).
 - [Task 002](../tasks/adr-0039-task-002-fixed-height-reserve-and-acceptance.md).

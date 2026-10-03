@@ -19,7 +19,7 @@ expense of card space, while the sidebar's Logs buttons remain reachable.
 It supersedes ADR 0063's requirement to keep every card visible simultaneously
 only while a log is open. All other ADR 0063 contracts remain binding.
 Implementation and operator acceptance belong to the current
-[shared-log packet](../tasks/adr-0063-task-005-shared-log-frames-and-following.md).
+[shared-log packet](../../tasks/adr-0063-task-005-shared-log-frames-and-following.md).
 
 Amended 2026-09-13 after the operator accepted the initial allocation retest:
 the log header uses a single-line source plus one metadata row. A long service
@@ -35,6 +35,8 @@ and Show Light/Dark XS–XL checks are accepted on 2026-09-13. The shared-log
 packet's V1–V3 visual checks and later configuration-editor disclosure and
 Escape checks and final fixture preservation inspection are accepted. The
 operator confirmed final fixture cleanup on 2026-09-13, closing the packet.
+
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
 
 ## Context
 

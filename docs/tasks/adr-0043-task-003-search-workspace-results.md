@@ -10,7 +10,7 @@ Library/Discover search fields.
 
 ## Files to Inspect
 
-- `docs/adr/0043-top-toolbar-global-search.md`
+- `docs/adr/archive/0043-top-toolbar-global-search.md`
 - `docs/plans/adr-0043-top-toolbar-global-search-phase-plan.md`
 - `src/app.rs`
 - `src/app/keyboard.rs`
@@ -110,7 +110,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0043-top-toolbar-global-search.md`
+- `docs/adr/archive/0043-top-toolbar-global-search.md`
 - `src/app.rs`
 - `src/search/app_impl.rs`
 - `src/library/app_impl.rs`

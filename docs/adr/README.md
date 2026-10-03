@@ -21,11 +21,9 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 
 | ADR | Scope | Status |
 |---|---|---|
-| [0002](0002-rust-cli-with-local-sqlite-state.md) | Rust CLI over local SQLite | Accepted |
 | [0012](0012-root-desktop-crate.md) | One root desktop crate | Accepted |
 | [0016](0016-schema-migration-discipline.md) | New tables and columns go through the migration registry | Accepted |
 | [0028](0028-local-identity-source-fact-persistence.md) | Source links, ids, and contributors persist as source facts. ADR 0075 replaces its replacement key | Implemented |
-| [0052](0052-library-index-data-parity-triage.md) | Triage of Library versus Index detail gaps | Implemented |
 | [0053](0053-local-detail-source-fact-parity.md) | Source-fact route for parity gaps not locally durable | Accepted |
 | [0054](0054-local-metadata-source-fact-persistence.md) | Feed and track metadata facts persist by source; hydration visual checks remain open. ADR 0075 replaces its replacement key | Accepted, partial |
 | [0066](0066-configuration-and-startup-failure-recovery.md) | Core startup requirements; in-app repair and optional-tool retry; [001–003 and 005–013 complete; 004 implemented, operator gate open](../plans/adr-0066-startup-recovery-phase-plan.md) | Accepted |
@@ -83,53 +81,31 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0027](0027-shared-entity-action-state.md) | Typed action state for shared entities | Implemented |
 | [0032](0032-ui-backend-boundary-and-popover-contracts.md) | UI and backend boundary, popover contracts | Implemented |
 | [0033](0033-hig-ui-architecture-governance.md) | HIG structural governance for UI work | Implemented |
-| [0034](0034-scale-aware-ui-tokens-and-controls.md) | Scale-aware tokens and controls | Implemented |
-| [0038](0038-presentation-contract-enforcement.md) | Presentation contracts enforced by guards | Implemented |
 | [0042](0042-layer-consolidation.md) | Primitive versus composite versus shell | Implemented |
 | [0046](0046-workspace-frame-architecture.md) | Workspace frames, history, and chrome | Implemented |
 | [0047](0047-library-search-unification.md) | One content surface for library and index rows | Implemented |
-| [0048](0048-content-list-frame-breadcrumb-search.md) | Search is a toolbar command. Amended by ADR 0060 | Implemented |
-| [0050](0050-post-adr-0048-module-decomposition.md) | Module decomposition after ADR 0048 | Implemented |
-| [0055](0055-search-view-model-module-decomposition.md) | Search view-model decomposition. Module review, focused tests and guard recorded on 2026-09-18. | Implemented |
 | [0060](0060-workflow-surface-structure.md) | Music, Show and Settings structure is delivered. Independent audition remains unfinished under proposed ADR 0068. | Accepted |
 | [0062](0062-music-content-surface.md) | Five Music packets are complete. The default Index order returns releases. Broader mixed-row search/expansion still needs an evidence review. | Accepted |
 | [0063](0063-show-dashboard-layout.md) | Show cards and diagnostics; [shared log frames and following](../tasks/adr-0063-task-005-shared-log-frames-and-following.md) complete with operator acceptance, preservation and cleanup | Implemented |
 | [0064](0064-local-file-addressing.md) | Downloaded files live under music_dir and store a relative path | Accepted |
-| [0065](0065-payment-route-tag-repair.md) | A tag repair is gated on the file, not on feed staleness. ADR 0076 amends it: files take the stored route | Accepted |
-| [0067](0067-platform-shortcut-modifiers.md) | Ctrl app shortcuts on Linux; Command and native Hide actions on macOS | Implemented |
 | [0069](0069-grouped-settings-and-selective-presets.md) | Grouped Settings, live metadata resource selection, independent audio configuration and selective preset snapshots. Task 001 is complete. [Task 002 is Ready](../tasks/adr-0069-task-002-shared-guarded-editor.md). Implementation of task 002 has not started. | Accepted |
-| [0070](0070-show-log-space-priority.md) | Open Show logs take height before scrolling cards; sidebar actions remain reachable; ADR 0063 task 005 implementation, acceptance and cleanup complete | Implemented |
 | [0074](0074-repair-and-diagnostics-pages.md) | Separate repair/diagnostics pages, action columns, report views and consistent text. Visual and preservation gates accepted; task 013 cleanup confirmed | Implemented |
-| [0073](0073-show-card-overflow-scrolling.md) | Show cards scroll when space is insufficient, with logs closed or open; visual check, preservation and cleanup complete in task 007 | Implemented |
-| [0071](0071-shared-text-selection-and-linux-primary.md) | Shared Unicode word/line selection and Linux primary paste; [task 001 complete with available X11 checks, preservation and cleanup](../tasks/adr-0071-task-001-shared-text-selection.md); IME/Wayland untested | Implemented |
-| [0072](0072-pinned-gpui-base-selection-corrections.md) | Commit-pinned gpui-base correction for final-glyph and grapheme selection; mechanical and focused X11 checks, preservation and cleanup complete in ADR 0071 task 001 | Implemented |
 
 ## UI Presentation
 
 | ADR | Scope | Status |
 |---|---|---|
-| [0003](0003-musicindex-search-ui-module.md) | MusicIndex search UI module | Accepted |
-| [0009](0009-search-thumbnail-cache-and-batch-tagging.md) | Thumbnail cache and feed batch tagging | Accepted |
-| [0013](0013-shared-discover-track-row.md) | Shared track row module | Accepted |
 | [0030](0030-discovery-library-ui-fixes.md) | Current Music/Settings scroll check survives earlier surface fixes | Accepted, partial |
 | [0031](0031-release-detail-presentation-contract.md) | Release detail composition | Implemented |
 | [0035](0035-track-surface-consolidation.md) | One track detail surface | Implemented |
-| [0036](0036-feed-visual-and-provenance-surface-consistency.md) | Feed visual and provenance consistency | Implemented |
 | [0037](0037-same-entity-surface-parity.md) | Same-entity surface parity. Feed task 001 is complete, including both themes and cleanup. Track task 002 retains its visual gate. | Accepted, partial |
-| [0039](0039-dynamic-type-ramp.md) | The app uses separate type and chrome curves, five existing steps and a shared reservation. [All three packets are complete](../plans/adr-0039-dynamic-type-ramp-phase-plan.md). The review records V1–V13, inferred preservation and confirmed fixture removal. | Implemented |
-| [0043](0043-top-toolbar-global-search.md) | Global toolbar search. Normal/narrow Light/Dark checks and fixture cleanup accepted on 2026-09-18. | Implemented |
-| [0044](0044-playlist-drag-handle-reordering.md) | Playlist drag handle reordering. Light/Dark interaction, removal, immediate row updates and fixture cleanup accepted on 2026-09-19. | Implemented |
 | [0049](0049-inspector-source-ownership.md) | Inspector source tree and filter ownership | Implemented |
-| [0051](0051-workspace-pane-width-persistence.md) | Content pane width persistence | Implemented |
 
 ## Review Candidates
 
 ADR 0060 replaced the Discover surface with Music. Legacy module records
-0003 and 0013 still need a separate supersede-or-keep judgment. That deferred
-record cleanup does not require restoring their old screens:
-
-- 0003, MusicIndex search UI module
-- 0013, Shared track row module
+0003 and 0013 are decided: Superseded by ADR 0060, archived 2026-10-03. This
+record cleanup does not put back their earlier screens.
 
 The [2026-09-10 reconciliation](../reviews/2026-09-10-governance-reconciliation.md)
 retired replaced requirements before restoring current human checks:

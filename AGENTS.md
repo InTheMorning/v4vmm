@@ -135,12 +135,12 @@ owner and fixes the tag round-trip defect. The [phase plan](docs/plans/adr-0080-
 registers two packets. [Packet 001](docs/tasks/adr-0080-task-001-rss-frames-and-idempotent-writes.md) is implemented on 2026-09-29.
 Its mechanical checks are Green. Its visual gate is open and paused. [Packet 002](docs/tasks/adr-0080-task-002-musicbrainz-url-relations-by-type.md) is implemented on 2026-09-29, with its visual gate open and paused. [Packet 003](docs/tasks/adr-0080-task-003-vorbis-date-shares-one-key.md) settles the shared FLAC date key. It is complete on 2026-10-03, including operator acceptance.
 An MP4 file has the same date defect, and no packet owns it yet.
-[Packet 004](docs/tasks/adr-0080-task-004-old-itunes-frames-and-safe-tag-writes.md) converts old iTunes v2.2 frames and writes tags through a staged copy. It is implemented on 2026-10-03, with its operator check open.
+[Packet 004](docs/tasks/adr-0080-task-004-old-itunes-frames-and-safe-tag-writes.md) converts old iTunes v2.2 frames and writes tags through a staged copy. It is complete on 2026-10-03, including operator acceptance.
 [ADR 0056](docs/adr/0056-remote-media-fetch-validation-boundary.md) is amended on 2026-10-03: a download does not check the declared enclosure length.
 [Its task 005](docs/tasks/adr-0056-task-005-remove-enclosure-length-check.md) removed the check on 2026-10-03, with mechanical checks Green and no visual gate.
 [ADR 0066 task 014](docs/tasks/adr-0066-task-014-download-failures-and-dismissal.md) classifies download failures and dismisses retained actions. It is implemented on 2026-10-03, with its visual gate open.
 ADR 0076 is amended on 2026-10-03 with Decision 10: a download writes the stored values. [Its packet 009](docs/tasks/adr-0076-task-009-download-writes-stored-values.md) is implemented on 2026-10-03, with its operator check open.
-[Packet 010](docs/tasks/adr-0076-task-010-scan-compares-descriptions-as-readable-text.md) makes the scan compare descriptions as readable text. It is implemented on 2026-10-03, with its operator check open.
+[Packet 010](docs/tasks/adr-0076-task-010-scan-compares-descriptions-as-readable-text.md) makes the scan compare descriptions as readable text. It is complete on 2026-10-03, including operator acceptance.
 
 [ADR 0076](docs/adr/0076-playlist-rss-check-for-stale-musicindex-records.md) is Accepted on
 2026-09-24, after the operator reviewed each decision. It replaces the per-field source
@@ -274,7 +274,7 @@ remains a regression check.
 [Task 007: Optional tool correction and retry](docs/tasks/adr-0066-task-007-optional-tool-correction-and-retry.md)
 is complete on 2026-09-16 with mechanical checks Green, operator V1–V3 and
 preservation accepted. The narrow Library and
-[ADR 0073 Show card overflow](docs/adr/0073-show-card-overflow-scrolling.md)
+[ADR 0073 Show card overflow](docs/adr/archive/0073-show-card-overflow-scrolling.md)
 follow-ups are accepted, including preservation and cleanup. V2/V3 cleanup is
 confirmed; no earlier startup fixtures remain in the checked temporary
 directories. ADR 0073 is Implemented. The
@@ -359,7 +359,7 @@ The delivery order also schedules remaining narrow Show layout,
 external UTC timestamp corrections, and steady-state work.
 When a real show is scheduled, publisher show-log task 001 takes priority.
 
-[ADR 0039: Dynamic type ramp](docs/adr/0039-dynamic-type-ramp.md) is Implemented
+[ADR 0039: Dynamic type ramp](docs/adr/archive/0039-dynamic-type-ramp.md) is Implemented
 on 2026-09-18. All three packets in the
 [phase plan](docs/plans/adr-0039-dynamic-type-ramp-phase-plan.md) are complete.
 Mechanical checks are Green. The app uses the ratified type curves.

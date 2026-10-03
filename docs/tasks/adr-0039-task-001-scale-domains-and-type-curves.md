@@ -7,7 +7,7 @@ This packet has no visual gate.
 Task 003 introduced the ratified type curves
 and resolved review finding R2. Its review records thirteen visual passes,
 inferred preservation and confirmed fixture removal.
-[ADR 0039](../adr/0039-dynamic-type-ramp.md) is Implemented.
+[ADR 0039](../adr/archive/0039-dynamic-type-ramp.md) is Implemented.
 
 ## Goal
 
@@ -20,7 +20,7 @@ can change its numbers in one place without touching this seam again.
 ## Files To Inspect
 
 - `AGENTS.md`, `.github/copilot-instructions.md`, `docs/adr/README.md`.
-- `docs/adr/0039-dynamic-type-ramp.md`,
+- `docs/adr/archive/0039-dynamic-type-ramp.md`,
   `docs/plans/adr-0039-dynamic-type-ramp-phase-plan.md`,
   `docs/plans/broadcast-chain-delivery-order.md`.
 - `src/ui/tokens.rs`, `src/config.rs`, `src/app/settings.rs`,
@@ -28,7 +28,7 @@ can change its numbers in one place without touching this seam again.
 - All geometry consumers named in the following section, plus
   `src/ui/primitives/label.rs`, `src/ui/primitives/multiline_text.rs`,
   `src/ui/primitives/button.rs`, `tests/architecture_tests.rs`.
-- `docs/adr/0034-scale-aware-ui-tokens-and-controls.md`,
+- `docs/adr/archive/0034-scale-aware-ui-tokens-and-controls.md`,
   `docs/adr/0063-show-dashboard-layout.md`,
   `docs/troubleshooting/column-text-truncation.md`.
 
@@ -161,7 +161,7 @@ Implement only this task. Do not redesign the architecture.
 
 Read:
 - This packet's Files To Inspect and Files Likely To Change.
-- `docs/adr/0039-dynamic-type-ramp.md` and its phase plan.
+- `docs/adr/archive/0039-dynamic-type-ramp.md` and its phase plan.
 
 Goal:
 - Deliver live type/chrome resolution, both bit-identical to today's uniform

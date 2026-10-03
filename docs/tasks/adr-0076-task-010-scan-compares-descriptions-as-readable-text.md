@@ -1,6 +1,6 @@
 # ADR 0076 Task 010: The Scan Compares Descriptions As Readable Text
 
-Status: Implemented - 2026-10-03. Mechanical checks Green. Its operator check is open.
+Status: Complete - 2026-10-03. Mechanical checks Green. The operator passed V1 on the real Library on 2026-10-03.
 
 ## Goal
 

@@ -1,6 +1,6 @@
 # ADR 0080 Task 004: Old iTunes Frames And Safe Tag Writes
 
-Status: Implemented - 2026-10-03. Mechanical checks Green. Its operator check is open.
+Status: Complete - 2026-10-03. Mechanical checks Green. The operator passed V1 on the real Library on 2026-10-03.
 
 ## Goal
 

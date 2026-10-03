@@ -5,6 +5,8 @@
 Implemented - 2026-05-02. Verified by
 `docs/reviews/adr-0034-review-checklist.md` (readiness `Proceed`, no open gates).
 
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
+
 ## Context
 
 The app has a persisted `ui_scale` setting and a token system with

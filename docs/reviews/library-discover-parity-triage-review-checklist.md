@@ -2,7 +2,7 @@
 
 ## Reviewed Artifacts
 
-- `docs/adr/0052-library-index-data-parity-triage.md`
+- `docs/adr/archive/0052-library-index-data-parity-triage.md`
 - `docs/plans/library-discover-parity-triage-plan.md`
 - `docs/tasks/library-discover-parity-triage-task-001-album-detail.md`
 - `docs/tasks/library-discover-parity-triage-task-002-track-detail.md`

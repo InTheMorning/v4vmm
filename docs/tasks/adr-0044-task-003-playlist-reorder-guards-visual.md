@@ -35,7 +35,7 @@ visual pass and does not erase the earlier incident evidence.
 
 ## Owners And Constraints
 
-- [ADR 0044](../adr/0044-playlist-drag-handle-reordering.md) owns the surviving contract.
+- [ADR 0044](../adr/archive/0044-playlist-drag-handle-reordering.md) owns the surviving contract.
 - The review checklist names the current shared owners and existing guards.
 - ADRs 0047/0048/0060 own shared Music surfaces and frame navigation.
 - An agent must not run the app. A person performs the checks below.

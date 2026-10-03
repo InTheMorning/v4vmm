@@ -18,14 +18,14 @@ monospace typography, and per-source following now precede ADR 0066 task 007.
 bounded change and records its completed acceptance. Earlier dashboard and task 017
 acceptance remain closed for their shipped scope.
 
-Amended 2026-09-13: [ADR 0070](0070-show-log-space-priority.md) supersedes the
+Amended 2026-09-13: [ADR 0070](archive/0070-show-log-space-priority.md) supersedes the
 simultaneous card-visibility requirement while a log is open, at the operator's
 request during task 005. It gives logs priority over a scrolling card viewport
 while retaining the sidebar's space and actions. Task 005 owns the retest.
 The XL narrow-width follow-up keeps shared footers to one row, using ADR 0070's
 compact state/action presentation and full hover descriptions where needed.
 
-Reconciled 2026-09-16: [ADR 0073](0073-show-card-overflow-scrolling.md) supersedes
+Reconciled 2026-09-16: [ADR 0073](archive/0073-show-card-overflow-scrolling.md) supersedes
 the remaining prohibition on card scrolling with logs closed. ADR 0066 task 007
 records that completed overflow correction, including preservation and cleanup;
 the completed dashboard and shared-log packets stay closed.
@@ -280,7 +280,7 @@ live show.
 
 ### Card Viewport Reachability
 
-[ADR 0073](0073-show-card-overflow-scrolling.md) owns bounded card scrolling
+[ADR 0073](archive/0073-show-card-overflow-scrolling.md) owns bounded card scrolling
 with logs closed or open. ADR 0070 retains log-height priority. The panel
 scrolls its own content independently.
 

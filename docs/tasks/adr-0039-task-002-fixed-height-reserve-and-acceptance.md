@@ -30,7 +30,7 @@ Relative text-to-box pressure rises at both ends of the scale.
 ## Files To Inspect
 
 - `AGENTS.md`, `.github/copilot-instructions.md`, `docs/adr/README.md`.
-- `docs/adr/0039-dynamic-type-ramp.md`, its phase plan, task 001 and review
+- `docs/adr/archive/0039-dynamic-type-ramp.md`, its phase plan, task 001 and review
   checklist; `docs/plans/broadcast-chain-delivery-order.md`.
 - `docs/adr/0063-show-dashboard-layout.md`,
   `docs/troubleshooting/column-text-truncation.md`.

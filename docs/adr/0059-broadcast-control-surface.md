@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted - 2026-09-24. Implemented on 2026-09-10 before the ADR 0076 amendment. The amendment is not implemented.
+Accepted - 2026-09-24. Implemented on 2026-09-10 before the ADR 0076 amendment. ADR 0076 packet 003 implemented the amendment on 2026-09-24.
 
 Amended 2026-09-24 by [ADR 0076](0076-playlist-rss-check-for-stale-musicindex-records.md) Decisions 7 and 9.
 A playlist track is not ready for a show when its file payment route differs from the stored route.

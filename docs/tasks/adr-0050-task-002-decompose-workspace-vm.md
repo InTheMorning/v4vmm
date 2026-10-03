@@ -11,7 +11,7 @@ same via `mod.rs` re-exports.
 
 - `src/view_models/workspace.rs` (full read)
 - `src/view_models/mod.rs` (re-export pattern)
-- `docs/adr/0050-post-adr-0048-module-decomposition.md`
+- `docs/adr/archive/0050-post-adr-0048-module-decomposition.md`
 - `docs/plans/adr-0050-module-decomposition-phase-plan.md`
 - `tests/architecture_tests.rs` (guards pinning `view_models/workspace.rs`)
 - Callers: `src/app.rs`, `src/library/app_impl.rs`, `src/ui/shells/workspace.rs`,
@@ -135,7 +135,7 @@ You are implementing one bounded refactor task from a larger plan.
 Implement only this task. Behavior-preserving file move only.
 
 Read:
-- `docs/adr/0050-post-adr-0048-module-decomposition.md`
+- `docs/adr/archive/0050-post-adr-0048-module-decomposition.md`
 - `docs/plans/adr-0050-module-decomposition-phase-plan.md`
 - `src/view_models/workspace.rs` in full
 - `tests/architecture_tests.rs`

@@ -26,7 +26,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0036-feed-visual-and-provenance-surface-consistency.md`
+- `docs/adr/archive/0036-feed-visual-and-provenance-surface-consistency.md`
 - `docs/plans/adr-0036-feed-visual-and-provenance-consistency-phase-plan.md`
 - `docs/tasks/adr-0036-task-002-visual-system-enforcement.md`
 - `src/ui/tokens.rs`

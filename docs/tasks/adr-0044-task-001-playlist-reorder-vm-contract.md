@@ -10,7 +10,7 @@ this task unless required to keep compilation green.
 
 ## Files to Inspect
 
-- `docs/adr/0044-playlist-drag-handle-reordering.md`
+- `docs/adr/archive/0044-playlist-drag-handle-reordering.md`
 - `docs/plans/adr-0044-playlist-drag-handle-reordering-phase-plan.md`
 - `src/view_models/library.rs`
 - `src/ui/shells/playlist.rs`
@@ -93,7 +93,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0044-playlist-drag-handle-reordering.md`
+- `docs/adr/archive/0044-playlist-drag-handle-reordering.md`
 - `docs/plans/adr-0044-playlist-drag-handle-reordering-phase-plan.md`
 - `src/view_models/library.rs`
 - `tests/architecture_tests.rs`

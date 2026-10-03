@@ -3,7 +3,7 @@
 Status: Draft - 2026-09-15. Two native failures reproduced; candidate correction
 verified in isolated 0.6.1 sources and the publication workspace. Prepared for a
 future upstream PR. The operator published the correction in their fork; the
-app now pins it under [ADR 0072](../adr/0072-pinned-gpui-base-selection-corrections.md).
+app now pins it under [ADR 0072](../adr/archive/0072-pinned-gpui-base-selection-corrections.md).
 No upstream issue or PR has been submitted. All focused X11 correction checks
 are accepted on 2026-09-15; IME composition and Wayland remain untested.
 [ADR 0071 task 001](../tasks/adr-0071-task-001-shared-text-selection.md)

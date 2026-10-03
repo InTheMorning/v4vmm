@@ -9,7 +9,7 @@ the narrow-window limitation.
 
 Scope reconciled 2026-09-13: the operator requested that open logs take space
 before cards while sidebar Logs actions remain reachable.
-[ADR 0070](../adr/0070-show-log-space-priority.md) accepts a scrolling card
+[ADR 0070](../adr/archive/0070-show-log-space-priority.md) accepts a scrolling card
 viewport and log-height priority as a correction within
 [ADR 0063 task 005](../tasks/adr-0063-task-005-shared-log-frames-and-following.md).
 That supersedes this proposal's prohibition on scrolling cards with an open log.

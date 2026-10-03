@@ -7,7 +7,7 @@ primitives are scale-aware.
 
 ## Files to Inspect
 
-- `docs/adr/0034-scale-aware-ui-tokens-and-controls.md`
+- `docs/adr/archive/0034-scale-aware-ui-tokens-and-controls.md`
 - `docs/plans/adr-0034-scale-aware-ui-tokens-phase-plan.md`
 - `src/ui/composites/playlist_popover.rs`
 - `src/ui/primitives/popover.rs`
@@ -73,7 +73,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0034-scale-aware-ui-tokens-and-controls.md`
+- `docs/adr/archive/0034-scale-aware-ui-tokens-and-controls.md`
 - `docs/plans/adr-0034-scale-aware-ui-tokens-phase-plan.md`
 - `docs/tasks/adr-0034-task-002-scale-playlist-popover-layout.md`
 - `src/ui/composites/playlist_popover.rs`

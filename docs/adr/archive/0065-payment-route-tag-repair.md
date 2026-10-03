@@ -2,21 +2,23 @@
 
 ## Status
 
-Accepted - 2026-09-24. Implemented on 2026-09-10 before the ADR 0076 amendment. The amendment is not implemented.
+Accepted - 2026-09-24. Implemented on 2026-09-10 before the ADR 0076 amendment. ADR 0076 packet 003 implemented the amendment on 2026-09-24.
 
-Amended 2026-09-24 by [ADR 0076](0076-playlist-rss-check-for-stale-musicindex-records.md) Decision 9.
+Amended 2026-09-24 by [ADR 0076](../0076-playlist-rss-check-for-stale-musicindex-records.md) Decision 9.
 Each write of a payment route to a file uses the route stored in the database.
 The repair asks MusicIndex only when the database has no route for that track. It never replaces a route that the RSS check set.
 
 Reconciled 2026-09-10: the operator confirmed Show action feedback task 001 tested
 and passed, closing the final feed-result readability gate. Tag-repair
-[task 001](../tasks/adr-0065-task-001-tag-repair-service.md) and
-[task 002](../tasks/adr-0065-task-002-readiness-list-actions.md) were already complete.
+[task 001](../../tasks/adr-0065-task-001-tag-repair-service.md) and
+[task 002](../../tasks/adr-0065-task-002-readiness-list-actions.md) were already complete.
 
 Amended 2026-09-10: the expanded feed-check counts now have their own result row.
 `adr_0065_feed_check_result_has_its_own_full_width_row` guards placement without
-changing count wording. [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md#operator-visual-check)
+changing count wording. [Show action feedback task 001](../../tasks/show-action-feedback-task-001-command-state-and-result.md#operator-visual-check)
 records the passed readability check.
+
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
 
 ## Context
 

@@ -9,7 +9,7 @@ Actions menu fallback commands in the playlist shell.
 
 ## Files to Inspect
 
-- `docs/adr/0044-playlist-drag-handle-reordering.md`
+- `docs/adr/archive/0044-playlist-drag-handle-reordering.md`
 - `docs/tasks/adr-0044-task-001-playlist-reorder-vm-contract.md`
 - `src/ui/shells/playlist.rs`
 - `src/ui/shells/library/playlist_detail.rs`
@@ -101,7 +101,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0044-playlist-drag-handle-reordering.md`
+- `docs/adr/archive/0044-playlist-drag-handle-reordering.md`
 - `src/ui/shells/playlist.rs`
 - `src/ui/shells/library/playlist_detail.rs`
 - `src/ui/primitives/context_menu.rs`

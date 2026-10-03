@@ -19,7 +19,7 @@ submit.
 
 Current source of truth:
 
-- `docs/adr/0048-content-list-frame-breadcrumb-search.md`
+- `docs/adr/archive/0048-content-list-frame-breadcrumb-search.md`
 - `docs/plans/search-in-library-frame-plan.md`
 - `tests/architecture_tests.rs::global_search_routes_to_content_list`
 - `tests/architecture_tests.rs::adr_0048_forbids_secondary_search_frame_path`

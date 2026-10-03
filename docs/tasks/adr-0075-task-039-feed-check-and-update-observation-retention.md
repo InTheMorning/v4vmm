@@ -18,7 +18,7 @@ This packet preserves earlier feed receipts through that existing repair command
 ## Authority And Dependencies
 
 - [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md), separate provider evidence and preservation before projection.
-- [ADR 0065](../adr/0065-payment-route-tag-repair.md), the authorized combined check, update, and route-repair workflow.
+- [ADR 0065](../adr/archive/0065-payment-route-tag-repair.md), the authorized combined check, update, and route-repair workflow.
 - [Phase plan](../plans/adr-0075-metadata-contract-phase-plan.md#packet-register), caller assignments and dependencies.
 - [Packet 013](adr-0075-task-013-verified-snapshot-replacement.md), completed RSS completeness registry, replacement, and typed reads.
 - [Packet 014](adr-0075-task-014-provider-observation-retention.md), the shared recorder, writer, receipts, and storage capsules.

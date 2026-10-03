@@ -54,7 +54,7 @@ Current governance:
   The [first packet](tasks/adr-0075-task-001-contributor-claim-transport.md) is Ready and held.
   Implementation has not started. Visual checks are paused, with existing gates open.
 
-- [ADR 0039: Dynamic type ramp](adr/0039-dynamic-type-ramp.md): Implemented on
+- [ADR 0039: Dynamic type ramp](adr/archive/0039-dynamic-type-ramp.md): Implemented on
   2026-09-18. All three packets are complete. The operator passed thirteen
   visual checks and confirmed fixture removal. The agent inferred preservation
   from the conditional cleanup command. The review records the evidence limits.
@@ -66,7 +66,7 @@ Current governance:
   Task 013 final preservation inspections passed and fixture cleanup is confirmed.
   ADR 0074 is Implemented.
 
-- [ADR 0071: Shared text selection](adr/0071-shared-text-selection-and-linux-primary.md):
+- [ADR 0071: Shared text selection](adr/archive/0071-shared-text-selection-and-linux-primary.md):
   shared Unicode word/line policy and Linux primary paste;
   [task 001](tasks/adr-0071-task-001-shared-text-selection.md) complete with
   [operator correction checks](runbooks/text-selection-check.md) accepted on X11;
@@ -74,10 +74,10 @@ Current governance:
   untested coverage limits. Two
   [upstream selection defects](reviews/adr-0071-gpui-base-emoji-selection.md)
   are documented with regression tests and a fix for a future PR;
-  [ADR 0072](adr/0072-pinned-gpui-base-selection-corrections.md) authorizes the
+  [ADR 0072](adr/archive/0072-pinned-gpui-base-selection-corrections.md) authorizes the
   narrow fork, now published, pinned and accepted by the focused X11 checks
 
-- [ADR 0067: Platform shortcut modifiers](adr/0067-platform-shortcut-modifiers.md):
+- [ADR 0067: Platform shortcut modifiers](adr/archive/0067-platform-shortcut-modifiers.md):
   implemented standard Ctrl shortcuts on Linux; [accepted implementation and checks](tasks/adr-0067-task-001-platform-shortcuts.md)
 - [ADR 0031: Release detail presentation contract](adr/0031-release-detail-presentation-contract.md):
   Library and Discovery release detail composition
@@ -87,11 +87,11 @@ Current governance:
   frame ownership, history, chrome, and workspace layout model
 - [ADR 0047: Library and search unification](adr/0047-library-search-unification.md):
   shared content surface and inspector across Library and Search origins
-- [ADR 0048: ContentList frame breadcrumb search](adr/0048-content-list-frame-breadcrumb-search.md):
+- [ADR 0048: ContentList frame breadcrumb search](adr/archive/0048-content-list-frame-breadcrumb-search.md):
   toolbar search result surface in ContentList with breadcrumb navigation
 - [ADR 0049: Inspector source ownership](adr/0049-inspector-source-ownership.md):
   source tree, inspector filter, remote drill-down, and same-view mutation ownership
-- [ADR 0052: Library / Index data parity triage](adr/0052-library-index-data-parity-triage.md):
+- [ADR 0052: Library / Index data parity triage](adr/archive/0052-library-index-data-parity-triage.md):
   triage for Library versus live Index detail fields
 - [ADR 0053: Local detail source-fact parity](adr/0053-local-detail-source-fact-parity.md):
   source-fact route for parity gaps that are not locally durable yet
@@ -133,7 +133,7 @@ Current plans:
   and fixture cleanup confirmed; task 007 complete with mechanical checks Green,
   V1–V3 and preservation accepted, and no remaining startup fixtures in the
   checked temporary directories; narrow Library and
-  [Show card overflow](adr/0073-show-card-overflow-scrolling.md) follow-ups accepted,
+  [Show card overflow](adr/archive/0073-show-card-overflow-scrolling.md) follow-ups accepted,
   including preservation and cleanup; task 008 complete on 2026-09-17 with
   operator acceptance, preservation and cleanup; task 009 complete on 2026-09-17
   with operator V1–V3, presentation, configuration restoration, preservation

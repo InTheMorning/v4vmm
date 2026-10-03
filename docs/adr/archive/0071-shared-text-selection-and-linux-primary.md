@@ -4,7 +4,7 @@
 
 Implemented - 2026-09-15. Implementation, mechanical verification, available
 X11 operator checks, preservation and cleanup are complete in
-[task 001](../tasks/adr-0071-task-001-shared-text-selection.md). IME composition
+[task 001](../../tasks/adr-0071-task-001-shared-text-selection.md). IME composition
 and Wayland remain untested coverage limits.
 ADR 0063 task 005 and ADR 0069 task 001 remain complete.
 
@@ -15,6 +15,8 @@ below remain binding; the fork is pinned.
 
 Updated 2026-09-15: recorded completion after native correction acceptance,
 final preservation and confirmed cleanup.
+
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
 
 ## Context
 
@@ -87,13 +89,13 @@ the editor's Escape focus transfer retain their existing owners.
 
 The pre-release GPUI channel requires deliberate dependency updates. The isolated
 migration check records the actual API changes and toolchain requirement in the
-[task packet](../tasks/adr-0071-task-001-shared-text-selection.md).
+[task packet](../../tasks/adr-0071-task-001-shared-text-selection.md).
 The narrow gpui-base fork exception and its removal criteria are owned by
 [ADR 0072](0072-pinned-gpui-base-selection-corrections.md).
 
 Mechanical tests cover selection projection, exact copying, append/replacement,
 Unicode and paths, independent buffers, normalization, Change events and undo.
 Situational guards preserve shared wiring and the accepted Escape path.
-The separate [operator check](../runbooks/text-selection-check.md) covers native
+The separate [operator check](../../runbooks/text-selection-check.md) covers native
 X11/Wayland cross-application delivery, highlights, focus, editor layout, undo
 and Escape. Green mechanical checks do not close that gate.

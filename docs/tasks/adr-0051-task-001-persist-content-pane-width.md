@@ -8,7 +8,7 @@ pane bounds.
 
 ## Files To Inspect
 
-- `docs/adr/0051-workspace-pane-width-persistence.md`
+- `docs/adr/archive/0051-workspace-pane-width-persistence.md`
 - `docs/plans/adr-0051-workspace-pane-width-persistence-phase-plan.md`
 - `src/config.rs`
 - `src/app.rs`
@@ -88,7 +88,7 @@ You are implementing one bounded task from ADR 0051.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0051-workspace-pane-width-persistence.md`
+- `docs/adr/archive/0051-workspace-pane-width-persistence.md`
 - `docs/plans/adr-0051-workspace-pane-width-persistence-phase-plan.md`
 - `src/config.rs`
 - `src/app.rs`

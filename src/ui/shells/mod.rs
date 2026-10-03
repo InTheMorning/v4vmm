@@ -16,7 +16,7 @@
 //! reference their owning screen module (`crate::library::LibraryApp`)
 //! because they are owned by that screen.
 //!
-//! See `docs/adr/0038-presentation-contract-enforcement.md` for the layer
+//! See `docs/adr/archive/0038-presentation-contract-enforcement.md` for the layer
 //! architecture invariant.
 
 #![warn(clippy::pedantic)]

@@ -14,7 +14,7 @@ this chrome.
 
 - `docs/adr/0046-workspace-frame-architecture.md`
 - `docs/adr/0033-hig-ui-architecture-governance.md`
-- `docs/adr/0038-presentation-contract-enforcement.md`
+- `docs/adr/archive/0038-presentation-contract-enforcement.md`
 - `docs/tasks/adr-0046-task-005-frame-shell-display-vm.md`
 - `src/view_models/workspace.rs`
 - `src/ui/composites.rs`

@@ -21,7 +21,7 @@ After this task, `src/app.rs` shrinks to ~1,800-2,000 LOC and holds only
 - `src/app/mod.rs` (if present) and existing submodules:
   `bootstrap.rs`, `events.rs`, `keyboard.rs`, `menu.rs`, `playback_bar.rs`,
   `queue_now_playing.rs`, `tab_bar.rs`
-- `docs/adr/0050-post-adr-0048-module-decomposition.md`
+- `docs/adr/archive/0050-post-adr-0048-module-decomposition.md`
 - `docs/plans/adr-0050-module-decomposition-phase-plan.md`
 - `tests/architecture_tests.rs` (for guards that pin `src/app.rs`)
 
@@ -118,7 +118,7 @@ Implement only this task. Do not change behavior, do not change APIs, do not
 touch unrelated code.
 
 Read:
-- `docs/adr/0050-post-adr-0048-module-decomposition.md`
+- `docs/adr/archive/0050-post-adr-0048-module-decomposition.md`
 - `docs/plans/adr-0050-module-decomposition-phase-plan.md`
 - `src/app.rs` in full
 - `src/app/mod.rs` (and existing submodules under `src/app/`) to match the

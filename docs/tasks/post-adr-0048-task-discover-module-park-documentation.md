@@ -30,7 +30,7 @@ After this task:
 - `src/lib.rs` (confirm `mod discover;` registration)
 - `tests/architecture_tests.rs`
 - `docs/reviews/adr-0047-0048-0049-implementation-review.md` (P1 finding)
-- `docs/adr/0048-content-list-frame-breadcrumb-search.md` (mentions
+- `docs/adr/archive/0048-content-list-frame-breadcrumb-search.md` (mentions
   "Discover module temporarily dead UI")
 
 ## Files Likely To Change

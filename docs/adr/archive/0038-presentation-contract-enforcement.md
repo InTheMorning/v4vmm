@@ -10,6 +10,8 @@ Supersedes `docs/plans/one-owner-per-surface-plan.md` and
 historical artifacts; their invariants and surface inventory are absorbed into
 this ADR and its phase plan.
 
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
+
 ## Context
 
 ADR 0023 through ADR 0037 produced the design-system layers (tokens,
@@ -231,7 +233,7 @@ as historical context.
   6. `docs/tasks/adr-0038-task-006-page-vm-generalization.md`
   7. `docs/tasks/adr-0038-task-007-screen-decomposition.md`
   8. `docs/tasks/adr-0038-task-008-final-sweep-and-readiness-gate.md`
-- Child ADR `docs/adr/0039-dynamic-type-ramp.md` covers dynamic-type
+- Child ADR `docs/adr/archive/0039-dynamic-type-ramp.md` covers dynamic-type
   policy (text scale ramps, max scale, truncation rules) after Task 005.
 - ADR 0040 (Async View-Model Runtime) introduces `AsyncCommandRunner`
   as the canonical screen-side dispatch path; `GpuiCommandRunner`

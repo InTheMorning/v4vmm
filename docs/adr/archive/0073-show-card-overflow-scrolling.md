@@ -7,7 +7,7 @@ Implemented - 2026-09-16.
 The operator requested this correction during ADR 0066 task 007 acceptance,
 after accepting the narrow Library and bounded recovery-notice corrections.
 Implementation and the focused visual gate belong to
-[task 007](../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md).
+[task 007](../../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md).
 The shared-viewport correction and mechanical checks are complete. The operator
 accepted the focused Show visual check: all cards remain reachable with logs
 closed and open, the transport stays fixed, and the requested theme/scale checks
@@ -22,6 +22,8 @@ card grid and ADR 0070's restriction of that scrolling to an open log.
 ADR 0070 still owns log-height priority. The completed shared-log packet stays
 closed; compact cards, full-width log docking and transport visibility remain
 separate scheduled work.
+
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
 
 ## Context
 
@@ -54,7 +56,7 @@ introduces no configuration field, service command or playback behavior.
   viewport bounds and the independent transport allocation.
 - Existing ADR 0070 view-model and architecture checks retain log priority,
   measured geometry and sidebar independence.
-- The [operator procedure](../runbooks/startup-recovery-check.md#show-card-overflow-follow-up--adr-0073)
+- The [operator procedure](../../runbooks/startup-recovery-check.md#show-card-overflow-follow-up--adr-0073)
   checks all three cards with logs closed, open and closed again, recovery
   issues present, short/narrow windows, both themes and larger scale. Visual
   acceptance, fixture preservation and confirmed cleanup are recorded in task 007.

@@ -2,7 +2,7 @@
 
 ## Reviewed Artifacts
 
-- `docs/adr/0038-presentation-contract-enforcement.md`
+- `docs/adr/archive/0038-presentation-contract-enforcement.md`
 - `docs/plans/adr-0038-presentation-contract-enforcement-phase-plan.md`
 - `docs/tasks/adr-0038-task-001-layer-relocation.md`
 - `docs/tasks/adr-0038-task-002-composite-display-contract-audit.md`

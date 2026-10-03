@@ -5,6 +5,8 @@
 Implemented - 2026-05-02. Verified by
 `docs/reviews/adr-0036-review-checklist.md`: Tasks 001-003 complete.
 
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
+
 ## Context
 
 ADR 0035 consolidated track detail and row presentation, but normal feed

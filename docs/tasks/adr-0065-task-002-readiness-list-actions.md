@@ -15,7 +15,7 @@ state from reading as a control.
 
 ## Files To Inspect
 
-- `docs/adr/0065-payment-route-tag-repair.md`
+- `docs/adr/archive/0065-payment-route-tag-repair.md`
 - `docs/tasks/adr-0065-task-001-tag-repair-service.md`
 - `src/view_models/library.rs`, `from_broadcast_readiness_track` and
   `state_label`
@@ -154,7 +154,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0065-payment-route-tag-repair.md`
+- `docs/adr/archive/0065-payment-route-tag-repair.md`
 - `docs/tasks/adr-0065-task-001-tag-repair-service.md`
 - `src/view_models/library.rs`, `from_broadcast_readiness_track`
 

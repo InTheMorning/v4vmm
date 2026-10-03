@@ -54,7 +54,7 @@ shared configuration editor gains explicit Close editor and Reopen editor
 disclosure. Its bounded implementation and visual checks belong to that packet;
 task 006's accepted repair behavior remains closed.
 
-Amended 2026-09-10: [ADR 0067](0067-platform-shortcut-modifiers.md) changes Linux
+Amended 2026-09-10: [ADR 0067](archive/0067-platform-shortcut-modifiers.md) changes Linux
 shortcuts to Ctrl at the operator's request. Task 003's keyboard checks
 use those bindings; its runtime-rejection requirement and recorded passes remain.
 

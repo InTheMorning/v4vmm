@@ -8,9 +8,9 @@ Amended 2026-09-18. The operator specified both scale domains, five steps,
 wrapping rules, the reservation and visual checks. The operator then ratified
 the numeric decision below.
 
-The [phase plan](../plans/adr-0039-dynamic-type-ramp-phase-plan.md) defines three
+The [phase plan](../../plans/adr-0039-dynamic-type-ramp-phase-plan.md) defines three
 packets after recovery task 013. The
-[delivery order](../plans/broadcast-chain-delivery-order.md#current-delivery-order)
+[delivery order](../../plans/broadcast-chain-delivery-order.md#current-delivery-order)
 places them before Settings follow-through and relay adoption. All three packets are complete.
 
 - Task 001 introduced separate type and chrome resolvers. Both initially
@@ -25,13 +25,15 @@ Amended 2026-09-18 after operator acceptance. The operator passed all thirteen
 visual checks and confirmed fixture removal.
 The agent inferred preservation and preference restoration from the conditional cleanup command.
 The conversation does not contain the original inspection JSON.
-The [review checklist](../reviews/adr-0039-review-checklist.md#operator-visual-check--task-003)
+The [review checklist](../../reviews/adr-0039-review-checklist.md#operator-visual-check--task-003)
 records each observation, source hash, viewport report and evidence limit.
 No ADR 0039 operator gate remains open.
 
 Reconciled 2026-09-10: the operator retained this proposal without scheduling
 it. The text-scaling requirement has not been withdrawn; age is not a reason
 to archive it. A defined policy must precede a phase plan and task packets.
+
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
 
 ## Context
 
@@ -119,7 +121,7 @@ ratified ones.
 
 The operator ratified the per-role curve on 2026-09-18. These are the decided
 values, and
-[task 003](../tasks/adr-0039-task-003-type-curve-ratification.md) landed them
+[task 003](../../tasks/adr-0039-task-003-type-curve-ratification.md) landed them
 in the live type resolver.
 
 The downward half is anchored. Title retains the former uniform factor of 0.85 at x-small.
@@ -211,7 +213,7 @@ means deterministic geometry for a scale and row variant, not equal pixel
 height across the five existing chrome steps. Do not introduce content-driven
 row heights or alter pagination, drag placement or list-height assumptions.
 
-[ADR 0063](0063-show-dashboard-layout.md#decision) continues to own the column
+[ADR 0063](../0063-show-dashboard-layout.md#decision) continues to own the column
 rule: use `overflow_hidden()` for stacked column text; do not add `truncate()`
 there. Its existing situational guard stays with ADR 0063, unchanged.
 
@@ -304,7 +306,7 @@ Verified against the code, ahead of task 001:
   ListRow, TrackRow, queue, playlist and content_list rows have minimum heights or no height limit.
   The capacity check for capped surfaces does not apply to those rows.
   No capacity conflict requires escalation to this ADR. Full figures are recorded in the
-  [review checklist](../reviews/adr-0039-review-checklist.md#task-002-implementation-step-1-evidence--2026-09-18).
+  [review checklist](../../reviews/adr-0039-review-checklist.md#task-002-implementation-step-1-evidence--2026-09-18).
 - Reservation enforcement, 2026-09-18: task 002's reservation is a debug
   assertion (`ShowCard::render`,
   `Button::debug_assert_label_reservation_fits`) plus source-grep
@@ -364,9 +366,9 @@ Light and Dark, for twelve type cells, plus a thirteenth for ShowCard.
    user-visible single-line fix. It is scale-independent, so one observation
    closes it.
 
-The [operator procedure](../runbooks/dynamic-type-ramp-check.md) records all
+The [operator procedure](../../runbooks/dynamic-type-ramp-check.md) records all
 thirteen cells, medium reference observations, failure conditions and cleanup.
-[Task 003](../tasks/adr-0039-task-003-type-curve-ratification.md) owns this gate.
+[Task 003](../../tasks/adr-0039-task-003-type-curve-ratification.md) owns this gate.
 It ratifies and introduces the per-role values, producing the first type-size change.
 Task 001 has no visual gate. Task 002 has no separate visual gate.
 Task 002 checks its reservation and ShowCard fix mechanically while type values remain uniform.
@@ -424,19 +426,19 @@ Checks at both extremes remain necessary because text and chrome scale different
 ## Follow-Up Work
 
 1. Policy definition: complete on 2026-09-18, including downward scaling.
-2. [Task 001](../tasks/adr-0039-task-001-scale-domains-and-type-curves.md):
+2. [Task 001](../../tasks/adr-0039-task-001-scale-domains-and-type-curves.md):
    complete on 2026-09-18 (`3b40ec1`). Both live resolvers shipped at identity.
    No visual gate.
-3. [Task 002](../tasks/adr-0039-task-002-fixed-height-reserve-and-acceptance.md):
+3. [Task 002](../../tasks/adr-0039-task-002-fixed-height-reserve-and-acceptance.md):
    complete on 2026-09-18 with mechanical checks Green — the reservation
    criterion, its guards, and ShowCard's single-line fix. No visual gate of
    its own. Its reservation is a debug assertion today, not a live layout
    constraint. Task 003 retained that mechanism. Possible live enforcement
    remains a separate design question in the phase plan.
-4. [Task 003](../tasks/adr-0039-task-003-type-curve-ratification.md): numeric
+4. [Task 003](../../tasks/adr-0039-task-003-type-curve-ratification.md): numeric
    decision ratified and the per-role curves landed on 2026-09-18, with
    mechanical checks Green. V1–V13, preservation and cleanup are accepted.
    The packet is complete.
 5. Acceptance evidence is recorded in the
-   [review checklist](../reviews/adr-0039-review-checklist.md). ADR, packets,
+   [review checklist](../../reviews/adr-0039-review-checklist.md). ADR, packets,
    delivery order and pending-human index are reconciled.

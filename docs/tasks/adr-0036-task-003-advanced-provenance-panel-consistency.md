@@ -25,7 +25,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0036-feed-visual-and-provenance-surface-consistency.md`
+- `docs/adr/archive/0036-feed-visual-and-provenance-surface-consistency.md`
 - `docs/plans/adr-0036-feed-visual-and-provenance-consistency-phase-plan.md`
 - `docs/tasks/adr-0036-task-003-advanced-provenance-panel-consistency.md`
 - `src/library.rs`

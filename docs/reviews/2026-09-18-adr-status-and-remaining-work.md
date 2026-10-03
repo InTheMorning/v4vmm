@@ -219,7 +219,7 @@ links in the changed files or incoming links to their anchors.
 | v4vmm | [AGENTS.md](../../AGENTS.md) |
 | v4vmm | [docs/README.md](../README.md) |
 | v4vmm | [docs/adr/0025-theme-icon-style-boundary.md](../adr/0025-theme-icon-style-boundary.md) |
-| v4vmm | [docs/adr/0055-search-view-model-module-decomposition.md](../adr/0055-search-view-model-module-decomposition.md) |
+| v4vmm | [docs/adr/archive/0055-search-view-model-module-decomposition.md](../adr/archive/0055-search-view-model-module-decomposition.md) |
 | v4vmm | [docs/adr/0060-workflow-surface-structure.md](../adr/0060-workflow-surface-structure.md) |
 | v4vmm | [docs/adr/0062-music-content-surface.md](../adr/0062-music-content-surface.md) |
 | v4vmm | [docs/adr/0068-show-cue-and-audition-isolation.md](../adr/0068-show-cue-and-audition-isolation.md) |

@@ -10,7 +10,7 @@ This task implements only the first loading-shape slice from
 
 ## Files To Inspect
 
-- `docs/adr/0052-library-index-data-parity-triage.md`
+- `docs/adr/archive/0052-library-index-data-parity-triage.md`
 - `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md`
 - `docs/reviews/library-discover-parity-triage-album.md`
 - `src/db.rs`

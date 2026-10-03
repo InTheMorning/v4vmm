@@ -28,7 +28,7 @@ Read first:
 
 - `docs/plans/post-adr-0048-recent-feeds-route-plan.md` (this task's
   parent plan; *Decision*, *Invariants*, *Non-Goals*).
-- `docs/adr/0048-content-list-frame-breadcrumb-search.md` (governing ADR).
+- `docs/adr/archive/0048-content-list-frame-breadcrumb-search.md` (governing ADR).
 - `src/view_models/workspace/nav.rs` — `FrameNavigationEntry` enum and
   `display_label`.
 - `src/view_models/workspace/breadcrumb.rs` — breadcrumb derivation from
@@ -322,7 +322,7 @@ Read:
 
 - This task file in full.
 - `docs/plans/post-adr-0048-recent-feeds-route-plan.md`.
-- `docs/adr/0048-content-list-frame-breadcrumb-search.md` (Invariants
+- `docs/adr/archive/0048-content-list-frame-breadcrumb-search.md` (Invariants
   section).
 - Every file in *Files To Inspect*.
 

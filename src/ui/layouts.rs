@@ -96,7 +96,7 @@ pub(crate) const OVERLAY_SCROLLBAR_WIDTH: Pixels = gpui_base::Scrollbar::width()
 //   drifting every reservation.
 // - `reservation_endpoints`, `reservation_ceiling_factor` and
 //   `reservation_line_box` use the endpoints ratified in ADR 0039 task 003.
-//   The decision date is 2026-09-18. See docs/adr/0039-dynamic-type-ramp.md.
+//   The decision date is 2026-09-18. See docs/adr/archive/0039-dynamic-type-ramp.md.
 //   Task 003 reduced the proposed downward endpoints and retained the upward endpoints.
 //   These helpers calculate reservation bounds. They do not resolve rendered font sizes.
 //   `FontSize::type_multiplier` in src/ui/tokens.rs maintains the same values separately.
@@ -142,7 +142,7 @@ const fn reservation_endpoints(role: FontSize) -> (f32, f32) {
 }
 
 /// ADR 0039 sizing ceiling: the ratified interpolation factor at `scale` for
-/// `role` (docs/adr/0039-dynamic-type-ramp.md, ratified 2026-09-18), reusing
+/// `role` (docs/adr/archive/0039-dynamic-type-ramp.md, ratified 2026-09-18), reusing
 /// `ScaleFactor::chrome_multiplier`'s value as the step coordinate `c`. Below
 /// medium: small uses 8/15 of the downward change, x-small the full `d`
 /// endpoint. Above medium: large uses 12/25 of the upward change, x-large the

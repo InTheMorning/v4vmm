@@ -7,7 +7,7 @@ without making dense app surfaces worse.
 
 ## Files to Inspect
 
-- `docs/adr/0034-scale-aware-ui-tokens-and-controls.md`
+- `docs/adr/archive/0034-scale-aware-ui-tokens-and-controls.md`
 - `docs/plans/adr-0034-scale-aware-ui-tokens-phase-plan.md`
 - `docs/reviews/adr-0034-review-checklist.md`
 - Changed files from Tasks 001-003
@@ -61,7 +61,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0034-scale-aware-ui-tokens-and-controls.md`
+- `docs/adr/archive/0034-scale-aware-ui-tokens-and-controls.md`
 - `docs/plans/adr-0034-scale-aware-ui-tokens-phase-plan.md`
 - `docs/tasks/adr-0034-task-004-visual-smoke-and-readiness-gate.md`
 - `docs/reviews/adr-0034-review-checklist.md`

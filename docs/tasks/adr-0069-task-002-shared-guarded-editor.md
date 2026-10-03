@@ -33,9 +33,9 @@ repair, write admission and resource checks. No configuration format changes her
 - `docs/runbooks/startup-recovery-check.md`, `docs/runbooks/settings-foundation-check.md`
 - `docs/troubleshooting/column-text-truncation.md`
 - `docs/adr/0033-hig-ui-architecture-governance.md`
-- `docs/adr/0039-dynamic-type-ramp.md`
-- `docs/adr/0067-platform-shortcut-modifiers.md`
-- `docs/adr/0071-shared-text-selection-and-linux-primary.md`
+- `docs/adr/archive/0039-dynamic-type-ramp.md`
+- `docs/adr/archive/0067-platform-shortcut-modifiers.md`
+- `docs/adr/archive/0071-shared-text-selection-and-linux-primary.md`
 - `docs/adr/0074-repair-and-diagnostics-pages.md`
 
 ## Current Owners And Gaps

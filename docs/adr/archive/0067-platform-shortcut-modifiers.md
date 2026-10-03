@@ -4,7 +4,7 @@
 
 Implemented - 2026-09-11.
 
-[Task 001](../tasks/adr-0067-task-001-platform-shortcuts.md) records mechanical
+[Task 001](../../tasks/adr-0067-task-001-platform-shortcuts.md) records mechanical
 verification, operator acceptance, preservation inspection and fixture cleanup.
 Amended 2026-09-11: completion is verified after the operator confirmed initial
 and section-transition focus, standard editing, command rejection and clean Quit.
@@ -14,6 +14,8 @@ repeated attempts. The normal app must focus its persistent selected tab at
 mount and section changes, so commands have an app dispatch path before any click
 and after a previously focused input leaves the screen. The implementation's
 missing focus path is established; a startup stall has not been established.
+
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
 
 ## Context
 
@@ -74,7 +76,7 @@ Linux operators can use the app without changing window-manager bindings.
 Existing Linux muscle memory for Super shortcuts changes. macOS conventions
 remain intact; cross-platform keymap tests cover both mappings.
 
-[Task 001](../tasks/adr-0067-task-001-platform-shortcuts.md) owns implementation,
+[Task 001](../../tasks/adr-0067-task-001-platform-shortcuts.md) owns implementation,
 keymap tests, architecture guards and the operator check. It interrupts the
 delivery sequence only to resolve the observed ADR 0066 task 003 keyboard gate.
 All accepted startup, repair, preservation and layout checks stay accepted.

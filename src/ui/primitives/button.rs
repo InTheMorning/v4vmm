@@ -335,7 +335,7 @@ impl Button {
             self.description.is_some()
                 || layout::button_label_reservation(font_role, ScaleFactor::current(cx))
                     <= layout::available_inner_height(self.height(cx), px(0.0), border_width),
-            "ADR 0039 (docs/adr/0039-dynamic-type-ramp.md#wrapping-and-fixed-height-reservation): \
+            "ADR 0039 (docs/adr/archive/0039-dynamic-type-ramp.md#wrapping-and-fixed-height-reservation): \
              Button {:?} label at {font_role:?} cannot fit inside its fixed height at this scale \
              step. Fix: report the measured mismatch to ADR 0039; do not shrink the font or grow \
              chrome to pass this check.",

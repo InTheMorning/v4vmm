@@ -2,6 +2,8 @@
 
 ## Status
 
+Superseded by ADR 0060 - 2026-10-03. The search module and binary no longer exist. ADR 0060 replaced the surface.
+
 Accepted - 2026-04-11.
 
 ## Context

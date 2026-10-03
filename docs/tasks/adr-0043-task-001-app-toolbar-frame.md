@@ -10,7 +10,7 @@ Status: Implemented - 2026-05-11.
 
 ## Files to Inspect
 
-- `docs/adr/0043-top-toolbar-global-search.md`
+- `docs/adr/archive/0043-top-toolbar-global-search.md`
 - `docs/plans/adr-0043-top-toolbar-global-search-phase-plan.md`
 - `src/app.rs`
 - `src/app/tab_bar.rs`
@@ -97,7 +97,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `docs/adr/0043-top-toolbar-global-search.md`
+- `docs/adr/archive/0043-top-toolbar-global-search.md`
 - `docs/plans/adr-0043-top-toolbar-global-search-phase-plan.md`
 - `src/app.rs`
 - `src/app/tab_bar.rs`

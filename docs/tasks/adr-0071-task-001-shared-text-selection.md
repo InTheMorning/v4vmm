@@ -4,7 +4,7 @@ Status: Complete - 2026-09-15; migration and pinned ADR 0072 correction verified
 
 ## Goal And Owners
 
-Implement [ADR 0071](../adr/0071-shared-text-selection-and-linux-primary.md)
+Implement [ADR 0071](../adr/archive/0071-shared-text-selection-and-linux-primary.md)
 for HIG product polish backlog item 11 in one bounded packet.
 
 - Published gpui-component and gpui-kit-assets 0.6.1; gpui-pre and
@@ -26,7 +26,7 @@ for HIG product polish backlog item 11 in one bounded packet.
   builds; application code retains ordinary debug compilation and assertions.
 
 The app has no vendor tree or local selection crate. Its only Cargo patch is
-the gpui-base correction from [ADR 0072](../adr/0072-pinned-gpui-base-selection-corrections.md),
+the gpui-base correction from [ADR 0072](../adr/archive/0072-pinned-gpui-base-selection-corrections.md),
 pinned to `5463fe4e72fd740b0db08da92003488b32661867` in
 [InTheMorning/gpui-kit](https://github.com/InTheMorning/gpui-kit). The dependency
 guard checks this exact source and the remaining published pins.

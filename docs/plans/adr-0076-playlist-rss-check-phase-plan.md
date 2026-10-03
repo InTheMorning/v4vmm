@@ -22,7 +22,7 @@ Dispatch the packets in this sequence. Each one needs the packets before it.
 | [007](../tasks/adr-0076-task-007-guard-reads-test-files-as-test-code.md) | The guard helper reads a test-only file as test code | ADR 0076 Decision 9 guard | None | None | Implemented 2026-09-30. Mechanical checks Green. No visual gate |
 | [008](../tasks/adr-0076-task-008-confirmation-list-with-many-items.md) | Each confirmation item keeps its height when the list is taller than its column. The operator found an empty "Update 34 files" popup on 2026-10-03 | ADR 0076 Decision 8 | None | None | Implemented 2026-10-03. Mechanical checks Green. Visual gate open |
 | [009](../tasks/adr-0076-task-009-download-writes-stored-values.md) | A download writes the stored values after the RSS update, and the RSS check keeps both copies of the channel link equal | ADR 0076 Decision 10 | ADR 0066 task 014 | None | Implemented 2026-10-03. Mechanical checks Green. Operator check open |
-| [010](../tasks/adr-0076-task-010-scan-compares-descriptions-as-readable-text.md) | The scan compares description frames by readable text | ADR 0075 description rule, ADR 0076 Decisions 3 and 8 | 009 | None | Implemented 2026-10-03. Mechanical checks Green. Operator check open |
+| [010](../tasks/adr-0076-task-010-scan-compares-descriptions-as-readable-text.md) | The scan compares description frames by readable text | ADR 0075 description rule, ADR 0076 Decisions 3 and 8 | 009 | None | Complete 2026-10-03. Operator V1 passed |
 
 Packet 020 keeps its ADR 0075 number. ADR 0076 reduced it to a projection with no source selection.
 

@@ -2,7 +2,7 @@
 
 ## Reviewed Artifacts
 
-- `docs/adr/0034-scale-aware-ui-tokens-and-controls.md`
+- `docs/adr/archive/0034-scale-aware-ui-tokens-and-controls.md`
 - `docs/plans/adr-0034-scale-aware-ui-tokens-phase-plan.md`
 - `docs/tasks/adr-0034-task-001-scale-shared-primitives.md`
 - `docs/tasks/adr-0034-task-002-scale-playlist-popover-layout.md`

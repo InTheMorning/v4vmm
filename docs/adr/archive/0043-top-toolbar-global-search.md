@@ -6,15 +6,17 @@ Implemented - 2026-09-18.
 
 Status updated - 2026-09-18. The operator accepted normal/narrow checks in Light
 and Dark and confirmed fixture cleanup.
-[Task 004](../tasks/adr-0043-task-004-guards-and-visual-readiness.md) is complete.
-The [review checklist](../reviews/adr-0043-review-checklist.md#operator-batches--2026-09-18)
+[Task 004](../../tasks/adr-0043-task-004-guards-and-visual-readiness.md) is complete.
+The [review checklist](../../reviews/adr-0043-review-checklist.md#operator-batches--2026-09-18)
 records each result. No gate under this ADR remains open.
 
 Amended 2026-09-10: reconciled this record with ADRs 0046, 0047, 0048, 0060,
 and 0062. Retired the toolbar player, global scope controls, Search workspace,
 and separate Recent Feeds requirements. The
-[review checklist](../reviews/adr-0043-review-checklist.md) names each
+[review checklist](../../reviews/adr-0043-review-checklist.md) names each
 replacement and the surviving gate. That amendment claimed no visual acceptance.
+
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
 
 ## Context
 

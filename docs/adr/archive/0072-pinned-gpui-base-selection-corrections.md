@@ -4,7 +4,7 @@
 
 Implemented - 2026-09-15. Fork publication, dependency integration, mechanical
 verification, focused X11 checks, preservation and cleanup are complete in
-[ADR 0071 task 001](../tasks/adr-0071-task-001-shared-text-selection.md).
+[ADR 0071 task 001](../../tasks/adr-0071-task-001-shared-text-selection.md).
 This decision replaces only ADR 0071's published-gpui-base restriction and
 PRIMARY-only fork fallback. Its shared ownership and acceptance requirements
 remain binding. No upstream issue or PR submission is authorized.
@@ -13,12 +13,14 @@ Updated 2026-09-15: recorded completion after native correction acceptance,
 final preservation and confirmed cleanup. IME composition and Wayland remain
 untested coverage limits.
 
+Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-triage-2026-10-03.md)).
+
 ## Context
 
 The operator reproduced two editable-input failures on X11: double-clicking
 the final `👩‍💻` selects nothing; adding a following period produces a highlight
 whose PRIMARY payload is only `👩`. The
-[upstream preparation record](../reviews/adr-0071-gpui-base-emoji-selection.md)
+[upstream preparation record](../../reviews/adr-0071-gpui-base-emoji-selection.md)
 preserves exact reproductions, causes, tested patches and verification limits.
 The errors belong to gpui-base's pointer resolution and word boundaries.
 
@@ -67,7 +69,7 @@ strict Clippy to be Green.
 Native X11 acceptance covers both emoji cases, exact PRIMARY and Copy,
 replacement/Undo/Redo, the accepted Escape path, Settings paths and log
 boundaries/read-only behavior. IME composition and Wayland remain untested.
-The [operator procedure](../runbooks/text-selection-check.md) remains the
+The [operator procedure](../../runbooks/text-selection-check.md) remains the
 regression check. Both accepted fixtures and the temporary source/scratch
 artifacts were removed; future runs require fresh fixtures. Existing log-packet
 acceptance remains closed.

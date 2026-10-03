@@ -6,7 +6,7 @@ Complete - 2026-05-17.
 
 ## Inputs Reviewed
 
-- `docs/adr/0052-library-index-data-parity-triage.md`
+- `docs/adr/archive/0052-library-index-data-parity-triage.md`
 - `docs/plans/library-discover-parity-triage-plan.md`
 - `docs/reviews/library-discover-parity-triage-album.md`
 - `docs/reviews/library-discover-parity-triage-track.md`

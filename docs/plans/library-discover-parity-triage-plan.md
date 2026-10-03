@@ -4,7 +4,7 @@
 
 Completed - 2026-05-17. Reports and synthesis landed.
 
-Governing ADR: `docs/adr/0052-library-index-data-parity-triage.md`.
+Governing ADR: `docs/adr/archive/0052-library-index-data-parity-triage.md`.
 Review checklist:
 `docs/reviews/library-discover-parity-triage-review-checklist.md`.
 Synthesis:

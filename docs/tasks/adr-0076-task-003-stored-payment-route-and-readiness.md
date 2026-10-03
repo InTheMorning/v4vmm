@@ -11,7 +11,7 @@ Report a track as not ready when its file route differs from the stored route. R
 ## Authority
 
 - [ADR 0076](../adr/0076-playlist-rss-check-for-stale-musicindex-records.md) Decisions 7 and 9.
-- [ADR 0065](../adr/0065-payment-route-tag-repair.md), amended on 2026-09-24: the repair uses the stored route.
+- [ADR 0065](../adr/archive/0065-payment-route-tag-repair.md), amended on 2026-09-24: the repair uses the stored route.
 - [ADR 0059](../adr/0059-broadcast-control-surface.md), amended on 2026-09-24: the two new not-ready conditions.
 - [ADR 0004](../adr/0004-format-neutral-audio-tag-boundary.md) and [ADR 0008](../adr/0008-explicit-id3v24-write-boundary.md): the tag write boundary.
 - [ADR 0016](../adr/0016-schema-migration-discipline.md): the new columns go through the migration registry.

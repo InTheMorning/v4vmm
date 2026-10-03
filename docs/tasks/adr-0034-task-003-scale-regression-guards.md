@@ -8,7 +8,7 @@ unscaled token `.px()` usage for user-facing dimensions.
 ## Files to Inspect
 
 - `docs/adr/0033-hig-ui-architecture-governance.md`
-- `docs/adr/0034-scale-aware-ui-tokens-and-controls.md`
+- `docs/adr/archive/0034-scale-aware-ui-tokens-and-controls.md`
 - `docs/plans/adr-0034-scale-aware-ui-tokens-phase-plan.md`
 - `tests/architecture_tests.rs`
 - `src/ui/tokens.rs`
@@ -19,7 +19,7 @@ unscaled token `.px()` usage for user-facing dimensions.
 
 - `tests/architecture_tests.rs`
 - `docs/adr/0033-hig-ui-architecture-governance.md`
-- `docs/adr/0034-scale-aware-ui-tokens-and-controls.md`
+- `docs/adr/archive/0034-scale-aware-ui-tokens-and-controls.md`
 - `docs/reviews/adr-0034-review-checklist.md`
 
 ## Do Not Touch
@@ -72,7 +72,7 @@ Implement only this task. Do not redesign the architecture.
 
 Read:
 - `docs/adr/0033-hig-ui-architecture-governance.md`
-- `docs/adr/0034-scale-aware-ui-tokens-and-controls.md`
+- `docs/adr/archive/0034-scale-aware-ui-tokens-and-controls.md`
 - `docs/plans/adr-0034-scale-aware-ui-tokens-phase-plan.md`
 - `docs/tasks/adr-0034-task-003-scale-regression-guards.md`
 - `tests/architecture_tests.rs`

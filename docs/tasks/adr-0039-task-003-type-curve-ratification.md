@@ -19,7 +19,7 @@ Tasks 001/002 retain uniform type values. Task 002's ShowCard correction receive
 ## Files To Inspect
 
 - `AGENTS.md`, `.github/copilot-instructions.md`, `docs/adr/README.md`.
-- `docs/adr/0039-dynamic-type-ramp.md`,
+- `docs/adr/archive/0039-dynamic-type-ramp.md`,
   `docs/plans/adr-0039-dynamic-type-ramp-phase-plan.md`, task 001, task 002,
   `docs/plans/broadcast-chain-delivery-order.md`.
 - `src/ui/tokens.rs`: the per-role type resolver task 001 shaped at identity.
@@ -30,7 +30,7 @@ Tasks 001/002 retain uniform type values. Task 002's ShowCard correction receive
   `src/ui/shells/queue_now_playing.rs`: task 002's single-line fix must stay
   intact under real non-medium type.
 - `src/ui/composites/track_detail_surface.rs`, `src/ui/composites/playlist_popover.rs`.
-- `docs/adr/0034-scale-aware-ui-tokens-and-controls.md`,
+- `docs/adr/archive/0034-scale-aware-ui-tokens-and-controls.md`,
   `docs/adr/0063-show-dashboard-layout.md`,
   `docs/troubleshooting/column-text-truncation.md`.
 - `tests/architecture_tests.rs`, `docs/runbooks/dynamic-type-ramp-check.md`,
@@ -38,7 +38,7 @@ Tasks 001/002 retain uniform type values. Task 002's ShowCard correction receive
 
 ## Files Likely To Change
 
-- `docs/adr/0039-dynamic-type-ramp.md`: record the operator's final numeric
+- `docs/adr/archive/0039-dynamic-type-ramp.md`: record the operator's final numeric
   decision, with date, covering upward endpoints, downward endpoints and
   intermediate-step interpolation. This packet, the phase plan, review
   checklist, delivery order and pending-human index: status/evidence only.
@@ -210,7 +210,7 @@ Implement only this task. Do not redesign the architecture.
 
 Read:
 - This packet's Files To Inspect and Files Likely To Change.
-- `docs/adr/0039-dynamic-type-ramp.md`, its phase plan, task 001 and task 002.
+- `docs/adr/archive/0039-dynamic-type-ramp.md`, its phase plan, task 001 and task 002.
 
 Goal:
 - Ratify the numeric proposal, land it in the live type resolver, and walk

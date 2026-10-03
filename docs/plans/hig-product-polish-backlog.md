@@ -148,7 +148,7 @@ Cross-repository UTC corrections remain in the
 
 #### A13 - Narrow Show Layout Leaves No Visible Log Body
 
-Partially addressed - 2026-09-13. [ADR 0070](../adr/0070-show-log-space-priority.md)
+Partially addressed - 2026-09-13. [ADR 0070](../adr/archive/0070-show-log-space-priority.md)
 and the completed shared-log packet give open logs space before a scrolling
 card viewport while preserving sidebar actions. The operator accepted narrow
 log readability, compact headers/footers, theme/scale checks and fixture cleanup.
@@ -217,7 +217,7 @@ Acceptance direction:
 
 #### 10. Keyboard Shortcut Coverage
 
-Partly resolved by [ADR 0067](../adr/0067-platform-shortcut-modifiers.md),
+Partly resolved by [ADR 0067](../adr/archive/0067-platform-shortcut-modifiers.md),
 Implemented on 2026-09-11. Its packet records acceptance of the platform
 modifier, existing command bindings and focus behavior.
 Do not repeat that packet. Add shortcuts for future workflows only when those
@@ -242,7 +242,7 @@ Acceptance direction:
 #### 11. Linux Text Selection and Primary Paste
 
 Requested behavior across shared logs, Settings, toolbar search and the
-configuration editor is owned by [ADR 0071](../adr/0071-shared-text-selection-and-linux-primary.md)
+configuration editor is owned by [ADR 0071](../adr/archive/0071-shared-text-selection-and-linux-primary.md)
 and [task 001](../tasks/adr-0071-task-001-shared-text-selection.md), started in
 a fresh session on 2026-09-13. Double-click selects a Unicode word; triple-click
 selects a logical line or the full single-line value. Selection publishes Linux
@@ -254,7 +254,7 @@ and both owners use gpui-base 0.6.1 boundaries with shared PRIMARY integration.
 The packet owns focused Unicode/path/undo/cross-application/Escape checks.
 Complete on 2026-09-15. Mechanical checks are Green; available X11 operator
 checks, preservation and cleanup are accepted, including the commit-pinned
-[ADR 0072 correction](../adr/0072-pinned-gpui-base-selection-corrections.md).
+[ADR 0072 correction](../adr/archive/0072-pinned-gpui-base-selection-corrections.md).
 IME composition and Wayland remain untested coverage limits. The
 [operator procedure](../runbooks/text-selection-check.md) remains a regression
 check. ADR 0063 task 005 and ADR 0069 task 001 remain closed.

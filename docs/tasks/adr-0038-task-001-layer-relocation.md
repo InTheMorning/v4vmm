@@ -16,7 +16,7 @@ plan and unlocks every downstream phase.
 
 ## Files To Inspect
 
-- `docs/adr/0038-presentation-contract-enforcement.md`
+- `docs/adr/archive/0038-presentation-contract-enforcement.md`
 - `docs/plans/adr-0038-presentation-contract-enforcement-phase-plan.md`
 - `src/lib.rs`
 - `src/ui/mod.rs`
@@ -98,7 +98,7 @@ Create `src/ui/shells/mod.rs`:
 //! * Resolve all dimensions through `.scaled(cx)` and all colors
 //!   through `SemanticColor`.
 //!
-//! See `docs/adr/0038-presentation-contract-enforcement.md` for the
+//! See `docs/adr/archive/0038-presentation-contract-enforcement.md` for the
 //! layer architecture invariant.
 
 #![warn(clippy::pedantic)]
@@ -283,7 +283,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign architecture.
 
 Read:
-- `docs/adr/0038-presentation-contract-enforcement.md`
+- `docs/adr/archive/0038-presentation-contract-enforcement.md`
 - `docs/plans/adr-0038-presentation-contract-enforcement-phase-plan.md`
 - `docs/tasks/adr-0038-task-001-layer-relocation.md`
 - `src/lib.rs`, `src/ui/mod.rs`

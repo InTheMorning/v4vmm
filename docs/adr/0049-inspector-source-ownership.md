@@ -62,6 +62,9 @@ Content ownership is split by surface:
   The detail surface includes a breadcrumb back to the originating search
   result, giving the operator a reversible drill-down path without inventing a
   local Library detail from remote facts.
+
+  Corrected 2026-10-03: ADR 0077 packet 006 replaced `IndexArtistDetail` with
+  `IndexNameMatches`, a search result.
 - **Uncached Index feed/track activation:** activating an uncached Index feed or
   track pushes `IndexFeedDetail` or `IndexTrackDetail` and renders an Index
   detail surface. It must not rely on a Settings-only status string.

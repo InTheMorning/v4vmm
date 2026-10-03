@@ -200,7 +200,7 @@ an index.
 
 ## P3: Stale Cross-References
 
-- `docs/adr/0048-content-list-frame-breadcrumb-search.md:5` read "Implemented in
+- `docs/adr/archive/0048-content-list-frame-breadcrumb-search.md:5` read "Implemented in
   commits TBD". Resolved 2026-08-28: the ADR 0048 architecture guards are the
   durable evidence, and the status now cites them.
 - `docs/plans/deferred-architecture-work-index.md:93` refers to "Deferred item
