@@ -18,7 +18,7 @@ Tasks 001/002 retain uniform type values. Task 002's ShowCard correction receive
 
 ## Files To Inspect
 
-- `AGENTS.md`, `.github/copilot-instructions.md`, `docs/adr/README.md`.
+- `AGENTS.md`, `docs/architecture/source-map.md`, `docs/adr/README.md`.
 - `docs/adr/archive/0039-dynamic-type-ramp.md`,
   `docs/plans/adr-0039-dynamic-type-ramp-phase-plan.md` (a deleted plan, in git history), task 001, task 002,
   `docs/plans/broadcast-chain-delivery-order.md`.

@@ -80,7 +80,7 @@ For the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/views.rs`, `src/feed_service.rs`, `src/metadata_service.rs`, `src/metadata.rs`.
 - `src/db.rs`: `local_metadata_facts`. The packet 002 hold table.
 

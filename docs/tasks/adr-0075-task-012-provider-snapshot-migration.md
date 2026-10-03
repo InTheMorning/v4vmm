@@ -18,7 +18,7 @@ It adds no field policy or provider observation writes.
 
 ## Read First
 
-- [AGENTS.md](../../AGENTS.md) and [source map](../../.github/copilot-instructions.md).
+- [AGENTS.md](../../AGENTS.md) and [source map](../architecture/source-map.md).
 - [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md), [phase plan](../plans/adr-0075-metadata-contract-phase-plan.md), and [packet 011](archive/adr-0075-task-011-provider-snapshot-schema.md).
 - [Storage schema](../schema/adr-0075-provider-snapshot-storage.md), especially migration, preservation, and implementation owners.
 - [ADR 0016](../adr/archive/0016-schema-migration-discipline.md) and [ADR 0066 repair packet](archive/adr-0066-task-013-interrupted-upgrade-repair.md).

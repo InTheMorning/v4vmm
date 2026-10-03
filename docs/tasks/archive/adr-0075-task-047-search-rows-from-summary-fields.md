@@ -1,6 +1,6 @@
 # ADR 0075 Task 047: Search Rows From Summary Fields
 
-Status: Implemented - 2026-09-29. Mechanical checks Green. Visual gate open and paused.
+Status: Complete - 2026-10-03. Mechanical checks Green. The operator passed V1 to V4 in the visual batch of 2026-10-02.
 
 ## Goal
 
@@ -9,10 +9,10 @@ A row sends its detail request when the operator opens it.
 
 ## Authority
 
-- [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md) section 6 and Decision C, and packets 017 and 018: named request profiles and one shared request owner.
-- [ADR 0077](../adr/0077-publisher-feed-artist-binding.md) Decision 6: feed owner text is not an artist.
+- [ADR 0075](../../adr/0075-metadata-ownership-and-completeness.md) section 6 and Decision C, and packets 017 and 018: named request profiles and one shared request owner.
+- [ADR 0077](../../adr/0077-publisher-feed-artist-binding.md) Decision 6: feed owner text is not an artist.
 - MusicIndex API change request change 1, live since 2026-09-23.
-- The durable set in [AGENTS.md](../../AGENTS.md): renderer portability, typed action state, and "Current-view state must update in place".
+- The durable set in [AGENTS.md](../../../AGENTS.md): renderer portability, typed action state, and "Current-view state must update in place".
 
 ## Recorded Facts - 2026-09-29
 
@@ -20,7 +20,7 @@ A row sends its detail request when the operator opens it.
 - A live hit omits each field whose value is null. A feed hit for "Monster" gave no `feed_guid` and no `href`. Its `entity_id` is the feed GUID.
 - `api::SearchResult` decodes only `entity_type`, `entity_id`, `feed_guid` and `quality_score`.
 - `fetch_index_feed_result_rows` and `fetch_index_track_result_rows` in `src/application/queries/search.rs` send one search each, then one detail request for each hit.
-  With `limit=20`, one search sends a maximum of 42 requests. The [request baseline](../notes/adr-0075-request-and-write-baseline.md) records the sequence.
+  With `limit=20`, one search sends a maximum of 42 requests. The [request baseline](../../notes/adr-0075-request-and-write-baseline.md) records the sequence.
 - `index_feed_display` shows the title, `release_artist`, the track count, `publisher_text` and `image_url`. `index_track_display` shows the title, `track_artist`, `release_artist`, `feed_title` and `image_url`.
 - The row keeps the fetched detail. The Index feed and track detail pages read that retained detail (`index_feed_detail` and `index_track_detail` in `src/view_models/search_results/mod.rs`).
 - `api::Client::search` sends `fuzzy=true`. The contract declares only `q`, `type`, `limit` and `cursor`.
@@ -84,7 +84,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/api.rs`: `SearchResult`, `SearchResponse`, `Client::search`.
 - `src/application/queries/search.rs`: `fetch_index_search_result_rows`, `fetch_index_feed_result_rows`, `fetch_index_track_result_rows`, `index_feed_display`, `index_track_display`, the name candidates.
 - `src/application/request_profiles.rs` and the packet 018 shared owner.
@@ -173,8 +173,8 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
-- This packet: `docs/tasks/adr-0075-task-047-search-rows-from-summary-fields.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
+- This packet: `docs/tasks/archive/adr-0075-task-047-search-rows-from-summary-fields.md`
 - ADR 0075 section 6 and Decision C, and the packet 017 and 018 documents
 - Each file in "Files To Inspect"
 
@@ -291,7 +291,7 @@ touched a "Do not touch" file.
   projection is narrowed to the label lookups that still apply. Four new tests cover the new
   `IndexDetailDisplay` constructors.
 - `tests/architecture_tests.rs`: three guards changed, listed in section 6 below.
-- `docs/tasks/adr-0075-task-047-search-rows-from-summary-fields.md`: this packet. The Status
+- `docs/tasks/archive/adr-0075-task-047-search-rows-from-summary-fields.md`: this packet. The Status
   line, this section, and the Operator Visual Check section.
 
 ### 2. Tests Run

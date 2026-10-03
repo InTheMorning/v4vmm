@@ -71,7 +71,7 @@ For the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/runtime/playlist_rss_check.rs`, `src/runtime/tag_update.rs`, `src/view_models/playlist_rss_check.rs`.
 - `src/library/app_impl.rs`: the Confirm dispatch and the removal actions of packet 003.
 - `src/playback.rs` and `src/app.rs`: the session stop. The search download completion in the search app.

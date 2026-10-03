@@ -60,7 +60,7 @@ Serialization of a cleaned DTO is never an original observation.
 Read the authority documents above and these files:
 
 - [AGENTS.md](../../AGENTS.md), current work rules and the visual pause.
-- [Source map](../../.github/copilot-instructions.md).
+- [Source map](../architecture/source-map.md).
 - [Request baseline](../notes/adr-0075-request-and-write-baseline.md), Library request counts and measurement limits.
 - [Collection rules](../schema/adr-0075-collection-completeness-rules.md), presence, ownership, and incomplete responses.
 - [Field inventory](../schema/adr-0075-metadata-field-inventory.md), known collections and scalar fields.

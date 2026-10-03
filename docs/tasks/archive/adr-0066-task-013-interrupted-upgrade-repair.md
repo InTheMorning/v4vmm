@@ -45,7 +45,7 @@ created a listed owner, extend that owner.
 - Documentation: this packet, task 001's handoff, task 012's successor status,
   the operator runbook, review checklist, ADR 0066 and its index, phase plan,
   delivery/deferred indexes, pending-human index, docs index, `AGENTS.md` and
-  `.github/copilot-instructions.md`.
+  `docs/architecture/source-map.md`.
 
 No documentation files or folders were created or moved. Existing root
 `AGENTS.md` remains the workflow owner; other canonical root documents remain

@@ -59,7 +59,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/view_models/workspace/nav.rs`, `chrome.rs`, `tests.rs`.
 - `src/ui/composites/frame_shell.rs`, `src/ui/shells/workspace.rs`.
 - `src/app.rs`, `src/app/breadcrumb.rs`, `src/app/publisher_dispatch.rs`, `src/app/name_match_dispatch.rs`, `src/app/search_dispatch.rs`: the Back path and the page restore functions.
@@ -299,7 +299,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/adr-0046-task-015-forward-navigation.md`
 - ADR 0046 Invariant 2 and ADR 0081 Decision 3
 - Each file in "Files To Inspect"

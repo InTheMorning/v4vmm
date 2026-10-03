@@ -116,7 +116,7 @@ plans to convert the remaining caller families.
 
 ## Files To Inspect
 
-- [Agent rules](../../../AGENTS.md) and the [source map](../../../.github/copilot-instructions.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - [Feed service](../../../src/feed_service.rs), the Library detail fetch, its fallback order,
   and the feed update fetch.
 - [Library queries](../../../src/application/queries/library.rs),

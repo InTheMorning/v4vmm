@@ -91,7 +91,7 @@ The coding model does not edit an ADR or a document other than this packet. The 
 
 ## Files To Inspect
 
-- [Agent rules](../../../AGENTS.md) and the [source map](../../../.github/copilot-instructions.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/api.rs`: `Feed`, `Track`, `track_with_feed_defaults`, and their tests.
 - `src/metadata.rs`: `TrackContext`, the source-text cleaning, and the title fallbacks.
 - `src/subscribe_service.rs`, `src/feed_service.rs`, `src/sources.rs` and `src/views.rs`.
@@ -138,7 +138,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/archive/adr-0075-task-046-remove-undeclared-api-fields.md`
 - Each file in "Files To Inspect"
 

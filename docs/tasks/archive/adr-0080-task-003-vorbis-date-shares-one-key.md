@@ -56,7 +56,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../../AGENTS.md) and the [source map](../../../.github/copilot-instructions.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/application/queries/tag_update.rs`: `changed_frames`, `frame_is_compared`, `TagUpdateFile::edits`, and the `settle` test.
 - `src/audio_tags.rs`: `write_id3v24_edits`, `remove_stale_lofty_keyed_items`, and the ADR 0080 tests.
 - `src/metadata.rs`: `pending_id3_target_key`, `frame_destination_for_format`, `track_metadata_rows`.
@@ -144,7 +144,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/archive/adr-0080-task-003-vorbis-date-shares-one-key.md`
 - ADR 0080 Decision 6
 - Each file in "Files To Inspect"

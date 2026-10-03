@@ -133,7 +133,7 @@ For the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/rss/enrich.rs`: the fetch, the retained document cache, `rss_fetch_registry`.
 - `src/provider_observation/http.rs` and `src/provider_observation/contracts.rs`.
 - `src/db/provider_observations.rs`: `read_request_refresh` and the request slot tables.

@@ -66,7 +66,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/application/conversion_recovery.rs`, `src/application/capability_recovery.rs`, `src/application/materialization.rs`.
 - `src/subscribe_service.rs`: `subscribe_feed_retaining`.
 - `src/view_models/startup/capabilities.rs`, `src/ui/composites/startup_report.rs`, `src/app/capabilities.rs`.
@@ -188,7 +188,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/adr-0066-task-014-download-failures-and-dismissal.md`
 - ADR 0066, and its tasks 007 and 009
 - Each file in "Files To Inspect"

@@ -131,7 +131,7 @@ Use the prefix `adr_0077_publisher_page_` for behavioral tests beside the owning
 
 ## Files To Inspect
 
-- [Agent rules](../../../AGENTS.md) and the [source map](../../../.github/copilot-instructions.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/api.rs`: `PublisherRelationship`, `RoleSource`, `PublisherLinkResolution` and `Feed`.
 - `src/views.rs`: `ArtistRef` and `ArtistView`.
 - `src/sources.rs`: `MetadataSource::fetch_artist`.
@@ -184,7 +184,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/archive/adr-0077-task-003-publisher-page-view-model.md`
 - `docs/adr/0077-publisher-feed-artist-binding.md` and `docs/adr/0078-publisher-page-type-from-stated-role.md`
 - Each file in "Files To Inspect"

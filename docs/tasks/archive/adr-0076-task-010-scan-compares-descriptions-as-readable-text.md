@@ -46,7 +46,7 @@ None. The operator check reads the button count.
 
 ## Files To Inspect
 
-- [Agent rules](../../../AGENTS.md) and the [source map](../../../.github/copilot-instructions.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/application/queries/tag_update.rs`: `values_match`, `changed_frames` and the tests.
 - `src/rss/compare.rs`: `readable_text`, `description_equal`, `TextRepresentation`.
 - `src/metadata.rs`: the description frame labels.
@@ -109,7 +109,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/archive/adr-0076-task-010-scan-compares-descriptions-as-readable-text.md`
 - Each file in "Files To Inspect"
 

@@ -100,7 +100,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - The task 001 document.
 - Each file of "Recorded Facts", `src/subscribe_service.rs`, `src/library_service.rs`, `src/library.rs`.
 - `tests/architecture_tests.rs`: `adr_0060_discover_surface_stays_deleted`, `active_frame_search_dispatch_phase_1_vm_contracts_are_owned_by_view_models`, and each guard that names a deleted item.
@@ -525,7 +525,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/dead-code-removal-task-002-expected-dead-code.md`
 - The task 001 document
 - Each file in "Files To Inspect"

@@ -157,7 +157,7 @@ report staleness to the operator.
 
 ## Files To Inspect
 
-- [Agent rules](../../../AGENTS.md) and the [source map](../../../.github/copilot-instructions.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - [Request profiles](../../../src/application/request_profiles.rs), the ten profiles.
 - [Observation storage](../../../src/db/provider_observations.rs), `request_identity`, `begin`,
   and `read_request_refresh`.

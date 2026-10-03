@@ -105,7 +105,7 @@ ADR 0079: MusicIndex artist subject storage is deleted. Use ArtistRef::LocalArti
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/db.rs`: `MIGRATIONS`, `CURRENT_VERSION`, the schema contracts, and the artist and binding functions.
 - `src/db/upgrades.rs` and `src/db/startup.rs`: the ADR 0066 schema check and upgrade repair.
 - `src/db/provider_observations.rs`: the retention test near line 1390.

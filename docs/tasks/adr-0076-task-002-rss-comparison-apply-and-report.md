@@ -176,7 +176,7 @@ For the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/rss/subscribe.rs`, `src/rss/helpers.rs`, `src/rss/identity.rs`.
 - `src/identity_ingest.rs`: the MusicIndex writers. `src/feed_service.rs`: `apply_feed_updates`.
 - `src/db.rs`: the feed and track setters, `replace_local_metadata_facts`, `MIGRATIONS`.

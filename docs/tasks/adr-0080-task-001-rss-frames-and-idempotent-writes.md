@@ -97,7 +97,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/metadata.rs`: `id3_frame_hint`, `track_metadata_rows`, `source_value_for_metadata_field`, `format_source_value_for_id3v24`, `expand_woar_metadata_rows`, `woar_metadata_urls`, and the URL read near line 831.
 - `src/metadata_service.rs`: `id3_edits_for_track_context` and the R22-06 tests.
 - `src/audio_tags.rs`: `write_id3v24_edits`, `write_mp3_edits`, `write_lofty_edits`, and the frame list.
@@ -433,7 +433,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/adr-0080-task-001-rss-frames-and-idempotent-writes.md`
 - ADR 0080, all decisions
 - Each file in "Files To Inspect"

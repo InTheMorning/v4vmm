@@ -79,7 +79,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/metadata.rs`: `feed_release_pubdate`, `track_release_pubdate`, `musicindex_release_date`, `release_pubdate_from_claims`, `track_metadata_rows`, `source_value_for_metadata_field` and the "Release date", "Release year" and "RSS item pubdate" rows.
 - `src/metadata_service.rs`: `id3_edits_for_track_context` and the fixed edit tests.
 - `src/discover/tests.rs`: the `musicindex_release_date` tests.
@@ -278,7 +278,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/adr-0075-task-049-no-derived-release-date.md`
 - ADR 0075, the date rules and section 4
 - Each file in "Files To Inspect"

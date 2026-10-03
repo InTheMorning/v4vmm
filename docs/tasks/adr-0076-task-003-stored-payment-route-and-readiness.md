@@ -125,7 +125,7 @@ For the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/application/commands/payment_routes.rs`, `src/application/queries/broadcast.rs`.
 - `src/subscribe_service.rs` and `src/subscribe_service/materialization.rs`.
 - `src/feed_service.rs`: `apply_feed_updates`. `src/metadata.rs`: `MUSICINDEX_VALUE_ROUTES_FRAME`, `value_routes_json_is_ready`.

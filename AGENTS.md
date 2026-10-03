@@ -5,7 +5,7 @@ show production. A curator finds music, takes it into a local library, keeps
 that library ready, and uses it to run or record a show.
 
 This file describes the present. It carries no history and no superseded rule.
-`.github/copilot-instructions.md` holds the source map. Read it to find a file.
+The [source map](docs/architecture/source-map.md) lists the owner file of each area. Read it to find a file.
 
 Governance model: ADR 0061.
 

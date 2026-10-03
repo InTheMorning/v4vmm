@@ -59,7 +59,7 @@ None. The operator check reads the button count after a download.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/subscribe_service.rs`, `src/subscribe_service/materialization.rs`.
 - `src/feed_service.rs`: `track_row_to_track_context_with_local_identity`, `hydrate_feed_identity`.
 - `src/metadata_service.rs`: `id3_edits_for_track_context`.
@@ -172,7 +172,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/adr-0076-task-009-download-writes-stored-values.md`
 - ADR 0076 Decisions 8, 9 and 10
 - Each file in "Files To Inspect"

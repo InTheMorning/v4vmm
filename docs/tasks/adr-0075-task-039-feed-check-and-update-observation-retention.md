@@ -35,7 +35,7 @@ The operator requires individual field-policy acceptance. This packet proposes n
 
 Read the authority documents and these owners before editing:
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - [Feed commands](../../src/application/commands/feed.rs), all four converted roots, result types, aggregation, events, and cancellation checks.
 - [Feed service](../../src/feed_service.rs), staleness lookup, explicit updates, observed detail fetch, and RSS merge.
 - [Library callbacks](../../src/library/app_impl.rs), `check_feed_on_view`, `check_all_feeds`, and `apply_all_feed_updates`.

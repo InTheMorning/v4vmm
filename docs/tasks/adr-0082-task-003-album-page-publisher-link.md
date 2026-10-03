@@ -56,7 +56,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/view_models/entity_detail.rs`, `src/views.rs` (`FeedView`), the album page screens under `src/ui/shells/`.
 - `src/db/publisher_relationships.rs`: the stored relationship reader.
 - `src/view_models/publisher_page.rs`: the role text owner after packet 002.
@@ -90,7 +90,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/adr-0082-task-003-album-page-publisher-link.md`
 - ADR 0082 and ADR 0077 Decision 2
 - Each file in "Files To Inspect"

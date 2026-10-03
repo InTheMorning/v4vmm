@@ -74,7 +74,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - Each file in "Recorded Facts".
 - `src/view_models/search/feed_detail.rs` and the album page view model.
 - `src/library/app_impl.rs`: the Library artist grouping.
@@ -296,7 +296,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/adr-0077-task-005-feed-owner-text-and-name-search.md`
 - `docs/adr/0077-publisher-feed-artist-binding.md`
 - Each file in "Files To Inspect"

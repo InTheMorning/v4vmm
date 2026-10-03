@@ -72,7 +72,7 @@ Use the prefix `adr_0082_link_facts_` for behavioral tests beside the owning cod
 
 ## Files To Inspect
 
-- [Agent rules](../../../AGENTS.md) and the [source map](../../../.github/copilot-instructions.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/api.rs`: `PublisherRelationship`, `RoleSource`, `PublisherLinkResolution`, `Feed`.
 - `src/db/publisher_relationships.rs` and the ADR 0016 migration registry.
 - `src/view_models/publisher_page.rs`: `role_display`, `AlbumRoleDisplay`.
@@ -102,7 +102,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/archive/adr-0082-task-001-contract-0-7-0-and-link-facts.md`
 - ADR 0082 and the ADR 0075 packet 051 document
 - Each file in "Files To Inspect"

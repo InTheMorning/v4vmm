@@ -119,7 +119,7 @@ Use the prefix `adr_0077_publisher_relationship_` for behavioral tests beside th
 
 ## Files To Inspect
 
-- [Agent rules](../../../AGENTS.md) and the [source map](../../../.github/copilot-instructions.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/api.rs`: `Feed`, `PublisherRelationship`, and the decode tests near line 2340.
 - `src/application/request_profiles.rs` and its tests.
 - `src/application/request_reuse.rs`: the request key holds the include list.

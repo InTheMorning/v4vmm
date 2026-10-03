@@ -98,7 +98,7 @@ For the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/metadata_service.rs`, `src/metadata.rs`, `src/audio_tags.rs`.
 - `src/playback.rs` and `src/db.rs`: `PlaybackSessionRow`, `playlist_tracks`.
 - `src/library/app_impl.rs`: the pending edit apply. `src/runtime/vm_bus.rs`.

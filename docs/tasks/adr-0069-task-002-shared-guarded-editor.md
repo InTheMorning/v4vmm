@@ -19,7 +19,7 @@ repair, write admission and resource checks. No configuration format changes her
 
 ## Files To Inspect
 
-- `AGENTS.md`, `.github/copilot-instructions.md`, `docs/adr/README.md`
+- `AGENTS.md`, `docs/architecture/source-map.md`, `docs/adr/README.md`
 - `src/config.rs`, `src/config/correction.rs`
 - `src/application/commands/maintenance.rs`, `src/application/session_lifecycle.rs`
 - `src/application/capability_recovery.rs`, `src/application/capability_recovery/setup.rs`

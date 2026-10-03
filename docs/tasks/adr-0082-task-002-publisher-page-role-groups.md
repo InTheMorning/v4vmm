@@ -88,7 +88,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/view_models/publisher_page.rs`, `src/ui/shells/publisher.rs`, `src/app/publisher_dispatch.rs`.
 - `src/application/queries/feed.rs` and `src/application/queries/library.rs`: the page facts.
 - `tests/architecture_tests.rs`: the ADR 0077 publisher page guards.
@@ -124,7 +124,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/adr-0082-task-002-publisher-page-role-groups.md`
 - ADR 0082, and the ADR 0077 packet 004 and 007 documents
 - Each file in "Files To Inspect"

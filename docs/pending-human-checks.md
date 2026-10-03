@@ -3,7 +3,7 @@
 ## Scheduling
 
 The operator resumed visual checks on 2026-10-02. Walk a new check right after its packet.
-The older checks below stay open until a person walks them. The operator walked part of a visual batch on 2026-10-02 and stopped after its Part A step 8. Section 28 passed V1 to V4 in that batch. The record of that pass is open work.
+The older checks below stay open until a person walks them. The operator walked part of a visual batch on 2026-10-02 and stopped after its Part A step 8.
 
 The current evidence fixture is `/tmp/v4vmm-governance.ie6k8TQf`. Its cleanup remains unconfirmed.
 
@@ -527,18 +527,7 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-2
 - V1: an Index track with its own image shows that image. An Index track without one shows the album image.
 - V2: normal and narrow widths show the artwork in its place, in Light and Dark themes.
 
-## 28. Search Rows From Summary Fields — ADR 0075 Task 047
-
-Open and paused - implementation and mechanical checks are complete on 2026-09-29. Operator inspection is pending.
-
-- Owner: [packet 047](tasks/adr-0075-task-047-search-rows-from-summary-fields.md#operator-visual-check).
-- Scheduling: run the procedure only after the operator resumes visual checks. It only reads pages. It needs network access to `api.musicindex.org`.
-- V1: an Index search shows feed rows and track rows with titles, artists and artwork, faster than before.
-- V2: opening a row shows a loading state, then the detail, in place.
-- V3: a fast open of row A and then row B shows the detail of row B.
-- V4: normal and narrow widths show each element in its place, in Light and Dark themes, with no clipped text.
-
-## 29. Confirmed And Unconfirmed Artists — ADR 0077 Task 007
+## 28. Confirmed And Unconfirmed Artists — ADR 0077 Task 007
 
 Open and paused - implementation and mechanical checks are complete on 2026-09-30. Operator inspection is pending.
 
@@ -549,7 +538,7 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-3
 - V3: the two labels read clearly. The operator accepts them or gives new labels.
 - V4: normal and narrow widths show each fact in its place, in Light and Dark themes, with no clipped text.
 
-## 30. Parked Discover Deletion — ADR 0060 Task 005
+## 29. Parked Discover Deletion — ADR 0060 Task 005
 
 Open and paused - implementation and mechanical checks are complete on 2026-09-30. Operator inspection is pending.
 
@@ -558,7 +547,7 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-3
 - V1: Music search, the Index feed and track pages, the Library track page and the album page work as before.
 - V2: the metadata compare grid on a Library track page works as before, with its MusicBrainz column.
 
-## 31. Feed Dates By Owner — ADR 0075 Task 050
+## 30. Feed Dates By Owner — ADR 0075 Task 050
 
 Open and paused - implementation and mechanical checks are complete on 2026-10-01. Operator inspection is pending.
 
@@ -568,7 +557,7 @@ Open and paused - implementation and mechanical checks are complete on 2026-10-0
 - V2: a track without its own date shows "Feed publication date" apart from its other facts.
 - V3: normal and narrow widths show each fact in its place, in Light and Dark themes, with no clipped text.
 
-## 32. Dead Code Removal — Task 001
+## 31. Dead Code Removal — Task 001
 
 Open and paused - implementation and mechanical checks are complete on 2026-10-01. Operator inspection is pending.
 
@@ -577,7 +566,7 @@ Open and paused - implementation and mechanical checks are complete on 2026-10-0
 - V1: the Library list, an album page, a playlist page and a track page work as before, with paging.
 - V2: Music search, the Index pages, the publisher page and the Show section work as before.
 
-## 33. Expected Dead Code Removal — Task 002
+## 32. Expected Dead Code Removal — Task 002
 
 Open and paused - implementation and mechanical checks are complete on 2026-10-01. Operator inspection is pending.
 
@@ -586,7 +575,7 @@ Open and paused - implementation and mechanical checks are complete on 2026-10-0
 - V1: the workspace frames, the breadcrumb, Back and Forward, and the pane resize work as before.
 - V2: the Library list, a playlist page with rename, Music search and the Show queue work as before.
 
-## 34. Forward Navigation — ADR 0046 Task 015
+## 33. Forward Navigation — ADR 0046 Task 015
 
 Open and paused - implementation and mechanical checks are complete on 2026-10-02. Operator inspection is pending.
 
@@ -596,7 +585,7 @@ Open and paused - implementation and mechanical checks are complete on 2026-10-0
 - V2: Back and then Forward return to the same page. `alt-left` and `alt-right` on Linux, and `cmd-[` and `cmd-]` outside a text box on macOS, do the same. Indent and outdent still work in a macOS text box.
 - V3: normal and narrow widths, Light and Dark themes, and the larger type sizes show both controls with no clipped element.
 
-## 35. Confirmation List With Many Items — ADR 0076 Task 008
+## 34. Confirmation List With Many Items — ADR 0076 Task 008
 
 Open - implementation and mechanical checks are complete on 2026-10-03. Operator inspection is pending.
 
@@ -606,7 +595,7 @@ Open - implementation and mechanical checks are complete on 2026-10-03. Operator
 - V2: a removal confirmation with one item still shows that item.
 - V3: normal and narrow widths, in Light and Dark themes, show the item with no clipped text.
 
-## 36. Download Failures And Dismissal — ADR 0066 Task 014
+## 35. Download Failures And Dismissal — ADR 0066 Task 014
 
 Open - implementation and mechanical checks are complete on 2026-10-03. Operator inspection is pending.
 
@@ -616,7 +605,7 @@ Open - implementation and mechanical checks are complete on 2026-10-03. Operator
 - V2: after a failed conversion and a successful retry of the same feed, the notice shows no row for those tracks.
 - V3: each row of the collapsed notice has "Dismiss", and a click removes the row in place.
 
-## 37. A Download Writes The Stored Values — ADR 0076 Task 009
+## 36. A Download Writes The Stored Values — ADR 0076 Task 009
 
 Open - implementation and mechanical checks are complete on 2026-10-03. Operator inspection is pending.
 

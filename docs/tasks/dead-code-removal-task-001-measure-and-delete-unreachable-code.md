@@ -94,7 +94,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - The ADR 0060 packet 005 and 006 documents: the measurement method and their findings.
 - `src/lib.rs`, `src/main.rs`, and each file of "Recorded Facts".
 - `tests/architecture_tests.rs`: `adr_0060_discover_surface_stays_deleted`, and each guard that names a deleted item.
@@ -506,7 +506,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/dead-code-removal-task-001-measure-and-delete-unreachable-code.md`
 - The ADR 0060 packet 005 and 006 documents
 - Each file in "Files To Inspect"

@@ -91,7 +91,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/view_models/publisher_page.rs`, `src/application/queries/feed.rs`, `src/application/queries/library.rs` and `src/db/publisher_relationships.rs`.
 - `src/application/queries/stored_values.rs`: `feed_values` and `FeedStoredValues`.
 - `src/view_models/workspace/nav.rs` and `src/view_models/workspace/breadcrumb.rs`.
@@ -287,7 +287,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/adr-0077-task-004-publisher-navigation-and-presentation.md`
 - `docs/adr/0077-publisher-feed-artist-binding.md` and `docs/adr/0078-publisher-page-type-from-stated-role.md`
 - Each file in "Files To Inspect"

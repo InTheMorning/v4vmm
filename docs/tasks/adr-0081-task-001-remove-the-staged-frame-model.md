@@ -59,7 +59,7 @@ After this packet, no `#[cfg(test)]` block keeps a model operation that no produ
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/view_models/workspace/mod.rs`, `frame.rs`, `nav.rs`, `tests.rs`, and `src/ui/shells/workspace.rs`.
 - The config loader that reads the workspace layout.
 - `tests/architecture_tests.rs`: the five guards of "Recorded Facts".
@@ -86,7 +86,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/adr-0081-task-001-remove-the-staged-frame-model.md`
 - ADR 0081, and the dead code removal task 002 document
 - Each file in "Files To Inspect"

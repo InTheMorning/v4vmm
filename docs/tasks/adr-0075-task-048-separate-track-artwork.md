@@ -73,7 +73,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/api.rs`: `Track` and its decode tests.
 - `src/views.rs`: `TrackView::from_api` and the artwork reference types.
 - `src/app/search_dispatch.rs`: `index_track_artwork_url`, `index_track_row_artwork_url`, `api_track_from_view`.
@@ -147,7 +147,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/adr-0075-task-048-separate-track-artwork.md`
 - ADR 0075 Decision C and section 4
 - Each file in "Files To Inspect"

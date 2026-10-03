@@ -59,7 +59,7 @@ The packet 005 measurement records these items. Packet 005 deletes each of their
 
 ## Files To Inspect
 
-- [Agent rules](../../../AGENTS.md) and the [source map](../../../.github/copilot-instructions.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - The packet 005 document: its measurement method and list.
 - `src/view_models/search/`, `src/application/queries/search.rs`, `src/application/queries/feed.rs`, `src/api.rs`.
 - `tests/architecture_tests.rs`: each guard that names a deleted item.
@@ -367,7 +367,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/archive/adr-0060-task-006-delete-parked-discover-queries.md`
 - The packet 005 document, for the measurement method
 - Each file in "Files To Inspect"

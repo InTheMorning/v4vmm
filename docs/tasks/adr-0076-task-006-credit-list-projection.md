@@ -58,7 +58,7 @@ For the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/application/queries/stored_values.rs`, `src/views.rs`, `src/local_identity.rs`, `src/sources.rs`.
 - `src/db.rs`: `local_contributors`, `replace_local_contributors`. `src/identity_ingest.rs`.
 - `src/rss/check_apply.rs`: `persons`, `persons_value`.

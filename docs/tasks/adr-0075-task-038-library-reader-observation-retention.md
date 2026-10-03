@@ -37,7 +37,7 @@ Packet 017 owns named request profiles. No packet owns visible storage retry. Th
 
 Read the authority documents and these exact owners:
 
-- [AGENTS.md](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [AGENTS.md](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - [Library queries](../../src/application/queries/library.rs): `CompareLibraryTrack`, `HydrateAlbumIdentity`, their result types, and `query_error`.
 - The same file: `compare_library_track`, `hydrate_album_identity_facts`, and packet 014's result assembly.
 - [Library callbacks](../../src/library/app_impl.rs): comparison opening/reload, `start_compare_library_track`, and `hydrate_album_identity_on_view`.

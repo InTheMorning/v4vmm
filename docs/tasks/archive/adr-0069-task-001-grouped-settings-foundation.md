@@ -18,7 +18,7 @@ the shared transaction editor, mode/resource selectors, presets or audio here.
 
 ## Files To Inspect
 
-- `AGENTS.md`, `.github/copilot-instructions.md`, `docs/adr/README.md`
+- `AGENTS.md`, `docs/architecture/source-map.md`, `docs/adr/README.md`
 - `src/app.rs` — Settings inputs, rendering, save/defaults, cached files and screen mount
 - `src/app/capabilities.rs`, `src/app/keyboard.rs`, `src/app/menu.rs`
 - `src/config.rs`, `src/view_models/mod.rs`, `src/view_models/cached_files.rs`

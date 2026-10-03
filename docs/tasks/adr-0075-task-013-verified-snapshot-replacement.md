@@ -42,7 +42,7 @@ This packet defines technical admission and storage boundaries. It accepts no ne
 
 Read the authority documents and these exact owners before editing:
 
-- [AGENTS.md](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [AGENTS.md](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - [Observation types](../../src/provider_observation.rs), request tokens, retained failures, recorder, and receipts.
 - [Observation writer](../../src/db/provider_observations.rs), `begin`, `record_once`, `record`, and `write_evidence`.
 - [MusicIndex adapter](../../src/provider_observation/musicindex.rs), property presence and owner resolution.

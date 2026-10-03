@@ -83,7 +83,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/api.rs`: `track_with_feed_defaults` and its tests.
 - `src/metadata.rs`: `source_value_for_metadata_field`, `track_metadata_rows`, `track_website`, `track_nostr`, `feed_website` and `id3_frame_hint`.
 - `src/metadata_service.rs`: `id3_edits_for_track_context`.
@@ -180,7 +180,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/adr-0075-task-022-track-header-identities.md`
 - ADR 0075 Decision B and section 4
 - Each file in "Files To Inspect"

@@ -18,7 +18,7 @@ extraction path and observation time.
 
 ## Files To Inspect
 
-- `AGENTS.md`, `.github/copilot-instructions.md`
+- `AGENTS.md`, `docs/architecture/source-map.md`
 - [ADR status rules](../../adr/0057-adr-status-vocabulary-and-amendment-policy.md)
 - [ADR 0075](../../adr/0075-metadata-ownership-and-completeness.md)
 - [Plan](../../plans/adr-0075-metadata-contract-phase-plan.md)

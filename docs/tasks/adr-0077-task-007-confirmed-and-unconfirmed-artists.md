@@ -80,7 +80,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/api.rs`: `Feed`, the publisher decode tests.
 - `src/application/queries/feed.rs`: `fetch_index_publisher_page_albums` and its facts.
 - `src/application/queries/library.rs`: `fetch_library_publisher_page`.
@@ -243,7 +243,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/adr-0077-task-007-confirmed-and-unconfirmed-artists.md`
 - ADR 0077 Decisions 2 and 3, and ADR 0078
 - Each file in "Files To Inspect"

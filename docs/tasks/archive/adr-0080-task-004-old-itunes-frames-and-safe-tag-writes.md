@@ -54,7 +54,7 @@ None. The operator check reads tags and the download report.
 
 ## Files To Inspect
 
-- [Agent rules](../../../AGENTS.md) and the [source map](../../../.github/copilot-instructions.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/audio_tags.rs`: `write_id3v24_edits`, `write_mp3_edits`, `no_tag_ok`, and the ADR 0080 tests.
 - `src/subscribe_service.rs`: `apply_id3_edits_nonfatal`, `SubscribeTrackOutcome`.
 - `src/subscribe_service/materialization.rs`: `run_steps` and `outcome`.
@@ -148,7 +148,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/archive/adr-0080-task-004-old-itunes-frames-and-safe-tag-writes.md`
 - ADR 0080 Decision 6
 - Each file in "Files To Inspect"

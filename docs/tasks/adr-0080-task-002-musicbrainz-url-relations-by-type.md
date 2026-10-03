@@ -91,7 +91,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/musicbrainz.rs`: `fetch_release_detail`, `MbRelease`, `MbReleaseGroup`, `MbRelation`, `MusicBrainzCandidate`, `merge_release_detail`, `release_url_values` and their tests.
 - `src/metadata.rs`: `musicbrainz_value_for_field`, `musicbrainz_key_for_field`, `aligned_compare_rows`, `expand_woar_metadata_rows`, `woar_metadata_urls`, `id3_frame_hint`.
 - `src/audio_tags.rs`: the write of `WCOP` and `TXXX` frames, and the packet 001 removal of app values.
@@ -398,7 +398,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/adr-0080-task-002-musicbrainz-url-relations-by-type.md`
 - ADR 0080, all decisions, and the packet 001 document for the writer rules
 - Each file in "Files To Inspect"

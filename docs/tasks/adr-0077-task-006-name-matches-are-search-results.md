@@ -98,7 +98,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../../.github/copilot-instructions.md).
+- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/application/queries/search.rs`: `IndexArtistCandidate`, `FetchIndexSearchResults`.
 - `src/app/search_dispatch.rs`: `handle_index_artist_result_selected`, `sync_search_results_detail_with_nav`.
 - `src/app.rs`: the content body switch and the frame title.
@@ -277,7 +277,7 @@ You are implementing one bounded task from a larger plan.
 Implement only this task. Do not redesign the architecture.
 
 Read:
-- `AGENTS.md` and `.github/copilot-instructions.md`
+- `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/adr-0077-task-006-name-matches-are-search-results.md`
 - ADR 0077 Decision 1 and its accepted refinements
 - Each file in "Files To Inspect"
