@@ -20,11 +20,13 @@ Each binding change in it needs its own ADR or ADR amendment before code changes
 - `src/` has 172179 lines of Rust in 317 files. The largest files are `src/view_models/library.rs` (7961), `src/view_models/show.rs` (5956), `src/db.rs` (5863) and `src/metadata.rs` (4784).
 - `tests/architecture_tests.rs` has 19606 lines.
 - The defects of 2026-10-03 had one shape: two sources of truth. Examples are live values against stored values, two copies of the channel link, two description forms, and an error that only stderr showed.
-- The website at `../musicindex/index.html` uses these tokens:
-  - accent `#ff5a00`, warm accent `#ff7a2f`, purple `#7b5cff`, lime `#c7ff00`, blue `#2d7bff`
-  - ink `#0d0d0d`, charcoal `#1b1c20`, deep gray `#3f4148`, middle gray `#73737d`, warm gray `#d9d9df`, off-white `#f7f7f8`
-  - radii 12, 20, 32 and 48 pixels
-  - the Figtree font, in `../musicindex/assets/fonts/`
+- The website is `../musicindex/search.html`. The operator discarded `index.html` on 2026-10-03. The dark theme is the default:
+  - background `#0b0b0d`, sidebar `#141417`, surfaces `#1c1c1f` and `#26262a`, text `#f5f5f7`, muted text `#a1a1a6`
+  - one accent `#2d7bff`, and `#0a5bd6` in the light theme
+  - one color for each entity type, for example artist, track, feed, label, playlist and live
+  - gloss, a grain texture, a shadow under artwork, and a blurred top bar of 52 pixels
+  - radii of 6 to 12 pixels, pills of 22 pixels, and a grid of tiles of 150 pixels or more
+  - the Figtree font, in `../musicindex/assets/fonts/`, with weights 300 to 800
 - Each color, size and font of the app comes from `src/ui/tokens.rs` (durable set: token discipline). A token change can change the look of the full app.
 - The cue system and the built-in player are not built. The live status shows one song that does not change.
 - `cargo build --release` fails in `gpui-pre-macros 0.3.1`. A release binary does not exist.
@@ -45,6 +47,7 @@ Each binding change in it needs its own ADR or ADR amendment before code changes
 ### Phase 2: Design Language
 
 1. A read-only screen inventory: each screen, its view model, its elements and its actions.
+   Done on 2026-10-03: [screen inventory](../architecture/screen-inventory/README.md).
 2. Static HTML mockups of three screens with the website tokens: the Library grid, an album page with an "Inspect" disclosure for the RSS and ID3 values, and Settings. The operator reviews them in a browser.
 3. A design-language ADR records the accepted mockups as the target.
 
