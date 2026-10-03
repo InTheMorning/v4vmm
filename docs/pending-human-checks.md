@@ -616,3 +616,13 @@ Open and paused - implementation and mechanical checks are complete on 2026-10-0
 - V1: the frame chrome shows Forward adjacent to Back, in the same style. Forward is unavailable until the operator goes Back.
 - V2: Back and then Forward return to the same page. `alt-left` and `alt-right` on Linux, and `cmd-[` and `cmd-]` outside a text box on macOS, do the same. Indent and outdent still work in a macOS text box.
 - V3: normal and narrow widths, Light and Dark themes, and the larger type sizes show both controls with no clipped element.
+
+## 35. Confirmation List With Many Items — ADR 0076 Task 008
+
+Open - implementation and mechanical checks are complete on 2026-10-03. Operator inspection is pending.
+
+- Owner: [task 008](tasks/adr-0076-task-008-confirmation-list-with-many-items.md#operator-visual-check).
+- Scheduling: the check only opens popups and cancels them.
+- V1: "Update n files" with more files than the column holds shows each file with its title, album and frames. The list scrolls.
+- V2: a removal confirmation with one item still shows that item.
+- V3: normal and narrow widths, in Light and Dark themes, show the item with no clipped text.

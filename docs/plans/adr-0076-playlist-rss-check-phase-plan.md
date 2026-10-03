@@ -20,6 +20,7 @@ Dispatch the packets in this sequence. Each one needs the packets before it.
 | [005](../tasks/adr-0076-task-005-check-and-scan-follow-ups.md) | The 60-second `Retry-After` limit, "Copy feed URL", two scan triggers, and the in-place update of a playlist row after Confirm | ADR 0076 Decisions 2, 4, 7 and 8 | 004 | None | Implemented 2026-09-25. Mechanical checks Green. Visual gate open and paused |
 | [006](../tasks/adr-0076-task-006-credit-list-projection.md) | One credit list for each owner, chosen by the projection rule | ADR 0076 Decisions 1 and 5 | 005 | None | Implemented 2026-09-25. Mechanical checks Green. Visual gate open and paused |
 | [007](../tasks/adr-0076-task-007-guard-reads-test-files-as-test-code.md) | The guard helper reads a test-only file as test code | ADR 0076 Decision 9 guard | None | None | Implemented 2026-09-30. Mechanical checks Green. No visual gate |
+| [008](../tasks/adr-0076-task-008-confirmation-list-with-many-items.md) | Each confirmation item keeps its height when the list is taller than its column. The operator found an empty "Update 34 files" popup on 2026-10-03 | ADR 0076 Decision 8 | None | None | Implemented 2026-10-03. Mechanical checks Green. Visual gate open |
 
 Packet 020 keeps its ADR 0075 number. ADR 0076 reduced it to a projection with no source selection.
 

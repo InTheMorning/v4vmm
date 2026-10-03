@@ -9,6 +9,10 @@ also states the three-layer ownership model, adds the remote transcript path, an
 requires byte-derived image typing on every artifact path. Tasks 001-004 are
 complete.
 
+Amended 2026-10-03: the operator removed the enclosure length check. A declared enclosure byte count is a publisher claim, and the app reads it from MusicIndex, which is a cache of RSS (ADR 0075 Decision I).
+On 2026-10-03 that check rejected two good HeyCitizen files. One file was larger and one was smaller than the declared count. Container detection stays the content check.
+[Task 005](../tasks/adr-0056-task-005-remove-enclosure-length-check.md) implements this amendment.
+
 ## Context
 
 Subscription and download workflows fetch remote media from feed-owned URLs:
@@ -80,10 +84,8 @@ once at the end of this section and are identical for every path.
 
 Audio enclosure downloads must:
 
-- validate the staged file length when the source enclosure declares a positive
-  byte count
-- fail before promotion when the actual local bytes do not match the source
-  enclosure length
+- never compare the staged file length with a declared enclosure byte count
+  (amended 2026-10-03)
 - fail before promotion when the staged bytes do not resolve to a supported
   audio container, independent of any declared byte count
 - never use the RSS-declared format when container detection fails, because that
@@ -162,8 +164,8 @@ decision.
   `src/audio_format.rs`.
 - No path guesses a format for unrecognized bytes. Neither
   `unwrap_or(ImageFormat::Jpeg)` nor `unwrap_or(declared_format)` may return.
-- Source-declared enclosure byte counts are treated as a validation fact when
-  present and positive, and are never the only content check.
+- A source-declared enclosure byte count is not a validation fact. Container
+  detection is the content check (amended 2026-10-03).
 - Enclosure and APIC paths reject unrecognized bytes with comparable strength:
   neither promotes an artifact on the strength of a declared type alone.
 - Display-only remote image fetches (`subscribe_service::download_image`,
@@ -261,8 +263,9 @@ Negative / risks:
 - Transcript, thumbnail, and cover-art fetches begin rejecting responses they
   previously accepted. That is the point, but it converts some silent successes
   into visible failures.
-- Servers that declare incorrect positive enclosure byte counts will cause a
-  download failure instead of accepting the bytes opportunistically.
+- A feed that declares an incorrect enclosure byte count does not cause a
+  download failure. When a server sends no `Content-Length`, a truncated body
+  with a valid container header can pass the content check (amended 2026-10-03).
 - Remote image responses with unsupported magic bytes and no valid image content
   type remain rejected even if their URL suffix looks like an image.
 - Container detection recognizes only the formats in `AudioFormat`. A valid
