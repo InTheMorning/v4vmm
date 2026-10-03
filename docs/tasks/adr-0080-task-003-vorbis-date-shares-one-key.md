@@ -1,6 +1,6 @@
 # ADR 0080 Task 003: The Vorbis Date Shares One Key
 
-Status: Implemented - 2026-10-03. Mechanical checks Green. Its operator check is open.
+Status: Complete - 2026-10-03. Mechanical checks Green. The operator passed V1 on the real Library on 2026-10-03.
 This packet changes no presentation. Its operator check reads tags and the button count.
 
 ## Goal
