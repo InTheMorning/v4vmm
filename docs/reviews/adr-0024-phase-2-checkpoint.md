@@ -3,9 +3,9 @@
 ## Reviewed Artifact
 
 - `docs/adr/0024-command-query-event-application-layer.md`
-- `docs/plans/adr-0024-application-layer-phase-plan.md`
-- `docs/tasks/adr-0024-task-001-application-skeleton.md`
-- `docs/tasks/adr-0024-task-002-playlist-vertical-slice.md`
+- `docs/plans/adr-0024-application-layer-phase-plan.md` (a deleted plan, in git history)
+- `docs/tasks/archive/adr-0024-task-001-application-skeleton.md`
+- `docs/tasks/archive/adr-0024-task-002-playlist-vertical-slice.md`
 - Staged playlist-slice implementation diff
 
 ## Status

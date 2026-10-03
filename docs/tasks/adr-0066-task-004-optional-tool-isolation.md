@@ -7,7 +7,7 @@ The remaining operator checks and final fixture cleanup are open. Playback-depen
 checks are paused after the operator identified the missing Show cue/audition
 separation; the producer screenshot also contains an unresolved mpv IPC error.
 Task 005 is complete under the operator's explicit scheduling exception;
-[its acceptance](adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11)
+[its acceptance](archive/adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11)
 closes none of this packet's remaining checks.
 
 The operator paused further visual checks on 2026-09-19 to prioritise the

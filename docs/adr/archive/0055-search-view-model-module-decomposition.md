@@ -118,4 +118,4 @@ Negative / risks:
 - ADR 0038 - Presentation contract enforcement
 - ADR 0047 - Library and search unification
 - ADR 0050 - Post-ADR-0048 module decomposition
-- `docs/plans/adr-0050-module-decomposition-phase-plan.md`
+- `docs/plans/adr-0050-module-decomposition-phase-plan.md` (a deleted plan, in git history)

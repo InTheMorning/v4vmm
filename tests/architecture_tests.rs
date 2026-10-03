@@ -14551,9 +14551,6 @@ fn adr_0062_recent_feeds_destination_is_retired() {
     let adr_0030_source = read_source(&manifest_path(
         "docs/adr/0030-discovery-library-ui-fixes.md",
     ));
-    let route_plan_source = read_source(&manifest_path(
-        "docs/plans/post-adr-0048-recent-feeds-route-plan.md",
-    ));
     let mut violations = Vec::new();
 
     for path in ["src/app/recent_feeds.rs", "src/ui/shells/recent_feeds.rs"] {
@@ -14669,11 +14666,6 @@ fn adr_0062_recent_feeds_destination_is_retired() {
             "docs/adr/0030-discovery-library-ui-fixes.md",
             &adr_0030_source,
             "ADR 0062 withdraws the Recent Feeds",
-        ),
-        (
-            "docs/plans/post-adr-0048-recent-feeds-route-plan.md",
-            &route_plan_source,
-            "Retired by ADR 0062",
         ),
     ] {
         if !source.contains(required) {

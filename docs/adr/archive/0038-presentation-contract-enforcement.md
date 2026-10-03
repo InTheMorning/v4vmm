@@ -5,8 +5,8 @@
 Implemented - 2026-05-04. Verified by
 `docs/reviews/adr-0038-review-checklist.md` (Task 008 readiness gate `Proceed`)
 and recorded as closed in `docs/plans/deferred-architecture-work-index.md`.
-Supersedes `docs/plans/one-owner-per-surface-plan.md` and
-`docs/plans/post-adr-0033-ui-consolidation-plan.md`. Both are retained as
+Supersedes `docs/plans/one-owner-per-surface-plan.md` (a deleted plan, in git history) and
+`docs/plans/post-adr-0033-ui-consolidation-plan.md` (a deleted plan, in git history). Both are retained as
 historical artifacts; their invariants and surface inventory are absorbed into
 this ADR and its phase plan.
 
@@ -17,8 +17,8 @@ Archived 2026-10-03: a guard enforces each rule ([ADR triage](../../reviews/adr-
 ADR 0023 through ADR 0037 produced the design-system layers (tokens,
 primitives, composites), the GPUI-free view-model layer, and a growing set
 of architecture tests. They also produced two "ideal architecture" planning
-documents — `one-owner-per-surface-plan.md` and
-`post-adr-0033-ui-consolidation-plan.md` — that ran in parallel and now
+documents — `one-owner-per-surface-plan.md` (a deleted plan, in git history) and
+`post-adr-0033-ui-consolidation-plan.md` (a deleted plan, in git history) — that ran in parallel and now
 overlap. The state today:
 
 - Composites and primitives are in good shape: ~30 architecture guards
@@ -182,7 +182,7 @@ ADR 0038 is enforced in layers:
   useful structural improvements and encourages oversized patches.
 - **One mega-composite for every page.** Rejected — the app needs typed
   slot composition, not a single inflexible layout owner.
-- **Keep `one-owner-per-surface-plan.md` and the post-0033 plan as
+- **Keep `one-owner-per-surface-plan.md` (a deleted plan, in git history) and the post-0033 plan as
   separate live documents.** Rejected — they overlap and drift; one ADR
   with one phase plan is the pattern that worked for 0035–0037.
 - **Full screen monolith split before VM consolidation.** Rejected —
@@ -212,9 +212,9 @@ ADR 0038 is enforced in layers:
 
 ## Superseded Plans
 
-- `docs/plans/one-owner-per-surface-plan.md` (2026-05-02). Surface
+- `docs/plans/one-owner-per-surface-plan.md` (a deleted plan, in git history) (2026-05-02). Surface
   inventory, fallback table, and Workstreams 0–5 are absorbed.
-- `docs/plans/post-adr-0033-ui-consolidation-plan.md` (2026-05-01).
+- `docs/plans/post-adr-0033-ui-consolidation-plan.md` (a deleted plan, in git history) (2026-05-01).
   Render-helper consolidation and shell relocation are absorbed.
 
 Both files carry a "Superseded by ADR 0038" header. Their bodies remain
@@ -223,16 +223,16 @@ as historical context.
 ## Follow-Up Work
 
 - Implement
-  `docs/plans/adr-0038-presentation-contract-enforcement-phase-plan.md`.
+  `docs/plans/adr-0038-presentation-contract-enforcement-phase-plan.md` (a deleted plan, in git history).
 - Tasks are sequenced by blast radius (highest first):
-  1. `docs/tasks/adr-0038-task-001-layer-relocation.md`
-  2. `docs/tasks/adr-0038-task-002-composite-display-contract-audit.md`
-  3. `docs/tasks/adr-0038-task-003-library-search-vm-consolidation.md`
-  4. `docs/tasks/adr-0038-task-004-dark-mode-parity-audit.md`
-  5. `docs/tasks/adr-0038-task-005-accessibility-label-contract.md`
-  6. `docs/tasks/adr-0038-task-006-page-vm-generalization.md`
-  7. `docs/tasks/adr-0038-task-007-screen-decomposition.md`
-  8. `docs/tasks/adr-0038-task-008-final-sweep-and-readiness-gate.md`
+  1. `docs/tasks/archive/adr-0038-task-001-layer-relocation.md`
+  2. `docs/tasks/archive/adr-0038-task-002-composite-display-contract-audit.md`
+  3. `docs/tasks/archive/adr-0038-task-003-library-search-vm-consolidation.md`
+  4. `docs/tasks/archive/adr-0038-task-004-dark-mode-parity-audit.md`
+  5. `docs/tasks/archive/adr-0038-task-005-accessibility-label-contract.md`
+  6. `docs/tasks/archive/adr-0038-task-006-page-vm-generalization.md`
+  7. `docs/tasks/archive/adr-0038-task-007-screen-decomposition.md`
+  8. `docs/tasks/archive/adr-0038-task-008-final-sweep-and-readiness-gate.md`
 - Child ADR `docs/adr/archive/0039-dynamic-type-ramp.md` covers dynamic-type
   policy (text scale ramps, max scale, truncation rules) after Task 005.
 - ADR 0040 (Async View-Model Runtime) introduces `AsyncCommandRunner`

@@ -8,7 +8,7 @@ Pass - 2026-05-01.
 
 - `src/identity_ingest.rs`
 - `src/search.rs`
-- `docs/tasks/adr-0029-task-003-musicindex-artist-ingest.md`
+- `docs/tasks/archive/adr-0029-task-003-musicindex-artist-ingest.md`
 
 ## Findings
 

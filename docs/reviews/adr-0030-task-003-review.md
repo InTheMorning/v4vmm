@@ -9,7 +9,7 @@
 - `src/view_models/entity_detail.rs`
 - `src/view_models/feed.rs`
 - `src/view_models/library.rs`
-- `docs/tasks/adr-0030-task-003-feed-header-parity.md`
+- `docs/tasks/archive/adr-0030-task-003-feed-header-parity.md`
 
 ## Pass/Fail
 

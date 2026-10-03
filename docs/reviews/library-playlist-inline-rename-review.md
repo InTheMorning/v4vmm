@@ -2,7 +2,7 @@
 
 ## Reviewed Artifacts
 
-- `docs/tasks/library-playlist-inline-rename-task-001.md`
+- `docs/tasks/archive/library-playlist-inline-rename-task-001.md`
 - `src/library.rs`
 - `src/library/app_impl.rs`
 - `src/ui/shells/library/detail.rs`

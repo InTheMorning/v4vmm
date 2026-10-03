@@ -4,7 +4,7 @@
 
 - `docs/adr/0054-local-metadata-source-fact-persistence.md`
 - `docs/plans/adr-0054-local-metadata-source-fact-persistence-phase-plan.md`
-- `docs/tasks/adr-0054-task-002-musicindex-feed-metadata-ingest.md`
+- `docs/tasks/archive/adr-0054-task-002-musicindex-feed-metadata-ingest.md`
 - `src/identity_ingest.rs`
 
 ## Result

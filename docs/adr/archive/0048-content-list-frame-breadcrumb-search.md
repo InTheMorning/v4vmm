@@ -22,7 +22,7 @@ review found:
   plan) implied parallel result surfaces, conflicting with macOS HIG guidance
   against opening new windows as default behavior.
 
-The active-frame-search-dispatch plan (`docs/plans/active-frame-search-dispatch-plan.md`)
+The active-frame-search-dispatch plan (`docs/plans/active-frame-search-dispatch-plan.md` (a deleted plan, in git history))
 attempted to dispatch toolbar text into the focused frame's VM. That plan is
 now superseded.
 
@@ -163,8 +163,8 @@ this exception with a pointer back here.
 - ADR 0046 — workspace frame architecture
 - ADR 0047 — library/search unification
 - ADR 0050 — post-ADR-0048 module decomposition
-- `docs/plans/search-in-library-frame-plan.md` — implementation plan
+- `docs/plans/search-in-library-frame-plan.md` (a deleted plan, in git history) — implementation plan
   (Implemented - 2026-05-16)
-- `docs/plans/active-frame-search-dispatch-plan.md` — Superseded
+- `docs/plans/active-frame-search-dispatch-plan.md` (a deleted plan, in git history) — Superseded
 - `docs/reviews/active-frame-search-dispatch-review-checklist.md` — Superseded
 - `docs/reviews/adr-0047-0048-0049-implementation-review.md` — post-merge review

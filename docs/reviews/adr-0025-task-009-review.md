@@ -2,7 +2,7 @@
 
 ## Reviewed Artifact
 
-- Task packet: `docs/tasks/adr-0025-task-009-status-role-boundary.md`
+- Task packet: `docs/tasks/archive/adr-0025-task-009-status-role-boundary.md`
 - Diff scope: `StatusRole` moved from `ui::style` to typed UI visual roles,
   status call-site migration, removal of `style::color::status_*`, and
   architecture-test hardening.

@@ -2,7 +2,7 @@
 
 ## Reviewed Artifact
 
-- Task packet: `docs/tasks/adr-0026-task-001-identity-facts.md`
+- Task packet: `docs/tasks/archive/adr-0026-task-001-identity-facts.md`
 - Diff scope: MusicIndex contributor identity fields, source-normalized
   identity fact types, contributor view facts, existing feed-renderer
   compatibility conversion, and architecture-test hardening.

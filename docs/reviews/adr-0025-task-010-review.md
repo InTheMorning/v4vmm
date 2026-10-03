@@ -2,7 +2,7 @@
 
 ## Reviewed Artifact
 
-- Task packet: `docs/tasks/adr-0025-task-010-provenance-helper-retirement.md`
+- Task packet: `docs/tasks/archive/adr-0025-task-010-provenance-helper-retirement.md`
 - Diff scope: final `color::diff_*` screen call-site migration, removal of
   `ui::style` diff helpers, architecture-test hardening, and docs updates.
 

@@ -24,7 +24,7 @@ bounded GPUI flex layouts.
 ## Files To Inspect
 
 - `docs/adr/0030-discovery-library-ui-fixes.md`
-- `docs/plans/discovery-library-ui-fixes.md`
+- `docs/plans/discovery-library-ui-fixes.md` (a deleted plan, in git history)
 - `src/ui/composites/release_detail_surface.rs`
 - `src/library.rs`
 - `src/search.rs`

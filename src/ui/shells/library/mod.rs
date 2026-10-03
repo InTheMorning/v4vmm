@@ -9,7 +9,7 @@
 //! are render-only after their callbacks return; they do not retain state.
 //!
 //! See `docs/adr/archive/0038-presentation-contract-enforcement.md` and
-//! `docs/tasks/adr-0038-task-007-screen-decomposition.md`.
+//! `docs/tasks/archive/adr-0038-task-007-screen-decomposition.md`.
 
 #![warn(clippy::pedantic)]
 

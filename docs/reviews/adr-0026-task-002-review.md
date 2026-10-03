@@ -2,7 +2,7 @@
 
 ## Reviewed Artifact
 
-- Task packet: `docs/tasks/adr-0026-task-002-shared-projection-vms.md`
+- Task packet: `docs/tasks/archive/adr-0026-task-002-shared-projection-vms.md`
 - Diff scope: new `view_models::entity_detail` module, `view_models` export,
   projection unit tests, and architecture-test hardening.
 

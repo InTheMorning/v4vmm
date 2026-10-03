@@ -1,6 +1,6 @@
 # Shared Text Selection Check
 
-Owner: [ADR 0071 task 001](../tasks/adr-0071-task-001-shared-text-selection.md).
+Owner: [ADR 0071 task 001](../tasks/archive/adr-0071-task-001-shared-text-selection.md).
 This is the regression procedure; the task records accepted checks and current
 gates. Acceptance and cleanup completed on 2026-09-15. Use fresh fixtures for a
 new full pass or [ADR 0072 correction retry](#adr-0072-correction-retry).

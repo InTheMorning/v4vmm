@@ -1,6 +1,6 @@
 # ADR 0075 Task 038: Library Reader Observation Retention
 
-Status: Implementation, technical review, and mechanical checks complete - 2026-09-21.
+Status: Implementation, technical review, and mechanical checks complete - 2026-09-21. The presentation gate remains open and paused.
 Coding agent: `library_retention_038`. Root accepted the code and tests. The normal binary build is Green.
 
 All visual gates remain open and paused. Do not request a visual batch.

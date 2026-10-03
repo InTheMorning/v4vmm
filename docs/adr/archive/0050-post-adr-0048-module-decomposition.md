@@ -164,4 +164,4 @@ Negative / risks:
 - ADR 0048 - ContentList frame breadcrumb search
 - ADR 0049 - Inspector source ownership
 - `docs/reviews/adr-0047-0048-0049-implementation-review.md`
-- `docs/plans/adr-0050-module-decomposition-phase-plan.md`
+- `docs/plans/adr-0050-module-decomposition-phase-plan.md` (a deleted plan, in git history)

@@ -2,7 +2,7 @@
 
 ## Reviewed artifact
 
-- Task packet: `docs/tasks/adr-0033-task-007-track-metadata-grid-composite.md`
+- Task packet: `docs/tasks/archive/adr-0033-task-007-track-metadata-grid-composite.md`
 - Diff scope: shared metadata-grid view-model, grid composite, Library/Discover wiring, and architecture baseline removal.
 
 ## Result

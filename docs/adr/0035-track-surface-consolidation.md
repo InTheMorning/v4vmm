@@ -128,7 +128,7 @@ chooses one wording and both screens use it. Differences in capability
 present-or-absent slots, not as different labels for the same concept.
 
 Fallback policy bindings (cross-references
-`docs/plans/one-owner-per-surface-plan.md` Workstream 2):
+`docs/plans/one-owner-per-surface-plan.md` (a deleted plan, in git history) Workstream 2):
 
 - `TrackDetailVm::display_title` is the only owner of the `"Untitled"`
   fallback. Removes the inline fallback at `src/library.rs:164-165`.
@@ -242,7 +242,7 @@ requires a follow-up ADR update.
   than the `TrackDetailVm` family.
 - `screens_do_not_inline_unknown_artist_or_album_fallbacks` — fails when
   the literals `"Unknown Artist"` or `"Unknown Album"` appear in
-  `SCREEN_FILES`. Shared with `one-owner-per-surface-plan.md`
+  `SCREEN_FILES`. Shared with `one-owner-per-surface-plan.md` (a deleted plan, in git history)
   Workstream 4.
 - `screens_do_not_inline_untitled_fallback` — fails when `"Untitled"`
   or `"[untitled]"` appears in `SCREEN_FILES`. Shared with the

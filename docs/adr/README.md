@@ -83,7 +83,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0047](0047-library-search-unification.md) | One content surface for library and index rows | Implemented |
 | [0060](0060-workflow-surface-structure.md) | Music, Show and Settings structure is delivered. Independent audition remains unfinished under proposed ADR 0068. | Accepted |
 | [0062](0062-music-content-surface.md) | Five Music packets are complete. The default Index order returns releases. Broader mixed-row search/expansion still needs an evidence review. | Accepted |
-| [0063](0063-show-dashboard-layout.md) | Show cards and diagnostics; [shared log frames and following](../tasks/adr-0063-task-005-shared-log-frames-and-following.md) complete with operator acceptance, preservation and cleanup | Implemented |
+| [0063](0063-show-dashboard-layout.md) | Show cards and diagnostics; [shared log frames and following](../tasks/archive/adr-0063-task-005-shared-log-frames-and-following.md) complete with operator acceptance, preservation and cleanup | Implemented |
 | [0069](0069-grouped-settings-and-selective-presets.md) | Grouped Settings, live metadata resource selection, independent audio configuration and selective preset snapshots. Task 001 is complete. [Task 002 is Ready](../tasks/adr-0069-task-002-shared-guarded-editor.md). Implementation of task 002 has not started. | Accepted |
 | [0074](0074-repair-and-diagnostics-pages.md) | Separate repair/diagnostics pages, action columns, report views and consistent text. Visual and preservation gates accepted; task 013 cleanup confirmed | Implemented |
 

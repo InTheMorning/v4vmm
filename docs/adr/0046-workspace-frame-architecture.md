@@ -199,4 +199,4 @@ Negative / risks:
 - ADR 0043 — top toolbar global search
 - ADR 0044 — playlist drag-handle reordering
 - `docs/plans/workspace-frame-architecture-plan.md` — pre-ADR plan
-- `docs/plans/adr-0046-workspace-frame-architecture-phase-plan.md`
+- `docs/plans/adr-0046-workspace-frame-architecture-phase-plan.md` (a deleted plan, in git history)

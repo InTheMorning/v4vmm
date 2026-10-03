@@ -3,23 +3,23 @@
 ## Reviewed Artifacts
 
 - `docs/adr/0047-library-search-unification.md`
-- `docs/plans/adr-0047-library-search-unification-phase-plan.md`
-- `docs/tasks/adr-0047-task-001-content-filter-vm.md`
-- `docs/tasks/adr-0047-task-002-inspector-panel-state-vm.md`
-- `docs/tasks/adr-0047-task-003-description-collapse-vm.md`
-- `docs/tasks/adr-0047-task-004-search-results-inspector-vm.md`
-- `docs/tasks/adr-0047-task-005-saved-search-vm.md`
-- `docs/tasks/adr-0047-task-006-disable-compare-musicbrainz-on-undownloaded.md`
-- `docs/tasks/adr-0047-task-007-gate-library-extra-fields-behind-expanded-panels.md`
-- `docs/tasks/adr-0047-task-008-description-disclosure.md`
-- `docs/tasks/adr-0047-task-009-filter-chip-strip-composite.md`
-- `docs/tasks/adr-0047-task-010-wire-filter-chips-into-content-list-frame.md`
-- `docs/tasks/adr-0047-task-010a-content-list-page-vm-ownership.md`
-- `docs/tasks/adr-0047-task-012-frame-breadcrumb-vm.md`
-- `docs/tasks/adr-0047-task-013-frame-shell-breadcrumb-render.md`
-- `docs/tasks/adr-0047-task-014-search-results-inspector-shell.md`
-- `docs/tasks/adr-0047-task-015-search-submit-and-saved-search-commands.md`
-- `docs/tasks/adr-0047-task-016-retire-search-screen-module.md`
+- `docs/plans/adr-0047-library-search-unification-phase-plan.md` (a deleted plan, in git history)
+- `docs/tasks/archive/adr-0047-task-001-content-filter-vm.md`
+- `docs/tasks/archive/adr-0047-task-002-inspector-panel-state-vm.md`
+- `docs/tasks/archive/adr-0047-task-003-description-collapse-vm.md`
+- `docs/tasks/archive/adr-0047-task-004-search-results-inspector-vm.md`
+- `docs/tasks/archive/adr-0047-task-005-saved-search-vm.md`
+- `docs/tasks/archive/adr-0047-task-006-disable-compare-musicbrainz-on-undownloaded.md`
+- `docs/tasks/archive/adr-0047-task-007-gate-library-extra-fields-behind-expanded-panels.md`
+- `docs/tasks/archive/adr-0047-task-008-description-disclosure.md`
+- `docs/tasks/archive/adr-0047-task-009-filter-chip-strip-composite.md`
+- `docs/tasks/archive/adr-0047-task-010-wire-filter-chips-into-content-list-frame.md`
+- `docs/tasks/archive/adr-0047-task-010a-content-list-page-vm-ownership.md`
+- `docs/tasks/archive/adr-0047-task-012-frame-breadcrumb-vm.md`
+- `docs/tasks/archive/adr-0047-task-013-frame-shell-breadcrumb-render.md`
+- `docs/tasks/archive/adr-0047-task-014-search-results-inspector-shell.md`
+- `docs/tasks/archive/adr-0047-task-015-search-submit-and-saved-search-commands.md`
+- `docs/tasks/archive/adr-0047-task-016-retire-search-screen-module.md`
 - `src/library.rs`
 - `src/discover.rs`
 - `src/discover/app_impl.rs`
@@ -300,7 +300,7 @@ ContentList-frame search visual proof going forward.
 ## Post-completion follow-up: search-in-Library frame
 
 After ADR 0047 Phase G completion, a follow-up implementation
-(documented in `docs/plans/search-in-library-frame-plan.md`) unified
+(documented in `docs/plans/search-in-library-frame-plan.md` (a deleted plan, in git history)) unified
 search navigation into the ContentList frame:
 
 - Toolbar Search now pushes onto ContentList via `open_search_results_in_content_list`

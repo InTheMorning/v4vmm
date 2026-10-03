@@ -153,9 +153,9 @@ or screen-local action semantics.
 
 ## Follow-Up Work
 
-- Use `docs/plans/adr-0027-shared-entity-action-state-phase-plan.md` for the
+- Use `docs/plans/adr-0027-shared-entity-action-state-phase-plan.md` (a deleted plan, in git history) for the
   migration sequence.
-- Start with `docs/tasks/adr-0027-task-001-track-row-action-state.md`, which
+- Start with `docs/tasks/archive/adr-0027-task-001-track-row-action-state.md`, which
   covers track-row membership actions for Library and Discover.
 - Add projection tests for action-state inputs, labels, tones, and redundant
   downloaded-row suppression.

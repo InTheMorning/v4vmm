@@ -2,7 +2,7 @@
 
 ## Reviewed artifact
 
-- Task packet: `docs/tasks/adr-0033-task-005-track-header-composite.md`
+- Task packet: `docs/tasks/archive/adr-0033-task-005-track-header-composite.md`
 - Diff scope: shared track header display projection, composite, Library/Discover wiring, and architecture baseline removal.
 
 ## Result

@@ -169,7 +169,7 @@ screen. ADR 0023 permits two shapes, because the migration is incremental:
    (selection, filters, what is expanded), and command intent for a screen.
    This is the target shape described in
    `docs/architecture/architecture-diagrams.md` and
-   `docs/plans/adr-0023-design-system-migration.md` for
+   `docs/plans/adr-0023-design-system-migration.md` (a deleted plan, in git history) for
    `LibraryViewModel` and `SearchViewModel`.
 
 Rules — enforced by the module-level documentation in `view_models/mod.rs`
@@ -421,8 +421,8 @@ an `Hsla` literal.
 
 This ADR is fulfilled when the following are true. Some of these are
 already true at merge of PR #5; others are explicitly tracked in
-`docs/plans/adr-0023-design-system-migration.md` and
-`docs/plans/adr-0023-finalization-plan.md`.
+`docs/plans/adr-0023-design-system-migration.md` (a deleted plan, in git history) and
+`docs/plans/adr-0023-finalization-plan.md` (a deleted plan, in git history).
 
 - [x] `tokens.rs` / `theme.rs` / `theme_bridge.rs` are the only places with
       raw color construction. Current screen literals are removed or routed
@@ -494,8 +494,8 @@ introduced here remain valid as the *shape* the actor publishes.
 - ADR 0042 — Layer Consolidation (primitive vs composite vs shell rule).
 - `docs/architecture/architecture-diagrams.md` — current and target architecture
   diagrams.
-- `docs/plans/adr-0023-design-system-migration.md` — completed ADR 0023
+- `docs/plans/adr-0023-design-system-migration.md` (a deleted plan, in git history) — completed ADR 0023
   migration record plus deferred follow-up work.
-- `docs/plans/adr-0023-finalization-plan.md` — final ADR 0023 task sequence
+- `docs/plans/adr-0023-finalization-plan.md` (a deleted plan, in git history) — final ADR 0023 task sequence
   and verification scope.
 - PR #5 (commit f2548a0) — implementation.

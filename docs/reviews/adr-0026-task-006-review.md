@@ -2,7 +2,7 @@
 
 ## Reviewed Artifact
 
-- Task packet: `docs/tasks/adr-0026-task-006-contributor-identity-ui.md`
+- Task packet: `docs/tasks/archive/adr-0026-task-006-contributor-identity-ui.md`
 - Diff scope: contributor lazy-panel projection and rendering in `src/search.rs`.
 - Diff scope: shared identity-action composite in
   `src/ui/composites/identity_action.rs`.

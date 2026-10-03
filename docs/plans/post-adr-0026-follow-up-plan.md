@@ -60,7 +60,7 @@ Priority: P0.
 
 First artifact:
 
-- `docs/tasks/post-adr-0026-task-001-visual-smoke.md`
+- `docs/tasks/archive/post-adr-0026-task-001-visual-smoke.md`
 
 Purpose:
 
@@ -158,7 +158,7 @@ Priority: P2.
 
 First artifact:
 
-- `docs/tasks/post-adr-0026-task-002-identity-persistence-audit.md`
+- `docs/tasks/archive/post-adr-0026-task-002-identity-persistence-audit.md`
 
 Likely ADR:
 
@@ -188,7 +188,7 @@ Priority: P2.
 
 Likely task first:
 
-- `docs/tasks/post-adr-0026-task-003-artwork-source-expansion.md`
+- `docs/tasks/archive/post-adr-0026-task-003-artwork-source-expansion.md`
 
 Likely ADR:
 

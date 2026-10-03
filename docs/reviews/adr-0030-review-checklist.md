@@ -3,12 +3,12 @@
 ## Reviewed Artifacts
 
 - `docs/adr/0030-discovery-library-ui-fixes.md`
-- `docs/plans/discovery-library-ui-fixes.md`
-- `docs/tasks/adr-0030-task-001-backslash-search.md`
-- `docs/tasks/adr-0030-task-002-recents-labels.md`
-- `docs/tasks/adr-0030-task-003-feed-header-parity.md`
-- `docs/tasks/adr-0030-task-004-discovery-compare-actions.md`
-- `docs/tasks/adr-0030-task-005-contributor-tree-metadata.md`
+- `docs/plans/discovery-library-ui-fixes.md` (a deleted plan, in git history)
+- `docs/tasks/archive/adr-0030-task-001-backslash-search.md`
+- `docs/tasks/archive/adr-0030-task-002-recents-labels.md`
+- `docs/tasks/archive/adr-0030-task-003-feed-header-parity.md`
+- `docs/tasks/archive/adr-0030-task-004-discovery-compare-actions.md`
+- `docs/tasks/archive/adr-0030-task-005-contributor-tree-metadata.md`
 - `docs/tasks/adr-0030-task-006-scroll-containers.md`
 
 ## Required Checks Per Task

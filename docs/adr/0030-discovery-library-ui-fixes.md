@@ -21,7 +21,7 @@ removed. The recency query remains as Music's default content source.
 
 Discovery and Library share feed, track, contributor, and metadata inspection
 surfaces through ADR 0023, ADR 0025, ADR 0026, and ADR 0027. A reviewed plan in
-`docs/plans/discovery-library-ui-fixes.md` identifies six visible correctness
+`docs/plans/discovery-library-ui-fixes.md` (a deleted plan, in git history) identifies six visible correctness
 issues in those surfaces:
 
 - Discovery search forwards a backslash to the remote query parser.
@@ -96,11 +96,11 @@ creating parallel ones:
 
 Task packets:
 
-- `docs/tasks/adr-0030-task-001-backslash-search.md`
-- `docs/tasks/adr-0030-task-002-recents-labels.md`
-- `docs/tasks/adr-0030-task-003-feed-header-parity.md`
-- `docs/tasks/adr-0030-task-004-discovery-compare-actions.md`
-- `docs/tasks/adr-0030-task-005-contributor-tree-metadata.md`
+- `docs/tasks/archive/adr-0030-task-001-backslash-search.md`
+- `docs/tasks/archive/adr-0030-task-002-recents-labels.md`
+- `docs/tasks/archive/adr-0030-task-003-feed-header-parity.md`
+- `docs/tasks/archive/adr-0030-task-004-discovery-compare-actions.md`
+- `docs/tasks/archive/adr-0030-task-005-contributor-tree-metadata.md`
 - `docs/tasks/adr-0030-task-006-scroll-containers.md`
 
 Review checklist:

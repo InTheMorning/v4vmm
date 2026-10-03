@@ -51,7 +51,7 @@ Current governance:
   header, and puts feed and contributor identities in labelled sections.
   The [plan](plans/adr-0075-metadata-contract-phase-plan.md) holds a
   [packet register](plans/adr-0075-metadata-contract-phase-plan.md#packet-register) of 28 packets.
-  The [first packet](tasks/adr-0075-task-001-contributor-claim-transport.md) is Ready and held.
+  The [first packet](tasks/archive/adr-0075-task-001-contributor-claim-transport.md) is Ready and held.
   Implementation has not started. Visual checks are paused, with existing gates open.
 
 - [ADR 0039: Dynamic type ramp](adr/archive/0039-dynamic-type-ramp.md): Implemented on
@@ -68,7 +68,7 @@ Current governance:
 
 - [ADR 0071: Shared text selection](adr/archive/0071-shared-text-selection-and-linux-primary.md):
   shared Unicode word/line policy and Linux primary paste;
-  [task 001](tasks/adr-0071-task-001-shared-text-selection.md) complete with
+  [task 001](tasks/archive/adr-0071-task-001-shared-text-selection.md) complete with
   [operator correction checks](runbooks/text-selection-check.md) accepted on X11;
   final preservation and cleanup accepted. IME composition and Wayland remain
   untested coverage limits. Two
@@ -78,7 +78,7 @@ Current governance:
   narrow fork, now published, pinned and accepted by the focused X11 checks
 
 - [ADR 0067: Platform shortcut modifiers](adr/archive/0067-platform-shortcut-modifiers.md):
-  implemented standard Ctrl shortcuts on Linux; [accepted implementation and checks](tasks/adr-0067-task-001-platform-shortcuts.md)
+  implemented standard Ctrl shortcuts on Linux; [accepted implementation and checks](tasks/archive/adr-0067-task-001-platform-shortcuts.md)
 - [ADR 0031: Release detail presentation contract](adr/0031-release-detail-presentation-contract.md):
   Library and Discovery release detail composition
 - [ADR 0032: UI backend boundary and popover contracts](adr/0032-ui-backend-boundary-and-popover-contracts.md):
@@ -117,7 +117,7 @@ Current governance:
 
 Current plans:
 
-- [ADR 0039 dynamic type ramp phase plan](plans/adr-0039-dynamic-type-ramp-phase-plan.md):
+- ADR 0039 dynamic type ramp phase plan:
   All three packets are complete on 2026-09-18. The review records operator
   acceptance, inferred preservation and confirmed fixture removal.
   Configuration formats and chrome coefficients are unchanged.
@@ -143,17 +143,17 @@ Current plans:
   compact cards, full-width logs and an overlap alternative, readable log-body
   allocation, and hiding the playback bar only when every typed action is
   unavailable; scope agreed, amendment and packet scheduled
-- [ADR 0023 migration plan](plans/adr-0023-design-system-migration.md):
+- ADR 0023 migration plan:
   remaining design-system and view-model work
-- [Discovery and Library UI fixes plan](plans/discovery-library-ui-fixes.md):
+- Discovery and Library UI fixes plan:
   follow-up plan for search, recents, shared headers, compare actions, and scrolling
-- [Library / Index data parity follow-up plan](plans/adr-0024-library-index-data-parity-follow-up-plan.md):
+- Library / Index data parity follow-up plan:
   routed loading-shape slices from the ADR 0052 triage
-- [Inspector source ownership plan](plans/inspector-source-ownership-phase-plan.md):
+- Inspector source ownership plan:
   active follow-up plan for ContentList inspector ownership regressions
-- [Active-frame search dispatch plan](plans/active-frame-search-dispatch-plan.md):
+- Active-frame search dispatch plan:
   superseded focused-frame toolbar search routing plan
-- [Pre-UI and download manager preparation plan](plans/pre-ui-download-prep.md):
+- Pre-UI and download manager preparation plan:
   service, schema, and CLI work before a UI/download revamp
 - [Curator workflow UI design brief](plans/curator-workflow-ui-design-brief.md):
   advisory product intent for `Music`, `Show`, mode-aware readiness, live
@@ -165,41 +165,41 @@ Current plans:
 - [Broadcast chain delivery order](plans/broadcast-chain-delivery-order.md):
   the only cross-repository order. Read it before starting a session on the
   broadcast work; also records the UTC log timestamp follow-up
-- [ADR 0059 broadcast control surface phase plan](plans/adr-0059-broadcast-control-surface-phase-plan.md):
+- ADR 0059 broadcast control surface phase plan:
   phased delivery for the `Broadcast` frame, the event registry, service
   control, and the `mpv` drop-file producer
 
 Current implementation packets:
 
-- ADR 0039: [task 001](tasks/adr-0039-task-001-scale-domains-and-type-curves.md),
-  [task 002](tasks/adr-0039-task-002-fixed-height-reserve-and-acceptance.md)
-  and [task 003](tasks/adr-0039-task-003-type-curve-ratification.md).
+- ADR 0039: [task 001](tasks/archive/adr-0039-task-001-scale-domains-and-type-curves.md),
+  [task 002](tasks/archive/adr-0039-task-002-fixed-height-reserve-and-acceptance.md)
+  and [task 003](tasks/archive/adr-0039-task-003-type-curve-ratification.md).
   All three packets are complete on 2026-09-18. Mechanical checks are Green.
   The [review checklist](reviews/adr-0039-review-checklist.md) records V1–V13,
   inferred preservation and confirmed fixture removal.
-- [ADR 0063 task 005: Shared log frames and following](tasks/adr-0063-task-005-shared-log-frames-and-following.md):
+- [ADR 0063 task 005: Shared log frames and following](tasks/archive/adr-0063-task-005-shared-log-frames-and-following.md):
   complete on 2026-09-13 with mechanical checks Green; [operator V1–V3 and editor follow-ups](runbooks/log-frame-check.md),
   final preservation and fixture cleanup accepted; ADR 0066 task 007 is complete with acceptance recorded in its packet
 
-- [ADR 0066 task 013: Interrupted upgrade repair](tasks/adr-0066-task-013-interrupted-upgrade-repair.md):
+- [ADR 0066 task 013: Interrupted upgrade repair](tasks/archive/adr-0066-task-013-interrupted-upgrade-repair.md):
   complete on 2026-09-18; mechanical checks Green; operator V1–V3, ADR 0074
   presentation, preservation and cleanup accepted
-- [ADR 0066 task 009: Conversion retry and retained input](tasks/adr-0066-task-009-conversion-retry-and-retained-input.md):
+- [ADR 0066 task 009: Conversion retry and retained input](tasks/archive/adr-0066-task-009-conversion-retry-and-retained-input.md):
   complete on 2026-09-17 with mechanical checks Green; [operator V1–V3](runbooks/startup-recovery-check.md#task-009-conversion-retry-and-retained-input),
   normal/narrow presentation, configuration restoration, preservation and
   cleanup accepted; original input, metadata edits and one binding
   survive explicit converter repair/retry
-- [ADR 0066 task 008: Converter verification and setup](tasks/adr-0066-task-008-converter-verification-and-setup.md):
+- [ADR 0066 task 008: Converter verification and setup](tasks/archive/adr-0066-task-008-converter-verification-and-setup.md):
   complete on 2026-09-17 with shared Settings/recovery setup and fresh bounded probes;
   mechanical checks Green; [operator V1–V3 and presentation](runbooks/startup-recovery-check.md#task-008-converter-verification-and-setup),
   preservation in both cases and fixture cleanup accepted
-- [ADR 0066 task 005: Session drain and resumption](tasks/adr-0066-task-005-session-drain-and-resumption.md):
-  complete with mechanical checks Green, [operator V1–V3 and preservation](tasks/adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11)
+- [ADR 0066 task 005: Session drain and resumption](tasks/archive/adr-0066-task-005-session-drain-and-resumption.md):
+  complete with mechanical checks Green, [operator V1–V3 and preservation](tasks/archive/adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11)
   accepted, and fixture cleanup confirmed
-- [ADR 0066 task 006: Configuration repair and resumption](tasks/adr-0066-task-006-configuration-repair-and-resumption.md):
+- [ADR 0066 task 006: Configuration repair and resumption](tasks/archive/adr-0066-task-006-configuration-repair-and-resumption.md):
   complete on 2026-09-13 with mechanical checks Green, operator V1–V6 and
   preservation accepted, and fixture cleanup confirmed
-- [ADR 0069 task 001: Grouped Settings foundation](tasks/adr-0069-task-001-grouped-settings-foundation.md):
+- [ADR 0069 task 001: Grouped Settings foundation](tasks/archive/adr-0069-task-001-grouped-settings-foundation.md):
   General, Library and Diagnostics using current fields and save behavior;
   complete with mechanical checks Green, [operator acceptance](runbooks/settings-foundation-check.md),
   preservation inspection and fixture cleanup
@@ -211,10 +211,10 @@ Current implementation packets:
   cleanup remain open. Tasks 001–003 are complete, including
   operator acceptance and fixture cleanup. The [phase plan](plans/adr-0066-startup-recovery-phase-plan.md#sequence-and-stopping-points)
   lists all thirteen packets and dependencies
-- [Show action feedback task 001](tasks/show-action-feedback-task-001-command-state-and-result.md):
+- [Show action feedback task 001](tasks/archive/show-action-feedback-task-001-command-state-and-result.md):
   complete with operator acceptance on 2026-09-10; the
   [isolated feedback fixture](runbooks/show-action-feedback-fixture.py) remains for regression checks
-- [ADR 0059 task 017: Compact event controls and badges](tasks/adr-0059-task-017-compact-event-controls-and-badges.md):
+- [ADR 0059 task 017: Compact event controls and badges](tasks/archive/adr-0059-task-017-compact-event-controls-and-badges.md):
   complete with mechanical checks Green, operator acceptance, and fixture
   cleanup on 2026-09-10; layout and log follow-ups remain separately documented
 

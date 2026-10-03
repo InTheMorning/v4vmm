@@ -4,7 +4,7 @@
 
 Implemented - 2026-09-15. Implementation, mechanical verification, available
 X11 operator checks, preservation and cleanup are complete in
-[task 001](../../tasks/adr-0071-task-001-shared-text-selection.md). IME composition
+[task 001](../../tasks/archive/adr-0071-task-001-shared-text-selection.md). IME composition
 and Wayland remain untested coverage limits.
 ADR 0063 task 005 and ADR 0069 task 001 remain complete.
 
@@ -89,7 +89,7 @@ the editor's Escape focus transfer retain their existing owners.
 
 The pre-release GPUI channel requires deliberate dependency updates. The isolated
 migration check records the actual API changes and toolchain requirement in the
-[task packet](../../tasks/adr-0071-task-001-shared-text-selection.md).
+[task packet](../../tasks/archive/adr-0071-task-001-shared-text-selection.md).
 The narrow gpui-base fork exception and its removal criteria are owned by
 [ADR 0072](0072-pinned-gpui-base-selection-corrections.md).
 

@@ -4,11 +4,11 @@
 
 - `docs/adr/0035-track-surface-consolidation.md`
 - `docs/plans/adr-0035-track-surface-consolidation-phase-plan.md`
-- `docs/tasks/adr-0035-task-001-track-detail-vm-contract.md`
-- `docs/tasks/adr-0035-task-002-track-detail-surface-composite.md`
-- `docs/tasks/adr-0035-task-003-discover-track-surface-migration.md`
-- `docs/tasks/adr-0035-task-004-library-track-surface-migration.md`
-- `docs/tasks/adr-0035-task-005-guards-and-visual-gate.md`
+- `docs/tasks/archive/adr-0035-task-001-track-detail-vm-contract.md`
+- `docs/tasks/archive/adr-0035-task-002-track-detail-surface-composite.md`
+- `docs/tasks/archive/adr-0035-task-003-discover-track-surface-migration.md`
+- `docs/tasks/archive/adr-0035-task-004-library-track-surface-migration.md`
+- `docs/tasks/archive/adr-0035-task-005-guards-and-visual-gate.md`
 
 ## Gate Status
 

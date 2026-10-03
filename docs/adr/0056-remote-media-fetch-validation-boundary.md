@@ -11,7 +11,7 @@ complete.
 
 Amended 2026-10-03: the operator removed the enclosure length check. A declared enclosure byte count is a publisher claim, and the app reads it from MusicIndex, which is a cache of RSS (ADR 0075 Decision I).
 On 2026-10-03 that check rejected two good HeyCitizen files. One file was larger and one was smaller than the declared count. Container detection stays the content check.
-[Task 005](../tasks/adr-0056-task-005-remove-enclosure-length-check.md) implemented this amendment on 2026-10-03.
+[Task 005](../tasks/archive/adr-0056-task-005-remove-enclosure-length-check.md) implemented this amendment on 2026-10-03.
 
 ## Context
 
@@ -281,15 +281,15 @@ Negative / risks:
 Task packets 001-004 are implemented together in one change. The packets remain
 as the record of what each layer was responsible for.
 
-1. `docs/tasks/adr-0056-task-001-remote-media-transport-module.md` - done.
+1. `docs/tasks/archive/adr-0056-task-001-remote-media-transport-module.md` - done.
    `src/remote_media.rs` owns transport. All five media fetch sites migrated,
    including the previously missed transcript path.
-2. `docs/tasks/adr-0056-task-002-image-classification-owner.md` - done.
+2. `docs/tasks/archive/adr-0056-task-002-image-classification-owner.md` - done.
    `src/media/image_type.rs` owns image classification. All four silent JPEG
    default paths removed.
-3. `docs/tasks/adr-0056-task-003-artifact-content-policy.md` - done. Enclosure
+3. `docs/tasks/archive/adr-0056-task-003-artifact-content-policy.md` - done. Enclosure
    container validation and transcript markup rejection.
-4. `docs/tasks/adr-0056-task-004-remote-fetch-boundary-guard.md` - done. Seven
+4. `docs/tasks/archive/adr-0056-task-004-remote-fetch-boundary-guard.md` - done. Seven
    guards in `tests/architecture_tests.rs`.
 
 Reviewed in `docs/reviews/adr-0056-implementation-review.md`. That one document

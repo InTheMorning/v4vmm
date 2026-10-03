@@ -3,7 +3,7 @@
 ## Reviewed Artifact
 
 - `src/api.rs`
-- `docs/tasks/adr-0030-task-001-backslash-search.md`
+- `docs/tasks/archive/adr-0030-task-001-backslash-search.md`
 
 ## Pass/Fail
 

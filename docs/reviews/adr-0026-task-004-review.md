@@ -2,7 +2,7 @@
 
 ## Reviewed Artifact
 
-- Task packet: `docs/tasks/adr-0026-task-004-discover-projection-adoption.md`
+- Task packet: `docs/tasks/archive/adr-0026-task-004-discover-projection-adoption.md`
 - Diff scope: `ui_feed::render_feed_view` shell adoption and new shell override
   slots in `src/ui_entity.rs`.
 

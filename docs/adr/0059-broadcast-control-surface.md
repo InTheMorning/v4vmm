@@ -19,9 +19,9 @@ The operator confirmed fixture cleanup, closing task 017's final gate and
 returning this ADR to Implemented. The packet retains the narrow-window
 limitation as deferred work; no operator acceptance check for this ADR remains open.
 
-Amended 2026-09-10: [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md)
+Amended 2026-09-10: [Show action feedback task 001](../tasks/archive/show-action-feedback-task-001-command-state-and-result.md)
 corrects stale service-state flashes and disappearing stream controls. Its
-[verification inventory](../tasks/show-action-feedback-task-001-command-state-and-result.md#verification)
+[verification inventory](../tasks/archive/show-action-feedback-task-001-command-state-and-result.md#verification)
 names the situational guards for command ownership and read-start freshness;
 operator acceptance passed on 2026-09-10.
 
@@ -30,7 +30,7 @@ per-item status, and on-demand diagnostics after finding the accepted event row
 too tall. This amendment also corrects attachment matching against an unused
 target, extends Check to known event states, and keeps passive checks from
 invalidating confirmed readiness merely by starting.
-[Task 017](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md) owns
+[Task 017](../tasks/archive/adr-0059-task-017-compact-event-controls-and-badges.md) owns
 implementation and the acceptance walkthrough; ADR 0063 owns the arrangement.
 
 Clarified 2026-09-09 after packet review: configured-target attachment and
@@ -39,7 +39,7 @@ execution sequence and source locations; this record owns their contract.
 
 Tasks 001-015 are verified by the
 [implementation review](../reviews/adr-0059-implementation-review.md).
-[Task 016](../tasks/adr-0059-task-016-event-row-in-live-metadata.md) records Green
+[Task 016](../tasks/archive/adr-0059-task-016-event-row-in-live-metadata.md) records Green
 mechanical checks and operator acceptance of all event recovery checks in
 [the fixture walkthrough](../runbooks/broadcast-event-recovery-check.md).
 
@@ -73,7 +73,7 @@ liveness test already treats a `404` as a dead event for both modes.
 
 Supersedes ADR 0018 and ADR 0019. This ADR carries the live decision for the
 relay client surface. The work follows
-`docs/plans/adr-0059-broadcast-control-surface-phase-plan.md`.
+`docs/plans/adr-0059-broadcast-control-surface-phase-plan.md` (a deleted plan, in git history).
 
 Amended 2026-09-10: the operator requires Event reports to name the event and
 relay, explain the response and its consequence, and timestamp recorded
@@ -188,7 +188,7 @@ A dead entry stays in the registry, so an operator needs Replace as well as
 Create. Registration and checking have separate results because a failed query
 does not undo the identity the relay just issued. Attachment is a separate
 operator decision because it changes publisher configuration.
-[Task 016](../tasks/adr-0059-task-016-event-row-in-live-metadata.md) records the
+[Task 016](../tasks/archive/adr-0059-task-016-event-row-in-live-metadata.md) records the
 implementation and completed operator verification.
 
 ### Event Reports Name The Action And Outcome
@@ -252,7 +252,7 @@ has no publisher mutation capability; registry rows and token files are retained
 ### Event Actions Keep Independent Results
 
 The six `show_event_*recovery*` cases named in
-[task 017's assertion inventory](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#existing-assertions-to-update-in-the-implementation-change)
+[task 017's assertion inventory](../tasks/archive/adr-0059-task-017-compact-event-controls-and-badges.md#existing-assertions-to-update-in-the-implementation-change)
 retain the original registration/check separation and preservation proof.
 `show_event_unknown_check_retry_and_working_actions_are_typed`,
 `compact_event_passive_checks_and_mutations_have_distinct_readiness`, and
@@ -290,7 +290,7 @@ retained confirmation while pending and immediate application of independent
 read failures. `compact_event_context_revision_and_configured_detach_are_scoped`
 protects context changes. `adr_0059_event_target_commands_share_publisher_ownership`
 reuses the bounded fresh-observation policy from
-[Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md#verification).
+[Show action feedback task 001](../tasks/archive/show-action-feedback-task-001-command-state-and-result.md#verification).
 All are situational ADR 0059 guards, cited by the invariants below.
 
 ### Tokens Are Files
@@ -485,12 +485,12 @@ Negative and risks:
 
 ## Amendment Verification
 
-Task 017 is built. Its [verification inventory](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#verification)
+Task 017 is built. Its [verification inventory](../tasks/archive/adr-0059-task-017-compact-event-controls-and-badges.md#verification)
 records the mechanical checks and the named regression owners. Guard references
 above replace the implementation instructions they enforce, retaining the
 incident and decision rationale under ADR 0061.
 
-The [task 017 operator visual check](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check)
+The [task 017 operator visual check](../tasks/archive/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check)
 is the passed situational ADR 0059 manual check for readiness feedback and usable
 recovery. It also serves the separately identified ADR 0063 presentation checks.
 Tests can prove state kinds and command effects but cannot establish that a
@@ -503,7 +503,7 @@ layout/log observations.
 ## Follow-Up Work
 
 - Layout, log readability, following, and timestamp consistency remain
-  separate follow-ups recorded in [task 017](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check)
+  separate follow-ups recorded in [task 017](../tasks/archive/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check)
   and its linked plans; they are not open acceptance gates on this amendment.
 
 - `splitkit`: add long-lived live items. Weekly shows and permanent stations
@@ -523,4 +523,4 @@ layout/log observations.
 - ADR 0057 - ADR status vocabulary and amendment policy
 - ADR 0058 - Outbound HTTP client policy
 - `musicindex-live-publisher` ADR 0002 - Now-playing drop-file contract
-- `docs/plans/adr-0059-broadcast-control-surface-phase-plan.md`
+- `docs/plans/adr-0059-broadcast-control-surface-phase-plan.md` (a deleted plan, in git history)

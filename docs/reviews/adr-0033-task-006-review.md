@@ -2,7 +2,7 @@
 
 ## Reviewed artifact
 
-- Task packet: `docs/tasks/adr-0033-task-006-action-row-composite.md`
+- Task packet: `docs/tasks/archive/adr-0033-task-006-action-row-composite.md`
 - Diff scope: shared action-row composite, Library/Discover wiring, feed-detail caller update, and architecture baseline removal.
 
 ## Result

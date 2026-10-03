@@ -7,7 +7,7 @@ Pass - 2026-05-01.
 ## Scope
 
 - `src/db.rs`
-- `docs/tasks/adr-0029-task-002-artist-source-schema.md`
+- `docs/tasks/archive/adr-0029-task-002-artist-source-schema.md`
 
 ## Findings
 

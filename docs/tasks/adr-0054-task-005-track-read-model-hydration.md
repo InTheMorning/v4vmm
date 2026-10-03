@@ -26,7 +26,7 @@ renderer fallbacks.
 
 - `docs/adr/0054-local-metadata-source-fact-persistence.md`
 - `docs/plans/adr-0054-local-metadata-source-fact-persistence-phase-plan.md`
-- `docs/tasks/adr-0054-task-003-musicindex-track-metadata-ingest.md`
+- `docs/tasks/archive/adr-0054-task-003-musicindex-track-metadata-ingest.md`
 - `docs/tasks/adr-0054-task-004-feed-read-model-hydration.md`
 - `src/db.rs`
 - `src/local_metadata.rs`

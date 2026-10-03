@@ -3,15 +3,15 @@
 ## Reviewed Artifacts
 
 - `docs/adr/archive/0038-presentation-contract-enforcement.md`
-- `docs/plans/adr-0038-presentation-contract-enforcement-phase-plan.md`
-- `docs/tasks/adr-0038-task-001-layer-relocation.md`
-- `docs/tasks/adr-0038-task-002-composite-display-contract-audit.md`
-- `docs/tasks/adr-0038-task-003-library-search-vm-consolidation.md`
-- `docs/tasks/adr-0038-task-004-dark-mode-parity-audit.md`
-- `docs/tasks/adr-0038-task-005-accessibility-label-contract.md`
-- `docs/tasks/adr-0038-task-006-page-vm-generalization.md`
-- `docs/tasks/adr-0038-task-007-screen-decomposition.md`
-- `docs/tasks/adr-0038-task-008-final-sweep-and-readiness-gate.md`
+- `docs/plans/adr-0038-presentation-contract-enforcement-phase-plan.md` (a deleted plan, in git history)
+- `docs/tasks/archive/adr-0038-task-001-layer-relocation.md`
+- `docs/tasks/archive/adr-0038-task-002-composite-display-contract-audit.md`
+- `docs/tasks/archive/adr-0038-task-003-library-search-vm-consolidation.md`
+- `docs/tasks/archive/adr-0038-task-004-dark-mode-parity-audit.md`
+- `docs/tasks/archive/adr-0038-task-005-accessibility-label-contract.md`
+- `docs/tasks/archive/adr-0038-task-006-page-vm-generalization.md`
+- `docs/tasks/archive/adr-0038-task-007-screen-decomposition.md`
+- `docs/tasks/archive/adr-0038-task-008-final-sweep-and-readiness-gate.md`
 
 ## Gate Status
 
@@ -470,7 +470,7 @@ clean architecture baseline.
   `// CONTROL-COMPAT(reason): ...` allowlist comments. No unmarked
   direct usage in screens or shells.
 - Confirmed superseded plans
-  (`docs/plans/one-owner-per-surface-plan.md`,
-  `docs/plans/post-adr-0033-ui-consolidation-plan.md`) drive no open
+  (`docs/plans/one-owner-per-surface-plan.md` (a deleted plan, in git history),
+  `docs/plans/post-adr-0033-ui-consolidation-plan.md` (a deleted plan, in git history)) drive no open
   work; their items either landed under ADR 0038 tasks 002/003/007
   or already roll up to the deferred-architecture-work index.

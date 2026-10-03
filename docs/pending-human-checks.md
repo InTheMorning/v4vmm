@@ -328,7 +328,7 @@ Open and paused - implementation, technical review, and mechanical checks are co
 Closed - the operator decided all seven policies on 2026-09-21, and two more on 2026-09-22. This group requested no visual
 check and no app launch. The implementation and its checks stay with the packet.
 
-- Owner: [packet 018](tasks/adr-0075-task-018-request-reuse-and-freshness.md#accepted-policies---2026-09-21).
+- Owner: [packet 018](tasks/archive/adr-0075-task-018-request-reuse-and-freshness.md#accepted-policies---2026-09-21).
 - P18-1: reuse a successful Library track detail response for 30 minutes.
 - P18-2: reuse a successful feed response for 15 minutes, for each distinct include list.
 - P18-3: reuse a parsed RSS document for 15 minutes, keyed by its feed URL.
@@ -348,19 +348,19 @@ Changes 1, 2, and 3 are verified against the deployed API. Two questions stay op
 landed change still needs its own packet. This group needs no visual check and no app
 launch.
 
-- Owner: the [API change request](plans/musicindex-api-change-request.md).
+- Owner: the [open Stophammer requests](plans/v4vmm-open-requests.md).
 - Change 1: return summary fields with search results.
 - Change 2: return track and feed artwork as separate fields.
 - Change 3: record which element supplied a feed publication date.
 - Change 4: never rename a response field without a version.
 - The request also asks which revision is deployed. The inspected revision is `a220f44` in a local checkout.
-- Changes 1, 2, and 3 are live, and the [verification](plans/musicindex-api-change-request.md#verification-against-the-deployed-api) records the evidence.
+- Changes 1, 2, and 3 are live, and the verification (a deleted plan, in git history) records the evidence.
 - Change 4 is a release policy. No external check can prove it.
 - Open question: the new `last_build_date` claim type has no accepted field rule in this app.
 - Open question: `Feed.name`, `Track.name`, `Track.artist_credit`, and `Track.feed_url` no longer arrive. Ask Stophammer whether they were removed, renamed, or null in every sampled row.
 - The deployed revision stays unconfirmed. The published contract declares a static version string.
 - This client implements none of the three landed changes. Each one needs its own packet.
-- The [answer table](plans/musicindex-api-change-request.md#what-each-answer-changes-here) records the work that each landed change releases.
+- The answer table (a deleted plan, in git history) records the work that each landed change releases.
 
 ## 12. Library Artist View Without Artist Storage — ADR 0077 Task 001
 

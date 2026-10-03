@@ -2,11 +2,11 @@
 
 ## Reviewed Artifacts
 
-- `docs/plans/one-owner-per-surface-plan.md`
-- `docs/tasks/one-owner-per-surface-task-001-recents-surface-ownership.md`
-- `docs/tasks/one-owner-per-surface-task-002-fallback-display-accessors.md`
-- `docs/tasks/one-owner-per-surface-task-003-composite-display-contract-audit.md`
-- `docs/tasks/one-owner-per-surface-task-004-feature-readiness-gate.md`
+- `docs/plans/one-owner-per-surface-plan.md` (a deleted plan, in git history)
+- `docs/tasks/archive/one-owner-per-surface-task-001-recents-surface-ownership.md`
+- `docs/tasks/archive/one-owner-per-surface-task-002-fallback-display-accessors.md`
+- `docs/tasks/archive/one-owner-per-surface-task-003-composite-display-contract-audit.md`
+- `docs/tasks/archive/one-owner-per-surface-task-004-feature-readiness-gate.md`
 
 ## Gate Status
 

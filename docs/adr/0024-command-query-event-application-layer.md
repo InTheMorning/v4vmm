@@ -563,7 +563,7 @@ This ADR is fulfilled when:
 - ADR 0041 - Windowed Paged View-Models (memory shape for queries).
 - `docs/architecture/architecture-diagrams.md` - current and ideal mermaid
   diagrams.
-- `docs/plans/adr-0023-design-system-migration.md` - completed ADR 0023 work
+- `docs/plans/adr-0023-design-system-migration.md` (a deleted plan, in git history) - completed ADR 0023 work
   and deferred command/query/event architecture.
-- `docs/plans/adr-0023-finalization-plan.md` - final ADR 0023 implementation
+- `docs/plans/adr-0023-finalization-plan.md` (a deleted plan, in git history) - final ADR 0023 implementation
   sequence and deferred screen split.

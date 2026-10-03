@@ -28,7 +28,7 @@ It changes no parser code, no application code, and no database schema.
 - [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md)
 - [Phase plan](../plans/adr-0075-metadata-contract-phase-plan.md), the Packet Register section
 - [Review](../reviews/adr-0075-metadata-contract-review.md)
-- [Task 001](adr-0075-task-001-contributor-claim-transport.md), especially its Supplied Response section
+- [Task 001](archive/adr-0075-task-001-contributor-claim-transport.md), especially its Supplied Response section
 - `src/rss/enrich.rs`, functions `nostr_from_extensions` and `nostr_from_extension`
 - `src/rss/subscribe.rs`, functions `rss_feed_link_inputs`, `rss_track_link_inputs`, and `contributor_inputs_from_extensions`
 - `src/api.rs`, the `Track`, `Feed`, and `Contributor` types, and function `track_with_feed_defaults`

@@ -12,7 +12,7 @@ Reviewed [ADR 0059](../adr/0059-broadcast-control-surface.md),
 [ADR 0063](../adr/0063-show-dashboard-layout.md), the
 [current ADR index](../adr/README.md), the
 [delivery order](../plans/broadcast-chain-delivery-order.md), and
-[task 016](../tasks/adr-0059-task-016-event-row-in-live-metadata.md).
+[task 016](../tasks/archive/adr-0059-task-016-event-row-in-live-metadata.md).
 Compared the packet with the registry API, actual event/attachment/service
 enums, Show refresh path, and existing guard. This is the current review result.
 

@@ -11,7 +11,7 @@ The evidence store records each image with its owner.
 ## Authority
 
 - [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md) Decision C, section 4, and the accepted track-artwork source order of 2026-09-20.
-- [MusicIndex API change request](../plans/musicindex-api-change-request.md) change 2, live since 2026-09-23.
+- MusicIndex API change request change 2, live since 2026-09-23.
 - Stophammer ADR 0042: a response that carries a track gives `track_image_url` and `feed_image_url` beside the resolved `image_url`.
 
 ## Recorded Facts - 2026-09-29

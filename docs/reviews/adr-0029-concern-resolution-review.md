@@ -7,10 +7,10 @@ Pass - 2026-05-01.
 ## Scope
 
 - `docs/adr/archive/0029-artist-person-identity-persistence.md`
-- `docs/plans/adr-0029-artist-person-identity-persistence-phase-plan.md`
+- `docs/plans/adr-0029-artist-person-identity-persistence-phase-plan.md` (a deleted plan, in git history)
 - `docs/plans/deferred-architecture-work-index.md`
 - `docs/reviews/adr-0029-review-checklist.md`
-- `docs/tasks/adr-0029-task-002-artist-source-schema.md`
+- `docs/tasks/archive/adr-0029-task-002-artist-source-schema.md`
 - `docs/reviews/adr-0029-task-002-review.md`
 - `src/db.rs` as implemented by `ce9cc6b`
 

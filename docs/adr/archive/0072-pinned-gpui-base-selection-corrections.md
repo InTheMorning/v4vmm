@@ -4,7 +4,7 @@
 
 Implemented - 2026-09-15. Fork publication, dependency integration, mechanical
 verification, focused X11 checks, preservation and cleanup are complete in
-[ADR 0071 task 001](../../tasks/adr-0071-task-001-shared-text-selection.md).
+[ADR 0071 task 001](../../tasks/archive/adr-0071-task-001-shared-text-selection.md).
 This decision replaces only ADR 0071's published-gpui-base restriction and
 PRIMARY-only fork fallback. Its shared ownership and acceptance requirements
 remain binding. No upstream issue or PR submission is authorized.

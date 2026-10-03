@@ -12,7 +12,7 @@ transitional whole-screen Library/Search/Settings mount from exposing fake
 ## Files to Inspect
 
 - `docs/adr/0046-workspace-frame-architecture.md`
-- `docs/tasks/adr-0046-task-012-frame-add-remove-and-persistence.md`
+- `docs/tasks/archive/adr-0046-task-012-frame-add-remove-and-persistence.md`
 - `src/ui/composites/frame_shell.rs`
 - `src/ui/shells/workspace.rs`
 - `src/app.rs` (keybinding registration)
@@ -118,7 +118,7 @@ Implement only this task. Do not redesign the architecture.
 
 Read:
 - `docs/adr/0046-workspace-frame-architecture.md`
-- `docs/tasks/adr-0046-task-012-frame-add-remove-and-persistence.md`
+- `docs/tasks/archive/adr-0046-task-012-frame-add-remove-and-persistence.md`
 - `src/ui/composites/frame_shell.rs`
 - `src/ui/shells/workspace.rs`
 - `src/app.rs`

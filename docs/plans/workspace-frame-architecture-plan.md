@@ -104,7 +104,7 @@ cross-frame navigation.
 Deliverables:
 
 - `docs/adr/0046-workspace-frame-architecture.md` or next available ADR number
-- `docs/plans/adr-0046-workspace-frame-architecture-phase-plan.md`
+- `docs/plans/adr-0046-workspace-frame-architecture-phase-plan.md` (a deleted plan, in git history)
 - first implementation task packet and review checklist
 
 ### Phase 2 - Workspace State Without Visual Overhaul

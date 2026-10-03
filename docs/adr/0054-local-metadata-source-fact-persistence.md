@@ -156,4 +156,4 @@ Negative / risks:
 - ADR 0029 - Artist identity persistence
 - ADR 0052 - Library / Index data parity triage
 - ADR 0053 - Local detail source-fact parity
-- `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md`
+- `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md` (a deleted plan, in git history)

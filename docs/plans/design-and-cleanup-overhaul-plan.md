@@ -36,6 +36,7 @@ Each binding change in it needs its own ADR or ADR amendment before code changes
 1. ADR triage. Parallel read-only agents classify each ADR. The operator decides each row. One commit archives each batch. [Triage record](../reviews/adr-triage-2026-10-03.md).
    Decided on 2026-10-03: 25 ADRs archived. ADR 0078 archives with ADR 0082 packet 002.
 2. Remove completed task documents and completed plans from the reading path. Version control keeps them.
+   Done on 2026-10-03: 265 task documents moved to `docs/tasks/archive/`, and 40 plans deleted. 51 open tasks and 22 plans stay.
 3. Guard audit. Delete each guard that cites a superseded ADR. A guard of an ADR that archived because each rule is enforced stays.
 4. Retire each pending check whose requirement a later decision replaced.
 5. Rewrite `AGENTS.md` to the present only: what the project is, where the work stands, the philosophy and the working rules.

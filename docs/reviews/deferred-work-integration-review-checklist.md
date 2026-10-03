@@ -2,12 +2,12 @@
 
 ## Reviewed Artifacts
 
-- `docs/tasks/deferred-work-integration-task-001-status-reconciliation.md`
+- `docs/tasks/archive/deferred-work-integration-task-001-status-reconciliation.md`
 - `docs/plans/deferred-architecture-work-index.md`
 - `docs/reviews/adr-0038-review-checklist.md`
 - `docs/adr/0040-async-vm-runtime.md`
 - `docs/adr/0041-windowed-paged-view-models.md`
-- `docs/tasks/library-playlist-inline-rename-task-001.md`
+- `docs/tasks/archive/library-playlist-inline-rename-task-001.md`
 - `src/ui/shells/library/playlist_detail.rs`
 
 ## Gate Status

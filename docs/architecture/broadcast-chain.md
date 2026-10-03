@@ -153,7 +153,7 @@ A control API in the publisher is future work. The liquidsoap work needs it.
 ## References
 
 - `docs/adr/0059-broadcast-control-surface.md`
-- `docs/plans/adr-0059-broadcast-control-surface-phase-plan.md`
+- `docs/plans/adr-0059-broadcast-control-surface-phase-plan.md` (a deleted plan, in git history)
 - `musicindex-live-publisher`: `docs/adr/0002-nowplaying-drop-file-contract.md`
 - `musicindex-live-publisher`: `docs/architecture/broadcast-chain-boundaries.md`
 - `splitkit`: `README.md` and `docs/interoperability.md`

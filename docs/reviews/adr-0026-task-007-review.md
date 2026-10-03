@@ -2,7 +2,7 @@
 
 ## Reviewed Artifact
 
-- Task packet: `docs/tasks/adr-0026-task-007-cleanup-and-gates.md`
+- Task packet: `docs/tasks/archive/adr-0026-task-007-cleanup-and-gates.md`
 - Diff scope: ADR/phase-plan status cleanup and architecture-test gate.
 
 ## Verdict

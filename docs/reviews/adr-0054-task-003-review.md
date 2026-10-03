@@ -4,7 +4,7 @@ Date: 2026-05-18
 
 ## Reviewed Artifacts
 
-- `docs/tasks/adr-0054-task-003-musicindex-track-metadata-ingest.md`
+- `docs/tasks/archive/adr-0054-task-003-musicindex-track-metadata-ingest.md`
 - `src/identity_ingest.rs`
 - `src/subscribe_service.rs`
 

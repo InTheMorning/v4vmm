@@ -39,7 +39,7 @@ It defines the rules that packets 011 and 017 must follow.
   [An Empty Refresh Can Leave Old Index Facts](../reviews/adr-0075-metadata-contract-review.md#an-empty-refresh-can-leave-old-index-facts)
   and
   [Repeated Requests Can Still Omit Required Facts](../reviews/adr-0075-metadata-contract-review.md#repeated-requests-can-still-omit-required-facts)
-- [Task 001](adr-0075-task-001-contributor-claim-transport.md), the field
+- [Task 001](archive/adr-0075-task-001-contributor-claim-transport.md), the field
   contract for `api::Contributor`
 - The deliverable of packet 002, the shared example corpus. Confirm its path
   first. Packet 002 did not exist when this packet was written.

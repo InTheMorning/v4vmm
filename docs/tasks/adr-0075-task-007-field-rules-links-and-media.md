@@ -64,7 +64,7 @@ not exist when this packet was written.
   and
   [Source Order Can Select The Displayed Identity](../reviews/adr-0075-metadata-contract-review.md#source-order-can-select-the-displayed-identity)
 
-- [Task 001](adr-0075-task-001-contributor-claim-transport.md), for this
+- [Task 001](archive/adr-0075-task-001-contributor-claim-transport.md), for this
   packet's tone and level of detail
 
 - `src/api.rs`: `Feed.source_links`, `Track.source_links`,

@@ -4,7 +4,7 @@
 
 Complete - 2026-09-19. The operator accepted all Light/Dark visual checks
 and confirmed fixture cleanup.
-[Task 003](../tasks/adr-0044-task-003-playlist-reorder-guards-visual.md) is complete.
+[Task 003](../tasks/archive/adr-0044-task-003-playlist-reorder-guards-visual.md) is complete.
 ADR 0044 is Implemented. No gate under this ADR remains open.
 
 ## Requirement Disposition

@@ -2,7 +2,7 @@
 
 ## Reviewed Artifact
 
-- Task packet: `docs/tasks/adr-0025-task-007-profile-specific-theme-roles.md`
+- Task packet: `docs/tasks/archive/adr-0025-task-007-profile-specific-theme-roles.md`
 - Diff scope: profile-specific semantic color resolver, high-contrast palettes,
   `theme_bridge` installation, `Environment` profile propagation, `ui::style`
   compatibility color routing, and contrast tests.

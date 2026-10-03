@@ -4,7 +4,7 @@
 
 Accepted - 2026-09-24. The operator accepted this ADR on 2026-09-24.
 The operator gave the direction of Decisions 1, 3 and 4 on 2026-09-23.
-The [publisher relationship request](../plans/stophammer-publisher-relationship-request.md) records that direction.
+The publisher relationship request records that direction.
 It keys an artist page on the publisher feed GUID, shows `role`, and selects the page type with the artist count.
 Decisions 2, 5, 6 and 7 and the text of each decision came with the draft of 2026-09-24.
 
@@ -39,7 +39,7 @@ Name text is not an identity. Two artists can have the same name, and one artist
 Stophammer ADR 0049 changed `publisher_text` to the `itunes:owner` name.
 On 2026-09-24, `/v1/publishers` gave 7,352 feeds for "Wavlake". A page for that text shows the feed writer, not an artist or a label.
 
-Stophammer ADR 0049 is live on 2026-09-24. The [verification](../plans/stophammer-publisher-relationship-request.md#verification-against-the-deployed-api) records the fields.
+Stophammer ADR 0049 is live on 2026-09-24. The verification (a deleted plan, in git history) records the fields.
 An album feed with `include=publisher` gives one entry for each related publisher feed. The entry gives:
 
 - `publisher_feed_guid`, the `podcast:guid` of the publisher feed,

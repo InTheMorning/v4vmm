@@ -3,7 +3,7 @@
 ## Status And Authority
 
 Technical design reviewed - 2026-09-20. Orchestrator review passed after corrections.
-[Packet 011](../tasks/adr-0075-task-011-provider-snapshot-schema.md) owns this document.
+[Packet 011](../tasks/archive/adr-0075-task-011-provider-snapshot-schema.md) owns this document.
 This document changes no database or application behavior.
 
 [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md) requires separate providers, declared owners, complete collection replacement, and retained raw evidence.

@@ -21,7 +21,7 @@ None.
 1. `tests/architecture_tests.rs` — add four new guards (see below).
 2. `docs/reviews/adr-0038-review-checklist.md` — update Task 007 row,
    add per-surface ledger entries, list automated check commands.
-3. `docs/tasks/adr-0038-task-007-screen-decomposition.md` — change
+3. `docs/tasks/archive/adr-0038-task-007-screen-decomposition.md` — change
    Status to "Completed on YYYY-MM-DD" with a Completed Slices
    section listing each L*/D*/F slice and its commit SHA.
 

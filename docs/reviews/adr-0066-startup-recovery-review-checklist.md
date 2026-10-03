@@ -52,24 +52,24 @@ the ADR. They describe proof to obtain, not proof already obtained.
 
 | Requirement | Concrete packet |
 |---|---|
-| Every startup stage has a disposition, including nonfatal activation and programmer invariants | [002](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md#startup-stage-inventory), with 003/004 follow-through |
-| Read/list/write/read-back/remove music probe; absent mount and download-only subtree distinguished | [002](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md) |
-| Configured SQLite read/write/schema checks, bounded locks, fresh DB preparation | [002](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md) |
-| Invalid core versus each invalid optional field/table and valid siblings | [001](../tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md), [004](../tasks/adr-0066-task-004-optional-tool-isolation.md) |
-| Byte preservation across failure, ordinary saves, first-run race/symlink/cleanup | [001](../tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md) |
-| Explicit backup-protected config repair, editor conflicts, fresh validation before autosave | [006](../tasks/adr-0066-task-006-configuration-repair-and-resumption.md) |
-| Snapshot remains coherent when file changes after read | [001](../tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md), [004](../tasks/adr-0066-task-004-optional-tool-isolation.md) |
-| Independent work survives optional failure; CLI/keyboard/toolbar guards cannot bypass scope | [003](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md), [004](../tasks/adr-0066-task-004-optional-tool-isolation.md), [007](../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md) |
-| Missing converter becomes available in same process; real fallback/warning outcome | [008](../tasks/adr-0066-task-008-converter-verification-and-setup.md), [009](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md) |
-| Same-track repair/retry, staging validation/cleanup, no duplicate materialization | [009](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md) |
-| Database tools without TopApp/runtime, check without migration, committed WAL backup | [010](../tasks/adr-0066-task-010-database-check-and-backup.md) |
-| Internal drain, extra connections, external writers, original/journal preservation | [005](../tasks/adr-0066-task-005-session-drain-and-resumption.md), [011](../tasks/adr-0066-task-011-database-maintenance-and-preservation.md) |
-| Invalid candidate, failed install, validation before resumption | [012](../tasks/adr-0066-task-012-database-restore.md) |
-| Same registry and ledger on fresh/migrated/interrupted upgrade; unsupported corruption refused | [013](../tasks/adr-0066-task-013-interrupted-upgrade-repair.md) |
-| Existing Null/absent producer/lazy mpv/presentation fallback and ADR 0064 skips survive | [001](../tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md), [004](../tasks/adr-0066-task-004-optional-tool-isolation.md) |
+| Every startup stage has a disposition, including nonfatal activation and programmer invariants | [002](../tasks/archive/adr-0066-task-002-core-checks-and-startup-reports.md#startup-stage-inventory), with 003/004 follow-through |
+| Read/list/write/read-back/remove music probe; absent mount and download-only subtree distinguished | [002](../tasks/archive/adr-0066-task-002-core-checks-and-startup-reports.md) |
+| Configured SQLite read/write/schema checks, bounded locks, fresh DB preparation | [002](../tasks/archive/adr-0066-task-002-core-checks-and-startup-reports.md) |
+| Invalid core versus each invalid optional field/table and valid siblings | [001](../tasks/archive/adr-0066-task-001-config-snapshot-and-safe-persistence.md), [004](../tasks/adr-0066-task-004-optional-tool-isolation.md) |
+| Byte preservation across failure, ordinary saves, first-run race/symlink/cleanup | [001](../tasks/archive/adr-0066-task-001-config-snapshot-and-safe-persistence.md) |
+| Explicit backup-protected config repair, editor conflicts, fresh validation before autosave | [006](../tasks/archive/adr-0066-task-006-configuration-repair-and-resumption.md) |
+| Snapshot remains coherent when file changes after read | [001](../tasks/archive/adr-0066-task-001-config-snapshot-and-safe-persistence.md), [004](../tasks/adr-0066-task-004-optional-tool-isolation.md) |
+| Independent work survives optional failure; CLI/keyboard/toolbar guards cannot bypass scope | [003](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md), [004](../tasks/adr-0066-task-004-optional-tool-isolation.md), [007](../tasks/archive/adr-0066-task-007-optional-tool-correction-and-retry.md) |
+| Missing converter becomes available in same process; real fallback/warning outcome | [008](../tasks/archive/adr-0066-task-008-converter-verification-and-setup.md), [009](../tasks/archive/adr-0066-task-009-conversion-retry-and-retained-input.md) |
+| Same-track repair/retry, staging validation/cleanup, no duplicate materialization | [009](../tasks/archive/adr-0066-task-009-conversion-retry-and-retained-input.md) |
+| Database tools without TopApp/runtime, check without migration, committed WAL backup | [010](../tasks/archive/adr-0066-task-010-database-check-and-backup.md) |
+| Internal drain, extra connections, external writers, original/journal preservation | [005](../tasks/archive/adr-0066-task-005-session-drain-and-resumption.md), [011](../tasks/archive/adr-0066-task-011-database-maintenance-and-preservation.md) |
+| Invalid candidate, failed install, validation before resumption | [012](../tasks/archive/adr-0066-task-012-database-restore.md) |
+| Same registry and ledger on fresh/migrated/interrupted upgrade; unsupported corruption refused | [013](../tasks/archive/adr-0066-task-013-interrupted-upgrade-repair.md) |
+| Existing Null/absent producer/lazy mpv/presentation fallback and ADR 0064 skips survive | [001](../tasks/archive/adr-0066-task-001-config-snapshot-and-safe-persistence.md), [004](../tasks/adr-0066-task-004-optional-tool-isolation.md) |
 | Partial repair error preserves completed changes and contains unvalidated bindings | [004](../tasks/adr-0066-task-004-optional-tool-isolation.md) |
-| Window close/failure, single-flight checks, stale callbacks and one resumption | [002](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md), [005](../tasks/adr-0066-task-005-session-drain-and-resumption.md), [006](../tasks/adr-0066-task-006-configuration-repair-and-resumption.md) |
-| Safe full-copy reports, multi-issue notice and recorded UTC | [002](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md), [003](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md), then each tool's VM tests |
+| Window close/failure, single-flight checks, stale callbacks and one resumption | [002](../tasks/archive/adr-0066-task-002-core-checks-and-startup-reports.md), [005](../tasks/archive/adr-0066-task-005-session-drain-and-resumption.md), [006](../tasks/archive/adr-0066-task-006-configuration-repair-and-resumption.md) |
+| Safe full-copy reports, multi-issue notice and recorded UTC | [002](../tasks/archive/adr-0066-task-002-core-checks-and-startup-reports.md), [003](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md), then each tool's VM tests |
 | Shared owner/token/VM paths and original architecture guard intent survive | Every packet; actual guard names recorded in its completion evidence |
 
 ## Packet Review Procedure
@@ -116,7 +116,7 @@ visual check.
 
 ## Task 001 Review — 2026-09-10
 
-Scope: [config snapshot and safe persistence](../tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md#implementation-and-proof).
+Scope: [config snapshot and safe persistence](../tasks/archive/adr-0066-task-001-config-snapshot-and-safe-persistence.md#implementation-and-proof).
 Green: formatting, cargo check, full cargo test and strict production Clippy.
 The suite passed 1,275 unit tests and 221 architecture tests; 10 existing
 documentation examples are ignored. No app launch or visual acceptance.
@@ -144,7 +144,7 @@ documentation examples are ignored. No app launch or visual acceptance.
 
 ## Task 002 Review — 2026-09-10
 
-Scope: [core checks and startup reports](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md#implementation-and-proof).
+Scope: [core checks and startup reports](../tasks/archive/adr-0066-task-002-core-checks-and-startup-reports.md#implementation-and-proof).
 Green: formatting, cargo check, strict production Clippy, build, 1,299 unit
 tests and 224 architecture guards. Ten existing documentation examples are
 ignored. The full suite required local sockets outside the sandbox; no source
@@ -188,7 +188,7 @@ Operator evidence received - 2026-09-10: the invalid-TOML report and preservatio
 inspection pass their text/data checks. The report names its path and parse
 location with recorded UTC; original config/music and migration records remain
 intact, with no probes. See the packet's
-[operator evidence](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md#operator-evidence--2026-09-10)
+[operator evidence](../tasks/archive/adr-0066-task-002-core-checks-and-startup-reports.md#operator-evidence--2026-09-10)
 for fixture identity and acceptance details. The operator confirmed the missing-folder error, its
 persistence after Check again, and unavailable Open app on a fresh verified
 fixture. The operator then confirmed preservation and no residual probes after
@@ -315,7 +315,7 @@ one playlist and migration versions 1–11 remain, and no probes remain.
 The operator confirmed fixture cleanup. Only the intercepted Super shortcuts
 remain unverified; other operator checks are accepted.
 The operator subsequently requested standard Linux Ctrl bindings; the focused
-[ADR 0067 check](../tasks/adr-0067-task-001-platform-shortcuts.md#operator-visual-check)
+[ADR 0067 check](../tasks/archive/adr-0067-task-001-platform-shortcuts.md#operator-visual-check)
 owns actual refresh/playback key delivery and rejection acceptance.
 No operator approval is inferred from passing mechanical tests.
 
@@ -426,7 +426,7 @@ Playback acceptance remains paused and final fixture cleanup remains open. See
 
 ## Task 005 Review — 2026-09-11
 
-[Implementation and proof](../tasks/adr-0066-task-005-session-drain-and-resumption.md#implementation-and-proof)
+[Implementation and proof](../tasks/archive/adr-0066-task-005-session-drain-and-resumption.md#implementation-and-proof)
 cover C1–C5. The live Diagnostics action uses typed view-model state and shared
 maintenance forms. The command runner, five live desktop actor paths, thumbnail
 worker and runtime share a session owner. Configured connection release is
@@ -454,7 +454,7 @@ checks. Task 006's separate configuration editor and acceptance are recorded
 below. No configuration editor, database installation or configuration-format
 change is included in task 005.
 
-The [operator evidence](../tasks/adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11)
+The [operator evidence](../tasks/archive/adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11)
 records fixture `/tmp/v4vmm-startup-oaq_8a7x`. Session 1 exceeded the fixture's
 ten-minute hold deadline before drain, so only the held-work check was repeated.
 Session 2 retained `FixtureSessionCommand: 1` through failures recorded at
@@ -471,7 +471,7 @@ closes task 005's gate and removes its entry from the pending-human index.
 
 ## Task 006 Review — 2026-09-11
 
-Mechanical review: Green. [Implementation and proof](../tasks/adr-0066-task-006-configuration-repair-and-resumption.md#implementation-and-proof)
+Mechanical review: Green. [Implementation and proof](../tasks/archive/adr-0066-task-006-configuration-repair-and-resumption.md#implementation-and-proof)
 map C1–C5 to the live correction backend, commands, shared VM/composite/input
 entity and existing session lifecycle. Original-byte backups, source/link/target
 revision conflicts, invalid siblings, absent/unprepared path rejection and
@@ -528,7 +528,7 @@ ADR 0066 remains Accepted for the remaining packets and task 004 acceptance.
 
 ## Task 007 Review — 2026-09-15
 
-Mechanical review: Green. The [proof inventory](../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md#implementation-and-proof)
+Mechanical review: Green. The [proof inventory](../tasks/archive/adr-0066-task-007-optional-tool-correction-and-retry.md#implementation-and-proof)
 maps C1–C5 to live owners and actual tests. Retained actions keep their original
 queries, track/playlist/queue, event selection and publisher/encoder context.
 Save invalidates prior verification and queues only changed-tool setup. Retry
@@ -581,7 +581,7 @@ all unavailable errors were presented as background-runtime failures. The
 search failure VM now distinguishes endpoint setup and runtime failure;
 `adr_0066_search_endpoint_failure_does_not_blame_the_runtime` covers visible and
 copied text plus the retained runtime explanation. Mechanical checks are Green.
-The [packet follow-up](../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md#v1-screenshot-follow-up)
+The [packet follow-up](../tasks/archive/adr-0066-task-007-optional-tool-correction-and-retry.md#v1-screenshot-follow-up)
 records the evidence and scoped recheck. V1 Save/Retry and the remaining operator
 gate stay open.
 
@@ -1009,7 +1009,7 @@ Task 007 is complete. Task 004's separate checks stay open; task 008 has not sta
 
 ## Task 008 Review — 2026-09-16
 
-Scope: [converter verification and setup](../tasks/adr-0066-task-008-converter-verification-and-setup.md#implementation-and-proof).
+Scope: [converter verification and setup](../tasks/archive/adr-0066-task-008-converter-verification-and-setup.md#implementation-and-proof).
 Green: formatting, cargo check, 1,423 unit tests, 254 architecture guards,
 production Clippy, normal desktop build and 18 fixture tests. Ten existing
 documentation examples are ignored. The packet records the socket-restricted
@@ -1227,7 +1227,7 @@ Task 009 has not started and requires a fresh session.
 
 ## Task 009 Review — 2026-09-17
 
-Scope: [conversion retry and retained input](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md#implementation-and-proof).
+Scope: [conversion retry and retained input](../tasks/archive/adr-0066-task-009-conversion-retry-and-retained-input.md#implementation-and-proof).
 Green: 1,434 unit tests, 255 architecture guards, formatting, cargo check,
 production Clippy and 20 fixture tests. Ten existing documentation examples are
 ignored. The normal desktop binary is rebuilt after the tests. No app launch.
@@ -1290,7 +1290,7 @@ redownload with ffmpeg fallback. Final observed request counts are one for track
 five unchanged playlist rows. Staging is empty. The operator accepted normal and
 narrow presentation, reachable controls and Dismiss without Retry. Recorded
 action times and intermediate counts are in the
-[task evidence](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md#operator-evidence--2026-09-17).
+[task evidence](../tasks/archive/adr-0066-task-009-conversion-retry-and-retained-input.md#operator-evidence--2026-09-17).
 
 The copied repair report confirms saves at 15:07:30 and 16:54:20 UTC, each naming
 its private backup and stating that Save did not retry an operation. The latter
@@ -1309,7 +1309,7 @@ retain their separate gates. Task 010 is complete on 2026-09-17 with operator ac
 
 ## Task 010 Review — 2026-09-17
 
-Scope: [database check and backup](../tasks/adr-0066-task-010-database-check-and-backup.md#implementation-and-proof).
+Scope: [database check and backup](../tasks/archive/adr-0066-task-010-database-check-and-backup.md#implementation-and-proof).
 Mechanical gate Green: full 1,445-unit run, final 9-test database selection
 including one subsequently added fixture-schema test (1,446 current unit tests),
 256 architecture guards, 26 Python fixture tests, format/check/strict production
@@ -1349,7 +1349,7 @@ ignored. The mechanical runner did not launch the desktop app.
   and inherited gates remain separate.
 
 Operator acceptance is recorded in the packet's
-[timestamped evidence](../tasks/adr-0066-task-010-database-check-and-backup.md#operator-evidence--2026-09-17).
+[timestamped evidence](../tasks/archive/adr-0066-task-010-database-check-and-backup.md#operator-evidence--2026-09-17).
 Settings/current-library, WAL and read-only check/backup paths pass; occupied and
 completed destinations are refused. Core recovery handles a valid-source backup
 and distinguishes invalid-header access failure, integrity damage, foreign-key
@@ -1388,7 +1388,7 @@ unchanged.
 
 ## Task 011 Review — 2026-09-17
 
-Scope: [database maintenance and preservation](../tasks/adr-0066-task-011-database-maintenance-and-preservation.md#implementation-and-proof).
+Scope: [database maintenance and preservation](../tasks/archive/adr-0066-task-011-database-maintenance-and-preservation.md#implementation-and-proof).
 Mechanical gate **Green**. Operator gate **closed** on 2026-09-17; task 012 has
 not started and requires a fresh session.
 
@@ -1436,7 +1436,7 @@ Local links in the changed documentation resolve, including heading anchors.
 
 ### Task 011 Operator Acceptance And Cleanup — 2026-09-17
 
-The [packet's operator evidence](../tasks/adr-0066-task-011-database-maintenance-and-preservation.md#operator-evidence--2026-09-17)
+The [packet's operator evidence](../tasks/archive/adr-0066-task-011-database-maintenance-and-preservation.md#operator-evidence--2026-09-17)
 records the supplied reports, manifest, confirmations and inspections. V1's
 Busy refusal at 20:39:30 UTC and cancellation at 20:43:45 UTC retained the
 inputs/report and kept normal work stopped. The operator accepted responsiveness.
@@ -1474,7 +1474,7 @@ gates are unchanged. Task 012 requires a fresh session.
 
 ## Task 012 Review — 2026-09-17
 
-Scope: [database restore](../tasks/adr-0066-task-012-database-restore.md#implementation-and-proof).
+Scope: [database restore](../tasks/archive/adr-0066-task-012-database-restore.md#implementation-and-proof).
 Mechanical checks are Green. Operator V1–V3, presentation, preservation and
 cleanup are accepted on 2026-09-17. Task 012 is complete. Task 013's later
 completion is recorded in its review below.
@@ -1506,7 +1506,7 @@ restrictions were followed by a Green unrestricted full suite. Both fixture
 cases passed backend setup, seed, real writer contention/release, failure
 controls, unchanged-backup and negative-inspection smoke, then owned cleanup.
 The agent did not launch the desktop; operator acceptance is recorded separately
-in the [packet evidence](../tasks/adr-0066-task-012-database-restore.md#operator-evidence--2026-09-17).
+in the [packet evidence](../tasks/archive/adr-0066-task-012-database-restore.md#operator-evidence--2026-09-17).
 
 No architectural deviation or unresolved mechanical failure remains. The
 chosen backup is required to be a standalone rollback-journal snapshot; WAL
@@ -1527,7 +1527,7 @@ recorded in its review below.
 
 ## Task 013 Review — 2026-09-17
 
-Scope: [interrupted upgrade repair](../tasks/adr-0066-task-013-interrupted-upgrade-repair.md#implementation-and-proof).
+Scope: [interrupted upgrade repair](../tasks/archive/adr-0066-task-013-interrupted-upgrade-repair.md#implementation-and-proof).
 Implementation is complete; final mechanical checks are Green.
 Operator V1–V3, presentation, report copy, same-window resumption and both
 preservation inspections are accepted on 2026-09-18. Fixture cleanup is confirmed.

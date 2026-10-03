@@ -2,8 +2,8 @@
 
 ## Reviewed Artifact
 
-- Task packet: `docs/tasks/adr-0033-task-003-render-helper-duplication-gate.md`
-- Plan: `docs/plans/post-adr-0033-ui-consolidation-plan.md`
+- Task packet: `docs/tasks/archive/adr-0033-task-003-render-helper-duplication-gate.md`
+- Plan: `docs/plans/post-adr-0033-ui-consolidation-plan.md` (a deleted plan, in git history)
 - ADR update: `docs/adr/0033-hig-ui-architecture-governance.md`
 - Diff: `tests/architecture_tests.rs`
 

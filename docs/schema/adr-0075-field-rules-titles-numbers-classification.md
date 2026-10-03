@@ -8,7 +8,7 @@
 ## Status And Scope
 
 Individual field review in progress - 2026-09-21. Feed and track title rules have individual acceptance. Other policies remain under review.
-[Packet 031](../tasks/adr-0075-task-031-title-number-and-classification-rules.md) owns this document.
+[Packet 031](../tasks/archive/adr-0075-task-031-title-number-and-classification-rules.md) owns this document.
 This document changes no application behavior.
 
 These rules cover the remaining title, number, author, sort, medium, and release-kind rows in the

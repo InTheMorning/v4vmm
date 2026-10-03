@@ -2,7 +2,7 @@
 
 ## Reviewed Artifact
 
-- Task packet: `docs/tasks/adr-0026-task-005-library-projection-adoption.md`
+- Task packet: `docs/tasks/archive/adr-0026-task-005-library-projection-adoption.md`
 - Diff scope: `render_album_detail` shell adoption in `src/library.rs`.
 
 ## Verdict

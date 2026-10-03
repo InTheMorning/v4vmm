@@ -21,8 +21,8 @@ No collection head, selected field, discrepancy, or legacy source fact changes i
 
 - [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md), provider ownership, explicit coverage, raw evidence, and separate refresh failure.
 - [Storage design](../schema/adr-0075-provider-snapshot-storage.md), exact schema and transaction boundaries.
-- [Packet 009](adr-0075-task-009-rss-owner-and-nostr-extraction.md), the existing RSS observation and single document parse.
-- [Packet 011](adr-0075-task-011-provider-snapshot-schema.md), reviewed storage design.
+- [Packet 009](archive/adr-0075-task-009-rss-owner-and-nostr-extraction.md), the existing RSS observation and single document parse.
+- [Packet 011](archive/adr-0075-task-011-provider-snapshot-schema.md), reviewed storage design.
 - [Packet 012](adr-0075-task-012-provider-snapshot-migration.md), completed schema-12 implementation and technical checks.
 - [Phase plan](../plans/adr-0075-metadata-contract-phase-plan.md#packet-register), storage order 012, 014, then 013.
 

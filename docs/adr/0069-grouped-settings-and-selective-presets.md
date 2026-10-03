@@ -20,7 +20,7 @@ Later implementation has not started.
 is Ready on 2026-09-18. Its recovery prerequisites are complete. The packet
 adds no configuration format and releases no existing gate.
 The [phase plan](../plans/adr-0069-settings-presets-phase-plan.md)
-and [first packet](../tasks/adr-0069-task-001-grouped-settings-foundation.md)
+and [first packet](../tasks/archive/adr-0069-task-001-grouped-settings-foundation.md)
 separate the existing-field foundation from guarded editing, new configuration
 and playback integration. ADR 0068 remains Proposed; accepting this Settings
 decision does not accept its entire playback design or resume playback work.

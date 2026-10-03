@@ -2,7 +2,7 @@
 
 ## Task 002: Core Checks And Reports
 
-Owner: [task 002](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md).
+Owner: [task 002](../tasks/archive/adr-0066-task-002-core-checks-and-startup-reports.md).
 Operator acceptance passed on 2026-09-10. Retained for regression checks.
 This checks the startup recovery window;
 it does not repeat Show's event-recovery checks.
@@ -237,7 +237,7 @@ runtime. Navigation, report copy and the repair buttons must still work.
 If the window manager intercepts a shortcut, record the affected check as
 unverified and continue the other checks. Do not count an intercepted key as an
 app rejection. The earlier Super-key checks were intercepted; use the focused
-[Ctrl shortcut check](../tasks/adr-0067-task-001-platform-shortcuts.md#operator-visual-check)
+[Ctrl shortcut check](../tasks/archive/adr-0067-task-001-platform-shortcuts.md#operator-visual-check)
 to verify keyboard delivery when regression testing; its operator acceptance is
 complete and needs no repeat.
 
@@ -533,9 +533,9 @@ path-failure trigger, blocker files, temporary mpv sockets and configuration.
 
 ## Task 005: Session Drain And Resumption
 
-Owner: [task 005](../tasks/adr-0066-task-005-session-drain-and-resumption.md).
+Owner: [task 005](../tasks/archive/adr-0066-task-005-session-drain-and-resumption.md).
 Operator V1–V3, preservation inspection and fixture cleanup accepted - 2026-09-11.
-The [packet records the evidence](../tasks/adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11).
+The [packet records the evidence](../tasks/archive/adr-0066-task-005-session-drain-and-resumption.md#operator-evidence--2026-09-11).
 These steps remain available for regression; no repeat is requested for that acceptance.
 
 Needs: a Linux desktop, Python 3.11+, and this checkout's rebuilt debug binary.
@@ -1190,7 +1190,7 @@ close this operator gate.
 
 Accepted - 2026-09-17. V1–V3, Settings/core-recovery presentation, preservation
 in both cases and fixture cleanup are accepted in the
-[task packet](../tasks/adr-0066-task-008-converter-verification-and-setup.md#final-operator-acceptance-and-cleanup--2026-09-17).
+[task packet](../tasks/archive/adr-0066-task-008-converter-verification-and-setup.md#final-operator-acceptance-and-cleanup--2026-09-17).
 This procedure remains a regression check for converter setup and version
 verification; track conversion retry belongs to task 009.
 Needs a Linux desktop, Python 3.11+,
@@ -1356,8 +1356,8 @@ accept these observations.
 Status: Accepted - 2026-09-17. V1–V3, normal/narrow presentation, configuration
 restoration and preservation passed; fixture cleanup is confirmed. Retain this
 procedure as a regression check. The
-[packet records the evidence](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md#final-operator-acceptance-and-cleanup--2026-09-17).
-Owner: [task 009](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md).
+[packet records the evidence](../tasks/archive/adr-0066-task-009-conversion-retry-and-retained-input.md#final-operator-acceptance-and-cleanup--2026-09-17).
+Owner: [task 009](../tasks/archive/adr-0066-task-009-conversion-retry-and-retained-input.md).
 
 This checks the new retained conversion controls and their results in the existing
 Music/Settings surfaces. Use a Linux desktop terminal, Python 3 and the normal
@@ -1784,7 +1784,7 @@ python3 docs/runbooks/startup-recovery-fixture.py cleanup "$recovery_fixture"
 ## Task 012: Database Restore
 
 Gate: **closed — 2026-09-17**. Operator V1–V3, presentation, preservation and
-cleanup are accepted in the [packet evidence](../tasks/adr-0066-task-012-database-restore.md#operator-evidence--2026-09-17).
+cleanup are accepted in the [packet evidence](../tasks/archive/adr-0066-task-012-database-restore.md#operator-evidence--2026-09-17).
 Retain V1–V3 as a desktop regression procedure. This checks only task 012;
 accepted task 011 checks need no repeat. Use two fresh disposable fixtures.
 Requires Python 3, the normal debug binary and a Linux desktop session. Playback

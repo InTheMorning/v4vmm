@@ -98,7 +98,7 @@ The inspected upstream types are in Stophammer `src/query.rs` at commit `a220f44
 
 The contributor fields are `entity_type`, `entity_id`, `position`, `name`, `role`, `role_norm`, `group_name`, `href`, `img`, and `npub`.
 They also include `source`, `extraction_path`, and `observed_at`.
-[Task 001](../tasks/adr-0075-task-001-contributor-claim-transport.md) records their transport contract.
+[Task 001](../tasks/archive/adr-0075-task-001-contributor-claim-transport.md) records their transport contract.
 
 The four enclosure claim fields already exist upstream. They need no new upstream field.
 `TrackResponse.language` and `track_artist_sort` are also lost by the app. Packet 033 owns that transport correction.
@@ -221,7 +221,7 @@ The generated API contract in `openapi.rs` must match the deployed routes and fi
 Do not use a manual change to generated JSON as the source of the API contract.
 ADR 0075 Decision 6.
 
-The deployed Stophammer revision remains unverified. The operator deleted packet 028 on 2026-09-21. The [API change request](musicindex-api-change-request.md) asks this question.
+The deployed Stophammer revision remains unverified. The operator deleted packet 028 on 2026-09-21. The API change request asks this question.
 
 ## 6. Recrawl Requirement
 

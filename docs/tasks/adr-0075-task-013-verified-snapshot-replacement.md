@@ -25,7 +25,7 @@ This packet does not complete active identity display, field selection, or obser
 - [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md), decisions 1, 2, 5, and 6.
 - [Packet 004](adr-0075-task-004-collection-completeness-rules.md) and its [collection rules](../schema/adr-0075-collection-completeness-rules.md).
 - [Storage design](../schema/adr-0075-provider-snapshot-storage.md), coverage, heads, transaction boundaries, and local reads.
-- [Packet 009](adr-0075-task-009-rss-owner-and-nostr-extraction.md) and the [identity syntax contract](../schema/adr-0075-identity-syntax-contract.md).
+- [Packet 009](archive/adr-0075-task-009-rss-owner-and-nostr-extraction.md) and the [identity syntax contract](../schema/adr-0075-identity-syntax-contract.md).
 - [Packet 012](adr-0075-task-012-provider-snapshot-migration.md), completed schema 12 and preservation.
 - [Packet 014](adr-0075-task-014-provider-observation-retention.md), the existing writer and selected Library caller.
 - [Phase plan](../plans/adr-0075-metadata-contract-phase-plan.md#packet-register), storage order and later projections.

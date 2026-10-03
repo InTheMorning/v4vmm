@@ -3,7 +3,7 @@
 > Archived 2026-09-09 after operator approval. Current decisions live in
 > [ADR 0059](../adr/0059-broadcast-control-surface.md) and
 > [ADR 0063](../adr/0063-show-dashboard-layout.md); executable work and the open
-> acceptance gate live in [task 017](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md).
+> acceptance gate live in [task 017](../tasks/archive/adr-0059-task-017-compact-event-controls-and-badges.md).
 > The proposal below records the reviewed draft and no longer binds current work.
 
 Status: Archived - 2026-09-09. Proposal accepted; not an implementation record.
@@ -23,7 +23,7 @@ not remain a second current authority after the decision.
 ## Problem And Goal
 
 After accepting the event recovery behavior in
-[ADR 0059 task 016](../tasks/adr-0059-task-016-event-row-in-live-metadata.md),
+[ADR 0059 task 016](../tasks/archive/adr-0059-task-016-event-row-in-live-metadata.md),
 the operator found the event item too tall. Repeated identity and state text,
 full paths, the feed tag, and command results push Producer and Publisher much
 further down the Live Metadata side panel.
@@ -262,7 +262,7 @@ not establish successful delivery. The card describes readiness for the
 selected event and cannot claim it is ready because another event is configured.
 
 Attach already invokes `target add --replace`, as specified by
-[task 014](../tasks/adr-0059-task-014-attach-event-to-publisher-target.md) and
+[task 014](../tasks/archive/adr-0059-task-014-attach-event-to-publisher-target.md) and
 enforced by `adr_0059_packet_014_attach_event_replaces_target_and_restarts_publisher`
 in the publisher-target service tests (situational, ADR 0059). An existing
 association at that name is replaced; the operator does not need to detach it
@@ -447,7 +447,7 @@ registry is needed.
 
 The implementation packet depends on the service command-ownership and fresh
 observation portion of the existing
-[action feedback work](../tasks/show-action-feedback-task-001-command-state-and-result.md).
+[action feedback work](../tasks/archive/show-action-feedback-task-001-command-state-and-result.md).
 Schedule it accordingly in the delivery order; do not duplicate that work or
 absorb its unrelated Stream/library changes. Source, Stream, queue, relay
 lifecycle, and audio behavior are outside this proposal.

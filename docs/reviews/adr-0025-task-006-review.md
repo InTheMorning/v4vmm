@@ -2,7 +2,7 @@
 
 ## Reviewed Artifact
 
-- Task packet: `docs/tasks/adr-0025-task-006-retire-theme-shim.md`
+- Task packet: `docs/tasks/archive/adr-0025-task-006-retire-theme-shim.md`
 - Diff scope: removal of `ui::theme`, replacement fixed-geometry/style module,
   status glyph migration, architecture-test hardening, ADR/plan updates.
 

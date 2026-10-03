@@ -2,7 +2,7 @@
 
 ## Reviewed Artifact
 
-- Task packet: `docs/tasks/adr-0025-task-005-runtime-profile-selection.md`
+- Task packet: `docs/tasks/archive/adr-0025-task-005-runtime-profile-selection.md`
 - Diff scope: config persistence, startup theme installation, Settings profile
   picker, config tests.
 

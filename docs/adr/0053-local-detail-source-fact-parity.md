@@ -121,7 +121,7 @@ Negative / risks:
 - ADR 0028 - Local identity source-fact persistence
 - ADR 0054 - Local metadata source-fact persistence
 - ADR 0052 - Library / Index data parity triage
-- `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md`
+- `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md` (a deleted plan, in git history)
 - `docs/reviews/library-discover-parity-triage-album.md`
 - `docs/reviews/library-discover-parity-triage-track.md`
 - `docs/reviews/library-discover-parity-triage-artist-playlist.md`

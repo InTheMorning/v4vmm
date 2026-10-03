@@ -3,15 +3,15 @@
 ## Reviewed Artifacts
 
 - `docs/adr/archive/0052-library-index-data-parity-triage.md`
-- `docs/plans/library-discover-parity-triage-plan.md`
-- `docs/tasks/library-discover-parity-triage-task-001-album-detail.md`
-- `docs/tasks/library-discover-parity-triage-task-002-track-detail.md`
-- `docs/tasks/library-discover-parity-triage-task-003-artist-playlist-detail.md`
+- `docs/plans/library-discover-parity-triage-plan.md` (a deleted plan, in git history)
+- `docs/tasks/archive/library-discover-parity-triage-task-001-album-detail.md`
+- `docs/tasks/archive/library-discover-parity-triage-task-002-track-detail.md`
+- `docs/tasks/archive/library-discover-parity-triage-task-003-artist-playlist-detail.md`
 - `docs/reviews/library-discover-parity-triage-album.md`
 - `docs/reviews/library-discover-parity-triage-track.md`
 - `docs/reviews/library-discover-parity-triage-artist-playlist.md`
 - `docs/reviews/library-discover-parity-triage-synthesis.md`
-- `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md`
+- `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md` (a deleted plan, in git history)
 - `docs/adr/0053-local-detail-source-fact-parity.md`
 
 ## Required Checks

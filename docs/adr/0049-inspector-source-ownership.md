@@ -138,4 +138,4 @@ Negative / risks:
 
 - ADR 0047 - Library and search unification
 - ADR 0048 - ContentList frame breadcrumb search
-- `docs/plans/inspector-source-ownership-phase-plan.md`
+- `docs/plans/inspector-source-ownership-phase-plan.md` (a deleted plan, in git history)

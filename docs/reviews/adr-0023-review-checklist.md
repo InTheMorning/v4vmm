@@ -41,7 +41,7 @@
 
 ## Documentation
 
-- ADR 0023 and `docs/plans/adr-0023-design-system-migration.md` reflect the
+- ADR 0023 and `docs/plans/adr-0023-design-system-migration.md` (a deleted plan, in git history) reflect the
   current code status after each slice.
 - Task packet status is updated when a slice lands.
 - New docs live under the purpose-based folders listed in `docs/README.md`.

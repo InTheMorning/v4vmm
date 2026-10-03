@@ -1,6 +1,6 @@
 # Shared Log Frame Check
 
-Owner: [ADR 0063 task 005](../tasks/adr-0063-task-005-shared-log-frames-and-following.md).
+Owner: [ADR 0063 task 005](../tasks/archive/adr-0063-task-005-shared-log-frames-and-following.md).
 Operator gate open. These checks cover the new shared presentation without
 reopening ADR 0066 task 006's accepted repair behavior.
 

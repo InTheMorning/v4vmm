@@ -2,8 +2,8 @@
 
 ## Reviewed Artifact
 
-- Task packet: `docs/tasks/adr-0033-task-004-file-header-composite.md`
-- Plan: `docs/plans/post-adr-0033-ui-consolidation-plan.md`
+- Task packet: `docs/tasks/archive/adr-0033-task-004-file-header-composite.md`
+- Plan: `docs/plans/post-adr-0033-ui-consolidation-plan.md` (a deleted plan, in git history)
 - Diff: `src/ui/composites/file_header.rs`, `src/view_models/metadata.rs`,
   `src/library.rs`, `src/search.rs`, `tests/architecture_tests.rs`
 

@@ -2,8 +2,8 @@
 
 ## Reviewed Artifact
 
-- Task packet: `docs/tasks/adr-0033-task-002-loading-primitive.md`
-- Plan: `docs/plans/post-adr-0033-ui-consolidation-plan.md`
+- Task packet: `docs/tasks/archive/adr-0033-task-002-loading-primitive.md`
+- Plan: `docs/plans/post-adr-0033-ui-consolidation-plan.md` (a deleted plan, in git history)
 - Diff: `src/ui/primitives/loading.rs`, `src/ui/primitives/mod.rs`,
   `src/library.rs`, `src/search.rs`
 

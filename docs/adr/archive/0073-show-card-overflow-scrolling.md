@@ -7,7 +7,7 @@ Implemented - 2026-09-16.
 The operator requested this correction during ADR 0066 task 007 acceptance,
 after accepting the narrow Library and bounded recovery-notice corrections.
 Implementation and the focused visual gate belong to
-[task 007](../../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md).
+[task 007](../../tasks/archive/adr-0066-task-007-optional-tool-correction-and-retry.md).
 The shared-viewport correction and mechanical checks are complete. The operator
 accepted the focused Show visual check: all cards remain reachable with logs
 closed and open, the transport stays fixed, and the requested theme/scale checks

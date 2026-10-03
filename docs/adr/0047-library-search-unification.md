@@ -80,7 +80,7 @@ Unify Library and Search around ADR 0046 frames.
 ## Phasing
 
 Implementation follows
-`docs/plans/adr-0047-library-search-unification-phase-plan.md`.
+`docs/plans/adr-0047-library-search-unification-phase-plan.md` (a deleted plan, in git history).
 
 - Phase A ratifies this ADR and the phase plan.
 - Phase B adds GPUI-free view-model contracts.
@@ -160,5 +160,5 @@ Negative / risks:
 - ADR 0041 - windowed paged view models
 - ADR 0043 - top toolbar global search
 - ADR 0046 - workspace frame architecture
-- `docs/plans/library-search-unification-plan.md`
-- `docs/plans/adr-0047-library-search-unification-phase-plan.md`
+- `docs/plans/library-search-unification-plan.md` (a deleted plan, in git history)
+- `docs/plans/adr-0047-library-search-unification-phase-plan.md` (a deleted plan, in git history)

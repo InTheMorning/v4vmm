@@ -263,7 +263,7 @@ This document does not define new playback capabilities or release deferred play
 
 Stophammer `src/query.rs::SourceItemEnclosureResponse`, line 427, already supplies owner fields, position, and observation time.
 The app drops `entity_type`, `entity_id`, `position`, and `observed_at` during decoding.
-[Packet 030](../tasks/adr-0075-task-030-enclosure-claim-transport.md) assigns that app transport correction.
+[Packet 030](../tasks/archive/adr-0075-task-030-enclosure-claim-transport.md) assigns that app transport correction.
 It changes no format selection or upstream contract.
 
 ## Image Links

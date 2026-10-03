@@ -2,7 +2,7 @@
 
 ## Reviewed Artifact
 
-- Task packet: `docs/tasks/adr-0025-task-004-badge-role-migration.md`
+- Task packet: `docs/tasks/archive/adr-0025-task-004-badge-role-migration.md`
 - Diff scope: typed entity badge colors, metadata provenance roles, screen
   badge call-site migration, architecture tests.
 

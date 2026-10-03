@@ -3,11 +3,11 @@
 ## Reviewed Artifact
 
 - ADR: `docs/adr/0031-release-detail-presentation-contract.md`
-- Plan: `docs/plans/adr-0031-release-detail-presentation-contract-phase-plan.md`
-- Task: `docs/tasks/adr-0031-task-001-contract-types-and-projection-tests.md`
+- Plan: `docs/plans/adr-0031-release-detail-presentation-contract-phase-plan.md` (a deleted plan, in git history)
+- Task: `docs/tasks/archive/adr-0031-task-001-contract-types-and-projection-tests.md`
 - Diff scope:
   - `src/view_models/entity_detail.rs`
-  - `docs/tasks/adr-0031-task-001-contract-types-and-projection-tests.md`
+  - `docs/tasks/archive/adr-0031-task-001-contract-types-and-projection-tests.md`
 
 ## Pass / Fail
 

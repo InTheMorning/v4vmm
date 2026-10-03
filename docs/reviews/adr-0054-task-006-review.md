@@ -2,7 +2,7 @@
 
 ## Reviewed Artifact
 
-- Task packet: `docs/tasks/adr-0054-task-006-readiness-guard.md`
+- Task packet: `docs/tasks/archive/adr-0054-task-006-readiness-guard.md`
 - Diff scope:
   - `tests/architecture_tests.rs`
   - `docs/reviews/adr-0054-review-checklist.md`

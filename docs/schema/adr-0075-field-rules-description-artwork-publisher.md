@@ -428,5 +428,5 @@ Do not replace a retained term with an unrelated dictionary alternative.
 
 ## Checks
 
-The [packet report](../tasks/adr-0075-task-005-field-rules-description-artwork-publisher.md)
+The [packet report](../tasks/archive/adr-0075-task-005-field-rules-description-artwork-publisher.md)
 records the link check and the language check results for this document.

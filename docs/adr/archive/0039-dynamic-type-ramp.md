@@ -8,7 +8,7 @@ Amended 2026-09-18. The operator specified both scale domains, five steps,
 wrapping rules, the reservation and visual checks. The operator then ratified
 the numeric decision below.
 
-The [phase plan](../../plans/adr-0039-dynamic-type-ramp-phase-plan.md) defines three
+The phase plan defines three
 packets after recovery task 013. The
 [delivery order](../../plans/broadcast-chain-delivery-order.md#current-delivery-order)
 places them before Settings follow-through and relay adoption. All three packets are complete.
@@ -121,7 +121,7 @@ ratified ones.
 
 The operator ratified the per-role curve on 2026-09-18. These are the decided
 values, and
-[task 003](../../tasks/adr-0039-task-003-type-curve-ratification.md) landed them
+[task 003](../../tasks/archive/adr-0039-task-003-type-curve-ratification.md) landed them
 in the live type resolver.
 
 The downward half is anchored. Title retains the former uniform factor of 0.85 at x-small.
@@ -368,7 +368,7 @@ Light and Dark, for twelve type cells, plus a thirteenth for ShowCard.
 
 The [operator procedure](../../runbooks/dynamic-type-ramp-check.md) records all
 thirteen cells, medium reference observations, failure conditions and cleanup.
-[Task 003](../../tasks/adr-0039-task-003-type-curve-ratification.md) owns this gate.
+[Task 003](../../tasks/archive/adr-0039-task-003-type-curve-ratification.md) owns this gate.
 It ratifies and introduces the per-role values, producing the first type-size change.
 Task 001 has no visual gate. Task 002 has no separate visual gate.
 Task 002 checks its reservation and ShowCard fix mechanically while type values remain uniform.
@@ -426,16 +426,16 @@ Checks at both extremes remain necessary because text and chrome scale different
 ## Follow-Up Work
 
 1. Policy definition: complete on 2026-09-18, including downward scaling.
-2. [Task 001](../../tasks/adr-0039-task-001-scale-domains-and-type-curves.md):
+2. [Task 001](../../tasks/archive/adr-0039-task-001-scale-domains-and-type-curves.md):
    complete on 2026-09-18 (`3b40ec1`). Both live resolvers shipped at identity.
    No visual gate.
-3. [Task 002](../../tasks/adr-0039-task-002-fixed-height-reserve-and-acceptance.md):
+3. [Task 002](../../tasks/archive/adr-0039-task-002-fixed-height-reserve-and-acceptance.md):
    complete on 2026-09-18 with mechanical checks Green — the reservation
    criterion, its guards, and ShowCard's single-line fix. No visual gate of
    its own. Its reservation is a debug assertion today, not a live layout
    constraint. Task 003 retained that mechanism. Possible live enforcement
    remains a separate design question in the phase plan.
-4. [Task 003](../../tasks/adr-0039-task-003-type-curve-ratification.md): numeric
+4. [Task 003](../../tasks/archive/adr-0039-task-003-type-curve-ratification.md): numeric
    decision ratified and the per-role curves landed on 2026-09-18, with
    mechanical checks Green. V1–V13, preservation and cleanup are accepted.
    The packet is complete.

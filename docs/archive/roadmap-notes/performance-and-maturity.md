@@ -16,7 +16,7 @@ Static analysis only. No profiler trace, no benchmark, no flame graph. Sources:
 - `cx.notify()` is called from **140 sites** across `src/`. That alone justifies looking at the render path.
 - `cargo check` and `cargo test --lib` pass on `master` (86 tests).
 
-What's *not* in scope here: UX redesign, packaging/distribution, audio playback latency, any work blocked on the deferred trait-based unification from `docs/unify-discover-library-views.md`.
+What's *not* in scope here: UX redesign, packaging/distribution, audio playback latency, any work blocked on the deferred trait-based unification from `docs/unify-discover-library-views.md` (a deleted plan, in git history).
 
 ## Findings
 
@@ -89,7 +89,7 @@ What's *not* in scope here: UX redesign, packaging/distribution, audio playback 
 
 ## Out of scope
 
-- Anything blocked on the deferred `InspectorHost` trait from `docs/unify-discover-library-views.md` Stage 5.
+- Anything blocked on the deferred `InspectorHost` trait from `docs/unify-discover-library-views.md` (a deleted plan, in git history) Stage 5.
 - UX redesign — this report is about *how the existing UI behaves*, not *what the UI should be*.
 - Audio playback / decoding pipeline — not inspected.
 - Cross-platform packaging, signing, auto-update.

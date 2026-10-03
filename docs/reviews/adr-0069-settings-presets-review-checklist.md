@@ -113,7 +113,7 @@ Diagnostics before mounting. Existing Save/default behavior and writer guards
 remain, with explicit whole-form scope. Cached navigation reuses observations;
 mutation and runtime recovery keep their existing refresh paths.
 
-The packet records [exact commands, counts and M1–M5 proof owners](../tasks/adr-0069-task-001-grouped-settings-foundation.md#implementation-and-mechanical-evidence--2026-09-11).
+The packet records [exact commands, counts and M1–M5 proof owners](../tasks/archive/adr-0069-task-001-grouped-settings-foundation.md#implementation-and-mechanical-evidence--2026-09-11).
 No architectural drift was found in mechanical review. The operator's V2 Save
 replay passed both visible-value and saved-file checks below. No new persistence
 schema, service/audio owner or unrelated polish was added. Optional later editor,

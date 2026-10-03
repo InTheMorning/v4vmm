@@ -7,7 +7,7 @@ Complete - 2026-05-17.
 ## Inputs Reviewed
 
 - `docs/adr/archive/0052-library-index-data-parity-triage.md`
-- `docs/plans/library-discover-parity-triage-plan.md`
+- `docs/plans/library-discover-parity-triage-plan.md` (a deleted plan, in git history)
 - `docs/reviews/library-discover-parity-triage-album.md`
 - `docs/reviews/library-discover-parity-triage-track.md`
 - `docs/reviews/library-discover-parity-triage-artist-playlist.md`
@@ -23,7 +23,7 @@ for Library / Discover data parity.
 Runtime parity is not complete. The next implementation work is split:
 
 - Loading-shape gaps route to
-  `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md`.
+  `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md` (a deleted plan, in git history).
 - Persistence / source-fact gaps route to
   `docs/adr/0053-local-detail-source-fact-parity.md`.
 - Intentional asymmetries do not get implementation packets.

@@ -12,7 +12,7 @@ fixtures is confirmed. The task packet is complete. ADR 0066 retains task 004's
 independent gate.
 
 Implementation and mechanical checks are Green — 2026-09-18. The
-[task packet](../tasks/adr-0066-task-013-interrupted-upgrade-repair.md#presentation-correction--adr-0074)
+[task packet](../tasks/archive/adr-0066-task-013-interrupted-upgrade-repair.md#presentation-correction--adr-0074)
 records 1,484 unit tests, 259 guards and the normal desktop build. The
 [operator check](../runbooks/startup-recovery-check.md#repair-and-diagnostics-pages--adr-0074)
 has passed its visual and preservation steps. Fixture cleanup is confirmed.

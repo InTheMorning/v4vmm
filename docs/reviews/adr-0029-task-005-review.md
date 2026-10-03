@@ -7,9 +7,9 @@ Pass - 2026-05-01.
 ## Scope
 
 - `docs/adr/archive/0029-artist-person-identity-persistence.md`
-- `docs/plans/adr-0029-artist-person-identity-persistence-phase-plan.md`
+- `docs/plans/adr-0029-artist-person-identity-persistence-phase-plan.md` (a deleted plan, in git history)
 - `docs/plans/deferred-architecture-work-index.md`
-- `docs/tasks/adr-0029-task-005-final-gates.md`
+- `docs/tasks/archive/adr-0029-task-005-final-gates.md`
 
 ## Findings
 

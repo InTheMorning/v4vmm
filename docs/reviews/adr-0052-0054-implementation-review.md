@@ -110,7 +110,7 @@ submodule decomposition from ADR 0050 already in place.
    plus the consolidated synthesis at
    `docs/reviews/library-discover-parity-triage-synthesis.md`; Phase 2
    executed the six loading-shape slices routed by
-   `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md`;
+   `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md` (a deleted plan, in git history);
    Phase 3 delivered the persistence gaps routed to ADR 0053 via the
    five-task ADR 0054 implementation. The same triage → routing → bounded
    slice pattern is reusable for the remaining deferred items.
@@ -174,7 +174,7 @@ submodule decomposition from ADR 0050 already in place.
    triage synthesis and follow-up plans landed; review checklist at
    `docs/reviews/library-discover-parity-triage-review-checklist.md`
    ratifies the workflow; ADR 0052 cross-references all artifacts; the
-   parent triage plan (`docs/plans/library-discover-parity-triage-plan.md`)
+   parent triage plan (`docs/plans/library-discover-parity-triage-plan.md` (a deleted plan, in git history))
    carries a "Completed - 2026-05-17" status with pointers to every
    downstream artifact.
 
@@ -251,7 +251,7 @@ playlist-touching packet starts. Low priority — not blocking anything.
 ### P3: deferred-work-index entry needs status refresh
 
 `docs/plans/deferred-architecture-work-index.md` was last updated
-2026-05-08. The plan file `library-discover-parity-triage-plan.md` was
+2026-05-08. The plan file `library-discover-parity-triage-plan.md` (a deleted plan, in git history) was
 edited 2026-05-17 to mark the triage as "Completed", but the index
 itself may still list item #2 under "Priority order" rather than "Recently
 Resolved". The runtime fixes (Phase 2 + Phase 3) shipped, so item #2 is
@@ -334,8 +334,8 @@ deferred item.
 - ADR 0052 — Library / Index data parity triage
 - ADR 0053 — local detail source-fact parity
 - ADR 0054 — local metadata source-fact persistence
-- `docs/plans/library-discover-parity-triage-plan.md`
-- `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md`
+- `docs/plans/library-discover-parity-triage-plan.md` (a deleted plan, in git history)
+- `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md` (a deleted plan, in git history)
 - `docs/reviews/library-discover-parity-triage-synthesis.md`
 - `docs/reviews/library-discover-parity-triage-review-checklist.md`
 - `docs/reviews/adr-0047-0048-0049-implementation-review.md` (prior baseline)

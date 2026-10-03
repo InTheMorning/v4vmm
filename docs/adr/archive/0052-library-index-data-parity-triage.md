@@ -106,10 +106,10 @@ Negative / risks:
 ## References
 
 - `docs/plans/deferred-architecture-work-index.md`
-- `docs/plans/library-discover-parity-triage-plan.md`
-- `docs/tasks/library-discover-parity-triage-task-001-album-detail.md`
-- `docs/tasks/library-discover-parity-triage-task-002-track-detail.md`
-- `docs/tasks/library-discover-parity-triage-task-003-artist-playlist-detail.md`
+- `docs/plans/library-discover-parity-triage-plan.md` (a deleted plan, in git history)
+- `docs/tasks/archive/library-discover-parity-triage-task-001-album-detail.md`
+- `docs/tasks/archive/library-discover-parity-triage-task-002-track-detail.md`
+- `docs/tasks/archive/library-discover-parity-triage-task-003-artist-playlist-detail.md`
 - ADR 0024 - Command, query, and event application layer
 - ADR 0028 - Local identity source-fact persistence
 - ADR 0029 - Artist/person identity persistence

@@ -1,6 +1,6 @@
 # ADR 0082 Task 003: Album Page Publisher Link
 
-Status: Ready - 2026-10-02. It runs after [packet 001](adr-0082-task-001-contract-0-7-0-and-link-facts.md). Implementation has not started.
+Status: Ready - 2026-10-02. It runs after [packet 001](archive/adr-0082-task-001-contract-0-7-0-and-link-facts.md). Implementation has not started.
 Its visual gate opens when the implementation is complete. Visual checks are paused, so the gate stays open.
 
 ## Goal

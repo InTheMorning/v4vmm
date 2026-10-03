@@ -6,7 +6,7 @@ Implemented - 2026-09-19.
 
 Status updated - 2026-09-19. The operator accepted all Light/Dark visual checks
 and confirmed fixture cleanup.
-[Task 003](../../tasks/adr-0044-task-003-playlist-reorder-guards-visual.md) is complete.
+[Task 003](../../tasks/archive/adr-0044-task-003-playlist-reorder-guards-visual.md) is complete.
 The [review checklist](../../reviews/adr-0044-review-checklist.md#operator-batches--2026-09-19)
 records the results and cleanup. No gate under this ADR remains open.
 

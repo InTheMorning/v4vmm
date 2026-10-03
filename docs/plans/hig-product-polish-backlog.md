@@ -68,7 +68,7 @@ Rules:
 #### A7 - The Feed Check Result Has No Room To Read
 
 Closed - 2026-09-10. Implementation, mechanical checks, and operator visual
-acceptance passed in [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md#operator-visual-check).
+acceptance passed in [Show action feedback task 001](../tasks/archive/show-action-feedback-task-001-command-state-and-result.md#operator-visual-check).
 
 The operator reported unreadable counts on 2026-09-09 after ADR 0065 expanded
 the result. The situational guard
@@ -79,7 +79,7 @@ The operator confirmed full readability at the smallest sidebar width.
 #### A8 - Service Actions Can Briefly Repaint The Previous State
 
 Closed - 2026-09-10. Implementation, mechanical checks, and operator visual
-acceptance passed in [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md#operator-visual-check).
+acceptance passed in [Show action feedback task 001](../tasks/archive/show-action-feedback-task-001-command-state-and-result.md#operator-visual-check).
 
 The operator reported stale service-state flashes on 2026-09-09. The packet's
 named `show_command_*` tests and
@@ -91,7 +91,7 @@ and disagreeing readback.
 #### A9 - Stream Command Buttons Briefly Disappear
 
 Closed - 2026-09-10. Implementation, mechanical checks, and operator visual
-acceptance passed in [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md#operator-visual-check).
+acceptance passed in [Show action feedback task 001](../tasks/archive/show-action-feedback-task-001-command-state-and-result.md#operator-visual-check).
 
 The operator reported disappearing controls on 2026-09-09.
 `show_command_stream_keeps_controls_and_uses_the_service_release_policy` and
@@ -102,7 +102,7 @@ height during Connect/Disconnect (ADR 0063).
 #### A10 - Narrow Show Card Titles Clip Abruptly
 
 Open - 2026-09-10. Deferred for future work at the operator's request during
-[task 017 visual inspection](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check).
+[task 017 visual inspection](../tasks/archive/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check).
 In a narrow window with the detail panel open, the Live Metadata card title
 cuts off mid-word beside its state badge. The three detail items and their
 badges remain readable together. The clipping cause has not been established.
@@ -122,7 +122,7 @@ does not add a gate to task 017.
 
 Complete - 2026-09-13. The operator moved shared log framing, compact
 monospace typography and reachable long lines ahead of ADR 0066 task 007.
-[ADR 0063 task 005](../tasks/adr-0063-task-005-shared-log-frames-and-following.md)
+[ADR 0063 task 005](../tasks/archive/adr-0063-task-005-shared-log-frames-and-following.md)
 owns the common viewport across Show, Diagnostics and recovery. It retains
 unwrapped text, adds visible scrollbars, and keeps exact selection/copy.
 Its [operator procedure](../runbooks/log-frame-check.md) covers normal/narrow
@@ -133,7 +133,7 @@ are complete; task 017 and ADR 0066 task 006 remain accepted.
 #### A12 - Follow Latest Logs And Remember Each Reading Position
 
 Complete - 2026-09-13, in the same bounded
-[shared-log packet](../tasks/adr-0063-task-005-shared-log-frames-and-following.md).
+[shared-log packet](../tasks/archive/adr-0063-task-005-shared-log-frames-and-following.md).
 The [ADR amendment](../adr/0063-show-dashboard-layout.md#shared-log-frames-and-following)
 records following, manual pause, Go to latest outside the viewport, per-source
 state across closing/switching, and logical anchors when text changes. Reading
@@ -243,7 +243,7 @@ Acceptance direction:
 
 Requested behavior across shared logs, Settings, toolbar search and the
 configuration editor is owned by [ADR 0071](../adr/archive/0071-shared-text-selection-and-linux-primary.md)
-and [task 001](../tasks/adr-0071-task-001-shared-text-selection.md), started in
+and [task 001](../tasks/archive/adr-0071-task-001-shared-text-selection.md), started in
 a fresh session on 2026-09-13. Double-click selects a Unicode word; triple-click
 selects a logical line or the full single-line value. Selection publishes Linux
 primary; middle-click inserts it in editable text while preserving Ctrl+C/V.

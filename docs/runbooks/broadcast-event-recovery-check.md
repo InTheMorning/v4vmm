@@ -1,7 +1,7 @@
 # Event Recovery Visual Check
 
 Status: Passed - 2026-09-09. Operator acceptance met for
-[ADR 0059 task 016](../tasks/adr-0059-task-016-event-row-in-live-metadata.md).
+[ADR 0059 task 016](../tasks/archive/adr-0059-task-016-event-row-in-live-metadata.md).
 
 The operator confirmed all broadcast event recovery tests pass, including
 Create, Replace, stored Unknown and retry, explicit Attach, feed-tag Copy,
@@ -24,7 +24,7 @@ launched with the environment below. Do not substitute your normal app config.
 ## Current Acceptance Walkthrough
 
 Task 016's operator acceptance remains complete. For the new compact layout,
-use [task 017's walkthrough](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check).
+use [task 017's walkthrough](../tasks/archive/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check).
 It covers the picker, item badges, and Event Logs as well as recovery.
 Event Logs now names the action, event, response, and saved result in timestamped
 sentences. It omits idle operations. Action times remain unchanged when Logs
@@ -60,7 +60,7 @@ use the selected mode. Checks take two seconds so their progress is visible.
 Journal mode defaults to normal in existing and fresh fixture directories.
 No setup, app restart, or relay restart is needed to change it. Each request
 keeps the journal mode it read when it started; changing the mode affects new
-requests. Task 017's [delayed service-log checks](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#delayed-service-log-checks)
+requests. Task 017's [delayed service-log checks](../tasks/archive/adr-0059-task-017-compact-event-controls-and-badges.md#delayed-service-log-checks)
 cover switching, closing, and repeated reads. Restore journal mode normal
 after those checks. These modes do not change the event relay or service states.
 Target add/remove affect only the named target and preserve unrelated entries.

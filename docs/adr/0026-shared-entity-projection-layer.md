@@ -380,5 +380,5 @@ Library adoption, then contributor identity UI.
 ## Follow-Up Work
 
 Implementation is tracked in
-`docs/plans/adr-0026-shared-entity-projection-phase-plan.md`, starting with
-`docs/tasks/adr-0026-task-001-identity-facts.md`.
+`docs/plans/adr-0026-shared-entity-projection-phase-plan.md` (a deleted plan, in git history), starting with
+`docs/tasks/archive/adr-0026-task-001-identity-facts.md`.

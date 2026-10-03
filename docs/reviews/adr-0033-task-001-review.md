@@ -3,8 +3,8 @@
 ## Reviewed Artifact
 
 - ADR: `docs/adr/0033-hig-ui-architecture-governance.md`
-- Plan: `docs/plans/adr-0033-hig-ui-architecture-governance-phase-plan.md`
-- Task: `docs/tasks/adr-0033-task-001-boundary-gates.md`
+- Plan: `docs/plans/adr-0033-hig-ui-architecture-governance-phase-plan.md` (a deleted plan, in git history)
+- Task: `docs/tasks/archive/adr-0033-task-001-boundary-gates.md`
 
 ## Pass/Fail
 

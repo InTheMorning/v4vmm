@@ -3,10 +3,10 @@
 ## Reviewed Artifact
 
 - ADR: `docs/adr/0032-ui-backend-boundary-and-popover-contracts.md`
-- Plan: `docs/plans/adr-0032-ui-backend-boundary-phase-plan.md`
-- Task: `docs/tasks/adr-0032-task-001-playlist-popover-contract.md`
-- Task: `docs/tasks/adr-0032-task-002-architecture-test-enforcement.md`
-- Task: `docs/tasks/adr-0032-task-003-inspector-popover-migration.md`
+- Plan: `docs/plans/adr-0032-ui-backend-boundary-phase-plan.md` (a deleted plan, in git history)
+- Task: `docs/tasks/archive/adr-0032-task-001-playlist-popover-contract.md`
+- Task: `docs/tasks/archive/adr-0032-task-002-architecture-test-enforcement.md`
+- Task: `docs/tasks/archive/adr-0032-task-003-inspector-popover-migration.md`
 
 ## Required Checks
 

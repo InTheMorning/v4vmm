@@ -3,8 +3,8 @@
 ## Reviewed Artifact
 
 - ADR: `docs/adr/0032-ui-backend-boundary-and-popover-contracts.md`
-- Plan: `docs/plans/adr-0032-ui-backend-boundary-phase-plan.md`
-- Task: `docs/tasks/adr-0032-task-002-architecture-test-enforcement.md`
+- Plan: `docs/plans/adr-0032-ui-backend-boundary-phase-plan.md` (a deleted plan, in git history)
+- Task: `docs/tasks/archive/adr-0032-task-002-architecture-test-enforcement.md`
 - Diff: architecture-test and documentation updates for ADR0032 Phase 2.
 
 ## Result

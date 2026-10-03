@@ -2,7 +2,7 @@
 
 ## Status
 
-Design accepted - 2026-09-11. [Task 001](../tasks/adr-0069-task-001-grouped-settings-foundation.md)
+Design accepted - 2026-09-11. [Task 001](../tasks/archive/adr-0069-task-001-grouped-settings-foundation.md)
 is complete with mechanical checks Green, operator V1–V3 and preservation
 acceptance, and confirmed fixture cleanup. Its [operator procedure](../runbooks/settings-foundation-check.md)
 remains a regression check. Task 002 now has a packet. Phases 003–005 still need implementation packets.
@@ -66,7 +66,7 @@ implementation. Finish one packet per session.
 
 | Phase | Usable result | Prerequisite | State |
 |---|---|---|---|
-| [001: Grouped Settings foundation](../tasks/adr-0069-task-001-grouped-settings-foundation.md) | Existing controls grouped under General, Library and Diagnostics; persistent in-session navigation/inputs and direct report routing | Accepted ADR 0069; existing app and scoped config owners | Complete - 2026-09-11; mechanical checks Green; V1–V3 and preservation accepted; fixture cleanup confirmed |
+| [001: Grouped Settings foundation](../tasks/archive/adr-0069-task-001-grouped-settings-foundation.md) | Existing controls grouped under General, Library and Diagnostics; persistent in-session navigation/inputs and direct report routing | Accepted ADR 0069; existing app and scoped config owners | Complete - 2026-09-11; mechanical checks Green; V1–V3 and preservation accepted; fixture cleanup confirmed |
 | [002: Shared guarded editor](../tasks/adr-0069-task-002-shared-guarded-editor.md) | One draft/save/cancel contract, field errors and saved/running distinctions through shared recovery commands | Task 001 and recovery tasks 005–007 are complete with acceptance. | Ready - 2026-09-18. Implementation not started. Operator criteria become runnable after implementation and mechanical checks. |
 | 003: Live metadata setup | General mode selection and Live Metadata producer/publisher editors, compatible defaults and explicit apply behavior | 002 accepted; full ADR 0066 configuration-format prerequisite released | Not started; author schema and bounded packets before edits |
 | 004: Selective presets | Versioned named snapshots; save/recall masks for delivered components, composition in a draft, change review and conflict-safe persistence | 003 accepted; shared guarded persistence ready | Not started; split persistence/recall model and UI into separate packets if needed |

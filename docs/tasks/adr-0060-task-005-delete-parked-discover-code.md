@@ -4,7 +4,7 @@ Status: Implemented - 2026-09-30. Mechanical checks Green. Visual gate open and 
 
 The orchestrator divided the work on 2026-09-30. The first session completed Required Change 1 and stopped at the size limit. A second session completed Required Change 2 on 2026-09-30.
 
-This packet deletes the UI and state layer. [Packet 006](adr-0060-task-006-delete-parked-discover-queries.md) deletes the query layer.
+This packet deletes the UI and state layer. [Packet 006](archive/adr-0060-task-006-delete-parked-discover-queries.md) deletes the query layer.
 
 ## Goal
 

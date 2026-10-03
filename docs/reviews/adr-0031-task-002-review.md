@@ -3,8 +3,8 @@
 ## Reviewed Artifact
 
 - ADR: `docs/adr/0031-release-detail-presentation-contract.md`
-- Plan: `docs/plans/adr-0031-release-detail-presentation-contract-phase-plan.md`
-- Task: `docs/tasks/adr-0031-task-002-renderer-adoption.md`
+- Plan: `docs/plans/adr-0031-release-detail-presentation-contract-phase-plan.md` (a deleted plan, in git history)
+- Task: `docs/tasks/archive/adr-0031-task-002-renderer-adoption.md`
 - Diff scope:
   - `src/ui_entity.rs`
   - `src/ui_feed.rs`

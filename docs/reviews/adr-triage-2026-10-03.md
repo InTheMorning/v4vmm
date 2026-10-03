@@ -37,7 +37,7 @@ The batch files stay in the orchestrator scratchpad. This record keeps the decis
 The operator accepted these actions on 2026-10-03:
 
 - Groups A and B1 archive on 2026-10-03. ADR 0065 archives on 2026-10-03 too, after its status-text fix.
-- Group B2 (ADRs 0011, 0016, 0022 and 0064) archived on 2026-10-03, after [triage task 001](../tasks/adr-triage-task-001-guard-citations-and-archive.md) added the ADR citation to each enforcing test.
+- Group B2 (ADRs 0011, 0016, 0022 and 0064) archived on 2026-10-03, after [triage task 001](../tasks/archive/adr-triage-task-001-guard-citations-and-archive.md) added the ADR citation to each enforcing test.
 - ADR 0078 archives with ADR 0082 packet 002.
 - The text corrections apply to ADRs 0049, 0059 and 0065, and to `docs/adr/README.md`.
 

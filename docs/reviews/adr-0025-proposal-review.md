@@ -3,8 +3,8 @@
 ## Reviewed Artifact
 
 - ADR: `docs/adr/0025-theme-icon-style-boundary.md` (Proposed - 2026-05-01)
-- Phase plan: `docs/plans/adr-0025-visual-system-phase-plan.md`
-- Tasks: `docs/tasks/adr-0025-task-001-theme-profile-gates.md` through `…task-006-retire-theme-shim.md`, including `…task-003b-button-style-sweep.md`
+- Phase plan: `docs/plans/adr-0025-visual-system-phase-plan.md` (a deleted plan, in git history)
+- Tasks: `docs/tasks/archive/adr-0025-task-001-theme-profile-gates.md` through `…task-006-retire-theme-shim.md`, including `…task-003b-button-style-sweep.md`
 - Implementation review checklist: `docs/reviews/adr-0025-review-checklist.md` (kept separate; this document is a *proposal* review, the checklist remains the *post-implementation* review)
 
 ## Reviewer
@@ -85,7 +85,7 @@ Until this is decided, Task 003 is under-specified and an implementer could plau
 
 ### F2 — `install_theme` signature decision is left to the implementer
 
-Task 001 says "Wire `theme_bridge::install_theme` through the new type if this can be done without behavior changes; otherwise add a documented adapter that preserves the current `Appearance` entry point" (`docs/tasks/adr-0025-task-001-theme-profile-gates.md`, step 3). This is a real fork that affects every downstream task — do icon/control modules read `Environment` (current global) or a new `ThemeProfile` global?
+Task 001 says "Wire `theme_bridge::install_theme` through the new type if this can be done without behavior changes; otherwise add a documented adapter that preserves the current `Appearance` entry point" (`docs/tasks/archive/adr-0025-task-001-theme-profile-gates.md`, step 3). This is a real fork that affects every downstream task — do icon/control modules read `Environment` (current global) or a new `ThemeProfile` global?
 
 The current signature is `install_theme(appearance: Appearance, scale: ScaleFactor, cx: &mut App)` (`src/ui/theme_bridge.rs:47`); bootstrap calls it twice (`src/app/bootstrap.rs:37` and `:51`).
 

@@ -252,7 +252,7 @@ from the joined feed row. `build_track_response` copies that value into the trac
 Both queries also select `COALESCE(t.image_url, f.image_url)`.
 The API can therefore supply feed artwork in `Track.image_url` before any app fallback runs.
 
-[Packet 005](../tasks/adr-0075-task-005-field-rules-description-artwork-publisher.md)
+[Packet 005](../tasks/archive/adr-0075-task-005-field-rules-description-artwork-publisher.md)
 audits three app artwork paths but omits this upstream fallback.
 It also calls the Rust expression in `src/views.rs:682` a SQL-level fallback.
 The expression runs in the view projection. The upstream query contains the SQL fallback.
@@ -860,7 +860,7 @@ The minute values come from the curator workflow. No measurement supplies them.
 
 The [field inventory](../schema/adr-0075-metadata-field-inventory.md) assigns all inspected fields to rules or remaining packets.
 Packets 031 and 034 contain the remaining proposed field rules. Packet 035 contains proposed comparison details.
-The [API change request](../plans/musicindex-api-change-request.md) is the request to Stophammer.
+The API change request is the request to Stophammer.
 The earlier [Stophammer request](../plans/adr-0075-stophammer-decision-request.md) is its annex.
 The [phase plan](../plans/adr-0075-metadata-contract-phase-plan.md#unassigned-work) lists the upstream changes that the app does not use.
 
@@ -891,7 +891,7 @@ The current fixture is `/tmp/v4vmm-governance.ie6k8TQf`. Cleanup is unconfirmed.
 
 - [Accepted ADR](../adr/0075-metadata-ownership-and-completeness.md)
 - [Phase plan](../plans/adr-0075-metadata-contract-phase-plan.md)
-- [First packet](../tasks/adr-0075-task-001-contributor-claim-transport.md)
+- [First packet](../tasks/archive/adr-0075-task-001-contributor-claim-transport.md)
 - [Podcast person semantics](https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/tags/person.md)
 - [Podcast txt semantics](https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/tags/txt.md)
 - [NIP-19](https://github.com/nostr-protocol/nips/blob/master/19.md)

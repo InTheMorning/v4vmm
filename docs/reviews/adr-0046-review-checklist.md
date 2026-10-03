@@ -3,23 +3,23 @@
 ## Reviewed Artifacts
 
 - `docs/adr/0046-workspace-frame-architecture.md`
-- `docs/plans/adr-0046-workspace-frame-architecture-phase-plan.md`
+- `docs/plans/adr-0046-workspace-frame-architecture-phase-plan.md` (a deleted plan, in git history)
 - `docs/plans/workspace-frame-architecture-plan.md`
-- `docs/tasks/adr-0046-task-001-workspace-model-types.md`
-- `docs/tasks/adr-0046-task-002-frame-history-vm.md`
-- `docs/tasks/adr-0046-task-003-retire-inspector-back-button.md`
-- `docs/tasks/adr-0046-task-004-phase-2-architecture-guards.md`
-- `docs/tasks/adr-0046-task-005-frame-shell-display-vm.md`
-- `docs/tasks/adr-0046-task-006-frame-shell-composite.md`
-- `docs/tasks/adr-0046-task-006a-screen-mount-boundaries.md`
-- `docs/tasks/adr-0046-task-007-workspace-layout-render.md`
-- `docs/tasks/adr-0046-task-008-narrow-width-collapse-and-visual.md`
-- `docs/tasks/adr-0046-task-009-queue-now-playing-page-vm.md`
-- `docs/tasks/adr-0046-task-010-queue-now-playing-frame-shell.md`
-- `docs/tasks/adr-0046-task-011-phase-4-guards-and-visual.md`
-- `docs/tasks/adr-0046-task-012-frame-add-remove-and-persistence.md`
+- `docs/tasks/archive/adr-0046-task-001-workspace-model-types.md`
+- `docs/tasks/archive/adr-0046-task-002-frame-history-vm.md`
+- `docs/tasks/archive/adr-0046-task-003-retire-inspector-back-button.md`
+- `docs/tasks/archive/adr-0046-task-004-phase-2-architecture-guards.md`
+- `docs/tasks/archive/adr-0046-task-005-frame-shell-display-vm.md`
+- `docs/tasks/archive/adr-0046-task-006-frame-shell-composite.md`
+- `docs/tasks/archive/adr-0046-task-006a-screen-mount-boundaries.md`
+- `docs/tasks/archive/adr-0046-task-007-workspace-layout-render.md`
+- `docs/tasks/archive/adr-0046-task-008-narrow-width-collapse-and-visual.md`
+- `docs/tasks/archive/adr-0046-task-009-queue-now-playing-page-vm.md`
+- `docs/tasks/archive/adr-0046-task-010-queue-now-playing-frame-shell.md`
+- `docs/tasks/archive/adr-0046-task-011-phase-4-guards-and-visual.md`
+- `docs/tasks/archive/adr-0046-task-012-frame-add-remove-and-persistence.md`
 - `docs/tasks/adr-0046-task-013-multi-frame-commands-ux.md`
-- `docs/tasks/adr-0046-task-014-detach-dock-metadata.md`
+- `docs/tasks/archive/adr-0046-task-014-detach-dock-metadata.md`
 
 ## Gate Status
 

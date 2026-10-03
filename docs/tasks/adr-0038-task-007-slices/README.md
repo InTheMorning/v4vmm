@@ -1,7 +1,7 @@
 # ADR 0038 Task 007 — Slice Plans
 
 Each slice is an executable brief for a sonnet-class subagent. Read
-`../adr-0038-task-007-screen-decomposition.md` first for the overall
+`../archive/adr-0038-task-007-screen-decomposition.md` first for the overall
 plan and surface inventory.
 
 ## Execution Order

@@ -10,8 +10,8 @@ Implemented - 2026-05-01.
 - `src/search.rs`
 - `src/library.rs`
 - `tests/architecture_tests.rs`
-- `docs/plans/post-adr-0028-follow-up-plan.md`
-- `docs/tasks/post-adr-0028-task-001-library-contributor-panel.md`
+- `docs/plans/post-adr-0028-follow-up-plan.md` (a deleted plan, in git history)
+- `docs/tasks/archive/post-adr-0028-task-001-library-contributor-panel.md`
 
 ## Findings
 

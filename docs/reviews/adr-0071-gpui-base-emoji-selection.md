@@ -6,7 +6,7 @@ future upstream PR. The operator published the correction in their fork; the
 app now pins it under [ADR 0072](../adr/archive/0072-pinned-gpui-base-selection-corrections.md).
 No upstream issue or PR has been submitted. All focused X11 correction checks
 are accepted on 2026-09-15; IME composition and Wayland remain untested.
-[ADR 0071 task 001](../tasks/adr-0071-task-001-shared-text-selection.md)
+[ADR 0071 task 001](../tasks/archive/adr-0071-task-001-shared-text-selection.md)
 records the native evidence, accepted final preservation and confirmed
 fixture/scratch cleanup. The application packet is complete.
 
@@ -252,7 +252,7 @@ git ls-remote --exit-code https://github.com/InTheMorning/gpui-kit.git refs/head
 The app now pins that revision through a gpui-base-only Cargo override.
 `Cargo.lock` changes only that package's source and registry checksum; all
 versions and other packages are unchanged. App verification is recorded in
-[task 001](../tasks/adr-0071-task-001-shared-text-selection.md#fork-integration--2026-09-14).
+[task 001](../tasks/archive/adr-0071-task-001-shared-text-selection.md#fork-integration--2026-09-14).
 The temporary checkouts, source copies and
 `target/adr-0071-gpui-base-selection.bundle` were removed during acceptance
 cleanup on 2026-09-15. Before removal, both tracked patches were replayed and

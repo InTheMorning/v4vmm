@@ -12,8 +12,8 @@ Pass - 2026-05-01.
 - `src/feed_service.rs`
 - `src/db.rs`
 - `src/lib.rs`
-- `docs/tasks/adr-0028-task-002-ingest-persistence.md`
-- `docs/plans/adr-0028-local-identity-source-fact-persistence-phase-plan.md`
+- `docs/tasks/archive/adr-0028-task-002-ingest-persistence.md`
+- `docs/plans/adr-0028-local-identity-source-fact-persistence-phase-plan.md` (a deleted plan, in git history)
 
 ## Findings
 

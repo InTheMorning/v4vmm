@@ -27,7 +27,7 @@ Later packets use the recorded differences to identify each necessary correction
 | This repository, working tree | After ADR 0075 packet 001 | Current app behavior |
 | `/home/citizen/build/stophammer` | Commit `a220f44` | Current upstream parser and API behavior |
 | `rss` crate | Version 2.0.12, as pinned by `Cargo.lock` | Current XML extension behavior |
-| [Task 001 supplied response](../tasks/adr-0075-task-001-contributor-claim-transport.md#supplied-response) | Supplied on 2026-09-19 | The C01 source form |
+| [Task 001 supplied response](../tasks/archive/adr-0075-task-001-contributor-claim-transport.md#supplied-response) | Supplied on 2026-09-19 | The C01 source form |
 
 The enabled `rss` crate features in this build are `atom_syndication`, `builders`,
 `default`, `derive_builder` and `never`. The `atom` feature is not enabled.
@@ -67,7 +67,7 @@ This corpus records no live network request. No agent launched the app.
 
 **Source Form**
 Supplied evidence. See the
-[task 001 supplied response](../tasks/adr-0075-task-001-contributor-claim-transport.md#supplied-response).
+[task 001 supplied response](../tasks/archive/adr-0075-task-001-contributor-claim-transport.md#supplied-response).
 It holds three `source_contributors` entries. Two entries name HeyCitizen and carry one npub.
 The third entry names Moe Factz, carries `https://www.moefactz.com/` as `href`, and carries no npub.
 

@@ -2,7 +2,7 @@
 
 ## Reviewed Artifact
 
-- Task packet: `docs/tasks/adr-0026-task-003-slot-based-ui-shells.md`
+- Task packet: `docs/tasks/archive/adr-0026-task-003-slot-based-ui-shells.md`
 - Diff scope: new `src/ui_entity.rs`, crate export, shell unit test, and
   architecture-test hardening.
 

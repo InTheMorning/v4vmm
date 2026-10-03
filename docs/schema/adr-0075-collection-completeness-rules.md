@@ -70,7 +70,7 @@ parameter from a caller-supplied value.
 The `INDEX_FEED_DETAIL_INCLUDE` row for `source_enclosures` is a named
 example of [an unsupported include value](#effect-of-an-unsupported-include-value).
 Upstream enclosure rows already declare their owner. The app DTO loses that declaration.
-[Packet 030](../tasks/adr-0075-task-030-enclosure-claim-transport.md) corrects that transport loss.
+[Packet 030](../tasks/archive/adr-0075-task-030-enclosure-claim-transport.md) corrects that transport loss.
 Payment routes have a different gap: the inspected upstream rows also lack owner fields.
 Packet 008 requests that upstream decision without changing payment inheritance.
 

@@ -47,7 +47,7 @@ cargo test
 ## Follow-Up
 
 - Library contributor-panel visibility was completed by
-  `docs/tasks/post-adr-0028-task-001-library-contributor-panel.md`.
+  `docs/tasks/archive/post-adr-0028-task-001-library-contributor-panel.md`.
 - Keep non-identity Library/Discover visual differences under the shared
   projection/action-state follow-up track rather than expanding ADR 0028.
 

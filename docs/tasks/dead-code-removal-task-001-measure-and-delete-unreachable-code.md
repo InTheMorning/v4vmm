@@ -173,7 +173,7 @@ list.
 | `src/library/app_impl.rs` | `set_detail_text_filter` | Unreachable. No caller in production or in a test. |
 | `src/library/app_impl.rs` | `musicbrainz_track` (a third site, not named in Recorded Facts) | Unreachable. No caller anywhere. Its only caller candidate, a per-track MusicBrainz flow, lost its place to the per-album flow (`musicbrainz_feed`) that `src/library/app_impl.rs` still uses. |
 | `src/view_models/library.rs` | `MbTrackStatus::Skipped`'s `String` field | Live enum, one write-only field. The enum and its other variants are read by the Library row status badge. Only the `Skipped` reason text has no reader after its one covering test lost its last assertion of that text (see "Tests And Guards Deleted Or Changed"). |
-| `src/view_models/library.rs` | `set_content_text_filter` / `content_text_filter` | Test-only. `library_view_model_content_text_filter_does_not_filter_source_tree` calls both, through `ContentListPageVm::set_text_filter`. Pinned infrastructure: `tests/architecture_tests.rs::active_frame_search_dispatch_phase_1_vm_contracts_are_owned_by_view_models` requires this exact signature in `src/view_models/library.rs`, and `docs/plans/active-frame-search-dispatch-plan.md` records it as kept groundwork for a later in-frame find affordance. |
+| `src/view_models/library.rs` | `set_content_text_filter` / `content_text_filter` | Test-only. `library_view_model_content_text_filter_does_not_filter_source_tree` calls both, through `ContentListPageVm::set_text_filter`. Pinned infrastructure: `tests/architecture_tests.rs::active_frame_search_dispatch_phase_1_vm_contracts_are_owned_by_view_models` requires this exact signature in `src/view_models/library.rs`, and `docs/plans/active-frame-search-dispatch-plan.md` (a deleted plan, in git history) records it as kept groundwork for a later in-frame find affordance. |
 | `src/view_models/library.rs` | `set_detail_text_filter` / `detail_text_filter`, and the `detail_text_filter` field they backed | Unreachable. No caller, no test, and no record in `docs/` of a kept reason. |
 | `src/view_models/paged_playlist_detail.rs` | whole-file allowance | Mixed. `new`, `track_count` and `row` are live, read by `try_render_paged` in `src/ui/shells/library/playlist_detail.rs`. `position`, `is_pending`, the `playlist` field, `playlist_id`, `title` and `is_empty` are test-only. No screen reads them yet. |
 | `src/view_models/paged_feed_detail.rs` | whole-file allowance | Unreachable. No file outside it names `PagedFeedDetailVm`, `PagedFeedRow` or its `PagedTrackListHandle` alias. Confirmed by `git grep` on the committed tree, not only the flip-and-check measurement. |
@@ -188,7 +188,7 @@ again before deleting it:
   `track_matches_text_filter` methods, stay. One guard,
   `active_frame_search_dispatch_phase_1_vm_contracts_are_owned_by_view_models`,
   requires those three signatures in this file, and
-  `docs/plans/active-frame-search-dispatch-plan.md` names them kept Phase 1
+  `docs/plans/active-frame-search-dispatch-plan.md` (a deleted plan, in git history) names them kept Phase 1
   infrastructure.
 - `src/view_models/track.rs`: `TrackVm::play_url` and its private helpers
   `primary_source_enclosure_url`, `first_source_enclosure_url` and
@@ -391,7 +391,7 @@ Every other site in the six named files now has one of three outcomes:
   packet with a wider scope can take them on.
 - `set_content_text_filter` and `ContentListPageVm::set_text_filter` are
   pinned by `active_frame_search_dispatch_phase_1_vm_contracts_are_owned_by_view_models`
-  and by `docs/plans/active-frame-search-dispatch-plan.md`. Deleting either
+  and by `docs/plans/active-frame-search-dispatch-plan.md` (a deleted plan, in git history). Deleting either
   would fail that guard. I moved each one into its own `#[cfg(test)] impl`
   block, beside its type's production `impl` block. That guard reads raw
   file text, not compiled output, so it still finds each required signature.

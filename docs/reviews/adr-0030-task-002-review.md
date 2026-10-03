@@ -4,7 +4,7 @@
 
 - `src/view_models/search.rs`
 - `src/search.rs`
-- `docs/tasks/adr-0030-task-002-recents-labels.md`
+- `docs/tasks/archive/adr-0030-task-002-recents-labels.md`
 
 ## Pass/Fail
 

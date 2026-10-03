@@ -8,7 +8,7 @@ Pass - 2026-05-01.
 
 - `src/views.rs`
 - `src/sources.rs`
-- `docs/tasks/adr-0029-task-004-local-artist-source-hydration.md`
+- `docs/tasks/archive/adr-0029-task-004-local-artist-source-hydration.md`
 
 ## Findings
 

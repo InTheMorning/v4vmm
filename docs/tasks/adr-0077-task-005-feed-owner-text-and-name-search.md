@@ -12,7 +12,7 @@ The orchestrator divided the earlier packet 004 into packets 004 and 005 on 2026
 ## Authority
 
 - [ADR 0077](../adr/0077-publisher-feed-artist-binding.md) Decisions 1, 2 and 6, and its accepted refinements.
-- The [publisher relationship request](../plans/stophammer-publisher-relationship-request.md) records that `/v1/publishers` groups feeds by `itunes:owner`. On 2026-09-24, "Wavlake" held 7,352 feeds.
+- The publisher relationship request records that `/v1/publishers` groups feeds by `itunes:owner`. On 2026-09-24, "Wavlake" held 7,352 feeds.
 - The durable set in [AGENTS.md](../../AGENTS.md): renderer portability, typed action state and "Delete dead code".
 
 ## Recorded Facts - 2026-09-26

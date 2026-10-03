@@ -7,8 +7,8 @@ written. This reviews the proposed work, not an implementation of it.
 
 ## Artifacts Reviewed
 
-- [ADR 0063 task 004](../tasks/adr-0063-task-004-log-bottom-pane.md)
-- [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md)
+- [ADR 0063 task 004](../tasks/archive/adr-0063-task-004-log-bottom-pane.md)
+- [Show action feedback task 001](../tasks/archive/show-action-feedback-task-001-command-state-and-result.md)
 - [ADR 0063](../adr/0063-show-dashboard-layout.md)
 - [HIG product polish backlog](../plans/hig-product-polish-backlog.md), A7-A9
 - [Broadcast chain delivery order](../plans/broadcast-chain-delivery-order.md)

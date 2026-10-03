@@ -121,4 +121,4 @@ rather than masking the field in a renderer.
 
 - `docs/adr/0054-local-metadata-source-fact-persistence.md`
 - `docs/adr/0053-local-detail-source-fact-parity.md`
-- `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md`
+- `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md` (a deleted plan, in git history)

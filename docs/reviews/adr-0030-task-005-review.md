@@ -5,7 +5,7 @@
 - `src/metadata.rs`
 - `src/library.rs`
 - `src/search.rs`
-- `docs/tasks/adr-0030-task-005-contributor-tree-metadata.md`
+- `docs/tasks/archive/adr-0030-task-005-contributor-tree-metadata.md`
 
 ## Pass/Fail
 

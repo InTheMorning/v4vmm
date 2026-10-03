@@ -3,8 +3,8 @@
 ## Reviewed Artifact
 
 - ADR: `docs/adr/0032-ui-backend-boundary-and-popover-contracts.md`
-- Plan: `docs/plans/adr-0032-ui-backend-boundary-phase-plan.md`
-- Task: `docs/tasks/adr-0032-task-003-inspector-popover-migration.md`
+- Plan: `docs/plans/adr-0032-ui-backend-boundary-phase-plan.md` (a deleted plan, in git history)
+- Task: `docs/tasks/archive/adr-0032-task-003-inspector-popover-migration.md`
 - Diff: inspector playlist popover migration and architecture-test baseline
   tightening.
 

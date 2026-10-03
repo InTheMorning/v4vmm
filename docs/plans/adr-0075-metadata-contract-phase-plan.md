@@ -43,16 +43,16 @@ Register reorganized on 2026-09-21. It holds complete work and a committed path 
 packets. The operator accepted both dependency cuts and deleted sixteen packets on the
 same day.
 
-The [API change request](musicindex-api-change-request.md) replaces packet 008 as the
+The API change request replaces packet 008 as the
 request to Stophammer. It asks for four changes. Three of them need no reingestion.
 
 The operator sent that request on 2026-09-22, and its fixes are live on 2026-09-23.
 Changes 1, 2, and 3 are
-[verified](musicindex-api-change-request.md#verification-against-the-deployed-api) against the
+verified (a deleted plan, in git history) against the
 deployed API. The deployed revision stays unconfirmed.
 
 Packets 047, 048 and 049 implement the three landed changes on 2026-09-29. The
-[answer table](musicindex-api-change-request.md#what-each-answer-changes-here) records the
+answer table (a deleted plan, in git history) records the
 work that each one releases. The two upstream questions are answered.
 
 Phases 002–006 below are outcomes, not instructions. The packet register divides
@@ -78,9 +78,9 @@ them into bounded packets. Do not give an agent a whole phase.
 | [013 verified snapshot replacement](../tasks/adr-0075-task-013-verified-snapshot-replacement.md) | Implementation, technical review, and mechanical checks complete on 2026-09-21. Bounded RSS identity contracts and typed local reads. Inherited presentation gates open and paused |
 | [038 Library reader retention](../tasks/adr-0075-task-038-library-reader-observation-retention.md) | Implementation, technical review, and mechanical checks complete on 2026-09-21. Presentation gate open and paused |
 | [039 feed checks and updates](../tasks/adr-0075-task-039-feed-check-and-update-observation-retention.md) | Implementation, technical review, and mechanical checks complete on 2026-09-21. Three converted roots, one dead command deleted, receipts kept across route repair. Presentation gate open and paused |
-| [017 named request profiles](../tasks/adr-0075-task-017-named-request-profiles.md) | Implementation, technical review, and mechanical checks complete on 2026-09-21. Ten named profiles, eight converted request sites, one new guard. No visual gate |
-| [018 Part A, request identity and sharing](../tasks/adr-0075-task-018-request-reuse-and-freshness.md#implementation-result-part-a---2026-09-21) | Implementation, technical review, and mechanical checks complete on 2026-09-21. One shared owner, single-flight sharing, an app sequence counter, and the explicit refresh intent. The orchestrator added an abandoned-request guard. No visual gate |
-| [018 Part B, completed response reuse](../tasks/adr-0075-task-018-request-reuse-and-freshness.md#implementation-result-part-b---2026-09-22) | Implementation, technical review, and mechanical checks complete on 2026-09-22. The accepted windows, capacity, feed-wide invalidation, RSS sharing, and the converted Index routes. Each of the four measurement targets is met. No visual gate |
+| [017 named request profiles](../tasks/archive/adr-0075-task-017-named-request-profiles.md) | Implementation, technical review, and mechanical checks complete on 2026-09-21. Ten named profiles, eight converted request sites, one new guard. No visual gate |
+| [018 Part A, request identity and sharing](../tasks/archive/adr-0075-task-018-request-reuse-and-freshness.md#implementation-result-part-a---2026-09-21) | Implementation, technical review, and mechanical checks complete on 2026-09-21. One shared owner, single-flight sharing, an app sequence counter, and the explicit refresh intent. The orchestrator added an abandoned-request guard. No visual gate |
+| [018 Part B, completed response reuse](../tasks/archive/adr-0075-task-018-request-reuse-and-freshness.md#implementation-result-part-b---2026-09-22) | Implementation, technical review, and mechanical checks complete on 2026-09-22. The accepted windows, capacity, feed-wide invalidation, RSS sharing, and the converted Index routes. Each of the four measurement targets is met. No visual gate |
 
 Code agents preserve the existing packet 030 working changes. They do not commit or run the app.
 The orchestrator reviews each diff and runs the integrated checks.
@@ -165,7 +165,7 @@ Exclude these changes from this work:
 
 | Phase | Outcome | Prerequisites and completion evidence |
 |---|---|---|
-| 001 | Preserve contributor claim fields in the app's type for API data | Complete on 2026-09-19. [First packet](../tasks/adr-0075-task-001-contributor-claim-transport.md). Eleven tests check JSON round trips and compatibility. No schema or UI change |
+| 001 | Preserve contributor claim fields in the app's type for API data | Complete on 2026-09-19. [First packet](../tasks/archive/adr-0075-task-001-contributor-claim-transport.md). Eleven tests check JSON round trips and compatibility. No schema or UI change |
 | 002 | Agree the RSS extraction and Index ownership rules | A Stophammer ADR and a shared list of examples. Tests check parsing, ingestion and queries. Preserve compatibility. Do not crawl live feeds again yet |
 | 003 | Store provider snapshots and coverage state with their owners | Write the exact schema and migration packet first. Test transactions, empty refresh, rollback, restart and isolation between providers |
 | 004 | Share detail requests and code that prepares data for display | Define request includes, scoped identity, response failure handling and fallback for each field. Test partial responses, request counts and route parity |
@@ -217,7 +217,7 @@ Document packets. Their deliverables exist. Some field policies stay open.
 | 005 | Description, artwork and publisher rules |
 | 006 | Artist, language and date rules |
 | 007 | Links and media rules |
-| 008 | Upstream decision request. The [API change request](musicindex-api-change-request.md) replaces it as the request |
+| 008 | Upstream decision request. The API change request replaces it as the request |
 | 011 | Provider snapshot schema |
 | 016 | Request and write baseline |
 | 031 | Title, number and classification rules. Five policies stay open |
@@ -230,8 +230,8 @@ These five packets carry ADR 0075 to a visible result. Dispatch them in this seq
 
 | Packet | Kind | Outcome | Needs |
 |---|---|---|---|
-| [017](../tasks/adr-0075-task-017-named-request-profiles.md) | Code | Name the requests that the Library route and the Index route make. Complete on 2026-09-21 | 013, 014, 016, and both accepted cuts below |
-| [018](../tasks/adr-0075-task-018-request-reuse-and-freshness.md) | Code | Request identity, sharing, expiry, explicit refresh, and response order. Complete on 2026-09-22 | 016, 017, and nine policies that the operator accepted on 2026-09-21 and 2026-09-22 |
+| [017](../tasks/archive/adr-0075-task-017-named-request-profiles.md) | Code | Name the requests that the Library route and the Index route make. Complete on 2026-09-21 | 013, 014, 016, and both accepted cuts below |
+| [018](../tasks/archive/adr-0075-task-018-request-reuse-and-freshness.md) | Code | Request identity, sharing, expiry, explicit refresh, and response order. Complete on 2026-09-22 | 016, 017, and nine policies that the operator accepted on 2026-09-21 and 2026-09-22 |
 | 045 | Code | Replaced on 2026-09-24 by the ADR 0076 packets. The [ADR 0076 phase plan](adr-0076-playlist-rss-check-phase-plan.md) registers them | 018 and ADR 0076 |
 | [020](../tasks/adr-0075-task-020-stored-value-projection.md) | Code | One shared projection of the stored values with their owners. Implemented on 2026-09-24. Visual gate open and paused | ADR 0076 packet 002 |
 | [022](../tasks/adr-0075-task-022-track-header-identities.md) | Code | The track header view model, limited to track identities. Implemented on 2026-09-28. Mechanical checks Green. Visual gate open and paused | 020 |
@@ -274,7 +274,7 @@ The operator accepted both cuts on 2026-09-21.
 | The retained discrepancy tables of ADR 0075 Decision G. Deleted packet 036 implemented them. ADR 0076 supersedes Decision G on 2026-09-24 | No packet. The ADR 0076 comparison packet uses the tables or deletes them |
 | A visible retry action for the capsules that packet 014 retains after a storage failure. Deleted packet 019 owned it | No packet. The storage-failure presentation gate of packet 014 depends on it |
 | A field rule for the new upstream `last_build_date` claim type | Closed. ADR 0076, amended on 2026-09-26: the app ignores the field and never uses `lastBuildDate` as a date or a change signal |
-| `Feed.name`, `Track.name`, and `Track.feed_url` no longer arrive from the deployed API | [Packet 046](../tasks/adr-0075-task-046-remove-undeclared-api-fields.md), Implemented on 2026-09-26. Mechanical checks Green. No visual gate. `TrackContext::feed_url` gives the feed address |
+| `Feed.name`, `Track.name`, and `Track.feed_url` no longer arrive from the deployed API | [Packet 046](../tasks/archive/adr-0075-task-046-remove-undeclared-api-fields.md), Implemented on 2026-09-26. Mechanical checks Green. No visual gate. `TrackContext::feed_url` gives the feed address |
 | Stophammer removed its public artist credits on 2026-04-08, in commit `a16a720` | Closed. ADR 0077 packet 001 deleted the ADR 0045 binding on 2026-09-24 |
 | Search rows from the new upstream summary fields, without a detail request for each hit | [Packet 047](../tasks/adr-0075-task-047-search-rows-from-summary-fields.md), Implemented on 2026-09-29. Mechanical checks Green. Visual gate open and paused |
 | The separate track and feed artwork fields of MusicIndex change 2 | [Packet 048](../tasks/adr-0075-task-048-separate-track-artwork.md), Implemented on 2026-09-29. Mechanical checks Green. Visual gate open and paused |
@@ -284,7 +284,7 @@ The operator accepted both cuts on 2026-09-21.
 | The app reads no RSS channel `pubDate`. The accepted feed publication-date rules have no source. The album page shows the oldest-item date as "Release Date" | [Packet 050](../tasks/adr-0075-task-050-feed-dates-by-owner.md), Implemented on 2026-10-01. Mechanical checks Green. Visual gate open and paused |
 | The accepted feed and track date precision, timezone and original-text display rules. Packet 050 shows a day-precision date with its source | No packet |
 | Unreachable code after ADR 0060 packets 005 and 006: `FeedVm::scalar_detail_entries`, `TrackVm::play_url` and its helpers, `lookup_musicbrainz_track` and `download_and_compare_track`, and the six other files with `allow(dead_code)` | [Dead code removal task 001](../tasks/dead-code-removal-task-001-measure-and-delete-unreachable-code.md), Implemented on 2026-10-01. [Task 002](../tasks/dead-code-removal-task-002-expected-dead-code.md) owns the 35 older `expect(dead_code)` markers, Implemented on 2026-10-01 |
-| A guard that compares the fields that the app decodes with a stored copy of the MusicIndex contract. The incident: Stophammer removed `artist_credit` on 2026-04-08, and the app read `None` for five months without a report | [Packet 051](../tasks/adr-0075-task-051-contract-field-guard.md), Implemented on 2026-10-01. Mechanical checks Green. No visual gate |
+| A guard that compares the fields that the app decodes with a stored copy of the MusicIndex contract. The incident: Stophammer removed `artist_credit` on 2026-04-08, and the app read `None` for five months without a report | [Packet 051](../tasks/archive/adr-0075-task-051-contract-field-guard.md), Implemented on 2026-10-01. Mechanical checks Green. No visual gate |
 | A typed RSS refresh-failure state. ADR 0075 §2 and §6 require the app to report a failed refresh. Deleted packet 019 owned it | No packet |
 | Combined isolation, restart, rollback, and superseded-response tests for provider snapshots. Deleted packet 015 owned them | No packet |
 

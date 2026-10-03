@@ -13,7 +13,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 - Live API: read-only GET requests to `https://api.musicindex.org` on 2026-09-25, and the contract at `/openapi.json`.
   The contract changed on 2026-09-25. The deploy of that day added `/v1/copies`, `/v1/feeds/{guid}/copies`, `/v1/feeds/{guid}/route-history`, `/v1/guid-changes` and `/v1/blocks`, and removed `/v1/proofs/challenge` and `/v1/proofs/assert`.
 - Stophammer source: the local checkout at commit `64052ea`, read on 2026-09-25. The deployed revision is unconfirmed. Request 2 asks for a way to confirm it.
-- v4vmm documents: `docs/plans/musicindex-api-change-request.md`, `docs/plans/stophammer-publisher-relationship-request.md`, and the album summary request that this document replaces.
+- v4vmm documents: `docs/plans/musicindex-api-change-request.md` (a deleted plan, in git history), `docs/plans/stophammer-publisher-relationship-request.md` (a deleted plan, in git history), and the album summary request that this document replaces.
 
 ## Requests
 

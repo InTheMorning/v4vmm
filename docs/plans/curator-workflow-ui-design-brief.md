@@ -445,5 +445,5 @@ Required follow-up documentation before implementation:
 - `docs/architecture/ui-regression-ratchet.md`
 - `docs/plans/hig-product-polish-backlog.md`
 - `docs/adr/0059-broadcast-control-surface.md`
-- `docs/plans/adr-0059-broadcast-control-surface-phase-plan.md`
+- `docs/plans/adr-0059-broadcast-control-surface-phase-plan.md` (a deleted plan, in git history)
 - `docs/research/broadcast-recording-and-feed-publishing.md`

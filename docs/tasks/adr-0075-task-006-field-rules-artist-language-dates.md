@@ -79,7 +79,7 @@ merge people. It does not claim an artist identity for a track or a feed.
 - [Phase plan](../plans/adr-0075-metadata-contract-phase-plan.md), the
   [Packet Register](../plans/adr-0075-metadata-contract-phase-plan.md#packet-register)
 
-- [Task 001](adr-0075-task-001-contributor-claim-transport.md), for this
+- [Task 001](archive/adr-0075-task-001-contributor-claim-transport.md), for this
   packet's tone and level of detail
 
 - `src/api.rs`: the `Feed` and `Track` structs, and `track_with_feed_defaults`

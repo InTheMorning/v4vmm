@@ -45,7 +45,7 @@ None. Task 006 already landed.
 //! not retain state.
 //!
 //! See `docs/adr/archive/0038-presentation-contract-enforcement.md` and
-//! `docs/tasks/adr-0038-task-007-screen-decomposition.md`.
+//! `docs/tasks/archive/adr-0038-task-007-screen-decomposition.md`.
 
 #![warn(clippy::pedantic)]
 ```
@@ -69,7 +69,7 @@ None. Task 006 already landed.
 //! state.
 //!
 //! See `docs/adr/archive/0038-presentation-contract-enforcement.md` and
-//! `docs/tasks/adr-0038-task-007-screen-decomposition.md`.
+//! `docs/tasks/archive/adr-0038-task-007-screen-decomposition.md`.
 
 #![warn(clippy::pedantic)]
 ```

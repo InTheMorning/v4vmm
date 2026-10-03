@@ -11,7 +11,7 @@ A row sends its detail request when the operator opens it.
 
 - [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md) section 6 and Decision C, and packets 017 and 018: named request profiles and one shared request owner.
 - [ADR 0077](../adr/0077-publisher-feed-artist-binding.md) Decision 6: feed owner text is not an artist.
-- [MusicIndex API change request](../plans/musicindex-api-change-request.md) change 1, live since 2026-09-23.
+- MusicIndex API change request change 1, live since 2026-09-23.
 - The durable set in [AGENTS.md](../../AGENTS.md): renderer portability, typed action state, and "Current-view state must update in place".
 
 ## Recorded Facts - 2026-09-29

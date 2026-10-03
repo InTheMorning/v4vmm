@@ -4,10 +4,10 @@ Status: Superseded - 2026-05-16.
 
 ## Reviewed Artifacts
 
-- `docs/plans/active-frame-search-dispatch-plan.md`
-- `docs/tasks/active-frame-search-dispatch-task-001-workspace-descriptor.md`
-- `docs/tasks/active-frame-search-dispatch-task-002-page-vm-text-filters.md`
-- `docs/tasks/active-frame-search-dispatch-task-003-entity-detail-text-filters.md`
+- `docs/plans/active-frame-search-dispatch-plan.md` (a deleted plan, in git history)
+- `docs/tasks/archive/active-frame-search-dispatch-task-001-workspace-descriptor.md`
+- `docs/tasks/archive/active-frame-search-dispatch-task-002-page-vm-text-filters.md`
+- `docs/tasks/archive/active-frame-search-dispatch-task-003-entity-detail-text-filters.md`
 - `src/view_models/workspace.rs`
 - `src/view_models/library.rs`
 - `src/view_models/search_results.rs`
@@ -115,7 +115,7 @@ Dispatcher infrastructure for Phase 1-4 remains in place and is not
 removed. However, the primary toolbar Search behavior that once
 dispatched to focused-frame filtering has been retired in favor of
 breadcrumb-driven search navigation within the ContentList frame
-(see `docs/plans/search-in-library-frame-plan.md`). The
+(see `docs/plans/search-in-library-frame-plan.md` (a deleted plan, in git history)). The
 `FrameSearchScope`, `FrameSearchDescriptor`, and `set_text_filter`
 contracts now exist as follow-up infrastructure for a future explicit
 in-frame find/filter affordance, not as the active toolbar UX.

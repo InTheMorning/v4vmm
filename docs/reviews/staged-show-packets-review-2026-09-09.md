@@ -29,7 +29,7 @@ Rechecked 2026-09-09 after the operator revised both packets:
 
 ### R4 - P2: Carry The Runtime Exception Into The Abbreviated Prompt
 
-Location: `docs/tasks/show-action-feedback-task-001-command-state-and-result.md`,
+Location: `docs/tasks/archive/show-action-feedback-task-001-command-state-and-result.md`,
 lines 243-244 in the corrected working tree.
 
 The abbreviated prompt still lists all of `src/runtime/**` under "Do not
@@ -52,7 +52,7 @@ before the operator's working-tree corrections.
 
 ### R1 - P2: The Existing Timestamp Does Not Prove Observation Freshness
 
-Location: `docs/tasks/show-action-feedback-task-001-command-state-and-result.md`,
+Location: `docs/tasks/archive/show-action-feedback-task-001-command-state-and-result.md`,
 lines 104-107.
 
 The instruction says a sample is fresh when its `at` is later than command
@@ -74,7 +74,7 @@ completion; assigning an artificially old snapshot timestamp misses this race.
 
 ### R2 - P2: Agreement-Only Release Can Hide A Terminal Failure Indefinitely
 
-Location: `docs/tasks/show-action-feedback-task-001-command-state-and-result.md`,
+Location: `docs/tasks/archive/show-action-feedback-task-001-command-state-and-result.md`,
 lines 108-118.
 
 The transition may end only on a fresh observation that agrees with the
@@ -98,7 +98,7 @@ state, and persistent disagreement.
 
 ### R3 - P2: The Abbreviated Log Prompt Still Forbids The Required Toggle
 
-Location: `docs/tasks/adr-0063-task-004-log-bottom-pane.md`, lines 58-62;
+Location: `docs/tasks/archive/adr-0063-task-004-log-bottom-pane.md`, lines 58-62;
 conflicting abbreviated instruction at lines 181-182.
 
 The revised main constraints permit Close and a second press on the same

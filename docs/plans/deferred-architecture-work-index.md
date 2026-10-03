@@ -150,7 +150,7 @@ prioritized, and routed to the right governance artifact.
 - ADR 0029 is superseded by ADR 0079 on 2026-09-24. ADR 0077 packet 001
   deleted its artist source facts and `ArtistRef::Musicindex`.
 - Library contributor identity visibility is no longer deferred. It was
-  completed by `docs/tasks/post-adr-0028-task-001-library-contributor-panel.md`.
+  completed by `docs/tasks/archive/post-adr-0028-task-001-library-contributor-panel.md`.
 - ADR 0027 action-state parity is implemented and should not be reopened for
   unrelated data or service-boundary work.
 - ADR 0040 and ADR 0041 status text was reconciled on 2026-05-08. The

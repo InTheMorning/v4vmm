@@ -46,7 +46,7 @@ These are for the operator. No test proves them.
 
 ## Exclusions
 
-- No change to the tag scan or to the tag writer. [ADR 0080 packet 003](adr-0080-task-003-vorbis-date-shares-one-key.md) owns the FLAC date defect.
+- No change to the tag scan or to the tag writer. [ADR 0080 packet 003](archive/adr-0080-task-003-vorbis-date-shares-one-key.md) owns the FLAC date defect.
 
 ## Files To Inspect
 

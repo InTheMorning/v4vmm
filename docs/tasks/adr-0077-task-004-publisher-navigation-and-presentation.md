@@ -24,7 +24,7 @@ The orchestrator divided the earlier packet 004 into packets 004 and 005 on 2026
 - `fetch_index_publisher_page` in `src/application/queries/feed.rs` and `fetch_library_publisher_page` in `src/application/queries/library.rs`.
 - `PublisherPageVm` in `src/view_models/publisher_page.rs`: `title`, `page_type`, `owned_albums`, `listed_by_albums`, `library_albums`, `other_albums`, `other_albums_status`, and `derived_artist_count`.
 - Each packet 003 item carries `#[cfg_attr(not(test), expect(dead_code, reason = ...))]`. When this packet calls an item, the expectation becomes unfulfilled and the build fails. Remove each expectation that the build names.
-- The [packet 003 review](adr-0077-task-003-publisher-page-view-model.md#orchestrator-review---2026-09-26) records a follow-up: a Library album has no artist text.
+- The [packet 003 review](archive/adr-0077-task-003-publisher-page-view-model.md#orchestrator-review---2026-09-26) records a follow-up: a Library album has no artist text.
 
 ## Required Changes
 

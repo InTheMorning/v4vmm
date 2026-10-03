@@ -2,7 +2,7 @@
 
 ## Status And Scope
 
-Measured and technically reviewed - 2026-09-20. [Packet 016](../tasks/adr-0075-task-016-request-and-write-baseline.md) owns this baseline.
+Measured and technically reviewed - 2026-09-20. [Packet 016](../tasks/archive/adr-0075-task-016-request-and-write-baseline.md) owns this baseline.
 The baseline covers the five scenarios required by the [phase plan](../plans/adr-0075-metadata-contract-phase-plan.md#performance-checks).
 It measures application query functions and shared detail projections with constructed data.
 It does not measure desktop rendering or claim a performance improvement.

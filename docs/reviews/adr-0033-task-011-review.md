@@ -4,7 +4,7 @@
 
 - `AGENTS.md` local ignored workspace rule mirror
 - `docs/adr/0033-hig-ui-architecture-governance.md`
-- `docs/tasks/adr-0033-task-011-hi-structure-quality-rule.md`
+- `docs/tasks/archive/adr-0033-task-011-hi-structure-quality-rule.md`
 
 ## Status
 

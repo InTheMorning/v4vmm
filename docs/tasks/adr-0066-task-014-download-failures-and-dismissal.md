@@ -12,7 +12,7 @@ A retained action names the failure that occurred. Only a conversion failure off
   - "Issues remain visible until corrected or superseded by an actual successful observation."
   - "Full subjects, repair actions and retained original actions remain reachable within the notice and in Settings."
   - "For a WAV conversion failure, name the track and failed converter operation. Offer converter setup."
-- ADR 0066 [task 009](adr-0066-task-009-conversion-retry-and-retained-input.md): retention is session-only.
+- ADR 0066 [task 009](archive/adr-0066-task-009-conversion-retry-and-retained-input.md): retention is session-only.
 
 ## Recorded Facts - 2026-10-03
 
@@ -26,7 +26,7 @@ A retained action names the failure that occurred. Only a conversion failure off
 - The collapsed notice gives `Dismiss` only to a completed row (`rows(false)` in `src/view_models/startup/capabilities.rs`). Settings → Background tools gives `Dismiss` to each row.
 - The report text "Available input is retained for this session" shows also when the staging directory is gone.
 - `ConversionState::RedownloadRequired` and the action "Redownload original track" exist for a retained input that cannot be used again.
-- [ADR 0056 task 005](adr-0056-task-005-remove-enclosure-length-check.md) removes the size check. Other download failures stay.
+- [ADR 0056 task 005](archive/adr-0056-task-005-remove-enclosure-length-check.md) removes the size check. Other download failures stay.
 
 ## Required Changes
 

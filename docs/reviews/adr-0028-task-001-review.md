@@ -7,7 +7,7 @@ Pass - 2026-05-01.
 ## Reviewed Scope
 
 - `src/db.rs`
-- `docs/tasks/adr-0028-task-001-schema-and-db-helpers.md`
+- `docs/tasks/archive/adr-0028-task-001-schema-and-db-helpers.md`
 
 ## Findings
 

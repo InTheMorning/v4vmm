@@ -5,7 +5,7 @@
 - `src/view_models/entity_detail.rs`
 - `src/search.rs`
 - `src/library.rs`
-- `docs/tasks/adr-0030-task-004-discovery-compare-actions.md`
+- `docs/tasks/archive/adr-0030-task-004-discovery-compare-actions.md`
 
 ## Pass/Fail
 

@@ -42,7 +42,7 @@ answer. It states the app's requirement and names each open question.
   [RSS Extraction Can Assign The Wrong Owner](../reviews/adr-0075-metadata-contract-review.md#rss-extraction-can-assign-the-wrong-owner)
   and
   [Website Rules Differ](../reviews/adr-0075-metadata-contract-review.md#website-rules-differ)
-- [Task 001](adr-0075-task-001-contributor-claim-transport.md), the field
+- [Task 001](archive/adr-0075-task-001-contributor-claim-transport.md), the field
   contract for `api::Contributor`
 - [Task 004](adr-0075-task-004-collection-completeness-rules.md), the
   collection completeness rules

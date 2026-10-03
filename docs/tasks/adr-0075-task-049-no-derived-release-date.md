@@ -14,7 +14,7 @@ An oldest-item date, a build date and a feed date never become the release date 
   - Track publication-date fallback: a feed date is a separate value. It does not create a track-owned date assertion.
 - ADR 0075 section 4: a feed fact never becomes a track assertion.
 - [ADR 0076](../adr/0076-playlist-rss-check-for-stale-musicindex-records.md): the app does not use `lastBuildDate` as a date.
-- [MusicIndex API change request](../plans/musicindex-api-change-request.md) change 3, live since 2026-09-23.
+- MusicIndex API change request change 3, live since 2026-09-23.
 
 ## Recorded Facts - 2026-09-29
 

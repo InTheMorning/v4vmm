@@ -9,8 +9,8 @@ Pass - 2026-05-01.
 - `src/views.rs`
 - `src/sources.rs`
 - `src/feed_service.rs`
-- `docs/tasks/adr-0028-task-003-local-view-hydration.md`
-- `docs/plans/adr-0028-local-identity-source-fact-persistence-phase-plan.md`
+- `docs/tasks/archive/adr-0028-task-003-local-view-hydration.md`
+- `docs/plans/adr-0028-local-identity-source-fact-persistence-phase-plan.md` (a deleted plan, in git history)
 
 ## Findings
 

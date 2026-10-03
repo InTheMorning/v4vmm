@@ -147,10 +147,10 @@ Applied rewrite:
   effects.
 - `docs/schema/storage-and-metadata.md` now states the enclosure selection order
   with one verb form.
-- `docs/plans/adr-0023-design-system-migration.md`,
-  `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md`,
-  `docs/plans/discovery-library-ui-fixes.md`, and
-  `docs/plans/inspector-source-ownership-phase-plan.md` now split the flagged
+- `docs/plans/adr-0023-design-system-migration.md` (a deleted plan, in git history),
+  `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md` (a deleted plan, in git history),
+  `docs/plans/discovery-library-ui-fixes.md` (a deleted plan, in git history), and
+  `docs/plans/inspector-source-ownership-phase-plan.md` (a deleted plan, in git history) now split the flagged
   implementation constraints.
 
 ## Optional Improvements

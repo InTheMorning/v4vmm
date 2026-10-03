@@ -9,7 +9,7 @@ Active - 2026-10-02. This plan is advisory. It states no rule.
 
 | Packet | Scope | Owners | Depends on | State |
 |---|---|---|---|---|
-| [001](../tasks/adr-0082-task-001-contract-0-7-0-and-link-facts.md) | The 0.7.0 contract copy, the decode of `album_names_as`, `role_agreement` and `co_credited_feeds`, a null `role`, and the storage of the two link facts | ADR 0082, ADR 0075 section 6 | None | Implemented 2026-10-02. Mechanical checks Green. No visual gate |
+| [001](../tasks/archive/adr-0082-task-001-contract-0-7-0-and-link-facts.md) | The 0.7.0 contract copy, the decode of `album_names_as`, `role_agreement` and `co_credited_feeds`, a null `role`, and the storage of the two link facts | ADR 0082, ADR 0075 section 6 | None | Implemented 2026-10-02. Mechanical checks Green. No visual gate |
 | [002](../tasks/adr-0082-task-002-publisher-page-role-groups.md) | The publisher page: no type, the groups and role subgroups, the row role text, the header roles and "Shares albums with". ADR 0078 moves to the archive | ADR 0082 Decisions 1 to 5 | 001 | Ready 2026-10-02 |
 | [003](../tasks/adr-0082-task-003-album-page-publisher-link.md) | The album page publisher link with role, agreement and source | ADR 0082 Decision 6, ADR 0077 Decision 2 | 001 | Ready 2026-10-02 |
 

@@ -14,7 +14,7 @@ all fixture cleanup confirmed. The shared-log amendment's gate is closed.
 
 Amended 2026-09-13 at the operator's request: shared framed log presentation,
 monospace typography, and per-source following now precede ADR 0066 task 007.
-[Task 005](../tasks/adr-0063-task-005-shared-log-frames-and-following.md) owns this
+[Task 005](../tasks/archive/adr-0063-task-005-shared-log-frames-and-following.md) owns this
 bounded change and records its completed acceptance. Earlier dashboard and task 017
 acceptance remain closed for their shipped scope.
 
@@ -42,14 +42,14 @@ The operator confirmed fixture cleanup, closing task 017's final gate and
 returning this ADR to Implemented for that scope. The subsequent shared-log
 amendment's acceptance is recorded in task 005.
 
-Amended 2026-09-10: [Show action feedback task 001](../tasks/show-action-feedback-task-001-command-state-and-result.md)
+Amended 2026-09-10: [Show action feedback task 001](../tasks/archive/show-action-feedback-task-001-command-state-and-result.md)
 keeps Stream controls mounted through commands. ADR 0059 owns the command-state
 guards; the packet records operator acceptance of stable placement and height.
 
 Amended 2026-09-09: the operator approved a compact Event item, labeled badges
 for Event/Producer/Publisher, and Event diagnostics in the shared bottom pane.
 The accepted task 016 layout exposed too much configuration and pushed service
-controls down the side panel. [Task 017](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md)
+controls down the side panel. [Task 017](../tasks/archive/adr-0059-task-017-compact-event-controls-and-badges.md)
 owns the acceptance walkthrough. ADR 0059 owns selection, action, and readiness
 semantics; this amendment owns their arrangement and disclosure.
 
@@ -199,7 +199,7 @@ height geometry tests in `split_pane.rs` protect the shared splitter.
 
 Readability, horizontal scroll reach, drag behavior, and transport visibility
 remain operator checks in
-[task 004](../tasks/adr-0063-task-004-log-bottom-pane.md#operator-visual-check).
+[task 004](../tasks/archive/adr-0063-task-004-log-bottom-pane.md#operator-visual-check).
 The operator confirmed these checks and the added right-click Copy menu on
 2026-09-09. Task 004 has no remaining visual acceptance gate.
 
@@ -400,11 +400,11 @@ section with no event says so on the first line, whatever the services report.
 
 ## Compact Item Amendment Verification
 
-Task 017 is built. The [verification inventory](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#verification)
+Task 017 is built. The [verification inventory](../tasks/archive/adr-0059-task-017-compact-event-controls-and-badges.md#verification)
 records the shared-presentation and source-ownership guards. Those guards are
 situational, ADR 0063; readiness semantics have separate ADR 0059 tests.
 
-The [task 017 operator visual check](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check)
+The [task 017 operator visual check](../tasks/archive/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check)
 is the passed situational ADR 0063 manual check for compactness, badge readability,
 control reach, source titles, resizing, and mouse/keyboard copying. Those
 properties require inspection in a desktop session; matching state kinds in a
@@ -420,7 +420,7 @@ their shipped scope.
   compact cards, wider logs, and playback-bar scope. The
   [polish backlog](../plans/hig-product-polish-backlog.md) records long-line
   readability and per-log following/reading positions. These are complete in
-  [task 005](../tasks/adr-0063-task-005-shared-log-frames-and-following.md), including
+  [task 005](../tasks/archive/adr-0063-task-005-shared-log-frames-and-following.md), including
   operator acceptance and cleanup. ADR 0070's log-height priority and scrolling
   cards are also complete in task 005. Compact density, full-width docking, title readability
   and inactive transport remain separate future work. Neither scope reopens

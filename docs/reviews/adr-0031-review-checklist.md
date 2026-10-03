@@ -3,12 +3,12 @@
 ## Reviewed Artifact
 
 - ADR: `docs/adr/0031-release-detail-presentation-contract.md`
-- Plan: `docs/plans/adr-0031-release-detail-presentation-contract-phase-plan.md`
+- Plan: `docs/plans/adr-0031-release-detail-presentation-contract-phase-plan.md` (a deleted plan, in git history)
 - Tasks:
-  - `docs/tasks/adr-0031-task-001-contract-types-and-projection-tests.md`
-  - `docs/tasks/adr-0031-task-002-renderer-adoption.md`
-  - `docs/tasks/adr-0031-task-003-track-section-parity.md`
-  - `docs/tasks/adr-0031-task-004-visual-smoke-and-cleanup.md`
+  - `docs/tasks/archive/adr-0031-task-001-contract-types-and-projection-tests.md`
+  - `docs/tasks/archive/adr-0031-task-002-renderer-adoption.md`
+  - `docs/tasks/archive/adr-0031-task-003-track-section-parity.md`
+  - `docs/tasks/archive/adr-0031-task-004-visual-smoke-and-cleanup.md`
 
 ## Required Checks
 

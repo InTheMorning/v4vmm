@@ -382,7 +382,7 @@ available and contain unvalidated legacy bindings. If core usability is lost,
 enter recovery. Preserve ADR 0064's skip contracts: `NothingResolved` alone is
 not a core failure; `MusicFolderMissing` means required storage is unavailable.
 
-[Task 002's stage inventory](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md#startup-stage-inventory)
+[Task 002's stage inventory](../tasks/archive/adr-0066-task-002-core-checks-and-startup-reports.md#startup-stage-inventory)
 assigns every current bootstrap boundary to its implementation packet, including
 the runtime/cache follow-through in 003 and other optional paths in 004. It owns the procedures
 and failure-injection checks; no constructor adds to the minimum requirements.
@@ -525,13 +525,13 @@ and the database tools in Settings and core recovery.
 When a packet's implementation is ready, record its runnable gate in that
 packet, the delivery row and [pending human checks](../pending-human-checks.md).
 Task 001's backend verification is recorded in its
-[implementation evidence](../tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md#implementation-and-proof).
+[implementation evidence](../tasks/archive/adr-0066-task-001-config-snapshot-and-safe-persistence.md#implementation-and-proof).
 `adr_0066_config_creation_and_save_ownership` in
 [architecture_tests.rs](../../tests/architecture_tests.rs) guards first-run and
 save ownership under invariants 3–4; the packet links the filesystem and snapshot
 tests in [config.rs](../../src/config.rs). Task 001 opens no visual gate.
 
-Task 002's [implementation evidence](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md#implementation-and-proof)
+Task 002's [implementation evidence](../tasks/archive/adr-0066-task-002-core-checks-and-startup-reports.md#implementation-and-proof)
 links the storage, SQLite, worker, generation and report tests.
 `adr_0066_core_recovery_ownership` and `adr_0066_recorded_report_context` in
 [architecture_tests.rs](../../tests/architecture_tests.rs) guard the recovery
@@ -556,7 +556,7 @@ remains open.
 
 Task 005 adds `adr_0066_core_maintenance_drains_the_session`, a situational guard
 for invariants 5–6 in the same architecture suite. Its
-[proof inventory](../tasks/adr-0066-task-005-session-drain-and-resumption.md#implementation-and-proof)
+[proof inventory](../tasks/archive/adr-0066-task-005-session-drain-and-resumption.md#implementation-and-proof)
 records atomic admission, held work and connections, actual resource release,
 owned-child shutdown, fresh preparation and stale-result rejection. The
 [operator check](../runbooks/startup-recovery-check.md#task-005-session-drain-and-resumption)
@@ -565,7 +565,7 @@ The packet records the accepted session 2 → 3 transition and the earlier
 expired fixture attempt separately.
 
 Task 006 adds `adr_0066_shared_guarded_config_repair`, a situational guard for
-invariants 3–6 and 9. Its [proof inventory](../tasks/adr-0066-task-006-configuration-repair-and-resumption.md#implementation-and-proof)
+invariants 3–6 and 9. Its [proof inventory](../tasks/archive/adr-0066-task-006-configuration-repair-and-resumption.md#implementation-and-proof)
 links exact-byte backup, revision/symlink conflict, path validation, draft and
 managed resumption tests. [Operator V1–V6](../runbooks/startup-recovery-check.md#task-006-configuration-repair-and-resumption),
 preservation inspection and fixture cleanup are accepted; task 006 is complete
@@ -573,7 +573,7 @@ on 2026-09-13.
 
 Task 007 adds `adr_0066_repair_routes_preserve_action_subject` and
 `adr_0066_recovery_controls_explain_effect_and_completion`, situational guards
-for invariant 9. Its [proof inventory](../tasks/adr-0066-task-007-optional-tool-correction-and-retry.md#implementation-and-proof)
+for invariant 9. Its [proof inventory](../tasks/archive/adr-0066-task-007-optional-tool-correction-and-retry.md#implementation-and-proof)
 covers immutable subjects, fresh explicit Retry, scoped setup and shared entry
 points. Mechanical checks are Green; operator V1–V3, preservation and fixture
 cleanup are accepted for task 007. Task 008 is complete with mechanical checks
@@ -581,7 +581,7 @@ Green and operator acceptance/cleanup on 2026-09-17. Task 009 is complete with
 operator acceptance and cleanup on 2026-09-17; task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; task 011 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, preservation and cleanup accepted; task 012 is complete on 2026-09-17 with mechanical checks Green, operator V1–V3, presentation, preservation and cleanup accepted; task 013 complete on 2026-09-18 with operator V1–V3, presentation, preservation and cleanup accepted.
 
 Task 008 adds `adr_0066_converter_checks_are_refreshable`, a situational guard
-for invariants 2, 7 and 9. Its [proof inventory](../tasks/adr-0066-task-008-converter-verification-and-setup.md#implementation-and-proof)
+for invariants 2, 7 and 9. Its [proof inventory](../tasks/archive/adr-0066-task-008-converter-verification-and-setup.md#implementation-and-proof)
 links fresh PATH/configured probes, bounded child execution, actual fallback,
 recorded safe reports and guarded correction. Its [operator check](../runbooks/startup-recovery-check.md#task-008-converter-verification-and-setup)
 is accepted on 2026-09-17, including V1–V3, Settings/core-recovery presentation,
@@ -589,14 +589,14 @@ preservation in both cases and fixture cleanup. Mechanical checks are Green;
 the procedure remains a regression check.
 
 Task 009 adds `adr_0066_conversion_retry_uses_existing_materialization`, a
-situational guard for invariants 2, 6, 7 and 9. Its [proof inventory](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md#implementation-and-proof)
+situational guard for invariants 2, 6, 7 and 9. Its [proof inventory](../tasks/archive/adr-0066-task-009-conversion-retry-and-retained-input.md#implementation-and-proof)
 links typed conversion outcomes, artifact identity/containment, shared
 materialization, transactional binding replacement, explicit redownload,
 original edits and single-flight/playlist/cleanup tests. Mechanical checks are
 Green. [Operator V1–V3](../runbooks/startup-recovery-check.md#task-009-conversion-retry-and-retained-input),
 normal/narrow presentation, configuration restoration, preservation and fixture
 cleanup are accepted on 2026-09-17. The
-[packet records the evidence](../tasks/adr-0066-task-009-conversion-retry-and-retained-input.md#final-operator-acceptance-and-cleanup--2026-09-17);
+[packet records the evidence](../tasks/archive/adr-0066-task-009-conversion-retry-and-retained-input.md#final-operator-acceptance-and-cleanup--2026-09-17);
 task 010 is complete on 2026-09-17 with operator acceptance, preservation and cleanup confirmed; task 011 is complete with mechanical checks Green and operator acceptance, preservation and cleanup confirmed.
 
 Task 003's operator-reported search-error clipping correction is guarded by
@@ -675,7 +675,7 @@ adoption as the next block.
 
 ### Mechanism Retirement Owner
 
-[Task 001](../tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md#mechanism-handoff)
+[Task 001](../tasks/archive/adr-0066-task-001-config-snapshot-and-safe-persistence.md#mechanism-handoff)
 owns the documentation handoff. Stage procedures and detailed verification
 have moved into their packets and the review checklist. Task 001's
 [handoff review](../reviews/adr-0066-startup-recovery-review-checklist.md#task-001-review--2026-09-10)
@@ -702,7 +702,7 @@ Task 010 implements database inspection and verified snapshots through
 `db::maintenance`, with `db::inspect_schema` retaining the shared ADR 0016
 migration/read-contract authority. The situational
 `adr_0066_database_checks_and_snapshots_have_one_owner` guard protects invariant 6;
-[task evidence](../tasks/adr-0066-task-010-database-check-and-backup.md#implementation-and-proof)
+[task evidence](../tasks/archive/adr-0066-task-010-database-check-and-backup.md#implementation-and-proof)
 records behavioral WAL, preservation, cancellation and failure tests. Shared
 Settings/core-recovery database tools are complete on 2026-09-17 with
 [operator V1–V3](../runbooks/startup-recovery-check.md#task-010-database-check-and-backup),
@@ -714,27 +714,27 @@ Tasks 011–012 are complete with mechanical checks Green and operator acceptanc
 preservation and cleanup confirmed; task 013 complete on 2026-09-18 with operator V1–V3, presentation, preservation and cleanup accepted. ADR 0066 remains
 Accepted and partial.
 
-Task 011's [implementation evidence](../tasks/adr-0066-task-011-database-maintenance-and-preservation.md#implementation-and-proof)
+Task 011's [implementation evidence](../tasks/archive/adr-0066-task-011-database-maintenance-and-preservation.md#implementation-and-proof)
 records exclusive-access process tests and file/manifest preservation.
 `adr_0066_database_maintenance_requires_exclusive_access` guards invariant 6's
 drained-session handoff, SQLite guard, source-descriptor lifetime and refusal of
 unsafe copying or replacement. The [operator procedure](../runbooks/startup-recovery-check.md#task-011-database-maintenance-and-preservation)
 remains a regression check. V1–V3, normal/narrow presentation, report retention,
 preservation in both fixtures, normal restoration and cleanup are accepted on
-2026-09-17; the [packet records operator evidence](../tasks/adr-0066-task-011-database-maintenance-and-preservation.md#operator-evidence--2026-09-17).
+2026-09-17; the [packet records operator evidence](../tasks/archive/adr-0066-task-011-database-maintenance-and-preservation.md#operator-evidence--2026-09-17).
 
-Task 012's [implementation evidence](../tasks/adr-0066-task-012-database-restore.md#implementation-and-proof)
+Task 012's [implementation evidence](../tasks/archive/adr-0066-task-012-database-restore.md#implementation-and-proof)
 records validated candidate review, preservation before installation, SQLite
 rollback verification and fresh-session resumption. The situational
 `adr_0066_restore_uses_validated_maintenance_install` guard protects invariant 6.
-Its [operator evidence](../tasks/adr-0066-task-012-database-restore.md#operator-evidence--2026-09-17)
+Its [operator evidence](../tasks/archive/adr-0066-task-012-database-restore.md#operator-evidence--2026-09-17)
 accepts V1–V3, Settings/recovery presentation, copied reports, both preservation
 inspections and confirmed fixture cleanup on 2026-09-17. The
 [procedure](../runbooks/startup-recovery-check.md#task-012-database-restore)
 remains a regression check; task 013 is also complete with its evidence recorded below.
 
 
-Task 013's [implementation evidence](../tasks/adr-0066-task-013-interrupted-upgrade-repair.md#implementation-and-proof)
+Task 013's [implementation evidence](../tasks/archive/adr-0066-task-013-interrupted-upgrade-repair.md#implementation-and-proof)
 records narrow migration-11 recognition, shared-registry candidate preparation,
 original preservation and the existing installation path. The situational
 `adr_0066_upgrade_repair_uses_normal_migration_authority` guard protects

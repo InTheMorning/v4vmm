@@ -4,7 +4,7 @@
 
 Complete - 2026-09-18. The operator passed normal/narrow toolbar checks in Light
 and Dark and confirmed fixture cleanup.
-[Task 004](../tasks/adr-0043-task-004-guards-and-visual-readiness.md) is complete.
+[Task 004](../tasks/archive/adr-0043-task-004-guards-and-visual-readiness.md) is complete.
 The evidence below records each batch. No ADR 0043 gate remains open.
 
 ## Requirement Disposition
