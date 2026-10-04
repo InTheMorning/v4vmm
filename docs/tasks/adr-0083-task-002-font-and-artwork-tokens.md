@@ -1,6 +1,6 @@
 # ADR 0083 Task 002: Font And Artwork Tokens
 
-Status: Ready - 2026-10-03. [Task 001](archive/adr-0083-task-001-palette-and-color-roles.md) is complete. Implementation has not started. The operator visual check opens when the packet is complete.
+Status: Open - implementation and mechanical checks are complete on 2026-10-03. The operator visual check is pending: [pending check 37](../pending-human-checks.md#37-font-and-artwork-tokens--adr-0083-task-002).
 
 ## Goal
 
@@ -85,6 +85,41 @@ cargo build --bin v4vmm
 ## Rollback
 
 Revert the working tree. This packet adds no migration and no stored data.
+
+## Result - 2026-10-03
+
+- Font source: `erikdkennedy/figtree`, tag `v2.0.3`, commit `be6cb018f2f93a9b1195f3dfd077123f718c65f8`. The four static TTF files and the OFL text are in `src/assets/fonts/figtree/`. The `google/fonts` copy has only a variable font.
+- `src/ui/fonts.rs` loads the fonts. `src/app/bootstrap.rs` calls it before the first window opens. `src/ui/theme_bridge.rs` sets the interface font family.
+- `FontSize::Display` is 30 pixels at M, with the type endpoints `(0.84, 1.08)`.
+- `ArtworkShadow` has two values:
+  - `Xl`: 16 pixels of blur, 4 pixels of offset, 28 % black.
+  - `XXl`: 24 pixels of blur, 6 pixels of offset, 34 % black.
+- The album, artist and publisher page headers use `Display` through a `title_size` builder on `DetailHeader`. The playlist header keeps `Title2`.
+- Only the Music content tile uses `ImageSize::Xl`, so it is the one artwork with a shadow today. The page headers show 80 pixel artwork, which has no shadow. `ImageSize::XXl` has no screen caller. A Phase 4 packet moves the header covers to 200 pixels.
+- Monograms: AL release, AR artist, FD feed, TR track, PB publisher, RC recording, PL playlist, IT generic.
+- `ttf-parser` is a new dev-dependency. The GPUI test text system does not read font names, so a test parses the files to prove the family name.
+- Proof:
+  - R83-11: `adr_0083_figtree_fonts_load_into_the_test_text_system` and `adr_0083_figtree_file_family_names_resolve`.
+  - R83-12: `adr_0083_display_is_30_at_medium_and_grows_with_scale`.
+  - R83-13: the six `adr_0039_type_*` tests in `src/ui/tokens.rs` list `Display`.
+  - R83-14: `adr_0083_artwork_shadow_grows_with_image_size`.
+  - R83-15: `thumbnail_fallback_shows_the_entity_kind_monogram`, `entity_kind_monogram_is_two_letters_for_every_kind` and `adr_0083_no_emoji_fallback_function_remains`.
+  - R83-16: `adr_0083_only_tokens_builds_a_shadow` and `adr_0083_shadow_guard_fails_for_a_shell_sample`.
+- The project gate is Green.
+
+## Operator Visual Check
+
+1. In a desktop session, run `cargo build --bin v4vmm`, then `./target/debug/v4vmm`.
+2. Look at the text on any screen. Expected: Figtree, with rounder letters than before. Bold and semibold text, such as titles and selected buttons, must look heavier than body text. Wrong: the old system font, or all text at one weight.
+3. Open Settings, then the diagnostics or a log. Expected: log text stays monospace.
+4. Open an album page, an artist page and a publisher page. Expected: the title is larger than the other titles on the page.
+5. Make the window narrow. Expected: the title wraps or fits with no clipped letters. Open a playlist page. Expected: its title has the size of before.
+6. Open Music in Tiles view. Expected: each cover has a soft shadow below it. Expected: rows, buttons and the small cover in a page header have no shadow.
+7. Find an item with no cover, or watch a tile while its cover loads. Expected: a tinted square with two letters, for example "AL". Wrong: an emoji.
+8. In Settings, General, set UI scale to S, then L, and repeat steps 4 to 6. Do not click Save.
+9. Cleanup: set UI scale back to M.
+
+No special hardware or system state is needed.
 
 ## Prompt for lower-context coding model
 

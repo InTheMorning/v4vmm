@@ -1,5 +1,5 @@
-//! Thumbnail composite — square artwork tile with an emoji fallback when
-//! no image is available.
+//! Thumbnail composite — square artwork tile with a two-letter type
+//! monogram fallback when no image is available (ADR 0083 Decision 4).
 //!
 //! Sizing is expressed as a semantic [`ThumbnailSize`] (Sm / Md / Lg) which
 //! resolves through the global scale, so a "Large" thumbnail in a
@@ -98,12 +98,21 @@ impl Thumbnail {
         self.image = image;
         self
     }
+
+    /// The text shown in the fallback tile when no image is set.
+    ///
+    /// ADR 0083 Decision 4: a missing cover shows the two-letter monogram of
+    /// its entity kind, not an emoji.
+    fn fallback_label(&self) -> SharedString {
+        SharedString::from(self.kind.monogram())
+    }
 }
 
 impl RenderOnce for Thumbnail {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let dim = self.size.scaled(cx);
         let radius = self.size.radius();
+        let fallback_label = self.fallback_label();
 
         if let Some(image) = self.image {
             ImagePrimitive::new(image)
@@ -123,8 +132,34 @@ impl RenderOnce for Thumbnail {
                 .items_center()
                 .justify_center()
                 .text_size(self.size.fallback_font().scaled(cx))
-                .child(SharedString::from(self.kind.emoji()))
+                .child(fallback_label)
                 .into_any_element()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// R83-15: `Thumbnail` with no image produces the monogram of its kind.
+    #[test]
+    fn thumbnail_fallback_shows_the_entity_kind_monogram() {
+        for kind in [
+            EntityKind::Artist,
+            EntityKind::Feed,
+            EntityKind::Track,
+            EntityKind::Publisher,
+            EntityKind::Release,
+            EntityKind::Recording,
+            EntityKind::Playlist,
+            EntityKind::Generic,
+        ] {
+            let thumbnail = Thumbnail::new(kind, ThumbnailSize::Sm);
+            assert_eq!(
+                thumbnail.fallback_label(),
+                SharedString::from(kind.monogram())
+            );
         }
     }
 }

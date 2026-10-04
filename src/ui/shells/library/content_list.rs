@@ -22,8 +22,10 @@ use crate::ui::composites::{
     ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
-use crate::ui::primitives::{Button as UiButton, Image as ImagePrimitive, Label, Skeleton};
-use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Size, Spacing};
+use crate::ui::primitives::{
+    Button as UiButton, Image as ImagePrimitive, ImageSize, Label, Skeleton,
+};
+use crate::ui::tokens::{color, ArtworkShadow, FontSize, Radius, SemanticColor, Size, Spacing};
 use crate::view_models::library::{
     ContentListEntityKind, ContentListLoadMoreDisplay, ContentListLoadingStateDisplay,
     ContentListPageStateDisplay, ContentListPageVm, ContentListRowActionDisplay,
@@ -312,8 +314,11 @@ fn render_content_list_tile_artwork(
     cx: &App,
 ) -> AnyElement {
     match thumbnail {
+        // ADR 0083 Decision 4: `Size::ContentTileArtwork` shares the `Xl`
+        // footprint (152 px), so `ImageSize::Xl` renders the same dimension
+        // and gives the content tile its artwork shadow.
         Some(image) => ImagePrimitive::new(image)
-            .dimension(artwork_size)
+            .size(ImageSize::Xl)
             .radius(Radius::MD)
             .into_any_element(),
         None => render_empty_content_tile_artwork(artwork_size, cx),
@@ -330,6 +335,9 @@ fn render_empty_content_tile_artwork(artwork_size: gpui::Pixels, cx: &App) -> An
         .bg(color(cx, SemanticColor::SystemFill))
         .border_1()
         .border_color(color(cx, SemanticColor::Separator))
+        // ADR 0083 Decision 4: the content tile applies the artwork shadow
+        // to its artwork area. This applies with or without a loaded cover.
+        .shadow(ArtworkShadow::Xl.shadow(cx))
         .into_any_element()
 }
 

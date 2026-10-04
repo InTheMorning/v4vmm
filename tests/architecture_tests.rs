@@ -19707,3 +19707,111 @@ impl EntityKind {
         "an entity-only sample must not trip the guard"
     );
 }
+
+// -----------------------------------------------------------------------------
+// ADR 0083 task 002: font and artwork tokens.
+// -----------------------------------------------------------------------------
+
+/// ADR 0083 Decision 4: only `src/ui/tokens.rs` builds a shadow. The fix
+/// names the ADR and the replacement.
+const ADR_0083_SHADOW_FIX: &str =
+    "ADR 0083 Decision 4: a shadow is built only in src/ui/tokens.rs. Use the ArtworkShadow token.";
+
+/// Lines where code builds a `BoxShadow` directly. Takes a file-relative
+/// path and its source text. A sample source can then prove the detection
+/// logic. The tree needs no throwaway file for this proof (R83-16).
+///
+/// `src/ui/tokens.rs` is different: it owns the `ArtworkShadow` token, and
+/// it makes the `BoxShadow`.
+fn shadow_construction_violations(relative_path: &str, source: &str) -> Vec<(usize, String)> {
+    if relative_path == "src/ui/tokens.rs" {
+        return Vec::new();
+    }
+    let mut violations = Vec::new();
+    for (line_number, line) in code_lines(production_source(source)) {
+        if line.contains("BoxShadow") {
+            violations.push((line_number, line.clone()));
+        }
+    }
+    violations
+}
+
+/// ADR 0083 Decision 4 situational guard: no file in `src/ui` other than
+/// `tokens.rs` builds a shadow. `adr_0083_shadow_guard_fails_for_a_shell_sample`
+/// (R83-16) proves the detection logic with a sample source.
+#[test]
+fn adr_0083_only_tokens_builds_a_shadow() {
+    let mut violations = Vec::new();
+    for path in rust_files_under("src/ui") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for (line_number, line) in shadow_construction_violations(&file, &source) {
+            violations.push(format!("{file}:{line_number}: `{line}`"));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "{ADR_0083_SHADOW_FIX}\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R83-16: `adr_0083_only_tokens_builds_a_shadow` must fail on a sample
+/// source in `src/ui/shells/` that builds a shadow. Its fix message must
+/// name ADR 0083.
+#[test]
+fn adr_0083_shadow_guard_fails_for_a_shell_sample() {
+    let sample_path = "src/ui/shells/sample.rs";
+    let sample = r#"
+fn render_bad_shadow(cx: &App) -> Div {
+    div().shadow(vec![BoxShadow::new(px(0.), px(2.), hsla(0., 0., 0., 0.3))])
+}
+"#;
+    let violations = shadow_construction_violations(sample_path, sample);
+    assert_eq!(
+        violations.len(),
+        1,
+        "expected one raw BoxShadow line in the sample"
+    );
+    assert!(violations[0].1.contains("BoxShadow::new"));
+
+    assert!(
+        ADR_0083_SHADOW_FIX.contains("ADR 0083"),
+        "the fix message must name ADR 0083"
+    );
+
+    let clean_sample =
+        "fn render_ok(cx: &App) -> Div { div().shadow(ArtworkShadow::Xl.shadow(cx)) }";
+    assert!(
+        shadow_construction_violations(sample_path, clean_sample).is_empty(),
+        "a sample that calls the ArtworkShadow token must not trip the guard"
+    );
+
+    assert!(
+        shadow_construction_violations("src/ui/tokens.rs", sample).is_empty(),
+        "tokens.rs owns the token, so the shadow guard must not flag it"
+    );
+}
+
+/// R83-15: ADR 0083 Decision 4 deletes the emoji placeholder. No file in
+/// `src/` defines an `emoji` function.
+#[test]
+fn adr_0083_no_emoji_fallback_function_remains() {
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            if line.contains("fn emoji") {
+                violations.push(format!("{file}:{line_number}: `{line}`"));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0083 Decision 4: the emoji placeholder is deleted. Found:\n{}",
+        violations.join("\n")
+    );
+}

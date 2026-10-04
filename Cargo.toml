@@ -51,6 +51,9 @@ tokio-util = { version = "0.7", features = ["rt"] }
 [dev-dependencies]
 gpui = { package = "gpui-pre", version = "=0.3.1", features = ["test-support"] }
 tempfile = "3"
+# ADR 0083 task 002 proves the embedded Figtree files' family name directly.
+# The gpui test text system is a no-op. It cannot resolve a family name.
+ttf-parser = "0.25"
 
 # ADR 0072: final-glyph hit testing and complete grapheme word selection only.
 [patch.crates-io]

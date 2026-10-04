@@ -115,7 +115,7 @@ impl TrackRow {
         Self::new(id, TrackRowDisplay::from_shared_track_row(vm))
     }
 
-    /// Album-art thumbnail. Pass `None` to render the entity-kind emoji fallback.
+    /// Album-art thumbnail. Pass `None` to render the entity-kind monogram fallback.
     pub fn thumbnail(mut self, img: Option<Arc<Image>>) -> Self {
         self.thumbnail = img;
         self

@@ -96,6 +96,11 @@ fn install_theme_for_appearance(
 
     let theme = Theme::global_mut(cx);
 
+    // ADR 0083 Decision 3: Figtree is the interface font family. The
+    // monospace family stays the gpui-component default. See
+    // `crate::ui::tokens::log_font_family`.
+    theme.font_family = crate::ui::fonts::FIGTREE_FAMILY.into();
+
     // Backgrounds.
     let bg = hsla(resolve(concrete_profile, SemanticColor::SystemBackground));
     let bg2 = hsla(resolve(

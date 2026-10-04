@@ -25,6 +25,7 @@ pub struct DetailHeader {
     display: DetailHeaderDisplay,
     image: Option<Arc<Image>>,
     appearance: Option<Appearance>,
+    title_size: FontSize,
 }
 
 /// Display-ready header facts.
@@ -50,6 +51,7 @@ impl DetailHeader {
             display,
             image: None,
             appearance: None,
+            title_size: FontSize::Title2,
         }
     }
 
@@ -60,6 +62,16 @@ impl DetailHeader {
 
     pub fn appearance(mut self, appearance: Appearance) -> Self {
         self.appearance = Some(appearance);
+        self
+    }
+
+    /// Sets the title's `FontSize`. The default is `FontSize::Title2`.
+    ///
+    /// ADR 0083 Decision 3: the album, artist, and publisher page headers
+    /// pass `FontSize::Display`. Other headers, such as the playlist page,
+    /// keep the default.
+    pub fn title_size(mut self, title_size: FontSize) -> Self {
+        self.title_size = title_size;
         self
     }
 }
@@ -90,7 +102,7 @@ impl RenderOnce for DetailHeader {
             )
             .child(
                 div()
-                    .text_size(FontSize::Title2.scaled(cx))
+                    .text_size(self.title_size.scaled(cx))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(title_color)
                     .child(self.display.title),
@@ -185,5 +197,22 @@ mod tests {
             Some(SharedString::from("Subtitle"))
         );
         assert_eq!(header.display.data_rows.len(), 1);
+    }
+
+    /// ADR 0083 Decision 3: the title `FontSize` defaults to `Title2`. A
+    /// caller can set it to `Display` for the album, artist, and
+    /// publisher pages.
+    #[test]
+    fn title_size_defaults_to_title2_and_is_settable() {
+        let header = DetailHeader::new(DetailHeaderDisplay {
+            kind: EntityKind::Artist,
+            title: "Artist".into(),
+            subtitle: None,
+            data_rows: Vec::new(),
+        });
+        assert_eq!(header.title_size, FontSize::Title2);
+
+        let header = header.title_size(FontSize::Display);
+        assert_eq!(header.title_size, FontSize::Display);
     }
 }

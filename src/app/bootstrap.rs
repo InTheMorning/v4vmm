@@ -48,6 +48,13 @@ pub fn run_app() -> bool {
         crate::ui::primitives::context_menu::init(cx);
         install_key_bindings(cx);
         install_app_menu(cx);
+        // ADR 0083 Decision 3: load the interface font before the first
+        // window opens. An error here does not stop the app. GPUI falls
+        // back to its own default font stack for a style that names
+        // Figtree.
+        if let Err(error) = crate::ui::fonts::install(cx) {
+            eprintln!("Figtree fonts are not available. The app continues with the system font. {error:#}");
+        }
         // Pre-config: install with default scale; ADR 0066 recovery requires
         // Dark/Medium before configuration can be decoded.
         crate::ui::theme_bridge::install_theme(

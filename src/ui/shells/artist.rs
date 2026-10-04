@@ -3,7 +3,7 @@ use crate::ui::composites::{
     DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow, DetailTextRow, EntityKind,
 };
 use crate::ui::primitives::VStack;
-use crate::ui::tokens::Spacing;
+use crate::ui::tokens::{FontSize, Spacing};
 use crate::view_models::artist::ArtistVm;
 use crate::view_models::artist_detail::ArtistDetailPageVm;
 use crate::views::ArtistView;
@@ -64,7 +64,9 @@ pub fn render_artist_detail_shell(
                 subtitle: page.subtitle.clone().map(Into::into),
                 data_rows: Vec::new(),
             })
-            .image(slots.image),
+            .image(slots.image)
+            // ADR 0083 Decision 3: the artist page title uses Display.
+            .title_size(FontSize::Display),
         )
         .child(DetailGrid::new(rows));
 

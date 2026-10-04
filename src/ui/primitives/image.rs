@@ -25,7 +25,7 @@ use gpui::{
     SharedString, Window,
 };
 
-use crate::ui::tokens::{Radius, ScaleFactor};
+use crate::ui::tokens::{ArtworkShadow, Radius, ScaleFactor};
 
 /// Semantic image sizes. Base values follow the artwork conventions used
 /// across the app (list rows, headers, large detail-view tiles).
@@ -60,6 +60,17 @@ impl ImageSize {
     #[must_use]
     pub fn scaled(self, cx: &App) -> Pixels {
         gpui::px(self.base() * ScaleFactor::current(cx).chrome_multiplier())
+    }
+
+    /// The artwork shadow role for this `ImageSize`.
+    ///
+    /// ADR 0083 Decision 4: only `Xl` and `XXl` artwork draws a shadow.
+    fn artwork_shadow(self) -> Option<ArtworkShadow> {
+        match self {
+            Self::Sm | Self::Md | Self::Lg => None,
+            Self::Xl => Some(ArtworkShadow::Xl),
+            Self::XXl => Some(ArtworkShadow::XXl),
+        }
     }
 }
 
@@ -107,6 +118,7 @@ impl RenderOnce for Image {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let dim = self.dimension.unwrap_or_else(|| self.size.scaled(cx));
         let radius = self.radius.scaled(cx);
+        let shadow = self.size.artwork_shadow().map(|role| role.shadow(cx));
         let image = self.handle;
 
         let inner = img(image.clone())
@@ -122,12 +134,31 @@ impl RenderOnce for Image {
             inner.into_any_element()
         };
 
-        div()
+        let mut container = div()
             .w(dim)
             .h(dim)
             .rounded(radius)
             .overflow_hidden()
-            .flex_shrink_0()
-            .child(inner)
+            .flex_shrink_0();
+        if let Some(shadow) = shadow {
+            container = container.shadow(shadow);
+        }
+        container.child(inner)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ADR 0083 Decision 4: only `Xl` and `XXl` artwork draws a shadow. No
+    /// other `ImageSize` draws one.
+    #[test]
+    fn only_xl_and_xxl_resolve_an_artwork_shadow() {
+        assert_eq!(ImageSize::Sm.artwork_shadow(), None);
+        assert_eq!(ImageSize::Md.artwork_shadow(), None);
+        assert_eq!(ImageSize::Lg.artwork_shadow(), None);
+        assert_eq!(ImageSize::Xl.artwork_shadow(), Some(ArtworkShadow::Xl));
+        assert_eq!(ImageSize::XXl.artwork_shadow(), Some(ArtworkShadow::XXl));
     }
 }

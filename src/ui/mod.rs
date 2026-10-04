@@ -2,6 +2,7 @@ pub mod composites;
 pub mod contrast;
 pub mod control_styles;
 pub mod detail_row;
+pub mod fonts;
 pub mod icons;
 pub mod layouts;
 pub mod playlist_popover;

@@ -612,3 +612,16 @@ Open - implementation and mechanical checks are complete on 2026-10-03. Operator
 - Owner: [task 009](tasks/adr-0076-task-009-download-writes-stored-values.md#operator-visual-check).
 - Scheduling: the check downloads one album into an isolated fixture. It never writes the real Library.
 - V1: after the download, "Update n files" counts no new file. A new file holds `WOAR` with the channel link and `TRCK` with the track total.
+
+## 37. Font And Artwork Tokens — ADR 0083 Task 002
+
+Open - implementation and mechanical checks are complete on 2026-10-03. Operator inspection is pending.
+
+- Owner: [task 002](tasks/adr-0083-task-002-font-and-artwork-tokens.md#operator-visual-check).
+- Scheduling: walk it right after the packet. It reads pages and changes only the UI scale, which step 9 sets back.
+- V83-11: interface text is Figtree, with visible weights. Logs stay monospace.
+- V83-12: album, artist and publisher titles are larger than other titles and do not clip at the narrow width.
+- V83-13: Music tile covers have a soft shadow. Rows, buttons and header covers have none.
+- V83-14: an item with no cover shows two letters, not an emoji.
+- V83-15: the checks hold at the S and L UI scales.
+

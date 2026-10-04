@@ -20,7 +20,7 @@ use crate::ui::composites::{
     TagBadgeDisplay, Thumbnail, ThumbnailSize,
 };
 use crate::ui::primitives::{Label, LabelVariant, SectionHeader};
-use crate::ui::tokens::{color, Radius, SemanticColor, Spacing};
+use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Spacing};
 use crate::view_models::publisher_page::{
     AlbumRoleDisplay, OtherAlbumsStatus, PublisherPageAlbumVm, PublisherPageContext,
     PublisherPageLoadDisplay, PublisherPageVm, TitleDisplay,
@@ -76,6 +76,8 @@ fn render_header(vm: &PublisherPageVm) -> AnyElement {
         subtitle: None,
         data_rows,
     })
+    // ADR 0083 Decision 3: the publisher page title uses Display.
+    .title_size(FontSize::Display)
     .into_any_element()
 }
 

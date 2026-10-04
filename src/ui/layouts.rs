@@ -129,6 +129,8 @@ pub(crate) fn line_box_height(font_size: Pixels) -> Pixels {
 /// ADR 0039 task 003 ratified these `(x-small factor, x-large factor)` values on 2026-09-18.
 /// `FontSize::type_multiplier` maintains the same values in src/ui/tokens.rs.
 /// That resolver must not read this table.
+/// ADR 0083 task 002 adds `Display`. It uses the same per-role step as
+/// `tokens.rs`. Its values are `Title`'s values minus one more step.
 const fn reservation_endpoints(role: FontSize) -> (f32, f32) {
     match role {
         FontSize::Micro => (0.91, 1.36),
@@ -138,6 +140,7 @@ const fn reservation_endpoints(role: FontSize) -> (f32, f32) {
         FontSize::Title3 => (0.87, 1.20),
         FontSize::Title2 => (0.86, 1.16),
         FontSize::Title => (0.85, 1.12),
+        FontSize::Display => (0.84, 1.08),
     }
 }
 

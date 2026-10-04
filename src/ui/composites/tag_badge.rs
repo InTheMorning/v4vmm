@@ -68,19 +68,23 @@ impl EntityKind {
         }
     }
 
-    /// Single-character glyph used by [`Thumbnail`] when no image is
+    /// Two-letter type monogram used by [`Thumbnail`] when no image is
     /// available. Kept here so `EntityKind` is the one source of truth
     /// for an entity kind's visual identity.
+    ///
+    /// ADR 0083 Decision 4: a missing cover shows a tinted placeholder with
+    /// this monogram, not an emoji.
     #[must_use]
-    pub fn emoji(self) -> &'static str {
+    pub fn monogram(self) -> &'static str {
         match self {
-            Self::Artist => "\u{1F3A4}",                    // 🎤
-            Self::Feed => "\u{1F4E1}",                      // 📡
-            Self::Track => "\u{1F3B6}",                     // 🎶
-            Self::Publisher => "\u{1F3E2}",                 // 🏢
-            Self::Release => "\u{1F4BF}",                   // 💿
-            Self::Playlist => "\u{1F4DD}",                  // 📝
-            Self::Recording | Self::Generic => "\u{1F3B5}", // 🎵
+            Self::Artist => "AR",
+            Self::Feed => "FD",
+            Self::Track => "TR",
+            Self::Publisher => "PB",
+            Self::Release => "AL",
+            Self::Recording => "RC",
+            Self::Playlist => "PL",
+            Self::Generic => "IT",
         }
     }
 
@@ -361,6 +365,28 @@ mod tests {
             assert!(
                 !forbidden.contains(&kind.fill_token()),
                 "{kind:?} must not resolve a status, accent, or diff token"
+            );
+        }
+    }
+
+    /// R83-15: each `EntityKind` resolves a two-letter monogram, used by
+    /// `Thumbnail` when no cover image is available.
+    #[test]
+    fn entity_kind_monogram_is_two_letters_for_every_kind() {
+        for kind in [
+            EntityKind::Artist,
+            EntityKind::Feed,
+            EntityKind::Track,
+            EntityKind::Publisher,
+            EntityKind::Release,
+            EntityKind::Recording,
+            EntityKind::Playlist,
+            EntityKind::Generic,
+        ] {
+            assert_eq!(
+                kind.monogram().chars().count(),
+                2,
+                "{kind:?} monogram must be exactly two letters"
             );
         }
     }

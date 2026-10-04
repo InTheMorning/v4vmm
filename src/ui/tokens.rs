@@ -18,7 +18,7 @@
 
 #![warn(clippy::pedantic)]
 
-use gpui::{px, App, FontWeight, Pixels, Rgba, WindowAppearance};
+use gpui::{point, px, App, BoxShadow, FontWeight, Hsla, Pixels, Rgba, WindowAppearance};
 
 use gpui_component::ActiveTheme;
 
@@ -483,6 +483,9 @@ pub enum FontSize {
     Title2,
     /// 24 px — page title.
     Title,
+    /// 30 px — ADR 0083 Decision 3: the title of an album, artist, or
+    /// publisher page header.
+    Display,
 }
 
 impl FontSize {
@@ -496,6 +499,7 @@ impl FontSize {
             Self::Title3 => px(17.0),
             Self::Title2 => px(20.0),
             Self::Title => px(24.0),
+            Self::Display => px(30.0),
         }
     }
 
@@ -519,6 +523,9 @@ impl FontSize {
     /// `Title` retains the former uniform x-small factor of 0.85.
     /// The x-small factor increases by 0.01 per role from `Title` toward `Micro`.
     /// Ratification did not change the proposed x-large factors.
+    /// ADR 0083 task 002 adds `Display`. It uses the same per-role step as
+    /// the other six roles. Its x-small value is `Title`'s value minus
+    /// 0.01. Its x-large value is `Title`'s value minus 0.04.
     const fn type_endpoints(self) -> (f32, f32) {
         match self {
             Self::Micro => (0.91, 1.36),
@@ -528,6 +535,7 @@ impl FontSize {
             Self::Title3 => (0.87, 1.20),
             Self::Title2 => (0.86, 1.16),
             Self::Title => (0.85, 1.12),
+            Self::Display => (0.84, 1.08),
         }
     }
 
@@ -602,6 +610,81 @@ impl From<Weight> for FontWeight {
             Weight::Semibold => Self::SEMIBOLD,
             Weight::Bold => Self::BOLD,
         }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// ArtworkShadow. ADR 0083 Decision 4: artwork has a shadow. A larger image
+// gets a larger shadow.
+// -----------------------------------------------------------------------------
+
+/// Artwork shadow scale.
+///
+/// `Xl` matches `ImageSize::Xl`, 152 px artwork. The Music content tile
+/// also uses `Xl`, through `Size::ContentTileArtwork`. `XXl` matches
+/// `ImageSize::XXl`, 200 px page-header artwork.
+///
+/// No other element draws this shadow. A guard in
+/// `tests/architecture_tests.rs` checks this rule for ADR 0083 Decision 4.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ArtworkShadow {
+    /// 152 px artwork — `ImageSize::Xl` and the Music content tile.
+    Xl,
+    /// 200 px artwork — `ImageSize::XXl` page-header covers.
+    XXl,
+}
+
+impl ArtworkShadow {
+    /// Blur radius at the `Medium` scale step, in pixels.
+    #[must_use]
+    pub const fn blur_radius_base(self) -> Pixels {
+        match self {
+            Self::Xl => px(16.0),
+            Self::XXl => px(24.0),
+        }
+    }
+
+    /// Vertical offset at the `Medium` scale step, in pixels.
+    #[must_use]
+    pub const fn offset_y_base(self) -> Pixels {
+        match self {
+            Self::Xl => px(4.0),
+            Self::XXl => px(6.0),
+        }
+    }
+
+    /// Shadow opacity, black at this alpha value.
+    ///
+    /// `XXl` artwork is larger than `Xl` artwork. A darker shadow reads
+    /// correctly on larger artwork.
+    const fn alpha(self) -> f32 {
+        match self {
+            Self::Xl => 0.28,
+            Self::XXl => 0.34,
+        }
+    }
+
+    /// Returns the box shadow for this role at the current UI scale.
+    ///
+    /// ADR 0039: shadow geometry is CHROME — this resolves through
+    /// [`scale_chrome_px`], never the TYPE domain.
+    #[must_use]
+    pub fn shadow(self, cx: &App) -> Vec<BoxShadow> {
+        let scale = ScaleFactor::current(cx);
+        let blur = scale_chrome_px(f32::from(self.blur_radius_base()), scale);
+        let offset_y = scale_chrome_px(f32::from(self.offset_y_base()), scale);
+        vec![BoxShadow {
+            color: Hsla::from(Rgba {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: self.alpha(),
+            }),
+            offset: point(px(0.0), offset_y),
+            blur_radius: blur,
+            spread_radius: px(0.0),
+            inset: false,
+        }]
     }
 }
 
@@ -1067,6 +1150,72 @@ mod tests {
     }
 
     // -------------------------------------------------------------------
+    // ADR 0083 task 002: font and artwork tokens.
+    // -------------------------------------------------------------------
+
+    /// R83-12: `FontSize::Display` is 30 px at `Medium`. Its scaled values
+    /// grow from `XSmall` to `XLarge`. This test proves each fact on its
+    /// own. `adr_0039_medium_type_returns_each_role_base_exactly` and
+    /// `adr_0039_type_grows_monotonically_per_role_across_steps` prove the
+    /// same two facts again, as part of the full type ramp (R83-13).
+    #[test]
+    fn adr_0083_display_is_30_at_medium_and_grows_with_scale() {
+        assert_eq!(FontSize::Display.scaled_px(ScaleFactor::Medium), px(30.0));
+
+        let resolved: Vec<Pixels> = [
+            ScaleFactor::XSmall,
+            ScaleFactor::Small,
+            ScaleFactor::Medium,
+            ScaleFactor::Large,
+            ScaleFactor::XLarge,
+        ]
+        .into_iter()
+        .map(|scale| FontSize::Display.scaled_px(scale))
+        .collect();
+        for pair in resolved.windows(2) {
+            assert!(
+                pair[0] < pair[1],
+                "Display did not grow monotonically across steps: {resolved:?}"
+            );
+        }
+    }
+
+    /// R83-14: larger artwork gets a larger shadow.
+    #[test]
+    fn adr_0083_artwork_shadow_grows_with_image_size() {
+        assert!(
+            ArtworkShadow::XXl.blur_radius_base() > ArtworkShadow::Xl.blur_radius_base(),
+            "XXl blur radius must exceed Xl"
+        );
+        assert!(
+            ArtworkShadow::XXl.offset_y_base() > ArtworkShadow::Xl.offset_y_base(),
+            "XXl vertical offset must exceed Xl"
+        );
+    }
+
+    /// ADR 0083 Decision 4: the artwork shadow is a translucent black. No
+    /// call site picks a raw literal color.
+    #[gpui::test]
+    fn adr_0083_artwork_shadow_is_translucent_black(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            for role in [ArtworkShadow::Xl, ArtworkShadow::XXl] {
+                let shadow = role.shadow(cx);
+                assert_eq!(
+                    shadow.len(),
+                    1,
+                    "{role:?} must draw exactly one shadow layer"
+                );
+                let layer = &shadow[0];
+                assert!(!layer.inset, "{role:?} must not be an inset shadow");
+                assert!(
+                    layer.color.a > 0.0 && layer.color.a < 1.0,
+                    "{role:?} shadow must be translucent"
+                );
+            }
+        });
+    }
+
+    // -------------------------------------------------------------------
     // ADR 0039 task 001 (amended scope): CHROME/TYPE domain split.
     // -------------------------------------------------------------------
 
@@ -1193,15 +1342,18 @@ mod tests {
     }
 
     /// ADR 0039 task 003 compares all 35 type outcomes with the ratified table.
+    /// ADR 0083 task 002 adds `Display`'s 5 outcomes, for 40 in total.
     /// The comparison tolerance is 0.001 px.
     /// Expected values come from the table, independently of the resolver's formula.
     /// This test replaces task 001's assertion that every outcome matches uniform scaling.
     /// `adr_0039_non_medium_type_outcomes_differ_from_uniform_except_title_downward`
-    /// retains the comparison with uniform scaling.
+    /// retains the comparison with uniform scaling for the original seven roles.
+    /// `Display` has no former-uniform baseline. ADR 0083 task 002 added
+    /// it after that migration. This test proves `Display` here.
     #[test]
     fn adr_0039_type_outcomes_match_ratified_values() {
         // (role, [XSmall, Small, Medium, Large, XLarge] expected px).
-        let cases: [(FontSize, [f32; 5]); 7] = [
+        let cases: [(FontSize, [f32; 5]); 8] = [
             (FontSize::Micro, [10.01, 10.472, 11.00, 12.9008, 14.96]),
             (FontSize::Caption, [10.80, 11.36, 12.00, 13.8432, 15.84]),
             (FontSize::Body, [11.57, 12.237_333, 13.00, 14.7472, 16.64]),
@@ -1209,6 +1361,7 @@ mod tests {
             (FontSize::Title3, [14.79, 15.821_333, 17.00, 18.632, 20.40]),
             (FontSize::Title2, [17.20, 18.506_667, 20.00, 21.536, 23.20]),
             (FontSize::Title, [20.40, 22.08, 24.00, 25.3824, 26.88]),
+            (FontSize::Display, [25.20, 27.44, 30.00, 31.152, 32.40]),
         ];
 
         let mut checked = 0;
@@ -1224,8 +1377,8 @@ mod tests {
             }
         }
         assert_eq!(
-            checked, 35,
-            "expected all 35 ratified role/step outcomes to be checked"
+            checked, 40,
+            "expected all 40 ratified role/step outcomes to be checked"
         );
     }
 
@@ -1296,6 +1449,7 @@ mod tests {
 
     /// ADR 0039 task 003 M1: above medium, smaller roles grow more
     /// proportionally than larger roles, at both `Large` and `XLarge`.
+    /// ADR 0083 task 002 appends `Display`, the role above `Title`.
     #[test]
     fn adr_0039_smaller_roles_grow_more_above_medium() {
         let roles_smallest_to_largest = [
@@ -1306,6 +1460,7 @@ mod tests {
             FontSize::Title3,
             FontSize::Title2,
             FontSize::Title,
+            FontSize::Display,
         ];
         for scale in [ScaleFactor::Large, ScaleFactor::XLarge] {
             for pair in roles_smallest_to_largest.windows(2) {
@@ -1324,6 +1479,7 @@ mod tests {
 
     /// ADR 0039 task 003 M1: below medium, smaller roles shrink less
     /// proportionally than larger roles, at both `XSmall` and `Small`.
+    /// ADR 0083 task 002 appends `Display`, the role above `Title`.
     #[test]
     fn adr_0039_smaller_roles_shrink_less_below_medium() {
         let roles_smallest_to_largest = [
@@ -1334,6 +1490,7 @@ mod tests {
             FontSize::Title3,
             FontSize::Title2,
             FontSize::Title,
+            FontSize::Display,
         ];
         for scale in [ScaleFactor::XSmall, ScaleFactor::Small] {
             for pair in roles_smallest_to_largest.windows(2) {
@@ -1351,7 +1508,8 @@ mod tests {
     }
 
     /// M2: medium returns each role's exact base size (11, 12, 13, 15, 17,
-    /// 20, 24), unchanged by the domain split.
+    /// 20, 24, 30), unchanged by the domain split. ADR 0083 task 002 adds 30
+    /// (`Display`).
     #[test]
     fn adr_0039_medium_type_returns_each_role_base_exactly() {
         let expected = [
@@ -1362,6 +1520,7 @@ mod tests {
             (FontSize::Title3, 17.0),
             (FontSize::Title2, 20.0),
             (FontSize::Title, 24.0),
+            (FontSize::Display, 30.0),
         ];
         for (role, base) in expected {
             assert_eq!(role.scaled_px(ScaleFactor::Medium), px(base));
@@ -1369,7 +1528,8 @@ mod tests {
     }
 
     /// M2: role ordering `Micro < Caption < Body < Headline < Title3 <
-    /// Title2 < Title` holds at every step.
+    /// Title2 < Title < Display` holds at every step. ADR 0083 task 002
+    /// appends `Display`.
     #[test]
     fn adr_0039_type_role_ordering_holds_at_every_step() {
         let roles = [
@@ -1380,6 +1540,7 @@ mod tests {
             FontSize::Title3,
             FontSize::Title2,
             FontSize::Title,
+            FontSize::Display,
         ];
         for (scale, _) in ADR_0039_STEPS {
             for pair in roles.windows(2) {
@@ -1393,7 +1554,8 @@ mod tests {
         }
     }
 
-    /// M2: each role grows monotonically across the five steps.
+    /// M2: each role grows monotonically across the five steps. ADR 0083
+    /// task 002 appends `Display`.
     #[test]
     fn adr_0039_type_grows_monotonically_per_role_across_steps() {
         let roles = [
@@ -1404,6 +1566,7 @@ mod tests {
             FontSize::Title3,
             FontSize::Title2,
             FontSize::Title,
+            FontSize::Display,
         ];
         for role in roles {
             let resolved: Vec<Pixels> = ADR_0039_STEPS

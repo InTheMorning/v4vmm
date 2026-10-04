@@ -325,6 +325,8 @@ fn render_contract_header(hero: &ReleaseHeroVm<'_>, hero_image: Option<Arc<Image
             .collect(),
     })
     .image(hero_image)
+    // ADR 0083 Decision 3: this header is always the album (release) page.
+    .title_size(FontSize::Display)
     .into_any_element()
 }
 
