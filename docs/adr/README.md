@@ -39,6 +39,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0080](0080-tag-frames-follow-their-owner.md) | Tag frames follow their owner: one resolved Nostr key, the item page in `WOAF` and the channel website in `WOAR`, a separate album description frame, idempotent writes that keep MusicBrainz values, plain URLs in URL frames, and a compare that uses the resolution of the writer | Accepted |
 | [0081](0081-remove-the-staged-frame-model.md) | Remove the staged frame model: no frame add, remove, detach or dock model with no caller, no reserved slots, and Forward completes ADR 0046 Invariant 2. Supersedes ADR 0046 Invariant 8 | Accepted |
 | [0082](0082-publisher-roles-belong-to-each-album-link.md) | Publisher roles belong to each album link: no page type, albums grouped by `album_names_as` and by role agreement, and the feeds that share albums. Revised for Stophammer 0.7.0. Supersedes ADR 0078 | Accepted |
+| [0083](0083-design-language.md) | Design language: the search.html palette, separate status, entity and value colors, Figtree, artwork first with a cover backdrop, an action hierarchy, one status bar, sources inspection one step away, and one tile for each release. Amends ADRs 0025, 0062 and 0066 | Proposed |
 | [0004](0004-format-neutral-audio-tag-boundary.md) | Format-neutral audio tag boundary | Accepted |
 | [0005](0005-musicbrainz-metadata-lookup.md) | Metadata-based MusicBrainz lookup. No fingerprinting | Accepted |
 | [0006](0006-musicbrainz-release-detail-enrichment.md) | MusicBrainz release detail enrichment | Accepted |

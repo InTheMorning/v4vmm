@@ -50,10 +50,11 @@ Each binding change in it needs its own ADR or ADR amendment before code changes
    Done on 2026-10-03: [screen inventory](../architecture/screen-inventory/README.md).
 2. Static HTML mockups of three screens with the website tokens: the Library grid, an album page with an "Inspect" disclosure for the RSS and ID3 values, and Settings. The operator reviews them in a browser.
 3. A design-language ADR records the accepted mockups as the target.
+   Written on 2026-10-03: [ADR 0083](../adr/0083-design-language.md), Proposed. The operator reviews it before Phase 3 starts.
 
 ### Design Direction - 2026-10-03
 
-The operator chose this direction on 2026-10-03, from the [mockup canvas](https://claude.ai/artifact/CaY8T2NUdDosRV9uoFy9bk) (private to the operator). The design-language ADR will record it.
+The operator chose this direction on 2026-10-03, from the [mockup canvas](https://claude.ai/artifact/CaY8T2NUdDosRV9uoFy9bk) (private to the operator). [ADR 0083](../adr/0083-design-language.md) records it.
 
 - Version 2 of the mockups is the target: real covers, and each album page tinted by a blurred copy of its cover, as on `search.html`.
 - Browsing follows Apple Music: a Music home, an album grid, album pages with one main Play action.
