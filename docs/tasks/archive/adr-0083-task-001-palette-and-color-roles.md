@@ -1,6 +1,6 @@
 # ADR 0083 Task 001: Palette And Color Roles
 
-Status: Open - implementation and mechanical checks are complete on 2026-10-03. The operator visual check is pending: [pending check 37](../pending-human-checks.md#37-palette-and-color-roles--adr-0083-task-001).
+Status: Complete - 2026-10-03. The operator passed V83-01 to V83-05 on 2026-10-03.
 
 ## Goal
 
@@ -10,8 +10,8 @@ Make the dark warning color orange, so that gold is free for the value palette.
 
 ## Authority
 
-- [ADR 0083](../adr/0083-design-language.md) Decisions 1 and 2.
-- [ADR 0025](../adr/0025-theme-icon-style-boundary.md), as amended by ADR 0083: the theme and badge boundary.
+- [ADR 0083](../../adr/0083-design-language.md) Decisions 1 and 2.
+- [ADR 0025](../../adr/0025-theme-icon-style-boundary.md), as amended by ADR 0083: the theme and badge boundary.
 - Durable set in `AGENTS.md`: token discipline, never rely on color alone.
 
 ## Recorded Facts - 2026-10-03
@@ -87,7 +87,7 @@ These are for the operator. They stay open until a person walks them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/ui/tokens.rs`, `src/ui/theme_profiles.rs`, `src/ui/contrast.rs`, `src/ui/theme_bridge.rs`.
 - `src/ui/composites/tag_badge.rs` and `src/ui/composites/thumbnail.rs`.
 - The sidebar of `src/ui/shells/workspace.rs`.
@@ -133,7 +133,7 @@ Revert the working tree. This packet adds no migration and no stored data. A sav
 3. Look at Music, Show and Settings. Expected: a neutral near-black background and one blue accent, as on the website. Wrong: a blue-violet tint.
 4. Look at the Library navigation panel on the left. Expected: a little lighter than the main background, and different from the rows. Wrong: the same color as the main background.
 5. Open search results or a page with entity badges: feed, track, playlist, artist or publisher. Expected: a small colored dot and the kind word in normal text. Wrong: a filled colored pill, track and playlist in one color, or a red publisher.
-6. Open a page that shows a warning, for example "Update n files". Expected: orange. Wrong: pale gold.
+6. Click "Update n files" and note one listed track. Open the page of that track. Expected: the different rows of the compare grid are orange. Wrong: pale gold.
 7. Set Theme to Light and repeat steps 3 to 6. Expected: white and gray surfaces and a darker blue accent.
 8. Set Theme to each high-contrast profile. Expected: as before this packet.
 9. Cleanup: set Theme back to the value of step 2.

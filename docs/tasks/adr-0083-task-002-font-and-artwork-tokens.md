@@ -1,6 +1,6 @@
 # ADR 0083 Task 002: Font And Artwork Tokens
 
-Status: Ready - 2026-10-03. It runs after [task 001](adr-0083-task-001-palette-and-color-roles.md). Implementation has not started. The operator visual check opens when the packet is complete.
+Status: Ready - 2026-10-03. [Task 001](archive/adr-0083-task-001-palette-and-color-roles.md) is complete. Implementation has not started. The operator visual check opens when the packet is complete.
 
 ## Goal
 
