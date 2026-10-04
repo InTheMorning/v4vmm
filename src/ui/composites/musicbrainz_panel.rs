@@ -116,11 +116,14 @@ impl RenderOnce for MusicBrainzPanel {
 fn title_bar(
     vm: &MusicBrainzPanelVm,
     on_select: Option<SelectHandler>,
-    _appearance: Option<Appearance>,
+    appearance: Option<Appearance>,
     cx: &mut App,
 ) -> AnyElement {
-    let badge_fill = EntityKind::Track.fill_color(cx);
-    let badge_text = EntityKind::Track.on_fill_color(cx);
+    // ADR 0083 Decision 2: an entity color never carries text. The track
+    // entity color stays as a quiet border accent. The trigger label reads
+    // in the normal label color.
+    let track_accent = EntityKind::Track.fill_color(cx);
+    let label_color = resolve_color(cx, SemanticColor::Label, appearance);
     // CONTROL-COMPAT(reason): native Button does not yet expose dropdown_menu, full-width alignment, and custom badge fill styling.
     let trigger = Button::new("musicbrainz-release-picker")
         .label(SharedString::from(vm.trigger_label().to_string()))
@@ -129,14 +132,13 @@ fn title_bar(
         .ghost()
         .w_full()
         .justify_start()
-        .bg(badge_fill)
-        .text_color(badge_text)
+        .text_color(label_color)
         .text_size(FontSize::Micro.scaled(cx))
         .font_weight(FontWeight::BOLD)
         .px(Spacing::SM.scaled(cx))
         .py(Spacing::XXS.scaled(cx))
         .border_1()
-        .border_color(badge_fill)
+        .border_color(track_accent)
         .rounded(Radius::SM.scaled(cx))
         .mb(Spacing::SM.scaled(cx));
 

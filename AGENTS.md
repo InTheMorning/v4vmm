@@ -13,9 +13,9 @@ Governance model: ADR 0061.
 
 The [overhaul plan](docs/plans/design-and-cleanup-overhaul-plan.md) is the current priority. It orders the
 design and cleanup work in six phases. Phase 1, the documents, ends with this file. Phase 2 ended with
-[ADR 0083](docs/adr/0083-design-language.md), the design language. Phase 3, the tokens, is next:
+[ADR 0083](docs/adr/0083-design-language.md), the design language. Phase 3, the tokens, is in progress:
 [ADR 0083 task 001](docs/tasks/adr-0083-task-001-palette-and-color-roles.md), then
-[task 002](docs/tasks/adr-0083-task-002-font-and-artwork-tokens.md).
+[task 002](docs/tasks/adr-0083-task-002-font-and-artwork-tokens.md). Task 001 waits for its visual check.
 
 Each file in `docs/tasks/` is open: it is Ready, or it waits for an operator check. Finished tasks are in
 `docs/tasks/archive/`. Each file in `docs/plans/` is an active plan.

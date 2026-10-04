@@ -75,6 +75,9 @@ pub enum SemanticColor {
     SystemBackground,
     SecondarySystemBackground,
     TertiarySystemBackground,
+    /// ADR 0083 Decision 1: the fourth background tier of `search.html`.
+    /// Used by the sidebar surface of the app, never by a content canvas.
+    SidebarBackground,
 
     // Labels — text colors in descending prominence.
     Label,
@@ -133,6 +136,19 @@ pub enum SemanticColor {
     Id3FrameV23Only,
     Id3FrameV24Only,
     Id3FrameUnknown,
+
+    // ADR 0083 Decision 2: one color for each stated entity kind, drawn
+    // only as a small dot, never as text-on-fill. `EntityKind::fill_token`
+    // in `ui::composites::tag_badge` is the one caller that maps a kind to
+    // its token. `Release` reuses `EntityFeed` and `Recording` reuses
+    // `EntityTrack`, because the website groups them in the same parent
+    // color. A kind with no stated entity, such as `Generic`, does not use
+    // one of these tokens.
+    EntityFeed,
+    EntityTrack,
+    EntityPlaylist,
+    EntityArtist,
+    EntityPublisher,
 }
 
 impl SemanticColor {
@@ -146,49 +162,73 @@ impl SemanticColor {
     }
 
     fn dark_palette(token: Self) -> Rgba {
-        // Dark palette mirrors v4vmm's existing aesthetic (cool, slightly
-        // tinted) while satisfying WCAG AA contrast ratios for label-on-bg
-        // pairs (label/SystemBackground = 14.4 : 1).
+        // ADR 0083 Decision 1: the dark palette follows `search.html`.
+        // `SystemBackground`, `SidebarBackground`, `SecondarySystemBackground`
+        // (surface), `TertiarySystemBackground` (raised surface), `Label`
+        // (text), `SecondaryLabel` (muted text), `Separator`, and `Accent`
+        // are the website's own values. `TertiaryLabel`, `QuaternaryLabel`,
+        // the three fills, `AccentHover`, `AccentPressed`, `Focus`, and
+        // `Info` are derived from those values. The ADR 0083 task 001
+        // packet result records the derivation of each. `Warning` and
+        // `WarningLabel` move from gold to orange in this change (Decision
+        // 2), and this frees gold for the value palette. `DiffDifferent`
+        // and `Id3FrameV23Only` move off gold too.
         //
-        // Several semantic tokens intentionally resolve to the same hex —
-        // e.g. `SystemFill` and `Separator` both want a subtle hairline at
-        // `#2a2d3a`. Keep the match exhaustive so the symmetry with
-        // `light_palette` stays obvious.
+        // Several semantic tokens intentionally resolve to the same hex.
+        // For example, `SecondaryFill` and `TertiarySystemBackground` share
+        // the raised-surface value. Keep the match exhaustive so the
+        // symmetry with `light_palette` stays obvious.
         #[expect(clippy::match_same_arms, reason = "different semantics, shared value")]
         match token {
-            Self::SystemBackground => hex(0x0f_1117),
-            Self::SecondarySystemBackground => hex(0x1a_1d27),
-            Self::TertiarySystemBackground => hex(0x23_2735),
+            Self::SystemBackground => hex(0x0b_0b0d),
+            Self::SidebarBackground => hex(0x14_1417),
+            Self::SecondarySystemBackground => hex(0x1c_1c1f),
+            Self::TertiarySystemBackground => hex(0x26_262a),
 
-            Self::Label => hex(0xec_eef5),
-            Self::SecondaryLabel => hex(0xb4_bacb),
-            Self::TertiaryLabel => hex(0x8a_90a4),
-            Self::QuaternaryLabel => hex(0x5f_6577),
+            Self::Label => hex(0xf5_f5f7),
+            Self::SecondaryLabel => hex(0xa1_a1a6),
+            // Derived: continues the Label -> SecondaryLabel step toward
+            // SystemBackground (ADR 0083 task 001 packet result).
+            Self::TertiaryLabel => hex(0x72_7274),
+            Self::QuaternaryLabel => hex(0x43_4345),
 
-            Self::SystemFill => hex(0x2a_2d3a),
-            Self::SecondaryFill => hex(0x23_2735),
-            Self::TertiaryFill => hex(0x1a_1d27),
+            // Derived: the surface ladder shifted one tier, so a fill reads
+            // as a chip raised above its surrounding surface.
+            Self::SystemFill => hex(0x30_3035),
+            Self::SecondaryFill => hex(0x26_262a),
+            Self::TertiaryFill => hex(0x1c_1c1f),
 
             Self::SelectedContent => hex(0x2a_3352),
 
-            Self::Separator => hex(0x2a_2d3a),
+            // `white at 10%` per Decision 1 — a translucent hairline that
+            // adapts to whatever surface sits behind it.
+            Self::Separator => hex_alpha(0xff_ffff, 0.10),
             Self::OpaqueSeparator => hex(0x6a_708a),
 
-            Self::Accent => hex(0x8b_9bff),
-            Self::AccentHover => hex(0xa5_b2ff),
-            Self::AccentPressed => hex(0x74_86f5),
+            Self::Accent => hex(0x2d_7bff),
+            // Derived: Accent blended 20% toward white (hover) and 20%
+            // toward black (pressed).
+            Self::AccentHover => hex(0x57_95ff),
+            Self::AccentPressed => hex(0x24_62cc),
             Self::OnAccent => hex(0x0b_0d13),
-            Self::Focus => hex(0xa8_b6ff),
+            // Derived: reuses AccentHover so the focus ring stays clearly
+            // visible against the canvas.
+            Self::Focus => hex(0x57_95ff),
 
             Self::Success => hex(0x7d_d67d),
-            Self::Warning => hex(0xff_d666),
+            // ADR 0083 Decision 2: orange, not gold, so gold is free for the
+            // value palette. Started from #ff9f0a and kept the existing
+            // OnWarning contrast pair.
+            Self::Warning => hex(0xff_9f0a),
             Self::Danger => hex(0xff_8585),
-            Self::Info => hex(0x8b_9bff),
+            // Derived: reuses Accent, matching the pre-existing pattern
+            // where Info tracks Accent's hue.
+            Self::Info => hex(0x2d_7bff),
 
             // In dark, the system colors already meet body-text contrast
             // against the canvas — labels can match the system value.
             Self::SuccessLabel => hex(0x7d_d67d),
-            Self::WarningLabel => hex(0xff_d666),
+            Self::WarningLabel => hex(0xff_9f0a),
             Self::DangerLabel => hex(0xff_8585),
             Self::InfoLabel => hex(0x8b_9bff),
 
@@ -200,51 +240,78 @@ impl SemanticColor {
             Self::OnInfo => hex(0x0b_0d13),
 
             Self::DiffMatch => hex(0x6f_d4a3),
-            Self::DiffDifferent => hex(0xff_d27a),
+            // ADR 0083 Decision 2: moved away from gold the same way as
+            // Warning.
+            Self::DiffDifferent => hex(0xff_9b1e),
             Self::DiffMissing => hex(0xff_a07f),
 
             Self::Id3FrameV22 => hex(0xb0_6cf4),
-            Self::Id3FrameV23Only => hex(0xff_c857),
+            // ADR 0083 Decision 2: moved away from gold the same way as
+            // Warning.
+            Self::Id3FrameV23Only => hex(0xff_b454),
             Self::Id3FrameV24Only => hex(0x3a_c4c4),
             Self::Id3FrameUnknown => hex(0xff_8a65),
+
+            // ADR 0083 Decision 1: entity colors of `search.html`.
+            Self::EntityFeed => hex(0xc4_965b),
+            Self::EntityTrack => hex(0x00_8b99),
+            Self::EntityPlaylist => hex(0x8e_dfad),
+            Self::EntityArtist => hex(0xfa_b5e5),
+            Self::EntityPublisher => hex(0x7c_60d4),
         }
     }
 
     fn light_palette(token: Self) -> Rgba {
-        // Light palette follows Apple HIG iOS 17 / macOS Sonoma defaults.
+        // ADR 0083 Decision 1: the light palette follows `search.html`.
+        // `TertiaryLabel`, `QuaternaryLabel`, the three fills, `AccentHover`,
+        // `AccentPressed`, `Focus`, and `Info` are derived like those in
+        // `dark_palette`. See the ADR 0083 task 001 packet result.
+        // `Warning`, `DiffDifferent`, and `Id3FrameV23Only` read as
+        // orange/brown in light, so Decision 2 leaves their light values
+        // unchanged.
         #[expect(clippy::match_same_arms, reason = "different semantics, shared value")]
         match token {
             Self::SystemBackground => hex(0xff_ffff),
-            Self::SecondarySystemBackground => hex(0xf2_f2f7),
-            Self::TertiarySystemBackground => hex(0xff_ffff),
+            Self::SidebarBackground => hex(0xf5_f5f7),
+            Self::SecondarySystemBackground => hex(0xff_ffff),
+            Self::TertiarySystemBackground => hex(0xec_ecef),
 
-            Self::Label => hex(0x00_0000),
-            Self::SecondaryLabel => hex(0x3c_3c43),
-            Self::TertiaryLabel => hex(0x6c_6c70),
-            Self::QuaternaryLabel => hex(0xa9_a9ad),
+            Self::Label => hex(0x1d_1d1f),
+            Self::SecondaryLabel => hex(0x5c_5c62),
+            // Derived: continues the Label -> SecondaryLabel step toward
+            // SystemBackground (ADR 0083 task 001 packet result).
+            Self::TertiaryLabel => hex(0x89_898b),
+            Self::QuaternaryLabel => hex(0xc0_c0c0),
 
-            Self::SystemFill => hex(0xe5_e5ea),
-            Self::SecondaryFill => hex(0xee_eef0),
-            Self::TertiaryFill => hex(0xf2_f2f7),
+            // Derived: the surface ladder shifted one tier toward black, so
+            // a fill reads as a chip pressed below its surrounding surface.
+            Self::SystemFill => hex(0xc6_c6cf),
+            Self::SecondaryFill => hex(0xd9_d9df),
+            Self::TertiaryFill => hex(0xec_ecef),
 
             Self::SelectedContent => hex(0xd1_e0ff),
 
-            Self::Separator => hex(0xc6_c6c8),
+            // `#3c3c43 at 16%` per Decision 1 — a translucent hairline that
+            // adapts to whatever surface sits behind it.
+            Self::Separator => hex_alpha(0x3c_3c43, 0.16),
             Self::OpaqueSeparator => hex(0x8e_8e93),
 
-            // iOS systemBlue and friends — Apple's iconic system colors.
-            // These are intended as fills and large-text accents; for body
-            // text use the *Label tokens below, which are darker.
-            Self::Accent => hex(0x00_7aff),
-            Self::AccentHover => hex(0x33_94ff),
-            Self::AccentPressed => hex(0x00_64d1),
+            Self::Accent => hex(0x0a_5bd6),
+            // Derived: Accent blended 20% toward white (hover) and 20%
+            // toward black (pressed).
+            Self::AccentHover => hex(0x3b_7cde),
+            Self::AccentPressed => hex(0x08_49ab),
             Self::OnAccent => hex(0xff_ffff),
-            Self::Focus => hex(0x33_94ff),
+            // Derived: reuses AccentHover so the focus ring stays clearly
+            // visible against the canvas.
+            Self::Focus => hex(0x3b_7cde),
 
             Self::Success => hex(0x34_c759),
             Self::Warning => hex(0xff_9500),
             Self::Danger => hex(0xff_3b30),
-            Self::Info => hex(0x00_7aff),
+            // Derived: reuses Accent, matching the pre-existing pattern
+            // where Info tracks Accent's hue.
+            Self::Info => hex(0x0a_5bd6),
 
             // Label variants — tuned to satisfy 4.5:1 against SystemBackground
             // (white). Same intent as Apple's `.systemRed`/`.systemGreen`
@@ -273,6 +340,13 @@ impl SemanticColor {
             Self::Id3FrameV23Only => hex(0x8b_5a00),
             Self::Id3FrameV24Only => hex(0x00_6d77),
             Self::Id3FrameUnknown => hex(0xb1_3c20),
+
+            // ADR 0083 Decision 1: entity colors of `search.html`.
+            Self::EntityFeed => hex(0x8a_5e21),
+            Self::EntityTrack => hex(0x00_8e9c),
+            Self::EntityPlaylist => hex(0x00_6238),
+            Self::EntityArtist => hex(0x72_3763),
+            Self::EntityPublisher => hex(0x82_67db),
         }
     }
 }
@@ -797,6 +871,24 @@ const fn hex(rgb: u32) -> Rgba {
     }
 }
 
+/// Decode `0xRRGGBB` with an explicit alpha. ADR 0083 Decision 1 states
+/// `Separator` as a translucent overlay. In dark it is `white at 10%`. In
+/// light it is `#3c3c43 at 16%`. This reads correctly over any surface
+/// behind it.
+#[inline]
+const fn hex_alpha(rgb: u32, alpha: f32) -> Rgba {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "byte values 0..=255 fit exactly in f32"
+    )]
+    Rgba {
+        r: ((rgb >> 16) & 0xff) as f32 / 255.0,
+        g: ((rgb >> 8) & 0xff) as f32 / 255.0,
+        b: (rgb & 0xff) as f32 / 255.0,
+        a: alpha,
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Tests.
 // -----------------------------------------------------------------------------
@@ -807,18 +899,22 @@ mod tests {
 
     #[test]
     fn dark_label_contrast_is_high() {
-        // Sanity check: label-on-systemBackground in dark must be nearly white
-        // on near-black so contrast is well above WCAG AA.
+        // Sanity check: label-on-systemBackground must clear WCAG AA normal
+        // text (4.5:1). ADR 0083 Decision 1 moved both tokens off their old
+        // hex values, so this checks the ratio directly rather than
+        // hardcoding a near-white / near-black channel threshold.
         let label = SemanticColor::Label.resolve(Appearance::Dark);
         let bg = SemanticColor::SystemBackground.resolve(Appearance::Dark);
-        assert!(label.r > 0.85 && bg.r < 0.15);
+        assert!(crate::ui::contrast::ratio(label, bg) >= 4.5);
     }
 
     #[test]
     fn light_label_contrast_is_high() {
+        // See `dark_label_contrast_is_high`: ADR 0083 Decision 1 made Light
+        // Label `#1d1d1f`, not pure black, so this checks the ratio directly.
         let label = SemanticColor::Label.resolve(Appearance::Light);
         let bg = SemanticColor::SystemBackground.resolve(Appearance::Light);
-        assert!(label.r < 0.05 && bg.r > 0.95);
+        assert!(crate::ui::contrast::ratio(label, bg) >= 4.5);
     }
 
     #[test]
@@ -872,6 +968,102 @@ mod tests {
         assert!((c.g - 0.501_960_8).abs() < 1e-4);
         assert!((c.b - 0.250_980_4).abs() < 1e-4);
         assert!((c.a - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn hex_alpha_keeps_the_requested_alpha() {
+        let c = hex_alpha(0xff_ffff, 0.10);
+        assert!((c.r - 1.0).abs() < f32::EPSILON);
+        assert!((c.g - 1.0).abs() < f32::EPSILON);
+        assert!((c.b - 1.0).abs() < f32::EPSILON);
+        assert!((c.a - 0.10).abs() < f32::EPSILON);
+    }
+
+    // -------------------------------------------------------------------
+    // ADR 0083 task 001: palette and color roles.
+    // -------------------------------------------------------------------
+
+    /// R83-01: the Dark and Light values of each ADR 0083 Decision 1 role,
+    /// through `SemanticColor::resolve`.
+    #[test]
+    fn adr_0083_decision_1_roles_resolve_to_the_website_values() {
+        let cases: [(SemanticColor, u32, u32); 7] = [
+            (SemanticColor::SystemBackground, 0x0b_0b0d, 0xff_ffff),
+            (SemanticColor::SidebarBackground, 0x14_1417, 0xf5_f5f7),
+            (
+                SemanticColor::SecondarySystemBackground,
+                0x1c_1c1f,
+                0xff_ffff,
+            ),
+            (
+                SemanticColor::TertiarySystemBackground,
+                0x26_262a,
+                0xec_ecef,
+            ),
+            (SemanticColor::Label, 0xf5_f5f7, 0x1d_1d1f),
+            (SemanticColor::SecondaryLabel, 0xa1_a1a6, 0x5c_5c62),
+            (SemanticColor::Accent, 0x2d_7bff, 0x0a_5bd6),
+        ];
+        for (token, dark_rgb, light_rgb) in cases {
+            assert_eq!(
+                token.resolve(Appearance::Dark),
+                hex(dark_rgb),
+                "{token:?} dark value drifted from ADR 0083 Decision 1"
+            );
+            assert_eq!(
+                token.resolve(Appearance::Light),
+                hex(light_rgb),
+                "{token:?} light value drifted from ADR 0083 Decision 1"
+            );
+        }
+
+        // Separator is a translucent overlay, not a solid hex.
+        assert_eq!(
+            SemanticColor::Separator.resolve(Appearance::Dark),
+            hex_alpha(0xff_ffff, 0.10),
+            "dark Separator must be white at 10%"
+        );
+        assert_eq!(
+            SemanticColor::Separator.resolve(Appearance::Light),
+            hex_alpha(0x3c_3c43, 0.16),
+            "light Separator must be #3c3c43 at 16%"
+        );
+    }
+
+    /// R83-05: the dark `Warning` and `WarningLabel` moved off gold.
+    /// ADR 0083 Decision 2 frees `#ffd666` for the value palette.
+    #[test]
+    fn adr_0083_dark_warning_is_not_gold() {
+        let former_gold = hex(0xff_d666);
+        assert_ne!(
+            SemanticColor::Warning.resolve(Appearance::Dark),
+            former_gold,
+            "dark Warning must not resolve to the former gold #ffd666"
+        );
+        assert_ne!(
+            SemanticColor::WarningLabel.resolve(Appearance::Dark),
+            former_gold,
+            "dark WarningLabel must not resolve to the former gold #ffd666"
+        );
+        assert_eq!(
+            SemanticColor::Warning.resolve(Appearance::Dark),
+            hex(0xff_9f0a),
+            "dark Warning must start from #ff9f0a"
+        );
+    }
+
+    /// ADR 0083 Decision 2: `DiffDifferent` and `Id3FrameV23Only` moved away
+    /// from gold in dark the same way as `Warning`.
+    #[test]
+    fn adr_0083_dark_diff_and_frame_chip_move_away_from_gold() {
+        let former_gold = hex(0xff_d666);
+        for token in [SemanticColor::DiffDifferent, SemanticColor::Id3FrameV23Only] {
+            let resolved = token.resolve(Appearance::Dark);
+            assert_ne!(
+                resolved, former_gold,
+                "{token:?} dark value must not resolve to the former gold #ffd666"
+            );
+        }
     }
 
     // -------------------------------------------------------------------

@@ -82,6 +82,7 @@ fn resolve_concrete_profile_color(profile: ThemeProfile, token: SemanticColor) -
 fn high_contrast_dark(token: SemanticColor) -> Rgba {
     match token {
         SemanticColor::SystemBackground => hex(0x00_0000),
+        SemanticColor::SidebarBackground => hex(0x05_0505),
         SemanticColor::SecondarySystemBackground => hex(0x08_0808),
         SemanticColor::TertiarySystemBackground => hex(0x16_1616),
 
@@ -128,6 +129,15 @@ fn high_contrast_dark(token: SemanticColor) -> Rgba {
         SemanticColor::Id3FrameV23Only => hex(0xff_e066),
         SemanticColor::Id3FrameV24Only => hex(0x6f_e8e8),
         SemanticColor::Id3FrameUnknown => hex(0xff_a07f),
+
+        // ADR 0083 Decision 1: brighter, more saturated entity colors so
+        // each dot clears the contrast matrix against every high-contrast
+        // dark background.
+        SemanticColor::EntityFeed => hex(0xe0_a868),
+        SemanticColor::EntityTrack => hex(0x00_c2d4),
+        SemanticColor::EntityPlaylist => hex(0x6e_f0a0),
+        SemanticColor::EntityArtist => hex(0xff_9fe0),
+        SemanticColor::EntityPublisher => hex(0xb3_9ddb),
     }
 }
 
@@ -138,6 +148,7 @@ fn high_contrast_dark(token: SemanticColor) -> Rgba {
 fn high_contrast_light(token: SemanticColor) -> Rgba {
     match token {
         SemanticColor::SystemBackground => hex(0xff_ffff),
+        SemanticColor::SidebarBackground => hex(0xfb_fbfb),
         SemanticColor::SecondarySystemBackground => hex(0xf7_f7f7),
         SemanticColor::TertiarySystemBackground => hex(0xee_eeee),
 
@@ -184,6 +195,15 @@ fn high_contrast_light(token: SemanticColor) -> Rgba {
         SemanticColor::Id3FrameV23Only => hex(0x5a_3a00),
         SemanticColor::Id3FrameV24Only => hex(0x00_4d54),
         SemanticColor::Id3FrameUnknown => hex(0x7a_2916),
+
+        // ADR 0083 Decision 1: darker, more saturated entity colors so each
+        // dot clears the contrast matrix against every high-contrast light
+        // background.
+        SemanticColor::EntityFeed => hex(0x6b_4717),
+        SemanticColor::EntityTrack => hex(0x00_6b76),
+        SemanticColor::EntityPlaylist => hex(0x00_4d2c),
+        SemanticColor::EntityArtist => hex(0x5c_2c4f),
+        SemanticColor::EntityPublisher => hex(0x5b_3fc4),
     }
 }
 

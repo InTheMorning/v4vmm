@@ -1,9 +1,10 @@
-//! Entity-type tag badge — small uppercase pill identifying what kind of
-//! record (artist, feed, track, …) a card represents.
+//! Entity-type tag badge — a small dot in the entity color, followed by the
+//! kind word in a label color, identifying what kind of record (artist,
+//! feed, track, …) a card represents.
 //!
-//! HIG note: at body-text sizes badges sit at 11pt **bold** with high
-//! contrast text on a saturated fill. Light/dark palettes are handled by
-//! choosing token colors per [`Appearance`]; we never hand-pick hex.
+//! ADR 0083 Decision 2: an entity color shows only as a dot. No text is
+//! drawn on an entity color. Light/dark palettes are handled by choosing
+//! token colors per [`Appearance`]. We never hand-pick hex.
 
 #![warn(clippy::pedantic)]
 
@@ -83,42 +84,28 @@ impl EntityKind {
         }
     }
 
-    /// Token used as the badge fill / thumbnail tint. We map to the v4vmm
-    /// status palette so the colors stay theme-aware (light vs dark) and
-    /// pass the WCAG matrix tests against [`SemanticColor::OnAccent`] /
-    /// [`SemanticColor::Label`] friends.
+    /// Entity-palette token for this kind's identity dot.
+    ///
+    /// ADR 0083 Decision 2: an entity color marks a stated kind and never
+    /// reuses a status, accent, or diff token. `Release` takes the feed
+    /// color and `Recording` takes the track color, because `search.html`
+    /// groups them in the same parent color. `Generic` states no kind, so
+    /// it uses a neutral fill, not an entity color.
     #[must_use]
     pub fn fill_token(self) -> SemanticColor {
         match self {
-            Self::Artist => SemanticColor::Success,
-            Self::Feed => SemanticColor::Warning,
-            Self::Track | Self::Playlist => SemanticColor::Info,
-            Self::Publisher => SemanticColor::Danger,
-            Self::Release | Self::Recording => SemanticColor::Accent,
+            Self::Artist => SemanticColor::EntityArtist,
+            Self::Feed | Self::Release => SemanticColor::EntityFeed,
+            Self::Track | Self::Recording => SemanticColor::EntityTrack,
+            Self::Playlist => SemanticColor::EntityPlaylist,
+            Self::Publisher => SemanticColor::EntityPublisher,
             Self::Generic => SemanticColor::SystemFill,
-        }
-    }
-
-    #[must_use]
-    pub fn on_fill_token(self) -> SemanticColor {
-        match self {
-            Self::Artist => SemanticColor::OnSuccess,
-            Self::Feed => SemanticColor::OnWarning,
-            Self::Track | Self::Playlist => SemanticColor::OnInfo,
-            Self::Publisher => SemanticColor::OnDanger,
-            Self::Release | Self::Recording => SemanticColor::OnAccent,
-            Self::Generic => SemanticColor::Label,
         }
     }
 
     #[must_use]
     pub fn fill_color(self, cx: &App) -> Rgba {
         color(cx, self.fill_token())
-    }
-
-    #[must_use]
-    pub fn on_fill_color(self, cx: &App) -> Rgba {
-        color(cx, self.on_fill_token())
     }
 }
 
@@ -250,22 +237,36 @@ impl TagBadge {
 
 impl RenderOnce for TagBadge {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let bg = resolve_color(cx, self.kind.fill_token(), self.appearance);
-        let fg = resolve_color(cx, self.kind.on_fill_token(), self.appearance);
+        // ADR 0083 Decision 2: the entity color shows only as a dot. The
+        // kind word always renders in a label color, never on the entity
+        // fill, so color is never the only carrier of the kind.
+        let dot_color = resolve_color(cx, self.kind.fill_token(), self.appearance);
+        let label_color = resolve_color(cx, SemanticColor::Label, self.appearance);
         let label = self
             .label
             .unwrap_or_else(|| SharedString::from(self.kind.label()));
+        let dot_size = Spacing::SM.scaled(cx);
 
         div()
             .flex_none()
-            .text_size(FontSize::Micro.scaled(cx))
-            .font_weight(FontWeight::BOLD)
-            .text_color(fg)
-            .bg(bg)
-            .px(Spacing::SM.scaled(cx))
-            .py(Spacing::XXS.scaled(cx))
-            .rounded(Radius::SM.scaled(cx))
-            .child(label)
+            .flex()
+            .items_center()
+            .gap(Spacing::XXS.scaled(cx))
+            .child(
+                div()
+                    .flex_none()
+                    .w(dot_size)
+                    .h(dot_size)
+                    .rounded(Radius::Full.scaled(cx))
+                    .bg(dot_color),
+            )
+            .child(
+                div()
+                    .text_size(FontSize::Micro.scaled(cx))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(label_color)
+                    .child(label),
+            )
     }
 }
 
@@ -292,5 +293,75 @@ mod tests {
         assert_eq!(StatusRole::Success.glyph(), "\u{2713}");
         assert_eq!(StatusRole::Warning.glyph(), "\u{26A0}");
         assert_eq!(StatusRole::Danger.glyph(), "\u{2717}");
+    }
+
+    /// R83-03: each `EntityKind` resolves to an entity token, and no two
+    /// kinds with different `search.html` colors share one token.
+    #[test]
+    fn entity_kind_fill_tokens_match_the_website_color_grouping() {
+        use std::collections::HashSet;
+
+        // These five kinds each have their own color on the website.
+        let distinctly_colored = [
+            EntityKind::Artist,
+            EntityKind::Feed,
+            EntityKind::Track,
+            EntityKind::Publisher,
+            EntityKind::Playlist,
+        ];
+        let mut seen_tokens = HashSet::new();
+        for kind in distinctly_colored {
+            assert!(
+                seen_tokens.insert(kind.fill_token()),
+                "{kind:?} must not share its entity token with another \
+                 distinctly colored kind"
+            );
+        }
+
+        // ADR 0083 Decision 1: Release takes Feed's color, and Recording
+        // takes Track's color.
+        assert_eq!(
+            EntityKind::Release.fill_token(),
+            EntityKind::Feed.fill_token()
+        );
+        assert_eq!(
+            EntityKind::Recording.fill_token(),
+            EntityKind::Track.fill_token()
+        );
+
+        // Generic states no kind, so it never collides with a real entity
+        // color.
+        assert!(!seen_tokens.contains(&EntityKind::Generic.fill_token()));
+    }
+
+    /// R83-03 / R83-04: an entity kind never resolves to a status, accent,
+    /// or diff token. ADR 0083 Decision 2.
+    #[test]
+    fn entity_kind_fill_tokens_never_resolve_a_status_accent_or_diff_token() {
+        let forbidden = [
+            SemanticColor::Success,
+            SemanticColor::Warning,
+            SemanticColor::Danger,
+            SemanticColor::Info,
+            SemanticColor::Accent,
+            SemanticColor::DiffMatch,
+            SemanticColor::DiffDifferent,
+            SemanticColor::DiffMissing,
+        ];
+        for kind in [
+            EntityKind::Artist,
+            EntityKind::Feed,
+            EntityKind::Track,
+            EntityKind::Publisher,
+            EntityKind::Release,
+            EntityKind::Recording,
+            EntityKind::Playlist,
+            EntityKind::Generic,
+        ] {
+            assert!(
+                !forbidden.contains(&kind.fill_token()),
+                "{kind:?} must not resolve a status, accent, or diff token"
+            );
+        }
     }
 }

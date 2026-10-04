@@ -269,6 +269,147 @@ pub const REQUIRED_PAIRS: &[ContrastPair] = &[
         level: ContrastLevel::LargeOrGraphic,
         note: "focus ring on canvas",
     },
+    // ADR 0083 Decision 1: label text on the new sidebar surface.
+    ContrastPair {
+        fg: SemanticColor::Label,
+        bg: SemanticColor::SidebarBackground,
+        level: ContrastLevel::NormalText,
+        note: "primary body text on sidebar surface",
+    },
+    ContrastPair {
+        fg: SemanticColor::SecondaryLabel,
+        bg: SemanticColor::SidebarBackground,
+        level: ContrastLevel::NormalText,
+        note: "secondary body text on sidebar surface",
+    },
+    ContrastPair {
+        fg: SemanticColor::TertiaryLabel,
+        bg: SemanticColor::SidebarBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "tertiary label on sidebar surface — large text / UI hint only",
+    },
+    // ADR 0083 Decision 2: each entity color as a small dot against every
+    // background tier, including the sidebar surface.
+    ContrastPair {
+        fg: SemanticColor::EntityFeed,
+        bg: SemanticColor::SystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "feed entity dot on canvas",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityFeed,
+        bg: SemanticColor::SecondarySystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "feed entity dot on surface",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityFeed,
+        bg: SemanticColor::TertiarySystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "feed entity dot on raised surface",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityFeed,
+        bg: SemanticColor::SidebarBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "feed entity dot on sidebar surface",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityTrack,
+        bg: SemanticColor::SystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "track entity dot on canvas",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityTrack,
+        bg: SemanticColor::SecondarySystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "track entity dot on surface",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityTrack,
+        bg: SemanticColor::TertiarySystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "track entity dot on raised surface",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityTrack,
+        bg: SemanticColor::SidebarBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "track entity dot on sidebar surface",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityPlaylist,
+        bg: SemanticColor::SystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "playlist entity dot on canvas",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityPlaylist,
+        bg: SemanticColor::SecondarySystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "playlist entity dot on surface",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityPlaylist,
+        bg: SemanticColor::TertiarySystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "playlist entity dot on raised surface",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityPlaylist,
+        bg: SemanticColor::SidebarBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "playlist entity dot on sidebar surface",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityArtist,
+        bg: SemanticColor::SystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "artist entity dot on canvas",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityArtist,
+        bg: SemanticColor::SecondarySystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "artist entity dot on surface",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityArtist,
+        bg: SemanticColor::TertiarySystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "artist entity dot on raised surface",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityArtist,
+        bg: SemanticColor::SidebarBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "artist entity dot on sidebar surface",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityPublisher,
+        bg: SemanticColor::SystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "publisher entity dot on canvas",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityPublisher,
+        bg: SemanticColor::SecondarySystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "publisher entity dot on surface",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityPublisher,
+        bg: SemanticColor::TertiarySystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "publisher entity dot on raised surface",
+    },
+    ContrastPair {
+        fg: SemanticColor::EntityPublisher,
+        bg: SemanticColor::SidebarBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "publisher entity dot on sidebar surface",
+    },
 ];
 
 // -----------------------------------------------------------------------------

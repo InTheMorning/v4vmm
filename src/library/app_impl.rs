@@ -3159,12 +3159,15 @@ impl Render for LibraryApp {
             self.tag_update_request_failed,
         )
         .map(|report| render_tag_update_report(report, cx));
+        // ADR 0083 Decision 1: the sidebar surface, distinct from the
+        // content canvas behind `trailing_pane`.
         let leading_pane = div()
             .flex()
             .flex_col()
             .flex_1()
             .min_h_0()
             .overflow_hidden()
+            .bg(color::bg_sidebar())
             .child({
                 let FeedUpdateDisplay {
                     state_label: feed_state_label,

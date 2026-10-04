@@ -19599,3 +19599,111 @@ pub struct UnmappedSampleType {
     assert!(violation.contains("UnmappedSampleType"));
     assert!(violation.contains("tests/architecture_tests.rs"));
 }
+
+/// ADR 0083 Decision 2: an entity kind must not resolve to a status, accent,
+/// or diff token. The fix names the ADR and the replacement.
+const ADR_0083_ENTITY_COLOR_FIX: &str = "ADR 0083 Decision 2: an entity kind must not resolve to a status, accent, or diff token. Use the entity token of the kind.";
+
+/// Tokens `EntityKind::fill_token` must never resolve. Each one is a status,
+/// accent, or diff role that ADR 0083 Decision 2 reserves for its own
+/// meaning.
+const ADR_0083_FORBIDDEN_ENTITY_FILL_TOKENS: &[&str] = &[
+    "SemanticColor::Success",
+    "SemanticColor::Warning",
+    "SemanticColor::Danger",
+    "SemanticColor::Info",
+    "SemanticColor::Accent",
+    "SemanticColor::DiffMatch",
+    "SemanticColor::DiffDifferent",
+    "SemanticColor::DiffMissing",
+];
+
+/// Lines inside `EntityKind::fill_token`'s body that resolve to a forbidden
+/// status, accent, or diff token. Takes source text, not a file path, so a
+/// sample source proves the detection logic without a throwaway file in the
+/// tree (R83-04).
+fn entity_fill_token_status_color_violations(source: &str) -> Vec<(usize, String)> {
+    let mut violations = Vec::new();
+    let mut in_fill_token = false;
+    for (line_number, line) in code_lines(source) {
+        if line.contains("fn fill_token(self) -> SemanticColor") {
+            in_fill_token = true;
+            continue;
+        }
+        if !in_fill_token {
+            continue;
+        }
+        if line == "}" {
+            in_fill_token = false;
+            continue;
+        }
+        for forbidden in ADR_0083_FORBIDDEN_ENTITY_FILL_TOKENS {
+            if line.contains(forbidden) {
+                violations.push((line_number, line.clone()));
+            }
+        }
+    }
+    violations
+}
+
+/// ADR 0083 Decision 2 situational guard: `EntityKind::fill_token` in
+/// `tag_badge.rs` must resolve only entity-palette tokens. This is the live
+/// guard. `adr_0083_entity_color_guard_fails_for_a_status_token_sample`
+/// (R83-04) proves the detection logic with a sample source.
+#[test]
+fn adr_0083_entity_kind_resolves_only_entity_tokens() {
+    let file = "src/ui/composites/tag_badge.rs";
+    let source = read_source(&manifest_path(file));
+    let violations = entity_fill_token_status_color_violations(&source);
+
+    assert!(
+        violations.is_empty(),
+        "{ADR_0083_ENTITY_COLOR_FIX}\n{}",
+        violations
+            .iter()
+            .map(|(line_number, line)| format!("{file}:{line_number}: `{line}`"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+/// R83-04: `adr_0083_entity_kind_resolves_only_entity_tokens` must fail on a
+/// sample source where `fill_token` returns `SemanticColor::Warning`, and
+/// its fix message must name ADR 0083.
+#[test]
+fn adr_0083_entity_color_guard_fails_for_a_status_token_sample() {
+    let sample = r#"
+impl EntityKind {
+    #[must_use]
+    pub fn fill_token(self) -> SemanticColor {
+        match self {
+            Self::Artist => SemanticColor::EntityArtist,
+            Self::Feed => SemanticColor::Warning,
+            Self::Track | Self::Recording => SemanticColor::EntityTrack,
+            Self::Playlist => SemanticColor::EntityPlaylist,
+            Self::Publisher => SemanticColor::EntityPublisher,
+            Self::Release => SemanticColor::EntityFeed,
+            Self::Generic => SemanticColor::SystemFill,
+        }
+    }
+}
+"#;
+    let violations = entity_fill_token_status_color_violations(sample);
+    assert_eq!(
+        violations.len(),
+        1,
+        "expected exactly one forbidden status token in the sample"
+    );
+    assert!(violations[0].1.contains("SemanticColor::Warning"));
+
+    assert!(
+        ADR_0083_ENTITY_COLOR_FIX.contains("ADR 0083"),
+        "the fix message must name ADR 0083"
+    );
+
+    let clean_sample = sample.replace("SemanticColor::Warning", "SemanticColor::EntityFeed");
+    assert!(
+        entity_fill_token_status_color_violations(&clean_sample).is_empty(),
+        "an entity-only sample must not trip the guard"
+    );
+}

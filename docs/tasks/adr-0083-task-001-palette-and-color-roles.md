@@ -1,6 +1,6 @@
 # ADR 0083 Task 001: Palette And Color Roles
 
-Status: Ready - 2026-10-03. Implementation has not started. The operator visual check opens when the packet is complete.
+Status: Open - implementation and mechanical checks are complete on 2026-10-03. The operator visual check is pending: [pending check 37](../pending-human-checks.md#37-palette-and-color-roles--adr-0083-task-001).
 
 ## Goal
 
@@ -108,6 +108,37 @@ cargo build --bin v4vmm
 ## Rollback
 
 Revert the working tree. This packet adds no migration and no stored data. A saved theme profile still loads.
+
+## Result - 2026-10-03
+
+- Files changed: `src/ui/tokens.rs`, `src/ui/theme_profiles.rs`, `src/ui/contrast.rs`, `src/ui/style.rs`, `src/ui/composites/tag_badge.rs`, `src/ui/composites/musicbrainz_panel.rs`, `src/library/app_impl.rs`, `tests/architecture_tests.rs`.
+- The Library navigation panel in `src/library/app_impl.rs` uses `SidebarBackground`. The `SourceList` frame of `src/ui/shells/workspace.rs` has no live caller, so it has no sidebar to color.
+- `musicbrainz_panel.rs` was the one caller of `on_fill_color`. It now uses the track entity color as a border and `Label` for text.
+- Derived values: `TertiaryLabel` `#727274` and `#89898b`, `QuaternaryLabel` `#434345` and `#c0c0c0`, `SystemFill` `#303035` and `#c6c6cf`, `SecondaryFill` `#26262a` and `#d9d9df`, `TertiaryFill` `#1c1c1f` and `#ececef`. `AccentHover` and `Focus` are the accent 20 % toward white. `AccentPressed` is the accent 20 % toward black. `Info` equals the accent. `InfoLabel` did not change.
+- Dark warning roles: `Warning` and `WarningLabel` `#ff9f0a`, `DiffDifferent` `#ff9b1e`, `Id3FrameV23Only` `#ffb454`. The high-contrast warning roles did not change.
+- Proof:
+  - R83-01: `adr_0083_decision_1_roles_resolve_to_the_website_values`.
+  - R83-02: the four profile matrix tests in `src/ui/contrast.rs`, with 23 new pairs.
+  - R83-03: the two `entity_kind_fill_tokens_*` tests.
+  - R83-04: `adr_0083_entity_kind_resolves_only_entity_tokens` and `adr_0083_entity_color_guard_fails_for_a_status_token_sample`.
+  - R83-05: `adr_0083_dark_warning_is_not_gold`.
+  - R83-06: the raw literal guard.
+- The orchestrator deleted a second R83-05 guard that read source text. The unit test proves the same rule on the resolved color.
+- The project gate is Green. `cargo clippy --all-targets -- -D warnings` fails with 85 errors that HEAD already has. The plan item "Throughout: Code Correctness" owns them.
+
+## Operator Visual Check
+
+1. In a desktop session, run `cargo build --bin v4vmm`, then `./target/debug/v4vmm`.
+2. Open Settings, General, and note the current Theme value. Set Theme to Dark.
+3. Look at Music, Show and Settings. Expected: a neutral near-black background and one blue accent, as on the website. Wrong: a blue-violet tint.
+4. Look at the Library navigation panel on the left. Expected: a little lighter than the main background, and different from the rows. Wrong: the same color as the main background.
+5. Open search results or a page with entity badges: feed, track, playlist, artist or publisher. Expected: a small colored dot and the kind word in normal text. Wrong: a filled colored pill, track and playlist in one color, or a red publisher.
+6. Open a page that shows a warning, for example "Update n files". Expected: orange. Wrong: pale gold.
+7. Set Theme to Light and repeat steps 3 to 6. Expected: white and gray surfaces and a darker blue accent.
+8. Set Theme to each high-contrast profile. Expected: as before this packet.
+9. Cleanup: set Theme back to the value of step 2.
+
+No special hardware or system state is needed.
 
 ## Prompt for lower-context coding model
 
