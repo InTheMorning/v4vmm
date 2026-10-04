@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed - 2026-10-03. The operator chose the direction on 2026-10-03 from a private mockup canvas. The operator reviews this text before any packet starts.
+Accepted - 2026-10-03. The operator chose the direction on 2026-10-03 from a private mockup canvas, and accepted this text on the same day. Phase 3 of the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md) implements Decisions 1 to 4.
 
-When accepted, it amends [ADR 0025](0025-theme-icon-style-boundary.md) (entity roles get their own palette), [ADR 0062](0062-music-content-surface.md) (a tile is a release) and [ADR 0066](0066-configuration-and-startup-failure-recovery.md) (the normal-shell notice opens from the status bar).
+It amends [ADR 0025](0025-theme-icon-style-boundary.md) (entity roles get their own palette), [ADR 0062](0062-music-content-surface.md) (a tile is a release) and [ADR 0066](0066-configuration-and-startup-failure-recovery.md) (the normal-shell notice opens from the status bar).
 
 ## Context
 
@@ -52,7 +52,7 @@ The high-contrast profiles keep their own values and their contrast tests.
 Each color has one meaning:
 
 - **Accent** marks the selected item, a link and the focus ring.
-- **Status** colors mark success, warning, danger and information. Danger also marks a destructive action.
+- **Status** colors mark success, warning, danger and information. Danger also marks a destructive action. In the dark profile, the warning color is orange, as in the light profile, because gold is a value color.
 - **Entity** colors mark a stated entity kind: feed, track, playlist, artist, publisher, label and the other kinds of the website. They show as a small dot, never as a filled text badge. Live red is reserved for a live item.
 - **Value** colors mark the shares of a payment split. The largest share is lightning gold `#ffd666`. Each next share is a darker, less saturated step of the same hue. The steps differ in lightness.
 

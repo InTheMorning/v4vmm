@@ -4,6 +4,8 @@
 
 Accepted - 2026-09-10.
 
+Amended 2026-10-03 by [ADR 0083](0083-design-language.md) Decision 7: the normal-shell notice opens from the reports item of the status bar. Its subjects, repair actions and retained actions stay reachable there and in Settings.
+
 Amended 2026-09-18: the operator rejected the inline repair/diagnostics layout
 during task 013 acceptance. [ADR 0074](0074-repair-and-diagnostics-pages.md)
 owns the replacement pages, action placement, typography and report viewports.

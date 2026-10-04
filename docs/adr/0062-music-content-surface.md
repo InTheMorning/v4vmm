@@ -4,6 +4,8 @@
 
 Accepted - 2026-09-07.
 
+Amended 2026-10-03 by [ADR 0083](0083-design-language.md) Decision 9: Music opens on a home, and the tile view shows one tile for each release. Recency order and paging stay with this ADR.
+
 Reconciled 2026-09-18: the [delivery index](../plans/broadcast-chain-delivery-order.md#surface-rewrite--complete)
 records tasks 001–005 complete on 2026-09-07. Their stale Ready headers are corrected.
 The packets deliver the row contract, default view, library control, view modes

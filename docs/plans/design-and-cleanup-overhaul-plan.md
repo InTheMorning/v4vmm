@@ -50,7 +50,7 @@ Each binding change in it needs its own ADR or ADR amendment before code changes
    Done on 2026-10-03: [screen inventory](../architecture/screen-inventory/README.md).
 2. Static HTML mockups of three screens with the website tokens: the Library grid, an album page with an "Inspect" disclosure for the RSS and ID3 values, and Settings. The operator reviews them in a browser.
 3. A design-language ADR records the accepted mockups as the target.
-   Written on 2026-10-03: [ADR 0083](../adr/0083-design-language.md), Proposed. The operator reviews it before Phase 3 starts.
+   Done on 2026-10-03: [ADR 0083](../adr/0083-design-language.md), Accepted.
 
 ### Design Direction - 2026-10-03
 
@@ -64,7 +64,10 @@ The operator chose this direction on 2026-10-03, from the [mockup canvas](https:
 
 ### Phase 3: Tokens
 
-One packet maps the website palette, radii and font onto `src/ui/tokens.rs` and the theme profiles. The operator walks the visual check right after the packet.
+Two packets implement ADR 0083 Decisions 1 to 4. The operator walks the visual check of each packet right after it.
+
+1. [Task 001](../tasks/adr-0083-task-001-palette-and-color-roles.md): the palette, the entity colors and the value colors.
+2. [Task 002](../tasks/adr-0083-task-002-font-and-artwork-tokens.md): Figtree, the display size, the artwork shadow and the monogram placeholder.
 
 ### Phase 4: Library
 
