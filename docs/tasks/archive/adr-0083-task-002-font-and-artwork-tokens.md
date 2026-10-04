@@ -1,6 +1,6 @@
 # ADR 0083 Task 002: Font And Artwork Tokens
 
-Status: Open - implementation and mechanical checks are complete on 2026-10-03. The operator visual check is pending: [pending check 37](../pending-human-checks.md#37-font-and-artwork-tokens--adr-0083-task-002).
+Status: Complete - 2026-10-03. The operator passed V83-11 to V83-15 on 2026-10-03. The operator also saw the Play icon of "Open Show" as a color emoji. [Task 003](../adr-0083-task-003-one-icon-set.md) owns that defect.
 
 ## Goal
 
@@ -9,8 +9,8 @@ Give artwork a shadow token, and replace the emoji placeholder with a type monog
 
 ## Authority
 
-- [ADR 0083](../adr/0083-design-language.md) Decisions 3 and 4.
-- [ADR 0025](../adr/0025-theme-icon-style-boundary.md): the theme boundary.
+- [ADR 0083](../../adr/0083-design-language.md) Decisions 3 and 4.
+- [ADR 0025](../../adr/0025-theme-icon-style-boundary.md): the theme boundary.
 - The type ramp guards of the archived ADRs 0034 and 0039 stay in force.
 - Durable set in `AGENTS.md`: token discipline.
 
@@ -65,7 +65,7 @@ These are for the operator. They stay open until a person walks them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/ui/tokens.rs`, `src/ui/layouts.rs`, `src/ui/theme_bridge.rs`, `src/app/bootstrap.rs`.
 - `src/ui/primitives/image.rs`, `src/ui/composites/thumbnail.rs`, `src/ui/composites/tag_badge.rs`, `src/ui/composites/detail_header.rs`.
 - The content tile composite of the Library grid.

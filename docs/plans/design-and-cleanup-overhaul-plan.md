@@ -64,10 +64,11 @@ The operator chose this direction on 2026-10-03, from the [mockup canvas](https:
 
 ### Phase 3: Tokens
 
-Two packets implement ADR 0083 Decisions 1 to 4. The operator walks the visual check of each packet right after it.
+Three packets implement ADR 0083 Decisions 1 to 4 and 10. The operator walks the visual check of each packet right after it.
 
 1. [Task 001](../tasks/archive/adr-0083-task-001-palette-and-color-roles.md): the palette and the entity colors. Done on 2026-10-03.
-2. [Task 002](../tasks/adr-0083-task-002-font-and-artwork-tokens.md): Figtree, the display size, the artwork shadow and the monogram placeholder.
+2. [Task 002](../tasks/archive/adr-0083-task-002-font-and-artwork-tokens.md): Figtree, the display size, the artwork shadow and the monogram placeholder. Done on 2026-10-03.
+3. [Task 003](../tasks/adr-0083-task-003-one-icon-set.md): each icon from the Lucide set. It corrects an emoji icon that Figtree caused.
 
 ### Phase 4: Library
 
