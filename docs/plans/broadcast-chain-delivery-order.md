@@ -347,11 +347,11 @@ Update this table when a packet lands.
 | `v4vmm` | 0064 002 repair report surface | ready |
 | `v4vmm` | 0065 001 tag repair service | implemented - 2026-09-09; no visual criteria |
 | `v4vmm` | 0065 002 check-all-feeds repair and list actions | implemented - 2026-09-09; visual acceptance met; result-row readability fixed and accepted in action feedback 001 on 2026-09-10 |
-| `splitkit` | reserved 001 store boundary | ready |
-| `splitkit` | reserved 002 reserved class | ready; response contract pinned against `LiveItemCreateResponse` |
-| `splitkit` | reserved 003 restore and TTL | ready; restores reserved identities and exempts them from idle expiry; ephemeral behavior remains unchanged |
-| `splitkit` | reserved 004 list and delete | ready; scheduled after adoption, or before the v4vmm reservation packet while command-line reservation is the interim; list envelope pinned |
-| `splitkit` | reserved 005 guards and review | ready; follows 004; final relay review also reconciles this plan |
+| `splitkit` | reserved 001 store boundary | complete - 2026-10-04 |
+| `splitkit` | reserved 002 reserved class | complete - 2026-10-04. The reserve response keeps the four fields of `LiveItemCreateResponse`. |
+| `splitkit` | reserved 003 restore and TTL | complete - 2026-10-04. A restart restores a reserved identity with no snapshot. The idle TTL skips a reserved item. |
+| `splitkit` | reserved 004 list and delete | complete - 2026-10-04. The list holds reserved items only. |
+| `splitkit` | reserved 005 guards and review | complete - 2026-10-04. Relay ADR 0001 is Implemented. The review is `docs/reviews/adr-0001-implementation-review.md` in the relay. |
 
 ## Surface Rewrite — Complete
 
@@ -447,11 +447,18 @@ work that ADR 0060 does not touch.
 These entries include work awaiting packets and unscheduled work. The Current
 Delivery Order above determines priority; an entry here is not a second order.
 
-- A `v4vmm` packet for reserving a durable live item. `splitkit` reserved live
-  items 002 adds the route, and nothing in `v4vmm` calls it. After 002/003 are
-  deployed, command-line reservation and publisher configuration provide the
-  interim adoption path. This does not automatically add the new event to the
-  app registry. The app packet completes reservation and selection in v4vmm.
+- A `v4vmm` packet for reserving a durable live item. No packet exists yet.
+  Recorded 2026-10-04:
+  - The reserved class exists in the relay, and relay ADR 0001 is
+    Implemented. This plan calls that repository `splitkit`. Its name is
+    `musicindex-live-relay`.
+  - A reserved item ignores the 24-hour idle rule and survives a relay
+    restart. An ordinary Create still makes an ephemeral item.
+  - The relay is not deployed with the reserved class. Nothing in `v4vmm`
+    calls the reserve route.
+  - Until the app packet exists, the operator reserves an item from a
+    terminal. The relay runbook `docs/runbooks/reserved-live-items.md` gives
+    the steps. That reservation does not add the event to the app registry.
 - A seventh `ServiceState` in `v4vmm`, for a publisher that is installed and
   not configured. `musicindex-live-publisher` control-surface task 002 supplies
   the two facts that separate it, through `--version` and `config show --json`.

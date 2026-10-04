@@ -138,17 +138,20 @@ A control API in the publisher is future work. The liquidsoap work needs it.
 
 ## Known Limits
 
-- The relay keeps state in memory. A restart discards live items, tokens, and
-  snapshots. Every event then dies and listeners must tune again.
-- The relay also removes an event after an idle TTL. The default is 24 hours.
-  An event dies without a restart when nobody publishes to it.
+- An ordinary relay event lives in memory only. A relay restart discards it,
+  and listeners must tune again. The relay also removes it after an idle TTL.
+  The default is 24 hours.
+- A reserved relay event survives a restart and the idle TTL (relay ADR
+  0001). Only the relay operator makes one, from a terminal. After a restart
+  it has no snapshot until the next publish.
 - The relay returns a broadcaster token one time. It keeps a hash and cannot
   return the token again.
-- The relay has no route to list live items and no route to delete one.
+- The relay lists and deletes reserved events only, with the admin token. It
+  has no route to list or delete an ordinary event.
 - The drop-file contract has no pause state. A producer reports play or stop
   only.
-- Long-lived events are future work in `splitkit`. Weekly shows and permanent
-  stations need an event that survives a relay restart.
+- `v4vmm` cannot reserve an event yet. That packet is in
+  `docs/plans/broadcast-chain-delivery-order.md` §Later Work.
 
 ## References
 
