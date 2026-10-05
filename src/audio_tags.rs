@@ -1373,8 +1373,9 @@ mod tests {
 
     use super::{
         add_lofty_compare_aliases, audio_tags_from_id3, id3v24_edit_label_is_writable,
-        lofty_item_label, normalize_frame_descriptor, read_audio_tags, read_picture_reference,
-        read_text_reference, write_id3v24_edits, AudioTags, EmbeddedArtwork, Id3Field, Id3v24Edit,
+        lofty_field_for_label, lofty_item_label, lofty_mp4_freeform_key,
+        normalize_frame_descriptor, read_audio_tags, read_picture_reference, read_text_reference,
+        vorbis_storage_key, write_id3v24_edits, AudioTags, EmbeddedArtwork, Id3Field, Id3v24Edit,
     };
 
     #[test]
@@ -1473,6 +1474,34 @@ mod tests {
         assert_eq!(
             lofty_item_label(&ItemKey::Unknown("----:com.apple.iTunes:WOAR".into())),
             "WOAR"
+        );
+    }
+
+    /// R80-57 (ADR 0080 Decision 9), the MP4 half: the image frame gets a
+    /// stable MP4 freeform atom key, under the same scheme as every other
+    /// `TXXX:MusicIndex` frame (Contributors, Value Routes, the two GUID
+    /// frames), and the reader maps that key back to the same frame label.
+    #[test]
+    fn lofty_musicindex_image_round_trips_its_mp4_freeform_key() {
+        let field = lofty_field_for_label("TXXX:MusicIndex Image");
+        let key = lofty_mp4_freeform_key("TXXX:MusicIndex Image", &field);
+        assert_eq!(key, "----:com.apple.iTunes:MusicIndex Image");
+        assert_eq!(
+            lofty_item_label(&ItemKey::Unknown(key)),
+            "TXXX:MusicIndex Image"
+        );
+    }
+
+    /// R80-57 (ADR 0080 Decision 9), the Vorbis half: the image frame gets
+    /// a stable Vorbis Comment key.
+    #[test]
+    fn vorbis_storage_key_maps_the_musicindex_image_frame() {
+        assert_eq!(
+            vorbis_storage_key(
+                "TXXX:MusicIndex Image",
+                crate::audio_format::AudioFormat::Flac
+            ),
+            Some("MUSICINDEX IMAGE".into())
         );
     }
 

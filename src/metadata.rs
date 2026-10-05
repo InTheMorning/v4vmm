@@ -218,6 +218,16 @@ pub fn compare_track_rows(
         None,
     );
     push_compare_row(&mut rows, "Artwork", artwork_url(track, feed), None);
+    // ADR 0080 Decision 9: the broadcast producers read this URL from a
+    // text frame, apart from the embedded picture of the "Artwork" row
+    // above. The row shows the value that the writer writes (Decision 3).
+    // The "Artwork" row still shows an invalid URL.
+    push_compare_row(
+        &mut rows,
+        "MusicIndex Image",
+        artwork_url(track, feed).and_then(|url| valid_musicindex_image_url(&url)),
+        None,
+    );
     push_compare_row(
         &mut rows,
         "Source format",
@@ -1272,6 +1282,17 @@ pub fn track_metadata_rows(
         track_artwork_url(track_context),
         None,
     );
+    // ADR 0080 Decision 9: the broadcast producers read the artwork URL
+    // from this text frame. A write filters the value by
+    // `valid_musicindex_image_url`, so an invalid or oversized value gives
+    // no edit, apart from the "Artwork" row above.
+    push_track_metadata_row(
+        &mut rows,
+        "lyrics-comments-artwork-user-facing-content",
+        "MusicIndex Image",
+        track_artwork_url(track_context),
+        None,
+    );
     push_track_metadata_row(
         &mut rows,
         "lyrics-comments-artwork-user-facing-content",
@@ -1777,7 +1798,7 @@ pub fn metadata_field_group_key(field: &str) -> &'static str {
         | "Explicit"
         | "Description" => "descriptive-technical-rights-text",
         "Tempo" => "timing-seeking-audio-analysis-playback-control",
-        "Artwork" | "Transcript" | "Transcript text" => {
+        "Artwork" | "MusicIndex Image" | "Transcript" | "Transcript text" => {
             "lyrics-comments-artwork-user-facing-content"
         }
         "Website" | "RSS feed website" | "License" => "url-link-frames",
@@ -2186,7 +2207,7 @@ fn source_value_for_metadata_field(field: &str, track_context: &TrackContext) ->
         "Release date" | "Release year" => musicindex_release_date(track_context),
         "Duration" => track.duration_secs.map(fmt_dur),
         "Explicit" => track.explicit.and_then(explicit_metadata_value),
-        "Artwork" => track_artwork_url(track_context),
+        "Artwork" | "MusicIndex Image" => track_artwork_url(track_context),
         "Transcript" | "Transcript text" => track_transcript_url(track),
         // ADR 0080 Decision 5: the item description holds only the item's
         // own value. "Album description" carries the channel fallback.
@@ -2447,6 +2468,13 @@ pub fn format_drag_value_for_id3v24(
     if value.is_empty() {
         return None;
     }
+    // ADR 0080 Decision 9: the artwork URL frame holds a plain `http` or
+    // `https` URL of 2,048 characters or fewer, the way `WOAR`/`WOAF` hold
+    // a plain URL. This runs before the generic `TXXX` passthrough below,
+    // which would otherwise accept any value.
+    if frame_label == MUSICINDEX_IMAGE_FRAME {
+        return valid_musicindex_image_url(&value);
+    }
     let frame_id = id3_frame_base(frame_label);
     match frame_id {
         "TIT2" => format_id3_title(&value),
@@ -2606,6 +2634,27 @@ pub fn format_id3_url(value: &str) -> Option<String> {
 pub fn format_id3_website_url(value: &str) -> Option<String> {
     let url = value.split('·').next().map(str::trim).unwrap_or(value);
     reqwest::Url::parse(url).ok().map(|_| url.to_string())
+}
+
+/// The frame that holds the artwork URL (ADR 0080 Decision 9).
+const MUSICINDEX_IMAGE_FRAME: &str = "TXXX:MusicIndex Image";
+
+/// The longest value that `MUSICINDEX_IMAGE_FRAME` accepts (ADR 0080
+/// Decision 9).
+const MUSICINDEX_IMAGE_URL_MAX_CHARS: usize = 2048;
+
+/// ADR 0080 Decision 9: `TXXX:MusicIndex Image` holds one plain `http` or
+/// `https` URL of 2,048 characters or fewer. A relative value, a value with
+/// another scheme, and a longer value each give no frame. This uses the
+/// same URL parser as `format_id3_website_url` (`reqwest`'s, already a
+/// dependency).
+pub fn valid_musicindex_image_url(value: &str) -> Option<String> {
+    let url = value.trim();
+    if url.is_empty() || url.chars().count() > MUSICINDEX_IMAGE_URL_MAX_CHARS {
+        return None;
+    }
+    let parsed = reqwest::Url::parse(url).ok()?;
+    matches!(parsed.scheme(), "http" | "https").then(|| url.to_string())
 }
 
 pub fn id3v24_drag_copy_frame_is_writable(frame_label: &str) -> bool {
@@ -2985,6 +3034,7 @@ pub fn id3_txxx_needles(field: &str) -> &'static [&'static str] {
         "Nostr handle" | "RSS feed nostr handle" => &["nostr"],
         "Contributors" => &["musicindex", "contributors"],
         "Value Routes" => &["musicindex", "value", "routes"],
+        "MusicIndex Image" => &["musicindex", "image"],
         _ => &[],
     }
 }
@@ -3817,6 +3867,7 @@ pub fn id3_frame_hint(field: &str) -> Option<&'static str> {
         "Release year" => Some("TYER"),
         "Duration" => Some("TLEN"),
         "Artwork" => Some("APIC"),
+        "MusicIndex Image" => Some(MUSICINDEX_IMAGE_FRAME),
         "Description" => Some("COMM:MusicIndex Description"),
         // ADR 0080 Decision 5: the channel description has its own frame,
         // used only when the item states none.
@@ -4120,6 +4171,35 @@ mod tests {
                 .and_then(|claims| claims.first())
                 .and_then(|claim| claim.claim_value.as_deref()),
             Some("Feed source description")
+        );
+    }
+
+    #[test]
+    fn adr_0080_image_compare_row_holds_only_the_value_that_the_writer_writes() {
+        let valid = Track {
+            image_url: Some("https://example.test/cover.gif".into()),
+            ..Default::default()
+        };
+        let invalid = Track {
+            image_url: Some("data:image/gif;base64,R0lGOD".into()),
+            ..Default::default()
+        };
+        let tags = AudioTags::default();
+        let image_source = |track: &Track| {
+            compare_track_rows(track, None, &tags)
+                .into_iter()
+                .find(|row| row.field == "MusicIndex Image")
+                .and_then(|row| row.source_value)
+        };
+
+        assert_eq!(
+            image_source(&valid).as_deref(),
+            Some("https://example.test/cover.gif")
+        );
+        assert_eq!(
+            image_source(&invalid),
+            None,
+            "ADR 0080 Decision 3: the compare row must not expect a value that the writer omits"
         );
     }
 

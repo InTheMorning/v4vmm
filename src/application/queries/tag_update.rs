@@ -666,6 +666,136 @@ mod tests {
         );
     }
 
+    /// R80-54 (ADR 0080 Decision 9): a round trip. The scan reports no
+    /// difference for a file that already holds the artwork URL the writer
+    /// would write.
+    #[test]
+    fn adr_0080_image_round_trip_edit_gives_no_scan_difference() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("song.mp3");
+        std::fs::write(&path, b"not really an mp3").unwrap();
+        let expected = vec![Id3v24Edit {
+            frame_label: "TXXX:MusicIndex Image".into(),
+            value: "https://example.test/track.png".into(),
+        }];
+        write_id3v24_edits(&path, &expected).unwrap();
+        let tags = read_audio_tags(&path).unwrap();
+
+        let planned = PlannedFile {
+            track_id: 1,
+            title: "Song".into(),
+            album: None,
+            path,
+            in_use: false,
+            expected,
+            route: None,
+        };
+
+        let frames = changed_frames(&planned, &tags, None);
+
+        assert!(
+            frames.is_empty(),
+            "a file the app wrote must show no difference for the image frame: {frames:?}"
+        );
+    }
+
+    /// R80-55 (ADR 0080 Decision 9): the scan reports a file without the
+    /// frame as a difference when the track has an artwork URL.
+    #[test]
+    fn adr_0080_image_missing_frame_is_reported_as_a_difference() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("song.mp3");
+        std::fs::write(&path, b"not really an mp3").unwrap();
+        let tags = read_audio_tags(&path).unwrap();
+
+        let planned = PlannedFile {
+            track_id: 1,
+            title: "Song".into(),
+            album: None,
+            path,
+            in_use: false,
+            expected: vec![Id3v24Edit {
+                frame_label: "TXXX:MusicIndex Image".into(),
+                value: "https://example.test/track.png".into(),
+            }],
+            route: None,
+        };
+
+        let frames = changed_frames(&planned, &tags, None);
+
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].frame_label, "TXXX:MusicIndex Image");
+        assert_eq!(frames[0].file_value, None);
+        assert_eq!(frames[0].expected_value, "https://example.test/track.png");
+    }
+
+    /// R80-57 (ADR 0080 Decision 9), the Vorbis half: a FLAC file gets the
+    /// image frame under its Vorbis Comment key, and the scan reads it
+    /// back as equal.
+    #[test]
+    fn adr_0080_image_flac_write_reads_back_as_equal() {
+        let flac_bytes = include_bytes!("../../../docs/runbooks/fixtures/conversion.flac");
+        let temp = tempfile::Builder::new().suffix(".flac").tempfile().unwrap();
+        std::fs::write(temp.path(), flac_bytes).unwrap();
+        let expected = vec![Id3v24Edit {
+            frame_label: "TXXX:MusicIndex Image".into(),
+            value: "https://example.test/track.png".into(),
+        }];
+        write_id3v24_edits(temp.path(), &expected).unwrap();
+        let tags = crate::audio_tags::read_audio_tags(temp.path()).unwrap();
+
+        let planned = PlannedFile {
+            track_id: 1,
+            title: "Song".into(),
+            album: Some("Feed".into()),
+            path: temp.path().to_path_buf(),
+            in_use: false,
+            expected,
+            route: None,
+        };
+
+        let frames = changed_frames(&planned, &tags, Some(AudioFormat::Flac));
+
+        assert!(
+            frames.is_empty(),
+            "a FLAC file the app wrote must show no difference for the image frame: {frames:?}"
+        );
+    }
+
+    /// R80-57 (ADR 0080 Decision 9), the MP4 half: an MP4 file gets the
+    /// image frame under its freeform atom key. `audio_tags::tests` proves
+    /// that key reads back as `TXXX:MusicIndex Image`; this proves the
+    /// scan treats that read-back frame as equal to the expected edit.
+    #[test]
+    fn adr_0080_image_mp4_frame_reads_back_as_equal() {
+        let tags = AudioTags {
+            fields: vec![crate::audio_tags::Id3Field {
+                frame_id: "TXXX:MusicIndex Image".into(),
+                value: "https://example.test/track.png".into(),
+            }],
+            ..AudioTags::default()
+        };
+        let planned = PlannedFile {
+            track_id: 1,
+            title: "Song".into(),
+            album: None,
+            path: PathBuf::from("song.m4a"),
+            in_use: false,
+            expected: vec![Id3v24Edit {
+                frame_label: "TXXX:MusicIndex Image".into(),
+                value: "https://example.test/track.png".into(),
+            }],
+            route: None,
+        };
+
+        let frames = changed_frames(&planned, &tags, Some(AudioFormat::Mp4));
+
+        assert!(
+            frames.is_empty(),
+            "an MP4 file with the expected frame must show no difference: {frames:?}"
+        );
+    }
+
     /// The stored item date of the Delta OG record of 2026-10-03.
     const ITEM_DATE: &str = "Mon, 20 May 2024 19:54:50 +0000";
 

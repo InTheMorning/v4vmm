@@ -381,6 +381,95 @@ mod tests {
             .any(|edit| edit.frame_label == "COMM:MusicIndex Description"));
     }
 
+    /// R80-51: the tag edits for a track with its own artwork URL hold that
+    /// URL in `TXXX:MusicIndex Image`.
+    #[test]
+    fn adr_0080_image_edit_holds_the_track_artwork_url() {
+        let mut context = track_context_without_own_identity();
+        context.track.image_url = Some("https://example.test/track.png".into());
+        let edits = id3_edits_for_track_context(&context);
+
+        assert!(edits.contains(&edit(
+            "TXXX:MusicIndex Image",
+            "https://example.test/track.png"
+        )));
+    }
+
+    /// R80-52: a track with no artwork URL of its own gives the feed
+    /// image URL in `TXXX:MusicIndex Image`.
+    #[test]
+    fn adr_0080_image_edit_falls_back_to_the_feed_artwork_url() {
+        let mut context = track_context_without_own_identity();
+        context.feed.as_mut().expect("feed").image_url =
+            Some("https://example.test/feed.png".into());
+        let edits = id3_edits_for_track_context(&context);
+
+        assert!(edits.contains(&edit(
+            "TXXX:MusicIndex Image",
+            "https://example.test/feed.png"
+        )));
+    }
+
+    /// R80-53: a `data:` URL, a relative URL, an `ftp` URL, and an `https`
+    /// URL of 2,049 characters each give no `TXXX:MusicIndex Image` edit.
+    #[test]
+    fn adr_0080_image_edit_rejects_an_unsupported_or_oversized_url() {
+        let prefix_len = "https://example.test/".len();
+        let long_url = format!("https://example.test/{}", "a".repeat(2049 - prefix_len));
+        assert_eq!(
+            long_url.len(),
+            2049,
+            "the fixture URL must be 2,049 characters"
+        );
+
+        for invalid in [
+            "data:image/png;base64,AAAA",
+            "/relative/path.png",
+            "ftp://example.test/image.png",
+            long_url.as_str(),
+        ] {
+            let mut context = track_context_without_own_identity();
+            context.track.image_url = Some(invalid.to_owned());
+            let edits = id3_edits_for_track_context(&context);
+
+            assert!(
+                !edits
+                    .iter()
+                    .any(|edit| edit.frame_label == "TXXX:MusicIndex Image"),
+                "{invalid} must give no TXXX:MusicIndex Image edit"
+            );
+        }
+    }
+
+    /// R80-56: two writes of the same edits give one
+    /// `TXXX:MusicIndex Image` value, with no duplicate frame.
+    ///
+    /// This writes only the one frame, not the full edits of a track
+    /// context: the "Artwork" row shares the same artwork URL and maps to
+    /// `APIC`, whose write downloads the image bytes, an unrelated network
+    /// call this test must not depend on.
+    #[test]
+    fn adr_0080_image_edit_write_is_idempotent() {
+        let edits = vec![Id3v24Edit {
+            frame_label: "TXXX:MusicIndex Image".into(),
+            value: "https://example.test/track.png".into(),
+        }];
+
+        let temp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(temp.path(), b"not really an mp3").expect("write file");
+        crate::audio_tags::write_id3v24_edits(temp.path(), &edits).expect("first write");
+        crate::audio_tags::write_id3v24_edits(temp.path(), &edits).expect("second write");
+
+        let tags = crate::audio_tags::read_audio_tags(temp.path()).expect("read tags back");
+        let values = tags
+            .fields
+            .iter()
+            .filter(|field| field.frame_id == "TXXX:MusicIndex Image")
+            .map(|field| field.value.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(values, vec!["https://example.test/track.png"]);
+    }
+
     /// R80-09: a round trip. Fresh edits, written to a file and read back,
     /// carry the same value under the same frame label. A DB-backed scan
     /// (`application::queries::tag_update::changed_frames`) compares a file

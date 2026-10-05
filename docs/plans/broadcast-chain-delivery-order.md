@@ -463,7 +463,7 @@ Delivery Order above determines priority; an entry here is not a second order.
   read it, and no software writes it. Publisher ADR 0008 uses its URL as the
   artwork of a V4V track. The request is
   `docs/plans/musicindex-image-tag-request.md`. Recorded 2026-10-04.
-  Decided 2026-10-04 as ADR 0080 Decision 9. ADR 0080 task 005 is Ready.
+  Decided 2026-10-04 as ADR 0080 Decision 9. ADR 0080 task 005 is implemented, and its operator check is open.
 - A seventh `ServiceState` in `v4vmm`, for a publisher that is installed and
   not configured. `musicindex-live-publisher` control-surface task 002 supplies
   the two facts that separate it, through `--version` and `config show --json`.

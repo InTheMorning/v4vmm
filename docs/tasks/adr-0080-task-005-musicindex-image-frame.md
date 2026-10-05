@@ -1,6 +1,6 @@
 # ADR 0080 Task 005: MusicIndex Image Frame
 
-Status: Ready - 2026-10-04. Implementation has not started. The operator check opens when the packet is complete.
+Status: Open - implementation and mechanical checks are complete on 2026-10-04. The operator check is pending: [pending check 38](../pending-human-checks.md#38-musicindex-image-frame--adr-0080-task-005).
 
 ## Goal
 
@@ -49,7 +49,7 @@ The broadcast producers then send that URL as the artwork of a live track, so an
 | R80-56 | Two writes of the same edits give one frame value |
 | R80-57 | A FLAC file and an MP4 file get the frame under their keys, and the scan reads it back as equal |
 
-## Operator Check
+## Operator Acceptance Criteria
 
 These are for the operator. They stay open until a person walks them.
 
@@ -85,6 +85,36 @@ cargo build --bin v4vmm
 ## Rollback
 
 Revert the working tree. This packet adds no migration and no stored data. A file that got the frame keeps it, and the producers read it.
+
+## Result - 2026-10-04
+
+- `src/metadata.rs` has a "MusicIndex Image" row beside "Artwork". `id3_frame_hint` maps it to `TXXX:MusicIndex Image`. The row is in the write rows and in the compare rows.
+- `valid_musicindex_image_url` accepts only an `http` or `https` URL of 2,048 characters or fewer. It uses the URL parser of `reqwest`, as the website frames do.
+- The Vorbis key is `MUSICINDEX IMAGE`. The MP4 key is `----:com.apple.iTunes:MusicIndex Image`. The generic `TXXX` key path gives both, and `src/audio_tags.rs` has no production change.
+- The orchestrator changed the compare row to hold the validated value, as Decision 3 requires. The "Artwork" row still shows an invalid URL. `adr_0080_image_compare_row_holds_only_the_value_that_the_writer_writes` guards it.
+- The MP4 proof uses the writer and reader key functions and a scan test with synthetic tags. The repository has no MP4 fixture file.
+- Proof:
+  - R80-51: `adr_0080_image_edit_holds_the_track_artwork_url`.
+  - R80-52: `adr_0080_image_edit_falls_back_to_the_feed_artwork_url`.
+  - R80-53: `adr_0080_image_edit_rejects_an_unsupported_or_oversized_url`.
+  - R80-54: `adr_0080_image_round_trip_edit_gives_no_scan_difference`.
+  - R80-55: `adr_0080_image_missing_frame_is_reported_as_a_difference`.
+  - R80-56: `adr_0080_image_edit_write_is_idempotent`.
+  - R80-57: `adr_0080_image_flac_write_reads_back_as_equal`, `adr_0080_image_mp4_frame_reads_back_as_equal` and `lofty_musicindex_image_round_trips_its_mp4_freeform_key`.
+- The project gate is Green.
+
+## Operator Check Procedure
+
+1. Run `cargo build --bin v4vmm`, then `./target/debug/v4vmm`.
+2. Open Music. Expected: "Update n files" counts each Library file with an artwork URL, because no file has the frame yet.
+3. Click "Update n files". Expected: each file lists `TXXX:MusicIndex Image`. Click Write Tags.
+4. At a terminal, find the file: `find ~/V4Vmusic -iname '*How Bout You*'`.
+5. Run `mid3v2 -l "<path from step 4>" | grep 'MusicIndex Image'`. Expected: `TXXX=MusicIndex Image=https://files.heycitizen.xyz/Songs/Albums/The-Heycitizen-Experience/HowBoutYou.gif`. Wrong: no line, or another URL.
+6. Do steps 4 and 5 for "ZZXX" and "Disco Swag". Expected: `ZZXX.gif` and `discoswag-thealbum.gif`.
+7. Open Music again. Expected: "Update n files" does not list these files for `TXXX:MusicIndex Image`.
+8. Tell the publisher session that the frame is written. Its probe is V80-53.
+
+The steps write tags into the Library files. That write is the purpose of the packet, so no cleanup applies.
 
 ## Prompt for lower-context coding model
 

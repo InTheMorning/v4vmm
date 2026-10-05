@@ -624,3 +624,13 @@ Open - implementation and mechanical checks are complete on 2026-10-04. Operator
 - V83-23: the playlist row, the drag handle, the "⋯" buttons and the Show transport show line icons of one style.
 - V83-24: each icon keeps its size at the S and L UI scales.
 
+## 38. MusicIndex Image Frame — ADR 0080 Task 005
+
+Open - implementation and mechanical checks are complete on 2026-10-04. Operator inspection is pending.
+
+- Owner: [task 005](tasks/adr-0080-task-005-musicindex-image-frame.md#operator-check-procedure).
+- Scheduling: it writes tags into the real Library files, which is the purpose of the packet. It needs `mid3v2`.
+- V80-51: after "Update n files", `mid3v2 -l` on "How Bout You?" shows `TXXX=MusicIndex Image=` with the `HowBoutYou.gif` URL.
+- V80-52: the next scan shows no difference for that file.
+- V80-53: the publisher probe finds the frame in each file with an image URL. The publisher owns this step.
+
