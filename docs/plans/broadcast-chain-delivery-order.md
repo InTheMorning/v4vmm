@@ -459,6 +459,9 @@ Delivery Order above determines priority; an entry here is not a second order.
   - Until the app packet exists, the operator reserves an item from a
     terminal. The relay runbook `docs/runbooks/reserved-live-items.md` gives
     the steps. That reservation does not add the event to the app registry.
+  - On 2026-10-04 the operator reserved an event for the Mixxx target. The
+    request `docs/plans/reserved-event-safety-request.md` lists the v4vmm
+    paths that can change that target, and asks for four changes.
 - A `v4vmm` decision on the frame `TXXX:MusicIndex Image`. Both producers
   read it, and no software writes it. Publisher ADR 0008 uses its URL as the
   artwork of a V4V track. The request is
