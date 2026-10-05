@@ -41,7 +41,11 @@ pub fn run_app() -> bool {
     let client = worker.as_ref().ok().map(|worker| worker.client.clone());
     let opened = Arc::new(AtomicBool::new(false));
     let session_opened = opened.clone();
-    let app = gpui_platform::application().with_assets(gpui_kit_assets::Assets);
+    // ADR 0083 Decision 10: this source serves the default `gpui-component`
+    // icon bundle, and the extra Lucide icons `crate::ui::icons::IconName`
+    // draws from the complete catalog. Registering only the default bundle
+    // would leave those extra icons unresolved.
+    let app = gpui_platform::application().with_assets(crate::ui::icons::InterfaceAssets);
     app.run(move |cx| {
         gpui_component::init(cx);
         crate::ui::primitives::primary_selection::init(cx);

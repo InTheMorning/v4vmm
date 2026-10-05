@@ -5042,7 +5042,9 @@ fn global_search_replaces_screen_local_search_chrome() {
         "fn component_icon(self) -> Option<ComponentIconName>",
         "Self::Search => Some(ComponentIconName::Search)",
         "ComponentIcon::new(component_icon).size(size)",
-        "Self::Rss | Self::Nostr | Self::Search => None",
+        // ADR 0083 task 003: the Lucide catalog outside the default
+        // component bundle backs the icons `component_icon` does not carry.
+        "fn extra_icon(self) -> Option<LucideIconName>",
     ] {
         if !icon_source.contains(required) {
             violations.push(format!(
@@ -8869,9 +8871,11 @@ fn playlist_reorder_display_contract_uses_drag_handle_and_menu_fallbacks() {
     let icon_source = read_source(&manifest_path("src/ui/icons.rs"));
     for required in [
         "DragHandle",
-        "Self::DragHandle => Some(\"\\u{2630}\")",
+        // ADR 0083 task 003: these are Lucide icons from the complete
+        // `gpui-kit-assets` catalog, not text glyphs.
+        "Self::DragHandle => Some(LucideIconName::GripVertical)",
         "NotAllowed",
-        "Self::NotAllowed => Some(\"\\u{2298}\")",
+        "Self::NotAllowed => Some(LucideIconName::Ban)",
     ] {
         assert!(
             icon_source.contains(required),
@@ -19813,5 +19817,114 @@ fn adr_0083_no_emoji_fallback_function_remains() {
         violations.is_empty(),
         "ADR 0083 Decision 4: the emoji placeholder is deleted. Found:\n{}",
         violations.join("\n")
+    );
+}
+
+// -----------------------------------------------------------------------------
+// ADR 0083 task 003: one icon set.
+// -----------------------------------------------------------------------------
+
+/// R83-22: `src/` declares no `fn glyph` on `IconName`. `src/ui/icons.rs` is
+/// its only definition site, so this file is the proof.
+#[test]
+fn adr_0083_icon_name_has_no_text_glyph_fallback() {
+    let icon_source = read_source(&manifest_path("src/ui/icons.rs"));
+    assert!(
+        !icon_source.contains("fn glyph"),
+        "ADR 0083 Decision 10: `IconName` must not expose a text-glyph \
+         fallback. Draw every icon through `component_icon` or `extra_icon`."
+    );
+}
+
+/// ADR 0083 Decision 10: the exact icon characters the task packet's
+/// "Recorded Facts" section named as the Figtree color-emoji regression.
+/// A literal character or its `\u{...}` escape means a renderer drew an
+/// icon as a character instead of an `IconName`.
+const ADR_0083_ICON_CHARACTERS: &[(char, &str)] = &[
+    ('\u{25B6}', "\\u{25B6}"), // Play
+    ('\u{25BC}', "\\u{25BC}"), // disclosure, expanded
+    ('\u{23F8}', "\\u{23F8}"), // Pause
+    ('\u{23F9}', "\\u{23F9}"), // Stop
+    ('\u{23EE}', "\\u{23EE}"), // Previous
+    ('\u{23ED}', "\\u{23ED}"), // Next
+    ('\u{26A0}', "\\u{26A0}"), // Warning
+    ('\u{22EF}', "\\u{22EF}"), // More
+    ('\u{2630}', "\\u{2630}"), // DragHandle
+    ('\u{2298}', "\\u{2298}"), // NotAllowed
+    ('\u{2304}', "\\u{2304}"), // ChevronDown
+    ('\u{2713}', "\\u{2713}"), // Check / status success
+];
+
+const ADR_0083_ICON_FIX: &str = "ADR 0083 Decision 10: a renderer must not \
+hold an icon character. Use an `IconName`, drawn as a Lucide icon.";
+
+/// Lines in `source` holding one of [`ADR_0083_ICON_CHARACTERS`]. Takes a
+/// file-relative path and its source text so `adr_0083_icon_guard_fails_for_a_sample_play_character`
+/// (R83-24) can prove the detection logic with a sample source, with no
+/// throwaway file in the tree.
+///
+/// This scans the whole file, including its own `#[cfg(test)]` block: a
+/// test fixture for a disclosure or status mark must also carry a typed
+/// state, not a character, so a reintroduced sample would not go unnoticed.
+fn adr_0083_icon_character_violations(relative_path: &str, source: &str) -> Vec<String> {
+    let mut violations = Vec::new();
+    for (line_number, line) in code_lines(source) {
+        for (character, escape) in ADR_0083_ICON_CHARACTERS {
+            if line.contains(*character) || line.contains(escape) {
+                violations.push(format!(
+                    "{relative_path}:{line_number}: {ADR_0083_ICON_FIX} Found: `{line}`"
+                ));
+            }
+        }
+    }
+    violations
+}
+
+/// ADR 0083 Decision 10 situational guard: no non-test file in `src/ui` or
+/// `src/view_models` holds one of the "Recorded Facts" icon characters.
+/// `adr_0083_icon_guard_fails_for_a_sample_play_character` (R83-24) proves
+/// the detection logic with a sample source.
+#[test]
+fn adr_0083_icon_characters_stay_out_of_ui_and_view_model_source() {
+    let mut violations = Vec::new();
+    for relative_dir in ["src/ui", "src/view_models"] {
+        for path in rust_files_under(relative_dir) {
+            let file = rel_path(&path);
+            let source = read_source(&path);
+            violations.extend(adr_0083_icon_character_violations(&file, &source));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0083 icon-character violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R83-24: the guard must fail for a sample source in `src/view_models/`
+/// holding `"\u{25B6}"`, and its message must name ADR 0083.
+#[test]
+fn adr_0083_icon_guard_fails_for_a_sample_play_character() {
+    let sample_path = "src/view_models/sample.rs";
+    let sample = "pub(crate) play_label: &'static str = \"\\u{25B6}\";\n";
+
+    let violations = adr_0083_icon_character_violations(sample_path, sample);
+    assert_eq!(
+        violations.len(),
+        1,
+        "expected one Play-character line in the sample"
+    );
+    assert!(violations[0].starts_with(sample_path));
+    assert!(
+        violations[0].contains("ADR 0083"),
+        "the guard message must name ADR 0083: {}",
+        violations[0]
+    );
+
+    let clean_sample = "pub(crate) icon: IconName = IconName::Play;\n";
+    assert!(
+        adr_0083_icon_character_violations(sample_path, clean_sample).is_empty(),
+        "a sample that carries a typed IconName must not trip the guard"
     );
 }

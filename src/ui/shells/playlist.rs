@@ -824,7 +824,7 @@ fn render_playlist_track_controls(
         actions_menu_id,
         actions_menu_a11y_label,
         play_button_id,
-        play_label,
+        play_affordance,
         play_a11y_label,
         play_enabled,
         move_up_menu_item,
@@ -839,13 +839,17 @@ fn render_playlist_track_controls(
         remove,
     } = slots;
 
-    let play_btn = apply_click_handler(
-        UiButton::styled(SharedString::from(play_button_id), ControlStyle::RowAction)
-            .label(play_label)
-            .a11y_label(play_a11y_label)
-            .disabled(!play_enabled),
-        play,
-    );
+    // ADR 0083 Decision 10: `Play` draws the Play icon alone; `label()`
+    // gives `None` for it. `RepairPlayback` draws its word instead, with
+    // no icon, because the control offers a different action.
+    let play_button = UiButton::styled(SharedString::from(play_button_id), ControlStyle::RowAction)
+        .a11y_label(play_a11y_label)
+        .disabled(!play_enabled);
+    let play_button = match play_affordance.label() {
+        Some(label) => play_button.label(label),
+        None => play_button.leading_icon(IconName::Play),
+    };
+    let play_btn = apply_click_handler(play_button, play);
     let actions_menu = render_playlist_track_actions_menu(
         actions_menu_id,
         actions_menu_a11y_label,
@@ -1140,7 +1144,10 @@ mod tests {
             cx: &mut gpui::Context<Self>,
         ) -> impl gpui::IntoElement {
             let display = super::PlaylistTrackRowDisplay::playback_repair_fixture();
-            assert_eq!(display.controls.play_label, "Repair playback");
+            assert_eq!(
+                display.controls.play_affordance,
+                crate::view_models::library::PlaylistPlayAffordance::RepairPlayback
+            );
             gpui::div()
                 .w(self.width)
                 .child(super::render_playlist_track_row(

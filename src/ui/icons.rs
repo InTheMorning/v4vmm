@@ -1,18 +1,22 @@
 //! Semantic icon catalog for reusable UI iconography.
 //!
-//! Screens choose [`IconName`] and size intent; this module owns concrete SVG,
-//! glyph, and brand-color details.
+//! Screens choose [`IconName`] and size intent; this module owns the Lucide
+//! mapping and brand-color details. ADR 0083 Decision 10: every icon draws
+//! from the Lucide set of `gpui-kit-assets`, through `ComponentIconName`
+//! where the default component bundle carries it, or through the complete
+//! Lucide catalog otherwise. No icon is a text character.
 
 #![warn(clippy::pedantic)]
 
 use std::sync::{Arc, OnceLock};
 
 use gpui::{
-    div, img, prelude::*, AnyElement, App, ClickEvent, Image, ImageFormat, IntoElement, ObjectFit,
-    ParentElement, Pixels, RenderOnce, Rgba, SharedString, StatefulInteractiveElement, Styled,
-    Window,
+    div, img, prelude::*, AnyElement, App, AssetSource, ClickEvent, Image, ImageFormat,
+    IntoElement, ObjectFit, ParentElement, Pixels, RenderOnce, Rgba, SharedString,
+    StatefulInteractiveElement, Styled, Window,
 };
 use gpui_component::{Icon as ComponentIcon, IconName as ComponentIconName};
+use gpui_kit_assets::IconName as LucideIconName;
 
 use crate::ui::layouts as layout;
 use crate::ui::primitives::Tooltip;
@@ -71,34 +75,45 @@ impl IconName {
         }
     }
 
-    #[must_use]
-    fn glyph(self) -> Option<&'static str> {
-        match self {
-            Self::Add => Some("\u{002B}"),
-            Self::Back => Some("\u{2190}"),
-            Self::ChevronLeft => Some("\u{2039}"),
-            Self::ChevronRight => Some("\u{203A}"),
-            Self::ChevronDown => Some("\u{2304}"),
-            Self::Check => Some("\u{2713}"),
-            Self::Close => Some("\u{00D7}"),
-            Self::Info => Some("i"),
-            Self::Play => Some("\u{25B6}"),
-            Self::Pause => Some("\u{23F8}"),
-            Self::Stop => Some("\u{23F9}"),
-            Self::Previous => Some("\u{23EE}"),
-            Self::Next => Some("\u{23ED}"),
-            Self::More => Some("\u{22EF}"),
-            Self::DragHandle => Some("\u{2630}"),
-            Self::NotAllowed => Some("\u{2298}"),
-            Self::Warning => Some("\u{26A0}"),
-            Self::Rss | Self::Nostr | Self::Search => None,
-        }
-    }
-
+    /// The Lucide icon of the default `gpui-component` bundle for a name,
+    /// when that bundle carries it. [`Self::extra_icon`] serves the rest.
     #[must_use]
     fn component_icon(self) -> Option<ComponentIconName> {
         match self {
+            Self::Add => Some(ComponentIconName::Plus),
+            Self::Back => Some(ComponentIconName::ArrowLeft),
+            Self::ChevronLeft => Some(ComponentIconName::ChevronLeft),
+            Self::ChevronRight => Some(ComponentIconName::ChevronRight),
+            Self::ChevronDown => Some(ComponentIconName::ChevronDown),
+            Self::Check => Some(ComponentIconName::Check),
+            Self::Close => Some(ComponentIconName::Close),
+            Self::Info => Some(ComponentIconName::Info),
             Self::Search => Some(ComponentIconName::Search),
+            Self::Play => Some(ComponentIconName::Play),
+            Self::Pause => Some(ComponentIconName::Pause),
+            Self::More => Some(ComponentIconName::Ellipsis),
+            Self::Warning => Some(ComponentIconName::TriangleAlert),
+            Self::Rss
+            | Self::Nostr
+            | Self::Stop
+            | Self::Previous
+            | Self::Next
+            | Self::DragHandle
+            | Self::NotAllowed => None,
+        }
+    }
+
+    /// The Lucide icon of the complete `gpui-kit-assets` catalog for a name
+    /// the default component bundle does not carry. [`InterfaceAssets`]
+    /// serves its SVG path at app start.
+    #[must_use]
+    fn extra_icon(self) -> Option<LucideIconName> {
+        match self {
+            Self::Stop => Some(LucideIconName::Square),
+            Self::Previous => Some(LucideIconName::SkipBack),
+            Self::Next => Some(LucideIconName::SkipForward),
+            Self::DragHandle => Some(LucideIconName::GripVertical),
+            Self::NotAllowed => Some(LucideIconName::Ban),
             Self::Add
             | Self::Back
             | Self::ChevronLeft
@@ -107,16 +122,12 @@ impl IconName {
             | Self::Check
             | Self::Close
             | Self::Info
+            | Self::Search
             | Self::Rss
             | Self::Nostr
             | Self::Play
             | Self::Pause
-            | Self::Stop
-            | Self::Previous
-            | Self::Next
             | Self::More
-            | Self::DragHandle
-            | Self::NotAllowed
             | Self::Warning => None,
         }
     }
@@ -220,26 +231,25 @@ impl RenderOnce for Icon {
             return icon.into_any_element();
         }
 
-        if let Some(image) = self.name.image() {
-            return img(image)
-                .w(size)
-                .h(size)
-                .object_fit(ObjectFit::Contain)
-                .into_any_element();
+        if let Some(extra_icon) = self.name.extra_icon() {
+            let mut icon = ComponentIcon::new(extra_icon).size(size);
+            if let Some(color) = self.color {
+                icon = icon.text_color(color);
+            }
+            return icon.into_any_element();
         }
 
-        let mut icon = div()
+        // Rss and Nostr are the only remaining names; they always resolve a
+        // catalog image, so this is the only branch left to try.
+        let image = self
+            .name
+            .image()
+            .expect("every IconName resolves through component_icon, extra_icon, or image");
+        img(image)
             .w(size)
             .h(size)
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_size(size)
-            .child(SharedString::from(self.name.glyph().unwrap_or_default()));
-        if let Some(color) = self.color {
-            icon = icon.text_color(color);
-        }
-        icon.into_any_element()
+            .object_fit(ObjectFit::Contain)
+            .into_any_element()
     }
 }
 
@@ -311,6 +321,42 @@ fn nostr_icon_image() -> Arc<Image> {
     }))
 }
 
+// ADR 0083 Decision 10: the small set of Lucide icons this app draws from
+// the complete `gpui-kit-assets` catalog, outside the default component
+// bundle. The macro embeds only these SVG files, not all 1,830 icons.
+gpui_kit_assets::icon_assets!(
+    ExtraLucideIcons,
+    [Square, SkipBack, SkipForward, GripVertical, Ban]
+);
+
+/// The asset source this app registers at start.
+///
+/// It serves the default `gpui-component` icon bundle, and the extra Lucide
+/// icons of [`IconName::extra_icon`] that bundle does not carry.
+/// `src/app/bootstrap.rs` registers this source once, through
+/// `gpui_platform::application().with_assets(...)`. Registering only the
+/// default bundle would leave those extra icons unresolved: a wrong or
+/// missing asset path renders nothing, silently.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct InterfaceAssets;
+
+impl AssetSource for InterfaceAssets {
+    fn load(&self, path: &str) -> gpui::Result<Option<std::borrow::Cow<'static, [u8]>>> {
+        if let Some(bytes) = ExtraLucideIcons.load(path)? {
+            return Ok(Some(bytes));
+        }
+        gpui_kit_assets::Assets.load(path)
+    }
+
+    fn list(&self, path: &str) -> gpui::Result<Vec<SharedString>> {
+        let mut paths = gpui_kit_assets::Assets.list(path)?;
+        paths.extend(ExtraLucideIcons.list(path)?);
+        paths.sort();
+        paths.dedup();
+        Ok(paths)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,16 +367,54 @@ mod tests {
         assert_eq!(IconName::Nostr.brand_fill(), Some(gpui::rgb(0x8e_30eb)));
     }
 
+    const NON_CATALOG_IMAGE_ICON_NAMES: &[IconName] = &[
+        IconName::Add,
+        IconName::Back,
+        IconName::ChevronLeft,
+        IconName::ChevronRight,
+        IconName::ChevronDown,
+        IconName::Check,
+        IconName::Close,
+        IconName::Info,
+        IconName::Search,
+        IconName::Play,
+        IconName::Pause,
+        IconName::Stop,
+        IconName::Previous,
+        IconName::Next,
+        IconName::More,
+        IconName::DragHandle,
+        IconName::NotAllowed,
+        IconName::Warning,
+    ];
+
+    /// R83-21: every `IconName` other than `Rss` and `Nostr` resolves to a
+    /// Lucide icon, through the default component bundle or the complete
+    /// catalog, and never falls back to a catalog image.
     #[test]
-    fn transport_icons_are_glyphs_not_svg_assets() {
-        assert_eq!(IconName::Add.glyph(), Some("\u{002B}"));
-        assert_eq!(IconName::Back.glyph(), Some("\u{2190}"));
-        assert_eq!(IconName::ChevronLeft.glyph(), Some("\u{2039}"));
-        assert_eq!(IconName::ChevronRight.glyph(), Some("\u{203A}"));
-        assert_eq!(IconName::Close.glyph(), Some("\u{00D7}"));
-        assert_eq!(IconName::Play.glyph(), Some("\u{25B6}"));
-        assert_eq!(IconName::Pause.glyph(), Some("\u{23F8}"));
-        assert!(IconName::Play.image().is_none());
+    fn every_icon_name_other_than_rss_and_nostr_resolves_to_a_lucide_icon() {
+        for name in NON_CATALOG_IMAGE_ICON_NAMES {
+            let name = *name;
+            assert!(
+                name.component_icon().is_some() || name.extra_icon().is_some(),
+                "{name:?} must resolve to a Lucide icon"
+            );
+            assert!(
+                name.image().is_none(),
+                "{name:?} must not fall back to a catalog image"
+            );
+        }
+    }
+
+    /// `Rss` and `Nostr` keep their catalog-owned brand SVG (task 003
+    /// Required Changes item 1) and map through neither Lucide catalog.
+    #[test]
+    fn rss_and_nostr_keep_their_catalog_image() {
+        for name in [IconName::Rss, IconName::Nostr] {
+            assert!(name.component_icon().is_none());
+            assert!(name.extra_icon().is_none());
+            assert!(name.image().is_some());
+        }
     }
 
     #[test]
@@ -339,6 +423,55 @@ mod tests {
             IconName::Search.component_icon(),
             Some(ComponentIconName::Search)
         ));
-        assert!(IconName::Search.glyph().is_none());
+        assert!(IconName::Search.extra_icon().is_none());
+    }
+
+    /// Icons outside the default component bundle resolve through the
+    /// complete Lucide catalog, each to its named Lucide icon.
+    #[test]
+    fn extra_icons_resolve_through_the_complete_lucide_catalog() {
+        assert_eq!(IconName::Stop.extra_icon(), Some(LucideIconName::Square));
+        assert_eq!(
+            IconName::Previous.extra_icon(),
+            Some(LucideIconName::SkipBack)
+        );
+        assert_eq!(
+            IconName::Next.extra_icon(),
+            Some(LucideIconName::SkipForward)
+        );
+        assert_eq!(
+            IconName::DragHandle.extra_icon(),
+            Some(LucideIconName::GripVertical)
+        );
+        assert_eq!(IconName::NotAllowed.extra_icon(), Some(LucideIconName::Ban));
+    }
+
+    /// Confirms the asset source `bootstrap.rs` registers at app start
+    /// actually serves every chosen icon path. A wrong path renders
+    /// nothing, silently; this test loads each path and checks for bytes.
+    #[test]
+    fn registered_asset_source_serves_every_icon_name_path() {
+        use gpui_component::IconNamed;
+
+        let source = InterfaceAssets;
+        for name in NON_CATALOG_IMAGE_ICON_NAMES {
+            let name = *name;
+            let path = name
+                .component_icon()
+                .map(IconNamed::path)
+                .or_else(|| name.extra_icon().map(IconNamed::path))
+                .unwrap_or_else(|| panic!("{name:?} has no Lucide path to load"));
+            let bytes = source
+                .load(&path)
+                .unwrap_or_else(|error| {
+                    panic!("{name:?} asset path {path:?} did not load: {error:#}")
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "{name:?} asset path {path:?} is not served by the registered asset source"
+                    )
+                });
+            assert!(!bytes.is_empty(), "{name:?} asset path {path:?} is empty");
+        }
     }
 }

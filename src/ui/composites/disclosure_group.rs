@@ -42,6 +42,7 @@ use gpui::{
     SharedString, StatefulInteractiveElement, Styled, Window,
 };
 
+use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::primitives::{Label, MultilineText, SectionHeader};
 use crate::ui::tokens::{FontSize, Radius, SemanticColor, Size, Spacing};
 
@@ -57,11 +58,14 @@ pub struct DisclosureGroup {
     on_toggle: Option<ClickHandler>,
 }
 
-/// Fixed-width disclosure glyph used beside tree and sidebar labels.
+/// Fixed-width disclosure chevron used beside tree and sidebar labels.
+///
+/// ADR 0083 Decision 10: draws a Lucide chevron icon, not a character. The
+/// icon turns from pointing right to pointing down when the row expands.
 #[derive(IntoElement)]
 #[must_use]
 pub struct DisclosureIndicator {
-    glyph: SharedString,
+    expanded: bool,
 }
 
 /// Muted supplemental label shown at the trailing edge of disclosure rows.
@@ -79,9 +83,10 @@ pub struct DisclosureTextPanel {
     on_toggle: Option<ClickHandler>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DisclosureIndicatorDisplay {
-    pub glyph: SharedString,
+    /// ADR 0083 Decision 10: a typed disclosure state, not a character.
+    pub expanded: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -133,7 +138,7 @@ impl DisclosureGroup {
 impl DisclosureIndicator {
     pub fn new(display: DisclosureIndicatorDisplay) -> Self {
         Self {
-            glyph: display.glyph,
+            expanded: display.expanded,
         }
     }
 }
@@ -165,10 +170,15 @@ impl DisclosureTextPanel {
 
 impl RenderOnce for DisclosureIndicator {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let icon_name = if self.expanded {
+            IconName::ChevronDown
+        } else {
+            IconName::ChevronRight
+        };
         div().w(Spacing::MD.scaled(cx)).child(
-            Label::new(self.glyph)
-                .size(FontSize::Caption)
-                .color(SemanticColor::TertiaryLabel),
+            Icon::new(icon_name)
+                .size(IconSize::Transport)
+                .color(crate::ui::tokens::color(cx, SemanticColor::TertiaryLabel)),
         )
     }
 }
@@ -259,12 +269,12 @@ mod tests {
     }
 
     #[test]
-    fn indicator_owns_display_glyph() {
-        let indicator = DisclosureIndicator::new(DisclosureIndicatorDisplay {
-            glyph: SharedString::from("\u{25B6}"),
-        });
+    fn indicator_owns_display_expanded_state() {
+        let collapsed = DisclosureIndicator::new(DisclosureIndicatorDisplay { expanded: false });
+        assert!(!collapsed.expanded);
 
-        assert_eq!(indicator.glyph, SharedString::from("\u{25B6}"));
+        let expanded = DisclosureIndicator::new(DisclosureIndicatorDisplay { expanded: true });
+        assert!(expanded.expanded);
     }
 
     #[test]

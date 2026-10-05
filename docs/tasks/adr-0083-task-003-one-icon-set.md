@@ -1,6 +1,6 @@
 # ADR 0083 Task 003: One Icon Set
 
-Status: Ready - 2026-10-03. Implementation has not started. The operator visual check opens when the packet is complete.
+Status: Open - implementation and mechanical checks are complete on 2026-10-04. The operator visual check is pending: [pending check 37](../pending-human-checks.md#37-one-icon-set--adr-0083-task-003).
 
 ## Goal
 
@@ -78,6 +78,36 @@ cargo build --bin v4vmm
 ## Rollback
 
 Revert the working tree. This packet adds no migration and no stored data.
+
+## Result - 2026-10-04
+
+- Each `IconName` other than `Rss` and `Nostr` is a Lucide icon. Fifteen come from `ComponentIconName`. `Stop` (square), `Previous` (skip-back), `Next` (skip-forward), `DragHandle` (grip-vertical) and `NotAllowed` (ban) are not in the default bundle of `gpui-kit-assets`. A new `InterfaceAssets` source in `src/ui/icons.rs` embeds these five SVG files with the default bundle. `src/app/bootstrap.rs` registers it.
+- `registered_asset_source_serves_every_icon_name_path` loads the path of each `IconName` through `InterfaceAssets` and asserts that it gives bytes.
+- `IconName::glyph` and the text branch of `Icon::render` are deleted.
+- The library tree and the playlist sidebar carry `expanded: bool`. The playlist row carries `PlaylistPlayAffordance`: a Play icon, or the words "Repair playback" as before.
+- `DisclosureIndicator` and the disclosure of `SectionHeader` in `src/ui/primitives/section_header.rs` draw a chevron icon. `SectionHeader` drew `>` and `v` before. The chevrons use `IconSize::Transport`, so they can look a little larger than before.
+- `StatusRole::glyph` became `StatusRole::icon`. No screen calls it today. Screens use only `StatusRole::color`.
+- The new guard reads the full file, test blocks included, because `src/view_models/library.rs` has a test block before production code.
+- Proof:
+  - R83-21: `every_icon_name_other_than_rss_and_nostr_resolves_to_a_lucide_icon`.
+  - R83-22: `adr_0083_icon_name_has_no_text_glyph_fallback`.
+  - R83-23: the library tree, playlist sidebar and playlist row tests in `src/view_models/library.rs`, and `indicator_owns_display_expanded_state`.
+  - R83-24: `adr_0083_icon_characters_stay_out_of_ui_and_view_model_source` and `adr_0083_icon_guard_fails_for_a_sample_play_character`.
+- The project gate is Green.
+
+## Operator Visual Check
+
+1. In a desktop session, run `cargo build --bin v4vmm`, then `./target/debug/v4vmm`.
+2. Look at "Open Show". Expected: a line-style triangle in the button color. Wrong: an orange emoji, or no icon.
+3. In the Library sidebar, open and close an artist, an album and the Playlists group. Expected: a line chevron that points right when closed and down when open. Wrong: a filled triangle, an empty box, or no arrow.
+4. Open a page with a collapsible description and open and close it. Expected: the same chevron, with its word beside it. Wrong: `>` or `v`.
+5. Open a playlist with a playable track. Expected: a line Play icon on the row, and a dotted grip icon for the drag handle. A track that cannot play shows "Repair playback".
+6. Open a "⋯" menu button. Expected: three dots in the same line style.
+7. If a show is active, look at the Show transport. Expected: Previous, Play or Pause, and Next in the same line style.
+8. In Settings, General, set UI scale to S, then L, and repeat steps 2 to 4. Expected: each icon stays sharp and in line with its text. Do not click Save.
+9. Cleanup: set UI scale back to M.
+
+No special hardware or system state is needed. Step 7 needs an active show, and the check can pass without it.
 
 ## Prompt for lower-context coding model
 

@@ -40,7 +40,7 @@ pub(crate) fn render_library_sidebar(
         let LibraryArtistTreeDisplay {
             element_id,
             title,
-            disclosure_glyph,
+            expanded,
             album_count_label,
         } = artist.tree_display(artist_expanded);
         let artist_name = title.clone();
@@ -65,7 +65,7 @@ pub(crate) fn render_library_sidebar(
                         .gap(spacing::XS)
                         .items_baseline()
                         .child(DisclosureIndicator::new(DisclosureIndicatorDisplay {
-                            glyph: disclosure_glyph.into(),
+                            expanded,
                         }))
                         .child(
                             div()
@@ -89,7 +89,7 @@ pub(crate) fn render_library_sidebar(
                 let LibraryAlbumTreeDisplay {
                     element_id,
                     title,
-                    disclosure_glyph,
+                    expanded,
                     track_count_label,
                 } = album.tree_display(&artist.name, album_expanded);
                 let artist_for_toggle = artist.name.clone();
@@ -122,7 +122,7 @@ pub(crate) fn render_library_sidebar(
                                 .gap(spacing::XS)
                                 .items_center()
                                 .child(DisclosureIndicator::new(DisclosureIndicatorDisplay {
-                                    glyph: disclosure_glyph.into(),
+                                    expanded,
                                 }))
                                 .child(hoverable_thumb(
                                     thumb_url.clone(),

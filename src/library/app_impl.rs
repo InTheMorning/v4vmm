@@ -2957,7 +2957,6 @@ impl Render for LibraryApp {
             new_playlist_input_id,
             new_playlist_add_button_id,
             expanded: playlists_expanded,
-            disclosure_glyph: playlist_disclosure_glyph,
             heading: playlist_heading,
             sort_label: playlist_sort_label,
             add_label: playlist_add_label,
@@ -2990,7 +2989,7 @@ impl Render for LibraryApp {
                             cx.notify();
                         }))
                         .child(DisclosureIndicator::new(DisclosureIndicatorDisplay {
-                            glyph: playlist_disclosure_glyph.into(),
+                            expanded: playlists_expanded,
                         }))
                         .child(Label::new(playlist_heading).weight(FontWeight::SEMIBOLD)),
                 )

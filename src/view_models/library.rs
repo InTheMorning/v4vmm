@@ -373,7 +373,7 @@ impl ArtistNode {
         LibraryArtistTreeDisplay {
             element_id: format!("artist-{}", self.name),
             title: self.name.clone(),
-            disclosure_glyph: disclosure_glyph(expanded),
+            expanded,
             album_count_label: format!(
                 "({} album{})",
                 self.albums.len(),
@@ -393,18 +393,9 @@ impl AlbumNode {
         LibraryAlbumTreeDisplay {
             element_id: format!("album-{artist_name}-{}", self.name),
             title: self.name.clone(),
-            disclosure_glyph: disclosure_glyph(expanded),
+            expanded,
             track_count_label: format!("({})", self.tracks.len()),
         }
-    }
-}
-
-#[must_use]
-const fn disclosure_glyph(expanded: bool) -> &'static str {
-    if expanded {
-        "\u{25BC}"
-    } else {
-        "\u{25B6}"
     }
 }
 
@@ -440,20 +431,26 @@ impl LibraryTreeProjection {
 }
 
 /// Display contract for an artist row in the Library sidebar tree.
+///
+/// ADR 0083 Decision 10: `expanded` is a typed disclosure state, not a
+/// character. The renderer draws the disclosure chevron from it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LibraryArtistTreeDisplay {
     pub(crate) element_id: String,
     pub(crate) title: String,
-    pub(crate) disclosure_glyph: &'static str,
+    pub(crate) expanded: bool,
     pub(crate) album_count_label: String,
 }
 
 /// Display contract for an album row in the Library sidebar tree.
+///
+/// ADR 0083 Decision 10: `expanded` is a typed disclosure state, not a
+/// character. The renderer draws the disclosure chevron from it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LibraryAlbumTreeDisplay {
     pub(crate) element_id: String,
     pub(crate) title: String,
-    pub(crate) disclosure_glyph: &'static str,
+    pub(crate) expanded: bool,
     pub(crate) track_count_label: String,
 }
 
@@ -472,8 +469,9 @@ pub(crate) struct PlaylistSidebarVm {
     pub(crate) add_button_id: &'static str,
     pub(crate) new_playlist_input_id: &'static str,
     pub(crate) new_playlist_add_button_id: &'static str,
+    /// ADR 0083 Decision 10: a typed disclosure state, not a character. The
+    /// renderer draws the disclosure chevron from it.
     pub(crate) expanded: bool,
-    pub(crate) disclosure_glyph: &'static str,
     pub(crate) heading: &'static str,
     pub(crate) sort_label: &'static str,
     pub(crate) add_label: &'static str,
@@ -2474,11 +2472,6 @@ impl LibraryViewModel {
             new_playlist_input_id: "playlist-new-input",
             new_playlist_add_button_id: "playlist-add-btn",
             expanded: self.playlists_expanded,
-            disclosure_glyph: if self.playlists_expanded {
-                "\u{25BC}"
-            } else {
-                "\u{25B6}"
-            },
             heading: "Playlists",
             sort_label: self.playlist_sort_label(),
             add_label: "+",
@@ -3961,6 +3954,29 @@ pub(crate) struct PlaylistTrackMenuItemDisplay {
     pub(crate) disabled: bool,
 }
 
+/// What the playlist row's play control shows (ADR 0083 Decision 10).
+///
+/// `Play` draws the Play icon alone, with its tooltip and accessibility
+/// label carrying the word. `RepairPlayback` draws a text word instead,
+/// because the control no longer offers to play: it offers to repair
+/// playback. Neither state is a character.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PlaylistPlayAffordance {
+    Play,
+    RepairPlayback,
+}
+
+impl PlaylistPlayAffordance {
+    /// The visible word, when this affordance shows one instead of an icon.
+    #[must_use]
+    pub(crate) const fn label(self) -> Option<&'static str> {
+        match self {
+            Self::Play => None,
+            Self::RepairPlayback => Some("Repair playback"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PlaylistTrackControlsDisplay {
     pub(crate) row_id: String,
@@ -3970,7 +3986,7 @@ pub(crate) struct PlaylistTrackControlsDisplay {
     pub(crate) actions_menu_id: String,
     pub(crate) actions_menu_a11y_label: &'static str,
     pub(crate) play_button_id: String,
-    pub(crate) play_label: &'static str,
+    pub(crate) play_affordance: PlaylistPlayAffordance,
     pub(crate) play_a11y_label: &'static str,
     pub(crate) play_enabled: bool,
     pub(crate) move_up_menu_item: PlaylistTrackMenuItemDisplay,
@@ -4057,7 +4073,7 @@ impl<'a> PlaylistTrackRowVm<'a> {
     ) -> PlaylistTrackRowDisplay {
         let mut display = self.display(playlist_id);
         if display.controls.play_enabled && availability.is_err() {
-            display.controls.play_label = "Repair playback";
+            display.controls.play_affordance = PlaylistPlayAffordance::RepairPlayback;
             display.controls.play_a11y_label = "Repair playback for this playlist track";
         }
         display
@@ -4171,7 +4187,7 @@ impl<'a> PlaylistTrackRowVm<'a> {
             actions_menu_id: format!("playlist-actions-{playlist_id}-{position}"),
             actions_menu_a11y_label: "Playlist track actions",
             play_button_id: format!("playlist-play-{playlist_id}-{position}"),
-            play_label: "▶",
+            play_affordance: PlaylistPlayAffordance::Play,
             play_a11y_label: "Play this playlist track",
             play_enabled: self.can_play(),
             move_up_menu_item: PlaylistTrackMenuItemDisplay {
@@ -5863,9 +5879,12 @@ mod tests {
         );
         assert!(ready.controls.play_enabled);
         assert!(unavailable.controls.play_enabled);
-        assert_eq!(unavailable.controls.play_label, "Repair playback");
+        assert_eq!(
+            unavailable.controls.play_affordance,
+            PlaylistPlayAffordance::RepairPlayback
+        );
         let mut restored = unavailable;
-        restored.controls.play_label = ready.controls.play_label;
+        restored.controls.play_affordance = ready.controls.play_affordance;
         restored.controls.play_a11y_label = ready.controls.play_a11y_label;
         assert_eq!(restored, ready);
     }
@@ -5927,7 +5946,7 @@ mod tests {
                 actions_menu_id: "playlist-actions-7-0".into(),
                 actions_menu_a11y_label: "Playlist track actions",
                 play_button_id: "playlist-play-7-0".into(),
-                play_label: "▶",
+                play_affordance: PlaylistPlayAffordance::Play,
                 play_a11y_label: "Play this playlist track",
                 play_enabled: true,
                 move_up_menu_item: PlaylistTrackMenuItemDisplay {
@@ -5996,7 +6015,7 @@ mod tests {
                     actions_menu_id: "playlist-actions-7-0".into(),
                     actions_menu_a11y_label: "Playlist track actions",
                     play_button_id: "playlist-play-7-0".into(),
-                    play_label: "▶",
+                    play_affordance: PlaylistPlayAffordance::Play,
                     play_a11y_label: "Play this playlist track",
                     play_enabled: true,
                     move_up_menu_item: PlaylistTrackMenuItemDisplay {
@@ -6695,11 +6714,11 @@ mod tests {
         let expanded = artist.tree_display(true);
         assert_eq!(expanded.element_id, "artist-Aphex Twin");
         assert_eq!(expanded.title, "Aphex Twin");
-        assert_eq!(expanded.disclosure_glyph, "\u{25BC}");
+        assert!(expanded.expanded);
         assert_eq!(expanded.album_count_label, "(2 albums)");
 
         let collapsed = artist.tree_display(false);
-        assert_eq!(collapsed.disclosure_glyph, "\u{25B6}");
+        assert!(!collapsed.expanded);
     }
 
     #[test]
@@ -6713,11 +6732,11 @@ mod tests {
             "album-Aphex Twin-Selected Ambient Works"
         );
         assert_eq!(expanded.title, "Selected Ambient Works");
-        assert_eq!(expanded.disclosure_glyph, "\u{25BC}");
+        assert!(expanded.expanded);
         assert_eq!(expanded.track_count_label, "(2)");
 
         let collapsed = album.tree_display("Aphex Twin", false);
-        assert_eq!(collapsed.disclosure_glyph, "\u{25B6}");
+        assert!(!collapsed.expanded);
     }
 
     #[test]
@@ -6847,7 +6866,6 @@ mod tests {
         assert_eq!(sidebar.new_playlist_input_id, "playlist-new-input");
         assert_eq!(sidebar.new_playlist_add_button_id, "playlist-add-btn");
         assert!(sidebar.expanded);
-        assert_eq!(sidebar.disclosure_glyph, "\u{25BC}");
         assert_eq!(sidebar.heading, "Playlists");
         assert_eq!(sidebar.sort_label, "A–Z");
         assert_eq!(sidebar.add_label, "+");
@@ -6950,7 +6968,6 @@ mod tests {
         let sidebar = vm.playlist_sidebar();
 
         assert!(!sidebar.expanded);
-        assert_eq!(sidebar.disclosure_glyph, "\u{25B6}");
     }
 
     #[test]

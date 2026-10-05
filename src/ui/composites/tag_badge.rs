@@ -13,6 +13,7 @@ use gpui::{
     Window,
 };
 
+use crate::ui::icons::IconName;
 use crate::ui::tokens::{
     color, resolve_color, Appearance, FontSize, Radius, SemanticColor, Spacing,
 };
@@ -176,7 +177,9 @@ impl From<TrackMetadataComparisonRole> for ProvenanceRole {
 
 /// Visual role for general status messages.
 ///
-/// Color and glyph resolve together so status does not rely on color alone.
+/// Color and icon resolve together so status does not rely on color alone.
+/// ADR 0083 Decision 10: the icon is an `IconName`, drawn as a Lucide icon.
+/// A status mark keeps its word beside the icon.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusRole {
     Success,
@@ -200,11 +203,11 @@ impl StatusRole {
     }
 
     #[must_use]
-    pub const fn glyph(self) -> &'static str {
+    pub const fn icon(self) -> IconName {
         match self {
-            Self::Success => "\u{2713}",
-            Self::Warning => "\u{26A0}",
-            Self::Danger => "\u{2717}",
+            Self::Success => IconName::Check,
+            Self::Warning => IconName::Warning,
+            Self::Danger => IconName::Close,
         }
     }
 }
@@ -290,13 +293,13 @@ mod tests {
     }
 
     #[test]
-    fn status_roles_resolve_color_and_glyph_together() {
+    fn status_roles_resolve_color_and_icon_together() {
         assert_eq!(StatusRole::Success.color_token(), SemanticColor::Success);
         assert_eq!(StatusRole::Warning.color_token(), SemanticColor::Warning);
         assert_eq!(StatusRole::Danger.color_token(), SemanticColor::Danger);
-        assert_eq!(StatusRole::Success.glyph(), "\u{2713}");
-        assert_eq!(StatusRole::Warning.glyph(), "\u{26A0}");
-        assert_eq!(StatusRole::Danger.glyph(), "\u{2717}");
+        assert_eq!(StatusRole::Success.icon(), IconName::Check);
+        assert_eq!(StatusRole::Warning.icon(), IconName::Warning);
+        assert_eq!(StatusRole::Danger.icon(), IconName::Close);
     }
 
     /// R83-03: each `EntityKind` resolves to an entity token, and no two

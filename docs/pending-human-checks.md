@@ -612,3 +612,15 @@ Open - implementation and mechanical checks are complete on 2026-10-03. Operator
 - Owner: [task 009](tasks/adr-0076-task-009-download-writes-stored-values.md#operator-visual-check).
 - Scheduling: the check downloads one album into an isolated fixture. It never writes the real Library.
 - V1: after the download, "Update n files" counts no new file. A new file holds `WOAR` with the channel link and `TRCK` with the track total.
+
+## 37. One Icon Set — ADR 0083 Task 003
+
+Open - implementation and mechanical checks are complete on 2026-10-04. Operator inspection is pending.
+
+- Owner: [task 003](tasks/adr-0083-task-003-one-icon-set.md#operator-visual-check).
+- Scheduling: walk it right after the packet. It reads pages and changes only the UI scale, which step 9 sets back.
+- V83-21: "Open Show" shows a line Play icon, not an emoji.
+- V83-22: disclosure chevrons in the Library sidebar and in collapsible groups are line icons, and they turn when the group opens.
+- V83-23: the playlist row, the drag handle, the "⋯" buttons and the Show transport show line icons of one style.
+- V83-24: each icon keeps its size at the S and L UI scales.
+

@@ -22,6 +22,7 @@
 
 use gpui::{div, prelude::*, App, FontWeight, IntoElement, RenderOnce, SharedString, Window};
 
+use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor, Spacing};
 
 #[derive(IntoElement)]
@@ -68,13 +69,19 @@ impl RenderOnce for SectionHeader {
             .text_color(muted);
 
         if let Some(collapsed) = self.disclosure {
-            let glyph: SharedString = if collapsed { ">".into() } else { "v".into() };
+            // ADR 0083 Decision 10: a Lucide chevron, not a character. It
+            // turns from pointing right to pointing down when it opens.
+            let icon_name = if collapsed {
+                IconName::ChevronRight
+            } else {
+                IconName::ChevronDown
+            };
             let hint: SharedString = if collapsed {
                 "show".into()
             } else {
                 "hide".into()
             };
-            row.child(div().font_weight(FontWeight::BOLD).child(glyph))
+            row.child(Icon::new(icon_name).size(IconSize::Transport).color(muted))
                 .child(div().font_weight(FontWeight::BOLD).child(self.label))
                 .child(div().child(hint))
         } else {

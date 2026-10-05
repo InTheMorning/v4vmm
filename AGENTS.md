@@ -16,8 +16,7 @@ design and cleanup work in six phases. Phases 1 and 2 are complete. Phase 2 ende
 [ADR 0083](docs/adr/0083-design-language.md), the design language.
 
 Phase 3, the tokens, is in progress.
-The palette, font and artwork packets are complete. [ADR 0083 task 003](docs/tasks/adr-0083-task-003-one-icon-set.md) is next.
-It corrects the Play icon of "Open Show", which shows as a color emoji.
+The palette, font and artwork packets are complete. [ADR 0083 task 003](docs/tasks/adr-0083-task-003-one-icon-set.md) waits for its visual check.
 
 Each file in `docs/tasks/` is open: it is Ready, or it waits for an operator check. Finished tasks are in
 `docs/tasks/archive/`. Each file in `docs/plans/` is an active plan.
