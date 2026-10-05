@@ -459,6 +459,11 @@ Delivery Order above determines priority; an entry here is not a second order.
   - Until the app packet exists, the operator reserves an item from a
     terminal. The relay runbook `docs/runbooks/reserved-live-items.md` gives
     the steps. That reservation does not add the event to the app registry.
+- A `v4vmm` decision on the frame `TXXX:MusicIndex Image`. Both producers
+  read it, and no software writes it. Publisher ADR 0008 uses its URL as the
+  artwork of a V4V track. The request is
+  `docs/plans/musicindex-image-tag-request.md`. Recorded 2026-10-04.
+  Decided 2026-10-04 as ADR 0080 Decision 9. ADR 0080 task 005 is Ready.
 - A seventh `ServiceState` in `v4vmm`, for a publisher that is installed and
   not configured. `musicindex-live-publisher` control-surface task 002 supplies
   the two facts that separate it, through `--version` and `config show --json`.

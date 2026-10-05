@@ -6,6 +6,8 @@ Accepted - 2026-09-29. The operator discussed the direction on 2026-09-26.
 The operator decided each proposal on 2026-09-29, and Decisions 5 to 8 record them. The operator accepted this ADR on 2026-09-29.
 The [phase plan](../plans/adr-0080-tag-frames-phase-plan.md) registers its packets.
 
+Amended 2026-10-04: Decision 9 adds the frame `TXXX:MusicIndex Image`. `musicindex-live-publisher` requested it in the [image tag request](../plans/musicindex-image-tag-request.md). The operator decided its three points on 2026-10-04.
+
 ## Context
 
 An ID3 frame has no owner field. v4vmm writes values of two owners into one frame:
@@ -113,6 +115,17 @@ A MusicBrainz relation type exists only in the lookup result, and the compare sh
 
 The app writes no `WXXX` frame. The operator decided this on 2026-09-29, after the comparison with Picard.
 
+### 9. The Artwork URL Goes Into `TXXX:MusicIndex Image`
+
+The frame `TXXX:MusicIndex Image` holds one URL: the image of the RSS item, otherwise the image of the RSS channel.
+This is the same resolution as the embedded picture (`APIC`), and the same item-over-channel rule as Decision 1.
+
+- Each track with an artwork URL gets the frame. A track with no artwork URL gets no frame.
+- The URL must parse as an `http` or `https` URL of 2,048 characters or fewer. Any other value goes into no frame. The database keeps it, and the compare shows it.
+- The frame follows Decisions 3, 4 and 6: the compare uses the writer resolution, a file without the frame shows as a difference, and a write is idempotent.
+
+The broadcast producers read this frame into the `image` field of the drop file (`src/broadcast/producer.rs`, publisher ADR 0002). The operator decided these points on 2026-10-04.
+
 ## Relationship To Other Decisions
 
 - ADR 0004 and ADR 0008 own the tag boundary and the explicit ID3v2.4 write boundary. The writer's frame list in `src/audio_tags.rs` already contains `WOAF` and `WCOP`.
@@ -134,12 +147,14 @@ Mechanical criteria, phrased at the owning layer:
 - A write keeps a MusicBrainz URL and a `WOAR` value that no source supplied.
 - An invalid item Nostr key gives the valid channel key. Two invalid keys give no Nostr frame.
 - Each URL frame value parses as a URL, with no label text. A MusicBrainz "download for free" relation gives no frame.
+- The tag edits for a track with its own image hold that URL in `TXXX:MusicIndex Image`. Without it, they hold the channel image URL. A `data:` URL, a relative URL or a URL longer than 2,048 characters gives no frame.
 
 Visual criteria, for an operator check after the visual pause ends:
 
 - After "Update n file(s)", an external tag reader shows the item page as the file webpage and the channel website as the artist webpage.
 - After the update, the next scan shows no difference for that file.
 - A second "Update n file(s)" on the same file adds no frame in an external tag reader.
+- After "Update n file(s)", an external tag reader shows `TXXX:MusicIndex Image` with the track image URL.
 
 ## Alternatives Considered
 

@@ -162,6 +162,9 @@ Current plans:
 - [HIG product polish backlog](plans/hig-product-polish-backlog.md):
   HIG completeness work such as search suggestions, sidebar show/hide, Liquid
   Glass materials, keyboard coverage, and per-log following/reading positions
+- [MusicIndex Image tag request](plans/musicindex-image-tag-request.md):
+  the publisher asks v4vmm to write `TXXX:MusicIndex Image`, the artwork URL
+  of a track. Decided as ADR 0080 Decision 9
 - [Broadcast chain delivery order](plans/broadcast-chain-delivery-order.md):
   the only cross-repository order. Read it before starting a session on the
   broadcast work; also records the UTC log timestamp follow-up
