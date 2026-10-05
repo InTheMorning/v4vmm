@@ -4,7 +4,7 @@
 
 Decided - 2026-10-04. `musicindex-live-publisher` made this request to v4vmm.
 v4vmm accepted it as [ADR 0080](../adr/0080-tag-frames-follow-their-owner.md) Decision 9.
-[ADR 0080 task 005](../tasks/adr-0080-task-005-musicindex-image-frame.md) implements it.
+[ADR 0080 task 005](../tasks/archive/adr-0080-task-005-musicindex-image-frame.md) implemented it. On 2026-10-04 the operator saw the frame in the Library files, with the GIF URL in "How Bout You?". The publisher probe is next.
 
 This document binds nothing in v4vmm. v4vmm records its decision in its own
 ADR. If the decision changes the frames of ADR 0080, that ADR gets an

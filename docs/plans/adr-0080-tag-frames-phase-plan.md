@@ -13,7 +13,7 @@ Active - 2026-09-29. This plan is advisory. It states no rule.
 | [002](../tasks/adr-0080-task-002-musicbrainz-url-relations-by-type.md) | MusicBrainz URL relations by relation type: release-group official homepage to `WOAR`, license to `WCOP` or `TXXX:LICENSE`, and no frame for each other type | ADR 0080 Decisions 6 and 8, for MusicBrainz values | 001 | Implemented 2026-09-29. Mechanical checks Green. Visual gate open and paused |
 | [003](../tasks/archive/adr-0080-task-003-vorbis-date-shares-one-key.md) | The scan compares by the storage key of the format, and a write includes each edit that shares a key. A FLAC date settles after one write | ADR 0080 Decision 6 | 001 | Complete 2026-10-03. Operator V1 passed |
 | [004](../tasks/archive/adr-0080-task-004-old-itunes-frames-and-safe-tag-writes.md) | Convert old iTunes v2.2 frames, write tags through a staged copy, and report a download tag-write failure | ADR 0080 Decision 6, ADR 0066 | 003 | Complete 2026-10-03. Operator V1 passed |
-| [005](../tasks/adr-0080-task-005-musicindex-image-frame.md) | The artwork URL in `TXXX:MusicIndex Image`: item image, else channel image, `http` or `https` only | ADR 0080 Decision 9 | 004 | Implemented 2026-10-04. Mechanical checks Green. Operator check open |
+| [005](../tasks/archive/adr-0080-task-005-musicindex-image-frame.md) | The artwork URL in `TXXX:MusicIndex Image`: item image, else channel image, `http` or `https` only | ADR 0080 Decision 9 | 004 | Complete 2026-10-04. Operator V80-51 and V80-52 passed |
 
 ## Sequence
 

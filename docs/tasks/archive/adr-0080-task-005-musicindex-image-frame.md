@@ -1,6 +1,6 @@
 # ADR 0080 Task 005: MusicIndex Image Frame
 
-Status: Open - implementation and mechanical checks are complete on 2026-10-04. The operator check is pending: [pending check 38](../pending-human-checks.md#38-musicindex-image-frame--adr-0080-task-005).
+Status: Complete - 2026-10-04. The operator passed V80-51 and V80-52 on 2026-10-04. V80-53 belongs to the publisher repository.
 
 ## Goal
 
@@ -9,8 +9,8 @@ The broadcast producers then send that URL as the artwork of a live track, so an
 
 ## Authority
 
-- [ADR 0080](../adr/0080-tag-frames-follow-their-owner.md) Decision 9, and Decisions 3, 4 and 6.
-- [The image tag request](../plans/musicindex-image-tag-request.md) of `musicindex-live-publisher`.
+- [ADR 0080](../../adr/0080-tag-frames-follow-their-owner.md) Decision 9, and Decisions 3, 4 and 6.
+- [The image tag request](../../plans/musicindex-image-tag-request.md) of `musicindex-live-publisher`.
 
 ## Recorded Facts - 2026-10-04
 
@@ -65,7 +65,7 @@ These are for the operator. They stay open until a person walks them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/metadata.rs`: `artwork_url`, `id3_frame_hint`, the field rows, and the Contributors and Value Routes paths.
 - `src/audio_tags.rs`: the writer, the Vorbis and MP4 keys.
 - `src/application/queries/tag_update.rs`: the scan.
