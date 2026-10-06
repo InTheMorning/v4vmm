@@ -525,9 +525,10 @@ Delivery Order above determines priority; an entry here is not a second order.
     keepalive.
 
   Podcast apps then use the Socket.IO path. The private app needs display
-  states on a reserved event for its ICY sync. The HLS path of publisher ADR
-  0009 needs a tagger inside the AzuraCast setup. It is not known if the HLS
-  output of AzuraCast carries ID3 titles.
+  states on a reserved event for its ICY sync. For the HLS path of publisher
+  ADR 0009, a tagger and liquidsoap read the Icecast mount of AzuraCast from
+  any host and serve the HLS stream (ADR 0009 §Where The Tagger Runs). The HLS
+  output of AzuraCast itself is then not used.
 - A remote control API in `musicindex-live-publisher`, for liquidsoap.
 - Liquidsoap as a source.
 - [Show narrow-layout proposal](show-narrow-layout-proposal.md): automatic/manual
