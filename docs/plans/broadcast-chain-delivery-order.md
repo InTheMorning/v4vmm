@@ -482,6 +482,11 @@ Delivery Order above determines priority; an entry here is not a second order.
     the artwork and the value identity into the HLS stream, at the ICY title.
     It needs relay ADR 0004 and publisher ADR 0011.
 
+  Task packets exist for relay ADR 0004 (three) and publisher ADR 0010 and
+  ADR 0011 (two each). ADR 0009 has a phase plan with five gates and no
+  packet. The two ADR 0011 packets ship in one release, after the relay of
+  ADR 0004 is deployed. The two ADR 0010 packets also ship in one release.
+
   Requests for `v4vmm`, each one needs a `v4vmm` decision:
   - Show `stream_delay_secs` as the delay that podcast apps get, not as a
     delay of every transport (publisher ADR 0011).
