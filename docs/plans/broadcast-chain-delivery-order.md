@@ -467,6 +467,40 @@ Delivery Order above determines priority; an entry here is not a second order.
   artwork of a V4V track. The request is
   `docs/plans/musicindex-image-tag-request.md`. Recorded 2026-10-04.
   Decided 2026-10-04 as ADR 0080 Decision 9. ADR 0080 task 005 is complete: the operator saw the frame in the files on 2026-10-04. The publisher probe is next.
+- Live metadata paths for ICY, HLS and the Socket.IO live value. Recorded
+  2026-10-06. Four ADRs are `Proposed`. None is implemented:
+  - `musicindex-live-relay` ADR 0004: Socket.IO and `GET /remoteValue` wait for
+    a delay that the broadcaster sends with each publish. SSE and the other
+    reads are instant.
+  - `musicindex-live-publisher` ADR 0011: the publisher sends at once, with the
+    delay in a header. Relay ADR 0004 must be deployed first. If it is not,
+    podcast apps get no delay.
+  - `musicindex-live-publisher` ADR 0010: the live value payload adds `line`,
+    `author`, `podcastName` and `link`, as the model server CurioHoster sends
+    them. It does not depend on the delay work.
+  - `musicindex-live-publisher` ADR 0009: a tagger on the VPS writes the track,
+    the artwork and the value identity into the HLS stream, at the ICY title.
+    It needs relay ADR 0004 and publisher ADR 0011.
+
+  Requests for `v4vmm`, each one needs a `v4vmm` decision:
+  - Show `stream_delay_secs` as the delay that podcast apps get, not as a
+    delay of every transport (publisher ADR 0011).
+  - In the feed, keep the ICY MP3 stream as the default `enclosure` and give
+    the HLS stream as a `podcast:alternateEnclosure`. The `liveItem`
+    specification recommends MP3 and requires `podcast:contentLink`.
+  - A test feed with one `liveItem` that names the stream and the relay. No
+    app can connect to the relay until a feed names it.
+
+  Checks that need a person, recorded in the documents that own them:
+  - The app checks in publisher ADR 0009 and ADR 0010, §Before Acceptance,
+    and the app plan `citizenradio`
+    `docs/plans/upstream-live-metadata-plan.md`.
+  - The capacity checks in stophammer `docs/operations.md`, §Capacity.
+  - The open items of the test stack in
+    `~/build/musicindex-stream-test/README.md`, §Open Items.
+
+  The research report with the evidence is
+  `~/build/musicindex-research/reports/Live RSS metadata delivery paths.md`.
 - A seventh `ServiceState` in `v4vmm`, for a publisher that is installed and
   not configured. `musicindex-live-publisher` control-surface task 002 supplies
   the two facts that separate it, through `--version` and `config show --json`.
@@ -477,6 +511,23 @@ Delivery Order above determines priority; an entry here is not a second order.
   A row with `confirming_relay` set to `true` needs a question to its relay. Needs a `v4vmm` ADR. The steady-state phase is the earliest place for it.
 - Post-processing tools in `v4vmm`. Gates publisher-side backup recording.
 - Broadcaster identity and quotas in `splitkit`. Options recorded, no decision.
+- External broadcasters on AzuraCast. Recorded 2026-10-06. The relay does not
+  depend on the audio host, so a broadcaster with an own AzuraCast can use it.
+  Two items are missing:
+  - A reserved event for each broadcaster. Today only the relay operator makes
+    one. Self-service needs the broadcaster identity decision above.
+  - An adapter on the AzuraCast host. It receives the "song changed" web hook or
+    reads the NowPlaying API. It finds the value block of the track by its
+    `feedGuid` and `itemGuid`, for example from an AzuraCast custom field and
+    the MusicIndex API. It publishes the live value with the broadcaster token
+    and the delay header, and it sends the keepalive. A web hook alone cannot
+    do this, because it sends AzuraCast JSON with no Bearer token and no
+    keepalive.
+
+  Podcast apps then use the Socket.IO path. The private app needs display
+  states on a reserved event for its ICY sync. The HLS path of publisher ADR
+  0009 needs a tagger inside the AzuraCast setup. It is not known if the HLS
+  output of AzuraCast carries ID3 titles.
 - A remote control API in `musicindex-live-publisher`, for liquidsoap.
 - Liquidsoap as a source.
 - [Show narrow-layout proposal](show-narrow-layout-proposal.md): automatic/manual
