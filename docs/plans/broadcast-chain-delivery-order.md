@@ -468,24 +468,30 @@ Delivery Order above determines priority; an entry here is not a second order.
   `docs/plans/musicindex-image-tag-request.md`. Recorded 2026-10-04.
   Decided 2026-10-04 as ADR 0080 Decision 9. ADR 0080 task 005 is complete: the operator saw the frame in the files on 2026-10-04. The publisher probe is next.
 - Live metadata paths for ICY, HLS and the Socket.IO live value. Recorded
-  2026-10-06. Four ADRs are `Proposed`. None is implemented:
-  - `musicindex-live-relay` ADR 0004: Socket.IO and `GET /remoteValue` wait for
-    a delay that the broadcaster sends with each publish. SSE and the other
-    reads are instant.
-  - `musicindex-live-publisher` ADR 0011: the publisher sends at once, with the
-    delay in a header. Relay ADR 0004 must be deployed first. If it is not,
-    podcast apps get no delay.
-  - `musicindex-live-publisher` ADR 0010: the live value payload adds `line`,
-    `author`, `podcastName` and `link`, as the model server CurioHoster sends
-    them. It does not depend on the delay work.
-  - `musicindex-live-publisher` ADR 0009: a tagger on the VPS writes the track,
-    the artwork and the value identity into the HLS stream, at the ICY title.
-    It needs relay ADR 0004 and publisher ADR 0011.
+  2026-10-06. Six ADRs. None is implemented:
+  - `musicindex-live-relay` ADR 0004, Accepted: Socket.IO and
+    `GET /remoteValue` wait for a delay that the broadcaster sends with each
+    publish. SSE and the other reads are instant.
+  - `musicindex-live-publisher` ADR 0011, Accepted: the publisher sends at
+    once, with the delay in a header. Relay ADR 0004 must be deployed first.
+    If it is not, podcast apps get no delay.
+  - `musicindex-live-publisher` ADR 0010, Proposed: the live value payload
+    adds `line`, `author` and `podcastName`, as the model server CurioHoster
+    sends them. It adds no `link` until a source exists. The drop file
+    version 2 adds the album and `play_id`.
+  - `musicindex-live-publisher` ADR 0009, Proposed: a tagger on the stream
+    host writes the track, the artwork and the value identity into the HLS
+    stream, at the ICY title. A new repository holds the tagger.
+  - `musicindex-live-relay` ADR 0005 and `musicindex-live-publisher` ADR 0012,
+    Proposed: the display state carries the exact song line and the identity
+    of its value block, so the tagger names the exact block.
 
-  Task packets exist for relay ADR 0004 (three) and publisher ADR 0010 and
-  ADR 0011 (two each). ADR 0009 has a phase plan with five gates and no
-  packet. The two ADR 0011 packets ship in one release, after the relay of
-  ADR 0004 is deployed. The two ADR 0010 packets also ship in one release.
+  Task packets exist for relay ADR 0004 (three), relay ADR 0005 (one), and
+  publisher ADR 0010, ADR 0011 and ADR 0012 (two each). ADR 0009 has a phase
+  plan, and its tagger packets wait for the new repository. Release order:
+  1. The relay of ADR 0004, then the two ADR 0011 packets in one release.
+  2. The two ADR 0010 packets in one release.
+  3. The relay of ADR 0005, then the two ADR 0012 packets in one release.
 
   Requests for `v4vmm`, each one needs a `v4vmm` decision:
   - Show `stream_delay_secs` as the delay that podcast apps get, not as a
