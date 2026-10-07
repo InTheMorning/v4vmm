@@ -19902,6 +19902,68 @@ fn adr_0083_icon_characters_stay_out_of_ui_and_view_model_source() {
     );
 }
 
+/// View-model fields that carried an icon as a string before ADR 0083 task
+/// 003. On 2026-10-07 the operator still saw `>` and `v` drawn as text in the
+/// track metadata grid, through `disclosure_glyph`. ASCII characters are too
+/// common to search for, so this guard blocks the field names.
+const ADR_0083_ICON_STRING_FIELDS: &[&str] = &["disclosure_glyph", "play_label"];
+
+fn adr_0083_icon_string_field_violations(relative_path: &str, source: &str) -> Vec<String> {
+    let mut violations = Vec::new();
+    for (line_number, line) in code_lines(source) {
+        for field in ADR_0083_ICON_STRING_FIELDS {
+            let is_identifier = |c: char| c.is_ascii_alphanumeric() || c == '_';
+            let names_field = line.match_indices(field).any(|(start, _)| {
+                let before = line[..start].chars().next_back();
+                let after = line[start + field.len()..].chars().next();
+                !before.is_some_and(is_identifier) && !after.is_some_and(is_identifier)
+            });
+            if names_field {
+                violations.push(format!(
+                    "{relative_path}:{line_number}: ADR 0083 Decision 10: `{field}` carries an \
+icon as a string. Carry a typed state such as `expanded: bool`, and draw \
+`DisclosureIndicator` or an `Icon`. Found: `{line}`"
+                ));
+            }
+        }
+    }
+    violations
+}
+
+/// ADR 0083 Decision 10 situational guard: no file in `src` declares or
+/// reads a field that carries an icon as a string.
+#[test]
+fn adr_0083_no_view_model_field_carries_an_icon_string() {
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        violations.extend(adr_0083_icon_string_field_violations(&file, &source));
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0083 icon-string field violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn adr_0083_icon_string_field_guard_fails_for_a_disclosure_glyph_sample() {
+    let sample = "    pub disclosure_glyph: &'static str,\n";
+    let violations = adr_0083_icon_string_field_violations("src/view_models/sample.rs", sample);
+    assert_eq!(violations.len(), 1);
+    assert!(violations[0].contains("ADR 0083"));
+    for clean in [
+        "    pub expanded: bool,\n",
+        "    let display_label = label;\n",
+    ] {
+        assert!(
+            adr_0083_icon_string_field_violations("src/view_models/sample.rs", clean).is_empty(),
+            "a clean sample must not trip the guard: {clean}"
+        );
+    }
+}
+
 /// R83-24: the guard must fail for a sample source in `src/view_models/`
 /// holding `"\u{25B6}"`, and its message must name ADR 0083.
 #[test]

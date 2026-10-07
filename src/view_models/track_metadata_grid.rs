@@ -46,7 +46,8 @@ pub struct TrackMetadataExpandableCellDisplay {
     pub cell_key: String,
     pub cell_id: String,
     pub header_id: String,
-    pub disclosure_glyph: &'static str,
+    /// ADR 0083 Decision 10: a typed disclosure state, not a character.
+    pub expanded: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -54,7 +55,8 @@ pub struct TrackMetadataValueRouteItemDisplay {
     pub item_key: String,
     pub item_id: String,
     pub header_id: Option<String>,
-    pub disclosure_glyph: &'static str,
+    /// ADR 0083 Decision 10: a typed disclosure state, not a character.
+    pub expanded: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -531,7 +533,7 @@ impl TrackMetadataGridVm {
             cell_id: format!("metadata-cell:{cell_key}"),
             header_id: format!("metadata-cell:{cell_key}:header"),
             cell_key,
-            disclosure_glyph: disclosure_glyph(expanded),
+            expanded,
         }
     }
 
@@ -546,7 +548,7 @@ impl TrackMetadataGridVm {
             cell_key: metadata_cell_key(column, row_id),
             cell_id: format!("expandable-{column}-{field}"),
             header_id: format!("expandable-{column}-{field}-hdr"),
-            disclosure_glyph: disclosure_glyph(expanded),
+            expanded,
         }
     }
 
@@ -562,7 +564,7 @@ impl TrackMetadataGridVm {
             item_id: format!("value-route:{column}:{row_id}:{index}"),
             header_id: Some(format!("value-route:{column}:{row_id}:{index}:header")),
             item_key,
-            disclosure_glyph: disclosure_glyph(expanded),
+            expanded,
         }
     }
 
@@ -577,7 +579,7 @@ impl TrackMetadataGridVm {
             item_key: Self::value_route_item_key(column, row_id, index),
             item_id: format!("vr-{column}-{index}"),
             header_id: None,
-            disclosure_glyph: disclosure_glyph(expanded),
+            expanded,
         }
     }
 
@@ -630,14 +632,6 @@ impl TrackMetadataGridVm {
 
 fn metadata_cell_key(column: &str, row_id: &str) -> String {
     format!("{column}:{row_id}")
-}
-
-const fn disclosure_glyph(expanded: bool) -> &'static str {
-    if expanded {
-        "v"
-    } else {
-        ">"
-    }
 }
 
 fn json_value_display_label(value: &serde_json::Value) -> Option<String> {
@@ -1398,7 +1392,7 @@ mod tests {
                 cell_key: "rss:title".into(),
                 cell_id: "metadata-cell:rss:title".into(),
                 header_id: "metadata-cell:rss:title:header".into(),
-                disclosure_glyph: ">",
+                expanded: false,
             }
         );
         assert_eq!(
@@ -1412,7 +1406,7 @@ mod tests {
                 cell_key: "id3:value-routes".into(),
                 cell_id: "expandable-id3-Value Routes".into(),
                 header_id: "expandable-id3-Value Routes-hdr".into(),
-                disclosure_glyph: "v",
+                expanded: true,
             }
         );
     }
@@ -1425,7 +1419,7 @@ mod tests {
                 item_key: "rss:value-routes:2".into(),
                 item_id: "value-route:rss:value-routes:2".into(),
                 header_id: Some("value-route:rss:value-routes:2:header".into()),
-                disclosure_glyph: "v",
+                expanded: true,
             }
         );
         assert_eq!(
@@ -1434,7 +1428,7 @@ mod tests {
                 item_key: "id3:value-routes:3".into(),
                 item_id: "vr-id3-3".into(),
                 header_id: None,
-                disclosure_glyph: ">",
+                expanded: false,
             }
         );
     }

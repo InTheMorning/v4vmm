@@ -1,6 +1,6 @@
 # ADR 0083 Task 003: One Icon Set
 
-Status: Open - implementation and mechanical checks are complete on 2026-10-04. The operator visual check is pending: [pending check 37](../pending-human-checks.md#37-one-icon-set--adr-0083-task-003).
+Status: Open - the operator passed V83-21, V83-23 and V83-24 on 2026-10-07. V83-22 needs a recheck after the correction of 2026-10-07: [pending check 36](../pending-human-checks.md#36-one-icon-set--adr-0083-task-003).
 
 ## Goal
 
@@ -108,6 +108,14 @@ Revert the working tree. This packet adds no migration and no stored data.
 9. Cleanup: set UI scale back to M.
 
 No special hardware or system state is needed. Step 7 needs an active show, and the check can pass without it.
+
+## Correction - 2026-10-07
+
+- The operator saw `>` and `v` drawn as text in the track metadata grid, for example on the Artwork and Value Routes rows.
+- Cause: `src/view_models/track_metadata_grid.rs` gave a `disclosure_glyph` string, and `src/ui/shells/library/track_detail_metadata_values.rs` drew it. The task 003 guard looks only for Unicode icon characters.
+- Correction: the two display types carry `expanded: bool`, and the renderer draws `DisclosureIndicator`.
+- Guard: `adr_0083_no_view_model_field_carries_an_icon_string` blocks the field names `disclosure_glyph` and `play_label` in `src/`. `adr_0083_icon_string_field_guard_fails_for_a_disclosure_glyph_sample` proves it.
+- The comparison marks `=`, `≠` and `∅` still come from `glyph()` functions as text. They are not emoji characters, and the operator did not report them.
 
 ## Prompt for lower-context coding model
 

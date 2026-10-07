@@ -51,7 +51,7 @@ These are for the operator. No test proves them.
 
 ## Exclusions
 
-- No change to the confirmation popup. [ADR 0076 packet 008](../adr-0076-task-008-confirmation-list-with-many-items.md) owns it.
+- No change to the confirmation popup. [ADR 0076 packet 008](adr-0076-task-008-confirmation-list-with-many-items.md) owns it.
 - No change to the frames that the app writes, and no change to the date rule of ADR 0075 packet 049.
 
 ## Files To Inspect

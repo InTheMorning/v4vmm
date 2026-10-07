@@ -12,8 +12,9 @@ use gpui::{div, prelude::*, AnyElement, Context, Image, SharedString, Styled};
 
 use crate::library::LibraryApp;
 use crate::ui::composites::{
-    EntityKind, Thumbnail, ThumbnailSize, TrackMetadataFrameDisplay, TrackMetadataTagCell,
-    TrackMetadataTagDisplay, TrackMetadataTextDisplay, TrackMetadataTextValue,
+    DisclosureIndicator, DisclosureIndicatorDisplay, EntityKind, Thumbnail, ThumbnailSize,
+    TrackMetadataFrameDisplay, TrackMetadataTagCell, TrackMetadataTagDisplay,
+    TrackMetadataTextDisplay, TrackMetadataTextValue,
 };
 use crate::ui::primitives::MultilineText;
 use crate::ui::style::{color, spacing, typography};
@@ -57,7 +58,7 @@ pub(super) fn metadata_value_cell(
         let TrackMetadataExpandableCellDisplay {
             cell_key: header_key,
             header_id,
-            disclosure_glyph,
+            expanded: header_expanded,
             ..
         } = display;
         return div()
@@ -77,12 +78,9 @@ pub(super) fn metadata_value_cell(
                     .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
                         this.toggle_metadata_cell(header_key.clone(), cx);
                     }))
-                    .child(
-                        div()
-                            .text_size(typography::SIZE_MICRO)
-                            .text_color(color::text_muted())
-                            .child(disclosure_glyph),
-                    ),
+                    .child(DisclosureIndicator::new(DisclosureIndicatorDisplay {
+                        expanded: header_expanded,
+                    })),
             )
             .child(div().flex().flex_col().children(value_routes_tree_elements(
                 raw_value,
@@ -113,7 +111,7 @@ pub(super) fn metadata_value_cell(
     let TrackMetadataExpandableCellDisplay {
         cell_key,
         cell_id,
-        disclosure_glyph,
+        expanded: cell_expanded,
         ..
     } = display;
     div()
@@ -128,12 +126,9 @@ pub(super) fn metadata_value_cell(
         .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
             this.toggle_metadata_cell(cell_key.clone(), cx);
         }))
-        .child(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .text_color(color::text_muted())
-                .child(disclosure_glyph),
-        )
+        .child(DisclosureIndicator::new(DisclosureIndicatorDisplay {
+            expanded: cell_expanded,
+        }))
         .child(div().flex_1().min_w_0().child(content))
         .into_any_element()
 }
@@ -291,7 +286,7 @@ fn value_route_tree_element(
         item_key: header_key,
         item_id,
         header_id,
-        disclosure_glyph,
+        expanded: item_expanded,
     } = display;
     let sub_expanded = expanded_cells.contains(&header_key);
 
@@ -313,12 +308,9 @@ fn value_route_tree_element(
                 .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
                     this.toggle_metadata_cell(header_key.clone(), cx);
                 }))
-                .child(
-                    div()
-                        .text_size(typography::SIZE_MICRO)
-                        .text_color(color::text_muted())
-                        .child(disclosure_glyph),
-                )
+                .child(DisclosureIndicator::new(DisclosureIndicatorDisplay {
+                    expanded: item_expanded,
+                }))
                 .child(
                     div()
                         .text_color(if sub_expanded { color } else { color::accent() })

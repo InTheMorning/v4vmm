@@ -585,17 +585,7 @@ Open and paused - implementation and mechanical checks are complete on 2026-10-0
 - V2: Back and then Forward return to the same page. `alt-left` and `alt-right` on Linux, and `cmd-[` and `cmd-]` outside a text box on macOS, do the same. Indent and outdent still work in a macOS text box.
 - V3: normal and narrow widths, Light and Dark themes, and the larger type sizes show both controls with no clipped element.
 
-## 34. Confirmation List With Many Items — ADR 0076 Task 008
-
-Open - implementation and mechanical checks are complete on 2026-10-03. Operator inspection is pending.
-
-- Owner: [task 008](tasks/adr-0076-task-008-confirmation-list-with-many-items.md#operator-visual-check).
-- Scheduling: the check only opens popups and cancels them.
-- V1: "Update n files" with more files than the column holds shows each file with its title, album and frames. The list scrolls.
-- V2: a removal confirmation with one item still shows that item.
-- V3: normal and narrow widths, in Light and Dark themes, show the item with no clipped text.
-
-## 35. Download Failures And Dismissal — ADR 0066 Task 014
+## 34. Download Failures And Dismissal — ADR 0066 Task 014
 
 Open - implementation and mechanical checks are complete on 2026-10-03. Operator inspection is pending.
 
@@ -605,7 +595,7 @@ Open - implementation and mechanical checks are complete on 2026-10-03. Operator
 - V2: after a failed conversion and a successful retry of the same feed, the notice shows no row for those tracks.
 - V3: each row of the collapsed notice has "Dismiss", and a click removes the row in place.
 
-## 36. A Download Writes The Stored Values — ADR 0076 Task 009
+## 35. A Download Writes The Stored Values — ADR 0076 Task 009
 
 Open - implementation and mechanical checks are complete on 2026-10-03. Operator inspection is pending.
 
@@ -613,13 +603,13 @@ Open - implementation and mechanical checks are complete on 2026-10-03. Operator
 - Scheduling: the check downloads one album into an isolated fixture. It never writes the real Library.
 - V1: after the download, "Update n files" counts no new file. A new file holds `WOAR` with the channel link and `TRCK` with the track total.
 
-## 37. One Icon Set — ADR 0083 Task 003
+## 36. One Icon Set — ADR 0083 Task 003
 
-Open - implementation and mechanical checks are complete on 2026-10-04. Operator inspection is pending.
+Open - the operator passed V83-21, V83-23 and V83-24 on 2026-10-07. V83-22 failed: the track metadata grid drew `>` and `v` as text. A correction on 2026-10-07 draws the chevron there. V83-22 needs a recheck.
 
 - Owner: [task 003](tasks/adr-0083-task-003-one-icon-set.md#operator-visual-check).
 - Scheduling: walk it right after the packet. It reads pages and changes only the UI scale, which step 9 sets back.
 - V83-21: "Open Show" shows a line Play icon, not an emoji.
-- V83-22: disclosure chevrons in the Library sidebar and in collapsible groups are line icons, and they turn when the group opens.
+- V83-22: disclosure chevrons in the Library sidebar, in collapsible groups and in the track metadata grid (for example the Value Routes row) are line icons, and they turn when the group opens.
 - V83-23: the playlist row, the drag handle, the "⋯" buttons and the Show transport show line icons of one style.
 - V83-24: each icon keeps its size at the S and L UI scales.

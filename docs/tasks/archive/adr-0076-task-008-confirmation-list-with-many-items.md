@@ -1,6 +1,6 @@
 # ADR 0076 Task 008: Confirmation List With Many Items
 
-Status: Implemented - 2026-10-03. Mechanical checks Green. Its visual gate is open.
+Status: Complete - 2026-10-07. The operator passed V1 to V3 on 2026-10-07.
 
 ## Goal
 
@@ -8,9 +8,9 @@ The confirmation popup shows each item when the item list is taller than its scr
 
 ## Authority
 
-- [ADR 0076](../adr/0076-playlist-rss-check-for-stale-musicindex-records.md) Decision 8: the "Update n files" popup lists each file with its frames.
-- [ADR 0063](../adr/0063-show-dashboard-layout.md): stacked column text does not call `truncate()`.
-- The durable set in [AGENTS.md](../../AGENTS.md): no isolated visual tweaks. Fix the shared composite.
+- [ADR 0076](../../adr/0076-playlist-rss-check-for-stale-musicindex-records.md) Decision 8: the "Update n files" popup lists each file with its frames.
+- [ADR 0063](../../adr/0063-show-dashboard-layout.md): stacked column text does not call `truncate()`.
+- The durable set in [AGENTS.md](../../../AGENTS.md): no isolated visual tweaks. Fix the shared composite.
 
 ## Recorded Facts - 2026-10-03
 
@@ -46,11 +46,11 @@ These are for the operator. No test proves them.
 
 ## Exclusions
 
-- No change to the tag scan or to the tag writer. [ADR 0080 packet 003](archive/adr-0080-task-003-vorbis-date-shares-one-key.md) owns the FLAC date defect.
+- No change to the tag scan or to the tag writer. [ADR 0080 packet 003](adr-0080-task-003-vorbis-date-shares-one-key.md) owns the FLAC date defect.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/ui/composites/confirmation_dialog.rs`, `src/ui/shells/tag_update_confirmation.rs`.
 - `src/ui/composites/settings.rs`: the layout test that uses `debug_bounds`.
 - `docs/troubleshooting/column-text-truncation.md`.
