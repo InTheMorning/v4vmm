@@ -27,7 +27,9 @@ use crate::ui::composites::{
     DisclosureTextPanel, DisclosureTextPanelDisplay, ReleaseSurfaceElement, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
-use crate::ui::primitives::Button as UiButton;
+use crate::ui::primitives::{
+    Button as UiButton, ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope,
+};
 use crate::ui::shells::entity::{
     render_release_track_row, ReleaseDetailBehaviorSlots, ReleaseTrackRowSlot,
 };
@@ -893,7 +895,9 @@ impl TopApp {
         track: &TrackView,
         cx: &mut Context<Self>,
     ) -> TrackDetailBehaviorSlots {
-        let page = TrackDetailVm::new(track, TrackDetailSurfaceContext::Discover).page();
+        let page = TrackDetailVm::new(track, TrackDetailSurfaceContext::Discover)
+            .with_publisher_feed_guid(track.publisher_feed_guid.as_deref())
+            .page();
         let entity = cx.entity();
         let name_links = render_track_name_links(&page, move |target, _window, cx| {
             entity.update(cx, |this, cx| this.open_index_track_name_link(target, cx));
@@ -924,14 +928,75 @@ impl TopApp {
         .label(action.label())
         .a11y_label(action.a11y_label())
         .disabled(!filled.available);
-        let button = match (action, feed_guid) {
+        let button = match (action, feed_guid.clone()) {
             (TrackPageAction::DownloadAlbum, Some(feed_guid)) if filled.available => button
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.download_index_album_of_track(feed_guid.clone(), cx);
                 })),
             _ => button,
         };
-        vec![TrackSurfaceElement::from_element(button.into_any_element())]
+        let mut elements = vec![TrackSurfaceElement::from_element(button.into_any_element())];
+        if let (false, Some(feed_guid)) = (actions.menu.is_empty(), feed_guid) {
+            let entity = cx.entity();
+            let items = actions.menu.iter().map(|display| {
+                let action = display.action;
+                let mut item = ContextMenuItem::new(ContextMenuItemDisplay {
+                    id: SharedString::from(format!("index-track-page-menu:{action:?}")),
+                    label: SharedString::from(action.label()),
+                    a11y_label: SharedString::from(action.a11y_label()),
+                    destructive: action.is_destructive(),
+                    disabled: !display.available,
+                });
+                if display.available && action == TrackPageAction::CopyFeedUrl {
+                    let entity = entity.clone();
+                    let feed_guid = feed_guid.clone();
+                    item = item.on_select(move |_window, cx| {
+                        entity.update(cx, |this, cx| {
+                            this.copy_index_feed_url_of_track(feed_guid.clone(), cx);
+                        });
+                    });
+                }
+                item
+            });
+            elements.push(TrackSurfaceElement::from_element(
+                ContextMenu::new(
+                    SharedString::from(format!("index-track-page-menu-{feed_guid}")),
+                    ContextMenuScope::TrackList,
+                    SharedString::from("More actions for this track"),
+                )
+                .trigger_label("")
+                .items(items)
+                .into_any_element(),
+            ));
+        }
+        elements
+    }
+
+    /// "Copy feed URL" of an Index track: reads the album feed from
+    /// `MusicIndex`, which indexes the feed URL, and copies that URL.
+    fn copy_index_feed_url_of_track(&mut self, feed_guid: String, cx: &mut Context<Self>) {
+        let command = FetchIndexFeedDetail::new(self.musicindex_endpoint.clone(), feed_guid);
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            |this, feed, cx| match feed.feed_url {
+                Some(url) => {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(url));
+                    this.settings_status = "App copied the feed URL of this track.".to_string();
+                }
+                None => {
+                    this.settings_status =
+                        "MusicIndex gave no feed URL for the album of this track.".to_string();
+                }
+            },
+            |this, error, _cx| {
+                this.settings_status = format!(
+                    "App could not read the album of this track from MusicIndex: {error:#}"
+                );
+            },
+        );
     }
 
     /// Opens the page of a name link under an Index track title.

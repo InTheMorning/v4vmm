@@ -571,7 +571,11 @@ impl<'a> TrackDetailVm<'a> {
             .feed_url()
             .map(|_| TrackPageActionDisplay::new(TrackPageAction::CopyFeedUrl, true));
         let Some(state) = self.library_state else {
+            // An Index track reads its feed URL from the MusicIndex feed of
+            // its album GUID, so the album GUID is enough.
             let has_album = self.track.feed_guid.as_deref().and_then(nonempty).is_some();
+            let copy_feed_url = (has_album || copy_feed_url.is_some())
+                .then(|| TrackPageActionDisplay::new(TrackPageAction::CopyFeedUrl, true));
             return TrackPageActions {
                 filled: TrackPageActionDisplay::new(TrackPageAction::DownloadAlbum, has_album),
                 plain: Vec::new(),
@@ -1442,10 +1446,21 @@ mod tests {
         menu.iter().map(|item| item.action).collect()
     }
 
-    /// R83-42: a track that is not in the Library gets "Download album",
-    /// and "Copy feed URL" only when its feed states a URL.
+    /// R83-42: a track that is not in the Library gets "Download album".
+    /// It gets "Copy feed URL" when it names its album feed: MusicIndex
+    /// gives the feed URL of that feed.
     #[test]
     fn adr_0083_r83_42_index_track_actions() {
+        let mut with_album = track();
+        with_album.feed_guid = Some("feed-guid".into());
+        let actions =
+            TrackDetailVm::new(&with_album, TrackDetailSurfaceContext::Discover).page_actions();
+        assert!(actions.filled.available);
+        assert_eq!(
+            actions_of(&actions.menu),
+            vec![TrackPageAction::CopyFeedUrl]
+        );
+
         let track = track();
         let without_feed = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover);
         let actions = without_feed.page_actions();

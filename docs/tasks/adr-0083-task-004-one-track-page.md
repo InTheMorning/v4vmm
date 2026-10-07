@@ -126,14 +126,15 @@ The orchestrator implemented this packet in the main session, after four subagen
 - Library page: `render_library_track_detail_actions` draws one row from `page_actions()`. "Inspect sources" (`InspectorPanelKind::Sources`, closed by default) holds Compare ID3, Apply and Discard, the `MusicBrainz` panel and the compare grid. "MusicBrainz lookup" in the menu opens "Inspect sources" and starts the lookup. A disabled lookup shows the ADR 0047 reason as its menu description.
 - Removal: `RemovalConfirmation::Always` makes "Remove track…" confirm each plan. Other callers keep `WhenReferenced`.
 - Navigation: `LibraryAppEvent::OpenAlbumPage` and `TopApp::open_library_album_page` open the Library album page. The search result path uses the same function.
-- Index page: `index_track_detail_slots` adds the name links and the filled "Download album". "Download album" reads the feed with `FetchIndexFeedDetail`, then calls `download_index_feed`, as the Index album page does.
+- Index page: `index_track_detail_slots` adds the name links, the filled "Download album" and the "⋯" menu.
+  - "Download album" reads the feed with `FetchIndexFeedDetail`, then calls `download_index_feed`, as the Index album page does.
+  - "Copy feed URL" reads the same feed and copies its `feed_url`. `TrackResponse` has no feed URL, and `FeedResponse` has it.
+  - `TrackView.publisher_feed_guid` keeps the publisher GUID that the `publisher` relationships of `TrackResponse` name. The publisher name links to the Index publisher page.
 - Deleted: the old action builder, the "Open publisher" button, `LibraryTrackActionVm::subscription_button_label` and its two unread fields.
 
 Deviations:
 
-- An Index track has no "Copy feed URL". `TrackView` holds no feed URL, so the menu is absent, not disabled.
 - "Remove track…" shows only on a downloaded track. Today's toggle offers removal only in that state.
-- An Index track has no publisher link. `TrackView` holds no publisher feed GUID.
 - The `adr_0076_route_readiness_removal_actions_reuse_existing_flows` guard now expects the confirmation policy argument in `remove_track`. The rule is the same: one ADR 0044 removal flow.
 
 Proof:
@@ -141,7 +142,7 @@ Proof:
 - R83-41: `adr_0083_both_track_page_origins_build_one_shared_surface`.
 - R83-42: `adr_0083_r83_42_index_track_actions`, `adr_0083_r83_42_library_track_not_downloaded_actions`, `adr_0083_r83_42_r83_43_downloaded_track_actions`.
 - R83-43: `adr_0083_r83_42_r83_43_downloaded_track_actions` and `always_confirmation_defers_an_unreferenced_track_removal`.
-- R83-44: `adr_0083_r83_44_name_links_open_the_album_and_the_publisher` and `adr_0083_r83_44_index_album_name_links_to_the_index_album`.
+- R83-44: `adr_0083_r83_44_name_links_open_the_album_and_the_publisher`, `adr_0083_r83_44_index_album_name_links_to_the_index_album` and `from_api_track_keeps_the_named_publisher_feed_guid`.
 - R83-45: `adr_0083_r83_45_credits_keep_source_order_without_duplicates`.
 - R83-46: `adr_0083_r83_46_inspect_sources_starts_closed_and_toggles`.
 - R83-47 and R83-48: the ADR 0075 and ADR 0083 guards stay Green.
@@ -160,7 +161,8 @@ No step needs a mouse wheel. Use Page Down to scroll a page.
 4. Click "⋯", then "MusicBrainz lookup". Expected: "Inspect sources" opens and the lookup panel shows.
 5. Click the album name link. Expected: the album page. Click Back, then the publisher name link. Expected: the publisher page.
 6. Index track: search `mellow cassette` in the toolbar and open the track "The Arbiter".
-   - Expected: the same header, the album name as a link, and a filled "Download album".
+   - Expected: the same header, the album name and the publisher name (when MusicIndex names one) as links, a filled "Download album" and a "⋯" button.
+   - Click "⋯", then "Copy feed URL". Paste into a terminal. Expected: the RSS URL of the album "Pilot".
    - Expected: the same section order as the Library page, with no "Inspect sources".
    - Do not click "Download album" unless you want the album in the Library.
 7. Switch to Light (Settings, General) and repeat steps 2 and 6 once. Make the window narrow. Expected: no clipped text. Switch back.

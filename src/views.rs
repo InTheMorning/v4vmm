@@ -206,6 +206,11 @@ pub struct TrackView {
     pub mime: Option<String>,
     pub bytes: Option<i64>,
     pub publisher_text: Option<String>,
+    /// The publisher feed GUID that the track response names, when a
+    /// `music_to_publisher` relationship states `music_names_publisher =
+    /// true` (ADR 0077 Decision 2). Never built from name text. A Library
+    /// track leaves this value `None`, and its page reads the album feed.
+    pub publisher_feed_guid: Option<String>,
     pub contributors: Vec<ContributorView>,
     pub payment_routes: Vec<api::PaymentRoute>,
     pub transcript_url: Option<String>,
@@ -640,6 +645,9 @@ impl TrackView {
             audio_url: nonempty_owned(t.enclosure_url),
             mime: nonempty_owned(t.enclosure_type),
             bytes: t.enclosure_bytes,
+            publisher_feed_guid: owned_publisher_feed_guid_from_relationships(
+                t.publisher.as_deref(),
+            ),
             publisher_text: nonempty_owned(t.publisher_text),
             contributors: t
                 .source_contributors
@@ -706,6 +714,8 @@ impl TrackView {
             audio_url: t.enclosure_url,
             mime: t.enclosure_type,
             bytes: None,
+            // A Library track page reads the publisher of its album feed.
+            publisher_feed_guid: None,
             publisher_text: nonempty_owned(values.publisher_text.value),
             contributors: values.credits,
             payment_routes: Vec::new(),
@@ -717,6 +727,30 @@ impl TrackView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR 0083 task 004: an Index track keeps the publisher feed GUID that
+    /// its response names, so its page can link the publisher. A
+    /// relationship that does not name the publisher gives no GUID.
+    #[test]
+    fn from_api_track_keeps_the_named_publisher_feed_guid() {
+        let relationship = |names: bool| api::PublisherRelationship {
+            direction: Some("music_to_publisher".into()),
+            publisher_feed_guid: Some("publisher-guid".into()),
+            music_names_publisher: Some(names),
+            ..Default::default()
+        };
+        let named = TrackView::from_api(api::Track {
+            publisher: Some(vec![relationship(true)]),
+            ..Default::default()
+        });
+        assert_eq!(named.publisher_feed_guid.as_deref(), Some("publisher-guid"));
+
+        let unnamed = TrackView::from_api(api::Track {
+            publisher: Some(vec![relationship(false)]),
+            ..Default::default()
+        });
+        assert_eq!(unnamed.publisher_feed_guid, None);
+    }
 
     /// ADR 0075 packet 050, operator decision D50-1: the Index route
     /// resolves the feed's own publication date directly from the decoded
