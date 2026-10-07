@@ -36,7 +36,6 @@ Known open defects:
   [ADR 0068](docs/adr/0068-show-cue-and-audition-isolation.md), which is Proposed, and for the mpv IPC error.
 - An MP4 file always shows a `TYER` difference in "Update n files". The
   [ADR 0080 plan](docs/plans/adr-0080-tag-frames-phase-plan.md) records it. No packet owns it.
-- `cargo build --release` fails in `gpui-pre-macros 0.3.1`. No release binary exists.
 - [The live value URI plan](docs/plans/livevalue-uri-is-a-url.md) is Ready.
 
 Stored facts that agents need:
@@ -217,7 +216,7 @@ fixture's `run` command rebuilds the normal binary before opening it.
 
 ```bash
 cargo build                          # Debug build
-cargo build --release                # Production build (fails today, see above)
+cargo build --release                # Production build: target/release/v4vmm
 cargo test                           # All tests
 cargo test --test architecture_tests # The guards
 cargo fmt -- --check                 # Check formatting

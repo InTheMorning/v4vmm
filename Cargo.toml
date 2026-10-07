@@ -83,3 +83,11 @@ opt-level = 3
 
 [profile.dev.package.taffy]
 opt-level = 3
+
+# gpui-pre-macros 0.3.1 compiles its inspector module only with debug
+# assertions or the `inspector` feature, but one helper always calls it.
+# A release build turns debug assertions off, and the crate does not compile.
+# Proc macros use this profile, so this setting keeps the module. The release
+# binary itself stays optimized and has no debug assertions.
+[profile.release.build-override]
+debug-assertions = true

@@ -29,7 +29,7 @@ Each binding change in it needs its own ADR or ADR amendment before code changes
   - the Figtree font, in `../musicindex/assets/fonts/`, with weights 300 to 800
 - Each color, size and font of the app comes from `src/ui/tokens.rs` (durable set: token discipline). A token change can change the look of the full app.
 - The cue system and the built-in player are not built. The live status shows one song that does not change.
-- `cargo build --release` fails in `gpui-pre-macros 0.3.1`. A release binary does not exist.
+- `cargo build --release` failed in `gpui-pre-macros 0.3.1` until 2026-10-07. `[profile.release.build-override]` in `Cargo.toml` corrects it.
 
 ## Phases
 
@@ -86,7 +86,7 @@ A separate ADR, after the Library work. The playback defect of one song that doe
 
 - Single source of truth audit: read-only agents find data written in two places and two paths that compute one output. They also find errors that only stderr shows, and live values where the stored value is the rule. Each finding becomes a failing test and then a fix.
 - Split the largest files at their natural seams. No behavior changes in those packets.
-- Add `cargo clippy --all-targets -- -D warnings` to the gate. Correct the release build.
+- Add `cargo clippy --all-targets -- -D warnings` to the gate.
 - No complete rewrite. Change one surface at a time and keep the gate Green.
 
 ## Working Rules For This Plan
