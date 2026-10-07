@@ -13,7 +13,7 @@ Amended 2026-09-26: the operator decided that the app ignores the channel `lastB
 This tightens Decision 3. Section 3 states the rule.
 
 Amended 2026-10-03: the operator decided that a download writes the tags of the stored values. Section 10 states the rule.
-On 2026-10-03 two fresh HeyCitizen downloads had no `WOAR` frame, and the next scan listed them at once. [Packet 009](../tasks/adr-0076-task-009-download-writes-stored-values.md) implements the rule.
+On 2026-10-03 two fresh HeyCitizen downloads had no `WOAR` frame, and the next scan listed them at once. [Packet 009](../tasks/archive/adr-0076-task-009-download-writes-stored-values.md) implements the rule.
 
 ## Context
 

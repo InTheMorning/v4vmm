@@ -587,18 +587,10 @@ Open and paused - implementation and mechanical checks are complete on 2026-10-0
 
 ## 34. Download Failures And Dismissal — ADR 0066 Task 014
 
-Open - implementation and mechanical checks are complete on 2026-10-03. Operator inspection is pending.
+Open - the operator passed V1 and V3 on 2026-10-07, in Dark and Light. V2 is not run: `ffmpeg` is installed, so the conversion did not fail. The task procedure gives a fake `ffmpeg` for V2.
 
 - Owner: [task 014](tasks/adr-0066-task-014-download-failures-and-dismissal.md#operator-visual-check).
 - Scheduling: the check uses an isolated fixture and a closed local port. V2 needs network access and the `flac` binary.
 - V1: a download failure shows "Download: <track>" with "Redownload original track" and "Dismiss", and no converter action. Check in Light and Dark themes.
 - V2: after a failed conversion and a successful retry of the same feed, the notice shows no row for those tracks.
 - V3: each row of the collapsed notice has "Dismiss", and a click removes the row in place.
-
-## 35. A Download Writes The Stored Values — ADR 0076 Task 009
-
-Open - implementation and mechanical checks are complete on 2026-10-03. Operator inspection is pending.
-
-- Owner: [task 009](tasks/adr-0076-task-009-download-writes-stored-values.md#operator-visual-check).
-- Scheduling: the check downloads one album into an isolated fixture. It never writes the real Library.
-- V1: after the download, "Update n files" counts no new file. A new file holds `WOAR` with the channel link and `TRCK` with the track total.

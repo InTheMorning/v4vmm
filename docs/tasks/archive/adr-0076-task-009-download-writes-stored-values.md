@@ -1,6 +1,6 @@
 # ADR 0076 Task 009: A Download Writes The Stored Values
 
-Status: Implemented - 2026-10-03. Mechanical checks Green. Its operator check is open.
+Status: Complete - 2026-10-07. The operator passed V1 and V2 on 2026-10-07 with the Index album "Pilot".
 
 ## Goal
 
@@ -8,9 +8,9 @@ A fresh download writes the tags of the stored values of its track. The next "Up
 
 ## Authority
 
-- [ADR 0076](../adr/0076-playlist-rss-check-for-stale-musicindex-records.md) Decision 10, amended 2026-10-03: a download writes the stored values, after the RSS update of its feed, with the projection of the scan.
+- [ADR 0076](../../adr/0076-playlist-rss-check-for-stale-musicindex-records.md) Decision 10, amended 2026-10-03: a download writes the stored values, after the RSS update of its feed, with the projection of the scan.
 - ADR 0076 Decisions 8 and 9.
-- [ADR 0080](../adr/0080-tag-frames-follow-their-owner.md): the channel website (RSS channel `<link>`) goes to `WOAR`.
+- [ADR 0080](../../adr/0080-tag-frames-follow-their-owner.md): the channel website (RSS channel `<link>`) goes to `WOAR`.
 
 ## Recorded Facts - 2026-10-03
 
@@ -59,7 +59,7 @@ None. The operator check reads the button count after a download.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/subscribe_service.rs`, `src/subscribe_service/materialization.rs`.
 - `src/feed_service.rs`: `track_row_to_track_context_with_local_identity`, `hydrate_feed_identity`.
 - `src/metadata_service.rs`: `id3_edits_for_track_context`.
@@ -96,6 +96,8 @@ Needs:
 
 **Setup**
 
+Corrected on 2026-10-07: the fixture sets no `flac_path`. The app rejects `flac_path = false` as a setup issue, and that issue pauses configuration saves (ADR 0066).
+
 1. Build the desktop binary. A prior `cargo test` run can leave a test binary at `target/debug/v4vmm`.
 
    ```bash
@@ -115,7 +117,7 @@ Needs:
    source, fx = sys.argv[1], sys.argv[2]
    keep = [line for line in open(source).read().splitlines()
            if not re.match(r"\s*(music_dir|db_path|flac_path)\s*=", line)]
-   head = [f'music_dir = "{fx}/music"', f'db_path = "{fx}/app.sqlite"', "flac_path = false"]
+   head = [f'music_dir = "{fx}/music"', f'db_path = "{fx}/app.sqlite"']
    open(f"{fx}/config/v4vmm/config.toml", "w").write("\n".join(head + keep) + "\n")
    PY
    fx_run() { ( export XDG_CONFIG_HOME="$1/config" XDG_DATA_HOME="$1/data" XDG_CACHE_HOME="$1/cache"; shift; /home/citizen/build/v4vmm/target/debug/v4vmm "$@" ) }
@@ -128,7 +130,7 @@ Needs:
 3. Start the app on the fixture: `fx_run "$FX"`.
 4. Open **Music → Library**. Wait for the first scan. Write down the count of the "Update n files" button.
    Expect no button, because the fixture music folder has no file.
-5. Use the Search toolbar command to find one album in the Index. The HeyCitizen album of the Recorded Facts is a good choice.
+5. Use the Search toolbar command to find one album in the Index that is not in the copied Library. An album in the Library shows "Remove Feed" and no Download command.
    Open the album, and click its **Download** command. Wait until the download is complete.
 6. Open **Music → Library** again, and wait for the next scan. Read the "Update n files" button.
    - Expect the count of step 4, or no button.

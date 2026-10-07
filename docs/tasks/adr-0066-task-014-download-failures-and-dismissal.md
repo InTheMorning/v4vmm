@@ -1,6 +1,6 @@
 # ADR 0066 Task 014: Download Failures And Dismissal Of Retained Actions
 
-Status: Implemented - 2026-10-03. Mechanical checks Green. Its visual gate is open.
+Status: Open - the operator passed V1 and V3 on 2026-10-07, in Dark and Light. V2 is not run, because `ffmpeg` is installed.
 
 ## Goal
 
@@ -110,7 +110,7 @@ Do not delete `/tmp/v4vmm-governance.ie6k8TQf`. Color alone is not a valid diffe
    cd /home/citizen/build/v4vmm && cargo build --bin v4vmm
    ```
 
-3. Make the fixture directory, the database copy and the configuration. The configuration sets its own `db_path` and `music_dir`, and sets `flac_path = false`:
+3. Make the fixture directory, the database copy and the configuration. The configuration sets its own `db_path` and `music_dir`, and no `flac_path`. Corrected on 2026-10-07: the app rejects `flac_path = false` as a setup issue that pauses configuration saves (ADR 0066).
 
    ```bash
    FX=$(mktemp -d /tmp/v4vmm-task014.XXXXXX)
@@ -123,7 +123,7 @@ Do not delete `/tmp/v4vmm-governance.ie6k8TQf`. Color alone is not a valid diffe
    source, fx = sys.argv[1], sys.argv[2]
    keep = [line for line in open(source).read().splitlines()
            if not re.match(r"\s*(music_dir|db_path|flac_path)\s*=", line)]
-   head = [f'music_dir = "{fx}/music"', f'db_path = "{fx}/app.sqlite"', "flac_path = false"]
+   head = [f'music_dir = "{fx}/music"', f'db_path = "{fx}/app.sqlite"']
    open(f"{fx}/config/v4vmm/config.toml", "w").write("\n".join(head + keep) + "\n")
    EOF
    PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
@@ -166,7 +166,15 @@ Do not delete `/tmp/v4vmm-governance.ie6k8TQf`. Color alone is not a valid diffe
 
 ### V2: A Successful Download Supersedes The Failed Conversion
 
-1. In the fixture app, search the Index for "Delta OG". Download the feed. The fixture has `flac_path = false`, so the WAV conversion fails.
+1. Make the conversion fail. Close the app. Add `flac_path = "/nonexistent/v4vmm-no-flac"` to `$FX/config/v4vmm/config.toml`, and start the app again.
+   The conversion falls back to `ffmpeg`. If `command -v ffmpeg` prints a path, put a failing `ffmpeg` first on `PATH` for the fixture app only:
+
+   ```bash
+   mkdir -p "$FX/bin"; printf '#!/bin/sh\nexit 1\n' > "$FX/bin/ffmpeg"; chmod +x "$FX/bin/ffmpeg"
+   ( export PATH="$FX/bin:$PATH" XDG_CONFIG_HOME="$FX/config" XDG_DATA_HOME="$FX/data" XDG_CACHE_HOME="$FX/cache"; /home/citizen/build/v4vmm/target/release/v4vmm )
+   ```
+
+   Search the Index for "Delta OG". Download the feed.
    Expect rows `Conversion: <track> (track <id>)` with **Edit converter setting** and **Dismiss**.
    Write down the count in the notice summary.
 2. Click **Edit converter setting**. Set `flac_path` to `flac` and save. Run **Check converter setting**. Expect the check to pass.
