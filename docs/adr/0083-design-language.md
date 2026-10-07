@@ -4,6 +4,8 @@
 
 Accepted - 2026-10-03. The operator chose the direction on 2026-10-03 from a private mockup canvas, and accepted this text on the same day. Phase 3 of the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md) implements Decisions 1 to 4.
 
+Amended 2026-10-07: Decision 5 names the main action until a page can play a track.
+
 It amends [ADR 0025](0025-theme-icon-style-boundary.md) (entity roles get their own palette), [ADR 0062](0062-music-content-surface.md) (a tile is a release) and [ADR 0066](0066-configuration-and-startup-failure-recovery.md) (the normal-shell notice opens from the status bar).
 
 ## Context
@@ -86,6 +88,8 @@ The renderer gets the backdrop from a view-model fact, for example derived color
 | Rare, technical or destructive action | The "⋯" menu and the right-click menu | MusicBrainz lookup, download again, remove |
 
 A destructive item is last in its menu, after a divider, in the danger color, and its label ends with "…". It asks for confirmation.
+
+Until a page can play a track ([ADR 0068](0068-show-cue-and-audition-isolation.md)), the filled main action is the next curation step for the state of the item. A track that is not in the Library gets "Download album". A Library track that is not downloaded gets "Download track". A downloaded track gets "Add to playlist". Play replaces it when playback exists. The operator decided this on 2026-10-07.
 
 ### 6. Rows Show Information And Hide Most Actions
 
