@@ -18,7 +18,7 @@ use gpui::{
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::IconName;
 use crate::ui::primitives::{
-    Button, Popover, PopoverAlignment, PopoverPlacement, Surface, SurfaceElevation,
+    Button, Divider, Popover, PopoverAlignment, PopoverPlacement, Surface, SurfaceElevation,
 };
 use crate::ui::tokens::{Size, Spacing};
 
@@ -296,8 +296,15 @@ fn build_menu_content(
         .flex_col()
         .gap(Spacing::XXS.scaled(cx));
 
+    let mut previous_destructive = true;
     for item in items {
         let display = item.display;
+        // ADR 0083 Decision 5: a divider separates a destructive item from
+        // the items before it.
+        if display.destructive && !previous_destructive {
+            content = content.child(Divider::horizontal());
+        }
+        previous_destructive = display.destructive;
         let on_select = item.on_select;
         let on_dismiss = on_dismiss.clone();
         let mut button = if display.destructive {

@@ -81,6 +81,11 @@ pub enum LibraryAppEvent {
     OpenPublisherPage {
         publisher_feed_guid: String,
     },
+    /// Opens the Library album page of a feed id, from the album name link
+    /// of a track page (ADR 0083 Decision 5).
+    OpenAlbumPage {
+        feed_id: i64,
+    },
 }
 
 impl gpui::EventEmitter<LibraryAppEvent> for LibraryApp {}

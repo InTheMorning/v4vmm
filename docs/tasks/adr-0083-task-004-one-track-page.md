@@ -1,6 +1,6 @@
 # ADR 0083 Task 004: One Track Page
 
-Status: Ready - 2026-10-07. Implementation has not started. The operator visual check opens when the packet is complete.
+Status: Open - implementation and mechanical checks are complete on 2026-10-07. The operator visual check is pending: [pending check 5](../pending-human-checks.md#5-one-track-page--adr-0083-task-004).
 
 ## Goal
 
@@ -108,6 +108,64 @@ cargo build --release --bin v4vmm
 ## Rollback
 
 Revert the working tree. This packet adds no migration and no stored data.
+
+## Result - 2026-10-07
+
+The orchestrator implemented this packet in the main session, after four subagent runs stopped at the view model.
+
+- View model, `src/view_models/track_detail.rs`:
+  - `TrackPageAction`, `TrackPageActionDisplay` and `TrackPageActions` give the filled action, the plain actions and the "⋯" items. `LibraryTrackActionState` (downloaded, busy, `MusicBrainz` available) selects them.
+  - `name_links()` gives `TrackNameLinkVm` values with a typed `TrackNameLinkTarget`: a Library album, an Index album or a publisher.
+  - `credits()` gives `TrackCreditVm` values in source order, each name and role one time. The Library list is the projected list of ADR 0076 task 006.
+  - `publisher_action()` is deleted. The publisher name link replaces it.
+- Shared owners:
+  - `ContextMenu` draws a divider before a destructive item.
+  - `AddToPlaylistPopover::trigger_style` lets "Add to playlist" be the filled button.
+  - `TrackDetailSurface` draws the name links under the title and a "Credits" box after the description.
+  - `track::render_track_name_links` draws the links for both origins.
+- Library page: `render_library_track_detail_actions` draws one row from `page_actions()`. "Inspect sources" (`InspectorPanelKind::Sources`, closed by default) holds Compare ID3, Apply and Discard, the `MusicBrainz` panel and the compare grid. "MusicBrainz lookup" in the menu opens "Inspect sources" and starts the lookup. A disabled lookup shows the ADR 0047 reason as its menu description.
+- Removal: `RemovalConfirmation::Always` makes "Remove track…" confirm each plan. Other callers keep `WhenReferenced`.
+- Navigation: `LibraryAppEvent::OpenAlbumPage` and `TopApp::open_library_album_page` open the Library album page. The search result path uses the same function.
+- Index page: `index_track_detail_slots` adds the name links and the filled "Download album". "Download album" reads the feed with `FetchIndexFeedDetail`, then calls `download_index_feed`, as the Index album page does.
+- Deleted: the old action builder, the "Open publisher" button, `LibraryTrackActionVm::subscription_button_label` and its two unread fields.
+
+Deviations:
+
+- An Index track has no "Copy feed URL". `TrackView` holds no feed URL, so the menu is absent, not disabled.
+- "Remove track…" shows only on a downloaded track. Today's toggle offers removal only in that state.
+- An Index track has no publisher link. `TrackView` holds no publisher feed GUID.
+- The `adr_0076_route_readiness_removal_actions_reuse_existing_flows` guard now expects the confirmation policy argument in `remove_track`. The rule is the same: one ADR 0044 removal flow.
+
+Proof:
+
+- R83-41: `adr_0083_both_track_page_origins_build_one_shared_surface`.
+- R83-42: `adr_0083_r83_42_index_track_actions`, `adr_0083_r83_42_library_track_not_downloaded_actions`, `adr_0083_r83_42_r83_43_downloaded_track_actions`.
+- R83-43: `adr_0083_r83_42_r83_43_downloaded_track_actions` and `always_confirmation_defers_an_unreferenced_track_removal`.
+- R83-44: `adr_0083_r83_44_name_links_open_the_album_and_the_publisher` and `adr_0083_r83_44_index_album_name_links_to_the_index_album`.
+- R83-45: `adr_0083_r83_45_credits_keep_source_order_without_duplicates`.
+- R83-46: `adr_0083_r83_46_inspect_sources_starts_closed_and_toggles`.
+- R83-47 and R83-48: the ADR 0075 and ADR 0083 guards stay Green.
+- The project gate is Green, and the release build is Green.
+
+## Operator Visual Check Procedure
+
+No step needs a mouse wheel. Use Page Down to scroll a page.
+
+1. Run `cargo build --release --bin v4vmm`, then `./target/release/v4vmm`.
+2. Downloaded track: open a Library album in the sidebar, then a downloaded track.
+   - Expected: under the title, the album name and the publisher name as links. One row: a filled "Add to playlist" and a "⋯" button. No "Open publisher" button.
+   - Click "⋯". Expected: "Copy feed URL", "MusicBrainz lookup", a divider, then "Remove track…" in red.
+   - Click "Remove track…". Expected: a confirmation dialog, also for a track in no playlist. Click Cancel.
+3. On the same page, press Page Down. Expected: "Credits" (if the track has credits) and a closed "Inspect sources". Click "Inspect sources". Expected: Compare ID3, then the compare grid as before.
+4. Click "⋯", then "MusicBrainz lookup". Expected: "Inspect sources" opens and the lookup panel shows.
+5. Click the album name link. Expected: the album page. Click Back, then the publisher name link. Expected: the publisher page.
+6. Index track: search `mellow cassette` in the toolbar and open the track "The Arbiter".
+   - Expected: the same header, the album name as a link, and a filled "Download album".
+   - Expected: the same section order as the Library page, with no "Inspect sources".
+   - Do not click "Download album" unless you want the album in the Library.
+7. Switch to Light (Settings, General) and repeat steps 2 and 6 once. Make the window narrow. Expected: no clipped text. Switch back.
+
+Cleanup: none, unless step 6 downloaded an album. Then remove it from the album page.
 
 ## Prompt for lower-context coding model
 

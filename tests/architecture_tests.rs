@@ -11544,8 +11544,10 @@ fn adr_0076_route_readiness_removal_actions_reuse_existing_flows() {
         "pub(crate) fn remove_track(",
         "fn request_library_removal(",
     ));
-    if !remove_track.contains(
-        "self.request_library_removal(LibraryRemovalIntent::TrackId(track_id), window, cx)",
+    // ADR 0083 Decision 5 added the confirmation policy argument. The flow
+    // stays the one ADR 0044 removal plan.
+    if !compact_source(&remove_track).contains(
+        "self.request_library_removal(LibraryRemovalIntent::TrackId(track_id),RemovalConfirmation::WhenReferenced,window,cx,)",
     ) {
         violations.push(format!(
             "src/library/app_impl.rs: remove_track must request the ADR 0044 removal plan.\n  {FIX}"
@@ -19988,5 +19990,48 @@ fn adr_0083_icon_guard_fails_for_a_sample_play_character() {
     assert!(
         adr_0083_icon_character_violations(sample_path, clean_sample).is_empty(),
         "a sample that carries a typed IconName must not trip the guard"
+    );
+}
+
+/// R83-41 (ADR 0083 task 004, ADR 0037 Pass 2): a Library track page and an
+/// Index track page build through the one shared track page surface, so
+/// both origins keep one header, action row and section order.
+#[test]
+fn adr_0083_both_track_page_origins_build_one_shared_surface() {
+    const FIX: &str = "ADR 0083 task 004 and ADR 0037 Pass 2: build each track page through \
+`track::build_track_detail_surface` with `TrackDetailBehaviorSlots`. Do not compose a \
+second track page layout in a shell.";
+    let library = read_source(&manifest_path("src/ui/shells/library/track_detail.rs"));
+    let index = read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
+    let library_core = code_only(source_between(
+        &library,
+        "pub(crate) fn render_library_track_detail_core(",
+        "\n}\n",
+    ));
+    let index_page = code_only(source_between(
+        &index,
+        "pub(crate) fn render_index_track_detail(",
+        "fn render_inspector_header(",
+    ));
+    let mut violations = Vec::new();
+    for (path, body) in [
+        ("src/ui/shells/library/track_detail.rs", &library_core),
+        ("src/ui/shells/search_results_inspector.rs", &index_page),
+    ] {
+        if !body.contains("build_track_detail_surface(") {
+            violations.push(format!(
+                "{path}: the track page does not build the shared surface.\n  {FIX}"
+            ));
+        }
+        if body.contains("TrackDetailSurface::new(") {
+            violations.push(format!(
+                "{path}: the track page builds a surface of its own.\n  {FIX}"
+            ));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0083 track page parity violations:\n{}",
+        violations.join("\n")
     );
 }

@@ -17,7 +17,9 @@ use crate::ui::primitives::MultilineText;
 use crate::ui::style::radius;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::track::TrackHeaderVm;
-use crate::view_models::track_detail::{TrackDetailLoadState, TrackDetailSection, TrackDetailVm};
+use crate::view_models::track_detail::{
+    TrackCreditVm, TrackDetailLoadState, TrackDetailSection, TrackDetailVm, CREDITS_LABEL,
+};
 
 use super::{DetailGrid, DetailRow, DetailTextRow, TrackHeader};
 
@@ -33,9 +35,11 @@ pub struct TrackDetailSurface {
     description: Option<String>,
     description_panel: Option<TrackSurfaceElement>,
     hide_description: bool,
+    name_links: Vec<TrackSurfaceElement>,
     primary_actions: Vec<TrackSurfaceElement>,
     primary_actions_a11y_label: String,
     external_links: Vec<TrackSurfaceElement>,
+    credits: Vec<TrackCreditVm>,
     sections: Vec<TrackDetailSection>,
     section_elements: Vec<TrackSurfaceElement>,
     advanced_panels: Vec<TrackSurfaceElement>,
@@ -53,9 +57,11 @@ impl TrackDetailSurface {
             description: vm.description(),
             description_panel: None,
             hide_description: false,
+            name_links: Vec::new(),
             primary_actions: Vec::new(),
             primary_actions_a11y_label: vm.primary_actions_a11y_label().to_string(),
             external_links: Vec::new(),
+            credits: vm.credits(),
             sections: Vec::new(),
             section_elements: Vec::new(),
             advanced_panels: Vec::new(),
@@ -69,6 +75,13 @@ impl TrackDetailSurface {
 
     pub fn load_state(mut self, load_state: TrackDetailLoadState) -> Self {
         self.load_state = load_state;
+        self
+    }
+
+    /// The album and publisher name links under the title (ADR 0083
+    /// Decision 5).
+    pub fn name_links(mut self, links: Vec<TrackSurfaceElement>) -> Self {
+        self.name_links = links;
         self
     }
 
@@ -147,6 +160,18 @@ fn render_loaded_surface(surface: TrackDetailSurface, cx: &mut App) -> AnyElemen
         .image(surface.image),
     );
 
+    if !surface.name_links.is_empty() {
+        stack = stack.child(
+            div()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .items_center()
+                .gap(Spacing::SM.scaled(cx))
+                .children(surface.name_links),
+        );
+    }
+
     if !surface.primary_actions.is_empty() {
         std::mem::drop(surface.primary_actions_a11y_label);
         stack = stack.child(
@@ -195,6 +220,25 @@ fn render_loaded_surface(surface: TrackDetailSurface, cx: &mut App) -> AnyElemen
                 cx,
             ));
         }
+    }
+
+    if !surface.credits.is_empty() {
+        let rows = surface
+            .credits
+            .into_iter()
+            .map(|credit| {
+                DetailRow::text(DetailTextRow {
+                    key: credit.role.into(),
+                    value: credit.name,
+                    max_lines: 2,
+                })
+            })
+            .collect::<Vec<_>>();
+        stack = stack.child(render_labeled_box(
+            CREDITS_LABEL.to_owned(),
+            DetailGrid::new(rows).into_any_element(),
+            cx,
+        ));
     }
 
     for section in surface.sections {

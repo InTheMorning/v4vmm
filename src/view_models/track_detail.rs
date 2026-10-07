@@ -14,7 +14,7 @@ use crate::view_models::entity_detail::{
 use crate::view_models::format::fmt_date;
 use crate::view_models::track::fmt_dur;
 use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
-use crate::views::{ArtistRef, FeedRef, TrackRef, TrackView};
+use crate::views::{FeedRef, TrackRef, TrackView};
 
 const UNTITLED: &str = "Untitled";
 const UNKNOWN_ARTIST: &str = "Unknown Artist";
@@ -136,6 +136,11 @@ pub struct TrackDetailVm<'a> {
     /// header (ADR 0075 Decision B, packet 022). `None` when the caller's
     /// surface has no feed.
     feed: Option<&'a Feed>,
+    /// The Library state that selects the page actions (ADR 0083 Decision
+    /// 5). `None` for a track that is not in the Library.
+    library_state: Option<LibraryTrackActionState>,
+    /// The Library feed id of the track's album, for the album name link.
+    album_feed_id: Option<i64>,
 }
 
 impl<'a> TrackDetailVm<'a> {
@@ -147,6 +152,8 @@ impl<'a> TrackDetailVm<'a> {
             override_title: None,
             publisher_feed_guid: None,
             feed: None,
+            library_state: None,
+            album_feed_id: None,
         }
     }
 
@@ -169,6 +176,22 @@ impl<'a> TrackDetailVm<'a> {
     #[must_use]
     pub const fn with_feed_identity(mut self, feed: Option<&'a Feed>) -> Self {
         self.feed = feed;
+        self
+    }
+
+    /// Supplies the Library feed id of the track's album, so the album name
+    /// links to the Library album page.
+    #[must_use]
+    pub const fn with_album_feed_id(mut self, album_feed_id: i64) -> Self {
+        self.album_feed_id = Some(album_feed_id);
+        self
+    }
+
+    /// Supplies the Library state of the track. A track without this state
+    /// is not in the Library, and gets the actions of an Index track.
+    #[must_use]
+    pub const fn with_library_state(mut self, state: LibraryTrackActionState) -> Self {
+        self.library_state = Some(state);
         self
     }
 
@@ -377,18 +400,71 @@ impl<'a> TrackDetailVm<'a> {
         actions
     }
 
-    /// R4-03 (ADR 0077 packet 004): the "open publisher" action of this
-    /// track's album feed. `None` when the album names no publisher. The
-    /// track stores no publisher value of its own.
+    /// The name links under the title (ADR 0083 Decision 5: navigation is a
+    /// link on the text). The album name links to its album page. The
+    /// publisher name links to the publisher page of the album feed (ADR
+    /// 0077 packet 004). A name with no page target gives no link.
     #[must_use]
-    pub fn publisher_action(&self) -> Option<EntityActionVm> {
-        let publisher_feed_guid = self.publisher_feed_guid?.to_owned();
-        Some(EntityActionVm::new(
-            EntityActionKind::OpenPublisher,
-            EntityActionTarget::Artist(ArtistRef::PublisherFeed(publisher_feed_guid)),
-            "Open publisher",
-            EntityActionTone::Quiet,
-        ))
+    pub fn name_links(&self) -> Vec<TrackNameLinkVm> {
+        let mut links = Vec::new();
+        let album_target = match self.context {
+            TrackDetailSurfaceContext::Library => {
+                self.album_feed_id.map(TrackNameLinkTarget::LibraryAlbum)
+            }
+            TrackDetailSurfaceContext::Discover => self
+                .track
+                .feed_guid
+                .as_deref()
+                .and_then(nonempty)
+                .map(|feed_guid| TrackNameLinkTarget::IndexAlbum {
+                    feed_guid: feed_guid.to_owned(),
+                }),
+        };
+        if let Some(target) = album_target {
+            let label = self.display_album();
+            links.push(TrackNameLinkVm {
+                a11y_label: format!("Open the album {label}"),
+                label,
+                target,
+            });
+        }
+        if let Some(publisher_feed_guid) = self.publisher_feed_guid.and_then(nonempty) {
+            let label = self
+                .publisher_display()
+                .unwrap_or_else(|| PUBLISHER_LINK_FALLBACK.to_owned());
+            links.push(TrackNameLinkVm {
+                a11y_label: format!("Open the publisher {label}"),
+                label,
+                target: TrackNameLinkTarget::Publisher(publisher_feed_guid.to_owned()),
+            });
+        }
+        links
+    }
+
+    /// The credits of the track in source order, each name and role one
+    /// time. The Library list is the projected list of ADR 0076 task 006.
+    /// A credit carries no provider label.
+    #[must_use]
+    pub fn credits(&self) -> Vec<TrackCreditVm> {
+        let mut credits: Vec<TrackCreditVm> = Vec::new();
+        for contributor in &self.track.contributors {
+            let Some(name) = contributor.name.as_deref().and_then(nonempty) else {
+                continue;
+            };
+            let role = contributor
+                .role
+                .as_deref()
+                .and_then(nonempty)
+                .unwrap_or(CREDIT_ROLE_FALLBACK);
+            let credit = TrackCreditVm {
+                role: role.to_owned(),
+                name: name.to_owned(),
+            };
+            if !credits.contains(&credit) {
+                credits.push(credit);
+            }
+        }
+        credits
     }
 
     #[must_use]
@@ -477,6 +553,59 @@ impl<'a> TrackDetailVm<'a> {
             TrackDetailSurfaceContext::Library => "Library track actions",
         }
     }
+
+    /// The feed URL of the track's feed, from the feed record. `None` when
+    /// the caller supplied no feed or the feed states no URL.
+    #[must_use]
+    pub fn feed_url(&self) -> Option<&'a str> {
+        self.feed
+            .and_then(|feed| feed.feed_url.as_deref())
+            .and_then(nonempty)
+    }
+
+    /// The page actions of ADR 0083 Decision 5, with the main action of the
+    /// 2026-10-07 amendment: the next curation step for the track state.
+    #[must_use]
+    pub fn page_actions(&self) -> TrackPageActions {
+        let copy_feed_url = self
+            .feed_url()
+            .map(|_| TrackPageActionDisplay::new(TrackPageAction::CopyFeedUrl, true));
+        let Some(state) = self.library_state else {
+            let has_album = self.track.feed_guid.as_deref().and_then(nonempty).is_some();
+            return TrackPageActions {
+                filled: TrackPageActionDisplay::new(TrackPageAction::DownloadAlbum, has_album),
+                plain: Vec::new(),
+                menu: copy_feed_url.into_iter().collect(),
+            };
+        };
+        if !state.downloaded {
+            return TrackPageActions {
+                filled: TrackPageActionDisplay::new(
+                    TrackPageAction::DownloadTrack,
+                    !state.subscription_busy,
+                ),
+                plain: vec![TrackPageActionDisplay::new(
+                    TrackPageAction::AddToPlaylist,
+                    true,
+                )],
+                menu: copy_feed_url.into_iter().collect(),
+            };
+        }
+        let mut menu: Vec<_> = copy_feed_url.into_iter().collect();
+        menu.push(TrackPageActionDisplay::new(
+            TrackPageAction::MusicBrainzLookup,
+            state.musicbrainz_available,
+        ));
+        menu.push(TrackPageActionDisplay::new(
+            TrackPageAction::RemoveTrack,
+            !state.subscription_busy,
+        ));
+        TrackPageActions {
+            filled: TrackPageActionDisplay::new(TrackPageAction::AddToPlaylist, true),
+            plain: Vec::new(),
+            menu,
+        }
+    }
 }
 
 /// Page-level projection for a track detail surface.
@@ -514,6 +643,18 @@ impl<'a> TrackDetailPageVm<'a> {
     #[must_use]
     pub const fn feed_identity_action_prefix(&self) -> &'static str {
         self.detail.feed_identity_action_prefix()
+    }
+
+    /// The page actions of ADR 0083 Decision 5 (R83-42).
+    #[must_use]
+    pub fn page_actions(&self) -> TrackPageActions {
+        self.detail.page_actions()
+    }
+
+    /// The feed URL that "Copy feed URL" copies.
+    #[must_use]
+    pub fn feed_url(&self) -> Option<&'a str> {
+        self.detail.feed_url()
     }
 }
 
@@ -658,10 +799,145 @@ fn nonempty(value: &str) -> Option<&str> {
     (!value.is_empty()).then_some(value)
 }
 
+/// The Library state of a track that selects its page actions (ADR 0083
+/// Decision 5).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct LibraryTrackActionState {
+    /// The track has a local subscription and a downloaded file.
+    pub downloaded: bool,
+    /// A download or a removal of the track is in progress.
+    pub subscription_busy: bool,
+    /// A `MusicBrainz` lookup can run for the downloaded file.
+    pub musicbrainz_available: bool,
+}
+
+/// One action of a track page. The renderer maps each variant to its
+/// command (ADR 0083 Decision 5).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum TrackPageAction {
+    /// Download the album feed of a track that is not in the Library.
+    DownloadAlbum,
+    /// Download a Library track that has no local file.
+    DownloadTrack,
+    /// Add the track to a playlist.
+    AddToPlaylist,
+    /// Copy the feed URL of the track's feed.
+    CopyFeedUrl,
+    /// Look up the downloaded file in `MusicBrainz`.
+    MusicBrainzLookup,
+    /// Remove the track from the Library, after a confirmation.
+    RemoveTrack,
+}
+
+impl TrackPageAction {
+    /// The visible label. A label that opens a confirmation ends with "…".
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::DownloadAlbum => "Download album",
+            Self::DownloadTrack => "Download track",
+            Self::AddToPlaylist => "Add to playlist",
+            Self::CopyFeedUrl => "Copy feed URL",
+            Self::MusicBrainzLookup => "MusicBrainz lookup",
+            Self::RemoveTrack => "Remove track…",
+        }
+    }
+
+    /// The accessibility label.
+    #[must_use]
+    pub const fn a11y_label(self) -> &'static str {
+        match self {
+            Self::DownloadAlbum => "Download the album of this track",
+            Self::DownloadTrack => "Download this track",
+            Self::AddToPlaylist => "Add this track to a playlist",
+            Self::CopyFeedUrl => "Copy the feed URL of this track",
+            Self::MusicBrainzLookup => "Look up this track in MusicBrainz",
+            Self::RemoveTrack => "Remove this track from the Library",
+        }
+    }
+
+    /// A destructive action is last in its menu and asks for confirmation.
+    #[must_use]
+    pub const fn is_destructive(self) -> bool {
+        matches!(self, Self::RemoveTrack)
+    }
+}
+
+/// A display-ready track page action with its typed availability.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TrackPageActionDisplay {
+    /// The action.
+    pub action: TrackPageAction,
+    /// The action can run now.
+    pub available: bool,
+}
+
+impl TrackPageActionDisplay {
+    /// Make a display for `action`.
+    #[must_use]
+    pub const fn new(action: TrackPageAction, available: bool) -> Self {
+        Self { action, available }
+    }
+}
+
+/// The actions of a track page in the order of ADR 0083 Decision 5: one
+/// filled button, at most two plain buttons, and the "⋯" menu.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrackPageActions {
+    /// The one filled button.
+    pub filled: TrackPageActionDisplay,
+    /// The plain buttons.
+    pub plain: Vec<TrackPageActionDisplay>,
+    /// The "⋯" menu items. A destructive item is last.
+    pub menu: Vec<TrackPageActionDisplay>,
+}
+
+/// The label of a publisher link when the album states no publisher name.
+const PUBLISHER_LINK_FALLBACK: &str = "Publisher";
+/// The role of a credit that states no role.
+const CREDIT_ROLE_FALLBACK: &str = "Credit";
+/// The heading of the credits section.
+pub const CREDITS_LABEL: &str = "Credits";
+
+/// The page that a name link under the track title opens.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TrackNameLinkTarget {
+    /// The Library album page of a feed id.
+    LibraryAlbum(i64),
+    /// The Index album page of a feed GUID.
+    IndexAlbum {
+        /// The feed GUID of the album.
+        feed_guid: String,
+    },
+    /// The publisher page of a publisher feed GUID (ADR 0077 Decision 1).
+    Publisher(String),
+}
+
+/// A name under the track title that links to a page.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrackNameLinkVm {
+    /// The visible name.
+    pub label: String,
+    /// The accessibility label.
+    pub a11y_label: String,
+    /// The page that the link opens.
+    pub target: TrackNameLinkTarget,
+}
+
+/// One credit of a track: a role and a name.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrackCreditVm {
+    /// The role, for example "Vocals".
+    pub role: String,
+    /// The name of the person or group.
+    pub name: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::api::{SourceEntityId, SourceEntityLink, SourceReleaseClaim};
+    use crate::views::ContributorView;
     use crate::views::{EntityIdentityLinks, IdentityIdFact, IdentityLinkFact, TrackRef};
 
     fn track() -> TrackView {
@@ -1085,29 +1361,168 @@ mod tests {
         );
     }
 
-    /// R4-03 (ADR 0077 packet 004): a track exposes the "open publisher"
-    /// action of its album feed. No value comes from the track itself: the
-    /// same track with no publisher feed GUID supplied exposes no action.
+    /// R83-44 and R4-03: the publisher name links to the publisher page of
+    /// the album feed. The track alone gives no publisher link.
     #[test]
-    fn adr_0077_publisher_navigation_track_exposes_its_album_feed_publisher_action() {
+    fn adr_0083_r83_44_name_links_open_the_album_and_the_publisher() {
         let track = track_with_identity();
 
-        let with_publisher = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library)
+        let links = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library)
+            .with_album_feed_id(9)
             .with_publisher_feed_guid(Some("publisher-guid"))
-            .publisher_action()
-            .expect("a track with an album feed publisher exposes an action");
-        assert_eq!(with_publisher.kind, EntityActionKind::OpenPublisher);
+            .name_links();
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0].target, TrackNameLinkTarget::LibraryAlbum(9));
         assert_eq!(
-            with_publisher.target,
-            EntityActionTarget::Artist(ArtistRef::PublisherFeed("publisher-guid".into()))
+            links[1].target,
+            TrackNameLinkTarget::Publisher("publisher-guid".into())
         );
-        assert!(with_publisher.enabled);
 
-        let without_publisher =
-            TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library).publisher_action();
-        assert_eq!(
-            without_publisher, None,
-            "no track row stores a publisher value: the track alone gives no action"
+        let without_targets =
+            TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library).name_links();
+        assert!(
+            without_targets.is_empty(),
+            "a name with no page target gives no link"
         );
+    }
+
+    /// R83-44: an Index track links its album name to the Index album page.
+    #[test]
+    fn adr_0083_r83_44_index_album_name_links_to_the_index_album() {
+        let mut track = track();
+        track.feed_guid = Some("feed-guid".into());
+        let links = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover).name_links();
+        assert_eq!(
+            links[0].target,
+            TrackNameLinkTarget::IndexAlbum {
+                feed_guid: "feed-guid".into()
+            }
+        );
+    }
+
+    /// R83-45: the credits keep source order, show each name and role one
+    /// time, and skip a credit with no name.
+    #[test]
+    fn adr_0083_r83_45_credits_keep_source_order_without_duplicates() {
+        let mut track = track();
+        let credit = |name: Option<&str>, role: Option<&str>| ContributorView {
+            name: name.map(str::to_owned),
+            role: role.map(str::to_owned),
+            group_name: None,
+            href: None,
+            image_url: None,
+            nostr_npub: None,
+        };
+        track.contributors = vec![
+            credit(Some("Zed"), Some("Vocals")),
+            credit(Some("Amy"), Some("Guitar")),
+            credit(Some("Zed"), Some("Vocals")),
+            credit(None, Some("Drums")),
+            credit(Some("Bo"), None),
+        ];
+        let credits = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library).credits();
+        let pairs: Vec<_> = credits
+            .iter()
+            .map(|credit| (credit.role.as_str(), credit.name.as_str()))
+            .collect();
+        assert_eq!(
+            pairs,
+            vec![("Vocals", "Zed"), ("Guitar", "Amy"), ("Credit", "Bo")]
+        );
+    }
+
+    fn feed_with_url() -> Feed {
+        Feed {
+            feed_url: Some("https://example.test/feed.xml".into()),
+            ..Feed::default()
+        }
+    }
+
+    fn actions_of(menu: &[TrackPageActionDisplay]) -> Vec<TrackPageAction> {
+        menu.iter().map(|item| item.action).collect()
+    }
+
+    /// R83-42: a track that is not in the Library gets "Download album",
+    /// and "Copy feed URL" only when its feed states a URL.
+    #[test]
+    fn adr_0083_r83_42_index_track_actions() {
+        let track = track();
+        let without_feed = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover);
+        let actions = without_feed.page_actions();
+        assert_eq!(actions.filled.action, TrackPageAction::DownloadAlbum);
+        assert!(
+            !actions.filled.available,
+            "a track with no album feed GUID cannot download its album"
+        );
+        assert!(actions.plain.is_empty());
+        assert!(actions.menu.is_empty());
+
+        let feed = feed_with_url();
+        let with_feed = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
+            .with_feed_identity(Some(&feed));
+        assert_eq!(
+            actions_of(&with_feed.page_actions().menu),
+            vec![TrackPageAction::CopyFeedUrl]
+        );
+    }
+
+    /// R83-42: a Library track with no local file gets "Download track" and
+    /// "Add to playlist". A busy download makes "Download track" unavailable.
+    #[test]
+    fn adr_0083_r83_42_library_track_not_downloaded_actions() {
+        let track = track();
+        let feed = feed_with_url();
+        let busy = LibraryTrackActionState {
+            subscription_busy: true,
+            ..LibraryTrackActionState::default()
+        };
+        let actions = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library)
+            .with_feed_identity(Some(&feed))
+            .with_library_state(busy)
+            .page_actions();
+        assert_eq!(actions.filled.action, TrackPageAction::DownloadTrack);
+        assert!(!actions.filled.available);
+        assert_eq!(
+            actions_of(&actions.plain),
+            vec![TrackPageAction::AddToPlaylist]
+        );
+        assert_eq!(
+            actions_of(&actions.menu),
+            vec![TrackPageAction::CopyFeedUrl]
+        );
+    }
+
+    /// R83-42 and R83-43: a downloaded track gets "Add to playlist" as the
+    /// filled action. "Remove track…" is the last menu item and destructive.
+    #[test]
+    fn adr_0083_r83_42_r83_43_downloaded_track_actions() {
+        let track = track();
+        let feed = feed_with_url();
+        let state = LibraryTrackActionState {
+            downloaded: true,
+            subscription_busy: false,
+            musicbrainz_available: false,
+        };
+        let actions = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library)
+            .with_feed_identity(Some(&feed))
+            .with_library_state(state)
+            .page_actions();
+        assert_eq!(actions.filled.action, TrackPageAction::AddToPlaylist);
+        assert!(actions.plain.is_empty());
+        assert_eq!(
+            actions_of(&actions.menu),
+            vec![
+                TrackPageAction::CopyFeedUrl,
+                TrackPageAction::MusicBrainzLookup,
+                TrackPageAction::RemoveTrack,
+            ]
+        );
+        assert!(
+            !actions.menu[1].available,
+            "no MusicBrainz lookup is possible"
+        );
+        let last = actions.menu.last().expect("menu has items");
+        assert!(last.action.is_destructive());
+        assert!(last.action.label().ends_with('…'));
     }
 }

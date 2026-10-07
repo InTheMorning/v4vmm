@@ -327,6 +327,9 @@ impl TopApp {
                         cx,
                     );
                 }
+                LibraryAppEvent::OpenAlbumPage { feed_id } => {
+                    this.open_library_album_page(*feed_id, cx);
+                }
             },
         );
         let appearance_sub = cx.observe_window_appearance(window, |this, window, cx| {

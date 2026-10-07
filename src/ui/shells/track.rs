@@ -7,25 +7,30 @@
 //! both call into this module. All layout lives inside shared composites;
 //! this module only wires callbacks.
 
+use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{prelude::*, App, ClipboardItem, Image, SharedString};
+use gpui::{prelude::*, App, ClipboardItem, Image, SharedString, Window};
 
 use crate::ui::composites::{
     identity_action_button, render_feed_identity_panel, IdentityActionButtonDisplay,
     IdentityActionKind, TrackDetailSurface, TrackSurfaceElement,
 };
+use crate::ui::control_styles::ControlStyle;
+use crate::ui::primitives::Button;
 use crate::view_models::entity_detail::{
     EntityActionVm, IdentityActionDisplay, IdentityActionDisplayKind,
 };
 use crate::view_models::track_detail::{
-    TrackDetailLoadState, TrackDetailPageVm, TrackDetailSection,
+    TrackDetailLoadState, TrackDetailPageVm, TrackDetailSection, TrackNameLinkTarget,
+    TrackNameLinkVm,
 };
 
 #[derive(Default)]
 pub(crate) struct TrackDetailBehaviorSlots {
     pub hero_image: Option<Arc<Image>>,
     pub load_state: Option<TrackDetailLoadState>,
+    pub name_links: Vec<TrackSurfaceElement>,
     pub primary_actions: Vec<TrackSurfaceElement>,
     pub external_links: Vec<TrackSurfaceElement>,
     pub description_panel: Option<TrackSurfaceElement>,
@@ -60,6 +65,38 @@ pub(crate) fn render_track_feed_identity_section(
     Some(TrackSurfaceElement::from_element(
         render_feed_identity_panel(section.owner_label, actions, cx),
     ))
+}
+
+/// Renders the name links under the track title (ADR 0083 Decision 5).
+/// `on_open` runs the navigation of the origin: a Library page and an Index
+/// page open different pages for the same target kind.
+#[must_use]
+pub(crate) fn render_track_name_links(
+    page: &TrackDetailPageVm<'_>,
+    on_open: impl Fn(&TrackNameLinkTarget, &mut Window, &mut App) + 'static,
+) -> Vec<TrackSurfaceElement> {
+    let on_open = Rc::new(on_open);
+    page.detail()
+        .name_links()
+        .into_iter()
+        .enumerate()
+        .map(|(index, link)| {
+            let on_open = Rc::clone(&on_open);
+            let TrackNameLinkVm {
+                label,
+                a11y_label,
+                target,
+            } = link;
+            let button = Button::styled(
+                SharedString::from(format!("track-name-link-{index}")),
+                ControlStyle::Ghost,
+            )
+            .label(label)
+            .a11y_label(a11y_label)
+            .on_click(move |_, window, cx| on_open(&target, window, cx));
+            TrackSurfaceElement::from_element(button.into_any_element())
+        })
+        .collect()
 }
 
 fn render_track_identity_actions(
@@ -109,6 +146,10 @@ pub(crate) fn build_track_detail_surface(
 
     if let Some(load_state) = slots.load_state {
         surface = surface.load_state(load_state);
+    }
+
+    if !slots.name_links.is_empty() {
+        surface = surface.name_links(slots.name_links);
     }
 
     if !slots.primary_actions.is_empty() {

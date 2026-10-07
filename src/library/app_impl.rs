@@ -72,12 +72,13 @@ use crate::view_models::library::{
     FeedUpdateActionDisplay, FeedUpdateActionKind, FeedUpdateDisplay, FeedUpdatePhase,
     InspectorPanelKind, LibraryTrackActionVm, LibraryTrackInspectorState, LibraryTrackRowVm,
     LibraryViewModel, MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome,
-    PlaylistDetailActionsDisplay, PlaylistSidebarRowVm, PlaylistSidebarVm,
+    PlaylistDetailActionsDisplay, PlaylistSidebarRowVm, PlaylistSidebarVm, RemovalConfirmation,
     SavedSearchesSectionDisplay, TrackSubscribeOutcome,
 };
 use crate::view_models::pagination::pending_skeleton_count;
 use crate::view_models::playlist_option_displays;
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
+use crate::view_models::track_detail::TrackNameLinkTarget;
 use crate::view_models::workspace::{
     BreadcrumbDisplay, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
     FrameNavigationEntry, FrameNavigationState, LibraryFilterControlDisplay, WorkspaceFrameId,
@@ -482,6 +483,29 @@ impl LibraryApp {
     /// Opens the publisher page of an album or a track's album feed (ADR
     /// 0077 packet 004). The top app owns the publisher page fetch and its
     /// navigation entry.
+    /// Opens the page of a name link under a Library track title (ADR 0083
+    /// Decision 5).
+    pub(crate) fn open_track_name_link(
+        &mut self,
+        target: &TrackNameLinkTarget,
+        cx: &mut Context<Self>,
+    ) {
+        match target {
+            TrackNameLinkTarget::LibraryAlbum(feed_id) => {
+                cx.emit(super::LibraryAppEvent::OpenAlbumPage { feed_id: *feed_id });
+            }
+            TrackNameLinkTarget::IndexAlbum { feed_guid } => {
+                cx.emit(super::LibraryAppEvent::OpenIndexFeedDetail {
+                    feed_guid: feed_guid.clone(),
+                    label: feed_guid.clone(),
+                });
+            }
+            TrackNameLinkTarget::Publisher(publisher_feed_guid) => {
+                self.open_publisher_page(publisher_feed_guid, cx);
+            }
+        }
+    }
+
     pub(crate) fn open_publisher_page(
         &mut self,
         publisher_feed_guid: &str,
@@ -2198,7 +2222,12 @@ impl LibraryApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.request_library_removal(LibraryRemovalIntent::FeedId(feed_id), window, cx);
+        self.request_library_removal(
+            LibraryRemovalIntent::FeedId(feed_id),
+            RemovalConfirmation::WhenReferenced,
+            window,
+            cx,
+        );
     }
 
     pub(crate) fn download_feed(&mut self, feed_id: i64, cx: &mut Context<Self>) {
@@ -2244,12 +2273,34 @@ impl LibraryApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.request_library_removal(LibraryRemovalIntent::TrackId(track_id), window, cx);
+        self.request_library_removal(
+            LibraryRemovalIntent::TrackId(track_id),
+            RemovalConfirmation::WhenReferenced,
+            window,
+            cx,
+        );
+    }
+
+    /// "Remove track…" of the track page: the removal always asks for
+    /// confirmation (ADR 0083 Decision 5).
+    pub(crate) fn remove_track_after_confirmation(
+        &mut self,
+        track_id: i64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.request_library_removal(
+            LibraryRemovalIntent::TrackId(track_id),
+            RemovalConfirmation::Always,
+            window,
+            cx,
+        );
     }
 
     fn request_library_removal(
         &mut self,
         intent: LibraryRemovalIntent,
+        confirmation: RemovalConfirmation,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -2267,7 +2318,7 @@ impl LibraryApp {
                 return;
             }
         };
-        if !self.vm.confirm_library_removal(plan) {
+        if !self.vm.confirm_library_removal(plan, confirmation) {
             let Some(display) = self.vm.pending_library_removal_confirmation() else {
                 cx.notify();
                 return;
@@ -2539,7 +2590,12 @@ impl LibraryApp {
         };
         let track = match action {
             TrackSubscriptionAction::Remove(track_id) => {
-                self.request_library_removal(LibraryRemovalIntent::TrackId(track_id), window, cx);
+                self.request_library_removal(
+                    LibraryRemovalIntent::TrackId(track_id),
+                    RemovalConfirmation::WhenReferenced,
+                    window,
+                    cx,
+                );
                 return;
             }
             TrackSubscriptionAction::Download(track) => track,
@@ -2735,6 +2791,35 @@ impl LibraryApp {
                 }
             },
         );
+    }
+
+    /// Opens or closes the "Inspect sources" disclosure of the selected
+    /// track page (ADR 0083 Decision 8).
+    pub(crate) fn toggle_inspect_sources(&mut self, cx: &mut Context<Self>) {
+        let Some(frame) = self.selected_track_frame_mut() else {
+            return;
+        };
+        frame.toggle_inspector_panel(InspectorPanelKind::Sources);
+        cx.notify();
+    }
+
+    /// "MusicBrainz lookup" of the track page menu: opens "Inspect sources"
+    /// and starts the lookup, or shows the panel when it is already open.
+    pub(crate) fn show_musicbrainz_lookup(&mut self, cx: &mut Context<Self>) {
+        let Some(frame) = self.selected_track_frame_mut() else {
+            return;
+        };
+        frame
+            .inspector_state
+            .expand_panel(InspectorPanelKind::Sources);
+        if frame
+            .inspector_state
+            .is_panel_expanded(InspectorPanelKind::MusicBrainz)
+        {
+            cx.notify();
+            return;
+        }
+        self.toggle_musicbrainz_lookup(cx);
     }
 
     pub(crate) fn select_musicbrainz_candidate(&mut self, idx: usize, cx: &mut Context<Self>) {

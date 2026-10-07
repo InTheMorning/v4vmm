@@ -24,7 +24,7 @@ use crate::presentation::present_command;
 use crate::subscribe_service::{SubscribeFeedRequest, SubscribeTrackRequest};
 use crate::ui::composites::{
     action_button, ActionButtonDisplay, AddToPlaylistDisplay, AddToPlaylistPopover,
-    DisclosureTextPanel, DisclosureTextPanelDisplay, ReleaseSurfaceElement,
+    DisclosureTextPanel, DisclosureTextPanelDisplay, ReleaseSurfaceElement, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::Button as UiButton;
@@ -34,13 +34,17 @@ use crate::ui::shells::entity::{
 use crate::ui::shells::search_results_inspector::{
     render_index_detail_display, render_index_feed_detail, render_index_track_detail,
 };
-use crate::ui::shells::track::TrackDetailBehaviorSlots;
+use crate::ui::shells::track::{render_track_name_links, TrackDetailBehaviorSlots};
 use crate::view_models::entity_detail::{
     EntityActionTarget, EntitySurfaceContext, ReleaseDetailVm, SharedTrackRowVm,
 };
 use crate::view_models::publisher_page::PublisherPageContext;
 use crate::view_models::search_results::{
     IndexDetailDisplay, IndexDetailKind, SearchResultsInspectorPageVm, SearchResultsTab,
+};
+use crate::view_models::track_detail::{
+    TrackDetailSurfaceContext, TrackDetailVm, TrackNameLinkTarget, TrackPageAction,
+    TrackPageActions,
 };
 use crate::view_models::workspace::{FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId};
 use crate::views::{ArtistRef, FeedRef, FeedView, TrackRef, TrackView};
@@ -463,22 +467,7 @@ impl TopApp {
                 }
 
                 if let Ok(feed_id) = result_id.parse::<i64>() {
-                    let album_found = self.library.read(cx).album_for_detail_by_feed_id(feed_id);
-                    if let Some(album) = album_found {
-                        self.library.update(cx, |library, cx| {
-                            library.select_album(&album, cx);
-                        });
-                        if let Err(e) = self
-                            .workspace_layout
-                            .push_nav(content_frame_id, FrameNavigationEntry::AlbumDetail(feed_id))
-                        {
-                            self.settings_status = format!("Failed to navigate to feed: {e}");
-                        }
-                        cx.notify();
-                    } else {
-                        self.settings_status = format!("Feed {feed_id} not found");
-                        cx.notify();
-                    }
+                    self.open_library_album_in_frame(feed_id, content_frame_id, cx);
                 } else {
                     self.settings_status = format!("Invalid feed id: {result_id}");
                     cx.notify();
@@ -826,6 +815,40 @@ impl TopApp {
         }
     }
 
+    /// Opens the Library album page of `feed_id` in the content frame.
+    /// The album name link of a track page uses it (ADR 0083 Decision 5).
+    pub(super) fn open_library_album_page(&mut self, feed_id: i64, cx: &mut Context<Self>) {
+        let Some(content_frame_id) = self.content_list_frame_id() else {
+            self.settings_status = "ContentList frame not found".to_string();
+            cx.notify();
+            return;
+        };
+        self.open_library_album_in_frame(feed_id, content_frame_id, cx);
+    }
+
+    fn open_library_album_in_frame(
+        &mut self,
+        feed_id: i64,
+        content_frame_id: WorkspaceFrameId,
+        cx: &mut Context<Self>,
+    ) {
+        let album_found = self.library.read(cx).album_for_detail_by_feed_id(feed_id);
+        if let Some(album) = album_found {
+            self.library.update(cx, |library, cx| {
+                library.select_album(&album, cx);
+            });
+            if let Err(e) = self
+                .workspace_layout
+                .push_nav(content_frame_id, FrameNavigationEntry::AlbumDetail(feed_id))
+            {
+                self.settings_status = format!("Failed to navigate to feed: {e}");
+            }
+        } else {
+            self.settings_status = format!("Feed {feed_id} not found");
+        }
+        cx.notify();
+    }
+
     pub(super) fn render_index_feed_or_fallback_detail(
         &mut self,
         detail: &crate::view_models::search_results::IndexDetailDisplay,
@@ -870,10 +893,82 @@ impl TopApp {
         track: &TrackView,
         cx: &mut Context<Self>,
     ) -> TrackDetailBehaviorSlots {
+        let page = TrackDetailVm::new(track, TrackDetailSurfaceContext::Discover).page();
+        let entity = cx.entity();
+        let name_links = render_track_name_links(&page, move |target, _window, cx| {
+            entity.update(cx, |this, cx| this.open_index_track_name_link(target, cx));
+        });
         TrackDetailBehaviorSlots {
             hero_image: self.index_track_hero_image(track, cx),
+            name_links,
+            primary_actions: Self::index_track_page_actions(&page.page_actions(), track, cx),
             ..TrackDetailBehaviorSlots::default()
         }
+    }
+
+    /// The action row of an Index track page (ADR 0083 Decision 5): the
+    /// filled "Download album". An Index track has no plain action and, with
+    /// no feed URL, no menu item.
+    fn index_track_page_actions(
+        actions: &TrackPageActions,
+        track: &TrackView,
+        cx: &mut Context<Self>,
+    ) -> Vec<TrackSurfaceElement> {
+        let filled = actions.filled;
+        let action = filled.action;
+        let feed_guid = track.feed_guid.clone();
+        let button = UiButton::styled(
+            SharedString::from(format!("index-track-page-action:{action:?}")),
+            ControlStyle::Primary,
+        )
+        .label(action.label())
+        .a11y_label(action.a11y_label())
+        .disabled(!filled.available);
+        let button = match (action, feed_guid) {
+            (TrackPageAction::DownloadAlbum, Some(feed_guid)) if filled.available => button
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.download_index_album_of_track(feed_guid.clone(), cx);
+                })),
+            _ => button,
+        };
+        vec![TrackSurfaceElement::from_element(button.into_any_element())]
+    }
+
+    /// Opens the page of a name link under an Index track title.
+    fn open_index_track_name_link(&mut self, target: &TrackNameLinkTarget, cx: &mut Context<Self>) {
+        match target {
+            TrackNameLinkTarget::IndexAlbum { feed_guid } => {
+                self.open_index_feed_detail_from_music(feed_guid, feed_guid.clone(), cx);
+            }
+            TrackNameLinkTarget::Publisher(publisher_feed_guid) => {
+                self.open_publisher_page(
+                    publisher_feed_guid.clone(),
+                    PublisherPageContext::Index,
+                    cx,
+                );
+            }
+            TrackNameLinkTarget::LibraryAlbum(feed_id) => {
+                self.open_library_album_page(*feed_id, cx);
+            }
+        }
+    }
+
+    /// "Download album" of an Index track: reads the album feed from
+    /// `MusicIndex`, then downloads it like the Index album page does.
+    fn download_index_album_of_track(&mut self, feed_guid: String, cx: &mut Context<Self>) {
+        let command = FetchIndexFeedDetail::new(self.musicindex_endpoint.clone(), feed_guid);
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            |this, feed, cx| this.download_index_feed(&feed, cx),
+            |this, error, _cx| {
+                this.settings_status = format!(
+                    "App could not read the album of this track from MusicIndex: {error:#}"
+                );
+            },
+        );
     }
 
     fn index_track_hero_image(

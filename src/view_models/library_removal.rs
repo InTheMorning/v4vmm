@@ -18,6 +18,16 @@ pub(crate) struct LibraryRemovalConfirmationDisplay {
     pub(crate) remove_a11y_label: &'static str,
 }
 
+/// When a removal asks the operator to confirm it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RemovalConfirmation {
+    /// Ask only when a playlist refers to the removed tracks.
+    WhenReferenced,
+    /// Ask for each removal. A destructive menu item uses this (ADR 0083
+    /// Decision 5).
+    Always,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct LibraryRemovalConfirmationState {
     pending: Option<LibraryRemovalPlan>,
@@ -30,8 +40,12 @@ impl LibraryRemovalConfirmationState {
     }
 
     #[must_use]
-    pub(crate) fn confirm_or_defer(&mut self, plan: LibraryRemovalPlan) -> bool {
-        if !plan.requires_confirmation() {
+    pub(crate) fn confirm_or_defer(
+        &mut self,
+        plan: LibraryRemovalPlan,
+        confirmation: RemovalConfirmation,
+    ) -> bool {
+        if confirmation == RemovalConfirmation::WhenReferenced && !plan.requires_confirmation() {
             return true;
         }
         self.pending = Some(plan);
@@ -50,11 +64,17 @@ impl LibraryRemovalConfirmationState {
                 } else {
                     "playlists"
                 };
+                let message = if playlist_reference_count == 0 {
+                    "This track is in no playlist. Removing it takes it out of the library."
+                        .to_owned()
+                } else {
+                    format!(
+                        "This track is in {playlist_reference_count} {playlist_label}. Removing it from the library will make it unavailable for playlist playback."
+                    )
+                };
                 Some(LibraryRemovalConfirmationDisplay {
                     title: "Remove Track from Library?",
-                    message: format!(
-                        "This track is in {playlist_reference_count} {playlist_label}. Removing it from the library will make it unavailable for playlist playback."
-                    ),
+                    message,
                     cancel_button_id: "library-removal-cancel",
                     cancel_label: "Cancel",
                     cancel_a11y_label: "Cancel removing track from library",
@@ -112,7 +132,7 @@ mod tests {
             },
         );
 
-        assert!(!state.confirm_or_defer(plan));
+        assert!(!state.confirm_or_defer(plan, RemovalConfirmation::WhenReferenced));
         let display = state
             .pending_display()
             .expect("playlist-referenced removal should require confirmation");
@@ -131,6 +151,30 @@ mod tests {
         assert_eq!(display.remove_a11y_label, "Remove track from library");
     }
 
+    /// ADR 0083 Decision 5: a destructive menu item asks for confirmation
+    /// also when no playlist refers to the track.
+    #[test]
+    fn always_confirmation_defers_an_unreferenced_track_removal() {
+        let mut state = LibraryRemovalConfirmationState::new();
+        let plan = LibraryRemovalPlan::new(
+            LibraryRemovalTarget::Track(7),
+            LibraryRemovalImpact::Track {
+                playlist_reference_count: 0,
+            },
+        );
+
+        assert!(state.confirm_or_defer(plan, RemovalConfirmation::WhenReferenced));
+        assert!(!state.confirm_or_defer(plan, RemovalConfirmation::Always));
+        let display = state
+            .pending_display()
+            .expect("an always-confirmed removal waits for the operator");
+        assert_eq!(display.title, "Remove Track from Library?");
+        assert_eq!(
+            display.message,
+            "This track is in no playlist. Removing it takes it out of the library."
+        );
+    }
+
     #[test]
     fn removal_confirmation_state_returns_target_after_confirmation() {
         let mut state = LibraryRemovalConfirmationState::new();
@@ -141,7 +185,7 @@ mod tests {
             },
         );
 
-        assert!(!state.confirm_or_defer(plan));
+        assert!(!state.confirm_or_defer(plan, RemovalConfirmation::WhenReferenced));
         assert_eq!(
             state.take_pending_target(),
             Some(LibraryRemovalTarget::Feed(5))

@@ -36,6 +36,7 @@ use crate::view_models::entity_detail::{
     ReleaseMembershipState, TrackActionState, TrackMembershipState,
 };
 use crate::view_models::format::{fmt_date, fmt_total_runtime_clock, plural};
+pub(crate) use crate::view_models::library_removal::RemovalConfirmation;
 use crate::view_models::library_removal::{
     LibraryRemovalConfirmationDisplay, LibraryRemovalConfirmationState,
 };
@@ -148,6 +149,9 @@ pub(crate) enum InspectorPanelKind {
     CompareId3,
     /// `MusicBrainz` lookup result panel.
     MusicBrainz,
+    /// The "Inspect sources" disclosure of the track page (ADR 0083
+    /// Decision 8). It is closed by default.
+    Sources,
 }
 
 /// Whether Compare ID3 controls are available for the track.
@@ -258,6 +262,13 @@ impl LibraryTrackInspectorDisplay {
             && self
                 .inspector_expanded_panels
                 .contains(&InspectorPanelKind::MusicBrainz)
+    }
+
+    /// Returns whether the "Inspect sources" disclosure is open.
+    #[must_use]
+    pub(crate) fn inspect_sources_open(&self) -> bool {
+        self.inspector_expanded_panels
+            .contains(&InspectorPanelKind::Sources)
     }
 
     /// Tooltip for disabled Compare ID3 controls.
@@ -720,8 +731,6 @@ impl TrackSubscribeOutcome {
 /// The screen owns click handlers and panel rendering; this VM owns the
 /// button labels and subscription-message classification.
 pub(crate) struct LibraryTrackActionVm<'a> {
-    subscription_busy: bool,
-    local_subscription: bool,
     subscription_message: Option<&'a str>,
 }
 
@@ -1950,25 +1959,9 @@ impl ContentListPageVm {
 
 impl<'a> LibraryTrackActionVm<'a> {
     #[must_use]
-    pub(crate) fn new(
-        subscription_busy: bool,
-        local_subscription: bool,
-        subscription_message: Option<&'a str>,
-    ) -> Self {
+    pub(crate) const fn new(subscription_message: Option<&'a str>) -> Self {
         Self {
-            subscription_busy,
-            local_subscription,
             subscription_message,
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn subscription_button_label(&self) -> &'static str {
-        match (self.subscription_busy, self.local_subscription) {
-            (true, true) => "Removing...",
-            (true, false) => "Downloading...",
-            (false, true) => "Remove Track",
-            (false, false) => "Download Track",
         }
     }
 
@@ -2647,8 +2640,12 @@ impl LibraryViewModel {
     }
 
     #[must_use]
-    pub(crate) fn confirm_library_removal(&mut self, plan: LibraryRemovalPlan) -> bool {
-        self.library_removal.confirm_or_defer(plan)
+    pub(crate) fn confirm_library_removal(
+        &mut self,
+        plan: LibraryRemovalPlan,
+        confirmation: RemovalConfirmation,
+    ) -> bool {
+        self.library_removal.confirm_or_defer(plan, confirmation)
     }
 
     #[must_use]
@@ -5271,6 +5268,19 @@ mod tests {
         assert_eq!(state.description_state, DescriptionState::AutoExpanded);
     }
 
+    /// R83-46: "Inspect sources" is closed by default, and a toggle opens
+    /// and closes it.
+    #[test]
+    fn adr_0083_r83_46_inspect_sources_starts_closed_and_toggles() {
+        let mut state = LibraryTrackInspectorState::default();
+        assert!(!state.display(true).inspect_sources_open());
+
+        state.toggle_panel(InspectorPanelKind::Sources);
+        assert!(state.display(true).inspect_sources_open());
+        state.toggle_panel(InspectorPanelKind::Sources);
+        assert!(!state.display(true).inspect_sources_open());
+    }
+
     #[test]
     fn track_inspector_predicates_follow_download_state() {
         assert!(!compare_id3_enabled(false));
@@ -7030,7 +7040,7 @@ mod tests {
                 playlist_reference_count: 1,
             },
         );
-        assert!(!vm.confirm_library_removal(plan));
+        assert!(!vm.confirm_library_removal(plan, RemovalConfirmation::WhenReferenced));
         let before = vm.pending_library_removal_confirmation();
         for generation in [1, 2] {
             let failure = ObservationWriteFailure {
@@ -7133,7 +7143,7 @@ mod tests {
             },
         );
 
-        assert!(!vm.confirm_library_removal(plan));
+        assert!(!vm.confirm_library_removal(plan, RemovalConfirmation::WhenReferenced));
         let display = vm
             .pending_library_removal_confirmation()
             .expect("playlist-referenced removal should require confirmation");
@@ -7247,7 +7257,7 @@ mod tests {
                 playlist_reference_count: 1,
             },
         );
-        assert!(!vm.confirm_library_removal(plan));
+        assert!(!vm.confirm_library_removal(plan, RemovalConfirmation::WhenReferenced));
         let confirmation = vm.pending_library_removal_confirmation();
         let status = vm.status.clone();
         let receipt = ObservationReceipt {
@@ -7353,33 +7363,46 @@ mod tests {
         assert_eq!(vm.status(), "Error reordering: position");
     }
 
+    fn confirm_when_referenced(vm: &mut LibraryViewModel, plan: LibraryRemovalPlan) -> bool {
+        vm.confirm_library_removal(plan, RemovalConfirmation::WhenReferenced)
+    }
+
     #[test]
     fn library_view_model_requires_explicit_confirmation_for_playlist_referenced_removals() {
         let mut vm = LibraryViewModel::new();
 
-        assert!(vm.confirm_library_removal(LibraryRemovalPlan::new(
-            LibraryRemovalTarget::Track(1),
-            LibraryRemovalImpact::Track {
-                playlist_reference_count: 0,
-            },
-        )));
-        assert!(!vm.confirm_library_removal(LibraryRemovalPlan::new(
-            LibraryRemovalTarget::Track(1),
-            LibraryRemovalImpact::Track {
-                playlist_reference_count: 2,
-            },
-        )));
+        assert!(confirm_when_referenced(
+            &mut vm,
+            LibraryRemovalPlan::new(
+                LibraryRemovalTarget::Track(1),
+                LibraryRemovalImpact::Track {
+                    playlist_reference_count: 0,
+                },
+            )
+        ));
+        assert!(!confirm_when_referenced(
+            &mut vm,
+            LibraryRemovalPlan::new(
+                LibraryRemovalTarget::Track(1),
+                LibraryRemovalImpact::Track {
+                    playlist_reference_count: 2,
+                },
+            )
+        ));
         assert_eq!(
             vm.take_pending_library_removal(),
             Some(LibraryRemovalTarget::Track(1))
         );
 
-        assert!(!vm.confirm_library_removal(LibraryRemovalPlan::new(
-            LibraryRemovalTarget::Feed(5),
-            LibraryRemovalImpact::Feed {
-                playlist_track_count: 1,
-            },
-        )));
+        assert!(!confirm_when_referenced(
+            &mut vm,
+            LibraryRemovalPlan::new(
+                LibraryRemovalTarget::Feed(5),
+                LibraryRemovalImpact::Feed {
+                    playlist_track_count: 1,
+                },
+            )
+        ));
         let display = vm
             .pending_library_removal_confirmation()
             .expect("feed removal should require confirmation");
@@ -7568,22 +7591,6 @@ mod tests {
     #[test]
     fn library_track_action_vm_formats_subscription_labels() {
         assert_eq!(
-            LibraryTrackActionVm::new(false, false, None).subscription_button_label(),
-            "Download Track"
-        );
-        assert_eq!(
-            LibraryTrackActionVm::new(false, true, None).subscription_button_label(),
-            "Remove Track"
-        );
-        assert_eq!(
-            LibraryTrackActionVm::new(true, false, None).subscription_button_label(),
-            "Downloading..."
-        );
-        assert_eq!(
-            LibraryTrackActionVm::new(true, true, None).subscription_button_label(),
-            "Removing..."
-        );
-        assert_eq!(
             LibraryTrackActionVm::subscription_busy_message(true),
             "Downloading..."
         );
@@ -7611,7 +7618,7 @@ mod tests {
 
     #[test]
     fn library_track_action_vm_formats_playlist_label_and_message_status() {
-        let closed = LibraryTrackActionVm::new(false, false, Some("Subscribed"));
+        let closed = LibraryTrackActionVm::new(Some("Subscribed"));
         assert_eq!(
             LibraryTrackActionVm::add_to_playlist_label(),
             "Add to playlist"
@@ -7628,7 +7635,7 @@ mod tests {
             Some(ActionStatusMessageDisplay::neutral("Subscribed"))
         );
 
-        let open = LibraryTrackActionVm::new(false, false, Some("Error: offline"));
+        let open = LibraryTrackActionVm::new(Some("Error: offline"));
         assert_eq!(
             LibraryTrackActionVm::add_to_playlist_label(),
             "Add to playlist"

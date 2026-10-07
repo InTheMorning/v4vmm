@@ -16,7 +16,7 @@ design and cleanup work in six phases. Phases 1 and 2 are complete. Phase 2 ende
 [ADR 0083](docs/adr/0083-design-language.md), the design language.
 
 Phase 3, the tokens, is complete. Phase 4, the Library, is in progress.
-[ADR 0083 task 004](docs/tasks/adr-0083-task-004-one-track-page.md) builds one track page for a Library track and an Index track. Phase 4 and 5 packets carry the
+[ADR 0083 task 004](docs/tasks/adr-0083-task-004-one-track-page.md), one track page for a Library track and an Index track, waits for its visual check. Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
 
 Each file in `docs/tasks/` is open: it is Ready, or it waits for an operator check. Finished tasks are in

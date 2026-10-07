@@ -157,3 +157,17 @@ Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 202
 - Owner: [task 015](tasks/adr-0046-task-015-forward-navigation.md#operator-visual-check).
 - Scheduling: it needs a macOS desktop session.
 - V2, macOS part: `cmd-[` and `cmd-]` outside a text box do the same as Back and Forward. Indent and outdent still work in a macOS text box.
+
+## 5. One Track Page — ADR 0083 Task 004
+
+Open - implementation and mechanical checks are complete on 2026-10-07. Operator inspection is pending.
+
+- Owner: [task 004](tasks/adr-0083-task-004-one-track-page.md#operator-visual-check-procedure).
+- Scheduling: walk it right after the packet. It reads pages. Step 6 can download an album, so skip that click.
+- V83-41: a Library track page and the Index page of the same track show the same header, action row, section order and disclosure. Check in Light and Dark. This carries §2 of the moved rules.
+- V83-42: the actions sit in one row. Exactly one button is filled. "⋯" opens a menu, and "Remove track…" is last and red.
+- V83-43: the album and publisher names are links. No "Open publisher" button shows.
+- V83-44: the moved rules §19, §22, §26 and §27 hold on the new page.
+- V83-45: "Inspect sources" is closed when a Library track page opens. Opened, it shows the compare grid, Compare ID3 and MusicBrainz as before.
+- V83-46: normal and narrow widths show each element in its place, with no clipped text.
+

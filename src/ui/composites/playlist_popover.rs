@@ -26,6 +26,7 @@ use gpui_component::{
     v_flex,
 };
 
+use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::IconName;
 use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
 use crate::ui::primitives::{
@@ -66,6 +67,7 @@ pub struct AddToPlaylistPopover {
     back_a11y_label: SharedString,
     create_a11y_label: SharedString,
     disabled: bool,
+    trigger_style: Option<ControlStyle>,
     on_select: Option<SelectHandler>,
     on_create: Option<CreateHandler>,
 }
@@ -122,9 +124,19 @@ impl AddToPlaylistPopover {
             back_a11y_label: display.back_a11y_label,
             create_a11y_label: display.create_a11y_label,
             disabled: false,
+            trigger_style: None,
             on_select: None,
             on_create: None,
         }
+    }
+
+    /// Give the trigger a named control style, for example
+    /// [`ControlStyle::Primary`] when "Add to playlist" is the main action
+    /// of a page (ADR 0083 Decision 5). Without a style the trigger is a
+    /// small tinted button.
+    pub const fn trigger_style(mut self, style: ControlStyle) -> Self {
+        self.trigger_style = Some(style);
+        self
     }
 
     /// Disable the trigger when the surrounding screen action is unavailable.
@@ -168,6 +180,7 @@ impl RenderOnce for AddToPlaylistPopover {
         let can_create = on_create.is_some();
         let trigger_id = SharedString::from(format!("{}-btn", self.id));
         let disabled = self.disabled;
+        let trigger_style = self.trigger_style;
 
         Popover::new(self.id)
             .placement(PopoverPlacement::Below)
@@ -191,8 +204,11 @@ impl RenderOnce for AddToPlaylistPopover {
                 // HIG: secondary inline action — a tinted button reads cleanly
                 // on every row background our tokens emit, and is far more
                 // discoverable than a plain ghost label.
-                Button::tinted(trigger_id)
-                    .size(ButtonSize::Sm)
+                trigger_style
+                    .map_or_else(
+                        || Button::tinted(trigger_id.clone()).size(ButtonSize::Sm),
+                        |style| Button::styled(trigger_id.clone(), style),
+                    )
                     .label(trigger_label)
                     .a11y_label(trigger_a11y_label)
                     .disabled(disabled),
