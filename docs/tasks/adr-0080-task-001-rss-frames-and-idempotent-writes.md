@@ -1,6 +1,6 @@
 # ADR 0080 Task 001: RSS Frames And Idempotent Writes
 
-Status: Implemented - 2026-09-29. Mechanical checks Green. Visual gate open and paused.
+Status: Open - the operator passed V1 to V3 on 2026-10-07: `WOAR` of "How Bout You?" holds the plain channel link, and the scan shows no difference. On 2026-10-07 the operator moved V4 to the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07), under Phase 4: Inspect sources.
 
 ## Goal
 

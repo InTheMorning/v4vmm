@@ -1,6 +1,6 @@
 # ADR 0066 Task 014: Download Failures And Dismissal Of Retained Actions
 
-Status: Open - the operator passed V1 and V3 on 2026-10-07, in Dark and Light. V2 is not run, because `ffmpeg` is installed.
+Status: Open - the operator passed V1 and V3 on 2026-10-07, in Dark and Light. On 2026-10-07 the operator moved V2 to the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07), under Phase 4: status bar and reports.
 
 ## Goal
 

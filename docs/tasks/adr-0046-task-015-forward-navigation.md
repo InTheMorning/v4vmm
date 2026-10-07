@@ -1,6 +1,6 @@
 # ADR 0046 Task 015: Forward Navigation
 
-Status: Implemented - 2026-10-02. Mechanical checks Green. Visual gate open and paused.
+Status: Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 2026-10-07. The macOS keys need a macOS session.
 
 ## Goal
 

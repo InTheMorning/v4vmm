@@ -141,18 +141,7 @@ Open and paused - implementation, technical review, and mechanical checks are co
 - Preserve configuration, audio files, secret files, playlists, source records, and the selected event during the fixture check.
 - Retain a failing fixture. Confirm successful preservation and fixture cleanup before closing this gate.
 
-## 3. Tag Frames By Owner — ADR 0080 Task 001
-
-Open and paused - implementation and mechanical checks are complete on 2026-09-29. Operator inspection is pending.
-
-- Owner: [task 001](tasks/adr-0080-task-001-rss-frames-and-idempotent-writes.md#operator-visual-check).
-- Scheduling: run the procedure only after the operator resumes visual checks. It uses an isolated database copy and never writes to the Library.
-- V1: after "Update n file(s)", an external tag reader shows the item page in `WOAF`, the channel website in `WOAR`, and plain URLs.
-- V2: a second "Update n file(s)" on the same file adds no frame.
-- V3: after the update, the next scan shows no difference for that file.
-- V4 moved to the [overhaul plan](plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07) on 2026-10-07, under Phase 4: Inspect sources.
-
-## 4. MusicBrainz URL Relations By Type — ADR 0080 Task 002
+## 3. MusicBrainz URL Relations By Type — ADR 0080 Task 002
 
 Open and paused - implementation and mechanical checks are complete on 2026-09-29. Operator inspection is pending.
 
@@ -161,22 +150,10 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-2
 - V3: after a write of the homepage and the license on a test copy, an external tag reader shows plain URLs in `WOAR` and `WCOP`.
 - V1, V2 and V4 moved to the [overhaul plan](plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07) on 2026-10-07, under Phase 4: Inspect sources.
 
-## 5. Forward Navigation — ADR 0046 Task 015
+## 4. Forward Navigation — ADR 0046 Task 015
 
-Open and paused - implementation and mechanical checks are complete on 2026-10-02. Operator inspection is pending.
+Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 2026-10-07, in Dark and Light, at UI scale L and at narrow width.
 
 - Owner: [task 015](tasks/adr-0046-task-015-forward-navigation.md#operator-visual-check).
-- Scheduling: run the procedure only after the operator resumes visual checks. It only reads pages. The macOS key steps need a macOS desktop session.
-- V1: the frame chrome shows Forward adjacent to Back, in the same style. Forward is unavailable until the operator goes Back.
-- V2: Back and then Forward return to the same page. `alt-left` and `alt-right` on Linux, and `cmd-[` and `cmd-]` outside a text box on macOS, do the same. Indent and outdent still work in a macOS text box.
-- V3: normal and narrow widths, Light and Dark themes, and the larger type sizes show both controls with no clipped element.
-
-## 6. Download Failures And Dismissal — ADR 0066 Task 014
-
-Open - the operator passed V1 and V3 on 2026-10-07, in Dark and Light. V2 is not run: `ffmpeg` is installed, so the conversion did not fail. The task procedure gives a fake `ffmpeg` for V2.
-
-- Owner: [task 014](tasks/adr-0066-task-014-download-failures-and-dismissal.md#operator-visual-check).
-- Scheduling: the check uses an isolated fixture and a closed local port. V2 needs network access and the `flac` binary.
-- V1: a download failure shows "Download: <track>" with "Redownload original track" and "Dismiss", and no converter action. Check in Light and Dark themes.
-- V3: each row of the collapsed notice has "Dismiss", and a click removes the row in place.
-- V2 moved to the [overhaul plan](plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07) on 2026-10-07, under Phase 4: status bar and reports.
+- Scheduling: it needs a macOS desktop session.
+- V2, macOS part: `cmd-[` and `cmd-]` outside a text box do the same as Back and Forward. Indent and outdent still work in a macOS text box.
