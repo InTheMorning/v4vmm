@@ -36,6 +36,8 @@ Known open defects:
   [ADR 0068](docs/adr/0068-show-cue-and-audition-isolation.md), which is Proposed, and for the mpv IPC error.
 - An MP4 file always shows a `TYER` difference in "Update n files". The
   [ADR 0080 plan](docs/plans/adr-0080-tag-frames-phase-plan.md) records it. No packet owns it.
+- An Index track page shows only its cover, its title and four summary rows, with no actions. The first Phase 4
+  packet of the [overhaul plan](docs/plans/design-and-cleanup-overhaul-plan.md) owns it.
 - [The live value URI plan](docs/plans/livevalue-uri-is-a-url.md) is Ready.
 
 Stored facts that agents need:
