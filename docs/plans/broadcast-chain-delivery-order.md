@@ -468,7 +468,9 @@ Delivery Order above determines priority; an entry here is not a second order.
   `docs/plans/musicindex-image-tag-request.md`. Recorded 2026-10-04.
   Decided 2026-10-04 as ADR 0080 Decision 9. ADR 0080 task 005 is complete: the operator saw the frame in the files on 2026-10-04. The publisher probe is next.
 - Live metadata paths for ICY, HLS and the Socket.IO live value. Recorded
-  2026-10-06. Six ADRs. None is implemented:
+  2026-10-06. Six ADRs. On 2026-10-06 five of them were implemented and
+  deployed on `api.musicindex.org`, in the release order below. Publisher ADR
+  0009 is Proposed. The statuses below are from the record date:
   - `musicindex-live-relay` ADR 0004, Accepted: Socket.IO and
     `GET /remoteValue` wait for a delay that the broadcaster sends with each
     publish. SSE and the other reads are instant.
@@ -495,7 +497,10 @@ Delivery Order above determines priority; an entry here is not a second order.
 
   Requests for `v4vmm`, each one needs a `v4vmm` decision:
   - Show `stream_delay_secs` as the delay that podcast apps get, not as a
-    delay of every transport (publisher ADR 0011).
+    delay of every transport (publisher ADR 0011). Done 2026-10-06 for the
+    present code. No `v4vmm` screen shows the value. The doc comment of
+    `PublisherTarget::stream_delay_secs` gives its meaning. A screen that
+    shows or changes the value must use that meaning.
   - In the feed, keep the ICY MP3 stream as the default `enclosure` and give
     the HLS stream as a `podcast:alternateEnclosure`. The `liveItem`
     specification recommends MP3 and requires `podcast:contentLink`.

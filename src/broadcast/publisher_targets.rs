@@ -37,7 +37,10 @@ pub struct PublisherTarget {
     pub event_id: String,
     /// Token file path on the publisher host.
     pub token_file: PathBuf,
-    /// Configured stream delay in seconds.
+    /// The delay, in seconds, that a podcast app gets on Socket.IO. The relay
+    /// applies it to Socket.IO and `GET /remoteValue` only. SSE, the metadata
+    /// read and the display routes do not wait for it
+    /// (`musicindex-live-publisher` ADR 0011, `musicindex-live-relay` ADR 0004).
     pub stream_delay_secs: f64,
 }
 
