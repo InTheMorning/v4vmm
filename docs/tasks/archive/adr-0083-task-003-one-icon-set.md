@@ -1,6 +1,6 @@
 # ADR 0083 Task 003: One Icon Set
 
-Status: Open - the operator passed V83-21, V83-23 and V83-24 on 2026-10-07. V83-22 needs a recheck after the correction of 2026-10-07: [pending check 36](../pending-human-checks.md#36-one-icon-set--adr-0083-task-003).
+Status: Complete - 2026-10-07. The operator passed V83-21 to V83-24 on 2026-10-07, V83-22 after the correction of the same day.
 
 ## Goal
 
@@ -9,8 +9,8 @@ This corrects a defect of task 002: the Play icon of "Open Show" shows as a colo
 
 ## Authority
 
-- [ADR 0083](../adr/0083-design-language.md) Decision 10.
-- [ADR 0025](../adr/0025-theme-icon-style-boundary.md): the icon boundary.
+- [ADR 0083](../../adr/0083-design-language.md) Decision 10.
+- [ADR 0025](../../adr/0025-theme-icon-style-boundary.md): the icon boundary.
 - Durable set in `AGENTS.md`: token discipline, no glyph string in a renderer.
 
 ## Recorded Facts - 2026-10-03
@@ -58,7 +58,7 @@ These are for the operator. They stay open until a person walks them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/ui/icons.rs`, `src/ui/composites/disclosure_group.rs`, `src/ui/composites/tag_badge.rs`, `src/ui/shells/playlist.rs`.
 - `src/view_models/library.rs`: the disclosure and `play_label` fields and their renderers.
 - The `gpui-kit-assets` 0.6.1 crate: its asset source and its `icons/` folder.

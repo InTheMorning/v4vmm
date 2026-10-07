@@ -15,8 +15,8 @@ The [overhaul plan](docs/plans/design-and-cleanup-overhaul-plan.md) is the curre
 design and cleanup work in six phases. Phases 1 and 2 are complete. Phase 2 ended with
 [ADR 0083](docs/adr/0083-design-language.md), the design language.
 
-Phase 3, the tokens, is in progress.
-The palette, font and artwork packets are complete. [ADR 0083 task 003](docs/tasks/adr-0083-task-003-one-icon-set.md) waits for its visual check.
+Phase 3, the tokens, is complete. Phase 4, the Library, is next. Its first packet builds one track page for a
+Library track and an Index track.
 
 Each file in `docs/tasks/` is open: it is Ready, or it waits for an operator check. Finished tasks are in
 `docs/tasks/archive/`. Each file in `docs/plans/` is an active plan.
