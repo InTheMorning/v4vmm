@@ -173,7 +173,7 @@ The first implementer stopped before any change, under the stop conditions of th
 - Their deletion needs files outside the edit scope of this packet.
 - `LiveItemCreateResponse` and `LiveMetadataSnapshot` decode `/v1/liveitems` and `/v1/liveitems/{event_id}/metadata` of the live relay (archived ADR 0018). They map to another service.
 
-[ADR 0060 packet 005](../adr-0060-task-005-delete-parked-discover-code.md) and [packet 006](adr-0060-task-006-delete-parked-discover-queries.md) delete the parked code and these six types first. This packet then runs with the six types gone.
+[ADR 0060 packet 005](adr-0060-task-005-delete-parked-discover-code.md) and [packet 006](adr-0060-task-006-delete-parked-discover-queries.md) delete the parked code and these six types first. This packet then runs with the six types gone.
 
 ## Implementation Result - 2026-10-01
 

@@ -1,6 +1,6 @@
 # ADR 0077 Task 001: Remove Dead Artist Storage
 
-Status: Implemented - 2026-09-24. Mechanical checks are Green. The visual gate is open.
+Status: Open - implementation and mechanical checks are complete on 2026-09-24. On 2026-10-07 the operator moved its visual check to the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07). The packet that rebuilds the surface carries it.
 This packet changes one user-visible result: a Library artist view no longer shows stored aliases, area or active years.
 The operator visual check below is pending. Visual checks stay paused until the operator resumes them.
 

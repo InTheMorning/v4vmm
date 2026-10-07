@@ -1,6 +1,6 @@
 # ADR 0076 Task 001: Playlist RSS Document Check
 
-Status: Implemented - 2026-09-24. Mechanical checks are Green. The visual gate is open.
+Status: Open - implementation and mechanical checks are complete on 2026-09-24. On 2026-10-07 the operator moved its visual check to the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07). The packet that rebuilds the surface carries it.
 This packet adds a "Check RSS" button and a progress report to the playlist page. The operator has not walked the visual check. Visual checks stay paused.
 
 ## Goal

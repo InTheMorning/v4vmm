@@ -878,7 +878,7 @@ It does not implement source handling, release code dispatch, or close remaining
 
 R1 and R6 source assertions are corrected in the affected documents and packets.
 R2 now has an explicit inventory and assigned work. Its full field-rule coverage remains incomplete until packets 031 and 034 finish.
-The [pending-check index](../pending-human-checks.md#5-metadata-contract-document-review--adr-0075) records remaining document review.
+The operator closed the pending-check entry for this document review on 2026-09-21. [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md#status) records each accepted field decision.
 The operator's existing code dispatch hold remains in force.
 
 ## Operator Visual Check

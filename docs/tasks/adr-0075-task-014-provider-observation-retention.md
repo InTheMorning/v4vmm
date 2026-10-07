@@ -1,6 +1,6 @@
 # ADR 0075 Task 014: Provider Observation Retention
 
-Status: Implementation, technical review, and mechanical checks complete - 2026-09-21. The presentation gate remains open and paused.
+Status: Open - implementation and mechanical checks are complete on 2026-09-21. On 2026-10-07 the operator moved its visual check to the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07). The packet that rebuilds the surface carries it.
 
 Assigned implementation agent: `provider_retention_014`. The orchestrator records shared status and reviews the completed diff.
 

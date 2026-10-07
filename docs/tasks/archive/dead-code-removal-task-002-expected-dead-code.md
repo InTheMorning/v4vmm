@@ -1,6 +1,6 @@
 # Dead Code Removal Task 002: Expected Dead Code
 
-Status: Implemented - 2026-10-01. Mechanical checks Green. Visual gate open and paused.
+Status: Complete - 2026-10-07. Mechanical checks Green. The operator passed V1 and V2 in daily use on 2026-10-07. Search, Index pages, album, playlist and track pages, Show, and Back and Forward worked.
 
 ## Goal
 
@@ -9,8 +9,8 @@ After this packet, no file in `src/` has a `dead_code` lint attribute, and a gua
 
 ## Authority
 
-- The working rule in [AGENTS.md](../../AGENTS.md): "Delete dead code. Code no composition root reaches is removed, not parked. Copy any pattern worth keeping into the live surface first."
-- [ADR 0060](../adr/0060-workflow-surface-structure.md) and the guard `adr_0060_discover_surface_stays_deleted`, which task 001 extended to `allow(dead_code)`.
+- The working rule in [AGENTS.md](../../../AGENTS.md): "Delete dead code. Code no composition root reaches is removed, not parked. Copy any pattern worth keeping into the live surface first."
+- [ADR 0060](../../adr/0060-workflow-surface-structure.md) and the guard `adr_0060_discover_surface_stays_deleted`, which task 001 extended to `allow(dead_code)`.
 - [Dead code removal task 001](dead-code-removal-task-001-measure-and-delete-unreachable-code.md): the method, and the findings of its orchestrator review.
 
 ## Incident
@@ -100,7 +100,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - The task 001 document.
 - Each file of "Recorded Facts", `src/subscribe_service.rs`, `src/library_service.rs`, `src/library.rs`.
 - `tests/architecture_tests.rs`: `adr_0060_discover_surface_stays_deleted`, `active_frame_search_dispatch_phase_1_vm_contracts_are_owned_by_view_models`, and each guard that names a deleted item.

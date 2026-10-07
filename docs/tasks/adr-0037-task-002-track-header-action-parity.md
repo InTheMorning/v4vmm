@@ -1,12 +1,9 @@
 # ADR 0037 Task 002: Track Header and Action Parity
 
-Status: Accepted - 2026-09-10.
-Implementation recorded; operator visual acceptance remains open.
+Status: Open - implementation and mechanical checks are complete on 2026-09-10. On 2026-10-07 the operator moved its visual check to the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07). The packet that rebuilds the surface carries it.
 
 The operator paused visual checks on 2026-09-19 to prioritise the
 [ADR 0075 metadata refactor](../plans/adr-0075-metadata-contract-phase-plan.md).
-Keep this gate and fixture cleanup open. Do not request more visual checks
-during the pause.
 
 The operator confirmed the private database/audio copy at
 `/tmp/v4vmm-governance.ie6k8TQf` on 2026-09-19. Track selection and source-fact

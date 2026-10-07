@@ -12,7 +12,7 @@ After this packet, no `#[cfg(test)]` block keeps a model operation that no produ
 ## Authority
 
 - [ADR 0081](../adr/0081-remove-the-staged-frame-model.md) Decisions 1, 2 and 4.
-- [Dead code removal task 002](dead-code-removal-task-002-expected-dead-code.md), section "Durable, deliberately staged model code".
+- [Dead code removal task 002](archive/dead-code-removal-task-002-expected-dead-code.md), section "Durable, deliberately staged model code".
 
 ## Recorded Facts - 2026-10-02
 

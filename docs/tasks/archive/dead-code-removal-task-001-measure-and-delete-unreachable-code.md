@@ -1,6 +1,6 @@
 # Dead Code Removal Task 001: Measure And Delete Unreachable Code
 
-Status: Implemented - 2026-10-01. Mechanical checks Green. Visual gate open and paused.
+Status: Complete - 2026-10-07. Mechanical checks Green. The operator passed V1 and V2 in daily use on 2026-10-07. Search, Index pages, album, playlist and track pages, Show, and Back and Forward worked.
 
 ## Goal
 
@@ -9,9 +9,9 @@ After this packet, no file in `src/` has `allow(dead_code)`, and a guard keeps i
 
 ## Authority
 
-- The working rule in [AGENTS.md](../../AGENTS.md): "Delete dead code. Code no composition root reaches is removed, not parked."
-- [ADR 0060](../adr/0060-workflow-surface-structure.md) and its [packet 005](adr-0060-task-005-delete-parked-discover-code.md): the incident and the guard `adr_0060_discover_surface_stays_deleted`.
-- [ADR 0061](../adr/0061-executable-governance.md) and the AGENTS.md rule "A guard names its class and its ADR". The guard of this packet is situational. It cites ADR 0060.
+- The working rule in [AGENTS.md](../../../AGENTS.md): "Delete dead code. Code no composition root reaches is removed, not parked."
+- [ADR 0060](../../adr/0060-workflow-surface-structure.md) and its [packet 005](adr-0060-task-005-delete-parked-discover-code.md): the incident and the guard `adr_0060_discover_surface_stays_deleted`.
+- [ADR 0061](../../adr/0061-executable-governance.md) and the AGENTS.md rule "A guard names its class and its ADR". The guard of this packet is situational. It cites ADR 0060.
 
 ## Incident
 
@@ -94,7 +94,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - The ADR 0060 packet 005 and 006 documents: the measurement method and their findings.
 - `src/lib.rs`, `src/main.rs`, and each file of "Recorded Facts".
 - `tests/architecture_tests.rs`: `adr_0060_discover_surface_stays_deleted`, and each guard that names a deleted item.

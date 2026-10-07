@@ -1,6 +1,6 @@
 # ADR 0075 Task 022: Track Header Identities
 
-Status: Implemented - 2026-09-28. Mechanical checks Green. Visual gate open and paused.
+Status: Open - implementation and mechanical checks are complete on 2026-09-28. On 2026-10-07 the operator moved its visual check to the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07). The packet that rebuilds the surface carries it.
 
 ## Goal
 

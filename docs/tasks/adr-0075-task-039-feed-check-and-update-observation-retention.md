@@ -1,6 +1,6 @@
 # ADR 0075 Task 039: Feed Check And Update Observation Retention
 
-Status: Implementation, technical review, and mechanical checks complete - 2026-09-21.
+Status: Open - implementation and mechanical checks are complete on 2026-09-21. On 2026-10-07 the operator moved its visual check to the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07). The packet that rebuilds the surface carries it.
 Root accepted the code and tests after seven test corrections. The normal binary build is Green.
 Packet 038 is complete. The Root Compatibility Review section below records the five applied instructions.
 Visual gates remain open and paused. Do not request a visual batch.

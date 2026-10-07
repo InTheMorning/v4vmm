@@ -1,10 +1,10 @@
 # ADR 0060 Task 005: Delete The Parked Discover Code
 
-Status: Implemented - 2026-09-30. Mechanical checks Green. Visual gate open and paused.
+Status: Complete - 2026-10-07. Mechanical checks Green. The operator passed V1 and V2 in daily use on 2026-10-07. Search, Index pages, album, playlist and track pages, Show, and Back and Forward worked.
 
 The orchestrator divided the work on 2026-09-30. The first session completed Required Change 1 and stopped at the size limit. A second session completed Required Change 2 on 2026-09-30.
 
-This packet deletes the UI and state layer. [Packet 006](archive/adr-0060-task-006-delete-parked-discover-queries.md) deletes the query layer.
+This packet deletes the UI and state layer. [Packet 006](adr-0060-task-006-delete-parked-discover-queries.md) deletes the query layer.
 
 ## Goal
 
@@ -13,10 +13,10 @@ The `#![allow(dead_code)]` of `src/discover.rs` is then unnecessary, and it goes
 
 ## Authority
 
-- [ADR 0060](../adr/0060-workflow-surface-structure.md): Music replaces the Discover surface.
-- [ADR 0023](../adr/0023-design-system-and-view-models.md): the legacy discover screen migrates to shared view models.
-- The working rule in [AGENTS.md](../../AGENTS.md): "Delete dead code. Code no composition root reaches is removed, not parked."
-- The [ADR 0077 phase plan](../plans/adr-0077-publisher-artist-phase-plan.md#follow-up-findings) records the finding.
+- [ADR 0060](../../adr/0060-workflow-surface-structure.md): Music replaces the Discover surface.
+- [ADR 0023](../../adr/0023-design-system-and-view-models.md): the legacy discover screen migrates to shared view models.
+- The working rule in [AGENTS.md](../../../AGENTS.md): "Delete dead code. Code no composition root reaches is removed, not parked."
+- The [ADR 0077 phase plan](../../plans/adr-0077-publisher-artist-phase-plan.md#follow-up-findings) records the finding.
 
 ## Recorded Facts - 2026-09-30
 
@@ -75,7 +75,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/lib.rs`, `src/main.rs`, `src/discover.rs`, `src/discover/`, `src/ui/shells/discover/`, `src/ui/shells/track.rs`, `src/ui/shells/feed.rs`, `src/view_models/search/`, `src/application/queries/search.rs`, `src/api.rs`.
 - `tests/architecture_tests.rs`: each guard that names a discover path.
 

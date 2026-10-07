@@ -383,4 +383,4 @@ and regression proof before audible playback acceptance. This draft claims no fi
 - [ADR 0064: Local file addressing](archive/0064-local-file-addressing.md)
 - [ADR 0067: Platform shortcuts](archive/0067-platform-shortcut-modifiers.md)
 - [Curator workflow design brief](../plans/curator-workflow-ui-design-brief.md#auditioning)
-- [Pending human checks](../pending-human-checks.md#4-optional-tool-isolation--adr-0066-task-004)
+- [Pending human checks](../pending-human-checks.md#1-optional-tool-isolation--adr-0066-task-004)

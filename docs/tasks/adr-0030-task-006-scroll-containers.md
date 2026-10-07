@@ -2,12 +2,10 @@
 
 ## Status
 
-Accepted - 2026-09-10.
-Implementation recorded; surviving scroll acceptance remains open.
+Open - implementation and mechanical checks are complete on 2026-09-10. On 2026-10-07 the operator moved its visual check to the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07). The packet that rebuilds the surface carries it.
 
 The operator paused visual checks on 2026-09-19 for the
 [ADR 0075 metadata refactor](../plans/adr-0075-metadata-contract-phase-plan.md).
-The surviving scroll checks remain open.
 
 Reconciled against ADRs 0047/0048/0060/0062: separate Discovery and Recent
 Feeds paths are retired. The old implementation steps below are historical.
