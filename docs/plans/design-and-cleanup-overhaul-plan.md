@@ -107,6 +107,7 @@ Design constraints from the operator, 2026-10-08:
 Steps:
 
 1. Current flow map. A read-only agent records the steps of each job in today's code, each dead end, and each place where the operator must know the origin first. The operator confirms the map in a short walkthrough.
+   Written on 2026-10-08: [Music flow map](../architecture/music-flow-map.md). The walkthrough is open.
 2. Object model. Decide the entities that the operator sees and their relations: album, track, artist, publisher and playlist. Decide what "artist" means. Library membership becomes a state or a filter on each list.
 3. Structure options. Two or three clickable HTML prototypes of the Music section, scored against the four jobs and the two constraints.
 4. A decision record for the chosen structure. It amends ADR 0060 and the decisions on frames, the content list and the Library control that the structure changes.
