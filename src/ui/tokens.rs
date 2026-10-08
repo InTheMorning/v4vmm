@@ -18,11 +18,16 @@
 
 #![warn(clippy::pedantic)]
 
-use gpui::{point, px, App, BoxShadow, FontWeight, Hsla, Pixels, Rgba, WindowAppearance};
+use gpui::{
+    linear_color_stop, linear_gradient, point, px, App, Background, BoxShadow, FontWeight, Hsla,
+    Pixels, Rgba, WindowAppearance,
+};
 
 use gpui_component::ActiveTheme;
 
+use crate::media::cover_color::CoverColor;
 use crate::theme_profile::ThemeProfile;
+use crate::ui::contrast::{delinearize, linearize};
 
 /// Visual appearance scheme.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -689,6 +694,81 @@ impl ArtworkShadow {
 }
 
 // -----------------------------------------------------------------------------
+// CoverBackdrop. ADR 0083 Decision 4: a page header draws a backdrop in the
+// main color of its cover. ADR 0083 task 005 chooses a gradient.
+// -----------------------------------------------------------------------------
+
+/// The backdrop of a page header with a cover.
+///
+/// The backdrop keeps the hue of the cover. Its luminance is a token for
+/// each appearance, so the header text keeps its contrast on every cover.
+/// The gradient starts at `STRENGTH` opacity at the top and fades to the
+/// page background over `HEIGHT_BASE`.
+pub struct CoverBackdrop;
+
+impl CoverBackdrop {
+    /// The height of the gradient at the `Medium` scale step, in pixels.
+    pub const HEIGHT_BASE: f32 = 320.0;
+    /// The opacity of the backdrop at the top of the header.
+    pub const STRENGTH: f32 = 0.9;
+    /// The highest luminance of the backdrop in Dark appearance. A brighter
+    /// cover is darkened to this luminance.
+    const DARK_MAX_LUMINANCE: f32 = 0.02;
+    /// The lowest luminance of the backdrop in Light appearance. A darker
+    /// cover is lightened to this luminance.
+    const LIGHT_MIN_LUMINANCE: f32 = 0.87;
+
+    /// The height of the gradient at the current UI scale.
+    ///
+    /// ADR 0039: backdrop geometry is CHROME.
+    #[must_use]
+    pub fn height(cx: &App) -> Pixels {
+        scale_chrome_px(Self::HEIGHT_BASE, ScaleFactor::current(cx))
+    }
+
+    /// The opaque backdrop color of `cover` in `appearance`.
+    #[must_use]
+    pub fn tone(cover: CoverColor, appearance: Appearance) -> Rgba {
+        let channel = |value: u8| linearize(f32::from(value) / 255.0);
+        let linear = [
+            channel(cover.red),
+            channel(cover.green),
+            channel(cover.blue),
+        ];
+        let luminance = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+        let toned = match appearance {
+            Appearance::Dark if luminance > Self::DARK_MAX_LUMINANCE => {
+                let factor = Self::DARK_MAX_LUMINANCE / luminance;
+                linear.map(|value| value * factor)
+            }
+            Appearance::Light if luminance < Self::LIGHT_MIN_LUMINANCE => {
+                let toward_white = (Self::LIGHT_MIN_LUMINANCE - luminance) / (1.0 - luminance);
+                linear.map(|value| (1.0 - value).mul_add(toward_white, value))
+            }
+            Appearance::Dark | Appearance::Light => linear,
+        };
+        Rgba {
+            r: delinearize(toned[0]),
+            g: delinearize(toned[1]),
+            b: delinearize(toned[2]),
+            a: 1.0,
+        }
+    }
+
+    /// The gradient of `cover` for the current appearance: the toned color
+    /// at `STRENGTH` at the top, transparent at the bottom.
+    #[must_use]
+    pub fn background(cover: CoverColor, cx: &App) -> Background {
+        let toned = Hsla::from(Self::tone(cover, Environment::current(cx).appearance));
+        linear_gradient(
+            180.0,
+            linear_color_stop(toned.opacity(Self::STRENGTH), 0.0),
+            linear_color_stop(toned.opacity(0.0), 1.0),
+        )
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Size — semantic widths/heights for menus, popovers, scrollable columns, etc.
 // -----------------------------------------------------------------------------
 
@@ -1181,6 +1261,57 @@ mod tests {
     }
 
     /// R83-14: larger artwork gets a larger shadow.
+    /// ADR 0083 task 005: the header text keeps its contrast on the cover
+    /// backdrop for every cover color. `Label` and `SecondaryLabel` meet
+    /// normal text contrast. `TertiaryLabel`, the header data row label,
+    /// meets large text contrast, as it does on the plain background.
+    #[test]
+    fn adr_0083_cover_backdrop_keeps_header_text_contrast() {
+        use crate::ui::contrast::{ratio, ContrastLevel};
+
+        let mut covers = Vec::new();
+        for red in [0u8, 64, 128, 192, 255] {
+            for green in [0u8, 64, 128, 192, 255] {
+                for blue in [0u8, 64, 128, 192, 255] {
+                    covers.push(CoverColor { red, green, blue });
+                }
+            }
+        }
+        for appearance in [Appearance::Dark, Appearance::Light] {
+            for cover in &covers {
+                let backdrop = CoverBackdrop::tone(*cover, appearance);
+                for (token, level) in [
+                    (SemanticColor::Label, ContrastLevel::NormalText),
+                    (SemanticColor::SecondaryLabel, ContrastLevel::NormalText),
+                    (SemanticColor::TertiaryLabel, ContrastLevel::LargeOrGraphic),
+                ] {
+                    let contrast = ratio(token.resolve(appearance), backdrop);
+                    assert!(
+                        contrast >= level.min_ratio(),
+                        "{token:?} on the {appearance:?} backdrop of {cover:?} has contrast {contrast}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// ADR 0083 task 005: the backdrop keeps the hue of the cover.
+    #[test]
+    fn adr_0083_cover_backdrop_keeps_the_cover_hue() {
+        let red = CoverColor {
+            red: 220,
+            green: 40,
+            blue: 40,
+        };
+        for appearance in [Appearance::Dark, Appearance::Light] {
+            let toned = CoverBackdrop::tone(red, appearance);
+            assert!(
+                toned.r > toned.g && toned.r > toned.b,
+                "a red cover must give a red backdrop in {appearance:?}: {toned:?}"
+            );
+        }
+    }
+
     #[test]
     fn adr_0083_artwork_shadow_grows_with_image_size() {
         assert!(

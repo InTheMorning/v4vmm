@@ -86,6 +86,11 @@ pub enum LibraryAppEvent {
     OpenAlbumPage {
         feed_id: i64,
     },
+    /// Opens the Library artist page of a name, from the artist name link
+    /// of an album page (ADR 0083 task 005).
+    OpenArtistPage {
+        name: String,
+    },
 }
 
 impl gpui::EventEmitter<LibraryAppEvent> for LibraryApp {}
@@ -152,6 +157,13 @@ enum ThumbnailState {
     Loaded(Option<Arc<Image>>),
 }
 
+/// The main color of one cover (ADR 0083 task 005).
+#[derive(Clone, Copy)]
+enum CoverColorState {
+    Loading,
+    Loaded(Option<crate::media::cover_color::CoverColor>),
+}
+
 pub struct LibraryApp {
     conn: Arc<Mutex<Connection>>,
     application_services: Arc<ApplicationServices>,
@@ -172,6 +184,7 @@ pub struct LibraryApp {
     workspace_layout: WorkspaceLayout,
     detail: LibraryDetail,
     thumbnails: BTreeMap<(String, bool), ThumbnailState>,
+    cover_colors: BTreeMap<String, CoverColorState>,
     new_playlist_input: Entity<InputState>,
     rename_playlist_input: Entity<InputState>,
     _rename_playlist_sub: gpui::Subscription,

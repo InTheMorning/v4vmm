@@ -86,22 +86,24 @@ impl LibraryRemovalConfirmationState {
             LibraryRemovalImpact::Feed {
                 playlist_track_count,
             } => {
-                let (track_label, verb, object_pronoun) = if playlist_track_count == 1 {
-                    ("track", "is", "it")
-                } else {
-                    ("tracks", "are", "them")
+                let message = match playlist_track_count {
+                    0 => "No track from this album is in a playlist. Removing the album takes its tracks out of the library."
+                        .to_owned(),
+                    1 => "1 track from this album is in playlists. Removing it from the library will make it unavailable for playlist playback."
+                        .to_owned(),
+                    count => format!(
+                        "{count} tracks from this album are in playlists. Removing them from the library will make them unavailable for playlist playback."
+                    ),
                 };
                 Some(LibraryRemovalConfirmationDisplay {
-                    title: "Remove Feed from Library?",
-                    message: format!(
-                        "{playlist_track_count} {track_label} from this feed {verb} in playlists. Removing {object_pronoun} from the library will make {object_pronoun} unavailable for playlist playback."
-                    ),
+                    title: "Remove Album from Library?",
+                    message,
                     cancel_button_id: "library-removal-cancel",
                     cancel_label: "Cancel",
-                    cancel_a11y_label: "Cancel removing feed from library",
+                    cancel_a11y_label: "Cancel removing album from library",
                     remove_button_id: "library-removal-confirm",
                     remove_label: "Remove",
-                    remove_a11y_label: "Remove feed from library",
+                    remove_a11y_label: "Remove album from library",
                 })
             }
         }
@@ -173,6 +175,41 @@ mod tests {
             display.message,
             "This track is in no playlist. Removing it takes it out of the library."
         );
+    }
+
+    /// R83-52 (ADR 0083 task 005): "Remove album…" asks for each plan,
+    /// also when no playlist refers to a track of the album.
+    #[test]
+    fn always_confirmation_defers_each_album_removal() {
+        for (count, message) in [
+            (
+                0,
+                "No track from this album is in a playlist. Removing the album takes its tracks out of the library.",
+            ),
+            (
+                1,
+                "1 track from this album is in playlists. Removing it from the library will make it unavailable for playlist playback.",
+            ),
+            (
+                3,
+                "3 tracks from this album are in playlists. Removing them from the library will make them unavailable for playlist playback.",
+            ),
+        ] {
+            let mut state = LibraryRemovalConfirmationState::new();
+            let plan = LibraryRemovalPlan::new(
+                LibraryRemovalTarget::Feed(5),
+                LibraryRemovalImpact::Feed {
+                    playlist_track_count: count,
+                },
+            );
+
+            assert!(!state.confirm_or_defer(plan, RemovalConfirmation::Always));
+            let display = state
+                .pending_display()
+                .expect("an album removal waits for the operator");
+            assert_eq!(display.title, "Remove Album from Library?");
+            assert_eq!(display.message, message);
+        }
     }
 
     #[test]

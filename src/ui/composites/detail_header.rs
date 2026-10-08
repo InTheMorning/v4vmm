@@ -8,8 +8,8 @@
 use std::sync::Arc;
 
 use gpui::{
-    div, App, FontWeight, Image, IntoElement, ParentElement, RenderOnce, SharedString, Styled,
-    Window,
+    div, AnyElement, App, FontWeight, Image, IntoElement, ParentElement, RenderOnce, SharedString,
+    Styled, Window,
 };
 
 use crate::ui::layouts as layout;
@@ -26,6 +26,8 @@ pub struct DetailHeader {
     image: Option<Arc<Image>>,
     appearance: Option<Appearance>,
     title_size: FontSize,
+    cover_size: ThumbnailSize,
+    name_links: Vec<AnyElement>,
 }
 
 /// Display-ready header facts.
@@ -52,6 +54,8 @@ impl DetailHeader {
             image: None,
             appearance: None,
             title_size: FontSize::Title2,
+            cover_size: ThumbnailSize::Lg,
+            name_links: Vec::new(),
         }
     }
 
@@ -72,6 +76,22 @@ impl DetailHeader {
     /// keep the default.
     pub fn title_size(mut self, title_size: FontSize) -> Self {
         self.title_size = title_size;
+        self
+    }
+
+    /// Sets the cover size. The default is `ThumbnailSize::Lg`.
+    ///
+    /// ADR 0083 Decision 4: the album page header passes
+    /// `ThumbnailSize::XXl`.
+    pub fn cover_size(mut self, cover_size: ThumbnailSize) -> Self {
+        self.cover_size = cover_size;
+        self
+    }
+
+    /// Sets the name links under the title, in one row. The screen builds
+    /// each link from its view model.
+    pub fn name_links(mut self, name_links: Vec<AnyElement>) -> Self {
+        self.name_links = name_links;
         self
     }
 }
@@ -117,6 +137,18 @@ impl RenderOnce for DetailHeader {
             );
         }
 
+        if !self.name_links.is_empty() {
+            text_block = text_block.child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .flex_wrap()
+                    .items_center()
+                    .gap(Spacing::XS.scaled(cx))
+                    .children(self.name_links),
+            );
+        }
+
         if !self.display.data_rows.is_empty() {
             let mut metadata = VStack::new().spacing(Spacing::XXS).leading();
             for row in self.display.data_rows {
@@ -135,7 +167,7 @@ impl RenderOnce for DetailHeader {
         HStack::new()
             .spacing(Spacing::LG)
             .top()
-            .child(Thumbnail::new(self.display.kind, ThumbnailSize::Lg).image(self.image))
+            .child(Thumbnail::new(self.display.kind, self.cover_size).image(self.image))
             .child(div().flex_1().min_w_0().child(text_block))
     }
 }

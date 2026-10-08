@@ -26,7 +26,7 @@ use crate::application::errors::command::CommandError;
 use crate::application::library_removal::{LibraryRemovalIntent, LibraryRemovalTarget};
 use crate::application::queries::broadcast::BroadcastReadinessReport;
 use crate::application::queries::feed::FetchRecentFeedsPage;
-use crate::application::queries::images::FetchThumbnail;
+use crate::application::queries::images::{FetchCoverColor, FetchThumbnail};
 use crate::application::queries::library::{
     AlbumIdentityHydration, CompareLibraryTrack, FetchLibraryTrackContext, HydrateAlbumIdentity,
     LibraryTrackCompare, LoadLibraryTracksTree,
@@ -506,6 +506,22 @@ impl LibraryApp {
         }
     }
 
+    /// Opens the page of a name link under a Library album title.
+    pub(crate) fn open_album_name_link(
+        &mut self,
+        target: &crate::view_models::album_page::AlbumNameLinkTarget,
+        cx: &mut Context<Self>,
+    ) {
+        match target {
+            crate::view_models::album_page::AlbumNameLinkTarget::Artist(name) => {
+                cx.emit(super::LibraryAppEvent::OpenArtistPage { name: name.clone() });
+            }
+            crate::view_models::album_page::AlbumNameLinkTarget::Publisher(publisher_feed_guid) => {
+                self.open_publisher_page(publisher_feed_guid, cx);
+            }
+        }
+    }
+
     pub(crate) fn open_publisher_page(
         &mut self,
         publisher_feed_guid: &str,
@@ -719,6 +735,7 @@ impl LibraryApp {
             workspace_layout: Self::default_workspace_layout(),
             detail: LibraryDetail::None,
             thumbnails: BTreeMap::new(),
+            cover_colors: BTreeMap::new(),
             new_playlist_input,
             rename_playlist_input,
             _rename_playlist_sub: rename_playlist_sub,
@@ -1678,6 +1695,46 @@ impl LibraryApp {
         );
     }
 
+    /// The main color of the cover at `url` for a page header backdrop
+    /// (ADR 0083 task 005). The first call starts a background fetch and
+    /// gives `None`. The view updates when the color arrives.
+    fn cover_color_for_url(
+        &mut self,
+        url: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> Option<crate::media::cover_color::CoverColor> {
+        let url = url?.trim();
+        if url.is_empty() {
+            return None;
+        }
+        if let Some(color) = self.cache.peek_cover_color(url) {
+            return Some(color);
+        }
+        self.command_runner.availability().ok()?;
+        match self.cover_colors.get(url) {
+            Some(super::CoverColorState::Loaded(color)) => return *color,
+            Some(super::CoverColorState::Loading) => return None,
+            None => {}
+        }
+        let key = url.to_string();
+        self.cover_colors
+            .insert(key.clone(), super::CoverColorState::Loading);
+        let command = FetchCoverColor::new(Arc::clone(&self.cache), key.clone());
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, color, cx| {
+                this.cover_colors
+                    .insert(key, super::CoverColorState::Loaded(color));
+                cx.notify();
+            },
+            |_, _, _| {},
+        );
+        None
+    }
+
     fn thumbnail_for_url(
         &mut self,
         url: Option<&str>,
@@ -2216,7 +2273,9 @@ impl LibraryApp {
         self.vm.toggle_album(artist, album);
     }
 
-    pub(crate) fn unsubscribe_feed(
+    /// "Remove album…" of an album page: a destructive menu item, so it
+    /// asks for each removal (ADR 0083 Decision 5).
+    pub(crate) fn remove_album_after_confirmation(
         &mut self,
         feed_id: i64,
         window: &mut Window,
@@ -2224,7 +2283,7 @@ impl LibraryApp {
     ) {
         self.request_library_removal(
             LibraryRemovalIntent::FeedId(feed_id),
-            RemovalConfirmation::WhenReferenced,
+            RemovalConfirmation::Always,
             window,
             cx,
         );
@@ -3448,6 +3507,13 @@ impl Render for LibraryApp {
                 .into_any_element()
         } else {
             let track_publisher_feed_guid = self.mounted_track_publisher_feed_guid();
+            let album_cover_color = match &self.detail {
+                LibraryDetail::Album(album) => {
+                    let url = album.image_href.clone();
+                    self.cover_color_for_url(url.as_deref(), cx)
+                }
+                _ => None,
+            };
             let detail_pane = render_library_detail(
                 &self.detail,
                 self.track_breadcrumb_display(),
@@ -3462,6 +3528,7 @@ impl Render for LibraryApp {
                 self.playlist_actor.as_ref(),
                 self.playlist_rss_snapshot.as_ref(),
                 track_publisher_feed_guid.as_deref(),
+                album_cover_color,
                 cx,
             );
             let trailing_pane = div()

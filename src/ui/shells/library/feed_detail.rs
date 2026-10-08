@@ -13,34 +13,44 @@ use gpui::{div, prelude::*, AnyElement, ClipboardItem, Context, Image, SharedStr
 
 use crate::db::{self, TrackRow};
 use crate::library::{playlist_options, LibraryApp};
+use crate::media::cover_color::CoverColor;
 use crate::ui::composites::{
-    action_button, identity_action_button, ActionButtonDisplay, AddToPlaylistDisplay,
+    identity_action_button, ActionRow, ActionRowDisplay, AddToPlaylistDisplay,
     AddToPlaylistPopover, DisclosureTextPanel, DisclosureTextPanelDisplay,
     IdentityActionButtonDisplay, IdentityActionKind, ReleaseSurfaceElement, StatusRole,
     TrackRow as TrackRowComposite,
 };
 use crate::ui::control_styles::ControlStyle;
-use crate::ui::primitives::Button as UiButton;
-use crate::ui::shells::entity::{
-    render_contributor_panel, render_feed_identity_actions, render_release_detail_shell,
-    ContributorRowSlot, ReleaseDetailBehaviorSlots,
+use crate::ui::primitives::{
+    Button as UiButton, ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope,
 };
-use crate::ui::style::{color, spacing, typography};
+use crate::ui::shells::entity::{
+    render_album_name_links, render_contributor_panel, render_feed_identity_actions,
+    render_release_detail_shell, ContributorRowSlot, ReleaseDetailBehaviorSlots,
+};
+use crate::ui::style::{color, typography};
+use crate::view_models::album_page::{
+    album_page_actions, AlbumPageAction, AlbumPageActionDisplay, AlbumPageActions, AlbumPageOrigin,
+    ALBUM_PAGE_MENU_A11Y_LABEL,
+};
 use crate::view_models::entity_detail::{
     ContributorIdentityActionDisplay, ContributorIdentityActionKind, ContributorRowVm,
-    EntityActionKind, EntityActionTarget, EntityActionTone, EntityActionVm, EntitySurfaceContext,
-    ReleaseDetailVm,
+    EntityActionKind, EntityActionTone, EntityActionVm, EntitySurfaceContext, ReleaseDetailVm,
 };
 use crate::view_models::library::{
     AlbumNode, LibraryAlbumDetailVm, LibraryTrackRowDisplay, LibraryTrackRowVm, LibraryViewModel,
     MbStatusKind, MbTrackStatus,
 };
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
-use crate::views::{ArtistRef, FeedView, TrackView};
+use crate::views::{FeedView, TrackView};
 
 #[expect(
     clippy::too_many_lines,
     reason = "lifted legacy feed-detail surface stays intact during Task 007 decomposition"
+)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the cover color of the backdrop (ADR 0083 task 005) adds one already-resolved value to an existing page renderer"
 )]
 pub(crate) fn render_library_feed_detail(
     album: &AlbumNode,
@@ -48,6 +58,7 @@ pub(crate) fn render_library_feed_detail(
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     library_vm: &LibraryViewModel,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
+    cover_color: Option<CoverColor>,
     playlists: &[db::Playlist],
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
@@ -118,115 +129,26 @@ pub(crate) fn render_library_feed_detail(
         })
         .collect();
 
-    let album_for_mb = album.clone();
-    let feed_id = album.feed_id;
-    let mut buttons = div().flex().flex_row().items_center().gap(spacing::SM);
-    if let Some(fid) = feed_id {
-        let primary_action = vm.primary_action_vm(fid, library_vm.busy_feed() == Some(fid));
-        let primary_kind = primary_action.kind.clone();
-        let primary_enabled = primary_action.enabled;
-        let primary_a11y = primary_action.a11y_label();
-        let primary_label = primary_action.label;
-        buttons = buttons.child(
-            action_button(
-                ActionButtonDisplay {
-                    label: SharedString::from(primary_label),
-                    a11y_label: SharedString::from(primary_a11y),
-                },
-                cx,
-            )
-            .disabled(!primary_enabled)
-            .on_click(cx.listener(move |this, _, window, cx| {
-                match primary_kind {
-                    EntityActionKind::Download => this.download_feed(fid, cx),
-                    EntityActionKind::Remove => this.unsubscribe_feed(fid, window, cx),
-                    EntityActionKind::AddToPlaylist
-                    | EntityActionKind::Play
-                    | EntityActionKind::CompareMetadata
-                    | EntityActionKind::OpenMusicBrainz
-                    | EntityActionKind::OpenWebsite
-                    | EntityActionKind::CopyNostr
-                    | EntityActionKind::OpenRss
-                    | EntityActionKind::OpenPublisher => {}
-                }
-                cx.notify();
-            })),
-        );
-    }
-    let musicbrainz_action = vm.musicbrainz_action_vm();
-    buttons = buttons.child(
-        action_button(
-            ActionButtonDisplay {
-                label: SharedString::from(musicbrainz_action.label),
-                a11y_label: SharedString::from(musicbrainz_action.a11y_label),
-            },
-            cx,
-        )
-        .disabled(musicbrainz_action.disabled)
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.musicbrainz_feed(album_for_mb.clone(), cx);
-        })),
+    let album_actions = album_page_actions(
+        AlbumPageOrigin::Library {
+            membership: vm.membership(feed_busy),
+            musicbrainz_available: !vm.has_active_musicbrainz(),
+        },
+        album.feed_url.as_deref(),
     );
-    if let Some(fid) = feed_id {
-        let playlist_display = vm
-            .playlist_display(fid)
-            .expect("library feed playlist action should render for local feeds");
-        buttons = buttons.child(
-            AddToPlaylistPopover::new(AddToPlaylistDisplay {
-                id: SharedString::from(playlist_display.popover_id),
-                playlists: playlist_options(playlists),
-                trigger_label: SharedString::from(playlist_display.trigger_label),
-                trigger_a11y_label: SharedString::from("Add feed to playlist"),
-                new_playlist_a11y_label: SharedString::from("Create a new playlist"),
-                back_a11y_label: SharedString::from("Back to playlist choices"),
-                create_a11y_label: SharedString::from("Create playlist and add feed"),
-            })
-            .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
-                this.add_album_to_playlist(fid, *playlist_id, cx);
-            }))
-            .on_create(cx.listener(move |this, name: &String, _window, cx| {
-                this.create_playlist_and_add_album(name, fid, cx);
-            })),
-        );
-    }
-    // ADR 0077 packet 004: an album with an owned publisher relationship
-    // exposes an "open publisher" action. An album without one exposes none.
-    if let Some(publisher_action) =
-        ReleaseDetailVm::new(&feed_view, EntitySurfaceContext::Library).publisher_action()
-    {
-        let a11y_label = publisher_action.a11y_label();
-        let EntityActionVm {
-            label,
-            enabled,
-            target,
-            ..
-        } = publisher_action;
-        let EntityActionTarget::Artist(ArtistRef::PublisherFeed(publisher_feed_guid)) = target
-        else {
-            unreachable!("ReleaseDetailVm::publisher_action always targets a publisher feed GUID")
-        };
-        buttons = buttons.child(
-            action_button(
-                ActionButtonDisplay {
-                    label: SharedString::from(label),
-                    a11y_label: SharedString::from(a11y_label),
-                },
-                cx,
-            )
-            .disabled(!enabled)
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.open_publisher_page(&publisher_feed_guid, cx);
-            })),
-        );
-    }
+    let action_row = render_library_album_actions(album, &album_actions, playlists, cx);
 
     let projection = ReleaseDetailVm::new(&feed_view, EntitySurfaceContext::Library);
     let page = projection.page();
+    let entity = cx.entity();
+    let name_links = render_album_name_links(projection.name_links(), move |target, _, cx| {
+        entity.update(cx, |this, cx| this.open_album_name_link(target, cx));
+    });
     let mut slots = ReleaseDetailBehaviorSlots {
         hero_image: thumb_image,
-        primary_actions: vec![ReleaseSurfaceElement::from_element(
-            buttons.into_any_element(),
-        )],
+        cover_color,
+        name_links,
+        primary_actions: vec![ReleaseSurfaceElement::from_element(action_row)],
         identity_actions: render_feed_identity_actions(&page),
         track_rows: Some(track_rows),
         ..ReleaseDetailBehaviorSlots::default()
@@ -260,6 +182,149 @@ pub(crate) fn render_library_feed_detail(
         ));
     }
     render_release_detail_shell(&page, slots)
+}
+
+/// The action row of a Library album page (ADR 0083 Decision 5): one filled
+/// button and the "⋯" menu.
+fn render_library_album_actions(
+    album: &AlbumNode,
+    actions: &AlbumPageActions,
+    playlists: &[db::Playlist],
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let mut controls = vec![render_library_album_button(
+        actions.filled,
+        album,
+        playlists,
+        cx,
+    )];
+    controls.extend(
+        actions
+            .plain
+            .iter()
+            .map(|action| render_library_album_button(*action, album, playlists, cx)),
+    );
+    if !actions.menu.is_empty() {
+        controls.push(render_library_album_menu(&actions.menu, album, cx));
+    }
+    ActionRow::new(ActionRowDisplay {
+        a11y_label: SharedString::from("Album actions"),
+    })
+    .control_group(controls)
+    .into_any_element()
+}
+
+/// The filled button of a Library album page. "Add to playlist" opens the
+/// shared playlist popover.
+fn render_library_album_button(
+    display: AlbumPageActionDisplay,
+    album: &AlbumNode,
+    playlists: &[db::Playlist],
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let action = display.action;
+    let feed_id = album.feed_id;
+    if let (AlbumPageAction::AddToPlaylist, Some(feed_id)) = (action, feed_id) {
+        return AddToPlaylistPopover::new(AddToPlaylistDisplay {
+            id: SharedString::from(format!("album-feed-add:{feed_id}")),
+            playlists: playlist_options(playlists),
+            trigger_label: SharedString::from(action.label()),
+            trigger_a11y_label: SharedString::from(action.a11y_label()),
+            new_playlist_a11y_label: SharedString::from("Create a new playlist"),
+            back_a11y_label: SharedString::from("Back to playlist choices"),
+            create_a11y_label: SharedString::from("Create playlist and add album"),
+        })
+        .trigger_style(ControlStyle::Primary)
+        .disabled(!display.available)
+        .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
+            this.add_album_to_playlist(feed_id, *playlist_id, cx);
+        }))
+        .on_create(cx.listener(move |this, name: &String, _window, cx| {
+            this.create_playlist_and_add_album(name, feed_id, cx);
+        }))
+        .into_any_element();
+    }
+    let available = display.available && feed_id.is_some();
+    let button = UiButton::styled(
+        SharedString::from(format!("album-page-action:{action:?}")),
+        ControlStyle::Primary,
+    )
+    .label(action.label())
+    .a11y_label(action.a11y_label())
+    .disabled(!available);
+    let (true, Some(feed_id)) = (available, feed_id) else {
+        return button.into_any_element();
+    };
+    let album = album.clone();
+    button
+        .on_click(cx.listener(move |this, _, window, cx| {
+            run_library_album_action(this, action, feed_id, &album, window, cx);
+        }))
+        .into_any_element()
+}
+
+/// The "⋯" menu of a Library album page. The context menu draws a divider
+/// before the destructive item.
+fn render_library_album_menu(
+    items: &[AlbumPageActionDisplay],
+    album: &AlbumNode,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let entity = cx.entity();
+    let feed_id = album.feed_id;
+    let menu_items = items.iter().map(|display| {
+        let action = display.action;
+        let available = display.available && feed_id.is_some();
+        let mut item = ContextMenuItem::new(ContextMenuItemDisplay {
+            id: SharedString::from(format!("album-page-menu:{action:?}")),
+            label: SharedString::from(action.label()),
+            a11y_label: SharedString::from(action.a11y_label()),
+            destructive: action.is_destructive(),
+            disabled: !available,
+        });
+        if let (true, Some(feed_id)) = (available, feed_id) {
+            let entity = entity.clone();
+            let album = album.clone();
+            item = item.on_select(move |window, cx| {
+                entity.update(cx, |this, cx| {
+                    run_library_album_action(this, action, feed_id, &album, window, cx);
+                });
+            });
+        }
+        item
+    });
+    ContextMenu::new(
+        SharedString::from(format!("album-page-menu-{}", feed_id.unwrap_or_default())),
+        ContextMenuScope::TrackList,
+        SharedString::from(ALBUM_PAGE_MENU_A11Y_LABEL),
+    )
+    .trigger_label("")
+    .items(menu_items)
+    .into_any_element()
+}
+
+/// Runs the command of an album page action on a Library album.
+fn run_library_album_action(
+    this: &mut LibraryApp,
+    action: AlbumPageAction,
+    feed_id: i64,
+    album: &AlbumNode,
+    window: &mut gpui::Window,
+    cx: &mut Context<LibraryApp>,
+) {
+    match action {
+        AlbumPageAction::DownloadAlbum => this.download_feed(feed_id, cx),
+        AlbumPageAction::CopyFeedUrl => {
+            if let Some(url) = album.feed_url.as_deref() {
+                cx.write_to_clipboard(ClipboardItem::new_string(url.to_owned()));
+            }
+        }
+        AlbumPageAction::MusicBrainzLookup => this.musicbrainz_feed(album.clone(), cx),
+        AlbumPageAction::RemoveAlbum => this.remove_album_after_confirmation(feed_id, window, cx),
+        // "Add to playlist" opens its popover.
+        AlbumPageAction::AddToPlaylist => {}
+    }
+    cx.notify();
 }
 
 fn render_library_contributors_panel(

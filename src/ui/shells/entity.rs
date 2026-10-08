@@ -13,15 +13,18 @@ use gpui::{
     ParentElement, SharedString, Styled, Window,
 };
 
+use crate::media::cover_color::CoverColor;
 use crate::ui::composites::{
-    identity_action_button, DetailGrid, DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay,
-    DetailRow, DetailTextRow, EntityKind, IdentityActionButtonDisplay, IdentityActionKind, ListRow,
-    ListRowA11yLabel, ReleaseActionGroupDisplay, ReleaseDetailSurface, ReleaseSurfaceElement,
-    ReleaseTrackSectionDisplay, Thumbnail, ThumbnailSize, TrackRow,
+    identity_action_button, CoverBackdrop, DetailGrid, DetailHeader, DetailHeaderDataRow,
+    DetailHeaderDisplay, DetailRow, DetailTextRow, EntityKind, IdentityActionButtonDisplay,
+    IdentityActionKind, ListRow, ListRowA11yLabel, ReleaseActionGroupDisplay, ReleaseDetailSurface,
+    ReleaseSurfaceElement, ReleaseTrackSectionDisplay, Thumbnail, ThumbnailSize, TrackRow,
 };
-use crate::ui::primitives::Label;
+use crate::ui::control_styles::ControlStyle;
+use crate::ui::primitives::{Button, Label};
 use crate::ui::style::{color, spacing, typography};
 use crate::ui::tokens::{FontSize, SemanticColor};
+use crate::view_models::album_page::{AlbumNameLinkTarget, AlbumNameLinkVm};
 use crate::view_models::entity_detail::{
     ContributorListVm, ContributorPersonVm, ContributorRoleRowVm, ContributorRowVm,
     EntitySurfaceKind, IdentityActionDisplay, IdentityActionDisplayKind, ReleaseDetailPageVm,
@@ -55,9 +58,16 @@ impl ReleaseTrackRowSlot {
     }
 }
 
+/// The cover size of the album page header (ADR 0083 Decision 4).
+pub const RELEASE_HEADER_COVER: ThumbnailSize = ThumbnailSize::XXl;
+
 #[derive(Default)]
 pub struct ReleaseDetailBehaviorSlots {
     pub hero_image: Option<Arc<Image>>,
+    /// The main color of the cover. The screen resolves it like the cover.
+    pub cover_color: Option<CoverColor>,
+    /// The name links under the album title.
+    pub name_links: Vec<AnyElement>,
     pub primary_actions: Vec<ReleaseSurfaceElement>,
     pub identity_actions: Vec<ReleaseSurfaceElement>,
     pub action_overlays: Vec<ReleaseSurfaceElement>,
@@ -73,10 +83,13 @@ pub fn render_release_detail_shell(
 ) -> AnyElement {
     let mut surface = ReleaseDetailSurface::new(page.detail_scroll_id)
         .scrollable(true)
-        .header(ReleaseSurfaceElement::from_element(render_contract_header(
-            &page.hero,
-            slots.hero_image,
-        )))
+        .header(ReleaseSurfaceElement::from_element(
+            CoverBackdrop::new(
+                slots.cover_color,
+                render_contract_header(&page.hero, slots.hero_image, slots.name_links),
+            )
+            .into_any_element(),
+        ))
         .details(ReleaseSurfaceElement::from_element(render_summary_facts(
             &page.summary_facts,
         )));
@@ -308,12 +321,16 @@ fn render_contributor_role_row(role: ContributorRoleRowVm) -> AnyElement {
         .into_any_element()
 }
 
-fn render_contract_header(hero: &ReleaseHeroVm<'_>, hero_image: Option<Arc<Image>>) -> AnyElement {
+fn render_contract_header(
+    hero: &ReleaseHeroVm<'_>,
+    hero_image: Option<Arc<Image>>,
+    name_links: Vec<AnyElement>,
+) -> AnyElement {
     let display = hero.display();
     DetailHeader::new(DetailHeaderDisplay {
         kind: entity_kind(display.kind),
         title: display.title.into(),
-        subtitle: display.subtitle.map(Into::into),
+        subtitle: None,
         data_rows: display
             .data_rows
             .into_iter()
@@ -327,7 +344,38 @@ fn render_contract_header(hero: &ReleaseHeroVm<'_>, hero_image: Option<Arc<Image
     .image(hero_image)
     // ADR 0083 Decision 3: this header is always the album (release) page.
     .title_size(FontSize::Display)
+    .cover_size(RELEASE_HEADER_COVER)
+    .name_links(name_links)
     .into_any_element()
+}
+
+/// The name links under an album title (ADR 0083 task 005). The screen
+/// gives the command that opens each target.
+pub fn render_album_name_links(
+    links: Vec<AlbumNameLinkVm>,
+    on_open: impl Fn(&AlbumNameLinkTarget, &mut Window, &mut App) + 'static,
+) -> Vec<AnyElement> {
+    let on_open = Rc::new(on_open);
+    links
+        .into_iter()
+        .enumerate()
+        .map(|(index, link)| {
+            let on_open = Rc::clone(&on_open);
+            let AlbumNameLinkVm {
+                label,
+                a11y_label,
+                target,
+            } = link;
+            Button::styled(
+                SharedString::from(format!("album-name-link-{index}")),
+                ControlStyle::Ghost,
+            )
+            .label(label)
+            .a11y_label(a11y_label)
+            .on_click(move |_, window, cx| on_open(&target, window, cx))
+            .into_any_element()
+        })
+        .collect()
 }
 
 fn render_summary_facts(facts: &[crate::view_models::entity_detail::ReleaseFactVm]) -> AnyElement {
@@ -466,11 +514,24 @@ mod tests {
         let slots = ReleaseDetailBehaviorSlots::default();
 
         assert!(slots.hero_image.is_none());
+        assert!(slots.cover_color.is_none());
+        assert!(slots.name_links.is_empty());
         assert!(slots.primary_actions.is_empty());
         assert!(slots.identity_actions.is_empty());
         assert!(slots.action_overlays.is_empty());
         assert!(slots.track_rows.is_none());
         assert!(slots.after_section.is_empty());
+    }
+
+    /// R83-55: the album page header cover is the 200 px `XXl` size, which
+    /// draws the artwork shadow.
+    #[test]
+    fn adr_0083_album_header_cover_is_xxl() {
+        assert_eq!(RELEASE_HEADER_COVER, ThumbnailSize::XXl);
+        assert_eq!(
+            RELEASE_HEADER_COVER.image_size(),
+            crate::ui::primitives::ImageSize::XXl
+        );
     }
 
     #[test]

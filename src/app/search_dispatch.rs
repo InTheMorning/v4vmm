@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 
-use anyhow::Result;
 use gpui::{prelude::*, AnyElement, Context, Image, SharedString, Window};
 
 use crate::application::capability::Dependency;
@@ -10,7 +9,7 @@ use crate::application::capability_recovery::{RecoveryAction, RecoveryIntent};
 use crate::application::commands::download::{SubscribeThenAppendToPlaylist, SubscribeTrack};
 use crate::application::commands::feed::SubscribeFeed;
 use crate::application::commands::playlist::CreatePlaylist;
-use crate::application::queries::images::FetchThumbnail;
+use crate::application::queries::images::{FetchCoverColor, FetchThumbnail};
 use crate::application::queries::search::{
     FetchIndexFeedDetail, FetchIndexSearchResults, FetchIndexTrackDetail,
 };
@@ -19,27 +18,31 @@ use crate::db;
 use crate::feed_service;
 use crate::library::{playlist_options, LibraryApp};
 use crate::library_service;
+use crate::media::cover_color::CoverColor;
 use crate::metadata::TrackContext;
 use crate::presentation::present_command;
 use crate::subscribe_service::{SubscribeFeedRequest, SubscribeTrackRequest};
 use crate::ui::composites::{
-    action_button, ActionButtonDisplay, AddToPlaylistDisplay, AddToPlaylistPopover,
-    DisclosureTextPanel, DisclosureTextPanelDisplay, ReleaseSurfaceElement, TrackSurfaceElement,
+    ActionRow, ActionRowDisplay, AddToPlaylistDisplay, AddToPlaylistPopover, DisclosureTextPanel,
+    DisclosureTextPanelDisplay, ReleaseSurfaceElement, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
     Button as UiButton, ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope,
 };
 use crate::ui::shells::entity::{
-    render_release_track_row, ReleaseDetailBehaviorSlots, ReleaseTrackRowSlot,
+    render_album_name_links, render_release_track_row, ReleaseDetailBehaviorSlots,
+    ReleaseTrackRowSlot,
 };
 use crate::ui::shells::search_results_inspector::{
     render_index_detail_display, render_index_feed_detail, render_index_track_detail,
 };
 use crate::ui::shells::track::{render_track_name_links, TrackDetailBehaviorSlots};
-use crate::view_models::entity_detail::{
-    EntityActionTarget, EntitySurfaceContext, ReleaseDetailVm, SharedTrackRowVm,
+use crate::view_models::album_page::{
+    album_page_actions, AlbumNameLinkTarget, AlbumPageAction, AlbumPageOrigin,
+    ALBUM_PAGE_MENU_A11Y_LABEL,
 };
+use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm, SharedTrackRowVm};
 use crate::view_models::publisher_page::PublisherPageContext;
 use crate::view_models::search_results::{
     IndexDetailDisplay, IndexDetailKind, SearchResultsInspectorPageVm, SearchResultsTab,
@@ -49,7 +52,7 @@ use crate::view_models::track_detail::{
     TrackPageActions,
 };
 use crate::view_models::workspace::{FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId};
-use crate::views::{ArtistRef, FeedRef, FeedView, TrackRef, TrackView};
+use crate::views::{FeedRef, FeedView, TrackRef, TrackView};
 
 use super::{AppTab, TopApp};
 
@@ -57,6 +60,13 @@ use super::{AppTab, TopApp};
 pub(super) enum RemoteDetailThumbnailState {
     Loading,
     Loaded(Option<Arc<Image>>),
+}
+
+/// The main color of one Index cover (ADR 0083 task 005).
+#[derive(Clone, Copy)]
+pub(super) enum RemoteCoverColorState {
+    Loading,
+    Loaded(Option<CoverColor>),
 }
 
 /// Loading lifecycle of the mounted Index feed detail page, reached from an
@@ -486,16 +496,7 @@ impl TopApp {
                     cx.notify();
                     return;
                 };
-                self.library.update(cx, |library, cx| {
-                    library.select_artist(artist_name, cx);
-                });
-                if let Err(e) = self.workspace_layout.push_nav(
-                    content_frame_id,
-                    FrameNavigationEntry::ArtistDetail(artist_name.to_string()),
-                ) {
-                    self.settings_status = format!("Failed to navigate to artist: {e}");
-                }
-                cx.notify();
+                self.open_library_artist_in_frame(artist_name, content_frame_id, cx);
             }
         }
 
@@ -828,6 +829,35 @@ impl TopApp {
         self.open_library_album_in_frame(feed_id, content_frame_id, cx);
     }
 
+    /// Opens the Library artist page of `name` in the content frame. The
+    /// artist name link of an album page uses it (ADR 0083 task 005).
+    pub(super) fn open_library_artist_page(&mut self, name: &str, cx: &mut Context<Self>) {
+        let Some(content_frame_id) = self.content_list_frame_id() else {
+            self.settings_status = "ContentList frame not found".to_string();
+            cx.notify();
+            return;
+        };
+        self.open_library_artist_in_frame(name, content_frame_id, cx);
+    }
+
+    fn open_library_artist_in_frame(
+        &mut self,
+        name: &str,
+        content_frame_id: WorkspaceFrameId,
+        cx: &mut Context<Self>,
+    ) {
+        self.library.update(cx, |library, cx| {
+            library.select_artist(name, cx);
+        });
+        if let Err(e) = self.workspace_layout.push_nav(
+            content_frame_id,
+            FrameNavigationEntry::ArtistDetail(name.to_string()),
+        ) {
+            self.settings_status = format!("Failed to navigate to artist: {e}");
+        }
+        cx.notify();
+    }
+
     fn open_library_album_in_frame(
         &mut self,
         feed_id: i64,
@@ -872,9 +902,20 @@ impl TopApp {
         feed: &FeedView,
         cx: &mut Context<Self>,
     ) -> ReleaseDetailBehaviorSlots {
+        let entity = cx.entity();
+        let name_links = render_album_name_links(
+            ReleaseDetailVm::new(feed, EntitySurfaceContext::Library).name_links(),
+            move |target, _window, cx| {
+                entity.update(cx, |this, cx| this.open_index_album_name_link(target, cx));
+            },
+        );
         ReleaseDetailBehaviorSlots {
             hero_image: self.index_feed_hero_image(feed, cx),
-            primary_actions: self.index_feed_primary_actions(feed, cx),
+            cover_color: index_feed_artwork_url(feed)
+                .map(str::to_owned)
+                .and_then(|url| self.index_cover_color(&url, cx)),
+            name_links,
+            primary_actions: Self::index_feed_primary_actions(feed, cx),
             description_panel: index_feed_description_panel(feed),
             track_rows: Some(self.index_feed_track_rows(feed, cx)),
             ..ReleaseDetailBehaviorSlots::default()
@@ -1082,95 +1123,127 @@ impl TopApp {
         None
     }
 
+    /// The action row of an Index album page (ADR 0083 Decision 5): the
+    /// filled "Download album" and the "⋯" menu with "Copy feed URL".
     fn index_feed_primary_actions(
-        &mut self,
         feed: &FeedView,
         cx: &mut Context<Self>,
     ) -> Vec<ReleaseSurfaceElement> {
-        let feed_for_download = feed.clone();
-        let download = action_button(
-            ActionButtonDisplay {
-                label: SharedString::from("Download Feed"),
-                a11y_label: SharedString::from("Download feed"),
-            },
-            cx,
+        let actions = album_page_actions(AlbumPageOrigin::Index, feed.feed_url.as_deref());
+        let filled = actions.filled;
+        let action = filled.action;
+        let button = UiButton::styled(
+            SharedString::from(format!("index-album-page-action:{action:?}")),
+            ControlStyle::Primary,
         )
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.download_index_feed(&feed_for_download, cx);
-        }));
-
-        let musicbrainz = action_button(
-            ActionButtonDisplay {
-                label: SharedString::from("MusicBrainz"),
-                a11y_label: SharedString::from("Look up missing MusicBrainz fields"),
-            },
-            cx,
-        )
-        .disabled(true);
-
-        let playlists = self.library.read(cx).playlists().to_vec();
-        let feed_for_select = feed.clone();
-        let feed_for_create = feed.clone();
-        let playlist = AddToPlaylistPopover::new(AddToPlaylistDisplay {
-            id: SharedString::from(format!(
-                "index-feed-add:{}",
-                feed_guid_from_view(feed).unwrap_or_else(|| "unknown".to_string())
-            )),
-            playlists: playlist_options(&playlists),
-            trigger_label: SharedString::from("Add feed to playlist ▾"),
-            trigger_a11y_label: SharedString::from("Add feed to playlist"),
-            new_playlist_a11y_label: SharedString::from("Create a new playlist"),
-            back_a11y_label: SharedString::from("Back to playlist choices"),
-            create_a11y_label: SharedString::from("Create playlist and add feed"),
-        })
-        .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
-            this.add_index_feed_to_playlist(&feed_for_select, *playlist_id, cx);
-        }))
-        .on_create(cx.listener(move |this, name: &String, _window, cx| {
-            this.create_playlist_and_add_index_feed(name, feed_for_create.clone(), cx);
-        }));
-
-        let mut actions = vec![
-            ReleaseSurfaceElement::from_element(download.into_any_element()),
-            ReleaseSurfaceElement::from_element(musicbrainz.into_any_element()),
-            ReleaseSurfaceElement::from_element(playlist.into_any_element()),
-        ];
-        // ADR 0077 packet 004: an Index album with a received publisher
-        // relationship exposes an "open publisher" action. This reads the
-        // relationship that the L2 feed detail request already carries
-        // (ADR 0077 Decision 5); it sends no new request.
-        if let Some(publisher_action) =
-            ReleaseDetailVm::new(feed, EntitySurfaceContext::Library).publisher_action()
-        {
-            let a11y_label = publisher_action.a11y_label();
-            let EntityActionTarget::Artist(ArtistRef::PublisherFeed(publisher_feed_guid)) =
-                publisher_action.target
-            else {
-                unreachable!(
-                    "ReleaseDetailVm::publisher_action always targets a publisher feed GUID"
+        .label(action.label())
+        .a11y_label(action.a11y_label())
+        .disabled(!filled.available);
+        let button = if action == AlbumPageAction::DownloadAlbum && filled.available {
+            let feed_for_download = feed.clone();
+            button.on_click(cx.listener(move |this, _, _, cx| {
+                this.download_index_feed(&feed_for_download, cx);
+            }))
+        } else {
+            button
+        };
+        let mut controls = vec![button.into_any_element()];
+        if !actions.menu.is_empty() {
+            let feed_url = feed.feed_url.clone();
+            let items = actions.menu.iter().map(|display| {
+                let action = display.action;
+                let mut item = ContextMenuItem::new(ContextMenuItemDisplay {
+                    id: SharedString::from(format!("index-album-page-menu:{action:?}")),
+                    label: SharedString::from(action.label()),
+                    a11y_label: SharedString::from(action.a11y_label()),
+                    destructive: action.is_destructive(),
+                    disabled: !display.available,
+                });
+                if let (true, AlbumPageAction::CopyFeedUrl, Some(url)) =
+                    (display.available, action, feed_url.clone())
+                {
+                    item = item.on_select(move |_window, cx| {
+                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(url.clone()));
+                    });
+                }
+                item
+            });
+            controls.push(
+                ContextMenu::new(
+                    SharedString::from(format!(
+                        "index-album-page-menu-{}",
+                        feed_guid_from_view(feed).unwrap_or_else(|| "unknown".to_string())
+                    )),
+                    ContextMenuScope::TrackList,
+                    SharedString::from(ALBUM_PAGE_MENU_A11Y_LABEL),
                 )
-            };
-            let open_publisher = action_button(
-                ActionButtonDisplay {
-                    label: SharedString::from(publisher_action.label),
-                    a11y_label: SharedString::from(a11y_label),
-                },
-                cx,
-            )
-            .disabled(!publisher_action.enabled)
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.open_publisher_page(
+                .trigger_label("")
+                .items(items)
+                .into_any_element(),
+            );
+        }
+        vec![ReleaseSurfaceElement::from_element(
+            ActionRow::new(ActionRowDisplay {
+                a11y_label: SharedString::from("Album actions"),
+            })
+            .control_group(controls)
+            .into_any_element(),
+        )]
+    }
+
+    /// Opens the page of a name link under an Index album title. The Index
+    /// has no artist page, so an artist name opens the tracks that match it.
+    fn open_index_album_name_link(&mut self, target: &AlbumNameLinkTarget, cx: &mut Context<Self>) {
+        match target {
+            AlbumNameLinkTarget::Artist(name) => {
+                let Some(content_frame_id) = self.content_list_frame_id() else {
+                    self.settings_status = "ContentList frame not found".to_string();
+                    cx.notify();
+                    return;
+                };
+                self.open_name_match_page(name.clone(), content_frame_id, cx);
+                self.sync_search_results_detail_with_nav(content_frame_id);
+                cx.notify();
+            }
+            AlbumNameLinkTarget::Publisher(publisher_feed_guid) => {
+                self.open_publisher_page(
                     publisher_feed_guid.clone(),
                     PublisherPageContext::Index,
                     cx,
                 );
-            }));
-            actions.push(ReleaseSurfaceElement::from_element(
-                open_publisher.into_any_element(),
-            ));
+            }
         }
+    }
 
-        actions
+    /// The main color of an Index cover for the album page backdrop (ADR
+    /// 0083 task 005). The first call starts a background fetch.
+    fn index_cover_color(&mut self, url: &str, cx: &mut Context<Self>) -> Option<CoverColor> {
+        if let Some(color) = self.image_cache.peek_cover_color(url) {
+            return Some(color);
+        }
+        self.command_runner.availability().ok()?;
+        match self.remote_cover_colors.get(url) {
+            Some(RemoteCoverColorState::Loaded(color)) => return *color,
+            Some(RemoteCoverColorState::Loading) => return None,
+            None => {}
+        }
+        let url = url.to_string();
+        self.remote_cover_colors
+            .insert(url.clone(), RemoteCoverColorState::Loading);
+        let command = FetchCoverColor::new(Arc::clone(&self.image_cache), url.clone());
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, color, cx| {
+                this.remote_cover_colors
+                    .insert(url, RemoteCoverColorState::Loaded(color));
+                cx.notify();
+            },
+            |_, _, _| {},
+        );
+        None
     }
 
     fn index_feed_track_rows(
@@ -1357,41 +1430,6 @@ impl TopApp {
         );
     }
 
-    fn add_index_feed_to_playlist(
-        &mut self,
-        feed: &FeedView,
-        playlist_id: i64,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(feed_guid) = feed_guid_from_view(feed) else {
-            self.settings_status = "Cannot add feed without a MusicIndex feed id".to_string();
-            cx.notify();
-            return;
-        };
-        let feed_id = match feed_service::ensure_feed_in_db(
-            &self.conn,
-            &feed_guid,
-            feed.feed_url.as_deref(),
-            &self.musicindex_endpoint,
-        ) {
-            Ok(feed_id) => feed_id,
-            Err(error) => {
-                self.settings_status = format!("Error preparing feed: {error:#}");
-                cx.notify();
-                return;
-            }
-        };
-        let track_ids = match self.feed_track_ids(feed_id) {
-            Ok(track_ids) => track_ids,
-            Err(error) => {
-                self.settings_status = format!("Error reading feed tracks: {error:#}");
-                cx.notify();
-                return;
-            }
-        };
-        self.subscribe_then_append_to_playlist(playlist_id, track_ids, cx);
-    }
-
     fn add_index_track_to_playlist(
         &mut self,
         feed: &FeedView,
@@ -1435,27 +1473,6 @@ impl TopApp {
         self.subscribe_then_append_to_playlist(playlist_id, vec![track_id], cx);
     }
 
-    fn create_playlist_and_add_index_feed(
-        &mut self,
-        name: &str,
-        feed: FeedView,
-        cx: &mut Context<Self>,
-    ) {
-        let command = CreatePlaylist::new(Arc::clone(&self.conn), name.to_string());
-        present_command(
-            &self.command_runner,
-            command,
-            CommandContext::next(),
-            cx,
-            move |this, result, cx| {
-                this.add_index_feed_to_playlist(&feed, result.playlist_id(), cx);
-            },
-            |this, error, _cx| {
-                this.settings_status = format!("Error creating playlist: {error:#}");
-            },
-        );
-    }
-
     fn create_playlist_and_add_index_track(
         &mut self,
         name: &str,
@@ -1476,14 +1493,6 @@ impl TopApp {
                 this.settings_status = format!("Error creating playlist: {error:#}");
             },
         );
-    }
-
-    fn feed_track_ids(&self, feed_id: i64) -> Result<Vec<i64>> {
-        let conn = self.conn.lock().expect("lock db");
-        Ok(db::feed_tracks(&conn, feed_id)?
-            .into_iter()
-            .map(|track| track.id)
-            .collect())
     }
 
     fn subscribe_then_append_to_playlist(

@@ -1,7 +1,7 @@
 //! Thumbnail composite — square artwork tile with a two-letter type
 //! monogram fallback when no image is available (ADR 0083 Decision 4).
 //!
-//! Sizing is expressed as a semantic [`ThumbnailSize`] (Sm / Md / Lg) which
+//! Sizing is expressed as a semantic [`ThumbnailSize`] (`Sm` / `Md` / `Lg` / `XXl`) which
 //! resolves through the global scale, so a "Large" thumbnail in a
 //! detail header automatically grows when the user picks a larger UI scale.
 
@@ -13,7 +13,7 @@ use gpui::{
     div, App, Image, IntoElement, ParentElement, Pixels, RenderOnce, SharedString, Styled, Window,
 };
 
-use crate::ui::primitives::Image as ImagePrimitive;
+use crate::ui::primitives::{Image as ImagePrimitive, ImageSize};
 use crate::ui::tokens::{color, FontSize, Radius, ScaleFactor, SemanticColor};
 
 use super::tag_badge::EntityKind;
@@ -28,6 +28,9 @@ pub enum ThumbnailSize {
     Md,
     /// 80 px — detail-view header.
     Lg,
+    /// 200 px — the album page header cover, with the artwork shadow (ADR
+    /// 0083 Decision 4).
+    XXl,
 }
 
 impl ThumbnailSize {
@@ -36,6 +39,19 @@ impl ThumbnailSize {
             Self::Sm => 32.0,
             Self::Md => 48.0,
             Self::Lg => 80.0,
+            Self::XXl => 200.0,
+        }
+    }
+
+    /// The image primitive size of this thumbnail size. The primitive draws
+    /// the artwork shadow of the size.
+    #[must_use]
+    pub const fn image_size(self) -> ImageSize {
+        match self {
+            Self::Sm => ImageSize::Sm,
+            Self::Md => ImageSize::Md,
+            Self::Lg => ImageSize::Lg,
+            Self::XXl => ImageSize::XXl,
         }
     }
 
@@ -65,6 +81,7 @@ impl ThumbnailSize {
         match self {
             Self::Sm | Self::Md => Radius::SM,
             Self::Lg => Radius::MD,
+            Self::XXl => Radius::LG,
         }
     }
 
@@ -73,6 +90,7 @@ impl ThumbnailSize {
             Self::Sm => FontSize::Body,
             Self::Md => FontSize::Headline,
             Self::Lg => FontSize::Title2,
+            Self::XXl => FontSize::Display,
         }
     }
 }
@@ -116,7 +134,7 @@ impl RenderOnce for Thumbnail {
 
         if let Some(image) = self.image {
             ImagePrimitive::new(image)
-                .dimension(dim)
+                .size(self.size.image_size())
                 .radius(radius)
                 .into_any_element()
         } else {
@@ -141,6 +159,25 @@ impl RenderOnce for Thumbnail {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R83-55: each thumbnail size has the base dimension of its image
+    /// primitive size, so the 200 px header cover draws the XXl shadow.
+    #[test]
+    fn adr_0083_thumbnail_sizes_match_their_image_sizes() {
+        assert_eq!(ThumbnailSize::XXl.image_size(), ImageSize::XXl);
+        for (size, base) in [
+            (ThumbnailSize::Sm, 32.0),
+            (ThumbnailSize::Md, 48.0),
+            (ThumbnailSize::Lg, 80.0),
+            (ThumbnailSize::XXl, 200.0),
+        ] {
+            assert!((size.base() - base).abs() < f32::EPSILON, "{size:?}");
+            assert!(
+                (size.image_size().base_px() - base).abs() < f32::EPSILON,
+                "{size:?}"
+            );
+        }
+    }
 
     /// R83-15: `Thumbnail` with no image produces the monogram of its kind.
     #[test]

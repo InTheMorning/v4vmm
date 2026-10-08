@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::view_models::album_page::{AlbumNameLinkTarget, AlbumNameLinkVm, PUBLISHER_LINK_LABEL};
 use crate::view_models::format::{fmt_date, fmt_runtime};
 use crate::view_models::track::fmt_dur;
 use crate::view_models::{ActionStatusMessageDisplay, ActionStatusMessageWidth};
@@ -40,9 +41,6 @@ pub enum EntityActionKind {
     OpenWebsite,
     CopyNostr,
     OpenRss,
-    /// Opens the publisher page of an album's owned relationship (ADR 0077
-    /// packet 004). The target carries the publisher feed GUID.
-    OpenPublisher,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -121,7 +119,6 @@ pub enum ReleaseMembershipState {
 pub enum PlaylistActionState {
     Hidden,
     Closed,
-    Open,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -214,12 +211,6 @@ impl TrackActionState {
                 EntityActionKind::AddToPlaylist,
                 target,
                 "+ Playlist",
-                EntityActionTone::Quiet,
-            )),
-            PlaylistActionState::Open => Some(EntityActionVm::new(
-                EntityActionKind::AddToPlaylist,
-                target,
-                "+ Playlist ▴",
                 EntityActionTone::Quiet,
             )),
         }
@@ -464,97 +455,6 @@ impl TrackMetadataActionState {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ReleaseActionState {
-    pub membership: ReleaseMembershipState,
-    pub playlist: PlaylistActionState,
-}
-
-impl ReleaseActionState {
-    #[must_use]
-    pub const fn new(membership: ReleaseMembershipState, playlist: PlaylistActionState) -> Self {
-        Self {
-            membership,
-            playlist,
-        }
-    }
-
-    #[must_use]
-    pub const fn for_context(context: EntitySurfaceContext) -> Self {
-        match context {
-            EntitySurfaceContext::Discover => Self::new(
-                ReleaseMembershipState::RemoteOnly,
-                PlaylistActionState::Closed,
-            ),
-            EntitySurfaceContext::Library => Self::new(
-                ReleaseMembershipState::InLibrary,
-                PlaylistActionState::Closed,
-            ),
-        }
-    }
-
-    #[must_use]
-    pub fn primary_action(&self, target: EntityActionTarget) -> EntityActionVm {
-        match self.membership {
-            ReleaseMembershipState::RemoteOnly => EntityActionVm::new(
-                EntityActionKind::Download,
-                target,
-                "Download Feed",
-                EntityActionTone::Secondary,
-            ),
-            ReleaseMembershipState::Downloading => EntityActionVm::new(
-                EntityActionKind::Download,
-                target,
-                "Downloading...",
-                EntityActionTone::Secondary,
-            )
-            .disabled(),
-            ReleaseMembershipState::InLibrary => EntityActionVm::new(
-                EntityActionKind::Remove,
-                target,
-                "Remove Feed",
-                EntityActionTone::DestructiveQuiet,
-            ),
-            ReleaseMembershipState::Removing => EntityActionVm::new(
-                EntityActionKind::Remove,
-                target,
-                "Removing...",
-                EntityActionTone::DestructiveQuiet,
-            )
-            .disabled(),
-        }
-    }
-
-    #[must_use]
-    pub fn playlist_action(&self, target: EntityActionTarget) -> Option<EntityActionVm> {
-        match self.playlist {
-            PlaylistActionState::Hidden => None,
-            PlaylistActionState::Closed => Some(EntityActionVm::new(
-                EntityActionKind::AddToPlaylist,
-                target,
-                "Add feed to playlist ▾",
-                EntityActionTone::Quiet,
-            )),
-            PlaylistActionState::Open => Some(EntityActionVm::new(
-                EntityActionKind::AddToPlaylist,
-                target,
-                "Add feed to playlist ▴",
-                EntityActionTone::Quiet,
-            )),
-        }
-    }
-
-    #[must_use]
-    pub fn actions(&self, target: EntityActionTarget) -> Vec<EntityActionVm> {
-        let primary = self.primary_action(target.clone());
-        let mut actions = vec![primary];
-        if let Some(action) = self.playlist_action(target) {
-            actions.push(action);
-        }
-        actions
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EntityActionVm {
     pub kind: EntityActionKind,
@@ -633,8 +533,7 @@ impl EntityActionVm {
             | EntityActionKind::AddToPlaylist
             | EntityActionKind::Play
             | EntityActionKind::CompareMetadata
-            | EntityActionKind::OpenMusicBrainz
-            | EntityActionKind::OpenPublisher => return None,
+            | EntityActionKind::OpenMusicBrainz => return None,
         };
         let a11y_label = self
             .identity_a11y_label
@@ -659,7 +558,6 @@ pub struct EntityDetailRow {
 pub struct ReleaseDetailPageVm<'a> {
     pub hero: ReleaseHeroVm<'a>,
     pub detail_scroll_id: &'static str,
-    pub primary_actions: Vec<EntityActionVm>,
     pub identity_actions: Vec<EntityActionVm>,
     pub identity_action_prefix: &'static str,
     pub actions_a11y_label: &'static str,
@@ -673,7 +571,6 @@ pub struct ReleaseHeroVm<'a> {
     pub kind: EntitySurfaceKind,
     pub artwork: Option<&'a ArtworkRef>,
     pub title: &'a str,
-    pub subtitle: Option<&'a str>,
     pub supporting_line: Option<&'a str>,
 }
 
@@ -683,7 +580,6 @@ impl ReleaseHeroVm<'_> {
         ReleaseHeroDisplay {
             kind: self.kind,
             title: self.title.to_string(),
-            subtitle: self.subtitle.map(str::to_string),
             data_rows: self
                 .supporting_line
                 .map(|supporting_line| ReleaseHeaderDataRowVm {
@@ -704,7 +600,6 @@ impl ReleaseHeroVm<'_> {
 pub struct ReleaseHeroDisplay {
     pub kind: EntitySurfaceKind,
     pub title: String,
-    pub subtitle: Option<String>,
     pub data_rows: Vec<ReleaseHeaderDataRowVm>,
 }
 
@@ -833,7 +728,6 @@ impl<'a> ReleaseDetailVm<'a> {
         ReleaseDetailPageVm {
             hero: self.hero(),
             detail_scroll_id: self.detail_scroll_id(),
-            primary_actions: self.actions(),
             identity_actions: self.identity_actions(),
             identity_action_prefix: self.identity_action_prefix(),
             actions_a11y_label: self.actions_a11y_label(),
@@ -854,7 +748,6 @@ impl<'a> ReleaseDetailVm<'a> {
                 .as_deref()
                 .and_then(hero_text)
                 .unwrap_or("Unknown Feed"),
-            subtitle: self.view.artist.as_deref().and_then(hero_text),
             supporting_line: self.view.publisher_text.as_deref().and_then(hero_text),
         }
     }
@@ -982,20 +875,35 @@ impl<'a> ReleaseDetailVm<'a> {
         }
     }
 
-    /// R4-01/R4-02 (ADR 0077 packet 004): the "open publisher" action of an
-    /// album with a stored or received relationship where
-    /// `music_names_publisher = true`. `None` when the album names no
-    /// publisher. The action never builds `ArtistRef::PublisherFeed` from
-    /// name text or `publisher_text`.
+    /// The names under the album title that link to a page (ADR 0083
+    /// task 005). The artist name links to the artist page. An album with
+    /// a stored or received publisher relationship links to the publisher
+    /// page (ADR 0077 packet 004). The publisher link never takes its
+    /// target or its label from `publisher_text` (ADR 0077 Decision 6).
     #[must_use]
-    pub fn publisher_action(&self) -> Option<EntityActionVm> {
-        let publisher_feed_guid = self.view.publisher_feed_guid.clone()?;
-        Some(EntityActionVm::new(
-            EntityActionKind::OpenPublisher,
-            EntityActionTarget::Artist(ArtistRef::PublisherFeed(publisher_feed_guid)),
-            "Open publisher",
-            EntityActionTone::Secondary,
-        ))
+    pub fn name_links(&self) -> Vec<AlbumNameLinkVm> {
+        let mut links = Vec::new();
+        if let Some(artist) = self.view.artist.as_deref().and_then(hero_text) {
+            links.push(AlbumNameLinkVm {
+                label: artist.to_owned(),
+                a11y_label: format!("Open the artist {artist}"),
+                target: AlbumNameLinkTarget::Artist(artist.to_owned()),
+            });
+        }
+        if let Some(publisher_feed_guid) = self
+            .view
+            .publisher_feed_guid
+            .as_deref()
+            .map(str::trim)
+            .filter(|guid| !guid.is_empty())
+        {
+            links.push(AlbumNameLinkVm {
+                label: PUBLISHER_LINK_LABEL.to_owned(),
+                a11y_label: "Open the publisher of this album".to_owned(),
+                target: AlbumNameLinkTarget::Publisher(publisher_feed_guid.to_owned()),
+            });
+        }
+        links
     }
 
     #[must_use]
@@ -1012,19 +920,6 @@ impl<'a> ReleaseDetailVm<'a> {
             EntitySurfaceContext::Discover => "discover-feed-detail",
             EntitySurfaceContext::Library => "album-detail-scroll",
         }
-    }
-
-    #[must_use]
-    pub fn actions(&self) -> Vec<EntityActionVm> {
-        self.actions_with_state(ReleaseActionState::for_context(self.context))
-    }
-
-    #[must_use]
-    pub fn actions_with_state(&self, state: ReleaseActionState) -> Vec<EntityActionVm> {
-        self.view
-            .id
-            .clone()
-            .map_or_else(Vec::new, |id| state.actions(EntityActionTarget::Feed(id)))
     }
 
     #[must_use]
@@ -1522,7 +1417,6 @@ mod tests {
 
         assert_eq!(page.hero.kind, EntitySurfaceKind::Feed);
         assert_eq!(page.hero.title, "Release");
-        assert_eq!(page.primary_actions.len(), 2);
         assert_eq!(page.identity_actions.len(), 3);
         assert!(!page.summary_facts.is_empty());
         assert!(!page.panels.is_empty());
@@ -1541,15 +1435,18 @@ mod tests {
         feed.description = Some("First line\nSecond line".into());
 
         let page = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).page();
-        let hero_text = [
-            Some(page.hero.title),
-            page.hero.subtitle,
-            page.hero.supporting_line,
-        ]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" ");
+        let link_labels = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover)
+            .name_links()
+            .into_iter()
+            .map(|link| link.label)
+            .collect::<Vec<_>>();
+        let hero_text = [Some(page.hero.title), page.hero.supporting_line]
+            .into_iter()
+            .flatten()
+            .map(str::to_owned)
+            .chain(link_labels)
+            .collect::<Vec<_>>()
+            .join(" ");
 
         assert_eq!(page.hero.title, "Unknown Feed");
         assert!(!hero_text.contains("https://"));
@@ -1641,7 +1538,6 @@ mod tests {
             Some("Release description")
         );
         assert_ne!(page.hero.title, "Release description");
-        assert_ne!(page.hero.subtitle, Some("Release description"));
         assert_ne!(page.hero.supporting_line, Some("Release description"));
         assert!(page
             .summary_facts
@@ -1659,7 +1555,6 @@ mod tests {
             ReleaseHeroDisplay {
                 kind: EntitySurfaceKind::Feed,
                 title: "Release".into(),
-                subtitle: Some("Artist".into()),
                 data_rows: vec![ReleaseHeaderDataRowVm {
                     label: "Feed owner",
                     value: "Publisher".into(),
@@ -1672,7 +1567,6 @@ mod tests {
             kind: EntitySurfaceKind::Feed,
             artwork: None,
             title: "Untitled",
-            subtitle: None,
             supporting_line: None,
         };
         assert_eq!(
@@ -1680,7 +1574,6 @@ mod tests {
             ReleaseHeroDisplay {
                 kind: EntitySurfaceKind::Feed,
                 title: "Untitled".into(),
-                subtitle: None,
                 data_rows: Vec::new(),
             }
         );
@@ -1754,12 +1647,7 @@ mod tests {
         assert_eq!(discover.hero.kind, library.hero.kind);
         assert_eq!(discover.hero.artwork, library.hero.artwork);
         assert_eq!(discover.hero.title, library.hero.title);
-        assert_eq!(discover.hero.subtitle, library.hero.subtitle);
         assert_eq!(discover.hero.supporting_line, library.hero.supporting_line);
-        assert_eq!(
-            discover.primary_actions.len(),
-            library.primary_actions.len()
-        );
         assert_eq!(discover.identity_actions, library.identity_actions);
         assert_eq!(discover.summary_facts, library.summary_facts);
         assert_eq!(
@@ -1867,11 +1755,6 @@ mod tests {
                 ),
             ]
         );
-
-        assert!(projection
-            .actions()
-            .iter()
-            .all(|action| action.payload.is_none()));
     }
 
     #[test]
@@ -2097,25 +1980,6 @@ mod tests {
     }
 
     #[test]
-    fn release_actions_change_by_context_without_changing_layout_contract() {
-        let feed = feed_view();
-        let discover_actions =
-            ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).actions();
-        let library_actions = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).actions();
-
-        assert_eq!(discover_actions[0].kind, EntityActionKind::Download);
-        assert_eq!(discover_actions[0].label, "Download Feed");
-        assert_eq!(discover_actions[0].tone, EntityActionTone::Secondary);
-        assert_eq!(library_actions[0].kind, EntityActionKind::Remove);
-        assert_eq!(library_actions[0].label, "Remove Feed");
-        assert_eq!(library_actions[0].tone, EntityActionTone::DestructiveQuiet);
-        assert_eq!(discover_actions[1].kind, EntityActionKind::AddToPlaylist);
-        assert_eq!(library_actions[1].kind, EntityActionKind::AddToPlaylist);
-        assert_eq!(discover_actions[1].label, "Add feed to playlist ▾");
-        assert_eq!(library_actions[1].label, "Add feed to playlist ▾");
-    }
-
-    #[test]
     fn track_action_state_projects_busy_and_disabled_membership_actions() {
         let target = EntityActionTarget::Track(TrackRef::Musicindex("track-1".into()));
         let remote_unavailable = TrackActionState::new(
@@ -2145,52 +2009,6 @@ mod tests {
         assert_eq!(removing.label, "Removing...");
         assert_eq!(removing.tone, EntityActionTone::DestructiveQuiet);
         assert!(!removing.enabled);
-    }
-
-    #[test]
-    fn track_action_state_projects_playlist_open_state() {
-        let target = EntityActionTarget::Track(TrackRef::Musicindex("track-1".into()));
-        let closed =
-            TrackActionState::new(TrackMembershipState::InLibrary, PlaylistActionState::Closed)
-                .playlist_action(target.clone())
-                .expect("closed playlist action should render");
-        let open =
-            TrackActionState::new(TrackMembershipState::InLibrary, PlaylistActionState::Open)
-                .playlist_action(target)
-                .expect("open playlist action should render");
-
-        assert_eq!(closed.label, "+ Playlist");
-        assert_eq!(open.label, "+ Playlist ▴");
-        assert_eq!(closed.tone, EntityActionTone::Quiet);
-    }
-
-    #[test]
-    fn release_action_state_projects_busy_and_playlist_open_state() {
-        let target = EntityActionTarget::Feed(FeedRef::Musicindex("feed-1".into()));
-        let downloading = ReleaseActionState::new(
-            ReleaseMembershipState::Downloading,
-            PlaylistActionState::Hidden,
-        )
-        .primary_action(target.clone());
-        let removing = ReleaseActionState::new(
-            ReleaseMembershipState::Removing,
-            PlaylistActionState::Hidden,
-        )
-        .primary_action(target.clone());
-        let open =
-            ReleaseActionState::new(ReleaseMembershipState::InLibrary, PlaylistActionState::Open)
-                .playlist_action(target)
-                .expect("open playlist action should render");
-
-        assert_eq!(downloading.kind, EntityActionKind::Download);
-        assert_eq!(downloading.label, "Downloading...");
-        assert!(!downloading.enabled);
-        assert_eq!(removing.kind, EntityActionKind::Remove);
-        assert_eq!(removing.label, "Removing...");
-        assert_eq!(removing.tone, EntityActionTone::DestructiveQuiet);
-        assert!(!removing.enabled);
-        assert_eq!(open.label, "Add feed to playlist ▴");
-        assert_eq!(open.tone, EntityActionTone::Quiet);
     }
 
     #[test]
@@ -2373,35 +2191,44 @@ mod tests {
         assert_eq!(action.a11y_label(), "Remove Feed");
     }
 
-    /// R4-01 (ADR 0077 packet 004): an album with an owned relationship
-    /// exposes an enabled "open publisher" action with the publisher feed
-    /// GUID and an accessibility label.
+    /// R83-53 (ADR 0083 task 005, ADR 0077 packet 004): the artist name
+    /// and the publisher are links. The publisher link targets the publisher
+    /// feed GUID and does not show `publisher_text`.
     #[test]
-    fn adr_0077_publisher_navigation_album_with_relationship_exposes_open_publisher_action() {
+    fn adr_0083_album_name_links_name_the_artist_and_the_publisher() {
         let mut feed = feed_view();
         feed.publisher_feed_guid = Some("publisher-guid".into());
+        feed.publisher_text = Some("Wavlake".into());
 
-        let action = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library)
-            .publisher_action()
-            .expect("an album with an owned relationship exposes a publisher action");
+        let links = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).name_links();
 
-        assert_eq!(action.kind, EntityActionKind::OpenPublisher);
-        assert!(action.enabled);
         assert_eq!(
-            action.target,
-            EntityActionTarget::Artist(ArtistRef::PublisherFeed("publisher-guid".into()))
+            links,
+            vec![
+                AlbumNameLinkVm {
+                    label: "Artist".into(),
+                    a11y_label: "Open the artist Artist".into(),
+                    target: AlbumNameLinkTarget::Artist("Artist".into()),
+                },
+                AlbumNameLinkVm {
+                    label: PUBLISHER_LINK_LABEL.into(),
+                    a11y_label: "Open the publisher of this album".into(),
+                    target: AlbumNameLinkTarget::Publisher("publisher-guid".into()),
+                },
+            ]
         );
-        assert_eq!(action.a11y_label(), "Open publisher");
     }
 
-    /// R4-02: an album without a relationship exposes no publisher action.
+    /// R83-53: an album without a relationship has no publisher link, and an
+    /// album without an artist name has no artist link.
     #[test]
-    fn adr_0077_publisher_navigation_album_without_relationship_exposes_no_action() {
-        let feed = feed_view();
+    fn adr_0083_album_name_links_skip_missing_names() {
+        let mut feed = feed_view();
+        feed.artist = None;
         assert_eq!(feed.publisher_feed_guid, None);
 
-        let action = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).publisher_action();
+        let links = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).name_links();
 
-        assert_eq!(action, None);
+        assert!(links.is_empty());
     }
 }

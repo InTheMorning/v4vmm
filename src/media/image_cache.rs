@@ -16,6 +16,7 @@ use sha2::{Digest, Sha256};
 use crate::application::capability::{
     CapabilityFailure, CapabilityObservation, CapabilityObservations, Dependency,
 };
+use crate::media::cover_color::{cover_color, CoverColor};
 use crate::media::image_type;
 use crate::remote_media;
 
@@ -41,6 +42,9 @@ pub struct ImageCache {
     /// Static first-frame cache for animated formats (GIFs). Keyed by URL.
     /// For non-animated images, `fetch_static_blocking` falls through to `hot`.
     static_hot: Mutex<LruCache<String, Arc<Image>>>,
+    /// The main color of each cover that a page header asked for (ADR 0083
+    /// task 005). `None` records a cover that has no color.
+    cover_colors: Mutex<LruCache<String, Option<CoverColor>>>,
     max_dimension: u32,
     max_disk_bytes: u64,
     writes_since_eviction: Mutex<u32>,
@@ -126,6 +130,7 @@ impl ImageCache {
             cache_dir: cache_dir.clone(),
             hot: Mutex::new(LruCache::new(capacity)),
             static_hot: Mutex::new(LruCache::new(capacity)),
+            cover_colors: Mutex::new(LruCache::new(capacity)),
             max_dimension,
             max_disk_bytes,
             writes_since_eviction: Mutex::new(0),
@@ -224,6 +229,29 @@ impl ImageCache {
             }
         }
         self.peek(url)
+    }
+
+    /// Fast path — the main color of a cover that a fetch already computed.
+    /// UI-thread safe.
+    pub fn peek_cover_color(&self, url: &str) -> Option<CoverColor> {
+        let mut colors = self.cover_colors.lock().ok()?;
+        colors.get(url).copied().flatten()
+    }
+
+    /// Blocking fetch of the main color of a cover: memory, then the cached
+    /// downscaled bytes, then the network. Call from a background executor.
+    pub fn fetch_cover_color_blocking(&self, url: &str) -> Option<CoverColor> {
+        if let Ok(mut colors) = self.cover_colors.lock() {
+            if let Some(color) = colors.get(url) {
+                return *color;
+            }
+        }
+        let (bytes, _) = self.read_or_download(url).ok().flatten()?;
+        let color = cover_color(&bytes);
+        if let Ok(mut colors) = self.cover_colors.lock() {
+            colors.put(url.to_string(), color);
+        }
+        color
     }
 
     /// Blocking fetch: memory → disk → network. Returns the animated variant

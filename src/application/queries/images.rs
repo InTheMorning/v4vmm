@@ -6,6 +6,7 @@ use std::sync::Arc;
 use crate::application::command_bus::{ApplicationCommand, CommandOutcome, CommandResult};
 use crate::application::command_context::CommandContext;
 use crate::application::errors::command::CommandError;
+use crate::media::cover_color::CoverColor;
 use crate::media::{CachedImage, ImageCache};
 
 /// Fetches one cached thumbnail for presentation.
@@ -51,6 +52,47 @@ impl ApplicationCommand for FetchThumbnail {
             self.cache.fetch_static_blocking(&self.url)
         };
         Ok(CommandOutcome::without_events(image))
+    }
+}
+
+/// Fetches the main color of one cover for a page header backdrop (ADR
+/// 0083 task 005).
+#[derive(Clone)]
+pub(crate) struct FetchCoverColor {
+    cache: Arc<ImageCache>,
+    url: String,
+}
+
+impl FetchCoverColor {
+    /// Creates a cover color query command.
+    #[must_use]
+    pub(crate) fn new(cache: Arc<ImageCache>, url: impl Into<String>) -> Self {
+        Self {
+            cache,
+            url: url.into(),
+        }
+    }
+}
+
+impl fmt::Debug for FetchCoverColor {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("FetchCoverColor")
+            .field("url", &self.url)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ApplicationCommand for FetchCoverColor {
+    type Output = Option<CoverColor>;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        Ok(CommandOutcome::without_events(
+            self.cache.fetch_cover_color_blocking(&self.url),
+        ))
     }
 }
 
@@ -106,6 +148,27 @@ mod tests {
         assert!(
             cache.peek_static(&url).is_some(),
             "thumbnail should be retained by the cache"
+        );
+    }
+
+    #[test]
+    fn fetch_cover_color_computes_and_keeps_the_color() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cache = ImageCache::with_capacity(temp.path().join("thumbnails"), 2, 512, 1024 * 1024);
+        let url = serve_image_once("image/png", TEST_IMAGE_BYTES);
+
+        let outcome = CommandBus::new()
+            .execute(
+                FetchCoverColor::new(Arc::clone(&cache), url.clone()),
+                &CommandContext::next(),
+            )
+            .expect("cover color fetch succeeds");
+
+        assert!(outcome.value().is_some(), "the cover should have a color");
+        assert_eq!(
+            cache.peek_cover_color(&url),
+            *outcome.value(),
+            "the cache should keep the color beside the image"
         );
     }
 

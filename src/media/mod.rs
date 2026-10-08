@@ -1,3 +1,4 @@
+pub mod cover_color;
 pub mod image_cache;
 pub mod image_type;
 

@@ -64,6 +64,7 @@ pub(crate) mod app_toolbar;
 pub(crate) mod cached_files;
 pub mod startup;
 
+pub mod album_page;
 pub mod artist;
 pub mod artist_detail;
 pub mod entity_detail;

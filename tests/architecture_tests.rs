@@ -20035,3 +20035,120 @@ second track page layout in a shell.";
         violations.join("\n")
     );
 }
+
+/// R83-57 (ADR 0083 task 005, ADR 0037): the Library album page and the
+/// Index album page build through the shared release shell and take their
+/// actions from the one album page model.
+#[test]
+fn adr_0083_both_album_page_origins_build_one_shared_surface() {
+    const FIX: &str = "ADR 0083 task 005 and ADR 0037: build each album page through \
+`render_release_detail_shell` with `ReleaseDetailBehaviorSlots`, and take its actions from \
+`view_models::album_page::album_page_actions`. Do not compose a second album page layout.";
+    let library = read_source(&manifest_path("src/ui/shells/library/feed_detail.rs"));
+    let index = read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
+    let dispatch = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let library_page = code_only(source_between(
+        &library,
+        "pub(crate) fn render_library_feed_detail(",
+        "\n}\n",
+    ));
+    let index_page = code_only(source_between(
+        &index,
+        "pub(crate) fn render_index_feed_detail(",
+        "\n}\n",
+    ));
+    let index_actions = code_only(source_between(
+        &dispatch,
+        "fn index_feed_primary_actions(",
+        "\n    }\n",
+    ));
+    let mut violations = Vec::new();
+    for (path, body) in [
+        ("src/ui/shells/library/feed_detail.rs", &library_page),
+        ("src/ui/shells/search_results_inspector.rs", &index_page),
+    ] {
+        if !body.contains("render_release_detail_shell(") {
+            violations.push(format!(
+                "{path}: the album page does not build the shared shell.\n  {FIX}"
+            ));
+        }
+        if body.contains("ReleaseDetailSurface::new(") {
+            violations.push(format!(
+                "{path}: the album page builds a surface of its own.\n  {FIX}"
+            ));
+        }
+    }
+    for (path, body) in [
+        ("src/ui/shells/library/feed_detail.rs", &library_page),
+        ("src/app/search_dispatch.rs", &index_actions),
+    ] {
+        if !body.contains("album_page_actions(") {
+            violations.push(format!(
+                "{path}: the album page actions do not come from the album page model.\n  {FIX}"
+            ));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0083 album page parity violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R83-56 (ADR 0083 Decision 10, task 005): a view model label holds no
+/// disclosure arrow character. A renderer draws a named icon instead.
+#[test]
+fn adr_0083_no_view_model_label_carries_a_disclosure_arrow() {
+    const FIX: &str = "ADR 0083 Decision 10: give the label words only, and let the renderer \
+draw a named icon for the disclosure state.";
+    let mut violations = Vec::new();
+    for path in rust_files_under("src/view_models") {
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(production_source(&source)) {
+            if line.contains('\u{25be}') || line.contains('\u{25b4}') {
+                violations.push(format!(
+                    "{}:{line_number}: a label holds a disclosure arrow: `{line}`\n  {FIX}",
+                    rel_path(&path)
+                ));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0083 disclosure arrow violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R83-55 (ADR 0083 Decision 4, task 005): the cover backdrop takes its
+/// height and its gradient from the `CoverBackdrop` token.
+#[test]
+fn adr_0083_cover_backdrop_uses_its_tokens() {
+    const FIX: &str = "ADR 0083 task 005: size and color the backdrop through \
+`ui::tokens::CoverBackdrop`. Do not write a raw pixel or color literal in the composite.";
+    let source = read_source(&manifest_path("src/ui/composites/cover_backdrop.rs"));
+    let body = code_only(production_source(&source));
+    let mut violations = Vec::new();
+    for required in [
+        "CoverBackdropToken::height(cx)",
+        "CoverBackdropToken::background(",
+    ] {
+        if !body.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/cover_backdrop.rs: missing `{required}`.\n  {FIX}"
+            ));
+        }
+    }
+    for forbidden in ["px(", "rgb(", "rgba(", "hsla("] {
+        if body.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/composites/cover_backdrop.rs: raw literal `{forbidden}`.\n  {FIX}"
+            ));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0083 cover backdrop token violations:\n{}",
+        violations.join("\n")
+    );
+}

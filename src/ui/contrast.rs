@@ -68,11 +68,20 @@ pub fn relative_luminance(c: Rgba) -> f32 {
     0.2126 * linearize(c.r) + 0.7152 * linearize(c.g) + 0.0722 * linearize(c.b)
 }
 
-fn linearize(channel: f32) -> f32 {
+pub(crate) fn linearize(channel: f32) -> f32 {
     if channel <= 0.039_28 {
         channel / 12.92
     } else {
         ((channel + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// The inverse of `linearize`: a linear channel back to sRGB.
+pub(crate) fn delinearize(channel: f32) -> f32 {
+    if channel <= 0.003_040_7 {
+        channel * 12.92
+    } else {
+        1.055f32.mul_add(channel.powf(1.0 / 2.4), -0.055)
     }
 }
 

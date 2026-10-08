@@ -39,7 +39,7 @@ pub enum ImageSize {
     Lg,
     /// 152 px — feed-detail hero artwork.
     Xl,
-    /// 200 px — track-inspector cover.
+    /// 200 px — page-header cover.
     XXl,
 }
 
@@ -52,6 +52,12 @@ impl ImageSize {
             Self::Xl => 152.0,
             Self::XXl => 200.0,
         }
+    }
+
+    /// The base size in pixels, before the UI scale.
+    #[must_use]
+    pub fn base_px(self) -> f32 {
+        self.base()
     }
 
     /// Returns the size in pixels at the current global UI scale.

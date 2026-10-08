@@ -66,7 +66,7 @@ mod tab_bar;
 
 pub use bootstrap::run_app;
 
-use search_dispatch::RemoteDetailThumbnailState;
+use search_dispatch::{RemoteCoverColorState, RemoteDetailThumbnailState};
 use settings::render_settings;
 use show::{build_live_status_strip, build_show_screen};
 use tab_bar::render_tab_bar;
@@ -160,6 +160,7 @@ pub struct TopApp {
     conn: Arc<Mutex<Connection>>,
     image_cache: Arc<ImageCache>,
     remote_detail_thumbnails: BTreeMap<String, RemoteDetailThumbnailState>,
+    remote_cover_colors: BTreeMap<String, RemoteCoverColorState>,
     cached_files: CachedFilesVm,
     application_services: Arc<ApplicationServices>,
     command_runner: AsyncCommandRunner,
@@ -330,6 +331,9 @@ impl TopApp {
                 LibraryAppEvent::OpenAlbumPage { feed_id } => {
                     this.open_library_album_page(*feed_id, cx);
                 }
+                LibraryAppEvent::OpenArtistPage { name } => {
+                    this.open_library_artist_page(name, cx);
+                }
             },
         );
         let appearance_sub = cx.observe_window_appearance(window, |this, window, cx| {
@@ -415,6 +419,7 @@ impl TopApp {
             conn,
             image_cache,
             remote_detail_thumbnails: BTreeMap::new(),
+            remote_cover_colors: BTreeMap::new(),
             cached_files: CachedFilesVm::default(),
             application_services,
             command_runner,

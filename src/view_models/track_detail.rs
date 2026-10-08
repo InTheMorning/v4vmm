@@ -8,6 +8,7 @@
 
 use crate::api::Feed;
 use crate::metadata::{feed_nostr, feed_website};
+use crate::view_models::album_page::PUBLISHER_LINK_LABEL;
 use crate::view_models::entity_detail::{
     EntityActionKind, EntityActionTarget, EntityActionTone, EntityActionVm,
 };
@@ -428,13 +429,12 @@ impl<'a> TrackDetailVm<'a> {
                 target,
             });
         }
+        // ADR 0077 Decision 6: `publisher_text` is the feed owner, so the
+        // publisher link does not show it.
         if let Some(publisher_feed_guid) = self.publisher_feed_guid.and_then(nonempty) {
-            let label = self
-                .publisher_display()
-                .unwrap_or_else(|| PUBLISHER_LINK_FALLBACK.to_owned());
             links.push(TrackNameLinkVm {
-                a11y_label: format!("Open the publisher {label}"),
-                label,
+                a11y_label: "Open the publisher of this track".to_owned(),
+                label: PUBLISHER_LINK_LABEL.to_owned(),
                 target: TrackNameLinkTarget::Publisher(publisher_feed_guid.to_owned()),
             });
         }
@@ -896,8 +896,6 @@ pub struct TrackPageActions {
     pub menu: Vec<TrackPageActionDisplay>,
 }
 
-/// The label of a publisher link when the album states no publisher name.
-const PUBLISHER_LINK_FALLBACK: &str = "Publisher";
 /// The role of a credit that states no role.
 const CREDIT_ROLE_FALLBACK: &str = "Credit";
 /// The heading of the credits section.

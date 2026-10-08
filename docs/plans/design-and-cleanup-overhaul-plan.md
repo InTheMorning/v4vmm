@@ -77,11 +77,8 @@ Packets for each surface: the album grid with artwork first, the album page with
 The first Phase 4 packet builds the track page once, for a Library track and an Index track. The operator decided this on 2026-10-07.
 
 1. [ADR 0083 task 004](../tasks/archive/adr-0083-task-004-one-track-page.md): one track page, the action hierarchy, name links, credits and "Inspect sources". Done on 2026-10-07.
-2. Later packets: the inspection view of RSS, MusicIndex and file tags, and the payment split bar for the track page and the album page.
-
-- On 2026-10-07 the operator found that an Index track page shows only its cover, its title and four summary rows. `index_track_detail_slots` in `src/app/search_dispatch.rs` gives only the cover, and `render_index_track_detail` in `src/ui/shells/search_results_inspector.rs` adds only the identity links. No code makes an action row, a description or source sections for an Index track. ADR 0037 Pass 2 requires one track page for both origins.
-- Until that packet, the Index album page holds the actions: "Download Feed", "MusicBrainz", "Add feed to playlist" and the publisher link.
-- The label "Add feed to playlist ▾" holds a text arrow. The packet draws an icon there (ADR 0083 Decision 10).
+2. [ADR 0083 task 005](../tasks/adr-0083-task-005-album-page-header-and-actions.md): one album page header and action row for the Library and the Index, the 200 pixel cover and the cover color backdrop. Mechanical checks are complete on 2026-10-07. Its visual check is open.
+3. Later packets: the inspection view of RSS, MusicIndex and file tags, the payment split bar for the track page and the album page, and row hover actions.
 
 ### Phase 5: Settings
 

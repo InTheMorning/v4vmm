@@ -11,6 +11,7 @@ use gpui_component::input::InputState;
 use crate::db;
 use crate::library::PlaylistActorState;
 use crate::library::{LibraryApp, LibraryDetail};
+use crate::media::cover_color::CoverColor;
 use crate::ui::shells::library::feed_detail::render_library_feed_detail;
 use crate::ui::shells::library::feed_list::render_library_feed_list;
 use crate::ui::shells::library::playlist_detail::render_library_playlist_detail;
@@ -38,6 +39,7 @@ pub(crate) fn render_library_detail(
     playlist_actor: Option<&PlaylistActorState>,
     playlist_rss_check: Option<&crate::runtime::PlaylistRssCheckSnapshot>,
     track_publisher_feed_guid: Option<&str>,
+    album_cover_color: Option<CoverColor>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     match detail {
@@ -62,6 +64,7 @@ pub(crate) fn render_library_detail(
             mb_status,
             library_vm,
             album_thumbs,
+            album_cover_color,
             playlists,
             cx,
         ),

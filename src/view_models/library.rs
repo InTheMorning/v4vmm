@@ -32,8 +32,8 @@ use crate::feed_service;
 use crate::metadata::MusicBrainzLookupResult;
 use crate::view_models::artist_detail::{ArtistDetailFactVm, ArtistDetailPageVm};
 use crate::view_models::entity_detail::{
-    EntityActionTarget, EntityActionVm, PlaylistActionState, ReleaseActionState,
-    ReleaseMembershipState, TrackActionState, TrackMembershipState,
+    EntityActionTarget, EntityActionVm, PlaylistActionState, ReleaseMembershipState,
+    TrackActionState, TrackMembershipState,
 };
 use crate::view_models::format::{fmt_date, fmt_total_runtime_clock, plural};
 pub(crate) use crate::view_models::library_removal::RemovalConfirmation;
@@ -55,7 +55,7 @@ use crate::view_models::workspace::{
     ContentFilter, ContentViewMode, ContentViewModeControlDisplay, LibraryFilterControlDisplay,
 };
 use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
-use crate::views::{FeedMetadataFacts, FeedRef, LocalIdentityFacts, TrackRef};
+use crate::views::{FeedMetadataFacts, LocalIdentityFacts, TrackRef};
 
 const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
 const UPDATE_AVAILABLE_LABEL: &str = "Update available";
@@ -3589,7 +3589,7 @@ impl<'a> LibraryTrackRowVm<'a> {
 
     #[must_use]
     pub(crate) fn primary_action_vm(&self, is_busy: bool) -> EntityActionVm {
-        self.track_action_state(is_busy, false)
+        self.track_action_state(is_busy)
             .primary_action(EntityActionTarget::Track(self.track_ref()))
     }
 
@@ -3612,23 +3612,14 @@ impl<'a> LibraryTrackRowVm<'a> {
     }
 
     #[must_use]
-    pub(crate) fn track_action_state(
-        &self,
-        is_busy: bool,
-        playlist_open: bool,
-    ) -> TrackActionState {
+    pub(crate) fn track_action_state(&self, is_busy: bool) -> TrackActionState {
         let membership = match (self.track.is_in_library, is_busy) {
             (true, true) => TrackMembershipState::Removing,
             (true, false) => TrackMembershipState::InLibrary,
             (false, true) => TrackMembershipState::Downloading,
             (false, false) => TrackMembershipState::RemoteOnly,
         };
-        let playlist = if playlist_open {
-            PlaylistActionState::Open
-        } else {
-            PlaylistActionState::Closed
-        };
-        TrackActionState::new(membership, playlist)
+        TrackActionState::new(membership, PlaylistActionState::Closed)
     }
 
     #[must_use]
@@ -3827,21 +3818,6 @@ pub(crate) struct LibraryAlbumDetailVm<'a> {
     has_library_tracks: bool,
 }
 
-/// Display contract for the Library album `MusicBrainz` action.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct LibraryAlbumMusicBrainzActionVm {
-    pub(crate) label: &'static str,
-    pub(crate) a11y_label: &'static str,
-    pub(crate) disabled: bool,
-}
-
-/// Display contract for the Library album playlist popover trigger.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct LibraryAlbumPlaylistDisplay {
-    pub(crate) popover_id: String,
-    pub(crate) trigger_label: String,
-}
-
 impl<'a> LibraryAlbumDetailVm<'a> {
     #[must_use]
     pub(crate) fn new(tracks: &'a [TrackRow], mb_status: &'a BTreeMap<i64, MbTrackStatus>) -> Self {
@@ -3861,12 +3837,6 @@ impl<'a> LibraryAlbumDetailVm<'a> {
     }
 
     #[must_use]
-    pub(crate) fn primary_action_vm(&self, feed_id: i64, is_busy: bool) -> EntityActionVm {
-        self.release_action_state(is_busy, PlaylistActionState::Hidden)
-            .primary_action(EntityActionTarget::Feed(FeedRef::LocalFeedId(feed_id)))
-    }
-
-    #[must_use]
     pub(crate) fn track_row_busy(
         &self,
         track: &TrackRow,
@@ -3876,37 +3846,11 @@ impl<'a> LibraryAlbumDetailVm<'a> {
         track_busy || (feed_busy && (!self.has_library_tracks || track.is_in_library))
     }
 
+    /// The Library membership of the album. `is_busy` is a download or a
+    /// removal of the album in progress.
     #[must_use]
-    pub(crate) fn playlist_action_vm(&self, feed_id: i64) -> Option<EntityActionVm> {
-        self.release_action_state(false, PlaylistActionState::Closed)
-            .playlist_action(EntityActionTarget::Feed(FeedRef::LocalFeedId(feed_id)))
-    }
-
-    #[must_use]
-    pub(crate) fn musicbrainz_action_vm(&self) -> LibraryAlbumMusicBrainzActionVm {
-        LibraryAlbumMusicBrainzActionVm {
-            label: "MusicBrainz",
-            a11y_label: "Look up missing MusicBrainz fields for this album",
-            disabled: self.has_active_musicbrainz(),
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn playlist_display(&self, feed_id: i64) -> Option<LibraryAlbumPlaylistDisplay> {
-        self.playlist_action_vm(feed_id)
-            .map(|action| LibraryAlbumPlaylistDisplay {
-                popover_id: format!("album-feed-add:{feed_id}"),
-                trigger_label: action.label,
-            })
-    }
-
-    #[must_use]
-    fn release_action_state(
-        &self,
-        is_busy: bool,
-        playlist: PlaylistActionState,
-    ) -> ReleaseActionState {
-        let membership = if is_busy {
+    pub(crate) fn membership(&self, is_busy: bool) -> ReleaseMembershipState {
+        if is_busy {
             if self.has_library_tracks {
                 ReleaseMembershipState::Removing
             } else {
@@ -3916,9 +3860,7 @@ impl<'a> LibraryAlbumDetailVm<'a> {
             ReleaseMembershipState::InLibrary
         } else {
             ReleaseMembershipState::RemoteOnly
-        };
-
-        ReleaseActionState::new(membership, playlist)
+        }
     }
 }
 
@@ -6202,21 +6144,6 @@ mod tests {
     }
 
     #[test]
-    fn album_detail_vm_musicbrainz_action_projects_label_and_disabled_state() {
-        let mut mb = BTreeMap::new();
-        let vm = LibraryAlbumDetailVm::new(&[], &mb);
-        let action = vm.musicbrainz_action_vm();
-        assert_eq!(action.label, "MusicBrainz");
-        assert!(!action.disabled);
-
-        mb.insert(7, MbTrackStatus::Processing);
-        let vm = LibraryAlbumDetailVm::new(&[], &mb);
-        let action = vm.musicbrainz_action_vm();
-        assert_eq!(action.label, "MusicBrainz");
-        assert!(action.disabled);
-    }
-
-    #[test]
     fn library_view_model_updates_album_identity_facts_by_feed_id() {
         let mut vm = LibraryViewModel::new();
         vm.replace_tree(library_tree());
@@ -7405,11 +7332,11 @@ mod tests {
         ));
         let display = vm
             .pending_library_removal_confirmation()
-            .expect("feed removal should require confirmation");
-        assert_eq!(display.title, "Remove Feed from Library?");
+            .expect("album removal should require confirmation");
+        assert_eq!(display.title, "Remove Album from Library?");
         assert_eq!(
             display.message,
-            "1 track from this feed is in playlists. Removing it from the library will make it unavailable for playlist playback."
+            "1 track from this album is in playlists. Removing it from the library will make it unavailable for playlist playback."
         );
         vm.cancel_pending_library_removal();
         assert!(vm.pending_library_removal_confirmation().is_none());
@@ -7870,85 +7797,26 @@ mod tests {
         );
     }
 
+    /// ADR 0083 task 005: the album membership selects the album page
+    /// actions. A busy album is downloading when it has no Library track,
+    /// and removing when it has one.
     #[test]
-    fn album_detail_vm_playlist_action_uses_shared_feed_vocabulary() {
+    fn album_detail_vm_membership_follows_library_tracks_and_busy_state() {
         let mb = BTreeMap::new();
-        let vm = LibraryAlbumDetailVm::new(&[], &mb);
-        let action = vm
-            .playlist_action_vm(7)
-            .expect("playlist action should render");
-
-        assert_eq!(action.label, "Add feed to playlist ▾");
-    }
-
-    #[test]
-    fn album_detail_vm_playlist_display_projects_popover_id_and_label() {
-        let mb = BTreeMap::new();
-        let vm = LibraryAlbumDetailVm::new(&[], &mb);
-        let display = vm
-            .playlist_display(7)
-            .expect("playlist display should render");
-
-        assert_eq!(display.popover_id, "album-feed-add:7");
-        assert_eq!(display.trigger_label, "Add feed to playlist ▾");
-    }
-
-    #[test]
-    fn album_detail_vm_release_actions_use_shared_feed_vocabulary() {
-        let mb = BTreeMap::new();
-        let tracks = vec![TrackRow {
+        let in_library = vec![TrackRow {
             is_in_library: true,
             ..TrackRow::default()
         }];
-        let vm = LibraryAlbumDetailVm::new(&tracks, &mb);
-        let primary = vm.primary_action_vm(7, false);
-        let busy = vm.primary_action_vm(7, true);
-        let playlist = vm
-            .playlist_action_vm(7)
-            .expect("playlist action should render");
-
-        assert_eq!(primary.label, "Remove Feed");
-        assert!(primary.enabled);
-        assert_eq!(busy.label, "Removing...");
-        assert!(!busy.enabled);
-        assert_eq!(playlist.label, "Add feed to playlist ▾");
-    }
-
-    #[test]
-    fn album_detail_vm_empty_library_album_is_downloadable() {
-        let mb = BTreeMap::new();
-        let tracks = vec![TrackRow {
+        let remote = vec![TrackRow {
             is_in_library: false,
             ..TrackRow::default()
         }];
-        let vm = LibraryAlbumDetailVm::new(&tracks, &mb);
-
-        let primary = vm.primary_action_vm(7, false);
-
-        assert_eq!(
-            primary.kind,
-            crate::view_models::entity_detail::EntityActionKind::Download
-        );
-        assert_eq!(primary.label, "Download Feed");
-    }
-
-    #[test]
-    fn album_detail_vm_empty_library_album_busy_action_is_downloading() {
-        let mb = BTreeMap::new();
-        let tracks = vec![TrackRow {
-            is_in_library: false,
-            ..TrackRow::default()
-        }];
-        let vm = LibraryAlbumDetailVm::new(&tracks, &mb);
-
-        let primary = vm.primary_action_vm(7, true);
-
-        assert_eq!(
-            primary.kind,
-            crate::view_models::entity_detail::EntityActionKind::Download
-        );
-        assert_eq!(primary.label, "Downloading...");
-        assert!(!primary.enabled);
+        let vm = LibraryAlbumDetailVm::new(&in_library, &mb);
+        assert_eq!(vm.membership(false), ReleaseMembershipState::InLibrary);
+        assert_eq!(vm.membership(true), ReleaseMembershipState::Removing);
+        let vm = LibraryAlbumDetailVm::new(&remote, &mb);
+        assert_eq!(vm.membership(false), ReleaseMembershipState::RemoteOnly);
+        assert_eq!(vm.membership(true), ReleaseMembershipState::Downloading);
     }
 
     #[test]

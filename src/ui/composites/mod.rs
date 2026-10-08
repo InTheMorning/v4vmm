@@ -23,6 +23,7 @@ pub mod action_button;
 pub mod action_row;
 pub mod breadcrumb_trail;
 pub mod confirmation_dialog;
+pub mod cover_backdrop;
 pub mod detail_grid;
 pub mod detail_header;
 pub mod disclosure_group;
@@ -62,6 +63,7 @@ pub use confirmation_dialog::{
     confirmation_dialog, ConfirmationDialogDisplay, ConfirmationDialogHandlers,
     ConfirmationDialogItem,
 };
+pub use cover_backdrop::CoverBackdrop;
 pub use detail_grid::{DetailElementRow, DetailGrid, DetailRow, DetailTextRow};
 pub use detail_header::{DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay};
 pub use disclosure_group::{
