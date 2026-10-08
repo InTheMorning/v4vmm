@@ -5,7 +5,7 @@
 Current - 2026-10-08. This map is advisory. It states no rule.
 It is step 1 of [Phase 4A](../plans/design-and-cleanup-overhaul-plan.md#phase-4a-flow-and-information-architecture) of the overhaul plan.
 
-A read-only agent wrote it from the code at commit `204382e` and later. The orchestrator checked the main claims against the code. The operator has not confirmed it in a walkthrough yet.
+A read-only agent wrote it from the code at commit `204382e` and later. The orchestrator checked the main claims against the code. The operator walked findings 1, 2 and 7 on 2026-10-08. Finding 5 is not walked yet, because no track needed attention.
 
 ## Structural Findings
 
@@ -13,11 +13,16 @@ A read-only agent wrote it from the code at commit `204382e` and later. The orch
    - A click in the sidebar tree, or on a track row of an album page or a playlist page, changes only the Library stack. Back and Forward do not record these steps.
    - Search, Index pages, publisher pages and name links change the top stack.
    - `hydrate_detail_from_nav` in `src/library/app_impl.rs` does not restore `PlaylistDetail`. Back to a playlist page can show a different page.
-2. **A content list row always opens the Index album page.** `open_content_list_row` emits `OpenIndexFeedDetail` for each row, also for an album that is in the Library. The Library album page opens only from the sidebar tree, a search result of the Library, or a name link.
+   - The operator confirmed on 2026-10-08: a path that starts in the sidebar shows no Back and Forward buttons and no breadcrumb above the content frame.
+2. **The content list has two row types, and one does nothing.** Library rows are tracks. Index rows are albums.
+   - A click on an Index row opens the Index album page.
+   - A click on a Library track row does nothing: `index_feed_selection` in `src/view_models/library.rs` finds only Index album rows, so `open_content_list_row` has no target. The operator confirmed this on 2026-10-08.
+   - The Library album page opens only from the sidebar tree, a search result of the Library, or a name link.
 3. **No list has multiple selection.** Each list in Music has one click target for each row and one selected item at most. Each row action works on one row.
 4. **Play is only on the playlist page.** Its button plays through the one shared playback session, the same session that the Show transport controls. No page has an audition route.
 5. **Readiness opens only from Show.** `open_broadcast_readiness_in_music` in `src/app/show.rs` is the only entry to the list of tracks that need attention. No control in Music opens it.
 6. **The publisher has no search entry.** A publisher page opens only from a name link on an album or a track that states a publisher relationship.
+7. **The track page breadcrumb is a history, not a location.** The Library track page shows its own breadcrumb. It adds each earlier Library page, so it can repeat a page, for example "000 > Tiddies In My Face (Single) > 000 > Tiddies In My Face (Single)". It always gives a way back to the playlist. The operator confirmed this on 2026-10-08.
 
 ## Job 1: Find New Music
 
