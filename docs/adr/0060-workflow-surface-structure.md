@@ -4,6 +4,8 @@
 
 Accepted - 2026-09-07.
 
+Amended 2026-10-08 by [ADR 0084](0084-music-column-browser.md): the Vocabulary adds "Release". The curator sees "Release" for a feed of music, in place of "Album" and "Feed", and each release shows its kind. The scope control has two states, "Library" and "Everything".
+
 Amends ADR 0048 for the app-section tab set. Supersedes the `Broadcast`
 workspace frame introduced under ADR 0059 and retains everything else in that
 ADR.

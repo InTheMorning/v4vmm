@@ -122,8 +122,17 @@ Steps:
    - Scope controls, decided by the operator on 2026-10-08: Releases and Artists each have the control "Library" or "Everything". Tracks has no scope control and shows the Library only.
    - Collection art, requested by the operator on 2026-10-08: as on `../musicindex/search.html`, the MusicIndex logo shape frames the art of a collection. A collection is a singles group, an artist page or a playlist. The frame holds a mosaic of up to four covers, or the entity color when no cover exists. A collection with one cover shows that cover as a square. One release always shows its cover as a square.
 4. A decision record for the chosen structure. It amends ADR 0060 and the decisions on frames, the content list and the Library control that the structure changes.
-   Written on 2026-10-08: [ADR 0084](../adr/0084-music-column-browser.md), Proposed. It waits for the operator's acceptance.
+   [ADR 0084](../adr/0084-music-column-browser.md), accepted by the operator on 2026-10-08. It owns each structure decision listed above.
 5. Packets, each with its flow check walked right after it. A flow check counts the steps of each job before and after, and lists the dead ends.
+   Proposed order on 2026-10-08. Each packet is one session, and the next packet starts only after the flow check of the one before it:
+   1. One navigation stack and the location breadcrumb (ADR 0084 Decision 9). It fixes flow map findings 1 and 7.
+   2. One page for each item (Decision 4). Library and Index rows open the same release and track pages. It fixes finding 2.
+   3. The three-column shell: the destinations, the collapsible sidebar, Discover with "New releases", Needs attention and Playlists (Decisions 1 to 3). It deletes the sidebar tree and fixes finding 5.
+   4. Releases: the kind of each release, the two scopes and the singles groups with their group page (Decisions 5, 6 and 8).
+   5. The artist page with two levels and its scope (Decisions 7 and 8). It replaces the Library artist page by name and the name match page, and fixes finding 6.
+   6. Multiple selection and the action bar, with the reserved audition place in the row composite (Decisions 10 and 11). It fixes finding 3.
+   7. Search results in the list column, and saved searches as Discover views (Decisions 2 and 3).
+   8. The logo frame for collections (Decision 12).
 
 ### Phase 5: Settings
 

@@ -16,7 +16,8 @@ design and cleanup work in six phases. Phases 1 and 2 are complete. Phase 2 ende
 [ADR 0083](docs/adr/0083-design-language.md), the design language.
 
 Phase 3, the tokens, is complete. Phase 4, the Library, is in progress. Its first two packets, one track page
-and one album page for the Library and the Index, are complete. Phase 4 and 5 packets carry the
+and one album page for the Library and the Index, are complete. Phase 4A, flow and information architecture, decided the
+Music structure in [ADR 0084](docs/adr/0084-music-column-browser.md). Its packets come next. Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
 
 Each file in `docs/tasks/` is open: it is Ready, or it waits for an operator check. Finished tasks are in
@@ -59,6 +60,9 @@ a toolbar command, never a section. ADR 0060.
 **Curation shows nothing operational.** With no show active, `Music` and
 `Settings` show no queue, no transport, and no broadcast status. A surface that
 cannot act is absent, not disabled.
+
+**One page for each item.** Music is a column browser. Each release, track, artist and playlist has one
+page, whatever its origin. The Library is a state that each page and list shows, not a place. ADR 0084.
 
 **Provenance first.** Provenance is the element in the RSS document that
 asserted a value: the channel, the item, or a person. MusicIndex is a cache of

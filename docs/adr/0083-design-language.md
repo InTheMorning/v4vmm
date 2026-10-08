@@ -4,6 +4,8 @@
 
 Accepted - 2026-10-03. The operator chose the direction on 2026-10-03 from a private mockup canvas, and accepted this text on the same day. Phase 3 of the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md) implements Decisions 1 to 4.
 
+Amended 2026-10-08 by [ADR 0084](0084-music-column-browser.md): Decision 9 is superseded by ADR 0084 Decision 3, except that a tile is a release. Decision 4 gains the logo frame for a collection (ADR 0084 Decision 12). Decision 5 names a release by its kind in labels (ADR 0084 Decision 5). Decision 6 gains the shared selection checkbox and action bar (ADR 0084 Decision 10).
+
 Amended 2026-10-07: Decision 5 names the main action until a page can play a track.
 
 It amends [ADR 0025](0025-theme-icon-style-boundary.md) (entity roles get their own palette), [ADR 0062](0062-music-content-surface.md) (a tile is a release) and [ADR 0066](0066-configuration-and-startup-failure-recovery.md) (the normal-shell notice opens from the status bar).
@@ -117,6 +119,8 @@ The status bar replaces the live status band. The reports item opens the normal-
 - The track compare grid becomes the inspection view of a track. Its content stays.
 
 ### 9. Music Has A Home, And A Tile Is A Release
+
+Superseded by [ADR 0084](0084-music-column-browser.md) Decision 3 on 2026-10-08: Music opens on Discover. The tile rule below stays.
 
 - The Music section opens on a home: the newest release, the releases of the Library, the playlists, and the upkeep state.
 - The tile view shows one tile for each release, not for each track.

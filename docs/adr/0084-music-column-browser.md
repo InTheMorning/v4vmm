@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-10-08. The operator made each choice below on 2026-10-08, in Phase 4A of the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#phase-4a-flow-and-information-architecture). The choices come from the [Music flow map](../architecture/music-flow-map.md) and a private prototype canvas.
+Accepted - 2026-10-08. The operator accepted this text on 2026-10-08. The operator made each choice below on 2026-10-08, in Phase 4A of the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#phase-4a-flow-and-information-architecture). The choices come from the [Music flow map](../architecture/music-flow-map.md) and a private prototype canvas.
 
 The first draft left three points open. The operator decided them on the same day:
 
@@ -10,7 +10,7 @@ The first draft left three points open. The operator decided them on the same da
 - the artist link when the publisher is a label (Decision 7)
 - the place of saved searches (Decisions 2 and 3)
 
-When the operator accepts it, it amends these decisions:
+It amends these decisions:
 
 - [ADR 0046](0046-workspace-frame-architecture.md): the Music frames are the three columns of Decision 1, with one navigation stack (Decision 9).
 - [ADR 0047](0047-library-search-unification.md) items 1, 5 and 9: the source list holds destinations, the scope control has two states, and saved searches move (Decision 2).

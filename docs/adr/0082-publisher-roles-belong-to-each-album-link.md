@@ -4,6 +4,8 @@
 
 Accepted - 2026-10-02. The operator approved the design and accepted the revised text on 2026-10-02.
 
+Amended 2026-10-08 by [ADR 0084](0084-music-column-browser.md) Decisions 6 and 7: inside each group of Decision 2, "Albums and EPs" come before "Singles". The publisher page is the publisher level of the one artist page.
+
 Revised on 2026-10-02 against Stophammer 0.7.0, after the operator held it for that release. The credit link of Stophammer 0.6.0 is gone from this design.
 
 It supersedes [ADR 0078](0078-publisher-page-type-from-stated-role.md), and it amends [ADR 0077](0077-publisher-feed-artist-binding.md) Decision 2.

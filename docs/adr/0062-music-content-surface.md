@@ -4,6 +4,8 @@
 
 Accepted - 2026-09-07.
 
+Amended 2026-10-08 by [ADR 0084](0084-music-column-browser.md): the scope control has two states, "Library" and "Everything", and no control shows Index items only. The source tree and its invariant go. Music opens on Discover, which supersedes the home of the ADR 0083 amendment above. Recency order and paging stay with this ADR.
+
 Amended 2026-10-03 by [ADR 0083](0083-design-language.md) Decision 9: Music opens on a home, and the tile view shows one tile for each release. Recency order and paging stay with this ADR.
 
 Reconciled 2026-09-18: the [delivery index](../plans/broadcast-chain-delivery-order.md#surface-rewrite--complete)

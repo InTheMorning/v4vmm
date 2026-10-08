@@ -4,6 +4,8 @@
 
 Implemented - 2026-05-18.
 
+Amended 2026-10-08 by [ADR 0084](0084-music-column-browser.md) Decision 4: each item has one page, whatever its origin. The Library source tree and the drill-down route for each origin go. A click on a Library row and a click on an Index row open the same page. The mutation success path, the tab switching rule and the uncached Index activation rule stay.
+
 Ownership invariants are guarded by
 `adr_0049_inspector_source_ownership_is_guarded` plus the frame-local filter
 guards in `tests/architecture_tests.rs`. Operator visual smoke confirmed the
