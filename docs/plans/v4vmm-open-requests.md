@@ -23,6 +23,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 2 | A deployed revision that a client can read | API field addition | Wanted |
 | 3 | Capabilities that match the contract for track includes | Contract correction | Small |
 | 4 | Field renames are breaking changes | Release policy | Wanted |
+| 5 | Search returns one entity one time | Search correction | Wanted |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -69,6 +70,15 @@ This is change 4 of the v4vmm API change request of 2026-09-22. No external chec
 
 **Request.** Treat a field rename or removal as a breaking change that needs a version. Keep the generated contract matched to the deployed routes.
 A Stophammer decision record that states this policy closes the request.
+
+### 5. Search Returns One Entity One Time
+
+**What happens.** On 2026-10-07, `GET /v1/search?q=arbiter` returned the track `f8b048de-df0c-40b1-9bf9-359307d10301` two times.
+Both hits have the same `entity_id`, `feed_guid` and `href`. Their ranks differ: `-12.566378885662488` and `-11.103123308333087`.
+The search for "How Bout You" on 2026-10-04 also gave one track two times.
+
+**Request.** Give each entity one time in one search response, with its best rank.
+v4vmm now drops a second hit of the same entity. That client fix does not correct the result count or the pagination.
 
 ## Open Question
 
