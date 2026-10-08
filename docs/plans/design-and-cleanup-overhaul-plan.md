@@ -114,6 +114,7 @@ Steps:
    - Navigation, decided by the operator on 2026-10-08: one history stack for the content area. Each page change goes into it: a sidebar click, a row, a link or search. Back and Forward always show. A breadcrumb shows the location, not the history: the destination and the path inside it, for example "Playlists > 000 > Tiddies In My Face". A breadcrumb shows each page one time only.
    - Multiple selection, decided by the operator on 2026-10-08: each track and album list has the same model. A row shows a checkbox when the pointer is on it, or when a selection exists. Ctrl+click adds a row, Shift+click adds a range, and Ctrl+A selects the list. A plain click opens the page of the row. With a selection, an action bar at the bottom of the list shows the count, the actions for the whole selection and "Clear". No step needs a drag.
 3. Structure options. Two or three clickable HTML prototypes of the Music section, scored against the four jobs and the two constraints.
+   Built on 2026-10-08: [structure options canvas](https://claude.ai/artifact/Uy8HeawDJGpuyVWvutNme6) (private to the operator), with option A (destinations sidebar), option B (column browser) and option C (home first). The operator's choice is open.
 4. A decision record for the chosen structure. It amends ADR 0060 and the decisions on frames, the content list and the Library control that the structure changes.
 5. Packets, each with its flow check walked right after it. A flow check counts the steps of each job before and after, and lists the dead ends.
 
