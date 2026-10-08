@@ -23,7 +23,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 2 | A deployed revision that a client can read | API field addition | Wanted |
 | 3 | Capabilities that match the contract for track includes | Contract correction | Small |
 | 4 | Field renames are breaking changes | Release policy | Wanted |
-| 5 | Search returns one entity one time | Search correction | Built for release 0.8.0, not deployed |
+| 5 | Search returns one entity one time | Search correction | Deployed in release 0.8.0 on 2026-10-08 |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
