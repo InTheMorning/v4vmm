@@ -1,6 +1,6 @@
 # ADR 0076 Task 006: Credit List Projection
 
-Status: Open - implementation and mechanical checks are complete on 2026-09-25. On 2026-10-07 the operator moved its visual check to the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07). The packet that rebuilds the surface carries it.
+Status: Complete - 2026-10-07. The operator walked its moved visual rule (§19, credits in RSS order) on the one track page of ADR 0083 task 004 on 2026-10-07.
 This packet changes the credit rows on the album and track pages. The operator check of V1 is open and paused.
 
 ## Goal
@@ -11,9 +11,9 @@ Both lists stay in storage as evidence.
 ## Authority
 
 - The operator decision of 2026-09-25: one credit list for each owner, chosen by the projection rule.
-- [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md) Decision I: MusicIndex is a cache of RSS, and a screen does not label a value with its provider.
-- [ADR 0076](../adr/0076-playlist-rss-check-for-stale-musicindex-records.md) Decisions 1 and 5.
-- [ADR 0075 packet 020](adr-0075-task-020-stored-value-projection.md): the projection owner `src/application/queries/stored_values.rs`.
+- [ADR 0075](../../adr/0075-metadata-ownership-and-completeness.md) Decision I: MusicIndex is a cache of RSS, and a screen does not label a value with its provider.
+- [ADR 0076](../../adr/0076-playlist-rss-check-for-stale-musicindex-records.md) Decisions 1 and 5.
+- [ADR 0075 packet 020](../adr-0075-task-020-stored-value-projection.md): the projection owner `src/application/queries/stored_values.rs`.
 
 ## Recorded Facts - 2026-09-25
 
@@ -58,7 +58,7 @@ For the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/application/queries/stored_values.rs`, `src/views.rs`, `src/local_identity.rs`, `src/sources.rs`.
 - `src/db.rs`: `local_contributors`, `replace_local_contributors`. `src/identity_ingest.rs`.
 - `src/rss/check_apply.rs`: `persons`, `persons_value`.
@@ -278,4 +278,4 @@ sqlite3 "$db" "PRAGMA integrity_check;"
 Expect `ok`. Restore the theme that you used before step 10 in **Settings → General**.
 This check makes no file.
 
-The gate stays open in this `Status:` line and in [pending human checks](../pending-human-checks.md) until the operator walks it.
+The gate stays open in this `Status:` line and in [pending human checks](../../pending-human-checks.md) until the operator walks it.

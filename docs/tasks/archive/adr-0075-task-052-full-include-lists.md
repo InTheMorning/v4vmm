@@ -11,7 +11,7 @@ An Index track page then gets its payment routes, identity links, credits and pu
 
 - [ADR 0075](../../adr/0075-metadata-ownership-and-completeness.md), amendment of 2026-10-07: full include lists.
 - [ADR 0075 packet 017](adr-0075-task-017-named-request-profiles.md): the request profile registry. This packet replaces its include lists.
-- [ADR 0083 task 004](../adr-0083-task-004-one-track-page.md): one track page for both origins.
+- [ADR 0083 task 004](adr-0083-task-004-one-track-page.md): one track page for both origins.
 
 ## Recorded Facts - 2026-10-07
 

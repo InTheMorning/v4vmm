@@ -14,7 +14,7 @@ This packet's visual gate remains open.
 
 - `docs/adr/0037-same-entity-surface-parity.md`
 - `docs/plans/adr-0037-same-entity-surface-parity-phase-plan.md`
-- `docs/tasks/adr-0037-task-002-track-header-action-parity.md`
+- `docs/tasks/archive/adr-0037-task-002-track-header-action-parity.md`
 - Diff for `src/view_models/track_detail.rs`, `src/ui_track.rs`,
   `src/search.rs`, `src/library.rs`, and `tests/architecture_tests.rs`
 - Apple HIG references: `summaries/layout-complete.md`,

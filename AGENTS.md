@@ -15,8 +15,8 @@ The [overhaul plan](docs/plans/design-and-cleanup-overhaul-plan.md) is the curre
 design and cleanup work in six phases. Phases 1 and 2 are complete. Phase 2 ended with
 [ADR 0083](docs/adr/0083-design-language.md), the design language.
 
-Phase 3, the tokens, is complete. Phase 4, the Library, is in progress.
-[ADR 0083 task 004](docs/tasks/adr-0083-task-004-one-track-page.md), one track page for a Library track and an Index track, waits for its visual check. Phase 4 and 5 packets carry the
+Phase 3, the tokens, is complete. Phase 4, the Library, is in progress. Its first packet, one track page for a
+Library track and an Index track, is complete. Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
 
 Each file in `docs/tasks/` is open: it is Ready, or it waits for an operator check. Finished tasks are in
@@ -37,8 +37,6 @@ Known open defects:
   [ADR 0068](docs/adr/0068-show-cue-and-audition-isolation.md), which is Proposed, and for the mpv IPC error.
 - An MP4 file always shows a `TYER` difference in "Update n files". The
   [ADR 0080 plan](docs/plans/adr-0080-tag-frames-phase-plan.md) records it. No packet owns it.
-- An Index track page shows only its cover, its title and four summary rows, with no actions. The first Phase 4
-  packet of the [overhaul plan](docs/plans/design-and-cleanup-overhaul-plan.md) owns it.
 - [The live value URI plan](docs/plans/livevalue-uri-is-a-url.md) is Ready.
 
 Stored facts that agents need:

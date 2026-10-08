@@ -1,9 +1,9 @@
 # ADR 0037 Task 002: Track Header and Action Parity
 
-Status: Open - implementation and mechanical checks are complete on 2026-09-10. On 2026-10-07 the operator moved its visual check to the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07). The packet that rebuilds the surface carries it.
+Status: Complete - 2026-10-07. The operator walked its moved visual rule (§2, track identity and detail parity) on the one track page of ADR 0083 task 004 on 2026-10-07, in Dark and Light.
 
 The operator paused visual checks on 2026-09-19 to prioritise the
-[ADR 0075 metadata refactor](../plans/adr-0075-metadata-contract-phase-plan.md).
+[ADR 0075 metadata refactor](../../plans/adr-0075-metadata-contract-phase-plan.md).
 
 The operator confirmed the private database/audio copy at
 `/tmp/v4vmm-governance.ie6k8TQf` on 2026-09-19. Track selection and source-fact
@@ -16,7 +16,7 @@ identity lists for MoeFactz. Its parent-feed facts do not qualify as track
 facts. A follow-up request confirmed three contributor claims, including
 HeyCitizen's Nostr key and the Moe Factz host website. These facts belong to
 the contributors. Source inspection found app request and presentation gaps
-for those facts. The [review](../reviews/adr-0037-review-checklist.md#task-002-contributor-source-check--2026-09-19)
+for those facts. The [review](../../reviews/adr-0037-review-checklist.md#task-002-contributor-source-check--2026-09-19)
 records the evidence. No application code changed. No visual check or fixture
 cleanup is accepted yet.
 
@@ -24,7 +24,7 @@ cleanup is accepted yet.
 
 Track identity and detail parity is the remaining acceptance scope.
 The implementation and earlier mechanical evidence are recorded in the
-[ADR 0037 review checklist](../reviews/adr-0037-review-checklist.md).
+[ADR 0037 review checklist](../../reviews/adr-0037-review-checklist.md).
 Its retirement table identifies replaced requirements before listing survivors.
 This packet no longer instructs an agent to rebuild the earlier screen design.
 
@@ -33,7 +33,7 @@ visual pass and does not erase the earlier incident evidence.
 
 ## Owners And Constraints
 
-- [ADR 0037](../adr/0037-same-entity-surface-parity.md) owns the surviving contract.
+- [ADR 0037](../../adr/0037-same-entity-surface-parity.md) owns the surviving contract.
 - The review checklist names the current shared owners and existing guards.
 - ADRs 0047/0048/0060 own shared Music surfaces and frame navigation.
 - An agent must not run the app. A person performs the checks below.
@@ -53,7 +53,7 @@ the required populated fixture. An unavailable fixture leaves that row open.
 
 ## Operator Visual Check
 
-Follow [the current track identity and detail parity procedure](../runbooks/inherited-ui-checks.md#identity-and-detail-parity--adr-0037-tasks-001-and-002),
+Follow [the current track identity and detail parity procedure](../../runbooks/inherited-ui-checks.md#identity-and-detail-parity--adr-0037-tasks-001-and-002),
 including preparation and cleanup. Record the fixture, entry route, theme,
 result, and any screenshots in the review checklist. Close only this packet's
 criteria, even when one walkthrough also supplies another packet's evidence.

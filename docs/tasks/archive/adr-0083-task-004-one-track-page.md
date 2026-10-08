@@ -1,6 +1,6 @@
 # ADR 0083 Task 004: One Track Page
 
-Status: Open - implementation and mechanical checks are complete on 2026-10-07. The operator visual check is pending: [pending check 5](../pending-human-checks.md#5-one-track-page--adr-0083-task-004).
+Status: Complete - 2026-10-07. The operator passed steps 1 to 7 of the visual check on 2026-10-07: V83-41, V83-42, V83-43, V83-45 and V83-46, and the moved rules §2 and §19 of V83-44. The moved rules §22, §26 and §27 stay in the overhaul plan.
 
 ## Goal
 
@@ -9,10 +9,10 @@ The actions follow the action hierarchy of ADR 0083. The compare grid, Compare I
 
 ## Authority
 
-- [ADR 0083](../adr/0083-design-language.md) Decisions 5, 6, 8 and 10, with the 2026-10-07 amendment of Decision 5.
-- [ADR 0037](../adr/0037-same-entity-surface-parity.md) Pass 2: one track page grammar for local and Index origins.
-- [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md) Decision I: RSS is the provenance, MusicIndex is a cache.
-- The track page rules in the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07), section "Phase 4: Track Page".
+- [ADR 0083](../../adr/0083-design-language.md) Decisions 5, 6, 8 and 10, with the 2026-10-07 amendment of Decision 5.
+- [ADR 0037](../../adr/0037-same-entity-surface-parity.md) Pass 2: one track page grammar for local and Index origins.
+- [ADR 0075](../../adr/0075-metadata-ownership-and-completeness.md) Decision I: RSS is the provenance, MusicIndex is a cache.
+- The track page rules in the [overhaul plan](../../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07), section "Phase 4: Track Page".
 
 ## Recorded Facts - 2026-10-07
 
@@ -84,7 +84,7 @@ These are for the operator. They stay open until a person walks them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/ui/shells/library/track_detail.rs`, `track_detail_metadata.rs`, `track_detail_metadata_grid.rs`, `track_detail_metadata_values.rs`.
 - `src/ui/shells/track.rs`, `src/ui/composites/track_detail_surface.rs`, `track_header.rs`, `action_row.rs`, `action_button.rs`, `playlist_popover.rs`, `disclosure_group.rs`.
 - `src/ui/primitives/context_menu.rs`, `src/ui/icons.rs`.
@@ -132,7 +132,7 @@ The orchestrator implemented this packet in the main session, after four subagen
   - `TrackView.publisher_feed_guid` keeps the publisher GUID that the `publisher` relationships of `TrackResponse` name. The publisher name links to the Index publisher page.
 - Deleted: the old action builder, the "Open publisher" button, `LibraryTrackActionVm::subscription_button_label` and its two unread fields.
 
-Follow-up: on 2026-10-07 the operator decided that each MusicIndex request asks for full data. [ADR 0075 packet 052](archive/adr-0075-task-052-full-include-lists.md) implemented it, so an Index track page gets its payment routes, identity links, credits and publisher.
+Follow-up: on 2026-10-07 the operator decided that each MusicIndex request asks for full data. [ADR 0075 packet 052](adr-0075-task-052-full-include-lists.md) implemented it, so an Index track page gets its payment routes, identity links, credits and publisher.
 
 Deviations:
 

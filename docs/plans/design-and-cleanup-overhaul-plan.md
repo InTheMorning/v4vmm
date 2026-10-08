@@ -76,7 +76,7 @@ Packets for each surface: the album grid with artwork first, the album page with
 
 The first Phase 4 packet builds the track page once, for a Library track and an Index track. The operator decided this on 2026-10-07.
 
-1. [ADR 0083 task 004](../tasks/adr-0083-task-004-one-track-page.md): one track page, the action hierarchy, name links, credits and "Inspect sources". Implemented 2026-10-07. Visual check open.
+1. [ADR 0083 task 004](../tasks/archive/adr-0083-task-004-one-track-page.md): one track page, the action hierarchy, name links, credits and "Inspect sources". Done on 2026-10-07.
 2. Later packets: the inspection view of RSS, MusicIndex and file tags, and the payment split bar for the track page and the album page.
 
 - On 2026-10-07 the operator found that an Index track page shows only its cover, its title and four summary rows. `index_track_detail_slots` in `src/app/search_dispatch.rs` gives only the cover, and `render_index_track_detail` in `src/ui/shells/search_results_inspector.rs` adds only the identity links. No code makes an action row, a description or source sections for an Index track. ADR 0037 Pass 2 requires one track page for both origins.
@@ -107,15 +107,9 @@ list only when a person walks it on the new screen, or when an ADR retires it.
 
 ### Phase 4: Track Page
 
-- **§2 Track Identity And Detail Parity — ADR 0037 Task 002.** Owner: [task 002](../tasks/adr-0037-task-002-track-header-action-parity.md).
-  - Precondition: needs the same track through local and Index origins, with known Website/Nostr facts and a downloaded local copy.
-  - Check: [Identity And Detail Parity](../runbooks/inherited-ui-checks.md#identity-and-detail-parity--adr-0037-tasks-001-and-002).
-  - Use the same track with known Website/Nostr facts and a downloaded local copy. Check both origins in Light and Dark. Compare headers, actions, section order and contextual disclosure. Empty source facts do not close the gate.
-  - Record track results and fixture cleanup in the [checklist](../reviews/adr-0037-review-checklist.md).
-- **§19 Credit List Projection — ADR 0076 Task 006.** Owner: [task 006](../tasks/adr-0076-task-006-credit-list-projection.md).
-  - Precondition: needs schema version 17 from packet 003. The check sends real HTTP requests to the feed hosts of the playlist, and it writes RSS values into the stored values.
-  - V1: after a check that changed the credits, the track page shows the RSS credits one time each, in RSS order, with no MusicIndex credit and no provider label. Check in Light and Dark themes.
-  - The Library track page now shows the stored credit list, also when the MusicIndex fetch succeeds. The operator can reject this at V1.
+The operator walked §2 and §19 on the one track page on 2026-10-07. They left this list.
+
+
 - **§22 Track Header Identities — ADR 0075 Task 022.** Owner: [task 022](../tasks/adr-0075-task-022-track-header-identities.md).
   - V1: an Index track without its own identities shows no website or Nostr action in its header. The feed section shows them, with the feed named as owner, in Light and Dark themes.
   - V2: a track with its own identities shows them in its header, apart from the feed section.
