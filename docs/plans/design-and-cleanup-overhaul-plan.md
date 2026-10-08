@@ -122,6 +122,7 @@ Steps:
    - Scope controls, decided by the operator on 2026-10-08: Releases and Artists each have the control "Library" or "Everything". Tracks has no scope control and shows the Library only.
    - Collection art, requested by the operator on 2026-10-08: as on `../musicindex/search.html`, the MusicIndex logo shape frames the art of a collection. A collection is a singles group, an artist page or a playlist. The frame holds a mosaic of up to four covers, or the entity color when no cover exists. A collection with one cover shows that cover as a square. One release always shows its cover as a square.
 4. A decision record for the chosen structure. It amends ADR 0060 and the decisions on frames, the content list and the Library control that the structure changes.
+   Written on 2026-10-08: [ADR 0084](../adr/0084-music-column-browser.md), Proposed. It waits for the operator's acceptance.
 5. Packets, each with its flow check walked right after it. A flow check counts the steps of each job before and after, and lists the dead ends.
 
 ### Phase 5: Settings
