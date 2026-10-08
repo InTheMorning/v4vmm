@@ -139,6 +139,19 @@ A separate ADR, after the Library work. The playback defect of one song that doe
 - Add `cargo clippy --all-targets -- -D warnings` to the gate.
 - No complete rewrite. Change one surface at a time and keep the gate Green.
 
+### Throughout: Responsiveness And Background Feedback
+
+The operator asked on 2026-10-08 for a later phase that tunes how fast the app responds, and gives clear feedback, with motion, for work that runs in the background, such as downloads and fetches. Each session adds each concern it finds to this list, with its date and its owner file. The list stays here until a packet takes it. This list is advisory. It states no rule.
+
+1. 2026-10-07: the debug build is slow in daily use. The release build is fast enough. Use `./target/release/v4vmm` before a performance measurement.
+2. 2026-10-07: each MusicIndex request asks for each collection of its endpoint (ADR 0075 amendment of 2026-10-07). Measure the cost of the larger responses before the tuning phase.
+3. 2026-10-08: a cover color arrives after its page opens. The album page backdrop shows late, with no transition (`ui::composites::CoverBackdrop`).
+4. 2026-10-08: thumbnails and Index pages load with no shared loading state. A page shows its cover or its facts when each arrives (`thumbnail_for_url` in `src/library/app_impl.rs`, `index_remote_detail_hero_image` in `src/app/search_dispatch.rs`).
+5. 2026-10-08: a download shows only a busy label, such as "Downloading feed..." or "Downloading...". It shows no progress, no count of done tracks and no motion (`begin_busy_feed` in `src/library/app_impl.rs`, `ReleaseMembershipState::Downloading`).
+6. 2026-10-08: "Download album" and "Copy feed URL" on an Index track page first read the album feed from MusicIndex. Nothing on the page shows that read (`download_index_album_of_track` and `copy_index_feed_url_of_track` in `src/app/search_dispatch.rs`). Their results show only in `settings_status`.
+7. 2026-10-08: the toolbar search shows no state for an unreachable MusicIndex before it sends the request. A failure shows only after the request (flow map, job 1).
+8. 2026-10-08: multiple selection (Phase 4A) adds downloads of many releases at one time. The action bar needs a progress state for the whole selection.
+
 ## Visual Requirements Moved From Pending Checks - 2026-10-07
 
 The operator decided on 2026-10-07 to stop walking checks of screens that

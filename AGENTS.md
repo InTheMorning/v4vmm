@@ -204,6 +204,12 @@ separately. `The section shows six states` is untestable. `The view model
 exposes six states` is the same requirement where a test can reach it. A
 criterion that is neither passes by omission.
 
+**Collect responsiveness concerns.** When you find a slow response, or background work with no
+visible feedback, such as a download or a fetch with no progress, loading state or motion, add it
+to "Throughout: Responsiveness And Background Feedback" in the
+[overhaul plan](docs/plans/design-and-cleanup-overhaul-plan.md), with its date and its owner file.
+Do not fix it inside an unrelated packet unless the operator asks.
+
 **Column text does not call `truncate()`.** ADR 0063 decides this, and
 `docs/troubleshooting/column-text-truncation.md` explains why. Read them before
 you style stacked text.
