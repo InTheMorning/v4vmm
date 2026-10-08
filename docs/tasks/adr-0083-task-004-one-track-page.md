@@ -132,6 +132,8 @@ The orchestrator implemented this packet in the main session, after four subagen
   - `TrackView.publisher_feed_guid` keeps the publisher GUID that the `publisher` relationships of `TrackResponse` name. The publisher name links to the Index publisher page.
 - Deleted: the old action builder, the "Open publisher" button, `LibraryTrackActionVm::subscription_button_label` and its two unread fields.
 
+Follow-up: on 2026-10-07 the operator decided that each MusicIndex request asks for full data. [ADR 0075 packet 052](archive/adr-0075-task-052-full-include-lists.md) implemented it, so an Index track page gets its payment routes, identity links, credits and publisher.
+
 Deviations:
 
 - "Remove track…" shows only on a downloaded track. Today's toggle offers removal only in that state.

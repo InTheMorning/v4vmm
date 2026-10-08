@@ -1202,8 +1202,8 @@ including publisher (ADR 0077 Decision 5). Got: {requests:?}"
     }
 
     /// R47-06: opening a track row sends its own detail request, scoped by
-    /// the feed GUID the row's summary carried, with no `include`
-    /// parameter (the existing L0 profile).
+    /// the feed GUID the row's summary carried, with the full track include
+    /// list (ADR 0075, amendment of 2026-10-07).
     #[test]
     fn adr_0075_search_summary_r47_06_track_detail_sends_its_own_scoped_request() {
         let fixture = Fixture::start();
@@ -1217,8 +1217,12 @@ including publisher (ADR 0077 Decision 5). Got: {requests:?}"
         let requests = fixture.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 1, "Got: {requests:?}");
         assert_eq!(
-            requests[0], "/v1/feeds/f1/tracks/t1",
-            "L0: the scoped track detail request holds no include parameter"
+            requests[0],
+            format!(
+                "/v1/feeds/f1/tracks/t1?include={}",
+                encoded_include(crate::application::request_profiles::INDEX_TRACK_DETAIL_SCOPED)
+            ),
+            "ADR 0075, amendment of 2026-10-07: the scoped track detail request asks for every track collection"
         );
     }
 

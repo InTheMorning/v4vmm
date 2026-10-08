@@ -1764,8 +1764,12 @@ mod observation_tests {
             fixture.requests.lock().unwrap().clear();
             let result = fixture.compare(directory.path()).unwrap();
             assert_eq!(result.track_context.observation_receipts.len(), paths.len());
-            let expected: Vec<_> = paths.iter().map(|path| if *path == "/feed.xml" { (*path).into() } else {
-                format!("{path}?include=source_links%2Csource_ids%2Csource_release_claims%2Csource_contributors%2Cpayment_routes")
+            // ADR 0075, amendment of 2026-10-07: each request asks for every
+            // collection of its endpoint.
+            let expected: Vec<_> = paths.iter().map(|path| if *path == "/feed.xml" { (*path).into() } else if path.contains("/tracks/") {
+                format!("{path}?include=payment_routes%2Cvalue_time_splits%2Csource_links%2Csource_ids%2Csource_contributors%2Csource_release_claims%2Csource_enclosures%2Csource_transcripts%2Cremote_items%2Cpublisher")
+            } else {
+                format!("{path}?include=tracks%2Csource_enclosures%2Csource_links%2Csource_ids%2Csource_release_claims%2Csource_contributors%2Csource_platforms%2Cpayment_routes%2Cremote_items%2Cpublisher")
             }).collect();
             assert_eq!(*fixture.requests.lock().unwrap(), expected);
             let mut local_track = fixture.tracks[0].clone();
@@ -1874,9 +1878,9 @@ mod observation_tests {
             println!("ADR0075_LIBRARY_HYDRATION repetition={repetition} legacy_rows={legacy} observation_rows={observation} snapshot_rows=0 transactions={} tables={mutations:?}", fixture.commits.load(Ordering::SeqCst));
         }
         // Only the first pass reached the network; the second reused its
-        // retained response (R18B-01). ADR 0077 Decision 5 adds `publisher`
-        // to the include list.
-        assert_eq!(*fixture.requests.lock().unwrap(), vec!["/v1/feeds/f1?include=source_links%2Csource_ids%2Csource_release_claims%2Csource_contributors%2Cpublisher"; 1]);
+        // retained response (R18B-01). The include list is the full feed
+        // list (ADR 0075, amendment of 2026-10-07).
+        assert_eq!(*fixture.requests.lock().unwrap(), vec!["/v1/feeds/f1?include=tracks%2Csource_enclosures%2Csource_links%2Csource_ids%2Csource_release_claims%2Csource_contributors%2Csource_platforms%2Cpayment_routes%2Cremote_items%2Cpublisher"; 1]);
         fixture.set_mode(1);
         // This call means a genuinely new attempt, so it must reach the
         // fixture's now-failing response rather than reuse the retained
@@ -2326,12 +2330,20 @@ mod observation_tests {
         assert_eq!(comparison.track_context.observation_receipts.len(), 3);
         let newer_generation = comparison.track_context.observation_receipts[0].generation;
         fixture.set_mode(16);
+        // ADR 0075, amendment of 2026-10-07: the hydration and the
+        // comparison feed requests now send one full include list. They are
+        // one exact request, so they share one cache entry and one evidence
+        // resource. The test clears the cache entry, so the hydration sends
+        // its own request.
+        invalidate_hydration(&fixture);
         let hydration = fixture.hydrate().unwrap();
         assert_eq!(hydration.observation_receipts.len(), 1);
         {
             let db = fixture.conn.lock().unwrap();
             let states: Vec<String> = db.prepare("SELECT state FROM metadata_request_slots WHERE resource_id IN (SELECT id FROM metadata_resources WHERE request_uri LIKE '%/v1/feeds/f1?%') ORDER BY generation").unwrap().query_map([], |row| row.get(0)).unwrap().collect::<Result<_, _>>().unwrap();
-            assert_eq!(states, vec!["failed", "success"]);
+            // One exact request: the newer success retires the failed
+            // attempt of the comparison (ADR 0075 task 014 retention).
+            assert_eq!(states, vec!["success"]);
         }
         fixture.set_mode(0);
         let (mut stream, response) = fixture.held_response.lock().unwrap().take().unwrap();
@@ -2346,7 +2358,10 @@ mod observation_tests {
         let db = fixture.conn.lock().unwrap();
         let slot: (i64, String) = db.query_row("SELECT generation,state FROM metadata_request_slots WHERE resource_id IN (SELECT id FROM metadata_resources WHERE request_uri LIKE '%/v1/feeds/f1/tracks/t1?%')", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
         assert_eq!(slot, (newer_generation, "failed".into()));
-        assert_eq!(fixture.requests.lock().unwrap().len(), 7);
+        // The resumed detail sends one feed request fewer: it is the same
+        // exact request as the hydration, so the retained response serves it
+        // (packet 018, ADR 0075 amendment of 2026-10-07).
+        assert_eq!(fixture.requests.lock().unwrap().len(), 6);
     }
 
     #[test]

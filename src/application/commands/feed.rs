@@ -986,8 +986,10 @@ mod observation_tests {
     };
     use crate::provider_observation::ObservationOutcome;
 
-    const UPDATE_INCLUDE: &str =
-        "?include=source_links%2Csource_ids%2Csource_release_claims%2Csource_contributors%2Cpayment_routes";
+    /// ADR 0075, amendment of 2026-10-07: a feed request and a track
+    /// request each ask for every collection of their endpoint.
+    const FEED_INCLUDE: &str = "?include=tracks%2Csource_enclosures%2Csource_links%2Csource_ids%2Csource_release_claims%2Csource_contributors%2Csource_platforms%2Cpayment_routes%2Cremote_items%2Cpublisher";
+    const TRACK_INCLUDE: &str = "?include=payment_routes%2Cvalue_time_splits%2Csource_links%2Csource_ids%2Csource_contributors%2Csource_release_claims%2Csource_enclosures%2Csource_transcripts%2Cremote_items%2Cpublisher";
 
     /// Scripted MusicIndex and RSS responses for one disposable database.
     struct Fixture {
@@ -1347,9 +1349,9 @@ mod observation_tests {
             assert_eq!(
                 fixture.taken_requests(),
                 vec![
-                    format!("/v1/feeds/f1{UPDATE_INCLUDE}"),
-                    format!("/v1/feeds/f1/tracks/t1{UPDATE_INCLUDE}"),
-                    format!("/v1/feeds/f1{UPDATE_INCLUDE}"),
+                    format!("/v1/feeds/f1{FEED_INCLUDE}"),
+                    format!("/v1/feeds/f1/tracks/t1{TRACK_INCLUDE}"),
+                    format!("/v1/feeds/f1{FEED_INCLUDE}"),
                     "/feed.xml".to_owned(),
                 ],
                 "one feed request plus 2D detail requests and at most D RSS requests"

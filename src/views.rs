@@ -728,6 +728,45 @@ impl TrackView {
 mod tests {
     use super::*;
 
+    /// R52-04 (ADR 0075 packet 052): a full track response gives the
+    /// payment routes, the website, the credits and the publisher feed GUID
+    /// of an Index track.
+    #[test]
+    fn adr_0075_r52_04_full_track_response_fills_the_index_track_view() {
+        let view = TrackView::from_api(api::Track {
+            payment_routes: Some(vec![api::PaymentRoute {
+                recipient_name: Some("Music Side Project".into()),
+                split: Some(1.0),
+                ..Default::default()
+            }]),
+            source_links: Some(vec![api::SourceEntityLink {
+                link_type: Some("website".into()),
+                url: Some("https://example.test/track".into()),
+                ..Default::default()
+            }]),
+            source_contributors: Some(vec![api::Contributor {
+                name: Some("Amy".into()),
+                role: Some("Guitar".into()),
+                ..Default::default()
+            }]),
+            publisher: Some(vec![api::PublisherRelationship {
+                direction: Some("music_to_publisher".into()),
+                publisher_feed_guid: Some("publisher-guid".into()),
+                music_names_publisher: Some(true),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        });
+
+        assert_eq!(view.payment_routes.len(), 1);
+        assert_eq!(
+            view.identity.website_url.as_deref(),
+            Some("https://example.test/track")
+        );
+        assert_eq!(view.contributors[0].name.as_deref(), Some("Amy"));
+        assert_eq!(view.publisher_feed_guid.as_deref(), Some("publisher-guid"));
+    }
+
     /// ADR 0083 task 004: an Index track keeps the publisher feed GUID that
     /// its response names, so its page can link the publisher. A
     /// relationship that does not name the publisher gives no GUID.

@@ -223,7 +223,9 @@ fn merge_track_context_with_recorder(
     let local_track = crate::subscribe_service::track_row_to_api_track(track_row);
     let local_feed = track_row_to_feed(track_row);
     let feed = feed_defaults(
-        fetched_feed.unwrap_or_else(|| local_feed.clone()),
+        fetched_feed
+            .map(library_feed_from_response)
+            .unwrap_or_else(|| local_feed.clone()),
         &local_feed,
     );
     let track = crate::api::track_with_feed_defaults(
@@ -237,6 +239,15 @@ fn merge_track_context_with_recorder(
     crate::subscribe_service::enrich_track_context_from_rss_with_recorder(&mut context, recorder)?;
     sanitize_track_context_source_text(&mut context);
     Ok(context)
+}
+
+/// ADR 0075 packet 052: a feed request now asks for every collection,
+/// `tracks` included. A Library track page takes no MusicIndex track list,
+/// so its track total stays the stored count (task 009), not a count of the
+/// MusicIndex rows.
+fn library_feed_from_response(mut feed: Feed) -> Feed {
+    feed.tracks = None;
+    feed
 }
 
 pub fn track_row_to_feed(track: &TrackRow) -> Feed {
@@ -901,6 +912,21 @@ mod tests {
     use super::*;
     use crate::api::{Contributor, Feed, PaymentRoute, SourceEntityId, Track};
     use crate::metadata_service::id3_edits_for_track_context;
+
+    /// R52-03: a feed response that carries `tracks` adds no track total to
+    /// a Library track page. The total stays the stored count.
+    #[test]
+    fn adr_0075_r52_03_library_feed_takes_no_musicindex_track_list() {
+        let response = Feed {
+            tracks: Some(vec![crate::api::Track::default(); 3]),
+            episode_count: None,
+            ..Feed::default()
+        };
+        let feed = library_feed_from_response(response);
+        assert!(feed.tracks.is_none());
+        let context = TrackContext::new(crate::api::Track::default(), Some(feed));
+        assert_eq!(crate::metadata::musicindex_total_tracks(&context), None);
+    }
 
     fn setup_test_db() -> Result<Connection> {
         let conn = Connection::open_in_memory()?;

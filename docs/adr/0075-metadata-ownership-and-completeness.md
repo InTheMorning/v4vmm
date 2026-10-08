@@ -19,6 +19,10 @@ Amended 2026-09-24: [ADR 0076](0076-playlist-rss-check-for-stale-musicindex-reco
 It also supersedes two Decision I rules. One rule gives fresh RSS the value. The other rule limits MusicIndex to a feed that the app has not fetched.
 It supersedes the provider priority, freshness, expiry and stale-label parts of each field refinement. The other parts stay in force.
 
+Amended 2026-10-07: each MusicIndex request asks for each collection that its endpoint supports. A feed request asks for the nine feed collections, `tracks` included. A track request asks for the ten track collections.
+
+The operator decided this on 2026-10-07, after a measurement. The 471-track feed "GLOBAL FEDPILLED" gave 200,233 bytes in 0.080 s with the earlier Index feed list. It gave 200,251 bytes in 0.096 s with every collection. This replaces the include lists of packet 017. [Packet 052](../tasks/archive/adr-0075-task-052-full-include-lists.md) implemented it on 2026-10-07.
+
 This section records the decision only.
 The [phase plan](../plans/adr-0075-metadata-contract-phase-plan.md) records packets, checks, and open gates.
 

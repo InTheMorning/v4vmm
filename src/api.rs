@@ -1233,13 +1233,13 @@ pub(crate) mod tests {
     fn adr_0075_request_profile_l0_profile_sends_no_include_parameter() {
         let client = Client::new();
         let mut params = Vec::new();
-        if let Some(include) = request_profiles::INDEX_TRACK_DETAIL_UNSCOPED.include() {
+        // The name-match request is the one L0 profile left (ADR 0075,
+        // amendment of 2026-10-07): `/v1/tracks` takes no include.
+        if let Some(include) = request_profiles::INDEX_NAME_MATCH_TRACKS.include() {
             params.push(("include", include.to_string()));
         }
-        let url = client
-            .build_url(&["v1", "tracks", "t1"], &params)
-            .expect("url");
-        assert_eq!(url.path(), "/v1/tracks/t1");
+        let url = client.build_url(&["v1", "tracks"], &params).expect("url");
+        assert_eq!(url.path(), "/v1/tracks");
         assert_eq!(
             url.query(),
             None,
