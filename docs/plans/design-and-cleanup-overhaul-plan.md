@@ -80,6 +80,38 @@ The first Phase 4 packet builds the track page once, for a Library track and an 
 2. [ADR 0083 task 005](../tasks/archive/adr-0083-task-005-album-page-header-and-actions.md): one album page header and action row for the Library and the Index, the 200 pixel cover and the cover color backdrop. Done on 2026-10-08.
 3. Later packets: the inspection view of RSS, MusicIndex and file tags, the payment split bar for the track page and the album page, and row hover actions.
 
+### Phase 4A: Flow And Information Architecture
+
+The operator decided on 2026-10-08 to add this phase. Phases 2 and 3 set the look and the colors. They did not set the flow. The Music pieces exist, but they are scattered:
+
+- Library and Index are two places, not two states of one album. The Library album page opens from the sidebar tree. The Index album page opens only from search.
+- One section has two layouts: the Library has a sidebar and a content pane, and search uses one full-width pane that navigation replaces.
+- "Artist" has three pages: the Library artist page by name, the Index name match page, and the publisher page (ADR 0077).
+- The sidebar has three jobs: navigation, a tree of artists, albums and tracks, and feed status.
+- Search is the only way to reach the Index. No view lets the operator browse new music.
+
+The "Inspect sources" view and the payment split bar are inside pages, so they can continue during this phase. The album grid and the row hover actions wait for the structure decision.
+
+Curator jobs, decided by the operator on 2026-10-08. Each job becomes a scripted flow check:
+
+1. Find new music in the Index.
+2. Take music in: download, then confirm the tags and files.
+3. Build a show playlist and confirm that it is ready.
+4. Keep the Library ready: feed checks, updates, repairs and tracks that need attention.
+
+Design constraints from the operator, 2026-10-08:
+
+- Multiple selection is essential. The operator selects several search results or artist singles and downloads the selection with one action. The selection is a shared list behavior, not a feature of one screen.
+- An audition player comes later, with its own audio route, so that the curator can hear a track, seek through it and decide quickly. Each track row and each album page keeps a place for it ([ADR 0068](../adr/0068-show-cue-and-audition-isolation.md) is Proposed).
+
+Steps:
+
+1. Current flow map. A read-only agent records the steps of each job in today's code, each dead end, and each place where the operator must know the origin first. The operator confirms the map in a short walkthrough.
+2. Object model. Decide the entities that the operator sees and their relations: album, track, artist, publisher and playlist. Decide what "artist" means. Library membership becomes a state or a filter on each list.
+3. Structure options. Two or three clickable HTML prototypes of the Music section, scored against the four jobs and the two constraints.
+4. A decision record for the chosen structure. It amends ADR 0060 and the decisions on frames, the content list and the Library control that the structure changes.
+5. Packets, each with its flow check walked right after it. A flow check counts the steps of each job before and after, and lists the dead ends.
+
 ### Phase 5: Settings
 
 ADR 0069 and its task 002 continue. The grouped Settings keep each report and log reachable.
