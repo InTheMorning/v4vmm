@@ -23,7 +23,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 2 | A deployed revision that a client can read | API field addition | Wanted |
 | 3 | Capabilities that match the contract for track includes | Contract correction | Small |
 | 4 | Field renames are breaking changes | Release policy | Wanted |
-| 5 | Search returns one entity one time | Search correction | Wanted |
+| 5 | Search returns one entity one time | Search correction | Built for release 0.8.0, not deployed |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -228,6 +228,23 @@ Release 0.4.0 adds fields for musicindex.org (ADR 0059 §5 and ADR 0068). One
 change of meaning can matter to v4vmm: a `rel` value with no comma is now a
 list separated by white space, as HTML `rel` is (ADR 0049 §6). A value with a
 comma reads as before. No stored value changed its role.
+
+## Stophammer Answers - 2026-10-08
+
+**Request 5, one search hit for each entity.** The report is correct. The
+Stophammer record `docs/reviews/v4vmm-request-5-search-duplicates-verification.md`
+holds the checks. Each duplicate comes from a search row that keeps the bare
+track GUID from before 2026-04-23. The backup of 2026-09-26 holds 23,963 such
+rows. Release 0.8.0 rebuilds the search index one time, when it opens a
+database with such a row. A search then gives each entity one time.
+
+The rank of a hit is the rank of the current text of the entity. It is not
+always the better rank of the two rows. For `arbiter`, the better rank came
+from the bare-GUID row.
+
+The key of `unique_hits` in v4vmm must hold `feed_guid`, because a track GUID
+is unique only in its feed. The v4vmm change to
+`src/application/queries/search.rs` adds it.
 
 ## Deferred, Not Requested Now
 

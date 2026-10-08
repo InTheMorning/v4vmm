@@ -342,11 +342,17 @@ impl ApplicationCommand for FetchIndexFeedDetail {
 /// The search hits in rank order, each entity one time. MusicIndex can
 /// return one entity twice with two ranks (seen on 2026-10-07 for "arbiter").
 /// A second row would open the same page as the first, so it is dropped.
+/// A track GUID is unique only in its feed, so the key holds the feed GUID.
 /// MusicIndex responses are untrusted input.
 fn unique_hits(hits: &[SearchResult]) -> impl Iterator<Item = &SearchResult> {
     let mut seen = std::collections::HashSet::new();
-    hits.iter()
-        .filter(move |hit| seen.insert((hit.entity_type.as_str(), hit.entity_id.as_str())))
+    hits.iter().filter(move |hit| {
+        seen.insert((
+            hit.entity_type.as_str(),
+            hit.feed_guid.as_deref(),
+            hit.entity_id.as_str(),
+        ))
+    })
 }
 
 /// Packet 047 Required Change 2: this search sends no per-hit detail
@@ -711,30 +717,42 @@ mod tests {
     use super::*;
 
     /// MusicIndex gave one track twice on 2026-10-07. The rows keep the
-    /// first hit of each entity, in rank order.
+    /// first hit of each entity, in rank order. Two tracks with one GUID in
+    /// two feeds are two entities.
     #[test]
     fn unique_hits_keep_the_first_hit_of_each_entity() {
-        let hit = |entity_type: &str, entity_id: &str, rank: f64| SearchResult {
-            entity_type: entity_type.into(),
-            entity_id: entity_id.into(),
-            rank: Some(rank),
-            ..SearchResult::default()
-        };
+        let hit =
+            |entity_type: &str, feed_guid: Option<&str>, entity_id: &str, rank: f64| SearchResult {
+                entity_type: entity_type.into(),
+                feed_guid: feed_guid.map(Into::into),
+                entity_id: entity_id.into(),
+                rank: Some(rank),
+                ..SearchResult::default()
+            };
         let hits = vec![
-            hit("track", "t1", -12.5),
-            hit("track", "t1", -11.1),
-            hit("track", "t2", -10.0),
-            hit("feed", "t1", -9.0),
+            hit("track", Some("f1"), "t1", -12.5),
+            hit("track", Some("f1"), "t1", -11.1),
+            hit("track", Some("f2"), "t1", -10.5),
+            hit("track", Some("f1"), "t2", -10.0),
+            hit("feed", None, "t1", -9.0),
         ];
         let kept: Vec<_> = unique_hits(&hits)
-            .map(|hit| (hit.entity_type.as_str(), hit.entity_id.as_str(), hit.rank))
+            .map(|hit| {
+                (
+                    hit.entity_type.as_str(),
+                    hit.feed_guid.as_deref(),
+                    hit.entity_id.as_str(),
+                    hit.rank,
+                )
+            })
             .collect();
         assert_eq!(
             kept,
             vec![
-                ("track", "t1", Some(-12.5)),
-                ("track", "t2", Some(-10.0)),
-                ("feed", "t1", Some(-9.0)),
+                ("track", Some("f1"), "t1", Some(-12.5)),
+                ("track", Some("f2"), "t1", Some(-10.5)),
+                ("track", Some("f1"), "t2", Some(-10.0)),
+                ("feed", None, "t1", Some(-9.0)),
             ]
         );
     }
