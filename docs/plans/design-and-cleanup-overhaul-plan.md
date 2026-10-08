@@ -77,7 +77,7 @@ Packets for each surface: the album grid with artwork first, the album page with
 The first Phase 4 packet builds the track page once, for a Library track and an Index track. The operator decided this on 2026-10-07.
 
 1. [ADR 0083 task 004](../tasks/archive/adr-0083-task-004-one-track-page.md): one track page, the action hierarchy, name links, credits and "Inspect sources". Done on 2026-10-07.
-2. [ADR 0083 task 005](../tasks/adr-0083-task-005-album-page-header-and-actions.md): one album page header and action row for the Library and the Index, the 200 pixel cover and the cover color backdrop. Mechanical checks are complete on 2026-10-07. Its visual check is open.
+2. [ADR 0083 task 005](../tasks/archive/adr-0083-task-005-album-page-header-and-actions.md): one album page header and action row for the Library and the Index, the 200 pixel cover and the cover color backdrop. Done on 2026-10-08.
 3. Later packets: the inspection view of RSS, MusicIndex and file tags, the payment split bar for the track page and the album page, and row hover actions.
 
 ### Phase 5: Settings

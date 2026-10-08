@@ -15,9 +15,8 @@ The [overhaul plan](docs/plans/design-and-cleanup-overhaul-plan.md) is the curre
 design and cleanup work in six phases. Phases 1 and 2 are complete. Phase 2 ended with
 [ADR 0083](docs/adr/0083-design-language.md), the design language.
 
-Phase 3, the tokens, is complete. Phase 4, the Library, is in progress. Its first packet, one track page for a
-Library track and an Index track, is complete. [ADR 0083 task 005](docs/tasks/adr-0083-task-005-album-page-header-and-actions.md),
-the album page header and actions, waits for its visual check. Phase 4 and 5 packets carry the
+Phase 3, the tokens, is complete. Phase 4, the Library, is in progress. Its first two packets, one track page
+and one album page for the Library and the Index, are complete. Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
 
 Each file in `docs/tasks/` is open: it is Ready, or it waits for an operator check. Finished tasks are in

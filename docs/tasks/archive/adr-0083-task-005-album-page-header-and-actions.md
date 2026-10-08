@@ -1,6 +1,6 @@
 # ADR 0083 Task 005: Album Page Header And Actions
 
-Status: Open - 2026-10-07. Implementation and mechanical checks are complete. The operator visual check is open.
+Status: Complete - 2026-10-08. Implementation and mechanical checks are complete on 2026-10-07. The operator passed the visual check on 2026-10-08.
 
 ## Goal
 
@@ -9,9 +9,9 @@ The header shows the cover at 200 pixels over a backdrop in the main color of th
 
 ## Authority
 
-- [ADR 0083](../adr/0083-design-language.md) Decisions 4, 5 and 10, with the 2026-10-07 amendment of Decision 5.
-- [ADR 0037](../adr/0037-same-entity-surface-parity.md): one page grammar for local and Index origins.
-- The album page rules in the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07), section "Phase 4: Album Page": §3, §15 and §30.
+- [ADR 0083](../../adr/0083-design-language.md) Decisions 4, 5 and 10, with the 2026-10-07 amendment of Decision 5.
+- [ADR 0037](../../adr/0037-same-entity-surface-parity.md): one page grammar for local and Index origins.
+- The album page rules in the [overhaul plan](../../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07), section "Phase 4: Album Page": §3, §15 and §30.
 
 ## Recorded Facts - 2026-10-07
 
