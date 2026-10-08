@@ -30,11 +30,12 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) -> String {
         match entry {
-            FrameNavigationEntry::AlbumDetail(feed_id) => self
-                .library
-                .read(cx)
-                .album_for_detail_by_feed_id(*feed_id)
-                .map_or_else(|| "Album".to_string(), |album| album.name),
+            // ADR 0084 Decision 9: the Library gives the names of its pages.
+            FrameNavigationEntry::AlbumDetail(_)
+            | FrameNavigationEntry::TrackDetail(_)
+            | FrameNavigationEntry::PlaylistDetail(_) => {
+                self.library.read(cx).navigation_label(entry)
+            }
             // ADR 0077 packet 004, R4-04: the breadcrumb text is the
             // publisher page view model title, when the page has loaded.
             FrameNavigationEntry::PublisherDetail(publisher_feed_guid) => self
@@ -44,6 +45,10 @@ impl TopApp {
         }
     }
 
+    /// Opens a breadcrumb segment (ADR 0084 Decision 9). The segment is a
+    /// page of the current location, so the push cuts the path at that page
+    /// and adds one history entry. The page restores through the same
+    /// function that Back and Forward use.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "breadcrumb entries are command payloads cloned by GPUI listener dispatch"
@@ -58,25 +63,10 @@ impl TopApp {
         };
         if self
             .workspace_layout
-            .pop_nav_until(content_list_id, &entry)
+            .push_nav(content_list_id, entry.clone())
             .is_ok()
         {
-            // Sync search_results_detail: if nav top is no longer Search, clear it
-            self.sync_search_results_detail_with_nav(content_list_id);
-
-            // Hydrate LibraryApp detail to match the new nav top
-            self.library.update(cx, |library, cx| {
-                library.hydrate_detail_from_nav(&entry, cx);
-            });
-            self.restore_publisher_page_for_nav(&entry, cx);
-            self.restore_name_match_page_for_nav(&entry, cx);
-            self.restore_index_feed_detail_for_nav(&entry, content_list_id, cx);
-            self.restore_index_track_detail_for_nav(&entry, cx);
-            if let FrameNavigationEntry::Search(query) = &entry {
-                self.start_index_search_for_query(query, cx);
-            }
-
-            cx.notify();
+            self.restore_content_list_nav_entry(content_list_id, &entry, cx);
         }
     }
 }

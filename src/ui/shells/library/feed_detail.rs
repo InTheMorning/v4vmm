@@ -42,6 +42,7 @@ use crate::view_models::library::{
     MbStatusKind, MbTrackStatus,
 };
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
+use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
 use crate::views::{FeedView, TrackView};
 
 #[expect(
@@ -402,7 +403,7 @@ fn render_library_track_row(
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let track_for_click = track.clone();
-    let track_for_select = track.clone();
+    let track_id_for_select = track.id;
     let track_id = track.id;
     let vm = LibraryTrackRowVm::new(track, mb_status.get(&track_id));
     let EntityActionVm {
@@ -494,8 +495,11 @@ fn render_library_track_row(
     let mut row = TrackRowComposite::from_vm(SharedString::from(row_id), &row_vm)
         .thumbnail(thumbnail)
         .on_click(cx.listener(move |this, _, _, cx| {
-            this.select_track(&track_for_select, cx);
-            cx.notify();
+            this.open_page(
+                FrameNavigationEntry::TrackDetail(track_id_for_select),
+                NavigationPathStart::CurrentPath,
+                cx,
+            );
         }));
 
     for action in actions {

@@ -18,7 +18,6 @@ use crate::ui::shells::library::playlist_detail::render_library_playlist_detail;
 use crate::ui::shells::library::track_detail::render_library_track_detail;
 use crate::ui::style::color;
 use crate::view_models::library::{LibraryChromeDisplay, LibraryViewModel, MbTrackStatus};
-use crate::view_models::workspace::BreadcrumbDisplay;
 
 #[expect(
     clippy::too_many_arguments,
@@ -27,7 +26,6 @@ use crate::view_models::workspace::BreadcrumbDisplay;
 )]
 pub(crate) fn render_library_detail(
     detail: &LibraryDetail,
-    track_breadcrumb: Option<BreadcrumbDisplay>,
     busy_track: Option<i64>,
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     library_vm: &LibraryViewModel,
@@ -69,14 +67,9 @@ pub(crate) fn render_library_detail(
             cx,
         ),
 
-        LibraryDetail::Track(frame) => render_library_track_detail(
-            frame,
-            track_breadcrumb,
-            playlists,
-            chrome,
-            track_publisher_feed_guid,
-            cx,
-        ),
+        LibraryDetail::Track(frame) => {
+            render_library_track_detail(frame, playlists, chrome, track_publisher_feed_guid, cx)
+        }
 
         LibraryDetail::Playlist(detail) => render_library_playlist_detail(
             detail,

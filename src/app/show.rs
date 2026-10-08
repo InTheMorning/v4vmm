@@ -1053,10 +1053,13 @@ impl TopApp {
 
         self.tab = AppTab::Music;
         if let Some(content_list_id) = self.content_list_frame_id() {
-            if let Err(error) = self
-                .workspace_layout
-                .reset_nav(content_list_id, FrameNavigationEntry::ReadinessIssues)
-            {
+            // ADR 0084 Decision 9: the readiness list starts a new path, as
+            // one history entry.
+            if let Err(error) = self.workspace_layout.start_nav_path(
+                content_list_id,
+                FrameNavigationEntry::ReadinessIssues,
+                None,
+            ) {
                 self.settings_status = format!("Error opening broadcast readiness: {error}");
             }
         }

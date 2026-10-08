@@ -21,6 +21,7 @@ use crate::view_models::library::{
     LibraryAlbumTreeDisplay, LibraryArtistTreeDisplay, LibraryTrackRowVm, LibraryTree,
     LibraryTreeTrackDisplay, LibraryViewModel,
 };
+use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
 
 #[expect(
     clippy::too_many_lines,
@@ -55,7 +56,11 @@ pub(crate) fn render_library_sidebar(
                 .hover(|el| el.bg(color::bg_surface_hi()))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.toggle_artist(&artist_name);
-                    this.select_artist(&artist_name, cx);
+                    this.open_page(
+                        FrameNavigationEntry::ArtistDetail(artist_name.clone()),
+                        NavigationPathStart::NewPath,
+                        cx,
+                    );
                     cx.notify();
                 }))
                 .child(
@@ -112,7 +117,17 @@ pub(crate) fn render_library_sidebar(
                         .hover(|el| el.bg(color::bg_surface_hi()))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.toggle_album(&artist_for_toggle, &album_for_toggle);
-                            this.select_album(&album_for_select, cx);
+                            // ADR 0084 Decision 9: an album with a feed id
+                            // opens through the one navigation stack. An
+                            // album without one has no navigation entry.
+                            match album_for_select.feed_id {
+                                Some(feed_id) => this.open_page(
+                                    FrameNavigationEntry::AlbumDetail(feed_id),
+                                    NavigationPathStart::NewPath,
+                                    cx,
+                                ),
+                                None => this.select_album(&album_for_select, cx),
+                            }
                             cx.notify();
                         }))
                         .child(
@@ -147,7 +162,7 @@ pub(crate) fn render_library_sidebar(
 
                 if album_expanded {
                     for track in &album.tracks {
-                        let track_clone_b = track.clone();
+                        let track_id = track.id;
                         let is_selected = selected_id == Some(track.id);
                         let LibraryTreeTrackDisplay { element_id, title } =
                             LibraryTrackRowVm::new(track, None).tree_display();
@@ -171,8 +186,11 @@ pub(crate) fn render_library_sidebar(
                             })
                             .hover(|el| el.bg(color::bg_surface_hi()))
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                this.select_track(&track_clone_b, cx);
-                                cx.notify();
+                                this.open_page(
+                                    FrameNavigationEntry::TrackDetail(track_id),
+                                    NavigationPathStart::NewPath,
+                                    cx,
+                                );
                             }))
                             .child(
                                 div()

@@ -860,8 +860,8 @@ fn replace_nav_preserves_full_history_for_visible_layout_projection() {
         .expect("projected detail nav should exist");
     assert_eq!(nav.current(), &FrameNavigationEntry::TrackDetail(9));
     assert_eq!(
-        nav.back_destination(),
-        Some(&FrameNavigationEntry::Search("jazz".to_string())),
+        back_page(nav),
+        Some(FrameNavigationEntry::Search("jazz".to_string())),
         "full navigation history should survive projection"
     );
 }
@@ -1354,30 +1354,6 @@ fn navigation_push_current_entry_is_noop() {
 }
 
 #[test]
-fn navigation_back_destination_peeks_without_mutating() {
-    let mut nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(7));
-
-    assert_eq!(
-        nav.back_destination(),
-        None,
-        "initial navigation should not have a back destination"
-    );
-
-    nav.push(FrameNavigationEntry::TrackDetail(42));
-
-    assert_eq!(
-        nav.back_destination(),
-        Some(&FrameNavigationEntry::PlaylistDetail(7)),
-        "back destination should expose the previous entry"
-    );
-    assert_eq!(
-        nav.current(),
-        &FrameNavigationEntry::TrackDetail(42),
-        "peeking should not change current navigation"
-    );
-}
-
-#[test]
 fn navigation_reset_clears_back_and_forward_history() {
     let mut nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(7));
     nav.push(FrameNavigationEntry::TrackDetail(42));
@@ -1393,27 +1369,6 @@ fn navigation_reset_clears_back_and_forward_history() {
     );
     assert!(!nav.can_go_back(), "reset should clear back history");
     assert!(!nav.can_go_forward(), "reset should clear forward history");
-}
-
-#[test]
-fn has_history_returns_false_for_fresh_state() {
-    let nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
-
-    assert!(
-        !nav.has_history(),
-        "fresh navigation state should have no history"
-    );
-}
-
-#[test]
-fn has_history_returns_true_after_push() {
-    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
-    nav.push(FrameNavigationEntry::PlaylistDetail(7));
-
-    assert!(
-        nav.has_history(),
-        "navigation state with a back-stack entry should have history"
-    );
 }
 
 #[test]
@@ -1467,8 +1422,8 @@ fn open_search_results_in_content_list_pushes_from_non_search_nav() {
         "back history should contain the playlist detail entry"
     );
     assert_eq!(
-        nav.back_destination(),
-        Some(&FrameNavigationEntry::PlaylistDetail(7)),
+        back_page(nav),
+        Some(FrameNavigationEntry::PlaylistDetail(7)),
         "back should go to the playlist detail"
     );
 }
@@ -1497,8 +1452,8 @@ fn open_search_results_in_content_list_replaces_current_search_nav() {
         "current should be the latest search"
     );
     assert_eq!(
-        nav.back_destination(),
-        Some(&FrameNavigationEntry::PlaylistDetail(7)),
+        back_page(nav),
+        Some(FrameNavigationEntry::PlaylistDetail(7)),
         "back should skip the overwritten search and return to prior content"
     );
 }
@@ -1533,61 +1488,212 @@ fn open_search_results_in_content_list_replaces_search_ancestor_nav() {
         "current should be the latest search"
     );
     assert_eq!(
-        nav.back_destination(),
-        Some(&FrameNavigationEntry::PlaylistDetail(7)),
-        "back should skip the previous search and selected detail"
+        nav.path_entries(),
+        vec![FrameNavigationEntry::Search("survival guide".to_string())],
+        "ADR 0084 Decision 9: a search from a detail page starts a new path"
+    );
+    assert_eq!(
+        back_page(nav),
+        Some(FrameNavigationEntry::ArtistDetail("HeyCitizen".to_string())),
+        "ADR 0084 Decision 9: Back returns to the selected detail of the earlier search"
     );
 }
 
+/// N1-01 (ADR 0084 Decision 9): the location path holds each page one time
+/// at most, also after a sequence that opens a page two times.
 #[test]
-fn pop_nav_until_pops_to_target() {
-    let mut layout = WorkspaceLayout::default_layout();
-    let detail_id = WorkspaceFrameId::new(3);
+fn adr_0084_nav_location_path_holds_each_page_once() {
+    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    nav.start_path(
+        FrameNavigationEntry::SourceList,
+        Some(FrameNavigationEntry::PlaylistDetail(0)),
+    );
+    nav.push(FrameNavigationEntry::TrackDetail(7));
+    nav.push(FrameNavigationEntry::AlbumDetail(3));
+    nav.push(FrameNavigationEntry::TrackDetail(7));
 
-    layout
-        .reset_nav(detail_id, FrameNavigationEntry::PlaylistDetail(1))
-        .expect("should reset Detail nav");
-    layout
-        .push_nav(detail_id, FrameNavigationEntry::TrackDetail(42))
-        .expect("should push track detail");
-    layout
-        .push_nav(detail_id, FrameNavigationEntry::AlbumDetail(5))
-        .expect("should push album detail");
-
-    layout
-        .pop_nav_until(detail_id, &FrameNavigationEntry::PlaylistDetail(1))
-        .expect("should pop until playlist detail");
-
-    let nav = layout
-        .frame_nav(detail_id)
-        .expect("Detail should have navigation state");
     assert_eq!(
-        nav.current(),
-        &FrameNavigationEntry::PlaylistDetail(1),
-        "should be back at the playlist detail after pop_nav_until"
+        nav.path_entries(),
+        vec![
+            FrameNavigationEntry::SourceList,
+            FrameNavigationEntry::PlaylistDetail(0),
+            FrameNavigationEntry::TrackDetail(7),
+        ],
+        "the second open of the track must cut the path at the track"
     );
 }
 
+/// N1-02 (ADR 0084 Decision 9): a push of a page that the path holds cuts
+/// the path at that page, and Back returns to the longer path.
 #[test]
-fn pop_nav_until_noop_when_already_at_target() {
-    let mut layout = WorkspaceLayout::default_layout();
-    let detail_id = WorkspaceFrameId::new(3);
+fn adr_0084_nav_push_of_path_page_cuts_path_and_back_restores() {
+    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    nav.push(FrameNavigationEntry::PlaylistDetail(0));
+    nav.push(FrameNavigationEntry::TrackDetail(7));
+    let longer_path = nav.path_entries();
 
-    layout
-        .reset_nav(detail_id, FrameNavigationEntry::TrackDetail(42))
-        .expect("should reset Detail nav");
+    nav.push(FrameNavigationEntry::SourceList);
 
-    layout
-        .pop_nav_until(detail_id, &FrameNavigationEntry::TrackDetail(42))
-        .expect("should not error when already at target");
-
-    let nav = layout
-        .frame_nav(detail_id)
-        .expect("Detail should have navigation state");
     assert_eq!(
-        nav.current(),
-        &FrameNavigationEntry::TrackDetail(42),
-        "should remain at the target entry"
+        nav.path_entries(),
+        vec![FrameNavigationEntry::SourceList],
+        "a breadcrumb segment must cut the path at that segment"
     );
-    assert!(!nav.can_go_back(), "back history should remain empty");
+    assert_eq!(
+        nav.go_back().cloned(),
+        Ok(FrameNavigationEntry::TrackDetail(7)),
+        "Back must return to the page before the cut"
+    );
+    assert_eq!(
+        nav.path_entries(),
+        longer_path,
+        "Back must restore the longer path"
+    );
+}
+
+/// N1-03 (ADR 0084 Decision 9): a new path holds the destination and the
+/// page only, and Back returns to the earlier location.
+#[test]
+fn adr_0084_nav_start_path_holds_destination_and_page() {
+    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    nav.push(FrameNavigationEntry::PlaylistDetail(0));
+    nav.push(FrameNavigationEntry::TrackDetail(7));
+    let earlier_path = nav.path_entries();
+
+    nav.start_path(
+        FrameNavigationEntry::SourceList,
+        Some(FrameNavigationEntry::ArtistDetail("Haleen".to_string())),
+    );
+
+    assert_eq!(
+        nav.path_entries(),
+        vec![
+            FrameNavigationEntry::SourceList,
+            FrameNavigationEntry::ArtistDetail("Haleen".to_string()),
+        ],
+        "a sidebar click must start a new path"
+    );
+    assert!(nav.can_go_back(), "a sidebar click must add history");
+    nav.go_back().expect("Back must be available");
+    assert_eq!(
+        nav.path_entries(),
+        earlier_path,
+        "Back must restore the earlier location"
+    );
+}
+
+/// N1-04 (ADR 0084 Decision 9): a push after a Back clears the forward
+/// history.
+#[test]
+fn adr_0084_nav_push_after_back_clears_forward_history() {
+    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    nav.start_path(
+        FrameNavigationEntry::SourceList,
+        Some(FrameNavigationEntry::PlaylistDetail(0)),
+    );
+    nav.go_back().expect("Back must be available");
+    assert!(nav.can_go_forward(), "Back must create forward history");
+
+    nav.push(FrameNavigationEntry::AlbumDetail(3));
+
+    assert!(
+        !nav.can_go_forward(),
+        "a push after Back must clear forward history"
+    );
+}
+
+/// N1-05 (ADR 0084 Decision 9): a new query on the search page replaces
+/// the query in place. A search from another page adds one history entry.
+#[test]
+fn adr_0084_nav_search_replaces_in_place_or_adds_one_entry() {
+    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    nav.push(FrameNavigationEntry::PlaylistDetail(0));
+
+    nav.replace_active_search_or_push(FrameNavigationEntry::Search("drums".to_string()));
+    nav.replace_active_search_or_push(FrameNavigationEntry::Search("bass".to_string()));
+
+    assert_eq!(
+        nav.path_entries(),
+        vec![FrameNavigationEntry::Search("bass".to_string())],
+        "a search must start its own path, and a new query must replace it"
+    );
+    assert_eq!(
+        nav.go_back().cloned(),
+        Ok(FrameNavigationEntry::PlaylistDetail(0)),
+        "the two queries must add one history entry"
+    );
+}
+
+/// N1-06 (ADR 0084 Decision 9): the Music content frame always shows Back
+/// and Forward, each with its typed availability. Other frames show each
+/// control only when it is available.
+#[test]
+fn adr_0084_nav_music_chrome_always_shows_history_controls() {
+    let frame = frame(2, WorkspaceFrameKind::ContentList);
+    let nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+
+    let other = FrameShellDisplay::from_frame(&frame, &nav, false);
+    assert!(
+        !other.back_shown(),
+        "an unavailable Back stays hidden by default"
+    );
+    assert!(
+        !other.forward_shown(),
+        "an unavailable Forward stays hidden by default"
+    );
+
+    let music =
+        FrameShellDisplay::from_frame(&frame, &nav, false).with_history_controls_always_shown();
+    assert!(music.back_shown(), "Music must always show Back");
+    assert!(music.forward_shown(), "Music must always show Forward");
+    assert!(
+        music.back.disabled,
+        "Back must stay unavailable with no history"
+    );
+    assert!(
+        music.forward.disabled,
+        "Forward must stay unavailable with no forward history"
+    );
+    assert!(
+        music.header_visible(),
+        "the header must show for the history controls"
+    );
+}
+
+/// N1-07 (ADR 0084 Decision 9): the breadcrumb projects the location path,
+/// not the history.
+#[test]
+fn adr_0084_nav_breadcrumb_projects_location_not_history() {
+    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    nav.start_path(
+        FrameNavigationEntry::SourceList,
+        Some(FrameNavigationEntry::PlaylistDetail(0)),
+    );
+    nav.push(FrameNavigationEntry::TrackDetail(7));
+    nav.push(FrameNavigationEntry::PlaylistDetail(0));
+    nav.push(FrameNavigationEntry::TrackDetail(7));
+
+    let display = BreadcrumbDisplay::project("crumbs", &nav, FrameNavigationEntry::display_label);
+    let ids: Vec<_> = display
+        .segments
+        .iter()
+        .map(|segment| segment.id.as_str())
+        .collect();
+
+    assert_eq!(
+        ids,
+        vec!["source-list", "playlist-0", "track-7"],
+        "the breadcrumb must not repeat the playlist or the track"
+    );
+    assert!(
+        nav.has_location_path(),
+        "a path with a page has a location path"
+    );
+}
+
+/// Returns the page that a Back press would show, without a change to
+/// `nav`.
+fn back_page(nav: &FrameNavigationState) -> Option<FrameNavigationEntry> {
+    let mut copy = nav.clone();
+    copy.go_back().ok().cloned()
 }

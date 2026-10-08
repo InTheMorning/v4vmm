@@ -3584,25 +3584,6 @@ fn adr_0047_task_012_frame_navigation_is_workspace_vm_owned() {
         }
     }
 
-    for required in [
-        "workspace_layout: WorkspaceLayout",
-        "fn default_workspace_layout() -> WorkspaceLayout",
-        ".reset_nav(Self::content_frame_id(), FrameNavigationEntry::SourceList)",
-        ".push_nav(Self::content_frame_id(), entry)",
-        "self.workspace_layout.frame_nav(Self::content_frame_id())",
-    ] {
-        let source = if required == "workspace_layout: WorkspaceLayout" {
-            &library_struct_source
-        } else {
-            &library_app_source
-        };
-        if !source.contains(required) {
-            violations.push(format!(
-                "LibraryApp ADR 0047 Task 012 workspace navigation bridge missing `{required}`"
-            ));
-        }
-    }
-
     for forbidden in [
         "frame_navigation: BTreeMap<WorkspaceFrameId, FrameNavigationState>",
         "fn default_frame_navigation(",
@@ -3829,7 +3810,6 @@ fn adr_0047_task_015_search_submit_and_saved_search_commands() {
         "FrameNavigationEntry::Search(query)",
         "nav.replace_active_search_or_push(FrameNavigationEntry::Search(query));",
         "pub(crate) fn replace_active_search_or_push(",
-        ".rposition(|candidate| matches!(candidate, FrameNavigationEntry::Search(_)))",
         "self.focus_frame(content_list_frame_id)?;",
         "pub(crate) fn display_label(&self) -> String",
         "format!(\"Search: {query}\")",
@@ -3889,7 +3869,7 @@ fn adr_0047_task_015_search_submit_and_saved_search_commands() {
         "FrameNavigationEntry::display_label",
         "fn should_render_breadcrumb(",
         "matches!(kind, WorkspaceFrameKind::ContentList)",
-        "nav.has_history()",
+        "nav.has_location_path()",
         "FrameNavigationEntry::Search(_)",
         ".on_back(move |window, cx|",
     ] {
@@ -4323,15 +4303,12 @@ fn workspace_frame_phase_2_guards_frame_navigation_is_wired_in_library_app_impl(
     let source = read_source(&manifest_path("src/library/app_impl.rs"));
 
     for required in [
-        "WorkspaceLayout",
-        "FrameNavigationState",
+        // ADR 0084 Decision 9: the Library sends each page change to the
+        // one navigation stack, and restores a page from its entry.
         "FrameNavigationEntry",
-        "fn default_workspace_layout() -> WorkspaceLayout",
-        ".reset_nav(Self::content_frame_id(), FrameNavigationEntry::SourceList)",
-        "fn push_frame_navigation(",
-        ".push_nav(Self::content_frame_id(), entry)",
+        "super::LibraryAppEvent::OpenPage { entry, start }",
+        "pub(crate) fn hydrate_detail_from_nav(",
         "FrameNavigationEntry::PlaylistDetail(playlist_id)",
-        "FrameNavigationEntry::TrackDetail(track.id)",
     ] {
         assert!(
             source.contains(required),
@@ -5534,11 +5511,10 @@ fn adr_0042_composite_call_site_reconciliation_is_current() {
     // files; `adr_0060_discover_surface_stays_deleted` checks that those
     // files stay gone.
 
+    // ADR 0084 Decision 9: the frame shell is the one breadcrumb caller.
     assert!(
-        frame_shell.contains("BreadcrumbTrail::new(breadcrumb)")
-            && read_source(&manifest_path("src/ui/shells/library/track_detail.rs"))
-                .contains("BreadcrumbTrail::new(breadcrumb)"),
-        "BreadcrumbTrail must keep both frame-shell and Library track-detail callers"
+        frame_shell.contains("BreadcrumbTrail::new(breadcrumb)"),
+        "BreadcrumbTrail must keep its frame-shell caller"
     );
     assert!(
         library_metadata.contains("MusicBrainzPanel::new(vm)"),
@@ -8891,12 +8867,6 @@ fn playlist_refresh_and_frame_navigation_preserve_context() {
         "enum LibraryReloadMode",
         "ResetDetail",
         "PreserveDetail",
-        "enum FrameHistoryMode",
-        "Record",
-        "Restore",
-        "workspace_layout: Self::default_workspace_layout(),",
-        "fn default_workspace_layout() -> WorkspaceLayout",
-        ".reset_nav(Self::content_frame_id(), FrameNavigationEntry::SourceList)",
         "pub fn refresh(&mut self, cx: &mut Context<Self>) {\n        self.start_async_reload_preserving_detail(cx);",
         "pub(crate) fn start_async_reload(&mut self, cx: &mut Context<Self>) {\n        self.start_async_reload_with_mode(LibraryReloadMode::ResetDetail, cx);",
         "if mode == LibraryReloadMode::ResetDetail",
@@ -8907,10 +8877,7 @@ fn playlist_refresh_and_frame_navigation_preserve_context() {
         "self.playlist_actor = None;\n        // Open a dedicated connection for the actor",
         "self.spawn_playlist_actor(id, &tracks, cx);",
         "actor.prime_initial_rows(initial_rows.iter().cloned());",
-        "pub(crate) fn select_playlist_track(",
         "FrameNavigationEntry::PlaylistDetail(playlist_id)",
-        "FrameNavigationEntry::TrackDetail(track.id)",
-        "self.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);",
         "fn apply_library_removal_result_to_selected_detail(",
         "this.apply_library_removal_result_to_selected_detail(result.target());",
         "frame.local_subscription = false;",
@@ -8966,10 +8933,12 @@ fn playlist_refresh_and_frame_navigation_preserve_context() {
 
     let playlist_detail_source =
         read_source(&manifest_path("src/ui/shells/library/playlist_detail.rs"));
+    // ADR 0084 Decision 9: a playlist row opens the track page in the
+    // current path of the one navigation stack.
     assert!(
-        playlist_detail_source
-            .contains("this.select_playlist_track(playlist_id, &track_for_select, cx);"),
-        "Playlist row selection must open track detail with playlist origin"
+        playlist_detail_source.contains("FrameNavigationEntry::TrackDetail(track_id_for_select)")
+            && playlist_detail_source.contains("NavigationPathStart::CurrentPath"),
+        "Playlist row selection must open the track page in the current navigation path"
     );
 
     let track_detail_source = read_source(&manifest_path(
@@ -9134,8 +9103,6 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
     let library_source = read_source(&manifest_path("src/library/app_impl.rs"));
     let library_query_source = read_source(&manifest_path("src/application/queries/library.rs"));
     for required in [
-        "fn track_breadcrumb_display(&self) -> Option<BreadcrumbDisplay>",
-        "pub(crate) fn select_frame_breadcrumb(",
         "TrackSubscriptionAction::Download(track)",
         "SubscribeTrackRequest::LibraryTrack",
         "frame.track.local_path = result.relative_path().cloned();",
@@ -9166,8 +9133,8 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
 
     let track_detail_source = read_source(&manifest_path("src/ui/shells/library/track_detail.rs"));
     assert!(
-        track_detail_source.contains("BreadcrumbTrail::new(breadcrumb)"),
-        "Track detail must expose frame-history breadcrumbs"
+        !track_detail_source.contains("BreadcrumbTrail"),
+        "ADR 0084 Decision 9: the track page keeps no breadcrumb of its own. The frame chrome shows the location breadcrumb"
     );
     let track_detail_metadata_source = read_source(&manifest_path(
         "src/ui/shells/library/track_detail_metadata.rs",
@@ -10793,11 +10760,21 @@ fn adr_0048_index_search_is_async_and_vm_owned() {
 fn breadcrumb_pop_syncs_library_detail() {
     let breadcrumb_source = read_source(&manifest_path("src/app/breadcrumb.rs"));
 
-    // Guard: handle_content_list_breadcrumb_select must call hydrate_detail_from_nav
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let restore = source_between(
+        &app_source,
+        "fn restore_content_list_nav_entry(",
+        "pub(super) fn focus_global_search(",
+    );
+
+    // Guard: a breadcrumb selection restores the page through the function
+    // that Back and Forward use (ADR 0084 Decision 9), and that function
+    // syncs the LibraryApp detail.
     assert!(
         breadcrumb_source.contains("fn handle_content_list_breadcrumb_select(")
-            && breadcrumb_source.contains("hydrate_detail_from_nav"),
-        "handle_content_list_breadcrumb_select must call hydrate_detail_from_nav to sync LibraryApp detail"
+            && breadcrumb_source.contains("self.restore_content_list_nav_entry(")
+            && restore.contains("hydrate_detail_from_nav"),
+        "handle_content_list_breadcrumb_select must restore through restore_content_list_nav_entry, which calls hydrate_detail_from_nav"
     );
 }
 
@@ -10812,11 +10789,17 @@ fn search_results_detail_syncs_with_search_nav_flow() {
         "src/app/search_dispatch.rs must define sync_search_results_detail_with_nav helper"
     );
 
-    // Guard: it must be called from handle_content_list_breadcrumb_select
+    // Guard: the breadcrumb restore path calls it (ADR 0084 Decision 9).
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let restore = source_between(
+        &app_source,
+        "fn restore_content_list_nav_entry(",
+        "pub(super) fn focus_global_search(",
+    );
     assert!(
-        breadcrumb_source.contains("fn handle_content_list_breadcrumb_select(")
-            && breadcrumb_source.contains("self.sync_search_results_detail_with_nav("),
-        "sync_search_results_detail_with_nav must be called from handle_content_list_breadcrumb_select"
+        breadcrumb_source.contains("self.restore_content_list_nav_entry(")
+            && restore.contains("self.sync_search_results_detail_with_nav("),
+        "sync_search_results_detail_with_nav must be called from the breadcrumb restore path"
     );
 
     // Guard: it must be called from handle_search_result_selected
@@ -13326,7 +13309,7 @@ fn adr_0061_root_content_frame_header_omits_redundant_section_title() {
     for required in [
         "pub(crate) fn header_visible(&self) -> bool",
         "!self.title.is_empty()",
-        "|| !self.back.disabled",
+        "|| self.back_shown()",
     ] {
         if !workspace_vm_source.contains(required) {
             violations.push(format!(
@@ -17666,7 +17649,7 @@ fn adr_0075_observation_writer_and_library_retention_have_one_owner() {
     let callback = source_between(
         &app,
         "fn load_track_source_context(",
-        "fn track_breadcrumb_display(",
+        "pub(crate) fn mounted_track_publisher_feed_guid(",
     );
     assert!(callback.contains("retain_observation_failure(&error)"));
     let vm = read_source(&manifest_path("src/view_models/library.rs"));
@@ -20149,6 +20132,39 @@ fn adr_0083_cover_backdrop_uses_its_tokens() {
     assert!(
         violations.is_empty(),
         "ADR 0083 cover backdrop token violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0084 Decision 9: the Music content area has one
+/// navigation stack, and the frame chrome owns its one breadcrumb. No Library
+/// screen module keeps a second stack or a breadcrumb of its own.
+#[test]
+fn adr_0084_nav_library_screens_keep_no_navigation_stack() {
+    let mut files = vec![manifest_path("src/library.rs")];
+    files.extend(rust_files_under("src/library"));
+    files.extend(rust_files_under("src/ui/shells/library"));
+    let mut violations = Vec::new();
+    for file in &files {
+        let full_source = read_source(file);
+        let source = production_source(&full_source);
+        for forbidden in [
+            "WorkspaceLayout",
+            "FrameNavigationState",
+            "BreadcrumbDisplay",
+            "BreadcrumbTrail",
+            "push_nav(",
+            "reset_nav(",
+        ] {
+            if source.contains(forbidden) {
+                violations.push(format!("{}: `{forbidden}`", file.display()));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 Decision 9 §One Navigation Stack: a Library screen must not keep navigation state or a breadcrumb.\n\
+         Send `LibraryAppEvent::OpenPage` and restore the page in `hydrate_detail_from_nav`. The top app owns the stack.\n{}",
         violations.join("\n")
     );
 }

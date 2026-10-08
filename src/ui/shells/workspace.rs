@@ -57,6 +57,7 @@ pub(crate) struct WorkspaceSlots {
     content_list_breadcrumb_labeler: Option<WorkspaceBreadcrumbLabeler>,
     on_content_list_back_select: Option<WorkspaceBackSelectHandler>,
     on_content_list_forward_select: Option<WorkspaceForwardSelectHandler>,
+    content_list_history_controls_always_shown: bool,
     content_pane_width: Option<Pixels>,
     on_content_pane_resize_start: Option<WorkspaceContentPaneResizeStartHandler>,
     on_content_pane_resize_move: Option<WorkspaceContentPaneResizeMoveHandler>,
@@ -117,6 +118,13 @@ impl WorkspaceSlots {
         handler: impl Fn(ContentViewMode, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_content_list_view_mode_select = Some(Rc::new(handler));
+        self
+    }
+
+    /// Shows Back and Forward on the content-list frame at all times (ADR
+    /// 0084 Decision 9). The Music mount sets it.
+    pub(crate) const fn content_list_history_controls_always_shown(mut self) -> Self {
+        self.content_list_history_controls_always_shown = true;
         self
     }
 
@@ -386,6 +394,11 @@ impl RenderOnce for WorkspaceShell {
                 .frame_nav(frame.id())
                 .unwrap_or(&fallback_navigation);
             let mut display = FrameShellDisplay::from_frame(frame, navigation, false);
+            if matches!(frame_kind, WorkspaceFrameKind::ContentList)
+                && self.slots.content_list_history_controls_always_shown
+            {
+                display = display.with_history_controls_always_shown();
+            }
             if let Some(filter_chip_strip) = filter_chip_strip {
                 display = display.with_filter_chip_strip(filter_chip_strip);
             }
@@ -549,9 +562,11 @@ impl RenderOnce for WorkspaceShell {
 fn should_render_breadcrumb(kind: WorkspaceFrameKind, nav: &FrameNavigationState) -> bool {
     let is_detail_search = matches!(kind, WorkspaceFrameKind::Detail)
         && matches!(nav.current(), FrameNavigationEntry::Search(_));
-    let is_content_list_with_history =
-        matches!(kind, WorkspaceFrameKind::ContentList) && nav.has_history();
-    is_detail_search || is_content_list_with_history
+    // ADR 0084 Decision 9: the breadcrumb shows the location path, not the
+    // history.
+    let is_content_list_with_path =
+        matches!(kind, WorkspaceFrameKind::ContentList) && nav.has_location_path();
+    is_detail_search || is_content_list_with_path
 }
 
 fn should_collapse_frame(kind: WorkspaceFrameKind, workspace_width: Pixels) -> bool {

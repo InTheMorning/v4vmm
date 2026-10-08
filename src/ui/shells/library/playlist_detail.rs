@@ -29,6 +29,7 @@ use crate::ui::shells::playlist::{
     PlaylistDetailBehaviorSlots, PlaylistShellReadyRow, PlaylistShellRow, PlaylistTrackRowSlot,
 };
 use crate::view_models::library::{LibraryChromeDisplay, PlaylistDetailVm};
+use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
 
 #[expect(
     clippy::too_many_arguments,
@@ -124,7 +125,7 @@ fn render_eager_playlist_detail(
         .track_rows()
         .into_iter()
         .map(|row| {
-            let track_for_select = row.track().clone();
+            let track_id_for_select = row.track().id;
             let position = row.position();
             let thumbnail = row
                 .thumb_url()
@@ -154,8 +155,11 @@ fn render_eager_playlist_detail(
             let slot = PlaylistTrackRowSlot {
                 thumbnail: Some(render_album_thumb(thumbnail, 24.0, cx)),
                 on_select: Some(click_slot(cx.listener(move |this, _, _, cx| {
-                    this.select_playlist_track(playlist_id, &track_for_select, cx);
-                    cx.notify();
+                    this.open_page(
+                        FrameNavigationEntry::TrackDetail(track_id_for_select),
+                        NavigationPathStart::CurrentPath,
+                        cx,
+                    );
                 }))),
                 on_play,
                 on_move_up: Some(command_slot(cx.listener(move |this, (), _, cx| {
@@ -343,7 +347,7 @@ fn render_ready_paged_playlist_row(
     playback_availability: Result<(), crate::application::capability::ExecutionUnavailable>,
     cx: &mut Context<LibraryApp>,
 ) -> PlaylistShellRow {
-    let track_for_select = (*track).clone();
+    let track_id_for_select = track.id;
     let position_i64 = i64::try_from(position).unwrap_or(i64::MAX);
     let prev_position_i64 = position_i64 - 1;
     let next_position_i64 = position_i64 + 1;
@@ -373,8 +377,11 @@ fn render_ready_paged_playlist_row(
     let slot = PlaylistTrackRowSlot {
         thumbnail: Some(render_album_thumb(thumbnail, 24.0, cx)),
         on_select: Some(click_slot(cx.listener(move |this, _, _, cx| {
-            this.select_playlist_track(playlist_id, &track_for_select, cx);
-            cx.notify();
+            this.open_page(
+                FrameNavigationEntry::TrackDetail(track_id_for_select),
+                NavigationPathStart::CurrentPath,
+                cx,
+            );
         }))),
         on_play,
         on_move_up: Some(command_slot(cx.listener(move |this, (), _, cx| {

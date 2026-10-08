@@ -17,7 +17,10 @@ design and cleanup work in six phases. Phases 1 and 2 are complete. Phase 2 ende
 
 Phase 3, the tokens, is complete. Phase 4, the Library, is in progress. Its first two packets, one track page
 and one album page for the Library and the Index, are complete. Phase 4A, flow and information architecture, decided the
-Music structure in [ADR 0084](docs/adr/0084-music-column-browser.md). Its packets come next. Phase 4 and 5 packets carry the
+Music structure in [ADR 0084](docs/adr/0084-music-column-browser.md).
+
+Phase 4A packet 1, [one navigation stack](docs/tasks/archive/adr-0084-task-001-one-navigation-stack.md), is complete.
+Packet 2, one page for each item, comes next. Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
 
 Each file in `docs/tasks/` is open: it is Ready, or it waits for an operator check. Finished tasks are in

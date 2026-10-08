@@ -126,6 +126,7 @@ Steps:
 5. Packets, each with its flow check walked right after it. A flow check counts the steps of each job before and after, and lists the dead ends.
    Proposed order on 2026-10-08. Each packet is one session, and the next packet starts only after the flow check of the one before it:
    1. One navigation stack and the location breadcrumb (ADR 0084 Decision 9). It fixes flow map findings 1 and 7.
+      Complete on 2026-10-08 as [ADR 0084 task 001](../tasks/archive/adr-0084-task-001-one-navigation-stack.md). The operator passed its visual check on 2026-10-08.
    2. One page for each item (Decision 4). Library and Index rows open the same release and track pages. It fixes finding 2.
    3. The three-column shell: the destinations, the collapsible sidebar, Discover with "New releases", Needs attention and Playlists (Decisions 1 to 3). It deletes the sidebar tree and fixes finding 5.
    4. Releases: the kind of each release, the two scopes and the singles groups with their group page (Decisions 5, 6 and 8).

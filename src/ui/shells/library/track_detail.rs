@@ -15,7 +15,6 @@ use crate::db;
 use crate::feed_service::track_row_to_track_context;
 use crate::library::{InspectorFrame, LazyPanel, LibraryApp};
 use crate::metadata::{TagCompareResult, TrackContext};
-use crate::ui::composites::BreadcrumbTrail;
 use crate::ui::composites::{DisclosureTextPanel, DisclosureTextPanelDisplay, TrackSurfaceElement};
 use crate::ui::shells::library::track_detail_metadata::{
     pending_id3_edits_for_track_detail, render_library_track_detail_actions,
@@ -27,12 +26,10 @@ use crate::view_models::library::{DescriptionState, LibraryChromeDisplay, Librar
 use crate::view_models::track_detail::{
     LibraryTrackActionState, TrackDetailSurfaceContext, TrackDetailVm,
 };
-use crate::view_models::workspace::BreadcrumbDisplay;
 use crate::views::TrackView;
 
 pub(crate) fn render_library_track_detail(
     frame: &InspectorFrame,
-    breadcrumb: Option<BreadcrumbDisplay>,
     playlists: &[db::Playlist],
     chrome: &LibraryChromeDisplay,
     publisher_feed_guid: Option<&str>,
@@ -53,7 +50,6 @@ pub(crate) fn render_library_track_detail(
         .p(spacing::LG)
         .child(render_library_track_window(
             frame,
-            breadcrumb,
             context,
             result,
             playlists,
@@ -65,7 +61,6 @@ pub(crate) fn render_library_track_detail(
 
 fn render_library_track_window(
     frame: &InspectorFrame,
-    breadcrumb: Option<BreadcrumbDisplay>,
     track_context: &TrackContext,
     result: Option<&TagCompareResult>,
     playlists: &[db::Playlist],
@@ -97,7 +92,6 @@ fn render_library_track_window(
         frame.image.clone(),
         inspector_display.description_state,
         action_row,
-        breadcrumb,
         publisher_feed_guid,
         cx,
     );
@@ -124,7 +118,6 @@ pub(crate) fn render_library_track_detail_core(
     hero_image: Option<Arc<Image>>,
     description_state: DescriptionState,
     primary_action_row: AnyElement,
-    breadcrumb: Option<BreadcrumbDisplay>,
     publisher_feed_guid: Option<&str>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
@@ -173,23 +166,5 @@ pub(crate) fn render_library_track_detail_core(
         ));
     }
 
-    let surface = track::build_track_detail_surface(&detail_page, slots).into_any_element();
-    if let Some(breadcrumb) = breadcrumb {
-        let entity = cx.entity();
-        return div()
-            .flex()
-            .flex_col()
-            .gap(spacing::MD)
-            .child(
-                BreadcrumbTrail::new(breadcrumb).on_select(move |entry, _window, cx| {
-                    entity.update(cx, |this, cx| {
-                        this.select_frame_breadcrumb(entry, cx);
-                    });
-                }),
-            )
-            .child(surface)
-            .into_any_element();
-    }
-
-    surface
+    track::build_track_detail_surface(&detail_page, slots).into_any_element()
 }

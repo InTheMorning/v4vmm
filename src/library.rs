@@ -31,7 +31,7 @@ use crate::view_models::library::{
     LibraryTrackInspectorState, LibraryViewModel,
 };
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
-use crate::view_models::workspace::WorkspaceLayout;
+use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
 use crate::views::ArtistView;
 
 // ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ pub(crate) struct PlaylistDetail {
 }
 
 #[derive(Clone, Debug)]
-pub enum LibraryAppEvent {
+pub(crate) enum LibraryAppEvent {
     PlayPlaylistAt {
         track_id: i64,
         playlist_id: i64,
@@ -90,6 +90,13 @@ pub enum LibraryAppEvent {
     /// of an album page (ADR 0083 task 005).
     OpenArtistPage {
         name: String,
+    },
+    /// Opens a Library page in the one Music navigation stack (ADR 0084
+    /// Decision 9). The Library keeps no navigation state: the top app
+    /// changes the stack, then restores the page.
+    OpenPage {
+        entry: FrameNavigationEntry,
+        start: NavigationPathStart,
     },
 }
 
@@ -181,7 +188,6 @@ pub struct LibraryApp {
     /// service handles, screen-only inspector state, or maps that
     /// still hold `Arc<gpui::Image>`. See ADR 0023.
     vm: LibraryViewModel,
-    workspace_layout: WorkspaceLayout,
     detail: LibraryDetail,
     thumbnails: BTreeMap<(String, bool), ThumbnailState>,
     cover_colors: BTreeMap<String, CoverColorState>,

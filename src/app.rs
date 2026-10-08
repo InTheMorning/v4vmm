@@ -41,8 +41,8 @@ use crate::view_models::settings::{SettingsAction, SettingsVm};
 use crate::view_models::show::{EventSectionInput, ShowCommandState, ShowPageVm};
 use crate::view_models::workspace::{
     ContentFilter, ContentViewMode, FilterChipStripWidthClass, FrameNavigationEntry,
-    FrameNavigationState, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState,
-    WorkspaceLayout, WorkspaceLayoutConfig,
+    FrameNavigationState, NavigationPathStart, WorkspaceFrameId, WorkspaceFrameKind,
+    WorkspaceFrameState, WorkspaceLayout, WorkspaceLayoutConfig,
 };
 
 mod capabilities;
@@ -333,6 +333,9 @@ impl TopApp {
                 }
                 LibraryAppEvent::OpenArtistPage { name } => {
                     this.open_library_artist_page(name, cx);
+                }
+                LibraryAppEvent::OpenPage { entry, start } => {
+                    this.open_music_page(entry, *start, cx);
                 }
             },
         );
@@ -675,6 +678,36 @@ impl TopApp {
         if let Some(entry) = self.workspace_layout.pop_nav_forward(content_list_id) {
             self.restore_content_list_nav_entry(content_list_id, &entry, cx);
         }
+    }
+
+    /// Opens a Music page in the one navigation stack (ADR 0084 Decision 9).
+    /// A new path starts at the Library root. The page restores through the
+    /// function that Back and Forward use.
+    fn open_music_page(
+        &mut self,
+        entry: &FrameNavigationEntry,
+        start: NavigationPathStart,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(content_list_id) = self.content_list_frame_id() else {
+            return;
+        };
+        let changed = match start {
+            NavigationPathStart::NewPath => self.workspace_layout.start_nav_path(
+                content_list_id,
+                FrameNavigationEntry::SourceList,
+                Some(entry.clone()),
+            ),
+            NavigationPathStart::CurrentPath => self
+                .workspace_layout
+                .push_nav(content_list_id, entry.clone()),
+        };
+        if let Err(error) = changed {
+            self.settings_status = format!("Error opening page: {error}");
+            cx.notify();
+            return;
+        }
+        self.restore_content_list_nav_entry(content_list_id, entry, cx);
     }
 
     /// Restores the page for a navigation entry that Back or Forward just
@@ -1332,6 +1365,9 @@ impl TopApp {
                 this.handle_content_list_forward_select(cx);
             });
         });
+        if matches!(mount, WorkspaceScreenMount::Music) {
+            workspace_slots = workspace_slots.content_list_history_controls_always_shown();
+        }
 
         // Stage 6: Wire content pane width and resize handler
         workspace_slots = workspace_slots

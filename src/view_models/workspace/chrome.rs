@@ -390,6 +390,18 @@ pub(crate) struct FrameChromeMenuItemDisplay {
     pub(crate) disabled: bool,
 }
 
+/// When the frame chrome shows its Back and Forward controls.
+///
+/// ADR 0084 Decision 9: Back and Forward always show in the Music content
+/// frame. Each control keeps its typed availability.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FrameHistoryControls {
+    /// Each control shows only when its history is not empty.
+    WhenAvailable,
+    /// Both controls always show. An unavailable control shows as disabled.
+    Always,
+}
+
 /// Display contract consumed by the shared workspace frame shell.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FrameShellDisplay {
@@ -417,6 +429,8 @@ pub(crate) struct FrameShellDisplay {
     pub(crate) view_mode_control: Option<ContentViewModeControlDisplay>,
     /// Optional frame-local breadcrumb path.
     pub(crate) breadcrumb: Option<BreadcrumbDisplay>,
+    /// When the chrome shows Back and Forward.
+    pub(crate) history_controls: FrameHistoryControls,
     /// Stable content slot identifier for mounting frame body content.
     pub(crate) content_slot_id: String,
 }
@@ -461,6 +475,7 @@ impl FrameShellDisplay {
             library_filter_control: None,
             view_mode_control: None,
             breadcrumb: None,
+            history_controls: FrameHistoryControls::WhenAvailable,
             content_slot_id: format!("workspace-frame-{}-content", frame_id.value()),
         }
     }
@@ -489,6 +504,25 @@ impl FrameShellDisplay {
         self
     }
 
+    /// Returns this shell display with Back and Forward always shown.
+    #[must_use]
+    pub(crate) const fn with_history_controls_always_shown(mut self) -> Self {
+        self.history_controls = FrameHistoryControls::Always;
+        self
+    }
+
+    /// Returns whether the chrome shows the Back control.
+    #[must_use]
+    pub(crate) fn back_shown(&self) -> bool {
+        !self.back.disabled || self.history_controls == FrameHistoryControls::Always
+    }
+
+    /// Returns whether the chrome shows the Forward control.
+    #[must_use]
+    pub(crate) fn forward_shown(&self) -> bool {
+        !self.forward.disabled || self.history_controls == FrameHistoryControls::Always
+    }
+
     /// Returns this shell display with frame-local breadcrumbs attached.
     #[must_use]
     pub(crate) fn with_breadcrumb(mut self, display: BreadcrumbDisplay) -> Self {
@@ -502,8 +536,8 @@ impl FrameShellDisplay {
         !self.title.is_empty()
             || self.subtitle.is_some()
             || self.status.is_some()
-            || !self.back.disabled
-            || !self.forward.disabled
+            || self.back_shown()
+            || self.forward_shown()
             || self.close.is_some()
             || !self.action_menu_items.is_empty()
     }

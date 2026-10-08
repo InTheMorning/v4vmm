@@ -30,7 +30,7 @@ pub(crate) use chrome::{
     LibraryFilterControlTreatment,
 };
 pub(crate) use frame::{WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState};
-pub(crate) use nav::{FrameNavigationEntry, FrameNavigationState};
+pub(crate) use nav::{FrameNavigationEntry, FrameNavigationState, NavigationPathStart};
 
 /// `FrameDetachEligibility` and `FrameDockTarget` are ADR 0046 Task 014
 /// model-only types with no caller outside their own dedicated tests. See
@@ -167,6 +167,7 @@ impl WorkspaceLayout {
     const DETAIL_ID: WorkspaceFrameId = WorkspaceFrameId::new(3);
 
     /// Returns the default primary content frame identifier.
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn default_content_frame_id() -> WorkspaceFrameId {
         Self::CONTENT_LIST_ID
@@ -279,6 +280,24 @@ impl WorkspaceLayout {
         Ok(())
     }
 
+    /// Starts a new location path on a frame (ADR 0084 Decision 9).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceModelError::FrameNotFound`] when the frame does not
+    /// exist in the layout.
+    pub(crate) fn start_nav_path(
+        &mut self,
+        id: WorkspaceFrameId,
+        destination: FrameNavigationEntry,
+        page: Option<FrameNavigationEntry>,
+    ) -> Result<(), WorkspaceModelError> {
+        self.frame_nav_mut(id)
+            .ok_or(WorkspaceModelError::FrameNotFound(id))?
+            .start_path(destination, page);
+        Ok(())
+    }
+
     /// Pops a frame's back-history entry and returns the new current entry.
     pub(crate) fn pop_nav(&mut self, id: WorkspaceFrameId) -> Option<FrameNavigationEntry> {
         self.frame_navigation.get_mut(&id)?.go_back().ok().cloned()
@@ -314,11 +333,10 @@ impl WorkspaceLayout {
 
     /// Opens search results in the `ContentList` frame's nav stack.
     ///
-    /// A search from a non-search destination pushes
-    /// [`FrameNavigationEntry::Search`] so the user can navigate back to their
-    /// previous content. A search submitted while an existing search flow is
-    /// active replaces that search entry and discards its descendants, preserving
-    /// earlier history without stacking query crumbs. The `ContentList` frame
+    /// A search from a non-search page starts a new location path with
+    /// [`FrameNavigationEntry::Search`], as one history entry, so the user can
+    /// navigate back to their previous content. A search submitted on the
+    /// search page replaces its query in place. The `ContentList` frame
     /// must exist in a valid layout; it is not auto-created.
     ///
     /// # Errors
@@ -343,43 +361,6 @@ impl WorkspaceLayout {
         nav.replace_active_search_or_push(FrameNavigationEntry::Search(query));
         self.focus_frame(content_list_frame_id)?;
         Ok(content_list_frame_id)
-    }
-
-    /// Pops the named frame's nav stack until the given entry is on top.
-    ///
-    /// If the entry is already at the top, this is a no-op. If the entry does
-    /// not exist in the back-history, returns [`WorkspaceModelError::FrameNotFound`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`WorkspaceModelError::FrameNotFound`] if the frame or the target
-    /// entry does not exist in the frame's history.
-    pub(crate) fn pop_nav_until(
-        &mut self,
-        frame_id: WorkspaceFrameId,
-        target_entry: &FrameNavigationEntry,
-    ) -> Result<(), WorkspaceModelError> {
-        let nav_state = self
-            .frame_nav_mut(frame_id)
-            .ok_or(WorkspaceModelError::FrameNotFound(frame_id))?;
-
-        // If already at target, no-op
-        if nav_state.current() == target_entry {
-            return Ok(());
-        }
-
-        let path = nav_state.path_entries();
-        let Some(found_at) = path.iter().position(|entry| entry == target_entry) else {
-            return Err(WorkspaceModelError::FrameNotFound(frame_id));
-        };
-        let back_stack_len = path.len().saturating_sub(1);
-
-        // Pop until the target is on top: we need to pop (back_stack_len - found_at) times
-        for _ in 0..(back_stack_len - found_at) {
-            nav_state.go_back()?;
-        }
-
-        Ok(())
     }
 
     /// Returns the currently focused frame id.

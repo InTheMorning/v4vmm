@@ -80,9 +80,8 @@ use crate::view_models::playlist_option_displays;
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::track_detail::TrackNameLinkTarget;
 use crate::view_models::workspace::{
-    BreadcrumbDisplay, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
-    FrameNavigationEntry, FrameNavigationState, LibraryFilterControlDisplay, WorkspaceFrameId,
-    WorkspaceLayout, WorkspaceModelError,
+    ContentFilter, ContentViewMode, ContentViewModeControlDisplay, FrameNavigationEntry,
+    LibraryFilterControlDisplay, NavigationPathStart,
 };
 use crate::views::{EntityIdentityLinks, LocalIdentityFacts};
 use gpui::{
@@ -125,12 +124,6 @@ impl InspectorFrame {
 enum LibraryReloadMode {
     ResetDetail,
     PreserveDetail,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum FrameHistoryMode {
-    Record,
-    Restore,
 }
 
 #[derive(Clone, Debug)]
@@ -393,18 +386,6 @@ fn reset_removed_inspector_frame(frame: &mut InspectorFrame, message: &'static s
 // ---------------------------------------------------------------------------
 
 impl LibraryApp {
-    fn default_workspace_layout() -> WorkspaceLayout {
-        let mut layout = WorkspaceLayout::default_layout();
-        layout
-            .reset_nav(Self::content_frame_id(), FrameNavigationEntry::SourceList)
-            .expect("default workspace layout contains the content frame");
-        layout
-    }
-
-    const fn content_frame_id() -> WorkspaceFrameId {
-        WorkspaceLayout::default_content_frame_id()
-    }
-
     pub(crate) fn content_library_filter_control(&self) -> LibraryFilterControlDisplay {
         self.vm.content_library_filter_control()
     }
@@ -647,38 +628,6 @@ impl LibraryApp {
         }
     }
 
-    fn current_frame_navigation_mut(
-        &mut self,
-    ) -> Result<&mut FrameNavigationState, WorkspaceModelError> {
-        let frame_id = Self::content_frame_id();
-        self.workspace_layout
-            .frame_nav_mut(frame_id)
-            .ok_or(WorkspaceModelError::FrameNotFound(frame_id))
-    }
-
-    fn current_frame_navigation(&self) -> Result<&FrameNavigationState, WorkspaceModelError> {
-        let frame_id = Self::content_frame_id();
-        self.workspace_layout
-            .frame_nav(frame_id)
-            .ok_or(WorkspaceModelError::FrameNotFound(frame_id))
-    }
-
-    fn reset_frame_navigation(
-        &mut self,
-        entry: FrameNavigationEntry,
-    ) -> Result<(), WorkspaceModelError> {
-        self.workspace_layout
-            .reset_nav(Self::content_frame_id(), entry)
-    }
-
-    fn push_frame_navigation(
-        &mut self,
-        entry: FrameNavigationEntry,
-    ) -> Result<(), WorkspaceModelError> {
-        self.workspace_layout
-            .push_nav(Self::content_frame_id(), entry)
-    }
-
     #[expect(
         clippy::too_many_arguments,
         reason = "top-level app bootstrap passes persisted content mode into the library surface"
@@ -732,7 +681,6 @@ impl LibraryApp {
             musicindex_endpoint,
             music_dir,
             vm,
-            workspace_layout: Self::default_workspace_layout(),
             detail: LibraryDetail::None,
             thumbnails: BTreeMap::new(),
             cover_colors: BTreeMap::new(),
@@ -1166,7 +1114,7 @@ impl LibraryApp {
             | LibraryDetail::Track(_) => None,
         };
         if let Some(playlist_id) = playlist_id {
-            self.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);
+            self.select_playlist(playlist_id, cx);
             return;
         }
 
@@ -1218,23 +1166,20 @@ impl LibraryApp {
         cx.notify();
     }
 
-    pub(crate) fn select_playlist(&mut self, id: i64, cx: &mut Context<Self>) {
-        self.select_playlist_with_history(id, FrameHistoryMode::Record, cx);
-    }
-
-    fn select_playlist_with_history(
+    /// Asks the top app to open a page in the one Music navigation stack
+    /// (ADR 0084 Decision 9). The top app restores the page through
+    /// [`Self::hydrate_detail_from_nav`].
+    pub(crate) fn open_page(
         &mut self,
-        id: i64,
-        history_mode: FrameHistoryMode,
+        entry: FrameNavigationEntry,
+        start: NavigationPathStart,
         cx: &mut Context<Self>,
     ) {
-        if history_mode == FrameHistoryMode::Record {
-            if let Err(err) = self.push_frame_navigation(FrameNavigationEntry::PlaylistDetail(id)) {
-                self.vm.set_error_status(err);
-                cx.notify();
-                return;
-            }
-        }
+        cx.emit(super::LibraryAppEvent::OpenPage { entry, start });
+    }
+
+    /// Mounts the playlist page. It changes no navigation state.
+    pub(crate) fn select_playlist(&mut self, id: i64, cx: &mut Context<Self>) {
         self.vm.select_playlist(id);
         let conn = self.conn.lock().expect("lock db");
         let playlist = self.vm.playlist_by_id(id);
@@ -1338,29 +1283,24 @@ impl LibraryApp {
         );
     }
 
+    /// Refreshes the rows of the mounted playlist actor after a change on a
+    /// track page. A later Back to that playlist then shows the change.
+    /// The playlist page itself reloads through `refresh_selected_detail`.
     fn refresh_origin_playlist_actor(&mut self) {
         use crate::application::paged_track_list::PagedTrackListMsg;
 
-        let Ok(nav) = self.current_frame_navigation() else {
-            return;
-        };
-        if !matches!(nav.current(), FrameNavigationEntry::TrackDetail(_)) {
+        if !matches!(self.detail, LibraryDetail::Track(_)) {
             return;
         }
-        let Some(FrameNavigationEntry::PlaylistDetail(playlist_id)) = nav.back_destination() else {
-            return;
-        };
         let Some(state) = &self.playlist_actor else {
             return;
         };
-        if state.playlist_id != *playlist_id {
-            return;
-        }
+        let playlist_id = state.playlist_id;
         let tracks = {
             let conn = self.conn.lock().expect("lock db");
             self.application_services
                 .query_service()
-                .playlist_tracks(&conn, *playlist_id)
+                .playlist_tracks(&conn, playlist_id)
                 .unwrap_or_default()
         };
         let _ = state.handle.try_send(PagedTrackListMsg::PrimeRows(tracks));
@@ -1382,7 +1322,11 @@ impl LibraryApp {
             |this, result, cx| {
                 this.vm.close_creating_playlist();
                 this.reload_playlists();
-                this.select_playlist(result.playlist_id(), cx);
+                this.open_page(
+                    FrameNavigationEntry::PlaylistDetail(result.playlist_id()),
+                    NavigationPathStart::NewPath,
+                    cx,
+                );
             },
             |this, err, _cx| this.vm.fail_playlist_create(err),
         );
@@ -1402,7 +1346,7 @@ impl LibraryApp {
             move |this, (), cx| {
                 this.reload_playlists();
                 if this.vm.is_playlist_selected(id) {
-                    this.select_playlist_with_history(id, FrameHistoryMode::Restore, cx);
+                    this.select_playlist(id, cx);
                 }
             },
             |this, err, _cx| this.vm.fail_playlist_rename(err),
@@ -1477,7 +1421,7 @@ impl LibraryApp {
                 this.reload_playlists();
                 this.reload_playlist_rss_marks(playlist_id);
                 if this.vm.is_playlist_selected(playlist_id) {
-                    this.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);
+                    this.select_playlist(playlist_id, cx);
                 }
             },
             |this, err, _cx| this.vm.fail_playlist_track_remove(err),
@@ -1546,7 +1490,7 @@ impl LibraryApp {
                     .copied()
                     .find(|playlist_id| this.vm.is_playlist_selected(*playlist_id))
                 {
-                    this.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);
+                    this.select_playlist(playlist_id, cx);
                 }
                 this.refresh_current_broadcast_readiness_report();
             },
@@ -1572,7 +1516,7 @@ impl LibraryApp {
             cx,
             move |this, (), cx| {
                 if this.vm.is_playlist_selected(playlist_id) {
-                    this.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);
+                    this.select_playlist(playlist_id, cx);
                 }
             },
             |this, err, _cx| this.vm.fail_playlist_track_reorder(err),
@@ -1934,6 +1878,7 @@ impl LibraryApp {
     /// - `TrackDetail(id)` → look up track and call `select_track`
     /// - `AlbumDetail(id)` → look up album via feed_id and call `select_album`
     /// - `ArtistDetail(name)` → call `select_artist`
+    /// - `PlaylistDetail(id)` → call `select_playlist` (ADR 0084 Decision 9)
     /// - `Search(_)` / `SourceList` / others → clear detail to root state
     pub(crate) fn hydrate_detail_from_nav(
         &mut self,
@@ -1958,6 +1903,9 @@ impl LibraryApp {
             FrameNavigationEntry::ArtistDetail(name) => {
                 self.select_artist(name, cx);
             }
+            FrameNavigationEntry::PlaylistDetail(playlist_id) => {
+                self.select_playlist(*playlist_id, cx);
+            }
             FrameNavigationEntry::Search(_)
             | FrameNavigationEntry::IndexNameMatches(_)
             | FrameNavigationEntry::IndexFeedDetail { .. }
@@ -1967,7 +1915,7 @@ impl LibraryApp {
                 // Reset detail to default/unset state for root navigation
                 self.clear_detail();
             }
-            // Other nav entries (PlaylistDetail, QueueNowPlaying) don't drive library detail
+            // Other nav entries (ReadinessIssues, QueueNowPlaying) don't drive library detail
             _ => {}
         }
     }
@@ -2115,40 +2063,8 @@ impl LibraryApp {
         );
     }
 
+    /// Mounts the track page. It changes no navigation state.
     pub(crate) fn select_track(&mut self, track: &TrackRow, cx: &mut Context<Self>) {
-        if let Err(err) = self.reset_frame_navigation(FrameNavigationEntry::TrackDetail(track.id)) {
-            self.vm.set_error_status(err);
-            cx.notify();
-            return;
-        }
-        self.select_track_detail(track, cx);
-    }
-
-    pub(crate) fn select_playlist_track(
-        &mut self,
-        playlist_id: i64,
-        track: &TrackRow,
-        cx: &mut Context<Self>,
-    ) {
-        if !matches!(
-            self.current_frame_navigation_mut()
-                .map(|navigation| navigation.current()),
-            Ok(FrameNavigationEntry::PlaylistDetail(current_playlist_id))
-                if *current_playlist_id == playlist_id
-        ) {
-            if let Err(err) =
-                self.reset_frame_navigation(FrameNavigationEntry::PlaylistDetail(playlist_id))
-            {
-                self.vm.set_error_status(err);
-                cx.notify();
-                return;
-            }
-        }
-        if let Err(err) = self.push_frame_navigation(FrameNavigationEntry::TrackDetail(track.id)) {
-            self.vm.set_error_status(err);
-            cx.notify();
-            return;
-        }
         self.select_track_detail(track, cx);
     }
 
@@ -2191,17 +2107,6 @@ impl LibraryApp {
         );
     }
 
-    fn track_breadcrumb_display(&self) -> Option<BreadcrumbDisplay> {
-        let nav = self.workspace_layout.frame_nav(Self::content_frame_id())?;
-        if !matches!(nav.current(), FrameNavigationEntry::TrackDetail(_)) {
-            return None;
-        }
-        let display = BreadcrumbDisplay::project("library-track-breadcrumb", nav, |entry| {
-            self.frame_breadcrumb_label(entry)
-        });
-        (display.segments.len() > 1).then_some(display)
-    }
-
     /// The publisher feed GUID of the mounted track's album feed (ADR 0077
     /// packet 004 R4-03). The already-loaded Library tree carries this
     /// value; the screen sends no request for it.
@@ -2214,55 +2119,35 @@ impl LibraryApp {
             .clone()
     }
 
-    fn frame_breadcrumb_label(&self, entry: &FrameNavigationEntry) -> String {
+    /// The breadcrumb label of a Library page (ADR 0084 Decision 9). The
+    /// top app owns the breadcrumb. The Library gives only the names it has.
+    pub(crate) fn navigation_label(&self, entry: &FrameNavigationEntry) -> String {
         match entry {
-            FrameNavigationEntry::SourceList => "Library".to_string(),
             FrameNavigationEntry::PlaylistDetail(playlist_id) => self
                 .vm
                 .playlist_by_id(*playlist_id)
                 .map_or_else(|| "Playlist".to_string(), |playlist| playlist.name),
-            FrameNavigationEntry::TrackDetail(track_id) => match &self.detail {
-                LibraryDetail::Track(frame) if frame.entity_id == *track_id => frame.title.clone(),
-                _ => "Track".to_string(),
-            },
-            FrameNavigationEntry::AlbumDetail(_) => "Album".to_string(),
-            FrameNavigationEntry::ArtistDetail(name) => name.clone(),
-            // ADR 0077 packet 006: this entry names no artist, so its label
-            // is the quoted name, never a bare name.
-            FrameNavigationEntry::IndexNameMatches(name) => format!("\"{name}\""),
-            // ADR 0077 packet 004: the top app owns the publisher page
-            // title. This frame never mounts under a Library breadcrumb.
-            FrameNavigationEntry::PublisherDetail(publisher_feed_guid) => {
-                publisher_feed_guid.clone()
+            FrameNavigationEntry::TrackDetail(track_id) => {
+                self.find_track_by_id(*track_id).map_or_else(
+                    || "Track".to_string(),
+                    |track| LibraryTrackRowVm::new(track, None).display_title(),
+                )
             }
-            FrameNavigationEntry::Search(query) if query.trim().is_empty() => "Search".to_string(),
-            FrameNavigationEntry::Search(query) => query.clone(),
-            FrameNavigationEntry::IndexFeedDetail { label, .. }
-            | FrameNavigationEntry::IndexTrackDetail { label, .. } => label.clone(),
-            FrameNavigationEntry::ReadinessIssues => "Broadcast Readiness".to_string(),
-            FrameNavigationEntry::Settings => "Settings".to_string(),
-            FrameNavigationEntry::QueueNowPlaying => "Queue".to_string(),
+            FrameNavigationEntry::AlbumDetail(feed_id) => self
+                .album_for_detail_by_feed_id(*feed_id)
+                .map_or_else(|| "Album".to_string(), |album| album.name),
+            _ => entry.display_label(),
         }
     }
 
-    pub(crate) fn select_frame_breadcrumb(
-        &mut self,
-        entry: FrameNavigationEntry,
-        cx: &mut Context<Self>,
-    ) {
-        match entry {
-            FrameNavigationEntry::PlaylistDetail(playlist_id) => {
-                if let Err(err) =
-                    self.reset_frame_navigation(FrameNavigationEntry::PlaylistDetail(playlist_id))
-                {
-                    self.vm.set_error_status(err);
-                    cx.notify();
-                    return;
-                }
-                self.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);
-            }
-            _ => cx.notify(),
-        }
+    fn find_track_by_id(&self, track_id: i64) -> Option<&TrackRow> {
+        self.vm
+            .tree()
+            .artists
+            .iter()
+            .flat_map(|artist| &artist.albums)
+            .flat_map(|album| &album.tracks)
+            .find(|track| track.id == track_id)
     }
 
     pub(crate) fn toggle_artist(&mut self, name: &str) {
@@ -3179,7 +3064,11 @@ impl Render for LibraryApp {
                         })
                         .selected(selected)
                         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                            this.select_playlist(playlist_id, cx);
+                            this.open_page(
+                                FrameNavigationEntry::PlaylistDetail(playlist_id),
+                                NavigationPathStart::NewPath,
+                                cx,
+                            );
                         }))
                         .child(
                             div()
@@ -3516,7 +3405,6 @@ impl Render for LibraryApp {
             };
             let detail_pane = render_library_detail(
                 &self.detail,
-                self.track_breadcrumb_display(),
                 self.vm.busy_track(),
                 self.vm.mb_status(),
                 &self.vm,

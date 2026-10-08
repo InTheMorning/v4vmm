@@ -218,7 +218,9 @@ fn render_chrome(
         .items_center()
         .gap(Spacing::XXS.scaled(cx));
 
-    if !display.back.disabled {
+    let back_shown = display.back_shown();
+    let forward_shown = display.forward_shown();
+    if back_shown {
         nav = nav.child(chrome_button(
             display.back,
             IconName::ChevronLeft,
@@ -226,7 +228,7 @@ fn render_chrome(
         ));
     }
 
-    if !display.forward.disabled {
+    if forward_shown {
         nav = nav.child(chrome_button(
             display.forward,
             IconName::ChevronRight,
