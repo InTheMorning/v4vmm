@@ -28,7 +28,7 @@ Music becomes the column browser of ADR 0084. It gets one navigation stack, one 
 |---|---|---|---|---|
 | [001](../tasks/archive/adr-0084-task-001-one-navigation-stack.md) | 1 | One navigation stack and the location breadcrumb (Decision 9) | None | Complete 2026-10-08 |
 | [002](../tasks/archive/adr-0084-task-002-one-release-route.md) | 2 | One route for each release (Decision 4). One navigation entry keyed by release identity, and one resolver that selects the data source | 001 | Complete 2026-10-11 |
-| [003](../tasks/adr-0084-task-003-one-track-route.md) | 2 | One route for each track, by the same method. A Library track row opens its track page. Fixes flow map finding 2 | 002 | Implemented 2026-10-11. Mechanical checks Green. Visual check open |
+| [003](../tasks/archive/adr-0084-task-003-one-track-route.md) | 2 | One route for each track, by the same method. A Library track row opens its track page. Fixes flow map finding 2 | 002 | Complete 2026-10-11 |
 | 004 | 3 | The three-column shell: the destinations, the collapsible sidebar, Discover with "New releases", Needs attention and Playlists (Decisions 1 to 3). It deletes the sidebar tree and fixes finding 5 | 003, ADR 0081 task 001 | Not written |
 | 005 | 4 | Releases: the kind, the two scopes, the singles groups and the group page (Decisions 5, 6 and 8) | 004 | Not written |
 | 006 | 5 | The artist page with two levels and its scope (Decisions 7 and 8). Fixes finding 6 | 005, ADR 0082 tasks 002 and 003 | Not written |

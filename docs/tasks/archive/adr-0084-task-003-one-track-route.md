@@ -1,20 +1,20 @@
 # ADR 0084 Task 003: One Route For Each Track
 
-Status: Implementation recorded - 2026-10-11. The mechanical checks are Green. The operator visual check V1 to V5 is open.
+Status: Complete - 2026-10-11. The mechanical checks are Green. The operator passed V1 to V5 on 2026-10-11.
 
 ## Goal
 
 Each track has one navigation entry, keyed by its identity, whatever its origin. A Library track row in the content list opens its track page.
 The origin selects only the data source of the page. A download changes the data source of the open page in place.
 
-This packet fixes finding 2 of the [Music flow map](../architecture/music-flow-map.md).
+This packet fixes finding 2 of the [Music flow map](../../architecture/music-flow-map.md).
 
 ## Authority
 
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 4 and its Verification section. A track is identified by its item GUID and its feed GUID.
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 9 and [task 001](archive/adr-0084-task-001-one-navigation-stack.md).
-- [Task 002](archive/adr-0084-task-002-one-release-route.md): `ReleaseKey` and the resolver method.
-- The durable set in [AGENTS.md](../../AGENTS.md).
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 4 and its Verification section. A track is identified by its item GUID and its feed GUID.
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 9 and [task 001](adr-0084-task-001-one-navigation-stack.md).
+- [Task 002](adr-0084-task-002-one-release-route.md): `ReleaseKey` and the resolver method.
+- The durable set in [AGENTS.md](../../../AGENTS.md).
 
 ## Recorded Facts - 2026-10-08
 
@@ -34,7 +34,7 @@ This packet fixes finding 2 of the [Music flow map](../architecture/music-flow-m
 
 ## Facts From Task 002 - 2026-10-11
 
-[Task 002](archive/adr-0084-task-002-one-release-route.md) is complete. Use its names and its method:
+[Task 002](adr-0084-task-002-one-release-route.md) is complete. Use its names and its method:
 
 - `ReleaseKey`, `ReleasePageSource`, `resolve_release_page_source` and `release_download_updates_open_page` are in `src/view_models/workspace/nav.rs`, with re-exports from `mod.rs`. Put `TrackKey`, `TrackPageSource` and the track resolver there too.
 - `nav.rs` must hold no `#[cfg(test)]` block. The guard `adr_0046_forward_go_forward_and_on_forward_have_production_callers` forbids it. Put the tests in `src/view_models/workspace/tests.rs`, and the `TrackRow` key tests beside its constructor.
@@ -111,7 +111,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md), the [source map](../architecture/source-map.md), the [phase plan](../plans/adr-0084-music-column-browser-phase-plan.md) and the Implementation Result of [task 002](archive/adr-0084-task-002-one-release-route.md).
+- [Agent rules](../../../AGENTS.md), the [source map](../../architecture/source-map.md), the [phase plan](../../plans/adr-0084-music-column-browser-phase-plan.md) and the Implementation Result of [task 002](adr-0084-task-002-one-release-route.md).
 - `src/view_models/workspace/nav.rs`, `breadcrumb.rs`, `tests.rs`.
 - `src/view_models/track_detail.rs`, `src/view_models/library.rs` (`ContentListRowDisplay`, `index_feed_selection`), `src/view_models/name_match_page.rs`.
 - `src/app.rs`, `src/app/breadcrumb.rs`, `src/app/search_dispatch.rs`, `src/app/name_match_dispatch.rs`.
@@ -420,7 +420,7 @@ album…" from its "⋯" menu, and complete the removal.
 
 ## Orchestrator Review - 2026-10-11
 
-The orchestrator reviewed the diff against ADR 0084, this packet and the [review checklist](../reviews/adr-0084-review-checklist.md). The implementation keeps to the design and to the task 002 method. It does not repeat the two task 002 defects. Each breadcrumb segment uses its own key. Each download completion changes only its own open page, through a tested pure function. Each guard section fails when its function is missing.
+The orchestrator reviewed the diff against ADR 0084, this packet and the [review checklist](../../reviews/adr-0084-review-checklist.md). The implementation keeps to the design and to the task 002 method. It does not repeat the two task 002 defects. Each breadcrumb segment uses its own key. Each download completion changes only its own open page, through a tested pure function. Each guard section fails when its function is missing.
 
 One weak point was corrected in review. `content_list_track_row_key` parsed any row id as a Library track id. Today each release row id has the `index-feed:` prefix, so no defect shows. A later release row with a numeric id would open a track page. The new `ContentListPageVm::is_library_track_row` limits the key to Library track rows, and the R3-04 test now proves it (R3-07).
 
