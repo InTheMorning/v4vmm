@@ -53,7 +53,7 @@ use crate::view_models::text_filter::contains_normalized;
 use crate::view_models::text_filter::normalize;
 use crate::view_models::workspace::{
     ContentFilter, ContentViewMode, ContentViewModeControlDisplay, LibraryFilterControlDisplay,
-    ReleaseKey,
+    ReleaseKey, TrackKey,
 };
 use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
 use crate::views::{FeedMetadataFacts, LocalIdentityFacts, TrackRef};
@@ -1576,6 +1576,21 @@ impl ContentListPageVm {
     }
 
     /// Replaces tree-derived rows when the tree source is active.
+    /// Returns whether `row_id` names a Library track row of this page
+    /// (ADR 0084 Decision 4). Only such a row opens a track page by its
+    /// Library track id.
+    #[must_use]
+    pub(crate) fn is_library_track_row(&self, row_id: &str) -> bool {
+        self.cached_rows
+            .iter()
+            .chain(&self.library_rows)
+            .any(|row| {
+                row.id == row_id
+                    && row.source == ContentListRowSource::Library
+                    && matches!(row.kind, ContentListRowKind::Track(_))
+            })
+    }
+
     pub(crate) fn replace_tree_rows(&mut self, cached_rows: Vec<ContentListRowDisplay>) {
         if self.source == ContentListPageSource::Tree {
             self.replace_rows(cached_rows);
@@ -2417,6 +2432,18 @@ impl LibraryViewModel {
         row_id: &str,
     ) -> Option<ContentListIndexFeedSelection> {
         self.content_list_page.index_feed_selection(row_id)
+    }
+
+    /// The track key of a content-list track row, when the row id names a
+    /// Library track (ADR 0084 Decision 4, Required Change 5). An Index
+    /// release row's id does not parse as a track id, so this gives `None`
+    /// for it.
+    #[must_use]
+    pub(crate) fn content_list_track_row_key(&self, row_id: &str) -> Option<TrackKey> {
+        if !self.content_list_page.is_library_track_row(row_id) {
+            return None;
+        }
+        track_row_key_in_tree(self.tree(), row_id)
     }
 
     #[must_use]
@@ -3492,6 +3519,20 @@ fn content_list_rows_from_recent_feeds(rows: &[RecentFeedResultRow]) -> Vec<Cont
         .collect()
 }
 
+/// The track key of a content-list track row, keyed by the Library track
+/// id a row's own id carries (ADR 0084 Decision 4, Required Change 5).
+/// `None` when `row_id` does not parse as a track id, or no track in
+/// `tree` has that id.
+fn track_row_key_in_tree(tree: &LibraryTree, row_id: &str) -> Option<TrackKey> {
+    let track_id: i64 = row_id.parse().ok()?;
+    tree.artists
+        .iter()
+        .flat_map(|artist| &artist.albums)
+        .flat_map(|album| &album.tracks)
+        .find(|track| track.id == track_id)
+        .map(TrackRow::track_key)
+}
+
 impl Default for LibraryViewModel {
     fn default() -> Self {
         Self::new()
@@ -3884,6 +3925,66 @@ impl AlbumNode {
             return Some(ReleaseKey::FeedGuid(feed_guid));
         }
         self.feed_id.map(ReleaseKey::LibraryFeed)
+    }
+}
+
+impl TrackRow {
+    /// The track key of this row (ADR 0084 Decision 4). A track with a
+    /// feed GUID uses it, so the same track opened from the Index keys to
+    /// the same navigation entry. A track in a feed with no feed GUID uses
+    /// its Library feed id.
+    #[must_use]
+    pub(crate) fn track_key(&self) -> TrackKey {
+        let release = match self.feed_guid.clone() {
+            Some(feed_guid) => ReleaseKey::from_index_feed_guid(feed_guid),
+            None => ReleaseKey::LibraryFeed(self.feed_id),
+        };
+        TrackKey {
+            release: Some(release),
+            item_guid: self.item_guid.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod track_row_track_key_tests {
+    use super::{ReleaseKey, TrackKey, TrackRow};
+
+    fn track(feed_id: i64, feed_guid: Option<&str>, item_guid: &str) -> TrackRow {
+        TrackRow {
+            feed_id,
+            feed_guid: feed_guid.map(str::to_string),
+            item_guid: item_guid.to_string(),
+            ..TrackRow::default()
+        }
+    }
+
+    /// R3-01: the track key of a Library track with a feed GUID equals the
+    /// track key of an Index target with the same feed GUID and item GUID.
+    #[test]
+    fn adr_0084_track_key_of_library_track_with_feed_guid_matches_the_index_key() {
+        let key = track(10, Some("saw-guid"), "item-1").track_key();
+
+        assert_eq!(
+            key,
+            TrackKey::from_index_track_target(Some("saw-guid"), "item-1"),
+            "a Library track with a feed GUID must key the same as an Index target with that feed GUID and item GUID"
+        );
+    }
+
+    /// R3-02: the track key of a Library track in a feed with no feed GUID
+    /// carries `ReleaseKey::LibraryFeed`.
+    #[test]
+    fn adr_0084_track_key_of_library_track_with_no_feed_guid_uses_its_feed_id() {
+        let key = track(20, None, "item-2").track_key();
+
+        assert_eq!(
+            key,
+            TrackKey {
+                release: Some(ReleaseKey::LibraryFeed(20)),
+                item_guid: "item-2".to_string(),
+            }
+        );
     }
 }
 
@@ -6275,6 +6376,42 @@ mod tests {
         assert!(vm.update_album_description(10, Some("Source description")));
         let album = &vm.tree().artists[0].albums[0];
         assert_eq!(album.description.as_deref(), Some("Source description"));
+    }
+
+    /// R3-04 (ADR 0084 Decision 4): the content-list view model gives a
+    /// `TrackKey` open target for a Library track row, and gives no track
+    /// key for an Index release row's id.
+    #[test]
+    fn adr_0084_track_r3_04_content_list_track_row_key_is_typed_by_row_kind() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+
+        let rhubarb = &vm.tree().artists[0].albums[0].tracks[0];
+        let rhubarb_key = rhubarb.track_key();
+        assert_eq!(
+            vm.content_list_track_row_key(&rhubarb.id.to_string()),
+            Some(rhubarb_key),
+            "a Library track row must give its TrackKey"
+        );
+        assert_eq!(
+            vm.content_list_track_row_key("index-feed:saw-guid"),
+            None,
+            "an Index release row id must not parse as a track id"
+        );
+
+        // A release row with a numeric id is never a track row, even when a
+        // Library track has that id (orchestrator review, 2026-10-11).
+        let page = ContentListPageVm::new(vec![ContentListRowDisplay::from_release_result(
+            release_result(
+                &rhubarb.id.to_string(),
+                "Release",
+                SearchResultOrigin::Library,
+            ),
+        )]);
+        assert!(
+            !page.is_library_track_row(&rhubarb.id.to_string()),
+            "a release row must not open a track page"
+        );
     }
 
     #[test]

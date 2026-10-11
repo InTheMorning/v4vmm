@@ -23,7 +23,8 @@ use crate::ui::tokens::{resolve_color, FontSize, SemanticColor, Spacing};
 use crate::view_models::workspace::{
     BreadcrumbDisplay, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
     FilterChipStripDisplay, FrameNavigationEntry, FrameNavigationState, FrameShellDisplay,
-    LibraryFilterControlDisplay, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+    LibraryFilterControlDisplay, TrackKey, WorkspaceFrameKind, WorkspaceFrameState,
+    WorkspaceLayout,
 };
 
 type WorkspaceFilterSelectHandler = Rc<dyn Fn(ContentFilter, &mut Window, &mut App) + 'static>;
@@ -600,7 +601,9 @@ fn navigation_entry_for(kind: WorkspaceFrameKind) -> FrameNavigationEntry {
         WorkspaceFrameKind::SourceList | WorkspaceFrameKind::ContentList => {
             FrameNavigationEntry::SourceList
         }
-        WorkspaceFrameKind::Detail => FrameNavigationEntry::TrackDetail(0),
+        WorkspaceFrameKind::Detail => {
+            FrameNavigationEntry::Track(TrackKey::from_index_track_target(None, String::new()))
+        }
         WorkspaceFrameKind::QueueNowPlaying => FrameNavigationEntry::QueueNowPlaying,
     }
 }

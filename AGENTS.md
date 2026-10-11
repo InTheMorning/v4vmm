@@ -22,7 +22,7 @@ Music structure in [ADR 0084](docs/adr/0084-music-column-browser.md).
 Phase 4A packet 1, [one navigation stack](docs/tasks/archive/adr-0084-task-001-one-navigation-stack.md), is complete.
 Packet 2, one page for each item, is two tasks.
 [Task 002](docs/tasks/archive/adr-0084-task-002-one-release-route.md) is complete.
-[Task 003](docs/tasks/adr-0084-task-003-one-track-route.md) comes next. The
+[Task 003](docs/tasks/adr-0084-task-003-one-track-route.md) is implemented, and its visual check is open. The
 [ADR 0084 phase plan](docs/plans/adr-0084-music-column-browser-phase-plan.md) holds the order. Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
 

@@ -18,12 +18,14 @@ pub(crate) enum FrameNavigationEntry {
     SourceList,
     /// Playlist detail by playlist id.
     PlaylistDetail(i64),
-    /// Track detail by track id.
-    TrackDetail(i64),
     /// A release, keyed by its identity, whatever its origin (ADR 0084
     /// Decision 4). The origin selects only the data source of the page,
     /// held outside this entry.
     Release(ReleaseKey),
+    /// A track, keyed by its identity, whatever its origin (ADR 0084
+    /// Decision 4). The origin selects only the data source of the page,
+    /// held outside this entry.
+    Track(TrackKey),
     /// Artist detail by display name.
     ArtistDetail(String),
     /// Publisher page by publisher feed GUID (ADR 0077 Decision 1). This
@@ -36,13 +38,6 @@ pub(crate) enum FrameNavigationEntry {
     /// no artist identity, no role, and no page type: it is a search
     /// result, never an artist page.
     IndexNameMatches(String),
-    /// Remote Index track drill-down.
-    IndexTrackDetail {
-        /// Stable remote track activation id.
-        id: String,
-        /// Display label captured from the selected result row.
-        label: String,
-    },
     /// Music content list filtered to tracks that need broadcast readiness work.
     ReadinessIssues,
     /// Application settings.
@@ -58,10 +53,12 @@ impl FrameNavigationEntry {
         match self {
             Self::SourceList => "Library".to_string(),
             Self::PlaylistDetail(id) => format!("Playlist {id}"),
-            Self::TrackDetail(id) => format!("Track {id}"),
             // The top app gives the real title from the resolved data
             // source. This fallback shows only before that title is known.
             Self::Release(_) => "Release".to_string(),
+            // The top app gives the real title from the resolved data
+            // source. This fallback shows only before that title is known.
+            Self::Track(_) => "Track".to_string(),
             Self::ArtistDetail(name) => name.clone(),
             // ADR 0077 packet 006: the breadcrumb shows the quoted name.
             // This entry names no artist, so its label never looks like one.
@@ -76,7 +73,6 @@ impl FrameNavigationEntry {
                     format!("Search: {query}")
                 }
             }
-            Self::IndexTrackDetail { label, .. } => label.clone(),
             Self::ReadinessIssues => "Broadcast Readiness".to_string(),
             Self::Settings => "Settings".to_string(),
             Self::QueueNowPlaying => "Queue".to_string(),
@@ -169,6 +165,125 @@ pub(crate) fn release_download_updates_open_page(
     match (current, downloaded_guid) {
         (Some(FrameNavigationEntry::Release(ReleaseKey::FeedGuid(open_guid))), Some(guid)) => {
             open_guid == guid
+        }
+        _ => false,
+    }
+}
+
+/// The identity of one track, whatever its origin (ADR 0084 Decision 4).
+///
+/// A track opened from the Library and the same track opened from the
+/// Index build this same key, so they push the same navigation entry.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TrackKey {
+    /// The release of the track. `None` only for an Index result with no
+    /// feed GUID.
+    pub(crate) release: Option<ReleaseKey>,
+    /// The RSS item GUID.
+    pub(crate) item_guid: String,
+}
+
+impl TrackKey {
+    /// The track key of an Index track target (ADR 0084 Decision 4). A
+    /// target with a feed GUID carries that release, whatever its origin.
+    /// A target with no feed GUID carries no release, so it always
+    /// resolves to the Index.
+    #[must_use]
+    pub(crate) fn from_index_track_target(
+        feed_guid: Option<&str>,
+        item_guid: impl Into<String>,
+    ) -> Self {
+        Self {
+            release: feed_guid.map(ReleaseKey::from_index_feed_guid),
+            item_guid: item_guid.into(),
+        }
+    }
+
+    /// The Index activation target of this key: `<feed_guid>:<item_guid>`
+    /// when the key has a feed GUID, or the bare item GUID otherwise.
+    #[must_use]
+    pub(crate) fn index_target(&self) -> String {
+        match &self.release {
+            Some(ReleaseKey::FeedGuid(feed_guid)) => format!("{feed_guid}:{}", self.item_guid),
+            Some(ReleaseKey::LibraryFeed(_)) | None => self.item_guid.clone(),
+        }
+    }
+}
+
+/// The data source that fills an open track page (ADR 0084 Decision 4).
+///
+/// The origin of a track selects this source, never its route or its
+/// layout. The top app looks this up once and keeps it; the render path
+/// reads the stored value and makes no lookup of its own.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum TrackPageSource {
+    /// The track is a Library track.
+    Library {
+        /// The Library track id.
+        track_id: i64,
+    },
+    /// The track is known to the Index only.
+    Index {
+        /// The Index activation target.
+        target: String,
+    },
+}
+
+/// Resolves the data source of a track (ADR 0084 Decision 4).
+///
+/// `library_track_id` is the Library track id a caller already looked up
+/// for a key with a release, through the two read queries of Required
+/// Change 3. A key with no release needs no lookup: it always resolves to
+/// the Index, because the Library has no track with an unknown release.
+#[must_use]
+pub(crate) fn resolve_track_page_source(
+    key: &TrackKey,
+    library_track_id: Option<i64>,
+) -> TrackPageSource {
+    if key.release.is_none() {
+        return TrackPageSource::Index {
+            target: key.item_guid.clone(),
+        };
+    }
+    match library_track_id {
+        Some(track_id) => TrackPageSource::Library { track_id },
+        None => TrackPageSource::Index {
+            target: key.index_target(),
+        },
+    }
+}
+
+/// Returns whether a completed single-track download changes the open page
+/// (ADR 0084 Decision 4).
+///
+/// Only the open track page of that exact track changes its data source in
+/// place. A download that completes after the operator opened another page
+/// changes no page.
+#[must_use]
+pub(crate) fn track_download_updates_open_page(
+    current: Option<&FrameNavigationEntry>,
+    downloaded_key: Option<&TrackKey>,
+) -> bool {
+    match (current, downloaded_key) {
+        (Some(FrameNavigationEntry::Track(open_key)), Some(key)) => open_key == key,
+        _ => false,
+    }
+}
+
+/// Returns whether a completed album download changes the open track page
+/// (ADR 0084 Decision 4).
+///
+/// "Download album" on a track page downloads every track of the release,
+/// not the one open track by its own identity. Only the open track page of
+/// that release changes its data source in place.
+#[must_use]
+pub(crate) fn track_release_download_updates_open_page(
+    current: Option<&FrameNavigationEntry>,
+    downloaded_guid: Option<&str>,
+) -> bool {
+    match (current, downloaded_guid) {
+        (Some(FrameNavigationEntry::Track(key)), Some(guid)) => {
+            matches!(&key.release, Some(ReleaseKey::FeedGuid(open_guid)) if open_guid == guid)
         }
         _ => false,
     }

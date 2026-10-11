@@ -758,6 +758,43 @@ pub fn find_feed_id_by_guid(conn: &Connection, feed_guid: &str) -> Result<Option
     .context("find feed by guid")
 }
 
+/// Finds a Library track id by its feed GUID and its RSS item GUID (ADR
+/// 0084 Decision 4). `None` when no feed has that GUID, or no track of
+/// that feed has that item GUID.
+pub fn find_track_id_by_feed_guid_and_item_guid(
+    conn: &Connection,
+    feed_guid: &str,
+    item_guid: &str,
+) -> Result<Option<i64>> {
+    conn.query_row(
+        "SELECT t.id
+         FROM tracks t
+         JOIN feeds f ON f.id = t.feed_id
+         WHERE f.feed_guid = ?1 AND t.item_guid = ?2
+         LIMIT 1",
+        rusqlite::params![feed_guid, item_guid],
+        |row| row.get(0),
+    )
+    .optional()
+    .context("find track by feed guid and item guid")
+}
+
+/// Finds a Library track id by its feed id and its RSS item GUID (ADR 0084
+/// Decision 4). `None` when no track of that feed has that item GUID.
+pub fn find_track_id_by_feed_id_and_item_guid(
+    conn: &Connection,
+    feed_id: i64,
+    item_guid: &str,
+) -> Result<Option<i64>> {
+    conn.query_row(
+        "SELECT id FROM tracks WHERE feed_id = ?1 AND item_guid = ?2 LIMIT 1",
+        rusqlite::params![feed_id, item_guid],
+        |row| row.get(0),
+    )
+    .optional()
+    .context("find track by feed id and item guid")
+}
+
 pub fn find_track_id(
     conn: &Connection,
     feed_url: Option<&str>,
@@ -4047,6 +4084,51 @@ mod tests {
             rusqlite::params!["http://test.feed", "Test Feed"],
         )?;
         Ok(conn.last_insert_rowid())
+    }
+
+    /// R3-05 (ADR 0084 Decision 4): the two new read queries find a track
+    /// by feed GUID and item GUID, and by feed id and item GUID.
+    #[test]
+    fn adr_0084_track_r3_05_finds_a_track_by_feed_guid_or_feed_id_and_item_guid() -> Result<()> {
+        let conn = setup_test_db()?;
+        conn.execute(
+            "INSERT INTO feeds (feed_url, feed_guid, title) VALUES (?1, ?2, ?3)",
+            rusqlite::params![
+                "http://adr0084.test/feed.xml",
+                "feed-guid-1",
+                "ADR 0084 Feed"
+            ],
+        )?;
+        let feed_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO tracks (feed_id, item_guid, track_title) VALUES (?1, ?2, ?3)",
+            rusqlite::params![feed_id, "item-guid-1", "ADR 0084 Track"],
+        )?;
+        let track_id = conn.last_insert_rowid();
+
+        assert_eq!(
+            find_track_id_by_feed_guid_and_item_guid(&conn, "feed-guid-1", "item-guid-1")?,
+            Some(track_id)
+        );
+        assert_eq!(
+            find_track_id_by_feed_guid_and_item_guid(&conn, "feed-guid-1", "no-such-item")?,
+            None
+        );
+        assert_eq!(
+            find_track_id_by_feed_guid_and_item_guid(&conn, "no-such-feed", "item-guid-1")?,
+            None
+        );
+
+        assert_eq!(
+            find_track_id_by_feed_id_and_item_guid(&conn, feed_id, "item-guid-1")?,
+            Some(track_id)
+        );
+        assert_eq!(
+            find_track_id_by_feed_id_and_item_guid(&conn, feed_id, "no-such-item")?,
+            None
+        );
+
+        Ok(())
     }
 
     #[test]

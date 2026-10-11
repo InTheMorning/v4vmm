@@ -43,6 +43,7 @@ use crate::view_models::album_page::{
     ALBUM_PAGE_MENU_A11Y_LABEL,
 };
 use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm, SharedTrackRowVm};
+use crate::view_models::library::LibraryTrackRowVm;
 use crate::view_models::publisher_page::PublisherPageContext;
 use crate::view_models::search_results::{
     IndexDetailDisplay, IndexDetailKind, SearchResultsInspectorPageVm, SearchResultsTab,
@@ -52,8 +53,10 @@ use crate::view_models::track_detail::{
     TrackPageActions,
 };
 use crate::view_models::workspace::{
-    release_download_updates_open_page, resolve_release_page_source, FrameNavigationEntry,
-    FrameNavigationState, ReleaseKey, ReleasePageSource, WorkspaceFrameId,
+    release_download_updates_open_page, resolve_release_page_source, resolve_track_page_source,
+    track_download_updates_open_page, track_release_download_updates_open_page,
+    FrameNavigationEntry, FrameNavigationState, ReleaseKey, ReleasePageSource, TrackKey,
+    TrackPageSource, WorkspaceFrameId,
 };
 use crate::views::{FeedRef, FeedView, TrackRef, TrackView};
 
@@ -456,16 +459,9 @@ impl TopApp {
                             .ok()
                             .flatten()
                     }) {
-                        self.library.update(cx, |library, cx| {
-                            library.select_track(&track_row, cx);
-                        });
-                        if let Err(e) = self.workspace_layout.push_nav(
-                            content_frame_id,
-                            FrameNavigationEntry::TrackDetail(track_id),
-                        ) {
-                            self.settings_status = format!("Failed to navigate to track: {e}");
-                        }
-                        cx.notify();
+                        let key = track_row.track_key();
+                        let label = LibraryTrackRowVm::new(&track_row, None).display_title();
+                        self.open_track_in_frame(content_frame_id, &key, label, cx);
                     } else {
                         self.settings_status = format!("Track {track_id} not found");
                         cx.notify();
@@ -693,6 +689,8 @@ impl TopApp {
             .unwrap_or_else(|| "Release".to_string())
     }
 
+    /// ADR 0084 Decision 4: an Index track row, whatever its origin (a
+    /// search result or a name-match row), opens its track page by key.
     fn handle_index_track_result_selected(
         &mut self,
         target: &str,
@@ -705,40 +703,144 @@ impl TopApp {
             .search_results_detail
             .as_ref()
             .and_then(|detail| detail.index_track_label(&activation_id))
+            .or_else(|| {
+                self.name_match_page_track_row(&activation_id)
+                    .map(|row| row.label)
+            })
             .unwrap_or_else(|| track_guid.to_string());
-        self.push_index_track_detail(content_frame_id, target, label, cx);
-        // ADR 0075 packet 047, Required Change 3: a track reached from the
-        // name-match page already carries its full detail from that
-        // page's own fetch (packet 006). Only a search-drawn summary row
-        // needs its own detail request here.
-        if self.name_match_page_track_row(&activation_id).is_none() {
-            self.fetch_index_track_detail_page(
-                target.to_string(),
-                feed_guid.map(str::to_string),
-                track_guid.to_string(),
-                cx,
-            );
-        }
+        let key = TrackKey::from_index_track_target(feed_guid, track_guid);
+        self.open_track_in_frame(content_frame_id, &key, label, cx);
     }
 
-    fn push_index_track_detail(
+    /// Opens a track page by its key, from any origin (ADR 0084
+    /// Decision 4). Replaces `push_index_track_detail`: one function
+    /// pushes the entry, resolves its data source, and restores the page.
+    fn open_track_in_frame(
         &mut self,
         content_frame_id: WorkspaceFrameId,
-        target: &str,
+        key: &TrackKey,
         label: String,
         cx: &mut Context<Self>,
     ) {
-        if let Err(error) = self.workspace_layout.push_nav(
-            content_frame_id,
-            FrameNavigationEntry::IndexTrackDetail {
-                id: target.to_string(),
-                label,
-            },
-        ) {
-            self.settings_status = format!("Failed to navigate to index track: {error}");
+        // A `LibraryFeed`-origin key has no feed GUID, so its Index
+        // activation target is a bare item GUID that other feeds' tracks
+        // could share. Only a `FeedGuid` or a release-less key gives an
+        // unambiguous target worth caching a label under.
+        if !matches!(key.release, Some(ReleaseKey::LibraryFeed(_))) {
+            self.track_page_labels.insert(key.index_target(), label);
+        }
+        if let Err(error) = self
+            .workspace_layout
+            .push_nav(content_frame_id, FrameNavigationEntry::Track(key.clone()))
+        {
+            self.settings_status = format!("Failed to navigate to track: {error}");
         }
         self.sync_search_results_detail_with_nav(content_frame_id);
+        self.apply_track_page_source(key, cx);
         cx.notify();
+    }
+
+    /// Resolves and stores the data source of an open track page, then
+    /// mounts it (ADR 0084 Decision 4). The Library source asks the
+    /// Library to mount the track. The Index source clears the Library
+    /// detail and starts its own fetch, unless the name-match page already
+    /// cached this track.
+    fn apply_track_page_source(&mut self, key: &TrackKey, cx: &mut Context<Self>) {
+        let library_track_id = self.library_track_id_for_key(key);
+        let source = resolve_track_page_source(key, library_track_id);
+        match &source {
+            TrackPageSource::Library { track_id } => {
+                let track_id = *track_id;
+                if let Some(track_row) = self.conn.lock().ok().and_then(|conn| {
+                    library_service::track_row_by_id(&conn, track_id)
+                        .ok()
+                        .flatten()
+                }) {
+                    self.library
+                        .update(cx, |library, cx| library.select_track(&track_row, cx));
+                }
+            }
+            TrackPageSource::Index { target } => {
+                self.library
+                    .update(cx, |library, _cx| library.clear_detail());
+                let activation_id = format!("index-track:{target}");
+                let already_cached = self.name_match_page_track_row(&activation_id).is_some();
+                if !already_cached
+                    && !index_track_detail_result_is_current(
+                        self.index_track_detail_state.as_ref(),
+                        target,
+                    )
+                {
+                    let (feed_guid, track_guid) = split_index_track_target(target);
+                    self.fetch_index_track_detail_page(
+                        target.clone(),
+                        feed_guid.map(str::to_string),
+                        track_guid.to_string(),
+                        cx,
+                    );
+                }
+            }
+        }
+        self.track_page_source = Some(source);
+    }
+
+    /// The Library track id of a track key, through the two read queries
+    /// of Required Change 3 (ADR 0084 Decision 4). `None` when the key has
+    /// no release, or the Library holds no matching track.
+    fn library_track_id_for_key(&self, key: &TrackKey) -> Option<i64> {
+        let conn = self.conn.lock().ok()?;
+        match &key.release {
+            Some(ReleaseKey::FeedGuid(feed_guid)) => {
+                db::find_track_id_by_feed_guid_and_item_guid(&conn, feed_guid, &key.item_guid)
+                    .ok()
+                    .flatten()
+            }
+            Some(ReleaseKey::LibraryFeed(feed_id)) => {
+                db::find_track_id_by_feed_id_and_item_guid(&conn, *feed_id, &key.item_guid)
+                    .ok()
+                    .flatten()
+            }
+            None => None,
+        }
+    }
+
+    /// Restores the stored track page source for a navigation entry that a
+    /// breadcrumb or a history move (Back or Forward) just restored (ADR
+    /// 0084 Decision 4). Clears the stored source for every other entry.
+    pub(super) fn restore_track_page_source_for_nav(
+        &mut self,
+        entry: &FrameNavigationEntry,
+        cx: &mut Context<Self>,
+    ) {
+        let FrameNavigationEntry::Track(key) = entry else {
+            self.track_page_source = None;
+            return;
+        };
+        self.apply_track_page_source(key, cx);
+    }
+
+    /// The title `MusicIndex` gave for a track's own fetch, when it already
+    /// loaded (ADR 0084 Decision 4). `None` before the fetch loads, after
+    /// it fails, or when the title text is empty.
+    pub(super) fn index_track_loaded_title(&self, target: &str) -> Option<String> {
+        match self.index_track_detail_state.as_ref()? {
+            IndexTrackDetailState::Loaded {
+                target: loaded_target,
+                track,
+            } if loaded_target == target => {
+                track.title.clone().filter(|title| !title.trim().is_empty())
+            }
+            _ => None,
+        }
+    }
+
+    /// The label an opening row gave a track, by its Index activation
+    /// target (ADR 0084 Decision 4), or "Track" when none is known.
+    pub(super) fn track_opening_label(&self, target: &str) -> String {
+        self.track_page_labels
+            .get(target)
+            .cloned()
+            .unwrap_or_else(|| "Track".to_string())
     }
 
     /// Starts the Index feed detail-on-open fetch, and records the loading
@@ -841,39 +943,6 @@ impl TopApp {
                 });
                 cx.notify();
             },
-        );
-    }
-
-    /// Restores the Index track detail-on-open fetch for a navigation
-    /// entry that a breadcrumb or a history move just restored (ADR 0075
-    /// packet 047). Starts no fetch when `entry` is not an Index track
-    /// detail page, when the operator reached it from the name-match page
-    /// (that page's own fetch already carries its full detail), or when
-    /// the mounted page already matches its activation target.
-    pub(super) fn restore_index_track_detail_for_nav(
-        &mut self,
-        entry: &FrameNavigationEntry,
-        cx: &mut Context<Self>,
-    ) {
-        let FrameNavigationEntry::IndexTrackDetail { id, .. } = entry else {
-            return;
-        };
-        if self.search_results_detail.is_none() && self.name_match_page.is_none() {
-            return;
-        }
-        let activation_id = format!("index-track:{id}");
-        if self.name_match_page_track_row(&activation_id).is_some() {
-            return;
-        }
-        if index_track_detail_result_is_current(self.index_track_detail_state.as_ref(), id) {
-            return;
-        }
-        let (feed_guid, track_guid) = split_index_track_target(id);
-        self.fetch_index_track_detail_page(
-            id.clone(),
-            feed_guid.map(str::to_string),
-            track_guid.to_string(),
-            cx,
         );
     }
 
@@ -1468,6 +1537,8 @@ impl TopApp {
             .and_then(|id| self.workspace_layout.frame_nav(id))
             .map(|nav| nav.current().clone());
         let updates_open_page = release_download_updates_open_page(current.as_ref(), feed_guid);
+        let updates_open_track_page =
+            track_release_download_updates_open_page(current.as_ref(), feed_guid);
         self.library.update(cx, |library, cx| {
             if updates_open_page {
                 if let Some(album) = library.album_for_detail_by_feed_id(feed_id) {
@@ -1479,6 +1550,15 @@ impl TopApp {
         if updates_open_page {
             self.release_page_source = Some(ReleasePageSource::Library { feed_id });
         }
+        // ADR 0084 Decision 4: "Download album" on a track page downloads
+        // the whole release. The open track page of that release resolves
+        // its source again, the same shared completion the release page
+        // uses.
+        if updates_open_track_page {
+            if let Some(FrameNavigationEntry::Track(key)) = current {
+                self.apply_track_page_source(&key, cx);
+            }
+        }
 
         if let Some(content_frame_id) = self.content_list_frame_id() {
             self.sync_search_results_detail_with_nav(content_frame_id);
@@ -1487,6 +1567,10 @@ impl TopApp {
     }
 
     fn download_index_track(&mut self, feed: &FeedView, track: &TrackView, cx: &mut Context<Self>) {
+        let downloaded_key = TrackKey::from_index_track_target(
+            feed_guid_from_view(feed).as_deref(),
+            track_guid_from_view(track).unwrap_or_default(),
+        );
         let command = SubscribeTrack::new(
             Arc::clone(&self.conn),
             self.application_services.download_manager(),
@@ -1506,11 +1590,20 @@ impl TopApp {
             command,
             CommandContext::next(),
             cx,
-            |this, result, cx| {
+            move |this, result, cx| {
                 this.settings_status = result.message().to_string();
                 this.reload_cached(cx);
                 this.library.update(cx, LibraryApp::refresh);
                 this.scan_tags_after_search_download(cx);
+                // ADR 0084 Decision 4: the open track page of this exact
+                // track resolves its source again, in place.
+                let current = this
+                    .content_list_frame_id()
+                    .and_then(|id| this.workspace_layout.frame_nav(id))
+                    .map(|nav| nav.current().clone());
+                if track_download_updates_open_page(current.as_ref(), Some(&downloaded_key)) {
+                    this.apply_track_page_source(&downloaded_key, cx);
+                }
             },
             |this, error, _cx| {
                 this.settings_status = format!("Error downloading track: {error:#}");

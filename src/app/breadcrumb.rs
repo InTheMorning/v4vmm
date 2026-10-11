@@ -3,7 +3,7 @@
 use gpui::Context;
 
 use crate::view_models::workspace::{
-    FrameNavigationEntry, FrameNavigationState, ReleaseKey, WorkspaceFrameId,
+    FrameNavigationEntry, FrameNavigationState, ReleaseKey, TrackKey, WorkspaceFrameId,
 };
 
 use super::TopApp;
@@ -33,12 +33,15 @@ impl TopApp {
     ) -> String {
         match entry {
             // ADR 0084 Decision 9: the Library gives the names of its pages.
-            FrameNavigationEntry::TrackDetail(_) | FrameNavigationEntry::PlaylistDetail(_) => {
+            FrameNavigationEntry::PlaylistDetail(_) => {
                 self.library.read(cx).navigation_label(entry)
             }
             // ADR 0084 Decision 4: the Library album name, the loaded Index
             // title, or the label the opening row gave.
             FrameNavigationEntry::Release(key) => self.release_navigation_label(key, cx),
+            // ADR 0084 Decision 4: the Library track title, the loaded
+            // Index title, or the label the opening row gave.
+            FrameNavigationEntry::Track(key) => self.track_navigation_label(key, cx),
             // ADR 0077 packet 004, R4-04: the breadcrumb text is the
             // publisher page view model title, when the page has loaded.
             FrameNavigationEntry::PublisherDetail(publisher_feed_guid) => self
@@ -64,6 +67,21 @@ impl TopApp {
                 .unwrap_or_else(|| self.release_opening_label(feed_guid)),
             ReleaseKey::LibraryFeed(_) => "Release".to_string(),
         }
+    }
+
+    /// The breadcrumb label of a track entry (ADR 0084 Decision 4): the
+    /// Library track title, the loaded Index title, or the label the
+    /// opening row gave. "Track" shows when none of these is known.
+    ///
+    /// Each segment uses its own key, never the source of the open page, so
+    /// a path with two tracks shows two titles.
+    fn track_navigation_label(&self, key: &TrackKey, cx: &mut Context<Self>) -> String {
+        if let Some(label) = self.library.read(cx).track_label(key) {
+            return label;
+        }
+        let target = key.index_target();
+        self.index_track_loaded_title(&target)
+            .unwrap_or_else(|| self.track_opening_label(&target))
     }
 
     /// Opens a breadcrumb segment (ADR 0084 Decision 9). The segment is a

@@ -162,7 +162,7 @@ pub(crate) fn render_library_sidebar(
 
                 if album_expanded {
                     for track in &album.tracks {
-                        let track_id = track.id;
+                        let track_key = track.track_key();
                         let is_selected = selected_id == Some(track.id);
                         let LibraryTreeTrackDisplay { element_id, title } =
                             LibraryTrackRowVm::new(track, None).tree_display();
@@ -187,7 +187,7 @@ pub(crate) fn render_library_sidebar(
                             .hover(|el| el.bg(color::bg_surface_hi()))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.open_page(
-                                    FrameNavigationEntry::TrackDetail(track_id),
+                                    FrameNavigationEntry::Track(track_key.clone()),
                                     NavigationPathStart::NewPath,
                                     cx,
                                 );

@@ -31,8 +31,10 @@ pub(crate) use chrome::{
 };
 pub(crate) use frame::{WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState};
 pub(crate) use nav::{
-    release_download_updates_open_page, resolve_release_page_source, FrameNavigationEntry,
-    FrameNavigationState, NavigationPathStart, ReleaseKey, ReleasePageSource,
+    release_download_updates_open_page, resolve_release_page_source, resolve_track_page_source,
+    track_download_updates_open_page, track_release_download_updates_open_page,
+    FrameNavigationEntry, FrameNavigationState, NavigationPathStart, ReleaseKey, ReleasePageSource,
+    TrackKey, TrackPageSource,
 };
 
 /// `FrameDetachEligibility` and `FrameDockTarget` are ADR 0046 Task 014
@@ -628,7 +630,9 @@ fn default_navigation_entry(kind: WorkspaceFrameKind) -> FrameNavigationEntry {
         WorkspaceFrameKind::SourceList | WorkspaceFrameKind::ContentList => {
             FrameNavigationEntry::SourceList
         }
-        WorkspaceFrameKind::Detail => FrameNavigationEntry::TrackDetail(0),
+        WorkspaceFrameKind::Detail => {
+            FrameNavigationEntry::Track(TrackKey::from_index_track_target(None, String::new()))
+        }
         WorkspaceFrameKind::QueueNowPlaying => FrameNavigationEntry::QueueNowPlaying,
     }
 }

@@ -157,3 +157,11 @@ Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 202
 - Owner: [task 015](tasks/adr-0046-task-015-forward-navigation.md#operator-visual-check).
 - Scheduling: it needs a macOS desktop session.
 - V2, macOS part: `cmd-[` and `cmd-]` outside a text box do the same as Back and Forward. Indent and outdent still work in a macOS text box.
+
+## 5. One Track Route — ADR 0084 Task 003
+
+Open - implementation and mechanical checks are complete on 2026-10-11. Operator inspection is pending.
+
+- Owner: [task 003](tasks/adr-0084-task-003-one-track-route.md#operator-visual-check).
+- Scheduling: walk it before Phase 4A packet 004 starts. Step 8 downloads one release into the Library. It needs a reachable MusicIndex endpoint.
+- V1 to V5: a content-list track row opens its page, and one page for a track from each origin. A download in place, Back to an Index track, and widths, themes and scale.

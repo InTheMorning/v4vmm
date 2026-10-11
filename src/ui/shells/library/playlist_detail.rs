@@ -125,7 +125,7 @@ fn render_eager_playlist_detail(
         .track_rows()
         .into_iter()
         .map(|row| {
-            let track_id_for_select = row.track().id;
+            let track_key_for_select = row.track().track_key();
             let position = row.position();
             let thumbnail = row
                 .thumb_url()
@@ -156,7 +156,7 @@ fn render_eager_playlist_detail(
                 thumbnail: Some(render_album_thumb(thumbnail, 24.0, cx)),
                 on_select: Some(click_slot(cx.listener(move |this, _, _, cx| {
                     this.open_page(
-                        FrameNavigationEntry::TrackDetail(track_id_for_select),
+                        FrameNavigationEntry::Track(track_key_for_select.clone()),
                         NavigationPathStart::CurrentPath,
                         cx,
                     );
@@ -347,7 +347,7 @@ fn render_ready_paged_playlist_row(
     playback_availability: Result<(), crate::application::capability::ExecutionUnavailable>,
     cx: &mut Context<LibraryApp>,
 ) -> PlaylistShellRow {
-    let track_id_for_select = track.id;
+    let track_key_for_select = track.track_key();
     let position_i64 = i64::try_from(position).unwrap_or(i64::MAX);
     let prev_position_i64 = position_i64 - 1;
     let next_position_i64 = position_i64 + 1;
@@ -378,7 +378,7 @@ fn render_ready_paged_playlist_row(
         thumbnail: Some(render_album_thumb(thumbnail, 24.0, cx)),
         on_select: Some(click_slot(cx.listener(move |this, _, _, cx| {
             this.open_page(
-                FrameNavigationEntry::TrackDetail(track_id_for_select),
+                FrameNavigationEntry::Track(track_key_for_select.clone()),
                 NavigationPathStart::CurrentPath,
                 cx,
             );

@@ -35,7 +35,6 @@ use crate::application::{ApplicationServices, AsyncCommandRunner, CommandContext
 use crate::db::{self, TrackRow};
 use crate::feed_service::track_row_to_track_context;
 use crate::library_path::LibraryRelativePath;
-use crate::library_service;
 use crate::media::ImageCache;
 use crate::metadata::{
     auto_populated_pending_id3_edits, pending_id3_conflict_descriptions,
@@ -81,7 +80,7 @@ use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::track_detail::TrackNameLinkTarget;
 use crate::view_models::workspace::{
     ContentFilter, ContentViewMode, ContentViewModeControlDisplay, FrameNavigationEntry,
-    LibraryFilterControlDisplay, NavigationPathStart, ReleaseKey,
+    LibraryFilterControlDisplay, NavigationPathStart, ReleaseKey, TrackKey,
 };
 use crate::views::{EntityIdentityLinks, LocalIdentityFacts};
 use gpui::{
@@ -457,6 +456,15 @@ impl LibraryApp {
             cx.emit(super::LibraryAppEvent::OpenIndexFeedDetail {
                 feed_guid: selection.feed_guid,
                 label: selection.label,
+            });
+            return;
+        }
+        // ADR 0084 Decision 4: a Library track row in the content list
+        // opens its track page in the current path.
+        if let Some(key) = self.vm.content_list_track_row_key(row_id) {
+            cx.emit(super::LibraryAppEvent::OpenPage {
+                entry: FrameNavigationEntry::Track(key),
+                start: NavigationPathStart::CurrentPath,
             });
         }
     }
@@ -1876,28 +1884,19 @@ impl LibraryApp {
     /// Synchronize LibraryApp detail state to match a navigation entry.
     ///
     /// Maps the nav entry to the appropriate Library detail state:
-    /// - `TrackDetail(id)` → look up track and call `select_track`
     /// - `ArtistDetail(name)` → call `select_artist`
     /// - `PlaylistDetail(id)` → call `select_playlist` (ADR 0084 Decision 9)
     /// - `Search(_)` / `SourceList` / others → clear detail to root state
     ///
-    /// A `Release` entry mounts through the top app's resolved data source
-    /// (ADR 0084 Decision 4), not through this generic hydrate path.
+    /// A `Release` entry and a `Track` entry mount through the top app's
+    /// resolved data source (ADR 0084 Decision 4), not through this
+    /// generic hydrate path.
     pub(crate) fn hydrate_detail_from_nav(
         &mut self,
         entry: &FrameNavigationEntry,
         cx: &mut Context<Self>,
     ) {
         match entry {
-            FrameNavigationEntry::TrackDetail(track_id) => {
-                if let Some(track_row) = self.conn.lock().ok().and_then(|conn| {
-                    library_service::track_row_by_id(&conn, *track_id)
-                        .ok()
-                        .flatten()
-                }) {
-                    self.select_track(&track_row, cx);
-                }
-            }
             FrameNavigationEntry::ArtistDetail(name) => {
                 self.select_artist(name, cx);
             }
@@ -1906,14 +1905,14 @@ impl LibraryApp {
             }
             FrameNavigationEntry::Search(_)
             | FrameNavigationEntry::IndexNameMatches(_)
-            | FrameNavigationEntry::IndexTrackDetail { .. }
             | FrameNavigationEntry::SourceList
             | FrameNavigationEntry::Settings => {
                 // Reset detail to default/unset state for root navigation
                 self.clear_detail();
             }
-            // `Release` mounts through the top app. Other nav entries
-            // (ReadinessIssues, QueueNowPlaying) don't drive library detail.
+            // `Release` and `Track` mount through the top app. Other nav
+            // entries (ReadinessIssues, QueueNowPlaying) don't drive
+            // library detail.
             _ => {}
         }
     }
@@ -2125,12 +2124,6 @@ impl LibraryApp {
                 .vm
                 .playlist_by_id(*playlist_id)
                 .map_or_else(|| "Playlist".to_string(), |playlist| playlist.name),
-            FrameNavigationEntry::TrackDetail(track_id) => {
-                self.find_track_by_id(*track_id).map_or_else(
-                    || "Track".to_string(),
-                    |track| LibraryTrackRowVm::new(track, None).display_title(),
-                )
-            }
             FrameNavigationEntry::Release(key) => self
                 .release_label(key)
                 .unwrap_or_else(|| "Release".to_string()),
@@ -2157,14 +2150,18 @@ impl LibraryApp {
         }
     }
 
-    fn find_track_by_id(&self, track_id: i64) -> Option<&TrackRow> {
+    /// The Library track title of a track key, when the Library holds that
+    /// track (ADR 0084 Decision 4). The breadcrumb labels each track
+    /// segment by its own key.
+    pub(crate) fn track_label(&self, key: &TrackKey) -> Option<String> {
         self.vm
             .tree()
             .artists
             .iter()
             .flat_map(|artist| &artist.albums)
             .flat_map(|album| &album.tracks)
-            .find(|track| track.id == track_id)
+            .find(|track| track.track_key() == *key)
+            .map(|track| LibraryTrackRowVm::new(track, None).display_title())
     }
 
     pub(crate) fn toggle_artist(&mut self, name: &str) {

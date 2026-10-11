@@ -1,15 +1,22 @@
 use super::{
-    release_download_updates_open_page, resolve_release_page_source, BreadcrumbDisplay,
+    release_download_updates_open_page, resolve_release_page_source, resolve_track_page_source,
+    track_download_updates_open_page, track_release_download_updates_open_page, BreadcrumbDisplay,
     BreadcrumbTruncation, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
     FilterChipStripDisplay, FilterChipStripWidthClass, FrameDetachEligibility, FrameDockTarget,
     FrameNavigationEntry, FrameNavigationState, FrameShellDisplay, LibraryFilterControlDisplay,
-    LibraryFilterControlTreatment, ReleaseKey, ReleasePageSource, WorkspaceFrameConfig,
-    WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
-    WorkspaceLayoutConfig, WorkspaceModelError,
+    LibraryFilterControlTreatment, ReleaseKey, ReleasePageSource, TrackKey, TrackPageSource,
+    WorkspaceFrameConfig, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState,
+    WorkspaceLayout, WorkspaceLayoutConfig, WorkspaceModelError,
 };
 
 fn frame(id: u64, kind: WorkspaceFrameKind) -> WorkspaceFrameState {
     WorkspaceFrameState::with_default_title(WorkspaceFrameId::new(id), kind)
+}
+
+/// Test helper: a `Track` entry with no release, keyed by `id` as its item
+/// GUID. Distinct `id` values give distinct, comparable entries.
+fn track(id: i64) -> FrameNavigationEntry {
+    FrameNavigationEntry::Track(TrackKey::from_index_track_target(None, id.to_string()))
 }
 
 #[test]
@@ -192,7 +199,7 @@ fn search_filter_chip_strip_width_class_projects_normal_and_narrow_layouts() {
 #[test]
 fn frame_shell_display_disables_empty_history_navigation() {
     let frame = frame(7, WorkspaceFrameKind::Detail);
-    let nav = FrameNavigationState::new(FrameNavigationEntry::TrackDetail(42));
+    let nav = FrameNavigationState::new(track(42));
 
     let display = FrameShellDisplay::from_frame(&frame, &nav, true);
 
@@ -219,7 +226,7 @@ fn frame_shell_display_uses_history_for_navigation_availability() {
     let frame = frame(7, WorkspaceFrameKind::Detail);
     let mut nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(1));
 
-    nav.push(FrameNavigationEntry::TrackDetail(42));
+    nav.push(track(42));
     let with_back = FrameShellDisplay::from_frame(&frame, &nav, true);
 
     assert!(
@@ -248,7 +255,7 @@ fn frame_shell_display_uses_history_for_navigation_availability() {
 #[test]
 fn frame_shell_display_hides_close_when_not_allowed() {
     let frame = frame(7, WorkspaceFrameKind::Detail);
-    let nav = FrameNavigationState::new(FrameNavigationEntry::TrackDetail(42));
+    let nav = FrameNavigationState::new(track(42));
 
     let fixed_frame = FrameShellDisplay::from_frame(&frame, &nav, false);
     let closable_frame = FrameShellDisplay::from_frame(&frame, &nav, true);
@@ -418,12 +425,12 @@ fn frame_shell_display_shows_header_when_frame_facts_exist() {
 #[test]
 fn breadcrumb_display_projects_navigation_path() {
     let mut nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(7));
-    nav.push(FrameNavigationEntry::TrackDetail(42));
+    nav.push(track(42));
 
     let display =
         BreadcrumbDisplay::project("library-track-breadcrumb", &nav, |entry| match entry {
             FrameNavigationEntry::PlaylistDetail(_) => "My Playlist".to_string(),
-            FrameNavigationEntry::TrackDetail(_) => "Lantern Tide".to_string(),
+            FrameNavigationEntry::Track(_) => "Lantern Tide".to_string(),
             _ => "Library".to_string(),
         });
 
@@ -525,10 +532,10 @@ fn breadcrumb_display_projects_index_search_drilldown_path() {
 
 #[test]
 fn breadcrumb_display_projects_single_segment_as_current() {
-    let nav = FrameNavigationState::new(FrameNavigationEntry::TrackDetail(42));
+    let nav = FrameNavigationState::new(track(42));
 
     let display = BreadcrumbDisplay::project("crumbs", &nav, |entry| match entry {
-        FrameNavigationEntry::TrackDetail(id) => format!("Track {id}"),
+        FrameNavigationEntry::Track(key) => format!("Track {}", key.item_guid),
         _ => unreachable!("single-segment test should only project track detail"),
     });
 
@@ -544,13 +551,13 @@ fn breadcrumb_display_projects_single_segment_as_current() {
 fn breadcrumb_display_projects_four_segment_paths_without_ellipsis() {
     let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
     nav.push(FrameNavigationEntry::PlaylistDetail(7));
-    nav.push(FrameNavigationEntry::TrackDetail(42));
+    nav.push(track(42));
     nav.push(FrameNavigationEntry::Release(ReleaseKey::LibraryFeed(11)));
 
     let display = BreadcrumbDisplay::project("crumbs", &nav, |entry| match entry {
         FrameNavigationEntry::SourceList => "Library".to_string(),
         FrameNavigationEntry::PlaylistDetail(id) => format!("Playlist {id}"),
-        FrameNavigationEntry::TrackDetail(id) => format!("Track {id}"),
+        FrameNavigationEntry::Track(key) => format!("Track {}", key.item_guid),
         FrameNavigationEntry::Release(ReleaseKey::LibraryFeed(id)) => format!("Album {id}"),
         _ => unreachable!("long-path test should only project breadcrumb entries"),
     });
@@ -567,10 +574,7 @@ fn breadcrumb_display_projects_four_segment_paths_without_ellipsis() {
         Some(FrameNavigationEntry::PlaylistDetail(7))
     );
     assert_eq!(display.segments[2].label, "Track 42");
-    assert_eq!(
-        display.segments[2].target,
-        Some(FrameNavigationEntry::TrackDetail(42))
-    );
+    assert_eq!(display.segments[2].target, Some(track(42)));
     assert_eq!(display.segments[3].label, "Album 11");
     assert!(display.segments[3].is_current);
     assert_eq!(display.segments[3].target, None);
@@ -586,7 +590,7 @@ fn workspace_frame_navigation_isolated_per_frame() {
         .reset_nav(first, FrameNavigationEntry::PlaylistDetail(7))
         .expect("first frame should exist");
     layout
-        .reset_nav(second, FrameNavigationEntry::TrackDetail(42))
+        .reset_nav(second, track(42))
         .expect("second frame should exist");
 
     assert_eq!(
@@ -601,7 +605,7 @@ fn workspace_frame_navigation_isolated_per_frame() {
             .frame_nav(second)
             .expect("second frame navigation should exist")
             .current(),
-        &FrameNavigationEntry::TrackDetail(42)
+        &track(42)
     );
 
     assert_eq!(
@@ -610,7 +614,7 @@ fn workspace_frame_navigation_isolated_per_frame() {
         "a single-entry history should not go back"
     );
     layout
-        .push_nav(first, FrameNavigationEntry::TrackDetail(99))
+        .push_nav(first, track(99))
         .expect("first frame should exist");
     assert_eq!(
         layout.pop_nav(first),
@@ -622,7 +626,7 @@ fn workspace_frame_navigation_isolated_per_frame() {
             .frame_nav(second)
             .expect("second frame navigation should remain intact")
             .current(),
-        &FrameNavigationEntry::TrackDetail(42)
+        &track(42)
     );
 }
 
@@ -837,7 +841,7 @@ fn replace_nav_preserves_full_history_for_visible_layout_projection() {
         .reset_nav(detail_id, FrameNavigationEntry::Search("jazz".to_string()))
         .expect("detail frame should exist");
     source
-        .push_nav(detail_id, FrameNavigationEntry::TrackDetail(9))
+        .push_nav(detail_id, track(9))
         .expect("detail frame should accept drill-down");
 
     let mut projected = WorkspaceLayout::new(
@@ -858,7 +862,7 @@ fn replace_nav_preserves_full_history_for_visible_layout_projection() {
     let nav = projected
         .frame_nav(detail_id)
         .expect("projected detail nav should exist");
-    assert_eq!(nav.current(), &FrameNavigationEntry::TrackDetail(9));
+    assert_eq!(nav.current(), &track(9));
     assert_eq!(
         back_page(nav),
         Some(FrameNavigationEntry::Search("jazz".to_string())),
@@ -1181,11 +1185,11 @@ fn navigation_back_forward_boundaries_return_errors() {
 #[test]
 fn navigation_push_pop_round_trip() {
     let mut nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(7));
-    nav.push(FrameNavigationEntry::TrackDetail(42));
+    nav.push(track(42));
 
     assert_eq!(
         nav.current(),
-        &FrameNavigationEntry::TrackDetail(42),
+        &track(42),
         "push should update the current entry"
     );
     assert!(nav.can_go_back(), "push should create back history");
@@ -1203,7 +1207,7 @@ fn navigation_push_pop_round_trip() {
 
     assert_eq!(
         nav.go_forward().cloned(),
-        Ok(FrameNavigationEntry::TrackDetail(42)),
+        Ok(track(42)),
         "go_forward should restore the pushed entry"
     );
     assert!(
@@ -1219,7 +1223,7 @@ fn navigation_push_pop_round_trip() {
 fn adr_0046_forward_chrome_display_enables_forward_after_back() {
     let frame = frame(7, WorkspaceFrameKind::Detail);
     let mut nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(1));
-    nav.push(FrameNavigationEntry::TrackDetail(42));
+    nav.push(track(42));
 
     let before_back = FrameShellDisplay::from_frame(&frame, &nav, true);
     assert!(
@@ -1242,7 +1246,7 @@ fn adr_0046_forward_chrome_display_enables_forward_after_back() {
 fn adr_0046_forward_push_after_back_clears_forward_history() {
     let frame = frame(7, WorkspaceFrameKind::Detail);
     let mut nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(1));
-    nav.push(FrameNavigationEntry::TrackDetail(42));
+    nav.push(track(42));
     nav.go_back()
         .expect("pushed navigation should allow going back");
     assert!(
@@ -1268,7 +1272,7 @@ fn adr_0046_forward_pop_nav_forward_restores_entry_back_left() {
     let content_list_id = WorkspaceLayout::default_content_frame_id();
 
     layout
-        .push_nav(content_list_id, FrameNavigationEntry::TrackDetail(42))
+        .push_nav(content_list_id, track(42))
         .expect("content-list frame should exist");
 
     let entry_back_left = layout
@@ -1285,7 +1289,7 @@ fn adr_0046_forward_pop_nav_forward_restores_entry_back_left() {
         .expect("a Back press should leave a forward entry");
     assert_eq!(
         restored_by_forward,
-        FrameNavigationEntry::TrackDetail(42),
+        track(42),
         "Forward should restore the entry that Back left"
     );
 
@@ -1356,15 +1360,15 @@ fn navigation_push_current_entry_is_noop() {
 #[test]
 fn navigation_reset_clears_back_and_forward_history() {
     let mut nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(7));
-    nav.push(FrameNavigationEntry::TrackDetail(42));
+    nav.push(track(42));
     nav.go_back()
         .expect("pushed navigation should allow going back");
 
-    nav.reset(FrameNavigationEntry::TrackDetail(99));
+    nav.reset(track(99));
 
     assert_eq!(
         nav.current(),
-        &FrameNavigationEntry::TrackDetail(99),
+        &track(99),
         "reset should replace the current entry"
     );
     assert!(!nav.can_go_back(), "reset should clear back history");
@@ -1508,16 +1512,16 @@ fn adr_0084_nav_location_path_holds_each_page_once() {
         FrameNavigationEntry::SourceList,
         Some(FrameNavigationEntry::PlaylistDetail(0)),
     );
-    nav.push(FrameNavigationEntry::TrackDetail(7));
+    nav.push(track(7));
     nav.push(FrameNavigationEntry::Release(ReleaseKey::LibraryFeed(3)));
-    nav.push(FrameNavigationEntry::TrackDetail(7));
+    nav.push(track(7));
 
     assert_eq!(
         nav.path_entries(),
         vec![
             FrameNavigationEntry::SourceList,
             FrameNavigationEntry::PlaylistDetail(0),
-            FrameNavigationEntry::TrackDetail(7),
+            track(7),
         ],
         "the second open of the track must cut the path at the track"
     );
@@ -1529,7 +1533,7 @@ fn adr_0084_nav_location_path_holds_each_page_once() {
 fn adr_0084_nav_push_of_path_page_cuts_path_and_back_restores() {
     let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
     nav.push(FrameNavigationEntry::PlaylistDetail(0));
-    nav.push(FrameNavigationEntry::TrackDetail(7));
+    nav.push(track(7));
     let longer_path = nav.path_entries();
 
     nav.push(FrameNavigationEntry::SourceList);
@@ -1541,7 +1545,7 @@ fn adr_0084_nav_push_of_path_page_cuts_path_and_back_restores() {
     );
     assert_eq!(
         nav.go_back().cloned(),
-        Ok(FrameNavigationEntry::TrackDetail(7)),
+        Ok(track(7)),
         "Back must return to the page before the cut"
     );
     assert_eq!(
@@ -1557,7 +1561,7 @@ fn adr_0084_nav_push_of_path_page_cuts_path_and_back_restores() {
 fn adr_0084_nav_start_path_holds_destination_and_page() {
     let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
     nav.push(FrameNavigationEntry::PlaylistDetail(0));
-    nav.push(FrameNavigationEntry::TrackDetail(7));
+    nav.push(track(7));
     let earlier_path = nav.path_entries();
 
     nav.start_path(
@@ -1669,9 +1673,9 @@ fn adr_0084_nav_breadcrumb_projects_location_not_history() {
         FrameNavigationEntry::SourceList,
         Some(FrameNavigationEntry::PlaylistDetail(0)),
     );
-    nav.push(FrameNavigationEntry::TrackDetail(7));
+    nav.push(track(7));
     nav.push(FrameNavigationEntry::PlaylistDetail(0));
-    nav.push(FrameNavigationEntry::TrackDetail(7));
+    nav.push(track(7));
 
     let display = BreadcrumbDisplay::project("crumbs", &nav, FrameNavigationEntry::display_label);
     let ids: Vec<_> = display
@@ -1802,6 +1806,135 @@ fn adr_0084_release_download_updates_only_the_open_release_page() {
     );
     assert!(
         !release_download_updates_open_page(Some(&open), None),
+        "a download with no feed GUID must not change the open page"
+    );
+}
+
+/// R3-01 (ADR 0084 Decision 4): the track key of a Library track with a
+/// feed GUID equals the track key of an Index target with the same feed
+/// GUID and item GUID.
+#[test]
+fn adr_0084_track_feed_guid_key_matches_across_origins() {
+    let library_key = TrackKey {
+        release: Some(ReleaseKey::FeedGuid("feed-guid".to_string())),
+        item_guid: "item-guid".to_string(),
+    };
+    let index_key = TrackKey::from_index_track_target(Some("feed-guid"), "item-guid");
+
+    assert_eq!(library_key, index_key);
+}
+
+/// R3-02 (ADR 0084 Decision 4): the track key of a Library track in a feed
+/// with no feed GUID carries `ReleaseKey::LibraryFeed`.
+#[test]
+fn adr_0084_track_library_feed_key_carries_its_feed_id() {
+    let key = TrackKey {
+        release: Some(ReleaseKey::LibraryFeed(42)),
+        item_guid: "item-guid".to_string(),
+    };
+
+    assert_eq!(key.release, Some(ReleaseKey::LibraryFeed(42)));
+    assert_ne!(key.release, Some(ReleaseKey::FeedGuid("42".to_string())));
+}
+
+/// R3-03 (ADR 0084 Decision 4): the resolver gives the Library source when
+/// the lookup finds the track, and the Index source when it does not. A
+/// key with no release gives the Index source, whatever the lookup gives.
+#[test]
+fn adr_0084_track_resolver_follows_the_lookup_result() {
+    let feed_guid_key = TrackKey::from_index_track_target(Some("guid"), "item-guid");
+    assert_eq!(
+        resolve_track_page_source(&feed_guid_key, Some(9)),
+        TrackPageSource::Library { track_id: 9 },
+        "a found track resolves to the Library source"
+    );
+    assert_eq!(
+        resolve_track_page_source(&feed_guid_key, None),
+        TrackPageSource::Index {
+            target: "guid:item-guid".to_string()
+        },
+        "no found track resolves to the Index source"
+    );
+
+    let no_release_key = TrackKey::from_index_track_target(None, "item-guid");
+    assert_eq!(
+        resolve_track_page_source(&no_release_key, None),
+        TrackPageSource::Index {
+            target: "item-guid".to_string()
+        },
+        "a key with no release gives the Index source"
+    );
+    assert_eq!(
+        resolve_track_page_source(&no_release_key, Some(9)),
+        TrackPageSource::Index {
+            target: "item-guid".to_string()
+        },
+        "a key with no release gives the Index source even when a lookup result is given"
+    );
+}
+
+/// R3-06 support (ADR 0084 Decision 4): a completed single-track download
+/// changes only the open track page of that exact track.
+#[test]
+fn adr_0084_track_download_updates_only_the_open_track_page() {
+    let open =
+        FrameNavigationEntry::Track(TrackKey::from_index_track_target(Some("feed-a"), "item-a"));
+    let other =
+        FrameNavigationEntry::Track(TrackKey::from_index_track_target(Some("feed-a"), "item-b"));
+    let downloaded = TrackKey::from_index_track_target(Some("feed-a"), "item-a");
+
+    assert!(track_download_updates_open_page(
+        Some(&open),
+        Some(&downloaded)
+    ));
+    assert!(
+        !track_download_updates_open_page(Some(&other), Some(&downloaded)),
+        "a download must not change another open track"
+    );
+    assert!(
+        !track_download_updates_open_page(
+            Some(&FrameNavigationEntry::SourceList),
+            Some(&downloaded)
+        ),
+        "a download must not change a page that is not a track"
+    );
+    assert!(
+        !track_download_updates_open_page(Some(&open), None),
+        "a download with no key must not change the open page"
+    );
+}
+
+/// R3-06 support (ADR 0084 Decision 4): a completed album download changes
+/// only the open track page of a track in the downloaded release.
+#[test]
+fn adr_0084_track_release_download_updates_only_the_open_track_page() {
+    let open =
+        FrameNavigationEntry::Track(TrackKey::from_index_track_target(Some("feed-a"), "item-a"));
+    let other =
+        FrameNavigationEntry::Track(TrackKey::from_index_track_target(Some("feed-b"), "item-b"));
+    let no_release = FrameNavigationEntry::Track(TrackKey::from_index_track_target(None, "item-c"));
+
+    assert!(track_release_download_updates_open_page(
+        Some(&open),
+        Some("feed-a")
+    ));
+    assert!(
+        !track_release_download_updates_open_page(Some(&other), Some("feed-a")),
+        "a download must not change a track of a different release"
+    );
+    assert!(
+        !track_release_download_updates_open_page(Some(&no_release), Some("feed-a")),
+        "a track with no release never matches a downloaded release"
+    );
+    assert!(
+        !track_release_download_updates_open_page(
+            Some(&FrameNavigationEntry::SourceList),
+            Some("feed-a")
+        ),
+        "a download must not change a page that is not a track"
+    );
+    assert!(
+        !track_release_download_updates_open_page(Some(&open), None),
         "a download with no feed GUID must not change the open page"
     );
 }

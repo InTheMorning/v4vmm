@@ -403,7 +403,7 @@ fn render_library_track_row(
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let track_for_click = track.clone();
-    let track_id_for_select = track.id;
+    let track_key_for_select = track.track_key();
     let track_id = track.id;
     let vm = LibraryTrackRowVm::new(track, mb_status.get(&track_id));
     let EntityActionVm {
@@ -496,7 +496,7 @@ fn render_library_track_row(
         .thumbnail(thumbnail)
         .on_click(cx.listener(move |this, _, _, cx| {
             this.open_page(
-                FrameNavigationEntry::TrackDetail(track_id_for_select),
+                FrameNavigationEntry::Track(track_key_for_select.clone()),
                 NavigationPathStart::CurrentPath,
                 cx,
             );

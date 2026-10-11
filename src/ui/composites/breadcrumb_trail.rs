@@ -147,7 +147,7 @@ fn separator(color: gpui::Rgba) -> AnyElement {
 mod tests {
     use super::*;
     use crate::view_models::workspace::{
-        BreadcrumbSegment, BreadcrumbTruncation, FrameNavigationEntry,
+        BreadcrumbSegment, BreadcrumbTruncation, FrameNavigationEntry, TrackKey,
     };
 
     fn test_breadcrumb_display() -> BreadcrumbDisplay {
@@ -165,7 +165,9 @@ mod tests {
                     id: "seg-1".to_string(),
                     label: "Track 42".to_string(),
                     a11y_label: "Track 42".to_string(),
-                    target: Some(FrameNavigationEntry::TrackDetail(42)),
+                    target: Some(FrameNavigationEntry::Track(
+                        TrackKey::from_index_track_target(None, "42"),
+                    )),
                     is_current: true,
                 },
             ],
