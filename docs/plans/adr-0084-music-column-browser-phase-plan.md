@@ -45,6 +45,10 @@ The overhaul plan names eight steps. Step 2 has two packets, 002 and 003, becaus
 3. [ADR 0082 tasks 002 and 003](adr-0082-publisher-roles-phase-plan.md) before packet 006. Packet 006 replaces the publisher page layout that task 002 changes.
 4. Packets 004 to 009 in register order. Write each packet at the start of its session, from the result of the packet before it.
 
+## Open Findings
+
+- 2026-10-11: a track row on an Index release page has no click action, so it opens no track page. An Index track page opens only from a search result or a name-match page. ADR 0084 Decision 4 gives each track one page, and a Library release page row opens its track page. No packet owns this yet. Packet 007, the shared row and selection model, is the first packet that changes these rows (`index_feed_track_rows` in `src/app/search_dispatch.rs`).
+
 ## Affected Modules
 
 - Navigation: `src/view_models/workspace/`, `src/app.rs`, `src/app/breadcrumb.rs`.

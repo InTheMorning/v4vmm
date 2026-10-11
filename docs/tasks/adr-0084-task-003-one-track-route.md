@@ -100,7 +100,7 @@ These are for the operator. No test proves them.
 - V1: a click on a Library track row in the content list opens its track page.
 - V2: one track opened from a playlist and from an Index search shows the same page layout, with its Library state.
 - V3: "Download album" on an Index track page changes the page to the Library state in place. Back goes to the page before the track.
-- V4: Back to an Index track page after the search closes shows that track, not the content list.
+- V4: Back and Forward restore an Index track page with its MusicIndex detail. The 2026-10-11 correction: an Index track page opens only from a search, so the check leaves the search with Back and returns with Forward.
 - V5: normal and narrow widths, Light and Dark.
 
 ## Exclusions
@@ -392,23 +392,26 @@ MusicIndex that is not in your Library.
    - Correct: the page before the track shows, for example the search results.
    - Incorrect: the track page shows again, or the content area is empty.
 
-**V4 - Back to an Index track page after the search closes**
+**V4 - Back and Forward restore an Index track page**
+
+The search page fills the content area, so no sidebar shows during a search. An Index track page opens only from a search result or a name-match page. These steps leave the search with Back and return with Forward.
 
 10. Search for a track that is not in your Library. Open its Index result.
-11. Close the search, for example by opening a different page from the sidebar, then click Back
-    to the track.
-    - Correct: the track page shows again, with its MusicIndex detail, not the content list.
-    - Incorrect: the content list shows, not the track.
+11. Click Back two times. The first Back shows the search results. The second Back shows the page before the search.
+    - Correct: the second Back shows the page before the search, with the sidebar.
+12. Click Forward two times.
+    - Correct: the search results show, then the same track page, with its MusicIndex detail.
+    - Incorrect: the content list shows, not the track, or the track page shows no detail.
 
 **V5 - widths, themes and scale**
 
-12. Resize the window to its usual width, then to its narrowest width. Open Settings -> General
+13. Resize the window to its usual width, then to its narrowest width. Open Settings -> General
     (`Ctrl+Comma`). Select Light, then Dark, then a larger scale. Reopen a track page after each
     change.
     - Correct: the track page, its image, its actions and the breadcrumb lay out with no clipped
       text and no clipped control.
     - Incorrect: a control is clipped, overlaps a different control, or disappears.
-13. Close the app.
+14. Close the app.
 
 **Clean-up**
 

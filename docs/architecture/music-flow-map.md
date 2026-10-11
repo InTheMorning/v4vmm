@@ -78,7 +78,7 @@ A read-only agent wrote it from the code at commit `204382e` and later. The orch
 | Search results | `Search` | The toolbar search |
 | Name match page | `IndexNameMatches` | An Index artist search result, an artist name link of an Index album |
 | Index album page | `IndexFeedDetail` | A feed search result, a content list row, an album name link of an Index track |
-| Index track page | `IndexTrackDetail` | A track search result, a name match row, a track row of the Index album page |
+| Index track page | `IndexTrackDetail` | A track search result, a name match row. Correction of 2026-10-11: a track row of the Index album page has no click action |
 | Publisher page | `PublisherDetail` | A publisher name link only |
 | Readiness list | `ReadinessIssues` | Show only |
 
