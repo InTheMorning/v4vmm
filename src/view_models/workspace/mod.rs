@@ -30,7 +30,10 @@ pub(crate) use chrome::{
     LibraryFilterControlTreatment,
 };
 pub(crate) use frame::{WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState};
-pub(crate) use nav::{FrameNavigationEntry, FrameNavigationState, NavigationPathStart};
+pub(crate) use nav::{
+    release_download_updates_open_page, resolve_release_page_source, FrameNavigationEntry,
+    FrameNavigationState, NavigationPathStart, ReleaseKey, ReleasePageSource,
+};
 
 /// `FrameDetachEligibility` and `FrameDockTarget` are ADR 0046 Task 014
 /// model-only types with no caller outside their own dedicated tests. See

@@ -53,6 +53,7 @@ use crate::view_models::text_filter::contains_normalized;
 use crate::view_models::text_filter::normalize;
 use crate::view_models::workspace::{
     ContentFilter, ContentViewMode, ContentViewModeControlDisplay, LibraryFilterControlDisplay,
+    ReleaseKey,
 };
 use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
 use crate::views::{FeedMetadataFacts, LocalIdentityFacts, TrackRef};
@@ -3871,6 +3872,70 @@ impl AlbumNode {
     #[must_use]
     pub(crate) fn feed_url_for_detail(&self) -> String {
         self.feed_url.clone().unwrap_or_default()
+    }
+
+    /// The release key of this album (ADR 0084 Decision 4). An album with a
+    /// feed GUID uses it, so the same release opened from the Index keys to
+    /// the same navigation entry. An album with no feed GUID uses its
+    /// Library feed id. `None` when the album has neither.
+    #[must_use]
+    pub(crate) fn release_key(&self) -> Option<ReleaseKey> {
+        if let Some(feed_guid) = self.feed_guid.clone() {
+            return Some(ReleaseKey::FeedGuid(feed_guid));
+        }
+        self.feed_id.map(ReleaseKey::LibraryFeed)
+    }
+}
+
+#[cfg(test)]
+mod album_node_release_key_tests {
+    use super::{AlbumNode, FeedMetadataFacts, LocalIdentityFacts, ReleaseKey};
+
+    fn album(feed_id: Option<i64>, feed_guid: Option<&str>) -> AlbumNode {
+        AlbumNode {
+            name: "Selected Ambient Works".to_string(),
+            feed_id,
+            feed_guid: feed_guid.map(str::to_string),
+            feed_url: None,
+            language: None,
+            description: None,
+            image_href: None,
+            publisher_feed_guid: None,
+            identity_facts: LocalIdentityFacts::default(),
+            metadata_facts: Box::<FeedMetadataFacts>::default(),
+            stored_values: None,
+            tracks: Vec::new(),
+        }
+    }
+
+    /// R2-01: the release key of a Library album with a feed GUID equals
+    /// the release key of an Index row with the same feed GUID.
+    #[test]
+    fn adr_0084_release_key_of_album_with_feed_guid_matches_the_index_key() {
+        let key = album(Some(10), Some("saw-guid")).release_key();
+
+        assert_eq!(
+            key,
+            Some(ReleaseKey::from_index_feed_guid("saw-guid")),
+            "a Library album with a feed GUID must key the same as an Index row with that GUID"
+        );
+    }
+
+    /// R2-02: the release key of a Library album with no feed GUID is
+    /// `LibraryFeed` with its feed id.
+    #[test]
+    fn adr_0084_release_key_of_album_with_no_feed_guid_uses_its_feed_id() {
+        let key = album(Some(20), None).release_key();
+
+        assert_eq!(key, Some(ReleaseKey::LibraryFeed(20)));
+    }
+
+    /// An album with neither a feed GUID nor a feed id has no release key.
+    #[test]
+    fn adr_0084_release_key_of_album_with_neither_is_none() {
+        let key = album(None, None).release_key();
+
+        assert_eq!(key, None);
     }
 }
 

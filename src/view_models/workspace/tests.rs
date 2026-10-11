@@ -1,10 +1,11 @@
 use super::{
-    BreadcrumbDisplay, BreadcrumbTruncation, ContentFilter, ContentViewMode,
-    ContentViewModeControlDisplay, FilterChipStripDisplay, FilterChipStripWidthClass,
-    FrameDetachEligibility, FrameDockTarget, FrameNavigationEntry, FrameNavigationState,
-    FrameShellDisplay, LibraryFilterControlDisplay, LibraryFilterControlTreatment,
-    WorkspaceFrameConfig, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState,
-    WorkspaceLayout, WorkspaceLayoutConfig, WorkspaceModelError,
+    release_download_updates_open_page, resolve_release_page_source, BreadcrumbDisplay,
+    BreadcrumbTruncation, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
+    FilterChipStripDisplay, FilterChipStripWidthClass, FrameDetachEligibility, FrameDockTarget,
+    FrameNavigationEntry, FrameNavigationState, FrameShellDisplay, LibraryFilterControlDisplay,
+    LibraryFilterControlTreatment, ReleaseKey, ReleasePageSource, WorkspaceFrameConfig,
+    WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+    WorkspaceLayoutConfig, WorkspaceModelError,
 };
 
 fn frame(id: u64, kind: WorkspaceFrameKind) -> WorkspaceFrameState {
@@ -474,10 +475,9 @@ fn breadcrumb_display_projects_index_search_drilldown_path() {
     nav.push(FrameNavigationEntry::IndexNameMatches(
         "Survival Guide".to_string(),
     ));
-    nav.push(FrameNavigationEntry::IndexFeedDetail {
-        id: "feed-guid".to_string(),
-        label: "deathdreams".to_string(),
-    });
+    nav.push(FrameNavigationEntry::Release(
+        ReleaseKey::from_index_feed_guid("feed-guid"),
+    ));
 
     let display = BreadcrumbDisplay::project("index-search-breadcrumb", &nav, |entry| {
         entry.display_label()
@@ -493,7 +493,10 @@ fn breadcrumb_display_projects_index_search_drilldown_path() {
             "Library",
             "Search: survival guide",
             "\"Survival Guide\"",
-            "deathdreams"
+            // ADR 0084 Decision 4: the entry itself carries no title, so its
+            // fallback label is "Release". The top app supplies the real
+            // title through its own `label_for` closure at the call site.
+            "Release"
         ]
     );
     assert_eq!(
@@ -514,10 +517,7 @@ fn breadcrumb_display_projects_index_search_drilldown_path() {
             FrameNavigationEntry::SourceList,
             FrameNavigationEntry::Search("survival guide".to_string()),
             FrameNavigationEntry::IndexNameMatches("Survival Guide".to_string()),
-            FrameNavigationEntry::IndexFeedDetail {
-                id: "feed-guid".to_string(),
-                label: "deathdreams".to_string(),
-            },
+            FrameNavigationEntry::Release(ReleaseKey::from_index_feed_guid("feed-guid")),
         ],
         "breadcrumb labelers need the same full path rendered by frame chrome"
     );
@@ -545,13 +545,13 @@ fn breadcrumb_display_projects_four_segment_paths_without_ellipsis() {
     let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
     nav.push(FrameNavigationEntry::PlaylistDetail(7));
     nav.push(FrameNavigationEntry::TrackDetail(42));
-    nav.push(FrameNavigationEntry::AlbumDetail(11));
+    nav.push(FrameNavigationEntry::Release(ReleaseKey::LibraryFeed(11)));
 
     let display = BreadcrumbDisplay::project("crumbs", &nav, |entry| match entry {
         FrameNavigationEntry::SourceList => "Library".to_string(),
         FrameNavigationEntry::PlaylistDetail(id) => format!("Playlist {id}"),
         FrameNavigationEntry::TrackDetail(id) => format!("Track {id}"),
-        FrameNavigationEntry::AlbumDetail(id) => format!("Album {id}"),
+        FrameNavigationEntry::Release(ReleaseKey::LibraryFeed(id)) => format!("Album {id}"),
         _ => unreachable!("long-path test should only project breadcrumb entries"),
     });
 
@@ -1250,7 +1250,7 @@ fn adr_0046_forward_push_after_back_clears_forward_history() {
         "a Back press must leave forward history for this test to be meaningful"
     );
 
-    nav.push(FrameNavigationEntry::AlbumDetail(5));
+    nav.push(FrameNavigationEntry::Release(ReleaseKey::LibraryFeed(5)));
 
     let display = FrameShellDisplay::from_frame(&frame, &nav, true);
     assert!(
@@ -1509,7 +1509,7 @@ fn adr_0084_nav_location_path_holds_each_page_once() {
         Some(FrameNavigationEntry::PlaylistDetail(0)),
     );
     nav.push(FrameNavigationEntry::TrackDetail(7));
-    nav.push(FrameNavigationEntry::AlbumDetail(3));
+    nav.push(FrameNavigationEntry::Release(ReleaseKey::LibraryFeed(3)));
     nav.push(FrameNavigationEntry::TrackDetail(7));
 
     assert_eq!(
@@ -1594,7 +1594,7 @@ fn adr_0084_nav_push_after_back_clears_forward_history() {
     nav.go_back().expect("Back must be available");
     assert!(nav.can_go_forward(), "Back must create forward history");
 
-    nav.push(FrameNavigationEntry::AlbumDetail(3));
+    nav.push(FrameNavigationEntry::Release(ReleaseKey::LibraryFeed(3)));
 
     assert!(
         !nav.can_go_forward(),
@@ -1691,9 +1691,117 @@ fn adr_0084_nav_breadcrumb_projects_location_not_history() {
     );
 }
 
+/// R2-01 (ADR 0084 Decision 4): the release key of a Library album with a
+/// feed GUID equals the release key of an Index row with the same feed
+/// GUID.
+#[test]
+fn adr_0084_release_feed_guid_key_matches_across_origins() {
+    let library_key = ReleaseKey::FeedGuid("feed-guid".to_string());
+    let index_key = ReleaseKey::from_index_feed_guid("feed-guid");
+
+    assert_eq!(library_key, index_key);
+}
+
+/// R2-02 (ADR 0084 Decision 4): the release key of a Library album with
+/// no feed GUID is `LibraryFeed` with its feed id.
+#[test]
+fn adr_0084_release_library_feed_key_carries_its_feed_id() {
+    let key = ReleaseKey::LibraryFeed(42);
+
+    assert_eq!(key, ReleaseKey::LibraryFeed(42));
+    assert_ne!(key, ReleaseKey::FeedGuid("42".to_string()));
+}
+
+/// R2-03 (ADR 0084 Decision 4): the resolver gives the Library source for
+/// `LibraryFeed`, and for `FeedGuid` when the lookup finds a feed. It gives
+/// the Index source when the lookup finds no feed.
+#[test]
+fn adr_0084_release_resolver_follows_the_lookup_result() {
+    assert_eq!(
+        resolve_release_page_source(ReleaseKey::LibraryFeed(7), None),
+        ReleasePageSource::Library { feed_id: 7 },
+        "a Library feed key never needs a lookup"
+    );
+    assert_eq!(
+        resolve_release_page_source(ReleaseKey::FeedGuid("guid".to_string()), Some(9)),
+        ReleasePageSource::Library { feed_id: 9 },
+        "a found feed resolves to the Library source"
+    );
+    assert_eq!(
+        resolve_release_page_source(ReleaseKey::FeedGuid("guid".to_string()), None),
+        ReleasePageSource::Index {
+            feed_guid: "guid".to_string()
+        },
+        "no found feed resolves to the Index source"
+    );
+}
+
+/// R2-04 (ADR 0084 Decision 4): a path that opens one release from the
+/// Library and then from the Index holds the release one time. The two
+/// opens push the same key, so the second push cuts the path at the first.
+#[test]
+fn adr_0084_release_path_holds_one_release_opened_from_both_origins() {
+    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    let library_open = FrameNavigationEntry::Release(ReleaseKey::FeedGuid("feed-guid".into()));
+    let index_open = FrameNavigationEntry::Release(ReleaseKey::from_index_feed_guid("feed-guid"));
+
+    nav.push(library_open);
+    nav.push(FrameNavigationEntry::ArtistDetail("Haleen".to_string()));
+    nav.push(index_open);
+
+    assert_eq!(
+        nav.path_entries(),
+        vec![
+            FrameNavigationEntry::SourceList,
+            FrameNavigationEntry::Release(ReleaseKey::FeedGuid("feed-guid".into())),
+        ],
+        "the Index open must cut the path at the earlier Library open of the same release"
+    );
+}
+
+/// R2-05 (ADR 0084 Decision 4): the breadcrumb label of a release entry
+/// with no known title is "Release".
+#[test]
+fn adr_0084_release_breadcrumb_label_with_no_known_title_is_release() {
+    let nav = FrameNavigationState::new(FrameNavigationEntry::Release(ReleaseKey::LibraryFeed(5)));
+
+    let display = BreadcrumbDisplay::project("crumbs", &nav, FrameNavigationEntry::display_label);
+
+    assert_eq!(display.segments.len(), 1);
+    assert_eq!(display.segments[0].label, "Release");
+}
+
 /// Returns the page that a Back press would show, without a change to
 /// `nav`.
 fn back_page(nav: &FrameNavigationState) -> Option<FrameNavigationEntry> {
     let mut copy = nav.clone();
     copy.go_back().ok().cloned()
+}
+
+/// R2-07 (ADR 0084 Decision 4): a completed download changes only the open
+/// release page of the downloaded feed GUID.
+#[test]
+fn adr_0084_release_download_updates_only_the_open_release_page() {
+    let open = FrameNavigationEntry::Release(ReleaseKey::FeedGuid("feed-a".to_string()));
+    let other = FrameNavigationEntry::Release(ReleaseKey::FeedGuid("feed-b".to_string()));
+
+    assert!(release_download_updates_open_page(
+        Some(&open),
+        Some("feed-a")
+    ));
+    assert!(
+        !release_download_updates_open_page(Some(&other), Some("feed-a")),
+        "a download must not change another open release"
+    );
+    assert!(
+        !release_download_updates_open_page(
+            Some(&FrameNavigationEntry::SourceList),
+            Some("feed-a")
+        ),
+        "a download must not change a page that is not a release"
+    );
+    assert!(
+        !release_download_updates_open_page(Some(&open), None),
+        "a download with no feed GUID must not change the open page"
+    );
 }

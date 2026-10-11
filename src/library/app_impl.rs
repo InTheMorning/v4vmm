@@ -81,7 +81,7 @@ use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::track_detail::TrackNameLinkTarget;
 use crate::view_models::workspace::{
     ContentFilter, ContentViewMode, ContentViewModeControlDisplay, FrameNavigationEntry,
-    LibraryFilterControlDisplay, NavigationPathStart,
+    LibraryFilterControlDisplay, NavigationPathStart, ReleaseKey,
 };
 use crate::views::{EntityIdentityLinks, LocalIdentityFacts};
 use gpui::{
@@ -1168,7 +1168,8 @@ impl LibraryApp {
 
     /// Asks the top app to open a page in the one Music navigation stack
     /// (ADR 0084 Decision 9). The top app restores the page through
-    /// [`Self::hydrate_detail_from_nav`].
+    /// [`Self::hydrate_detail_from_nav`], or, for a release, through its own
+    /// resolved data source (ADR 0084 Decision 4).
     pub(crate) fn open_page(
         &mut self,
         entry: FrameNavigationEntry,
@@ -1876,10 +1877,12 @@ impl LibraryApp {
     ///
     /// Maps the nav entry to the appropriate Library detail state:
     /// - `TrackDetail(id)` → look up track and call `select_track`
-    /// - `AlbumDetail(id)` → look up album via feed_id and call `select_album`
     /// - `ArtistDetail(name)` → call `select_artist`
     /// - `PlaylistDetail(id)` → call `select_playlist` (ADR 0084 Decision 9)
     /// - `Search(_)` / `SourceList` / others → clear detail to root state
+    ///
+    /// A `Release` entry mounts through the top app's resolved data source
+    /// (ADR 0084 Decision 4), not through this generic hydrate path.
     pub(crate) fn hydrate_detail_from_nav(
         &mut self,
         entry: &FrameNavigationEntry,
@@ -1895,11 +1898,6 @@ impl LibraryApp {
                     self.select_track(&track_row, cx);
                 }
             }
-            FrameNavigationEntry::AlbumDetail(feed_id) => {
-                if let Some(album) = self.album_for_detail_by_feed_id(*feed_id) {
-                    self.select_album(&album, cx);
-                }
-            }
             FrameNavigationEntry::ArtistDetail(name) => {
                 self.select_artist(name, cx);
             }
@@ -1908,14 +1906,14 @@ impl LibraryApp {
             }
             FrameNavigationEntry::Search(_)
             | FrameNavigationEntry::IndexNameMatches(_)
-            | FrameNavigationEntry::IndexFeedDetail { .. }
             | FrameNavigationEntry::IndexTrackDetail { .. }
             | FrameNavigationEntry::SourceList
             | FrameNavigationEntry::Settings => {
                 // Reset detail to default/unset state for root navigation
                 self.clear_detail();
             }
-            // Other nav entries (ReadinessIssues, QueueNowPlaying) don't drive library detail
+            // `Release` mounts through the top app. Other nav entries
+            // (ReadinessIssues, QueueNowPlaying) don't drive library detail.
             _ => {}
         }
     }
@@ -2133,10 +2131,29 @@ impl LibraryApp {
                     |track| LibraryTrackRowVm::new(track, None).display_title(),
                 )
             }
-            FrameNavigationEntry::AlbumDetail(feed_id) => self
-                .album_for_detail_by_feed_id(*feed_id)
-                .map_or_else(|| "Album".to_string(), |album| album.name),
+            FrameNavigationEntry::Release(key) => self
+                .release_label(key)
+                .unwrap_or_else(|| "Release".to_string()),
             _ => entry.display_label(),
+        }
+    }
+
+    /// The Library album name of a release key, when the Library holds that
+    /// release (ADR 0084 Decision 4). The breadcrumb labels each release
+    /// segment by its own key.
+    pub(crate) fn release_label(&self, key: &ReleaseKey) -> Option<String> {
+        match key {
+            ReleaseKey::LibraryFeed(feed_id) => self
+                .album_for_detail_by_feed_id(*feed_id)
+                .map(|album| album.name),
+            ReleaseKey::FeedGuid(feed_guid) => self
+                .vm
+                .tree()
+                .artists
+                .iter()
+                .flat_map(|artist| &artist.albums)
+                .find(|album| album.feed_guid.as_deref() == Some(feed_guid.as_str()))
+                .map(|album| album.name.clone()),
         }
     }
 

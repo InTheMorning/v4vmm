@@ -41,8 +41,8 @@ use crate::view_models::settings::{SettingsAction, SettingsVm};
 use crate::view_models::show::{EventSectionInput, ShowCommandState, ShowPageVm};
 use crate::view_models::workspace::{
     ContentFilter, ContentViewMode, FilterChipStripWidthClass, FrameNavigationEntry,
-    FrameNavigationState, NavigationPathStart, WorkspaceFrameId, WorkspaceFrameKind,
-    WorkspaceFrameState, WorkspaceLayout, WorkspaceLayoutConfig,
+    FrameNavigationState, NavigationPathStart, ReleasePageSource, WorkspaceFrameId,
+    WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout, WorkspaceLayoutConfig,
 };
 
 mod capabilities;
@@ -196,6 +196,15 @@ pub struct TopApp {
     /// row, or opened one whose full detail already came from the
     /// name-match page's own fetch.
     index_track_detail_state: Option<search_dispatch::IndexTrackDetailState>,
+    /// The data source of the open release page (ADR 0084 Decision 4).
+    /// `None` when the current page is not a release. The top app resolves
+    /// and stores this when a release opens or restores, and after a
+    /// download; the render path reads it and makes no lookup of its own.
+    release_page_source: Option<ReleasePageSource>,
+    /// The label an opening row gave a release, by feed GUID (ADR 0084
+    /// Decision 4). The breadcrumb and the Index loading page show it until
+    /// the release's own title loads.
+    release_page_labels: BTreeMap<String, String>,
 }
 
 impl TopApp {
@@ -447,6 +456,8 @@ impl TopApp {
             name_match_page: None,
             index_feed_detail_state: None,
             index_track_detail_state: None,
+            release_page_source: None,
+            release_page_labels: BTreeMap::new(),
         }
     }
 
@@ -724,7 +735,7 @@ impl TopApp {
         });
         self.restore_publisher_page_for_nav(entry, cx);
         self.restore_name_match_page_for_nav(entry, cx);
-        self.restore_index_feed_detail_for_nav(entry, content_list_id, cx);
+        self.restore_release_page_source_for_nav(entry, cx);
         self.restore_index_track_detail_for_nav(entry, cx);
         if let FrameNavigationEntry::Search(query) = entry {
             self.start_index_search_for_query(query, cx);
@@ -893,11 +904,12 @@ impl TopApp {
                 Self::root_content_frame_title()
             }
             FrameNavigationEntry::Search(_) => "Search Results".to_string(),
-            FrameNavigationEntry::IndexFeedDetail { .. } => "Feed".to_string(),
             FrameNavigationEntry::PlaylistDetail(_) => "Playlist".to_string(),
             FrameNavigationEntry::TrackDetail(_)
             | FrameNavigationEntry::IndexTrackDetail { .. } => "Track".to_string(),
-            FrameNavigationEntry::AlbumDetail(_) => "Album".to_string(),
+            // ADR 0084 Decision 4/5: the curator sees "Release" for a feed
+            // of music, whatever its origin.
+            FrameNavigationEntry::Release(_) => "Release".to_string(),
             FrameNavigationEntry::ArtistDetail(_) => "Artist".to_string(),
             // ADR 0077 packet 006: this frame title is fixed text, never
             // "Artist". The entry names no artist.
@@ -1204,34 +1216,67 @@ impl TopApp {
                 let detail_content = self.render_name_match_page_content(cx);
                 WorkspaceSlots::new().content_list(detail_content)
             }
-            Some(FrameNavigationEntry::IndexFeedDetail { id, label }) => {
-                let activation_id = format!("index-feed:{id}");
-                let search_is_active = self
-                    .workspace_layout
-                    .frame_nav(content_frame_id)
-                    .and_then(FrameNavigationState::active_search_query)
-                    .is_some();
-                if search_is_active {
-                    // ADR 0075 packet 047: the search sent this row's
-                    // summary only. The operator's own open-time fetch,
-                    // not the retained row, supplies its detail.
-                    let detail = self.index_feed_detail_display(id, label);
-                    let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
-                    WorkspaceSlots::new().content_list(detail_content)
-                } else if let Some(detail) =
-                    self.library
-                        .read(cx)
-                        .recent_music_index_feed_detail(&activation_id, id, label)
-                {
-                    let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
-                    WorkspaceSlots::new().content_list(detail_content)
-                } else {
-                    let library_screen = self.render_workspace_screen_mount(
-                        WorkspaceScreenMount::Music,
-                        show_window_width,
-                        cx,
-                    );
-                    WorkspaceSlots::new().content_list(library_screen)
+            // ADR 0084 Decision 4: the body switch renders a release from
+            // its stored, already-resolved data source. It makes no
+            // database lookup here.
+            Some(FrameNavigationEntry::Release(_)) => {
+                match self.release_page_source.clone() {
+                    Some(ReleasePageSource::Index { feed_guid }) => {
+                        let activation_id = format!("index-feed:{feed_guid}");
+                        let label = self
+                            .release_page_labels
+                            .get(&feed_guid)
+                            .cloned()
+                            .unwrap_or_else(|| feed_guid.clone());
+                        // While the operator's own open-time fetch is still
+                        // loading, the cached content-list row shows at
+                        // once, when the content list already holds it.
+                        let detail = self
+                            .index_feed_detail_is_pending(&feed_guid)
+                            .then(|| {
+                                self.library.read(cx).recent_music_index_feed_detail(
+                                    &activation_id,
+                                    &feed_guid,
+                                    &label,
+                                )
+                            })
+                            .flatten()
+                            .unwrap_or_else(|| self.index_feed_detail_display(&feed_guid, &label));
+                        let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
+                        WorkspaceSlots::new().content_list(detail_content)
+                    }
+                    Some(ReleasePageSource::Library { .. }) | None => {
+                        let library_screen = self.render_workspace_screen_mount(
+                            WorkspaceScreenMount::Music,
+                            show_window_width,
+                            cx,
+                        );
+                        let mut slots = WorkspaceSlots::new().content_list(library_screen);
+
+                        if matches!(mount, WorkspaceScreenMount::Music) {
+                            let library_filter_control =
+                                self.library.read(cx).content_library_filter_control();
+                            let content_view_mode_control =
+                                self.library.read(cx).content_view_mode_control();
+                            let content_filter_entity = entity.clone();
+                            let content_view_mode_entity = entity.clone();
+                            slots = slots
+                                .content_list_library_filter_control(library_filter_control)
+                                .content_list_view_mode_control(content_view_mode_control)
+                                .on_content_list_filter_select(move |filter, _window, cx| {
+                                    content_filter_entity.update(cx, |this, cx| {
+                                        this.set_frame_filter(content_frame_id, filter, cx);
+                                    });
+                                })
+                                .on_content_list_view_mode_select(move |view_mode, _window, cx| {
+                                    content_view_mode_entity.update(cx, |this, cx| {
+                                        this.set_content_list_view_mode(view_mode, cx);
+                                    });
+                                });
+                        }
+
+                        slots
+                    }
                 }
             }
             Some(FrameNavigationEntry::IndexTrackDetail { id, label })
@@ -1261,7 +1306,6 @@ impl TopApp {
             // Entity details or default: render the Library-backed Music surface.
             Some(
                 FrameNavigationEntry::TrackDetail(_)
-                | FrameNavigationEntry::AlbumDetail(_)
                 | FrameNavigationEntry::ArtistDetail(_)
                 | FrameNavigationEntry::PlaylistDetail(_)
                 | FrameNavigationEntry::IndexTrackDetail { .. }

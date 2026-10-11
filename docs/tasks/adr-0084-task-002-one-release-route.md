@@ -1,6 +1,6 @@
 # ADR 0084 Task 002: One Route For Each Release
 
-Status: Ready - written on 2026-10-08. Implementation has not started.
+Status: Implementation recorded - 2026-10-08. The mechanical checks are Green. The operator visual check V1 to V5 is open.
 
 ## Goal
 
@@ -78,6 +78,7 @@ Use the prefix `adr_0084_release_` for behavioral tests beside the owning code.
 | R2-04 | A navigation path that opens one release from the Library and then from the Index holds the release one time |
 | R2-05 | The breadcrumb label of a release entry with no known title is "Release" |
 | R2-06 | A guard blocks `AlbumDetail` and `IndexFeedDetail` in `src/`, blocks `replace_current` in `show_downloaded_index_feed`, and names ADR 0084 Decision 4 |
+| R2-07 | A completed download changes only the open release page of the downloaded feed GUID. The orchestrator added this case in review |
 
 ## Visual Acceptance Criteria
 
@@ -174,3 +175,201 @@ Stop and report the problem, and do not guess, when:
 - The Index page needs data that only the old `label` field carried.
 - A guard asserts an ADR 0049 rule that ADR 0084 Decision 4 does not replace.
 - A change needs a file in "Do not touch".
+
+## Implementation Result - 2026-10-08
+
+Each Required Change is done.
+
+### Files Changed
+
+- `src/view_models/workspace/nav.rs`: `FrameNavigationEntry::Release(ReleaseKey)` replaces
+  `AlbumDetail(i64)` and `IndexFeedDetail { id, label }`. New types: the `ReleaseKey` enum
+  (`FeedGuid`, `LibraryFeed`) and its `from_index_feed_guid` constructor, the `ReleasePageSource`
+  enum (`Library`, `Index`), and the pure function `resolve_release_page_source`.
+  `display_label` gives the text "Release" for a `Release` entry with no known title.
+- `src/view_models/workspace/breadcrumb.rs`: the breadcrumb element id of a `Release` entry
+  carries its `ReleaseKey`. A new function, `release_key_id`, builds that id.
+- `src/view_models/workspace/mod.rs`: re-exports `ReleaseKey`, `ReleasePageSource` and
+  `resolve_release_page_source`.
+- `src/view_models/workspace/tests.rs`: each test that built or read an `AlbumDetail` or
+  `IndexFeedDetail` entry builds and reads a `Release(ReleaseKey)` entry. New tests cover
+  R2-01 to R2-05. The R2-01 to R2-03 key and resolver tests sit in this file, not in `nav.rs`.
+  An existing ADR 0046 Task 015 guard forbids a `#[cfg(test)]` block in `nav.rs`.
+- `src/view_models/library.rs`: a new function, `AlbumNode::release_key`, gives the `ReleaseKey`
+  of an album. It uses the feed GUID when the album has one, else the Library feed id, else
+  `None`. A new test module covers R2-01 and R2-02 from the album side.
+- `src/app.rs`: two new fields on `TopApp`.
+  - `release_page_source` and `release_page_labels` are the two new fields.
+  - `content_list_frame_title` and the `render_workspace_content` body switch read a release
+    page from the stored `release_page_source`, with no database query.
+  - The Index branch shows the cached content-list row while the operator's own fetch is
+    loading.
+  - `restore_content_list_nav_entry` calls `restore_release_page_source_for_nav`. It no longer
+    calls `restore_index_feed_detail_for_nav`.
+- `src/app/search_dispatch.rs`: the functions that open a release page.
+  - `open_release_in_frame` replaces `push_index_feed_detail` and the Index half of
+    `open_library_album_in_frame`.
+  - `open_library_release_in_frame` replaces the Library half of `open_library_album_in_frame`.
+  - A new function, `apply_release_page_source`, resolves the data source and mounts it. The
+    top app runs the `db::find_feed_id_by_guid` lookup. The render path runs no lookup.
+  - For the Library source, `apply_release_page_source` asks the Library to select the album.
+  - For the Index source, it clears the Library detail. It starts its own fetch when the
+    mounted fetch does not agree with the feed GUID.
+  - `restore_release_page_source_for_nav` calls `apply_release_page_source` for a restored
+    `Release` entry. For each other entry, it clears the stored source.
+  - Three new read-only functions give data to these paths: `index_feed_detail_is_pending`,
+    `index_feed_loaded_title`, and `release_opening_label`.
+  - `show_downloaded_index_feed` changes `release_page_source` to the Library source and mounts
+    the album. It leaves the navigation entry unchanged.
+- `src/app/breadcrumb.rs`: a new function, `release_navigation_label`, gives the breadcrumb
+  label of a `Release` entry. It reads the stored source first, then the loaded Index title,
+  then the label the opening row gave.
+- `src/library/app_impl.rs`: `hydrate_detail_from_nav` no longer handles a release entry. The
+  top app's resolved source owns that mount. `navigation_label` gives the Library album name for
+  a `Release(LibraryFeed(feed_id))` entry.
+- `src/ui/shells/library/sidebar.rs`: an album row opens `FrameNavigationEntry::Release`, built
+  from `AlbumNode::release_key`. An album with no feed GUID and no feed id keeps calling
+  `select_album` directly, with no navigation entry, as before this packet.
+- `tests/architecture_tests.rs`: one new situational guard,
+  `adr_0084_release_one_route_replaces_the_two_entries` (R2-06). Five existing guards change:
+  `adr_0046_forward_go_forward_and_on_forward_have_production_callers`,
+  `adr_0046_forward_restores_pages_through_the_shared_back_restore_path`,
+  `adr_0049_inspector_source_ownership_is_guarded`,
+  `adr_0024_loading_shape_readiness_gate_is_locked`, and
+  `nav_top_drives_content_list_body_switch`. Each changed check names ADR 0084 Decision 4 in its
+  replacing comment.
+
+### Behavior Changed
+
+- The Library sidebar, an Index row, an Index search result, and a content-list row each open
+  the same release through the same `Release` entry. The opened release shares one page in the
+  breadcrumb and in the history.
+- "Download album" on an Index release page changes the page to the Library state, in the same
+  place. It adds no new navigation entry. Back goes to the page before the release.
+- Back, Forward, and the breadcrumb select resolve a release through the same function an
+  initial open uses. An Index release always starts its own fetch, not only when a search is
+  active. A release opened from a content-list row also starts the operator's own MusicIndex
+  fetch. The cached content-list row shows immediately. The fetch result replaces that row
+  when it differs.
+- The breadcrumb and the frame title show the word "Release" in place of "Album" or "Feed".
+
+### Checks
+
+| Command | Result |
+|---|---|
+| `cargo test --lib adr_0084_release_` | Green, 8 tests |
+| `cargo test` | Green, 1,865 unit tests and 305 guards |
+| `cargo test --test architecture_tests` | Green, 305 tests |
+| `cargo fmt -- --check` | Green |
+| `cargo clippy -- -D warnings` | Green |
+| `cargo check --all-targets` | Green, no warning |
+| `cargo build --bin v4vmm` | Green |
+
+### Deviations From The Task
+
+1. `ReleaseKey`, `ReleasePageSource`, and `resolve_release_page_source` sit in
+   `src/view_models/workspace/nav.rs`, re-exported from `workspace/mod.rs`. This packet adds no
+   separate file for them. They are tightly linked to `ReleaseKey`'s owning entry, `Release`.
+   The "Files To Inspect" list already named `nav.rs` for this change.
+2. The R2-01 to R2-03 key and resolver tests sit in `src/view_models/workspace/tests.rs`, and in
+   `src/view_models/library.rs` with the album-side constructor. They do not sit in `nav.rs`.
+   An existing guard, `adr_0046_forward_go_forward_and_on_forward_have_production_callers`,
+   forbids a `#[cfg(test)]` block in `nav.rs`. The first draft of this work put the tests there
+   and broke that guard. Moving the tests to the named navigation-model test file, and to
+   `library.rs`, keeps each guard Green.
+3. This packet does not edit `docs/pending-human-checks.md` or
+   `docs/plans/broadcast-chain-delivery-order.md`. AGENTS.md asks for the open visual gate to go
+   in both files. This task's own rules name only this packet file as an editable document. The
+   open V1 to V5 gate still needs a record in both files.
+
+### Unresolved Concerns
+
+- None found in this packet's scope.
+
+## Operator Visual Check
+
+This check reads and changes your Library. It needs these things: a Linux desktop session, this
+checkout, and a configured MusicIndex endpoint. It also needs a Library with one release that
+MusicIndex also indexes, and one release from MusicIndex that is not in your Library.
+
+1. Close v4vmm. Make the binary:
+
+   ```bash
+   cd /home/citizen/build/v4vmm
+   cargo build --bin v4vmm
+   ```
+2. Open the app:
+
+   ```bash
+   target/debug/v4vmm
+   ```
+3. Open Music.
+
+**V1 - one release page for both origins**
+
+4. In the sidebar, click an album that is in your Library and that MusicIndex also indexes.
+   - Correct: the release page opens, with its Library actions (for example "Add to playlist")
+     and its tracks.
+5. Use the toolbar search to find the same release by name. Open its Index result.
+   - Correct: the same page layout opens, still in its Library state. It offers no
+     "Download album" action.
+   - Incorrect: a different layout shows, or the page offers "Download album" for a release
+     that is already in your Library.
+
+**V2 - a download moves the page to the Library state in place**
+
+6. Search for a release that is not in your Library. Open its Index result.
+   - Correct: the page shows "Download album" as its filled action.
+7. Click "Download album". Wait for the download to complete.
+   - Correct: the same page updates in place to show the Library actions. No navigation
+     happens, and no second page flashes into view.
+8. Click Back.
+   - Correct: the page before the release shows, for example the search results.
+   - Incorrect: the release page shows again, or the content area is empty.
+
+**V3 - the breadcrumb shows the release title one time**
+
+9. Look at the breadcrumb above the open release page.
+   - Correct: the breadcrumb shows the release title, for example "Library › Selected Ambient
+     Works", one time.
+   - Incorrect: the breadcrumb shows "Release" after the page finishes loading, or shows the
+     release two times.
+10. On the release page, open a track. On the track page, click the publisher name, then open a
+    different release from the publisher page.
+    - Correct: the breadcrumb shows the title of each release, each one time.
+    - Incorrect: two release segments show the same title.
+
+**V4 - Back to an Index release from the content list shows that release**
+
+11. In the content list, open an Index release row that is not a search result. An example row
+    is "Recent" or a different browse list.
+12. Click Back, then click Forward.
+    - Correct: Forward shows that same release again, with its MusicIndex detail, not an empty
+      content list.
+    - Incorrect: Forward shows the content list with no release, or shows a different release.
+
+**V5 - widths, themes and scale**
+
+13. Resize the window to its usual width, then to its narrowest width. Open Settings -> General
+    (`Ctrl+Comma`). Select Light, then Dark, then a larger scale. Reopen a release page after
+    each change.
+    - Correct: the release page, its image, its actions and the breadcrumb lay out with no
+      clipped text and no clipped control.
+    - Incorrect: a control is clipped, overlaps a different control, or disappears.
+14. Close the app.
+
+**Clean-up**
+
+Step 7 downloaded one release into your Library. Keep it, or open its page, choose
+"Remove album…" from its "⋯" menu, and complete the removal.
+
+## Orchestrator Review - 2026-10-08
+
+The orchestrator reviewed the diff against ADR 0084, this packet and the [review checklist](../reviews/adr-0084-review-checklist.md). The implementation keeps to the design. Two defects were found and corrected in review:
+
+1. `release_navigation_label` labeled each release segment from the source of the open page. In a path with two releases, both segments showed one title. Each segment now uses its own key: the new `LibraryApp::release_label` gives the Library album name by key, then the loaded Index title, then the opening label.
+2. `show_downloaded_index_feed` mounted the downloaded album and set the page source for each completion. A download that completed after the operator opened another page replaced that page. The new pure function `release_download_updates_open_page` limits the change to the open release page of the downloaded feed GUID. Test R2-07 proves it, and the R2-06 guard now requires the call. The guard also fails when `show_downloaded_index_feed` is missing.
+
+After the corrections, each check is Green: 9 `adr_0084_release_` tests, 1,866 unit tests, 305 guards, `fmt`, `clippy -D warnings`, `check --all-targets` with no warning, and `cargo build --bin v4vmm`.
+
+Merge recommendation: pass. Task 003 needs no change, except that it uses `release_label` and `release_download_updates_open_page` as the model for its track equivalents.

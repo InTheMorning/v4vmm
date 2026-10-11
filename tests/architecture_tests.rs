@@ -970,7 +970,10 @@ fn adr_0046_forward_restores_pages_through_the_shared_back_restore_path() {
     for required in [
         "restore_publisher_page_for_nav",
         "restore_name_match_page_for_nav",
-        "restore_index_feed_detail_for_nav",
+        // ADR 0084 Decision 4 replaces the Index-only
+        // `restore_index_feed_detail_for_nav` with the one release
+        // resolver, used for the Library source and the Index source alike.
+        "restore_release_page_source_for_nav",
         "restore_index_track_detail_for_nav",
         "hydrate_detail_from_nav",
     ] {
@@ -2994,7 +2997,6 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         "strip_prefix(\"index-track:\")",
         "strip_prefix(\"index-artist:\")",
         "FrameNavigationEntry::IndexNameMatches(",
-        "FrameNavigationEntry::IndexFeedDetail {",
         "FrameNavigationEntry::IndexTrackDetail {",
         "render_index_detail_display(",
         "content_list_breadcrumb_labeler(",
@@ -3099,34 +3101,14 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         }
     }
 
-    let index_feed_selection = search_dispatch_source
-        .split("fn handle_index_feed_result_selected(")
-        .nth(1)
-        .and_then(|source| source.split("fn push_index_feed_detail(").next())
-        .unwrap_or_default();
-    if index_feed_selection.is_empty() {
+    // ADR 0084 Decision 4 superseded the rule that stood here: an
+    // index-feed activation must never redirect to the Library source.
+    // One release route now resolves to the Library source on purpose,
+    // whatever its origin. `adr_0084_release_one_route_replaces_the_two_entries`
+    // guards the replacing rule.
+    if !search_dispatch_source.contains("fn handle_index_feed_result_selected(") {
         violations.push(
             "src/app/search_dispatch.rs: ADR 0049 Index feed selection handler not found"
-                .to_string(),
-        );
-    }
-    for forbidden in [
-        "db::find_feed_id_by_guid",
-        "FrameNavigationEntry::AlbumDetail(",
-        "album_for_detail_by_feed_id",
-        "select_album(",
-    ] {
-        if index_feed_selection.contains(forbidden) {
-            violations.push(format!(
-                "src/app/search_dispatch.rs: ADR 0049 index-feed activation must preserve Index detail source; found local redirect `{forbidden}`"
-            ));
-        }
-    }
-    if !index_feed_selection
-        .contains("self.push_index_feed_detail(content_frame_id, feed_guid, label, cx);")
-    {
-        violations.push(
-            "src/app/search_dispatch.rs: ADR 0049 index-feed activation must push IndexFeedDetail directly"
                 .to_string(),
         );
     }
@@ -3453,10 +3435,12 @@ fn adr_0024_loading_shape_readiness_gate_is_locked() {
         }
     }
 
+    // ADR 0084 Decision 4 replaced `FrameNavigationEntry::IndexFeedDetail`
+    // with `Release(ReleaseKey)`. The release route guard,
+    // `adr_0084_release_one_route_replaces_the_two_entries`, covers it. The
+    // Index track route stays, so its remote string id requirement stays.
     for required in [
-        "IndexFeedDetail {\n        /// Stable remote feed id.\n        id: String,",
         "IndexTrackDetail {\n        /// Stable remote track activation id.\n        id: String,",
-        "FrameNavigationEntry::IndexFeedDetail {\n                id: feed_guid.to_string(),",
         "FrameNavigationEntry::IndexTrackDetail {\n                id: target.to_string(),",
     ] {
         let (source_name, source) = if required.starts_with("Index") {
@@ -10509,11 +10493,10 @@ fn nav_top_drives_content_list_body_switch() {
     for nav_variant in [
         "FrameNavigationEntry::Search(_)",
         "FrameNavigationEntry::TrackDetail(_)",
-        "FrameNavigationEntry::AlbumDetail(_)",
+        "FrameNavigationEntry::Release(",
         "FrameNavigationEntry::ArtistDetail(_)",
         "FrameNavigationEntry::PlaylistDetail(_)",
         "FrameNavigationEntry::IndexNameMatches(_)",
-        "FrameNavigationEntry::IndexFeedDetail { .. }",
         "FrameNavigationEntry::IndexTrackDetail { .. }",
         "FrameNavigationEntry::Settings",
         "FrameNavigationEntry::SourceList",
@@ -20165,6 +20148,56 @@ fn adr_0084_nav_library_screens_keep_no_navigation_stack() {
         violations.is_empty(),
         "ADR 0084 Decision 9 §One Navigation Stack: a Library screen must not keep navigation state or a breadcrumb.\n\
          Send `LibraryAppEvent::OpenPage` and restore the page in `hydrate_detail_from_nav`. The top app owns the stack.\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0084 Decision 4: one navigation entry, `Release`, reaches
+/// a release opened from the Library or the Index. `AlbumDetail` and
+/// `IndexFeedDetail` are gone, and a download no longer replaces the
+/// navigation entry: the resolved data source changes in place.
+#[test]
+fn adr_0084_release_one_route_replaces_the_two_entries() {
+    let mut violations = Vec::new();
+    for file in rust_files_under("src") {
+        let full_source = read_source(&file);
+        let source = production_source(&full_source);
+        for forbidden in [
+            "FrameNavigationEntry::AlbumDetail",
+            "FrameNavigationEntry::IndexFeedDetail",
+        ] {
+            if source.contains(forbidden) {
+                violations.push(format!("{}: `{forbidden}`", file.display()));
+            }
+        }
+    }
+
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let search_dispatch_body = production_source(&search_dispatch_source);
+    let downloaded_feed_fn = search_dispatch_body
+        .split("fn show_downloaded_index_feed(")
+        .nth(1)
+        .and_then(|rest| rest.split("\n    fn ").next())
+        .expect("src/app/search_dispatch.rs must define show_downloaded_index_feed");
+    if downloaded_feed_fn.contains("replace_current(") {
+        violations.push(
+            "src/app/search_dispatch.rs: show_downloaded_index_feed must not replace the navigation entry"
+                .to_string(),
+        );
+    }
+    if !downloaded_feed_fn.contains("release_download_updates_open_page(") {
+        violations.push(
+            "src/app/search_dispatch.rs: show_downloaded_index_feed must change only the open release page, through `release_download_updates_open_page`"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 Decision 4 §One Page For Each Item: a release has one navigation entry, \
+`Release`, whatever its origin. Build the key with `ReleaseKey` and resolve its source with \
+`resolve_release_page_source`. A download changes the stored source, not the navigation \
+entry.\n{}",
         violations.join("\n")
     );
 }

@@ -157,3 +157,11 @@ Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 202
 - Owner: [task 015](tasks/adr-0046-task-015-forward-navigation.md#operator-visual-check).
 - Scheduling: it needs a macOS desktop session.
 - V2, macOS part: `cmd-[` and `cmd-]` outside a text box do the same as Back and Forward. Indent and outdent still work in a macOS text box.
+
+## 5. One Release Route — ADR 0084 Task 002
+
+Open - implementation and mechanical checks are complete on 2026-10-08. Operator inspection is pending.
+
+- Owner: [task 002](tasks/adr-0084-task-002-one-release-route.md#operator-visual-check).
+- Scheduling: walk it before task 003 starts. Step 7 downloads one release into the Library. It needs a reachable MusicIndex endpoint.
+- V1 to V5: one page for a release from each origin, and a download in place. The breadcrumb titles, Back and Forward to an Index release, and widths, themes and scale.

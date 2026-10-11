@@ -117,12 +117,12 @@ pub(crate) fn render_library_sidebar(
                         .hover(|el| el.bg(color::bg_surface_hi()))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.toggle_album(&artist_for_toggle, &album_for_toggle);
-                            // ADR 0084 Decision 9: an album with a feed id
-                            // opens through the one navigation stack. An
-                            // album without one has no navigation entry.
-                            match album_for_select.feed_id {
-                                Some(feed_id) => this.open_page(
-                                    FrameNavigationEntry::AlbumDetail(feed_id),
+                            // ADR 0084 Decision 4: an album with a feed GUID
+                            // or a feed id opens its one release route. An
+                            // album with neither has no navigation entry.
+                            match album_for_select.release_key() {
+                                Some(key) => this.open_page(
+                                    FrameNavigationEntry::Release(key),
                                     NavigationPathStart::NewPath,
                                     cx,
                                 ),

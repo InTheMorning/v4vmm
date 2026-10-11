@@ -51,7 +51,10 @@ use crate::view_models::track_detail::{
     TrackDetailSurfaceContext, TrackDetailVm, TrackNameLinkTarget, TrackPageAction,
     TrackPageActions,
 };
-use crate::view_models::workspace::{FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId};
+use crate::view_models::workspace::{
+    release_download_updates_open_page, resolve_release_page_source, FrameNavigationEntry,
+    FrameNavigationState, ReleaseKey, ReleasePageSource, WorkspaceFrameId,
+};
 use crate::views::{FeedRef, FeedView, TrackRef, TrackView};
 
 use super::{AppTab, TopApp};
@@ -479,7 +482,7 @@ impl TopApp {
                 }
 
                 if let Ok(feed_id) = result_id.parse::<i64>() {
-                    self.open_library_album_in_frame(feed_id, content_frame_id, cx);
+                    self.open_library_release_in_frame(feed_id, content_frame_id, cx);
                 } else {
                     self.settings_status = format!("Invalid feed id: {result_id}");
                     cx.notify();
@@ -515,7 +518,12 @@ impl TopApp {
             return;
         };
 
-        self.push_index_feed_detail(content_frame_id, feed_guid, label, cx);
+        self.open_release_in_frame(
+            content_frame_id,
+            &ReleaseKey::from_index_feed_guid(feed_guid),
+            label,
+            cx,
+        );
     }
 
     /// ADR 0077 packet 006: an Index name candidate opens the name-match
@@ -543,30 +551,146 @@ impl TopApp {
             .as_ref()
             .and_then(|detail| detail.index_feed_label(&activation_id))
             .unwrap_or_else(|| feed_guid.to_string());
-        self.push_index_feed_detail(content_frame_id, feed_guid, label, cx);
-        // ADR 0075 packet 047, Required Change 3: the search sent this
-        // row's summary only. Opening it sends its own detail request.
-        self.fetch_index_feed_detail_page(feed_guid.to_string(), cx);
+        self.open_release_in_frame(
+            content_frame_id,
+            &ReleaseKey::from_index_feed_guid(feed_guid),
+            label,
+            cx,
+        );
     }
 
-    fn push_index_feed_detail(
+    /// Opens a release page by its key, from any origin (ADR 0084
+    /// Decision 4). Replaces `open_library_album_in_frame` and
+    /// `push_index_feed_detail`: one function pushes the entry, resolves
+    /// its data source, and restores the page.
+    fn open_release_in_frame(
         &mut self,
         content_frame_id: WorkspaceFrameId,
-        feed_guid: &str,
+        key: &ReleaseKey,
         label: String,
         cx: &mut Context<Self>,
     ) {
-        if let Err(error) = self.workspace_layout.push_nav(
-            content_frame_id,
-            FrameNavigationEntry::IndexFeedDetail {
-                id: feed_guid.to_string(),
-                label,
-            },
-        ) {
-            self.settings_status = format!("Failed to navigate to index feed: {error}");
+        if let ReleaseKey::FeedGuid(feed_guid) = key {
+            self.release_page_labels.insert(feed_guid.clone(), label);
+        }
+        if let Err(error) = self
+            .workspace_layout
+            .push_nav(content_frame_id, FrameNavigationEntry::Release(key.clone()))
+        {
+            self.settings_status = format!("Failed to navigate to release: {error}");
         }
         self.sync_search_results_detail_with_nav(content_frame_id);
+        self.apply_release_page_source(key, cx);
         cx.notify();
+    }
+
+    /// Opens the Library release page of `feed_id` in the content frame.
+    /// Replaces `open_library_album_in_frame`.
+    fn open_library_release_in_frame(
+        &mut self,
+        feed_id: i64,
+        content_frame_id: WorkspaceFrameId,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(album) = self.library.read(cx).album_for_detail_by_feed_id(feed_id) else {
+            self.settings_status = format!("Feed {feed_id} not found");
+            cx.notify();
+            return;
+        };
+        let key = album
+            .release_key()
+            .unwrap_or(ReleaseKey::LibraryFeed(feed_id));
+        let label = album.name.clone();
+        self.open_release_in_frame(content_frame_id, &key, label, cx);
+    }
+
+    /// Resolves and stores the data source of an open release page, then
+    /// mounts it (ADR 0084 Decision 4). The Library source asks the
+    /// Library to mount the feed id. The Index source clears the Library
+    /// detail and starts its own fetch when no current result exists.
+    fn apply_release_page_source(&mut self, key: &ReleaseKey, cx: &mut Context<Self>) {
+        let library_feed_id = match key {
+            ReleaseKey::LibraryFeed(feed_id) => Some(*feed_id),
+            ReleaseKey::FeedGuid(feed_guid) => self
+                .conn
+                .lock()
+                .ok()
+                .and_then(|conn| db::find_feed_id_by_guid(&conn, feed_guid).ok().flatten()),
+        };
+        let source = resolve_release_page_source(key.clone(), library_feed_id);
+        match &source {
+            ReleasePageSource::Library { feed_id } => {
+                let feed_id = *feed_id;
+                self.library.update(cx, |library, cx| {
+                    if let Some(album) = library.album_for_detail_by_feed_id(feed_id) {
+                        library.select_album(&album, cx);
+                    }
+                });
+            }
+            ReleasePageSource::Index { feed_guid } => {
+                self.library
+                    .update(cx, |library, _cx| library.clear_detail());
+                if !index_feed_detail_result_is_current(
+                    self.index_feed_detail_state.as_ref(),
+                    feed_guid,
+                ) {
+                    self.fetch_index_feed_detail_page(feed_guid.clone(), cx);
+                }
+            }
+        }
+        self.release_page_source = Some(source);
+    }
+
+    /// Restores the stored release page source for a navigation entry that
+    /// a breadcrumb or a history move (Back or Forward) just restored
+    /// (ADR 0084 Decision 4). Clears the stored source for every other
+    /// entry.
+    pub(super) fn restore_release_page_source_for_nav(
+        &mut self,
+        entry: &FrameNavigationEntry,
+        cx: &mut Context<Self>,
+    ) {
+        let FrameNavigationEntry::Release(key) = entry else {
+            self.release_page_source = None;
+            return;
+        };
+        self.apply_release_page_source(key, cx);
+    }
+
+    /// `true` while the mounted Index release page's own fetch has not yet
+    /// reached `Loaded` or `Failed` for `feed_guid` (ADR 0084 Decision 4).
+    /// The body switch shows the cached content-list row instead, while a
+    /// fetch in this state is in flight.
+    pub(super) fn index_feed_detail_is_pending(&self, feed_guid: &str) -> bool {
+        !matches!(
+            self.index_feed_detail_state.as_ref(),
+            Some(
+                IndexFeedDetailState::Loaded { feed_guid: guid, .. }
+                    | IndexFeedDetailState::Failed { feed_guid: guid, .. }
+            ) if guid == feed_guid
+        )
+    }
+
+    /// The title `MusicIndex` gave for a release's own fetch, when it already
+    /// loaded (ADR 0084 Decision 4). `None` before the fetch loads, after
+    /// it fails, or when the title text is empty.
+    pub(super) fn index_feed_loaded_title(&self, feed_guid: &str) -> Option<String> {
+        match self.index_feed_detail_state.as_ref()? {
+            IndexFeedDetailState::Loaded {
+                feed_guid: guid,
+                feed,
+            } if guid == feed_guid => feed.title.clone().filter(|title| !title.trim().is_empty()),
+            _ => None,
+        }
+    }
+
+    /// The label an opening row gave a release, by feed GUID (ADR 0084
+    /// Decision 4), or "Release" when none is known.
+    pub(super) fn release_opening_label(&self, feed_guid: &str) -> String {
+        self.release_page_labels
+            .get(feed_guid)
+            .cloned()
+            .unwrap_or_else(|| "Release".to_string())
     }
 
     fn handle_index_track_result_selected(
@@ -720,34 +844,6 @@ impl TopApp {
         );
     }
 
-    /// Restores the Index feed detail-on-open fetch for a navigation entry
-    /// that a breadcrumb or a history move (back or forward) just restored
-    /// (ADR 0075 packet 047). Starts no fetch when `entry` is not an Index
-    /// feed detail page reached from an active search, or when the mounted
-    /// page already matches its feed GUID.
-    pub(super) fn restore_index_feed_detail_for_nav(
-        &mut self,
-        entry: &FrameNavigationEntry,
-        content_frame_id: WorkspaceFrameId,
-        cx: &mut Context<Self>,
-    ) {
-        let FrameNavigationEntry::IndexFeedDetail { id, .. } = entry else {
-            return;
-        };
-        let search_is_active = self
-            .workspace_layout
-            .frame_nav(content_frame_id)
-            .and_then(FrameNavigationState::active_search_query)
-            .is_some();
-        if !search_is_active {
-            return;
-        }
-        if index_feed_detail_result_is_current(self.index_feed_detail_state.as_ref(), id) {
-            return;
-        }
-        self.fetch_index_feed_detail_page(id.clone(), cx);
-    }
-
     /// Restores the Index track detail-on-open fetch for a navigation
     /// entry that a breadcrumb or a history move just restored (ADR 0075
     /// packet 047). Starts no fetch when `entry` is not an Index track
@@ -818,7 +914,7 @@ impl TopApp {
         }
     }
 
-    /// Opens the Library album page of `feed_id` in the content frame.
+    /// Opens the Library release page of `feed_id` in the content frame.
     /// The album name link of a track page uses it (ADR 0083 Decision 5).
     pub(super) fn open_library_album_page(&mut self, feed_id: i64, cx: &mut Context<Self>) {
         let Some(content_frame_id) = self.content_list_frame_id() else {
@@ -826,7 +922,7 @@ impl TopApp {
             cx.notify();
             return;
         };
-        self.open_library_album_in_frame(feed_id, content_frame_id, cx);
+        self.open_library_release_in_frame(feed_id, content_frame_id, cx);
     }
 
     /// Opens the Library artist page of `name` in the content frame. The
@@ -854,29 +950,6 @@ impl TopApp {
             FrameNavigationEntry::ArtistDetail(name.to_string()),
         ) {
             self.settings_status = format!("Failed to navigate to artist: {e}");
-        }
-        cx.notify();
-    }
-
-    fn open_library_album_in_frame(
-        &mut self,
-        feed_id: i64,
-        content_frame_id: WorkspaceFrameId,
-        cx: &mut Context<Self>,
-    ) {
-        let album_found = self.library.read(cx).album_for_detail_by_feed_id(feed_id);
-        if let Some(album) = album_found {
-            self.library.update(cx, |library, cx| {
-                library.select_album(&album, cx);
-            });
-            if let Err(e) = self
-                .workspace_layout
-                .push_nav(content_frame_id, FrameNavigationEntry::AlbumDetail(feed_id))
-            {
-                self.settings_status = format!("Failed to navigate to feed: {e}");
-            }
-        } else {
-            self.settings_status = format!("Feed {feed_id} not found");
         }
         cx.notify();
     }
@@ -1354,7 +1427,7 @@ impl TopApp {
                 if let Some(feed_id) =
                     this.downloaded_index_feed_id(feed_guid.as_deref(), feed_url.as_deref())
                 {
-                    this.show_downloaded_index_feed(feed_id, cx);
+                    this.show_downloaded_index_feed(feed_id, feed_guid.as_deref(), cx);
                 } else {
                     this.library.update(cx, LibraryApp::refresh);
                 }
@@ -1379,20 +1452,35 @@ impl TopApp {
         feed_url.and_then(|feed_url| db::feed_id_by_url(&conn, feed_url).ok().flatten())
     }
 
-    fn show_downloaded_index_feed(&mut self, feed_id: i64, cx: &mut Context<Self>) {
+    /// Changes the stored source of the open release page to the Library
+    /// and mounts the Library album, in place (ADR 0084 Decision 4). It
+    /// changes no navigation entry: the release keeps the one entry it
+    /// opened with, and Back goes to the page before it. When the operator
+    /// opened another page during the download, no page changes.
+    fn show_downloaded_index_feed(
+        &mut self,
+        feed_id: i64,
+        feed_guid: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
+        let current = self
+            .content_list_frame_id()
+            .and_then(|id| self.workspace_layout.frame_nav(id))
+            .map(|nav| nav.current().clone());
+        let updates_open_page = release_download_updates_open_page(current.as_ref(), feed_guid);
         self.library.update(cx, |library, cx| {
-            if let Some(album) = library.album_for_detail_by_feed_id(feed_id) {
-                library.select_album(&album, cx);
+            if updates_open_page {
+                if let Some(album) = library.album_for_detail_by_feed_id(feed_id) {
+                    library.select_album(&album, cx);
+                }
             }
             library.refresh(cx);
         });
+        if updates_open_page {
+            self.release_page_source = Some(ReleasePageSource::Library { feed_id });
+        }
 
         if let Some(content_frame_id) = self.content_list_frame_id() {
-            if let Some(nav) = self.workspace_layout.frame_nav_mut(content_frame_id) {
-                if matches!(nav.current(), FrameNavigationEntry::IndexFeedDetail { .. }) {
-                    nav.replace_current(FrameNavigationEntry::AlbumDetail(feed_id));
-                }
-            }
             self.sync_search_results_detail_with_nav(content_frame_id);
         }
         cx.notify();

@@ -2,7 +2,7 @@
 
 #![warn(clippy::pedantic)]
 
-use super::nav::{FrameNavigationEntry, FrameNavigationState};
+use super::nav::{FrameNavigationEntry, FrameNavigationState, ReleaseKey};
 
 /// Breadcrumb path truncation policy.
 ///
@@ -119,7 +119,7 @@ fn breadcrumb_entry_id(entry: &FrameNavigationEntry) -> String {
         FrameNavigationEntry::SourceList => "source-list".to_string(),
         FrameNavigationEntry::PlaylistDetail(id) => format!("playlist-{id}"),
         FrameNavigationEntry::TrackDetail(id) => format!("track-{id}"),
-        FrameNavigationEntry::AlbumDetail(id) => format!("album-{id}"),
+        FrameNavigationEntry::Release(key) => release_key_id(key),
         FrameNavigationEntry::ArtistDetail(name) => format!("artist-{}", slug_id(name)),
         FrameNavigationEntry::PublisherDetail(publisher_feed_guid) => {
             format!("publisher-{}", slug_id(publisher_feed_guid))
@@ -128,15 +128,21 @@ fn breadcrumb_entry_id(entry: &FrameNavigationEntry) -> String {
         FrameNavigationEntry::IndexNameMatches(name) => {
             format!("index-name-matches-{}", slug_id(name))
         }
-        FrameNavigationEntry::IndexFeedDetail { id, .. } => {
-            format!("index-feed-{}", slug_id(id))
-        }
         FrameNavigationEntry::IndexTrackDetail { id, .. } => {
             format!("index-track-{}", slug_id(id))
         }
         FrameNavigationEntry::ReadinessIssues => "broadcast-readiness".to_string(),
         FrameNavigationEntry::Settings => "settings".to_string(),
         FrameNavigationEntry::QueueNowPlaying => "queue-now-playing".to_string(),
+    }
+}
+
+/// The breadcrumb element id of a release entry (ADR 0084 Decision 4). The
+/// id carries the key, so one release keeps one id whatever its origin.
+fn release_key_id(key: &ReleaseKey) -> String {
+    match key {
+        ReleaseKey::FeedGuid(feed_guid) => format!("release-guid-{}", slug_id(feed_guid)),
+        ReleaseKey::LibraryFeed(feed_id) => format!("release-feed-{feed_id}"),
     }
 }
 

@@ -20,8 +20,10 @@ pub(crate) enum FrameNavigationEntry {
     PlaylistDetail(i64),
     /// Track detail by track id.
     TrackDetail(i64),
-    /// Album detail by album id.
-    AlbumDetail(i64),
+    /// A release, keyed by its identity, whatever its origin (ADR 0084
+    /// Decision 4). The origin selects only the data source of the page,
+    /// held outside this entry.
+    Release(ReleaseKey),
     /// Artist detail by display name.
     ArtistDetail(String),
     /// Publisher page by publisher feed GUID (ADR 0077 Decision 1). This
@@ -34,13 +36,6 @@ pub(crate) enum FrameNavigationEntry {
     /// no artist identity, no role, and no page type: it is a search
     /// result, never an artist page.
     IndexNameMatches(String),
-    /// Remote Index feed drill-down.
-    IndexFeedDetail {
-        /// Stable remote feed id.
-        id: String,
-        /// Display label captured from the selected result row.
-        label: String,
-    },
     /// Remote Index track drill-down.
     IndexTrackDetail {
         /// Stable remote track activation id.
@@ -64,7 +59,9 @@ impl FrameNavigationEntry {
             Self::SourceList => "Library".to_string(),
             Self::PlaylistDetail(id) => format!("Playlist {id}"),
             Self::TrackDetail(id) => format!("Track {id}"),
-            Self::AlbumDetail(id) => format!("Album {id}"),
+            // The top app gives the real title from the resolved data
+            // source. This fallback shows only before that title is known.
+            Self::Release(_) => "Release".to_string(),
             Self::ArtistDetail(name) => name.clone(),
             // ADR 0077 packet 006: the breadcrumb shows the quoted name.
             // This entry names no artist, so its label never looks like one.
@@ -79,9 +76,7 @@ impl FrameNavigationEntry {
                     format!("Search: {query}")
                 }
             }
-            Self::IndexFeedDetail { label, .. } | Self::IndexTrackDetail { label, .. } => {
-                label.clone()
-            }
+            Self::IndexTrackDetail { label, .. } => label.clone(),
             Self::ReadinessIssues => "Broadcast Readiness".to_string(),
             Self::Settings => "Settings".to_string(),
             Self::QueueNowPlaying => "Queue".to_string(),
@@ -96,6 +91,87 @@ pub(crate) enum NavigationPathStart {
     NewPath,
     /// A row or a link: the page goes into the current path.
     CurrentPath,
+}
+
+/// The identity of one release, whatever its origin (ADR 0084 Decision 4).
+///
+/// A release opened from the Library and the same release opened from the
+/// Index build this same key, so they push the same navigation entry.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ReleaseKey {
+    /// The feed GUID. Each release with a feed GUID uses it, whatever its
+    /// origin.
+    FeedGuid(String),
+    /// A Library feed with no feed GUID. No Index release can match it.
+    LibraryFeed(i64),
+}
+
+impl ReleaseKey {
+    /// The release key of an Index row, keyed by its feed GUID.
+    #[must_use]
+    pub(crate) fn from_index_feed_guid(feed_guid: impl Into<String>) -> Self {
+        Self::FeedGuid(feed_guid.into())
+    }
+}
+
+/// The data source that fills an open release page (ADR 0084 Decision 4).
+///
+/// The origin of a release selects this source, never its route or its
+/// layout. The top app looks this up once and keeps it; the render path
+/// reads the stored value and makes no lookup of its own.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ReleasePageSource {
+    /// The release is a Library feed.
+    Library {
+        /// The Library feed id.
+        feed_id: i64,
+    },
+    /// The release is known to the Index only.
+    Index {
+        /// The feed GUID.
+        feed_guid: String,
+    },
+}
+
+/// Resolves the data source of a release (ADR 0084 Decision 4).
+///
+/// `library_feed_id` is the Library feed id a caller already looked up for
+/// a [`ReleaseKey::FeedGuid`] key, through `db::find_feed_id_by_guid`. A
+/// [`ReleaseKey::LibraryFeed`] key needs no lookup: it names its feed id
+/// directly, so the Library source always carries it. A [`ReleaseKey::FeedGuid`]
+/// key resolves to the Library source when the lookup finds a feed, else to
+/// the Index source.
+#[must_use]
+pub(crate) fn resolve_release_page_source(
+    key: ReleaseKey,
+    library_feed_id: Option<i64>,
+) -> ReleasePageSource {
+    match key {
+        ReleaseKey::LibraryFeed(feed_id) => ReleasePageSource::Library { feed_id },
+        ReleaseKey::FeedGuid(feed_guid) => match library_feed_id {
+            Some(feed_id) => ReleasePageSource::Library { feed_id },
+            None => ReleasePageSource::Index { feed_guid },
+        },
+    }
+}
+
+/// Returns whether a completed download of the release `downloaded_guid`
+/// changes the open page (ADR 0084 Decision 4).
+///
+/// Only the open release page of that feed GUID changes its data source in
+/// place. A download that completes after the operator opened another page
+/// changes no page.
+#[must_use]
+pub(crate) fn release_download_updates_open_page(
+    current: Option<&FrameNavigationEntry>,
+    downloaded_guid: Option<&str>,
+) -> bool {
+    match (current, downloaded_guid) {
+        (Some(FrameNavigationEntry::Release(ReleaseKey::FeedGuid(open_guid))), Some(guid)) => {
+            open_guid == guid
+        }
+        _ => false,
+    }
 }
 
 /// One location of a frame: the destination, then the pages inside it, and
