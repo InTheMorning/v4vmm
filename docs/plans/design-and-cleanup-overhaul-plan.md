@@ -128,7 +128,7 @@ Steps:
    1. One navigation stack and the location breadcrumb (ADR 0084 Decision 9). It fixes flow map findings 1 and 7.
       Complete on 2026-10-08 as [ADR 0084 task 001](../tasks/archive/adr-0084-task-001-one-navigation-stack.md). The operator passed its visual check on 2026-10-08.
    2. One page for each item (Decision 4). Library and Index rows open the same release and track pages. It fixes finding 2.
-      Written on 2026-10-08 as two packets: [task 002](../tasks/adr-0084-task-002-one-release-route.md) for releases and [task 003](../tasks/adr-0084-task-003-one-track-route.md) for tracks. The [ADR 0084 phase plan](adr-0084-music-column-browser-phase-plan.md) holds the packet register.
+      Written on 2026-10-08 as two packets: [task 002](../tasks/archive/adr-0084-task-002-one-release-route.md) for releases, complete on 2026-10-11, and [task 003](../tasks/adr-0084-task-003-one-track-route.md) for tracks. The [ADR 0084 phase plan](adr-0084-music-column-browser-phase-plan.md) holds the packet register.
    3. The three-column shell: the destinations, the collapsible sidebar, Discover with "New releases", Needs attention and Playlists (Decisions 1 to 3). It deletes the sidebar tree and fixes finding 5.
    4. Releases: the kind of each release, the two scopes and the singles groups with their group page (Decisions 5, 6 and 8).
    5. The artist page with two levels and its scope (Decisions 7 and 8). It replaces the Library artist page by name and the name match page, and fixes finding 6.

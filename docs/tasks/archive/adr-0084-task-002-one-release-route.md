@@ -1,6 +1,6 @@
 # ADR 0084 Task 002: One Route For Each Release
 
-Status: Implementation recorded - 2026-10-08. The mechanical checks are Green. The operator visual check V1 to V5 is open.
+Status: Complete - 2026-10-11. The mechanical checks are Green. The operator passed V1 to V5 on 2026-10-11.
 
 ## Goal
 
@@ -9,9 +9,9 @@ The origin selects only the data source of the page. A download changes the data
 
 ## Authority
 
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 4 and its Verification section. Decision 4 amends ADR 0049: the drill-down route for each origin goes.
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 9: one navigation stack ([task 001](archive/adr-0084-task-001-one-navigation-stack.md)).
-- The durable set in [AGENTS.md](../../AGENTS.md): renderer portability, typed action state, and "Current-view state must update in place".
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 4 and its Verification section. Decision 4 amends ADR 0049: the drill-down route for each origin goes.
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 9: one navigation stack ([task 001](adr-0084-task-001-one-navigation-stack.md)).
+- The durable set in [AGENTS.md](../../../AGENTS.md): renderer portability, typed action state, and "Current-view state must update in place".
 
 ## Recorded Facts - 2026-10-08
 
@@ -92,14 +92,14 @@ These are for the operator. No test proves them.
 
 ## Exclusions
 
-- No track route change. [Task 003](adr-0084-task-003-one-track-route.md) owns it.
+- No track route change. [Task 003](../adr-0084-task-003-one-track-route.md) owns it.
 - No merge of the two page assembly paths into one renderer. The routes change in this packet. The renderers stay.
 - No release kind, no singles group and no scope control. Packet 005 owns them.
 - No schema change and no new MusicIndex request.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md), the [source map](../architecture/source-map.md) and the [phase plan](../plans/adr-0084-music-column-browser-phase-plan.md).
+- [Agent rules](../../../AGENTS.md), the [source map](../../architecture/source-map.md) and the [phase plan](../../plans/adr-0084-music-column-browser-phase-plan.md).
 - `src/view_models/workspace/nav.rs`, `breadcrumb.rs`, `tests.rs`.
 - `src/view_models/album_page.rs`, `src/view_models/entity_detail.rs`, `src/view_models/library.rs` (`AlbumNode`, `index_feed_selection`).
 - `src/app.rs` (`render_workspace_content`, `content_list_frame_title`, `restore_content_list_nav_entry`), `src/app/breadcrumb.rs`, `src/app/search_dispatch.rs`.
@@ -365,7 +365,7 @@ Step 7 downloaded one release into your Library. Keep it, or open its page, choo
 
 ## Orchestrator Review - 2026-10-08
 
-The orchestrator reviewed the diff against ADR 0084, this packet and the [review checklist](../reviews/adr-0084-review-checklist.md). The implementation keeps to the design. Two defects were found and corrected in review:
+The orchestrator reviewed the diff against ADR 0084, this packet and the [review checklist](../../reviews/adr-0084-review-checklist.md). The implementation keeps to the design. Two defects were found and corrected in review:
 
 1. `release_navigation_label` labeled each release segment from the source of the open page. In a path with two releases, both segments showed one title. Each segment now uses its own key: the new `LibraryApp::release_label` gives the Library album name by key, then the loaded Index title, then the opening label.
 2. `show_downloaded_index_feed` mounted the downloaded album and set the page source for each completion. A download that completed after the operator opened another page replaced that page. The new pure function `release_download_updates_open_page` limits the change to the open release page of the downloaded feed GUID. Test R2-07 proves it, and the R2-06 guard now requires the call. The guard also fails when `show_downloaded_index_feed` is missing.

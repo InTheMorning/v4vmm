@@ -318,7 +318,7 @@ Update this table when a packet lands.
 | `v4vmm` | [0054 004 feed hydration](../tasks/adr-0054-task-004-feed-read-model-hydration.md) | Implementation recorded. The stored metadata visual check moved to the [overhaul plan](design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07) on 2026-10-07, under Phase 4: album page. |
 | `v4vmm` | [0054 005 track hydration](../tasks/adr-0054-task-005-track-read-model-hydration.md) | Implementation recorded. The stored metadata/fallback visual check moved to the [overhaul plan](design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07) on 2026-10-07, under Phase 4: album page. |
 | `v4vmm` | [0084 001 one navigation stack](../tasks/archive/adr-0084-task-001-one-navigation-stack.md) | Complete - 2026-10-08. The mechanical checks are Green. The operator passed V1 to V5 on 2026-10-08. |
-| `v4vmm` | [0084 002 one release route](../tasks/adr-0084-task-002-one-release-route.md) | Implementation recorded - 2026-10-08. The mechanical checks are Green. The operator visual check V1 to V5 is open. |
+| `v4vmm` | [0084 002 one release route](../tasks/archive/adr-0084-task-002-one-release-route.md) | Complete - 2026-10-11. The mechanical checks are Green. The operator passed V1 to V5 on 2026-10-11. |
 | `musicindex-live-publisher` | control surface 001 | complete - 2026-09-07 (`a5b434e`) |
 | `musicindex-live-publisher` | control surface 002 | complete - 2026-09-07 (`459854c`) |
 | `musicindex-live-publisher` | show log 001 | Not started. Resolve the producer timestamp source before implementation. Drop-file v1 has no producer timestamp. Scheduler times are monotonic. |

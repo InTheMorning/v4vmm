@@ -1,6 +1,6 @@
 # ADR 0084 Task 003: One Route For Each Track
 
-Status: Ready - written on 2026-10-08. It runs after [task 002](adr-0084-task-002-one-release-route.md). Before the session starts, read the Implementation Result of task 002, and correct this packet where task 002 changed a name or a function.
+Status: Ready - written on 2026-10-08, and corrected on 2026-10-11 from the result of [task 002](archive/adr-0084-task-002-one-release-route.md). Implementation has not started.
 
 ## Goal
 
@@ -13,7 +13,7 @@ This packet fixes finding 2 of the [Music flow map](../architecture/music-flow-m
 
 - [ADR 0084](../adr/0084-music-column-browser.md) Decision 4 and its Verification section. A track is identified by its item GUID and its feed GUID.
 - [ADR 0084](../adr/0084-music-column-browser.md) Decision 9 and [task 001](archive/adr-0084-task-001-one-navigation-stack.md).
-- [Task 002](adr-0084-task-002-one-release-route.md): `ReleaseKey` and the resolver method.
+- [Task 002](archive/adr-0084-task-002-one-release-route.md): `ReleaseKey` and the resolver method.
 - The durable set in [AGENTS.md](../../AGENTS.md).
 
 ## Recorded Facts - 2026-10-08
@@ -31,6 +31,18 @@ This packet fixes finding 2 of the [Music flow map](../architecture/music-flow-m
   - the Library track search results, the Index track search results and the name-match rows
   - `hydrate_detail_from_nav`
 - These guards name the two entries: `adr_0049_inspector_source_ownership_is_guarded`, `adr_0024_index_track_detail_uses_rich_track_view_path`, `adr_0024_loading_shape_readiness_gate_is_locked` and `nav_top_drives_content_list_body_switch`.
+
+## Facts From Task 002 - 2026-10-11
+
+[Task 002](archive/adr-0084-task-002-one-release-route.md) is complete. Use its names and its method:
+
+- `ReleaseKey`, `ReleasePageSource`, `resolve_release_page_source` and `release_download_updates_open_page` are in `src/view_models/workspace/nav.rs`, with re-exports from `mod.rs`. Put `TrackKey`, `TrackPageSource` and the track resolver there too.
+- `nav.rs` must hold no `#[cfg(test)]` block. The guard `adr_0046_forward_go_forward_and_on_forward_have_production_callers` forbids it. Put the tests in `src/view_models/workspace/tests.rs`, and the `TrackRow` key tests beside its constructor.
+- `AlbumNode::release_key` in `src/view_models/library.rs` builds a release key. A `TrackRow` key uses the same rule for its release.
+- The top app stores the release source in `TopApp.release_page_source` and sets it in `apply_release_page_source` (`src/app/search_dispatch.rs`). `restore_release_page_source_for_nav` restores it. Add the track equivalents with the same shape.
+- `LibraryApp::release_label` labels a release by its key. Each breadcrumb segment uses its own key, never the source of the open page. Add `LibraryApp::track_label` by the same rule.
+- `show_downloaded_index_feed` changes the open page only through `release_download_updates_open_page`. Each track download completion uses a track equivalent.
+- The guard `adr_0084_release_one_route_replaces_the_two_entries` is the model for the R3-06 guard.
 
 ## Design
 
@@ -98,7 +110,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md), the [source map](../architecture/source-map.md), the [phase plan](../plans/adr-0084-music-column-browser-phase-plan.md) and the Implementation Result of [task 002](adr-0084-task-002-one-release-route.md).
+- [Agent rules](../../AGENTS.md), the [source map](../architecture/source-map.md), the [phase plan](../plans/adr-0084-music-column-browser-phase-plan.md) and the Implementation Result of [task 002](archive/adr-0084-task-002-one-release-route.md).
 - `src/view_models/workspace/nav.rs`, `breadcrumb.rs`, `tests.rs`.
 - `src/view_models/track_detail.rs`, `src/view_models/library.rs` (`ContentListRowDisplay`, `index_feed_selection`), `src/view_models/name_match_page.rs`.
 - `src/app.rs`, `src/app/breadcrumb.rs`, `src/app/search_dispatch.rs`, `src/app/name_match_dispatch.rs`.
@@ -132,7 +144,7 @@ Implement only this task. Do not redesign the architecture.
 Read:
 - `AGENTS.md`, `docs/architecture/source-map.md` and `docs/plans/adr-0084-music-column-browser-phase-plan.md`
 - This packet: `docs/tasks/adr-0084-task-003-one-track-route.md`
-- The Implementation Result of `docs/tasks/adr-0084-task-002-one-release-route.md`
+- The Implementation Result of `docs/tasks/archive/adr-0084-task-002-one-release-route.md`
 - ADR 0084 Decisions 4 and 9
 - Each file in "Files To Inspect"
 
