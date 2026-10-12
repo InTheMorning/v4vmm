@@ -362,6 +362,10 @@ checkout, and a Library with one playlist, one album and one track, or more.
 
 **V2 - a list row opens its page in the detail column, and the list stays in view**
 
+4a. Look at the rows of the middle (list) column.
+   - Correct: each title has the full text width and breaks only between words. The Library state,
+     "New" and the entity badge show on a third line under the secondary text.
+   - Incorrect: a title breaks inside a word, or the state labels sit at the right of the row.
 5. Scroll the middle (list) column partway down. Click a track row.
    - Correct: the right column shows the track page. The middle column stays in view, at the same
      scroll position.
@@ -424,7 +428,7 @@ None. This check reads your Library. It creates no fixture, and it writes no fil
 
 The orchestrator reviewed the diff against ADR 0084, ADR 0081, this packet and the [review checklist](../reviews/adr-0084-review-checklist.md). The column layout, the column views and the detail chrome keep to the design.
 
-Five points were corrected in review:
+Seven points were corrected in review:
 
 1. The search results filled the detail column. Their filter chips moved to the `Detail` frame chrome through two new builders, `detail_filter_chips` and `on_detail_filter_chips_select`.
 
@@ -436,6 +440,14 @@ Five points were corrected in review:
 4. `adr_0062_music_default_content_query_stays_off_render_path` used `impl Render for LibraryApp` as a start marker. It now reads from `render_sidebar_column`.
 5. The status line of ADR 0081 broke `adr_0057_status_headers_are_canonical`. The orchestrator wrote that line when it closed ADR 0081 task 001, after its last test run. The line now follows the ADR 0057 format. This packet did not cause it.
 
-After the corrections, each check is Green: 1,869 unit tests, 307 guards, `fmt`, `clippy -D warnings`, `check --all-targets` with no warning, and `cargo build --bin v4vmm`.
+6. The operator found on 2026-10-12, in V1, that Music showed one column. A saved `config.toml` layout held only the content-list frame. `visible_music_layout` kept only the saved frames, so it found no sidebar frame and no detail frame. C4-01 tested only the default layout.
+
+   `visible_music_layout` now always builds the three Music frames. It keeps the saved content-list frame id, because the navigation stack lives on it, and gives a free id to a missing frame. The new test `adr_0084_columns_c4_01_saved_single_frame_layout_still_has_three_columns` proves it.
+
+7. The operator found on 2026-10-12, in V1, that the list rows broke titles inside words in the 320 px column. Three state labels at the right of each row left the title about 60 px. The operator chose to fix the rows in this packet. `render_content_list_row_text` in `src/ui/shells/library/content_list.rs` now puts the Library state, the "New" mark and the entity badge on a status line under the text. The row actions stay at the right.
+
+   The guard `adr_0065_readiness_rows_keep_state_labels_separate_from_actions` now reads the status line. Its rule stays: a state label carries no click handler and no button style. Step 4a of the visual check covers the rows.
+
+After the corrections, each check is Green: 1,870 unit tests, 307 guards, `fmt`, `clippy -D warnings`, `check --all-targets` with no warning, and `cargo build --bin v4vmm`.
 
 Merge recommendation: pass. Task 005 adds the destinations and uses `opens_detail_page` for its destination roots.

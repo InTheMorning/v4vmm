@@ -937,42 +937,43 @@ impl TopApp {
     /// that `content_list_frame_title` gives, read from the content-list
     /// frame's one navigation stack. The sidebar shows no header.
     fn visible_music_layout(layout: &WorkspaceLayout) -> WorkspaceLayout {
-        let content_list_id = layout
-            .frames()
-            .iter()
-            .find(|frame| frame.kind() == WorkspaceFrameKind::ContentList)
-            .map(WorkspaceFrameState::id);
-        let mut content_seen = false;
-        let frames: Vec<_> = layout
-            .frames()
-            .iter()
-            .filter_map(|frame| match frame.kind() {
-                WorkspaceFrameKind::SourceList => Some(WorkspaceFrameState::new(
-                    frame.id(),
-                    frame.kind(),
-                    String::new(),
-                )),
-                WorkspaceFrameKind::ContentList => {
-                    if content_seen {
-                        None
-                    } else {
-                        content_seen = true;
-                        Some(WorkspaceFrameState::new(
-                            frame.id(),
-                            frame.kind(),
-                            "Library",
-                        ))
-                    }
-                }
-                WorkspaceFrameKind::Detail => {
-                    let title = content_list_id.map_or_else(String::new, |id| {
-                        Self::content_list_frame_title(layout, id, WorkspaceScreenMount::Music)
-                    });
-                    Some(WorkspaceFrameState::new(frame.id(), frame.kind(), title))
-                }
-                WorkspaceFrameKind::QueueNowPlaying => None,
-            })
-            .collect();
+        // ADR 0084 Decision 1: Music always shows its three columns, whatever
+        // frames a saved `config.toml` layout holds. The saved content-list
+        // frame keeps its id, because the one navigation stack lives on it.
+        // A missing sidebar or detail frame gets a free id.
+        let saved_id = |kind: WorkspaceFrameKind| {
+            layout
+                .frames()
+                .iter()
+                .find(|frame| frame.kind() == kind)
+                .map(WorkspaceFrameState::id)
+        };
+        let content_list_id =
+            saved_id(WorkspaceFrameKind::ContentList).unwrap_or(WORKSPACE_CONTENT_FRAME_ID);
+        let mut frames = vec![WorkspaceFrameState::new(
+            content_list_id,
+            WorkspaceFrameKind::ContentList,
+            "Library",
+        )];
+        let source_list_id = saved_id(WorkspaceFrameKind::SourceList)
+            .unwrap_or_else(|| Self::unused_workspace_frame_id(&frames, WorkspaceFrameId::new(1)));
+        frames.insert(
+            0,
+            WorkspaceFrameState::new(
+                source_list_id,
+                WorkspaceFrameKind::SourceList,
+                String::new(),
+            ),
+        );
+        let detail_id = saved_id(WorkspaceFrameKind::Detail)
+            .unwrap_or_else(|| Self::unused_workspace_frame_id(&frames, WorkspaceFrameId::new(3)));
+        let detail_title =
+            Self::content_list_frame_title(layout, content_list_id, WorkspaceScreenMount::Music);
+        frames.push(WorkspaceFrameState::new(
+            detail_id,
+            WorkspaceFrameKind::Detail,
+            detail_title,
+        ));
 
         let focused_frame_id = layout
             .focused_frame_id()
@@ -1679,7 +1680,8 @@ impl Render for TopApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        TopApp, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout, WorkspaceScreenMount,
+        TopApp, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+        WorkspaceScreenMount,
     };
 
     /// C4-01: the Music visible layout has SourceList, ContentList and
@@ -1700,6 +1702,46 @@ mod tests {
                 WorkspaceFrameKind::ContentList,
                 WorkspaceFrameKind::Detail,
             ]
+        );
+    }
+
+    /// C4-01: a saved layout with only the content-list frame still gives
+    /// Music its three columns, and keeps the content-list frame id. The
+    /// operator found this defect on 2026-10-12: a saved `config.toml` layout
+    /// with one frame showed Music as one column.
+    #[test]
+    fn adr_0084_columns_c4_01_saved_single_frame_layout_still_has_three_columns() {
+        let content_list_id = WorkspaceFrameId::new(2);
+        let layout = WorkspaceLayout::new(
+            vec![WorkspaceFrameState::with_default_title(
+                content_list_id,
+                WorkspaceFrameKind::ContentList,
+            )],
+            Some(content_list_id),
+        )
+        .expect("a one-frame layout is valid");
+        let visible = TopApp::visible_workspace_layout(&layout, WorkspaceScreenMount::Music);
+        let frames: Vec<_> = visible
+            .frames()
+            .iter()
+            .map(|frame| (frame.kind(), frame.id()))
+            .collect();
+        assert_eq!(frames.len(), 3, "Music must show three columns");
+        assert_eq!(
+            frames.iter().map(|(kind, _)| *kind).collect::<Vec<_>>(),
+            vec![
+                WorkspaceFrameKind::SourceList,
+                WorkspaceFrameKind::ContentList,
+                WorkspaceFrameKind::Detail,
+            ]
+        );
+        assert_eq!(
+            frames[1].1, content_list_id,
+            "the content-list frame must keep its saved id"
+        );
+        assert!(
+            frames[0].1 != frames[2].1 && frames[0].1 != content_list_id,
+            "each frame id must be unique"
         );
     }
 

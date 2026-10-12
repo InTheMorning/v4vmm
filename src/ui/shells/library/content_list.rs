@@ -215,32 +215,13 @@ fn render_content_list_row(
             label: SharedString::from(row.a11y_label().to_string()),
         })
         .child(Thumbnail::new(entity_kind, ThumbnailSize::Sm).image(thumbnail))
-        .child(render_content_list_row_text(row))
-        .child(
-            Label::new(row.library_badge.label)
-                .size(FontSize::Micro)
-                .color(SemanticColor::TertiaryLabel)
-                .truncated(),
-        );
-
-    if let Some(state_label) = row.state_label {
-        list_row = list_row.child(
-            Label::new(state_label)
-                .size(FontSize::Micro)
-                .color(SemanticColor::Accent)
-                .truncated(),
-        );
-    }
+        .child(render_content_list_row_text(row, entity_kind, cx));
 
     for action in &row.actions {
         list_row = list_row.child(render_content_list_row_action(action, cx));
     }
 
     list_row
-        .child(TagBadge::new(TagBadgeDisplay {
-            kind: entity_kind,
-            label: Some(SharedString::from(row.entity_badge.label)),
-        }))
         .when(row.accepts_row_click(), |el| {
             el.on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                 this.open_content_list_row(&row_id, cx);
@@ -396,7 +377,16 @@ fn render_pending_content_tile(index: usize, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-fn render_content_list_row_text(row: &ContentListRowDisplay) -> AnyElement {
+/// The text of a content-list row: the title, the secondary text, and a
+/// status line. ADR 0084 Decision 1: the list column is narrow, so the
+/// Library state, the "New" mark and the entity badge sit on the status
+/// line under the text, not at the right of the row. The title then has the
+/// full text width.
+fn render_content_list_row_text(
+    row: &ContentListRowDisplay,
+    entity_kind: EntityKind,
+    cx: &App,
+) -> AnyElement {
     let mut text = div().flex_1().min_w_0().overflow_hidden().child(
         Label::new(row.title().to_string())
             .size(FontSize::Micro)
@@ -411,7 +401,30 @@ fn render_content_list_row_text(row: &ContentListRowDisplay) -> AnyElement {
         );
     }
 
-    text.into_any_element()
+    let mut status = div()
+        .flex()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .gap(Spacing::XS.scaled(cx))
+        .child(
+            Label::new(row.library_badge.label)
+                .size(FontSize::Micro)
+                .color(SemanticColor::TertiaryLabel),
+        );
+    if let Some(state_label) = row.state_label {
+        status = status.child(
+            Label::new(state_label)
+                .size(FontSize::Micro)
+                .color(SemanticColor::Accent),
+        );
+    }
+    status = status.child(TagBadge::new(TagBadgeDisplay {
+        kind: entity_kind,
+        label: Some(SharedString::from(row.entity_badge.label)),
+    }));
+
+    text.child(status).into_any_element()
 }
 
 fn render_content_list_row_action(

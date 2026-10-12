@@ -11583,10 +11583,13 @@ fn adr_0065_readiness_rows_keep_state_labels_separate_from_actions() {
                 .to_string(),
         );
     }
+    // ADR 0084 Decision 1: the state labels moved to the status line of
+    // `render_content_list_row_text`, under the row text. The ADR 0065 rule
+    // stays: a state label carries no click handler and no button style.
     let state_label_block = source_between(
-        render_row,
-        "if let Some(state_label) = row.state_label",
-        "for action in &row.actions",
+        &content_shell_source,
+        "let mut status = div()",
+        "text.child(status)",
     );
     for forbidden in [".on_click", "UiButton::styled", ".cursor_pointer()"] {
         if state_label_block.contains(forbidden) {
