@@ -41,7 +41,7 @@ The overhaul plan names eight steps. Step 2 has two packets, 002 and 003, becaus
 ## Sequence
 
 1. Packets 002 and 003, one at a time. Each packet runs in its own session.
-2. [ADR 0081 task 001](../tasks/adr-0081-task-001-remove-the-staged-frame-model.md) before packet 004. Both change `src/view_models/workspace/`, and packet 004 changes the frame layout.
+2. [ADR 0081 task 001](../tasks/archive/adr-0081-task-001-remove-the-staged-frame-model.md) before packet 004. Complete on 2026-10-11. Both change `src/view_models/workspace/`, and packet 004 changes the frame layout.
 3. [ADR 0082 tasks 002 and 003](adr-0082-publisher-roles-phase-plan.md) before packet 006. Packet 006 replaces the publisher page layout that task 002 changes.
 4. Packets 004 to 009 in register order. Write each packet at the start of its session, from the result of the packet before it.
 

@@ -37,12 +37,6 @@ pub(crate) use nav::{
     TrackKey, TrackPageSource,
 };
 
-/// `FrameDetachEligibility` and `FrameDockTarget` are ADR 0046 Task 014
-/// model-only types with no caller outside their own dedicated tests. See
-/// `src/view_models/workspace/frame.rs` for why they are test-only.
-#[cfg(test)]
-pub(crate) use frame::{FrameDetachEligibility, FrameDockTarget};
-
 /// Workspace model mutation failure.
 ///
 /// All fallible workspace operations use this error instead of panicking on
@@ -58,33 +52,8 @@ pub(crate) enum WorkspaceModelError {
     EmptyLayout,
     /// The frame has no back-history entry to select.
     CannotNavigateBack,
-    /// The requested frame removal would leave the workspace empty.
-    ///
-    /// ADR 0046 Task 012 names this variant in its layout-persistence
-    /// contract, but only the test-only `remove_frame` constructs it today.
-    #[cfg(test)]
-    LastFrameRemoval,
     /// The frame has no forward-history entry to select.
     CannotNavigateForward,
-    /// The detach request is valid but windowing support is deferred.
-    ///
-    /// ADR 0046 Task 014 keeps detach model-only; only the test-only
-    /// `request_detach` constructs this today.
-    #[cfg(test)]
-    DetachDeferred(WorkspaceFrameId),
-    /// The dock request is valid but windowing support is deferred. See
-    /// `DetachDeferred` above for why this is test-only.
-    #[cfg(test)]
-    DockDeferred {
-        /// Frame that requested docking.
-        frame_id: WorkspaceFrameId,
-        /// Requested dock lane.
-        target: FrameDockTarget,
-    },
-    /// The frame is anchored and cannot detach or dock. See `DetachDeferred`
-    /// above for why this is test-only.
-    #[cfg(test)]
-    NotDetachable(WorkspaceFrameId),
 }
 
 impl fmt::Display for WorkspaceModelError {
@@ -96,26 +65,7 @@ impl fmt::Display for WorkspaceModelError {
             }
             Self::EmptyLayout => f.write_str("workspace layout contains no frames"),
             Self::CannotNavigateBack => f.write_str("workspace frame has no back history"),
-            #[cfg(test)]
-            Self::LastFrameRemoval => f.write_str("cannot remove the last workspace frame"),
             Self::CannotNavigateForward => f.write_str("workspace frame has no forward history"),
-            #[cfg(test)]
-            Self::DetachDeferred(id) => write!(
-                f,
-                "workspace frame {} detach is deferred until windowing support exists",
-                id.value()
-            ),
-            #[cfg(test)]
-            Self::DockDeferred { frame_id, target } => write!(
-                f,
-                "workspace frame {} dock to {} is deferred until windowing support exists",
-                frame_id.value(),
-                target.label()
-            ),
-            #[cfg(test)]
-            Self::NotDetachable(id) => {
-                write!(f, "workspace frame {} is not detachable", id.value())
-            }
         }
     }
 }
@@ -170,13 +120,6 @@ impl WorkspaceLayout {
     const SOURCE_LIST_ID: WorkspaceFrameId = WorkspaceFrameId::new(1);
     const CONTENT_LIST_ID: WorkspaceFrameId = WorkspaceFrameId::new(2);
     const DETAIL_ID: WorkspaceFrameId = WorkspaceFrameId::new(3);
-
-    /// Returns the default primary content frame identifier.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) const fn default_content_frame_id() -> WorkspaceFrameId {
-        Self::CONTENT_LIST_ID
-    }
 
     /// Creates the ADR 0060 default curation workspace layout.
     #[must_use]
@@ -457,171 +400,6 @@ impl WorkspaceLayout {
                 FrameNavigationState::new(default_navigation_entry(frame.kind()))
             });
         }
-    }
-}
-
-/// ADR 0046 Tasks 012-014 keep multi-frame commands, detach, and dock
-/// model-only: `workspace_frame_phase_5_multi_frame_commands_are_deferred_until_content_frames_exist`
-/// and `workspace_frame_phase_6_detach_dock_model_only_contract` in
-/// `tests/architecture_tests.rs` forbid wiring any of this into `src/ui/` or
-/// `src/app.rs` until a later, not-yet-scheduled task lifts that guard. Each
-/// method here has its own dedicated test; they stay compiled only for
-/// tests until that task exists.
-#[cfg(test)]
-impl WorkspaceLayout {
-    /// Returns the default detail frame identifier.
-    #[must_use]
-    pub(crate) const fn default_detail_frame_id() -> WorkspaceFrameId {
-        Self::DETAIL_ID
-    }
-
-    /// Creates an empty workspace layout.
-    #[must_use]
-    pub(crate) fn empty() -> Self {
-        Self {
-            frames: Vec::new(),
-            focused_frame_id: None,
-            frame_navigation: BTreeMap::new(),
-        }
-    }
-
-    /// Returns the currently focused frame.
-    #[must_use]
-    pub(crate) fn focused_frame(&self) -> Option<&WorkspaceFrameState> {
-        let focused_id = self.focused_frame_id?;
-        self.frames.iter().find(|frame| frame.id() == focused_id)
-    }
-
-    /// Adds a frame kind to the end of the workspace.
-    ///
-    /// The new frame receives the next stable frame id and becomes focused.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`WorkspaceModelError::DuplicateFrameId`] if the generated frame
-    /// id already exists.
-    pub(crate) fn add_frame(
-        &mut self,
-        kind: WorkspaceFrameKind,
-    ) -> Result<WorkspaceFrameId, WorkspaceModelError> {
-        let id = self.next_frame_id();
-        self.add_frame_state(WorkspaceFrameState::with_default_title(id, kind))?;
-        self.focus_frame(id)?;
-        Ok(id)
-    }
-
-    /// Adds a caller-provided frame state to the end of the workspace.
-    ///
-    /// Construction and tests use this helper when explicit ids are required.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`WorkspaceModelError::DuplicateFrameId`] if the frame id already
-    /// exists.
-    fn add_frame_state(&mut self, frame: WorkspaceFrameState) -> Result<(), WorkspaceModelError> {
-        let id = frame.id();
-        if self.frames.iter().any(|existing| existing.id() == id) {
-            return Err(WorkspaceModelError::DuplicateFrameId(id));
-        }
-        let kind = frame.kind();
-        self.frames.push(frame);
-        self.frame_navigation
-            .entry(id)
-            .or_insert_with(|| FrameNavigationState::new(default_navigation_entry(kind)));
-        if self.focused_frame_id.is_none() {
-            self.focused_frame_id = Some(id);
-        }
-        self.sync_focus_flags();
-        Ok(())
-    }
-
-    /// Removes a frame from the workspace.
-    ///
-    /// If the focused frame is removed, focus moves to the left sibling, or the
-    /// first remaining frame when there is no left sibling.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`WorkspaceModelError::FrameNotFound`] when the frame does not
-    /// exist. Returns [`WorkspaceModelError::LastFrameRemoval`] when the
-    /// requested removal would leave the workspace empty.
-    pub(crate) fn remove_frame(&mut self, id: WorkspaceFrameId) -> Result<(), WorkspaceModelError> {
-        let Some(position) = self.frames.iter().position(|frame| frame.id() == id) else {
-            return Err(WorkspaceModelError::FrameNotFound(id));
-        };
-        if self.frames.len() == 1 {
-            return Err(WorkspaceModelError::LastFrameRemoval);
-        }
-        self.frames.remove(position);
-        self.frame_navigation.remove(&id);
-        if self.focused_frame_id == Some(id) {
-            let next_focus_index = position.saturating_sub(1);
-            self.focused_frame_id = self
-                .frames
-                .get(next_focus_index)
-                .map(WorkspaceFrameState::id);
-        }
-        self.sync_focus_flags();
-        Ok(())
-    }
-
-    /// Requests that an eligible frame detach into a separate surface.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`WorkspaceModelError::FrameNotFound`] when the frame does not
-    /// exist. Returns [`WorkspaceModelError::NotDetachable`] when the frame is
-    /// anchored. Returns [`WorkspaceModelError::DetachDeferred`] for eligible
-    /// frames until a future windowing ADR implements actual detach behavior.
-    pub(crate) fn request_detach(&self, id: WorkspaceFrameId) -> Result<(), WorkspaceModelError> {
-        match self.frame_detach_eligibility(id)? {
-            FrameDetachEligibility::Detachable => Err(WorkspaceModelError::DetachDeferred(id)),
-            FrameDetachEligibility::NotDetachable => Err(WorkspaceModelError::NotDetachable(id)),
-        }
-    }
-
-    /// Requests that an eligible frame dock into a workspace lane.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`WorkspaceModelError::FrameNotFound`] when the frame does not
-    /// exist. Returns [`WorkspaceModelError::NotDetachable`] when the frame is
-    /// anchored. Returns [`WorkspaceModelError::DockDeferred`] for eligible
-    /// frames until a future windowing ADR implements actual dock behavior.
-    pub(crate) fn request_dock(
-        &self,
-        id: WorkspaceFrameId,
-        target: FrameDockTarget,
-    ) -> Result<(), WorkspaceModelError> {
-        match self.frame_detach_eligibility(id)? {
-            FrameDetachEligibility::Detachable => Err(WorkspaceModelError::DockDeferred {
-                frame_id: id,
-                target,
-            }),
-            FrameDetachEligibility::NotDetachable => Err(WorkspaceModelError::NotDetachable(id)),
-        }
-    }
-
-    fn frame_detach_eligibility(
-        &self,
-        id: WorkspaceFrameId,
-    ) -> Result<FrameDetachEligibility, WorkspaceModelError> {
-        self.frames
-            .iter()
-            .find(|frame| frame.id() == id)
-            .map(|frame| frame.kind().detach_eligibility())
-            .ok_or(WorkspaceModelError::FrameNotFound(id))
-    }
-
-    fn next_frame_id(&self) -> WorkspaceFrameId {
-        let next = self
-            .frames
-            .iter()
-            .map(|frame| frame.id().value())
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1);
-        WorkspaceFrameId::new(next)
     }
 }
 

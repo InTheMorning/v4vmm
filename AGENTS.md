@@ -22,8 +22,9 @@ Music structure in [ADR 0084](docs/adr/0084-music-column-browser.md).
 Phase 4A packet 1, [one navigation stack](docs/tasks/archive/adr-0084-task-001-one-navigation-stack.md), is complete.
 Packet 2, one page for each item, is complete as
 [task 002](docs/tasks/archive/adr-0084-task-002-one-release-route.md) and
-[task 003](docs/tasks/archive/adr-0084-task-003-one-track-route.md). Packet 004, the three-column shell, comes next.
-[ADR 0081 task 001](docs/tasks/adr-0081-task-001-remove-the-staged-frame-model.md) runs before it. The
+[task 003](docs/tasks/archive/adr-0084-task-003-one-track-route.md).
+[ADR 0081 task 001](docs/tasks/archive/adr-0081-task-001-remove-the-staged-frame-model.md) is complete. Packet 004, the
+three-column shell, comes next. The
 [ADR 0084 phase plan](docs/plans/adr-0084-music-column-browser-phase-plan.md) holds the order. Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
 
@@ -34,8 +35,7 @@ The operator resumed visual checks on 2026-10-02. [Pending human checks](docs/pe
 holds each open check. Walk a new check right after its packet. The procedures in `docs/runbooks/` stay
 regression checks.
 
-Ready packets include [ADR 0081 task 001](docs/tasks/adr-0081-task-001-remove-the-staged-frame-model.md),
-[ADR 0082 packets 002 and 003](docs/plans/adr-0082-publisher-roles-phase-plan.md) and
+Ready packets include [ADR 0082 packets 002 and 003](docs/plans/adr-0082-publisher-roles-phase-plan.md) and
 [ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md). ADR 0082 packet 002 also moves
 ADR 0078 to the archive.
 

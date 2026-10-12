@@ -57,59 +57,6 @@ impl WorkspaceFrameKind {
     }
 }
 
-/// ADR 0046 Task 014 keeps detach and dock model-only: `src/ui/` and
-/// `src/app.rs` must not wire a detach or dock command yet. This type, and
-/// `WorkspaceFrameKind::detach_eligibility` below, have no caller outside
-/// their own dedicated tests until a later task lifts that guard, so they
-/// are compiled only for tests.
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FrameDetachEligibility {
-    /// The frame can request detach once window support exists.
-    Detachable,
-    /// The frame is anchored in the workspace and cannot detach.
-    NotDetachable,
-}
-
-/// Dock lane for a workspace frame. See `FrameDetachEligibility` above for
-/// why this is test-only.
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FrameDockTarget {
-    /// Dock the frame into the leading workspace lane.
-    Leading,
-    /// Dock the frame into the center workspace lane.
-    Center,
-    /// Dock the frame into the trailing workspace lane.
-    Trailing,
-}
-
-#[cfg(test)]
-impl FrameDockTarget {
-    /// Returns the stable lane label used in diagnostics.
-    pub(super) const fn label(self) -> &'static str {
-        match self {
-            Self::Leading => "leading",
-            Self::Center => "center",
-            Self::Trailing => "trailing",
-        }
-    }
-}
-
-#[cfg(test)]
-impl WorkspaceFrameKind {
-    /// Returns whether frames of this kind can request detach.
-    #[must_use]
-    pub(crate) const fn detach_eligibility(self) -> FrameDetachEligibility {
-        match self {
-            Self::SourceList => FrameDetachEligibility::NotDetachable,
-            Self::ContentList | Self::Detail | Self::QueueNowPlaying => {
-                FrameDetachEligibility::Detachable
-            }
-        }
-    }
-}
-
 /// Display-ready state for one workspace frame.
 ///
 /// The frame carries only plain data. Focus is mirrored here so frame chrome can

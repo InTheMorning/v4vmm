@@ -2,11 +2,11 @@ use super::{
     release_download_updates_open_page, resolve_release_page_source, resolve_track_page_source,
     track_download_updates_open_page, track_release_download_updates_open_page, BreadcrumbDisplay,
     BreadcrumbTruncation, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
-    FilterChipStripDisplay, FilterChipStripWidthClass, FrameDetachEligibility, FrameDockTarget,
-    FrameNavigationEntry, FrameNavigationState, FrameShellDisplay, LibraryFilterControlDisplay,
-    LibraryFilterControlTreatment, ReleaseKey, ReleasePageSource, TrackKey, TrackPageSource,
-    WorkspaceFrameConfig, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState,
-    WorkspaceLayout, WorkspaceLayoutConfig, WorkspaceModelError,
+    FilterChipStripDisplay, FilterChipStripWidthClass, FrameNavigationEntry, FrameNavigationState,
+    FrameShellDisplay, LibraryFilterControlDisplay, LibraryFilterControlTreatment, ReleaseKey,
+    ReleasePageSource, TrackKey, TrackPageSource, WorkspaceFrameConfig, WorkspaceFrameId,
+    WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout, WorkspaceLayoutConfig,
+    WorkspaceModelError,
 };
 
 fn frame(id: u64, kind: WorkspaceFrameKind) -> WorkspaceFrameState {
@@ -649,7 +649,7 @@ fn default_layout_has_expected_workspace_shape() {
         "default workspace should expose the ADR 0060 curation frame order"
     );
     assert_eq!(
-        layout.focused_frame().map(WorkspaceFrameState::kind),
+        focused_frame_of(&layout).map(WorkspaceFrameState::kind),
         Some(WorkspaceFrameKind::ContentList),
         "default workspace should focus the primary content frame"
     );
@@ -666,7 +666,8 @@ fn default_layout_has_expected_workspace_shape() {
 
 #[test]
 fn empty_layout_has_no_focus_and_rejects_focus_mutation() {
-    let mut layout = WorkspaceLayout::empty();
+    let mut layout =
+        WorkspaceLayout::new(Vec::new(), None).expect("an empty frame list is a valid layout");
 
     assert!(
         layout.frames().is_empty(),
@@ -693,7 +694,7 @@ fn single_frame_layout_marks_only_frame_focused() {
     .expect("single-frame layout should be valid");
 
     assert_eq!(
-        layout.focused_frame().map(WorkspaceFrameState::id),
+        focused_frame_of(&layout).map(WorkspaceFrameState::id),
         Some(WorkspaceFrameId::new(10)),
         "single-frame layout should focus its only frame"
     );
@@ -736,7 +737,7 @@ fn multi_frame_focus_moves_between_existing_frames() {
         .expect("existing frame should be focusable");
 
     assert_eq!(
-        layout.focused_frame().map(WorkspaceFrameState::id),
+        focused_frame_of(&layout).map(WorkspaceFrameState::id),
         Some(WorkspaceFrameId::new(3)),
         "focus should move to the requested frame"
     );
@@ -766,13 +767,6 @@ fn invalid_layout_mutations_return_errors() {
         ))),
         "focusing a missing frame should return an error"
     );
-    assert_eq!(
-        layout.remove_frame(WorkspaceFrameId::new(99)),
-        Err(WorkspaceModelError::FrameNotFound(WorkspaceFrameId::new(
-            99
-        ))),
-        "removing a missing frame should return an error"
-    );
 }
 
 #[test]
@@ -793,50 +787,9 @@ fn duplicate_frames_are_rejected_at_construction() {
 }
 
 #[test]
-fn add_frame_appends_and_focuses_new_frame() {
-    let mut layout = WorkspaceLayout::new(
-        vec![
-            frame(2, WorkspaceFrameKind::SourceList),
-            frame(4, WorkspaceFrameKind::ContentList),
-        ],
-        Some(WorkspaceFrameId::new(2)),
-    )
-    .expect("initial layout should be valid");
-
-    let id = layout
-        .add_frame(WorkspaceFrameKind::Detail)
-        .expect("typed frame addition should succeed");
-
-    assert_eq!(
-        id,
-        WorkspaceFrameId::new(5),
-        "add_frame should allocate the next stable frame id"
-    );
-    assert_eq!(
-        layout.frames().last().map(WorkspaceFrameState::kind),
-        Some(WorkspaceFrameKind::Detail),
-        "add_frame should append the requested kind"
-    );
-    assert_eq!(
-        layout.focused_frame_id(),
-        Some(id),
-        "add_frame should focus the new frame"
-    );
-    assert_eq!(
-        layout
-            .frames()
-            .iter()
-            .filter(|frame| frame.is_focused())
-            .count(),
-        1,
-        "add_frame should preserve exactly one focused frame"
-    );
-}
-
-#[test]
 fn replace_nav_preserves_full_history_for_visible_layout_projection() {
     let mut source = WorkspaceLayout::default_layout();
-    let detail_id = WorkspaceLayout::default_detail_frame_id();
+    let detail_id = detail_frame_id(&source);
     source
         .reset_nav(detail_id, FrameNavigationEntry::Search("jazz".to_string()))
         .expect("detail frame should exist");
@@ -871,190 +824,18 @@ fn replace_nav_preserves_full_history_for_visible_layout_projection() {
 }
 
 #[test]
-fn add_frame_state_rejects_duplicate_ids() {
-    let mut layout = WorkspaceLayout::new(
-        vec![frame(1, WorkspaceFrameKind::SourceList)],
-        Some(WorkspaceFrameId::new(1)),
-    )
-    .expect("initial layout should be valid");
-
-    assert_eq!(
-        layout.add_frame_state(frame(1, WorkspaceFrameKind::Detail)),
-        Err(WorkspaceModelError::DuplicateFrameId(
-            WorkspaceFrameId::new(1)
-        )),
-        "adding an explicit duplicate frame should return an error"
-    );
-}
-
-#[test]
-fn removing_focused_frame_moves_focus_left_when_possible() {
-    let mut layout = WorkspaceLayout::new(
+fn workspace_layout_config_round_trips() {
+    let added_id = WorkspaceFrameId::new(4);
+    let layout = WorkspaceLayout::new(
         vec![
             frame(1, WorkspaceFrameKind::SourceList),
             frame(2, WorkspaceFrameKind::ContentList),
             frame(3, WorkspaceFrameKind::Detail),
+            frame(added_id.value(), WorkspaceFrameKind::Detail),
         ],
-        Some(WorkspaceFrameId::new(2)),
+        Some(added_id),
     )
-    .expect("multi-frame layout should be valid");
-
-    layout
-        .remove_frame(WorkspaceFrameId::new(2))
-        .expect("focused frame should be removable");
-
-    assert_eq!(
-        layout.focused_frame_id(),
-        Some(WorkspaceFrameId::new(1)),
-        "focus should move to the left sibling after removing the focused frame"
-    );
-    assert_eq!(
-        layout
-            .frames()
-            .iter()
-            .filter(|frame| frame.is_focused())
-            .count(),
-        1,
-        "layout should still mark exactly one focused frame"
-    );
-}
-
-#[test]
-fn removing_first_focused_frame_moves_focus_to_first_remaining_frame() {
-    let mut layout = WorkspaceLayout::new(
-        vec![
-            frame(1, WorkspaceFrameKind::SourceList),
-            frame(2, WorkspaceFrameKind::ContentList),
-        ],
-        Some(WorkspaceFrameId::new(1)),
-    )
-    .expect("multi-frame layout should be valid");
-
-    layout
-        .remove_frame(WorkspaceFrameId::new(1))
-        .expect("focused frame should be removable");
-
-    assert_eq!(
-        layout.focused_frame_id(),
-        Some(WorkspaceFrameId::new(2)),
-        "first focused frame removal should focus the first remaining frame"
-    );
-}
-
-#[test]
-fn removing_last_frame_returns_error() {
-    let mut layout = WorkspaceLayout::new(
-        vec![frame(1, WorkspaceFrameKind::SourceList)],
-        Some(WorkspaceFrameId::new(1)),
-    )
-    .expect("single-frame layout should be valid");
-
-    assert_eq!(
-        layout.remove_frame(WorkspaceFrameId::new(1)),
-        Err(WorkspaceModelError::LastFrameRemoval),
-        "removing the last frame should be rejected"
-    );
-    assert_eq!(
-        layout.focused_frame_id(),
-        Some(WorkspaceFrameId::new(1)),
-        "failed removal should preserve focus"
-    );
-}
-
-#[test]
-fn workspace_frame_kind_projects_detach_eligibility() {
-    assert_eq!(
-        WorkspaceFrameKind::SourceList.detach_eligibility(),
-        FrameDetachEligibility::NotDetachable,
-        "source list frames should stay anchored to the workspace"
-    );
-    for kind in [
-        WorkspaceFrameKind::ContentList,
-        WorkspaceFrameKind::Detail,
-        WorkspaceFrameKind::QueueNowPlaying,
-    ] {
-        assert_eq!(
-            kind.detach_eligibility(),
-            FrameDetachEligibility::Detachable,
-            "{kind:?} frames should be detach-eligible"
-        );
-    }
-}
-
-#[test]
-fn detach_and_dock_requests_defer_for_detachable_frames() {
-    let mut layout = WorkspaceLayout::default_layout();
-    let queue = layout
-        .add_frame(WorkspaceFrameKind::QueueNowPlaying)
-        .expect("queue frame kind should remain addable during ADR 0060 transition");
-
-    assert_eq!(
-        layout.request_detach(WorkspaceFrameId::new(2)),
-        Err(WorkspaceModelError::DetachDeferred(WorkspaceFrameId::new(
-            2
-        ))),
-        "content-list detach should be recognized but deferred"
-    );
-    assert_eq!(
-        layout.request_dock(WorkspaceFrameId::new(3), FrameDockTarget::Center),
-        Err(WorkspaceModelError::DockDeferred {
-            frame_id: WorkspaceFrameId::new(3),
-            target: FrameDockTarget::Center,
-        }),
-        "detail dock should be recognized but deferred"
-    );
-    assert_eq!(
-        layout.request_dock(queue, FrameDockTarget::Trailing),
-        Err(WorkspaceModelError::DockDeferred {
-            frame_id: queue,
-            target: FrameDockTarget::Trailing,
-        }),
-        "queue dock should be recognized but deferred"
-    );
-}
-
-#[test]
-fn detach_and_dock_requests_reject_anchored_source_list() {
-    let layout = WorkspaceLayout::default_layout();
-
-    assert_eq!(
-        layout.request_detach(WorkspaceFrameId::new(1)),
-        Err(WorkspaceModelError::NotDetachable(WorkspaceFrameId::new(1))),
-        "source list detach should be rejected"
-    );
-    assert_eq!(
-        layout.request_dock(WorkspaceFrameId::new(1), FrameDockTarget::Leading),
-        Err(WorkspaceModelError::NotDetachable(WorkspaceFrameId::new(1))),
-        "source list dock should be rejected"
-    );
-}
-
-#[test]
-fn detach_and_dock_requests_validate_frame_id() {
-    let layout = WorkspaceLayout::default_layout();
-
-    assert_eq!(
-        layout.request_detach(WorkspaceFrameId::new(99)),
-        Err(WorkspaceModelError::FrameNotFound(WorkspaceFrameId::new(
-            99
-        ))),
-        "detaching a missing frame should return FrameNotFound"
-    );
-    assert_eq!(
-        layout.request_dock(WorkspaceFrameId::new(99), FrameDockTarget::Center),
-        Err(WorkspaceModelError::FrameNotFound(WorkspaceFrameId::new(
-            99
-        ))),
-        "docking a missing frame should return FrameNotFound"
-    );
-}
-
-#[test]
-fn workspace_layout_config_round_trips() {
-    let mut layout = WorkspaceLayout::default_layout();
-    let added = layout
-        .add_frame(WorkspaceFrameKind::Detail)
-        .expect("adding a detail frame should succeed");
+    .expect("layout with an extra frame should be valid");
 
     let restored = WorkspaceLayout::from_config(Some(&layout.to_config()));
 
@@ -1065,7 +846,7 @@ fn workspace_layout_config_round_trips() {
     );
     assert_eq!(
         restored.focused_frame_id(),
-        Some(added),
+        Some(added_id),
         "config conversion should preserve focused frame id"
     );
 }
@@ -1102,7 +883,7 @@ fn workspace_layout_config_from_before_broadcast_frame_still_loads() {
         "layouts written before Broadcast existed should still load"
     );
     assert_eq!(
-        restored.focused_frame().map(WorkspaceFrameState::kind),
+        focused_frame_of(&restored).map(WorkspaceFrameState::kind),
         Some(WorkspaceFrameKind::ContentList),
         "old layouts should preserve focus"
     );
@@ -1269,7 +1050,12 @@ fn adr_0046_forward_push_after_back_clears_forward_history() {
 #[test]
 fn adr_0046_forward_pop_nav_forward_restores_entry_back_left() {
     let mut layout = WorkspaceLayout::default_layout();
-    let content_list_id = WorkspaceLayout::default_content_frame_id();
+    let content_list_id = layout
+        .frames()
+        .iter()
+        .find(|frame| frame.kind() == WorkspaceFrameKind::ContentList)
+        .map(WorkspaceFrameState::id)
+        .expect("default layout should include a content-list frame");
 
     layout
         .push_nav(content_list_id, track(42))
@@ -1937,4 +1723,23 @@ fn adr_0084_track_release_download_updates_only_the_open_track_page() {
         !track_release_download_updates_open_page(Some(&open), None),
         "a download with no feed GUID must not change the open page"
     );
+}
+
+/// Returns the focused frame of `layout`, through its live accessors.
+fn focused_frame_of(layout: &WorkspaceLayout) -> Option<&WorkspaceFrameState> {
+    let focused_id = layout.focused_frame_id()?;
+    layout
+        .frames()
+        .iter()
+        .find(|frame| frame.id() == focused_id)
+}
+
+/// Returns the id of the Detail frame of `layout`.
+fn detail_frame_id(layout: &WorkspaceLayout) -> WorkspaceFrameId {
+    layout
+        .frames()
+        .iter()
+        .find(|frame| frame.kind() == WorkspaceFrameKind::Detail)
+        .map(WorkspaceFrameState::id)
+        .expect("the default layout has a Detail frame")
 }

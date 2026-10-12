@@ -43,17 +43,12 @@ type WorkspaceContentPaneResizeMoveHandler = Box<dyn Fn(f32, &mut Window, &mut A
 #[derive(Default)]
 #[must_use]
 pub(crate) struct WorkspaceSlots {
-    source_list: Option<AnyElement>,
     content_list: Option<AnyElement>,
-    detail: Option<AnyElement>,
-    queue_now_playing: Option<AnyElement>,
     content_list_library_filter_control: Option<LibraryFilterControlDisplay>,
     content_list_view_mode_control: Option<ContentViewModeControlDisplay>,
     content_list_filter_chip_strip: Option<FilterChipStripDisplay>,
-    detail_filter_chip_strip: Option<FilterChipStripDisplay>,
     on_content_list_filter_select: Option<WorkspaceFilterSelectHandler>,
     on_content_list_view_mode_select: Option<WorkspaceViewModeSelectHandler>,
-    on_detail_filter_select: Option<WorkspaceFilterSelectHandler>,
     on_content_list_breadcrumb_select: Option<WorkspaceBreadcrumbSelectHandler>,
     content_list_breadcrumb_labeler: Option<WorkspaceBreadcrumbLabeler>,
     on_content_list_back_select: Option<WorkspaceBackSelectHandler>,
@@ -205,10 +200,12 @@ impl WorkspaceSlots {
         cx: &App,
     ) -> AnyElement {
         match kind {
-            WorkspaceFrameKind::SourceList => self.source_list.take(),
             WorkspaceFrameKind::ContentList => self.content_list.take(),
-            WorkspaceFrameKind::Detail => self.detail.take(),
-            WorkspaceFrameKind::QueueNowPlaying => self.queue_now_playing.take(),
+            // ADR 0081 Decision 2: a slot is added when a screen fills it.
+            // Only the content list has a screen today.
+            WorkspaceFrameKind::SourceList
+            | WorkspaceFrameKind::Detail
+            | WorkspaceFrameKind::QueueNowPlaying => None,
         }
         .unwrap_or_else(|| placeholder(frame, cx))
     }
@@ -216,8 +213,10 @@ impl WorkspaceSlots {
     fn filter_chip_strip_for(&self, kind: WorkspaceFrameKind) -> Option<FilterChipStripDisplay> {
         match kind {
             WorkspaceFrameKind::ContentList => self.content_list_filter_chip_strip.clone(),
-            WorkspaceFrameKind::Detail => self.detail_filter_chip_strip.clone(),
-            WorkspaceFrameKind::SourceList | WorkspaceFrameKind::QueueNowPlaying => None,
+            // ADR 0081 Decision 4: a Detail filter strip needs a new ADR.
+            WorkspaceFrameKind::SourceList
+            | WorkspaceFrameKind::Detail
+            | WorkspaceFrameKind::QueueNowPlaying => None,
         }
     }
 
@@ -251,8 +250,9 @@ impl WorkspaceSlots {
     ) -> Option<WorkspaceFilterSelectHandler> {
         match kind {
             WorkspaceFrameKind::ContentList => self.on_content_list_filter_select.clone(),
-            WorkspaceFrameKind::Detail => self.on_detail_filter_select.clone(),
-            WorkspaceFrameKind::SourceList | WorkspaceFrameKind::QueueNowPlaying => None,
+            WorkspaceFrameKind::SourceList
+            | WorkspaceFrameKind::Detail
+            | WorkspaceFrameKind::QueueNowPlaying => None,
         }
     }
 
@@ -314,38 +314,6 @@ impl WorkspaceSlots {
             | WorkspaceFrameKind::SourceList
             | WorkspaceFrameKind::QueueNowPlaying => None,
         }
-    }
-}
-
-/// `queue_now_playing`, `detail_filter_chip_strip` and `on_detail_filter_select`
-/// have no caller outside their own dedicated tests today. ADR 0060 task 002
-/// keeps the `queue_now_playing` slot until the frame kind is removed, and
-/// ADR 0047 Task 014's search-results inspector shell contract
-/// (`adr_0047_task_014_search_results_inspector_shell_contract` in
-/// `tests/architecture_tests.rs`) requires the other two builders to exist
-/// so the Detail frame can later mount filter chrome. Each stays here,
-/// compiled only for tests.
-#[cfg(test)]
-impl WorkspaceSlots {
-    /// Supplies content for the queue/now-playing frame.
-    pub(crate) fn queue_now_playing(mut self, content: impl IntoElement) -> Self {
-        self.queue_now_playing = Some(content.into_any_element());
-        self
-    }
-
-    /// Supplies frame-local filter chrome for the detail frame.
-    pub(crate) fn detail_filter_chip_strip(mut self, display: FilterChipStripDisplay) -> Self {
-        self.detail_filter_chip_strip = Some(display);
-        self
-    }
-
-    /// Supplies the detail-frame filter callback.
-    pub(crate) fn on_detail_filter_select(
-        mut self,
-        handler: impl Fn(ContentFilter, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.on_detail_filter_select = Some(Rc::new(handler));
-        self
     }
 }
 
@@ -619,55 +587,4 @@ fn placeholder(frame: &WorkspaceFrameState, cx: &App) -> AnyElement {
         .text_color(resolve_color(cx, SemanticColor::TertiaryLabel, None))
         .child(frame.title().to_owned())
         .into_any_element()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn queue_now_playing_slot_accepts_content() {
-        let slots = WorkspaceSlots::new().queue_now_playing(div());
-
-        assert!(
-            slots.queue_now_playing.is_some(),
-            "queue_now_playing must store the supplied content"
-        );
-    }
-
-    #[test]
-    fn detail_filter_chip_strip_slot_is_read_back_for_the_detail_frame() {
-        let display =
-            FilterChipStripDisplay::default_for_search_inspector(ContentFilter::Library, false);
-        let slots = WorkspaceSlots::new().detail_filter_chip_strip(display.clone());
-
-        assert_eq!(
-            slots.filter_chip_strip_for(WorkspaceFrameKind::Detail),
-            Some(display),
-            "detail_filter_chip_strip must be read back for the detail frame"
-        );
-        assert_eq!(
-            slots.filter_chip_strip_for(WorkspaceFrameKind::SourceList),
-            None,
-            "the detail-frame filter chip strip must not leak to other frames"
-        );
-    }
-
-    #[test]
-    fn on_detail_filter_select_handler_is_read_back_for_the_detail_frame() {
-        let slots = WorkspaceSlots::new().on_detail_filter_select(|_, _, _| {});
-
-        assert!(
-            slots
-                .filter_select_handler_for(WorkspaceFrameKind::Detail)
-                .is_some(),
-            "on_detail_filter_select must be read back for the detail frame"
-        );
-        assert!(
-            slots
-                .filter_select_handler_for(WorkspaceFrameKind::SourceList)
-                .is_none(),
-            "the detail-frame filter select handler must not leak to other frames"
-        );
-    }
 }

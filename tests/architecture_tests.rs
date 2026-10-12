@@ -2346,11 +2346,8 @@ fn workspace_frame_phase_5_layout_persistence_contract() {
         "pub(crate) struct WorkspaceLayoutConfig",
         "pub(crate) struct WorkspaceFrameConfig",
         "#[serde(rename_all = \"snake_case\")]",
-        "LastFrameRemoval",
-        "pub(crate) fn add_frame(",
         "kind: WorkspaceFrameKind",
         "Result<WorkspaceFrameId, WorkspaceModelError>",
-        "pub(crate) fn remove_frame(&mut self, id: WorkspaceFrameId) -> Result<(), WorkspaceModelError>",
         "pub(crate) fn to_config(&self) -> WorkspaceLayoutConfig",
         "pub(crate) fn from_config(config: Option<&WorkspaceLayoutConfig>) -> Self",
     ] {
@@ -2602,8 +2599,6 @@ fn workspace_frame_phase_5_multi_frame_commands_are_deferred_until_content_frame
         "handle_close_focused_frame",
         "TopApp::handle_open_new_content_frame",
         "TopApp::handle_close_focused_frame",
-        "add_frame(WorkspaceFrameKind::ContentList)",
-        "self.workspace_layout.remove_frame(id)",
         "content_frame_count",
         "for _ in 0..content_frame_count",
     ] {
@@ -2621,74 +2616,114 @@ fn workspace_frame_phase_5_multi_frame_commands_are_deferred_until_content_frame
     );
 }
 
+/// Names ADR 0081 Decisions 1 and 2 deleted: the staged frame add, remove,
+/// detach, and dock model, and the two reserved `WorkspaceSlots` builders.
+/// A name on this list returning in `src/` means the code brought back a
+/// piece of that deleted model.
+const ADR_0081_DELETED_STAGED_FRAME_MODEL_NAMES: &[&str] = &[
+    "fn add_frame(",
+    "fn add_frame_state(",
+    "fn remove_frame(",
+    "fn next_frame_id(",
+    "LastFrameRemoval",
+    "fn request_detach(",
+    "fn request_dock(",
+    "fn frame_detach_eligibility(",
+    "enum FrameDetachEligibility",
+    "enum FrameDockTarget",
+    "fn detach_eligibility(",
+    "DetachDeferred",
+    "DockDeferred",
+    "NotDetachable",
+    "fn queue_now_playing(",
+    "fn detail_filter_chip_strip(",
+    "fn on_detail_filter_select(",
+    // Test-only model accessors that no production path called. The
+    // orchestrator deleted them in review of task 001 (ADR 0081 Decision 1).
+    "fn default_detail_frame_id(",
+    "fn default_content_frame_id(",
+    "fn focused_frame(",
+];
+
+/// Situational ADR 0081: returns one violation message for each deleted
+/// staged-frame-model name found in `source`. The message names ADR 0081 and
+/// the fix, so an author writes a new ADR before adding the code back.
+fn adr_0081_staged_frame_model_violations(file: &str, source: &str) -> Vec<String> {
+    ADR_0081_DELETED_STAGED_FRAME_MODEL_NAMES
+        .iter()
+        .filter(|name| source.contains(**name))
+        .map(|name| {
+            format!(
+                "{file}: ADR 0081 Decisions 1 and 2: the staged frame model is deleted. Write a new ADR before you add `{name}` again."
+            )
+        })
+        .collect()
+}
+
+/// Situational ADR 0081: the staged frame add, remove, detach, and dock
+/// model, and the `WorkspaceSlots::queue_now_playing`,
+/// `detail_filter_chip_strip`, and `on_detail_filter_select` builders, stay
+/// deleted. Delete this guard if ADR 0081 is superseded.
 #[test]
-fn workspace_frame_phase_6_detach_dock_model_only_contract() {
-    let workspace_vm_source = workspace_vm_source();
-    let app_source = read_source(&manifest_path("src/app.rs"));
+fn adr_0081_staged_frame_model_stays_deleted() {
     let mut violations = Vec::new();
 
-    for required in [
-        "pub(crate) enum FrameDetachEligibility",
-        "Detachable,",
-        "NotDetachable,",
-        "pub(crate) enum FrameDockTarget",
-        "Leading,",
-        "Center,",
-        "Trailing,",
-        "pub(crate) const fn detach_eligibility",
-        "pub(crate) fn request_detach",
-        "pub(crate) fn request_dock",
-        "DetachDeferred",
-        "DockDeferred",
-        "NotDetachable",
-    ] {
-        if !workspace_vm_source.contains(required) {
-            violations.push(format!(
-                "src/view_models/workspace/mod.rs: ADR 0046 Task 014 detach/dock model contract missing `{required}`"
-            ));
-        }
-    }
-
-    for path in rust_files_under("src/ui") {
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
         let source = read_source(&path);
-        for forbidden in [
-            "FrameDetachEligibility",
-            "FrameDockTarget",
-            "request_detach",
-            "request_dock",
-            "DetachDeferred",
-            "DockDeferred",
-            "NotDetachable",
-        ] {
-            if source.contains(forbidden) {
-                violations.push(format!(
-                    "{}: ADR 0046 Task 014 detach/dock surface must remain model-only; found `{forbidden}`",
-                    rel_path(&path)
-                ));
-            }
-        }
-    }
-
-    for forbidden in [
-        "request_detach",
-        "request_dock",
-        "FrameDetachEligibility",
-        "FrameDockTarget",
-        "DetachDeferred",
-        "DockDeferred",
-        "NotDetachable",
-    ] {
-        if app_source.contains(forbidden) {
-            violations.push(format!(
-                "src/app.rs: ADR 0046 Task 014 must not wire detach/dock window commands yet; found `{forbidden}`"
-            ));
-        }
+        violations.extend(adr_0081_staged_frame_model_violations(&file, &source));
     }
 
     assert!(
         violations.is_empty(),
-        "ADR 0046 Task 014 detach/dock model-only violations:\n{}",
+        "ADR 0081 staged frame model violations:\n{}",
         violations.join("\n")
+    );
+}
+
+/// R81-03: `adr_0081_staged_frame_model_stays_deleted` must fail on a sample
+/// source with `fn request_detach(`, and its message must name ADR 0081.
+/// This sample is a string, not a file under `src/`, so it proves the
+/// detection logic without writing a throwaway file into the tree.
+#[test]
+fn adr_0081_staged_frame_model_guard_catches_a_reintroduced_name() {
+    let reintroduced_detach = r#"
+impl WorkspaceLayout {
+    pub(crate) fn request_detach(&self, id: WorkspaceFrameId) -> Result<(), WorkspaceModelError> {
+        Err(WorkspaceModelError::FrameNotFound(id))
+    }
+}
+"#;
+    let violations = adr_0081_staged_frame_model_violations(
+        "src/view_models/workspace/mod.rs",
+        reintroduced_detach,
+    );
+    assert_eq!(
+        violations.len(),
+        1,
+        "a reintroduced fn request_detach( must raise exactly one violation"
+    );
+    assert!(
+        violations[0].contains("ADR 0081"),
+        "the violation message must name ADR 0081"
+    );
+    assert!(
+        violations[0].contains("fn request_detach("),
+        "the violation message must name the reintroduced item"
+    );
+
+    let clean_source = r#"
+impl WorkspaceLayout {
+    pub(crate) fn focus_frame(&mut self, id: WorkspaceFrameId) -> Result<(), WorkspaceModelError> {
+        self.focused_frame_id = Some(id);
+        Ok(())
+    }
+}
+"#;
+    assert!(
+        adr_0081_staged_frame_model_violations("src/view_models/workspace/mod.rs", clean_source)
+            .is_empty(),
+        "a source with no deleted staged-frame-model name must raise no violation"
     );
 }
 
@@ -3644,7 +3679,6 @@ fn adr_0047_task_014_search_results_inspector_shell_contract() {
     let shell_source = read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
     let row_shell_source = read_source(&manifest_path("src/ui/shells/search_result_rows.rs"));
     let shells_mod_source = read_source(&manifest_path("src/ui/shells/mod.rs"));
-    let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
     let search_results_source =
         read_source(&manifest_path("src/view_models/search_results/mod.rs"));
     let mut violations = Vec::new();
@@ -3704,25 +3738,13 @@ fn adr_0047_task_014_search_results_inspector_shell_contract() {
         }
     }
 
-    for required in [
-        "pub mod search_results_inspector;",
-        "detail_filter_chip_strip: Option<FilterChipStripDisplay>",
-        "on_detail_filter_select: Option<WorkspaceFilterSelectHandler>",
-        "pub(crate) fn detail_filter_chip_strip(",
-        "pub(crate) fn on_detail_filter_select(",
-        "WorkspaceFrameKind::Detail => self.detail_filter_chip_strip.clone()",
-        "WorkspaceFrameKind::Detail => self.on_detail_filter_select.clone()",
-    ] {
-        let source = if required == "pub mod search_results_inspector;" {
-            &shells_mod_source
-        } else {
-            &workspace_shell_source
-        };
-        if !source.contains(required) {
-            violations.push(format!(
-                "ADR 0047 Task 014 workspace search-inspector mounting support missing `{required}`"
-            ));
-        }
+    // ADR 0081 Decision 4 deleted the Detail filter slot: a Detail filter
+    // strip needs a new ADR. This guard keeps only the module requirement.
+    if !shells_mod_source.contains("pub mod search_results_inspector;") {
+        violations.push(
+            "ADR 0047 Task 014 workspace search-inspector mounting support missing `pub mod search_results_inspector;`"
+                .to_string(),
+        );
     }
 
     for required in [
@@ -3755,7 +3777,6 @@ fn adr_0047_task_015_search_submit_and_saved_search_commands() {
     let mut violations = Vec::new();
 
     for required in [
-        "pub(crate) const fn default_detail_frame_id() -> WorkspaceFrameId",
         "pub(crate) fn replace_nav(",
         "pub(crate) fn open_search_results_in_content_list(",
         "FrameNavigationEntry::Search(query)",
@@ -12697,7 +12718,6 @@ fn adr_0060_queue_is_not_mounted_in_curation_workspace() {
     let app_source = read_source(&manifest_path("src/app.rs"));
     let show_adapter_source = read_source(&manifest_path("src/app/show.rs"));
     let show_shell_source = read_source(&manifest_path("src/ui/shells/show.rs"));
-    let workspace_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
     let layout_source = workspace_vm_source();
     let render_workspace_content = source_between(
         &app_source,
@@ -12712,7 +12732,7 @@ fn adr_0060_queue_is_not_mounted_in_curation_workspace() {
     let default_layout = source_between(
         &layout_source,
         "pub(crate) fn default_layout() -> Self",
-        "pub(crate) fn empty() -> Self",
+        "pub(crate) fn new(",
     );
     let mut violations = Vec::new();
 
@@ -12764,13 +12784,6 @@ fn adr_0060_queue_is_not_mounted_in_curation_workspace() {
                 "src/app/show.rs or src/ui/shells/show.rs: ADR 0060 task 002 Show must render queue and transport; missing `{required}`"
             ));
         }
-    }
-
-    if !workspace_source.contains("pub(crate) fn queue_now_playing(") {
-        violations.push(
-            "src/ui/shells/workspace.rs: ADR 0060 task 002 keeps legacy QueueNowPlaying slot until the frame kind is removed"
-                .to_string(),
-        );
     }
 
     assert!(

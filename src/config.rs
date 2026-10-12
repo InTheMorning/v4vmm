@@ -1216,7 +1216,9 @@ pub fn prepare_artists_directory(music_dir: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::view_models::workspace::{WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout};
+    use crate::view_models::workspace::{
+        WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+    };
 
     #[test]
     fn default_music_dir_uses_v4vmusic_in_home() {
@@ -1504,7 +1506,10 @@ kind = "detail"
             WorkspaceLayout::from_config(cfg.workspace_layout.clone().unwrap_or_default().as_ref());
 
         assert_eq!(
-            layout.focused_frame().map(WorkspaceFrameState::kind),
+            layout
+                .focused_frame_id()
+                .and_then(|id| layout.frames().iter().find(|frame| frame.id() == id))
+                .map(WorkspaceFrameState::kind),
             Some(WorkspaceFrameKind::Detail),
             "workspace layout should load and focus the persisted frame"
         );
@@ -1552,7 +1557,10 @@ kind = "queue_now_playing"
             "configs written before ADR 0060 task 002 should still deserialize"
         );
         assert_eq!(
-            layout.focused_frame().map(WorkspaceFrameState::kind),
+            layout
+                .focused_frame_id()
+                .and_then(|id| layout.frames().iter().find(|frame| frame.id() == id))
+                .map(WorkspaceFrameState::kind),
             Some(WorkspaceFrameKind::QueueNowPlaying),
             "old queue-focused layouts should preserve focus in the stored model"
         );
@@ -1995,9 +2003,10 @@ extra = "keep"
         )
         .expect("write config");
         let mut layout = WorkspaceLayout::default_layout();
-        let focused_id = layout
-            .add_frame(WorkspaceFrameKind::Detail)
-            .expect("add detail frame");
+        let focused_id = WorkspaceFrameId::new(3);
+        layout
+            .focus_frame(focused_id)
+            .expect("default layout should include a detail frame");
 
         save_workspace_layout(&cfg_path, &layout.to_config()).expect("save workspace layout");
 
