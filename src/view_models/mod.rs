@@ -181,95 +181,13 @@ impl ActionStatusMessageDisplay {
     }
 }
 
-/// Pure resize state for a two-pane shell.
-///
-/// Screens own GPUI event wiring and convert framework pixel types into
-/// `f32`; this state retains independent leading-pane extents and drag lifecycle.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct SplitPaneState {
-    leading_width: f32,
-    leading_height: Option<f32>,
-    resizing: bool,
-}
-
-impl SplitPaneState {
-    #[must_use]
-    pub(crate) const fn new(leading_width: f32) -> Self {
-        Self {
-            leading_width,
-            leading_height: None,
-            resizing: false,
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn leading_width(self) -> f32 {
-        self.leading_width
-    }
-
-    pub(crate) fn leading_height(self) -> Option<f32> {
-        self.leading_height
-    }
-
-    pub(crate) fn resize_height_to(&mut self, height: f32) {
-        self.leading_height = Some(height);
-    }
-
-    #[must_use]
-    pub(crate) fn is_resizing(self) -> bool {
-        self.resizing
-    }
-
-    pub(crate) fn begin_resize(&mut self) {
-        self.resizing = true;
-    }
-
-    pub(crate) fn end_resize(&mut self) {
-        self.resizing = false;
-    }
-
-    pub(crate) fn resize_to(&mut self, requested_width: f32, min_width: f32, max_width: f32) {
-        self.leading_width = requested_width.clamp(min_width, max_width);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         playlist_option_displays, ActionStatusMessageDisplay, ActionStatusMessageTone,
-        ActionStatusMessageWidth, PlaylistOptionDisplayVm, SplitPaneState,
+        ActionStatusMessageWidth, PlaylistOptionDisplayVm,
     };
     use crate::db;
-
-    fn assert_width_eq(actual: f32, expected: f32) {
-        assert!((actual - expected).abs() < f32::EPSILON);
-    }
-
-    #[test]
-    fn split_pane_state_tracks_resize_lifecycle() {
-        let mut state = SplitPaneState::new(360.0);
-        assert!(!state.is_resizing());
-
-        state.begin_resize();
-        assert!(state.is_resizing());
-
-        state.end_resize();
-        assert!(!state.is_resizing());
-    }
-
-    #[test]
-    fn split_pane_state_clamps_width() {
-        let mut state = SplitPaneState::new(360.0);
-
-        state.resize_to(120.0, 200.0, 800.0);
-        assert_width_eq(state.leading_width(), 200.0);
-
-        state.resize_to(900.0, 200.0, 800.0);
-        assert_width_eq(state.leading_width(), 800.0);
-
-        state.resize_to(420.0, 200.0, 800.0);
-        assert_width_eq(state.leading_width(), 420.0);
-    }
 
     #[test]
     fn action_status_message_display_classifies_subscription_messages() {

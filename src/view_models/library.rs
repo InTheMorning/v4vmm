@@ -55,10 +55,9 @@ use crate::view_models::workspace::{
     ContentFilter, ContentViewMode, ContentViewModeControlDisplay, LibraryFilterControlDisplay,
     ReleaseKey, TrackKey,
 };
-use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
+use crate::view_models::ActionStatusMessageDisplay;
 use crate::views::{FeedMetadataFacts, LocalIdentityFacts, TrackRef};
 
-const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
 const UPDATE_AVAILABLE_LABEL: &str = "Update available";
 const NEW_RELEASE_LABEL: &str = "New";
 const BROADCAST_ROUTE_REPAIR_AVAILABLE_LABEL: &str = "Fix routes";
@@ -507,8 +506,6 @@ pub(crate) struct PlaylistSidebarRowVm {
 pub(crate) struct LibraryChromeDisplay {
     pub(crate) playback_availability:
         Result<(), crate::application::capability::ExecutionUnavailable>,
-    pub(crate) split_pane_id: &'static str,
-    pub(crate) resize_handle_id: &'static str,
     pub(crate) search_button_id: &'static str,
     pub(crate) list_scroll_id: &'static str,
     pub(crate) artist_detail_scroll_id: &'static str,
@@ -534,8 +531,6 @@ impl LibraryChromeDisplay {
 
     const VALUE: Self = Self {
         playback_availability: Ok(()),
-        split_pane_id: "library-pane-container",
-        resize_handle_id: "library-resize-handle",
         search_button_id: "lib-search-btn",
         list_scroll_id: "library-list",
         artist_detail_scroll_id: "artist-detail-scroll",
@@ -546,7 +541,9 @@ impl LibraryChromeDisplay {
         search_heading: "Search Library",
         search_button_label: "Search",
         empty_library_label: "No library tracks yet",
-        empty_detail_label: "Select an item to view details",
+        // ADR 0084 Decision 1: the detail column's empty state names the
+        // list column by its role, not the old split pane.
+        empty_detail_label: "Select an item in the list.",
     };
 }
 
@@ -2154,8 +2151,6 @@ pub(crate) struct LibraryViewModel {
     observation_failures:
         BTreeMap<i64, std::sync::Arc<crate::provider_observation::ObservationWriteFailure>>,
     library_loading: bool,
-    // Layout / drag state.
-    split_pane: SplitPaneState,
     // Search + playlist creation.
     search_query: String,
     creating_playlist: bool,
@@ -2190,7 +2185,6 @@ impl LibraryViewModel {
             observation_failures: BTreeMap::new(),
             observation_receipts: BTreeMap::new(),
             library_loading: false,
-            split_pane: SplitPaneState::new(DEFAULT_SPLIT_PANE_WIDTH),
             search_query: String::new(),
             creating_playlist: false,
             renaming_playlist_id: None,
@@ -2942,42 +2936,6 @@ impl LibraryViewModel {
                     .insert(capsule.token.generation(), std::sync::Arc::clone(capsule));
             }
         }
-    }
-
-    #[must_use]
-    pub(crate) fn is_resizing(&self) -> bool {
-        self.split_pane.is_resizing()
-    }
-
-    #[must_use]
-    pub(crate) fn split_pane_width(&self) -> f32 {
-        self.split_pane.leading_width()
-    }
-
-    pub(crate) fn split_pane_height(&self) -> Option<f32> {
-        self.split_pane.leading_height()
-    }
-
-    pub(crate) fn resize_split_pane_height(&mut self, height: f32) {
-        self.split_pane.resize_height_to(height);
-    }
-
-    pub(crate) fn begin_resize(&mut self) {
-        self.split_pane.begin_resize();
-    }
-
-    pub(crate) fn end_resize(&mut self) {
-        self.split_pane.end_resize();
-    }
-
-    pub(crate) fn resize_split_pane(
-        &mut self,
-        requested_width: f32,
-        min_width: f32,
-        max_width: f32,
-    ) {
-        self.split_pane
-            .resize_to(requested_width, min_width, max_width);
     }
 
     pub(crate) fn select_library_item(&mut self, id: i64) {
@@ -4525,10 +4483,6 @@ impl<'a> PlaylistDetailVm<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn assert_width_eq(actual: f32, expected: f32) {
-        assert!((actual - expected).abs() < f32::EPSILON);
-    }
 
     fn row() -> TrackRow {
         TrackRow {
@@ -6433,41 +6387,6 @@ mod tests {
         assert!(vm.status.is_empty());
         assert!(vm.search_query.is_empty());
         assert!(!vm.creating_playlist);
-        assert!(!vm.is_resizing());
-        assert_width_eq(vm.split_pane_width(), DEFAULT_SPLIT_PANE_WIDTH);
-    }
-
-    #[test]
-    fn library_view_model_tracks_resize_lifecycle_and_width() {
-        let mut vm = LibraryViewModel::new();
-
-        vm.begin_resize();
-        assert!(vm.is_resizing());
-
-        vm.resize_split_pane(120.0, 200.0, 800.0);
-        assert_width_eq(vm.split_pane_width(), 200.0);
-
-        vm.resize_split_pane(900.0, 200.0, 800.0);
-        assert_width_eq(vm.split_pane_width(), 800.0);
-
-        vm.resize_split_pane(420.0, 200.0, 800.0);
-        assert_width_eq(vm.split_pane_width(), 420.0);
-
-        vm.end_resize();
-        assert!(!vm.is_resizing());
-    }
-
-    /// Situational ADR 0046: switching pane orientation retains independent preferred extents.
-    #[test]
-    fn adr_0046_library_keeps_width_and_height_preferences_separate() {
-        let mut vm = LibraryViewModel::new();
-        assert_eq!(vm.split_pane_height(), None);
-        vm.resize_split_pane(420.0, 200.0, 800.0);
-        vm.resize_split_pane_height(180.0);
-        assert_width_eq(vm.split_pane_width(), 420.0);
-        assert_width_eq(vm.split_pane_height().unwrap(), 180.0);
-        vm.resize_split_pane(360.0, 200.0, 800.0);
-        assert_width_eq(vm.split_pane_height().unwrap(), 180.0);
     }
 
     #[test]
@@ -7112,8 +7031,6 @@ mod tests {
     #[test]
     fn library_chrome_display_projects_shell_labels() {
         let display = LibraryViewModel::chrome_display();
-        assert_eq!(display.split_pane_id, "library-pane-container");
-        assert_eq!(display.resize_handle_id, "library-resize-handle");
         assert_eq!(display.search_button_id, "lib-search-btn");
         assert_eq!(display.list_scroll_id, "library-list");
         assert_eq!(display.artist_detail_scroll_id, "artist-detail-scroll");
@@ -7127,7 +7044,7 @@ mod tests {
         assert_eq!(display.search_heading, "Search Library");
         assert_eq!(display.search_button_label, "Search");
         assert_eq!(display.empty_library_label, "No library tracks yet");
-        assert_eq!(display.empty_detail_label, "Select an item to view details");
+        assert_eq!(display.empty_detail_label, "Select an item in the list.");
     }
 
     #[test]

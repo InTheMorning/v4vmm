@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented - 2026-10-11 by [task 001](../tasks/archive/adr-0081-task-001-remove-the-staged-frame-model.md). Accepted - 2026-10-02. The operator chose this plan on 2026-10-02, after dead code removal task 002.
+Implemented - 2026-10-11. [Task 001](../tasks/archive/adr-0081-task-001-remove-the-staged-frame-model.md) implemented it. Accepted on 2026-10-02. The operator chose this plan on 2026-10-02, after dead code removal task 002.
 
 It supersedes [ADR 0046](0046-workspace-frame-architecture.md) Architectural Invariant 8 and the model sentence of its Resolved Open Question 5.
 It also removes two slot rules: the Queue slot that ADR 0060 task 002 kept, and the Detail filter-chip slots of ADR 0047 task 014.

@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 mod breadcrumb;
 mod chrome;
+mod columns;
 mod frame;
 mod nav;
 #[cfg(test)]
@@ -29,6 +30,7 @@ pub(crate) use chrome::{
     FrameChromeMenuItemDisplay, FrameShellDisplay, LibraryFilterControlDisplay,
     LibraryFilterControlTreatment,
 };
+pub(crate) use columns::MusicColumns;
 pub(crate) use frame::{WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState};
 pub(crate) use nav::{
     release_download_updates_open_page, resolve_release_page_source, resolve_track_page_source,

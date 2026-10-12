@@ -222,8 +222,6 @@ pub struct LibraryApp {
     recent_music_page: RecentFeedsPageVm,
     /// Scroll state for default Music recency pagination.
     recent_music_scroll: ScrollHandle,
-    /// Allocated viewport supplied to the shared split geometry owner (ADR 0046).
-    split_pane_bounds: Option<gpui::Bounds<gpui::Pixels>>,
 }
 
 pub(crate) struct PlaylistActorState {
@@ -233,5 +231,7 @@ pub(crate) struct PlaylistActorState {
 }
 
 mod app_impl;
+mod column_view;
 
 pub(crate) use app_impl::playlist_options;
+pub(crate) use column_view::{LibraryColumn, LibraryColumnView};

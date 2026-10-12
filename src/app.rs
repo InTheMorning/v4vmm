@@ -15,7 +15,7 @@ use crate::application::{
     ApplicationEventSubscriber, ApplicationServices, AsyncCommandRunner, CommandContext,
 };
 use crate::config;
-use crate::library::{LibraryApp, LibraryAppEvent};
+use crate::library::{LibraryApp, LibraryAppEvent, LibraryColumn, LibraryColumnView};
 use crate::media::ImageCache;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::PlaybackOwner;
@@ -121,6 +121,15 @@ impl From<AppTab> for WorkspaceScreenMount {
 pub struct TopApp {
     tab: AppTab,
     library: Entity<LibraryApp>,
+    /// The Music sidebar column view (ADR 0084 Decision 1). Its content is
+    /// unchanged by this packet.
+    library_sidebar_view: Entity<LibraryColumnView>,
+    /// The Music list column view. It always shows the content list.
+    library_list_view: Entity<LibraryColumnView>,
+    /// The Music detail column view. It shows the open Library page, or the
+    /// empty state, when the open page is not an Index, publisher, name
+    /// match, or search page.
+    library_detail_view: Entity<LibraryColumnView>,
     global_search_input: Entity<InputState>,
     endpoint_input: Entity<InputState>,
     music_dir_input: Entity<InputState>,
@@ -310,6 +319,15 @@ impl TopApp {
                 .require(crate::application::capability::Dependency::Playback);
             library
         });
+        // ADR 0084 Decision 1: one view for each Music column, over the one
+        // Library entity. Each observes the Library entity, so a Library
+        // notify renders its column again.
+        let library_sidebar_view =
+            cx.new(|cx| LibraryColumnView::new(library.clone(), LibraryColumn::Sidebar, cx));
+        let library_list_view =
+            cx.new(|cx| LibraryColumnView::new(library.clone(), LibraryColumn::List, cx));
+        let library_detail_view =
+            cx.new(|cx| LibraryColumnView::new(library.clone(), LibraryColumn::Detail, cx));
         let library_sub = cx.subscribe_in(
             &library,
             window,
@@ -398,6 +416,9 @@ impl TopApp {
         Self {
             tab: AppTab::Music,
             library,
+            library_sidebar_view,
+            library_list_view,
+            library_detail_view,
             global_search_input,
             endpoint_input,
             music_dir_input,
@@ -840,6 +861,13 @@ impl TopApp {
         layout: &WorkspaceLayout,
         mount: WorkspaceScreenMount,
     ) -> WorkspaceLayout {
+        // ADR 0084 Decision 1: Music keeps the sidebar, the list and the
+        // detail columns. Settings and Show keep the content-list frame
+        // only, as before.
+        if matches!(mount, WorkspaceScreenMount::Music) {
+            return Self::visible_music_layout(layout);
+        }
+
         let mut content_seen = false;
         let mut frames: Vec<_> = layout
             .frames()
@@ -897,6 +925,77 @@ impl TopApp {
                 visible
                     .replace_nav(id, nav)
                     .expect("visible workspace layout contains copied frame id");
+            }
+        }
+        visible
+    }
+
+    /// Gives the Music visible layout: the sidebar, the list and the
+    /// detail columns, in that order (ADR 0084 Decision 1). The list
+    /// column keeps the "Library" title until task 005 gives each
+    /// destination its own title. The detail column keeps the page title
+    /// that `content_list_frame_title` gives, read from the content-list
+    /// frame's one navigation stack. The sidebar shows no header.
+    fn visible_music_layout(layout: &WorkspaceLayout) -> WorkspaceLayout {
+        let content_list_id = layout
+            .frames()
+            .iter()
+            .find(|frame| frame.kind() == WorkspaceFrameKind::ContentList)
+            .map(WorkspaceFrameState::id);
+        let mut content_seen = false;
+        let frames: Vec<_> = layout
+            .frames()
+            .iter()
+            .filter_map(|frame| match frame.kind() {
+                WorkspaceFrameKind::SourceList => Some(WorkspaceFrameState::new(
+                    frame.id(),
+                    frame.kind(),
+                    String::new(),
+                )),
+                WorkspaceFrameKind::ContentList => {
+                    if content_seen {
+                        None
+                    } else {
+                        content_seen = true;
+                        Some(WorkspaceFrameState::new(
+                            frame.id(),
+                            frame.kind(),
+                            "Library",
+                        ))
+                    }
+                }
+                WorkspaceFrameKind::Detail => {
+                    let title = content_list_id.map_or_else(String::new, |id| {
+                        Self::content_list_frame_title(layout, id, WorkspaceScreenMount::Music)
+                    });
+                    Some(WorkspaceFrameState::new(frame.id(), frame.kind(), title))
+                }
+                WorkspaceFrameKind::QueueNowPlaying => None,
+            })
+            .collect();
+
+        let focused_frame_id = layout
+            .focused_frame_id()
+            .filter(|id| frames.iter().any(|frame| frame.id() == *id));
+        let focused_frame_id = focused_frame_id.or_else(|| {
+            frames
+                .iter()
+                .find(|frame| matches!(frame.kind(), WorkspaceFrameKind::ContentList))
+                .map(WorkspaceFrameState::id)
+        });
+
+        let mut visible = WorkspaceLayout::new(frames, focused_frame_id)
+            .expect("visible music layout preserves unique frame ids");
+        let visible_ids: Vec<_> = visible
+            .frames()
+            .iter()
+            .map(WorkspaceFrameState::id)
+            .collect();
+        for id in visible_ids {
+            if let Some(nav) = layout.frame_nav(id).cloned() {
+                visible
+                    .replace_nav(id, nav)
+                    .expect("visible music layout contains copied frame id");
             }
         }
         visible
@@ -1121,12 +1220,91 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         match mount {
-            WorkspaceScreenMount::Music => self.library.clone().into_any_element(),
+            // ADR 0084 Decision 1: Music mounts as three column views, not as
+            // one whole screen. No Music path calls this function. The arm
+            // gives the list column so that the match stays total.
+            WorkspaceScreenMount::Music => self.library_list_view.clone().into_any_element(),
             WorkspaceScreenMount::Show => {
                 build_show_screen(self, show_window_width, cx).into_any_element()
             }
             WorkspaceScreenMount::Settings => render_settings(self, cx),
         }
+    }
+
+    /// Gives the slots for a page that the Library's own detail renders
+    /// (ADR 0084 Decision 1). In Music, the page fills the detail slot,
+    /// through `library_detail_view`. Settings and Show never reach a
+    /// Library page, so they get empty slots.
+    fn library_or_screen_slot(&self, fills_detail: bool) -> WorkspaceSlots {
+        if fills_detail {
+            WorkspaceSlots::new().detail_slot(self.library_detail_view.clone())
+        } else {
+            WorkspaceSlots::new()
+        }
+    }
+
+    /// Fills the list column with the search results and their filter chips
+    /// (ADR 0084 Decision 2). A result row opens its page in the detail
+    /// column.
+    fn with_search_results_list(
+        &mut self,
+        slots: WorkspaceSlots,
+        content_frame_id: WorkspaceFrameId,
+        filter_chip_width_class: FilterChipStripWidthClass,
+        cx: &mut Context<Self>,
+    ) -> WorkspaceSlots {
+        let entity = cx.entity();
+        let (filter_chip_strip, thumbnail_hrefs) = {
+            let search_results = self.search_results_detail.as_ref().unwrap();
+            (
+                search_results.filter_chip_strip_for_width_class(filter_chip_width_class),
+                search_results
+                    .thumbnail_hrefs_for_scope(search_results.tab(), search_results.filter()),
+            )
+        };
+        let thumbnails = self.resolve_search_result_thumbnails(thumbnail_hrefs, cx);
+        let search_results = self.search_results_detail.as_ref().unwrap();
+        let filter_entity = entity.clone();
+        let tab_entity = entity.clone();
+        let clear_entity = entity.clone();
+        let select_entity = entity.clone();
+        let failure_entity = entity.clone();
+        let inspector_slots = SearchResultsInspectorSlots::new()
+            .on_failure_action(move |action, _window, cx| {
+                failure_entity.update(cx, |this, cx| {
+                    this.handle_search_failure_action(action, cx);
+                });
+            })
+            .on_tab_select(move |tab, _window, cx| {
+                tab_entity.update(cx, |this, cx| {
+                    this.set_search_results_tab(content_frame_id, tab, cx);
+                });
+            })
+            .on_clear_filter(move |_window, cx| {
+                clear_entity.update(cx, |this, cx| {
+                    this.set_search_results_filter(content_frame_id, ContentFilter::All, cx);
+                });
+            })
+            .on_result_select(move |tab, result_id, _window, cx| {
+                select_entity.update(cx, |this, cx| {
+                    this.handle_search_result_selected(tab, &result_id, cx);
+                });
+            })
+            .with_thumbnails(thumbnails);
+        let inspector_content = render_search_results_inspector(
+            search_results,
+            &inspector_slots,
+            SearchResultsHeaderMode::Tabbed,
+            cx,
+        );
+        slots
+            .content_list(inspector_content)
+            .content_list_filter_chip_strip(filter_chip_strip)
+            .on_content_list_filter_select(move |filter, _window, cx| {
+                filter_entity.update(cx, |this, cx| {
+                    this.set_search_results_filter(content_frame_id, filter, cx);
+                });
+            })
     }
 
     #[expect(
@@ -1151,6 +1329,10 @@ impl TopApp {
             .find(|frame| matches!(frame.kind(), WorkspaceFrameKind::ContentList))
             .map_or(WORKSPACE_CONTENT_FRAME_ID, WorkspaceFrameState::id);
         let entity = cx.entity();
+        // ADR 0084 Decision 1: in Music, a top-app page fills the detail
+        // slot, and the list column always shows the Library list. In
+        // Settings, the page still fills the content-list slot, as before.
+        let fills_detail = matches!(mount, WorkspaceScreenMount::Music);
 
         // Stage 2: Body switch is exhaustive on nav top
         let current_nav = self
@@ -1159,65 +1341,20 @@ impl TopApp {
             .map(|nav| nav.current().clone());
 
         let mut workspace_slots = match &current_nav {
-            // Search results: render search inspector in ContentList
+            // ADR 0084 Decision 2: search results fill the list column, and
+            // a result opens in the detail column. With no result open, the
+            // Music detail column shows its empty state.
             Some(FrameNavigationEntry::Search(_)) if self.search_results_detail.is_some() => {
-                let (filter_chip_strip, thumbnail_hrefs) = {
-                    let search_results = self.search_results_detail.as_ref().unwrap();
-                    (
-                        search_results.filter_chip_strip_for_width_class(filter_chip_width_class),
-                        search_results.thumbnail_hrefs_for_scope(
-                            search_results.tab(),
-                            search_results.filter(),
-                        ),
+                if fills_detail {
+                    WorkspaceSlots::new().detail_slot(self.library_detail_view.clone())
+                } else {
+                    self.with_search_results_list(
+                        WorkspaceSlots::new(),
+                        content_frame_id,
+                        filter_chip_width_class,
+                        cx,
                     )
-                };
-                let thumbnails = self.resolve_search_result_thumbnails(thumbnail_hrefs, cx);
-                let search_results = self.search_results_detail.as_ref().unwrap();
-                let filter_entity = entity.clone();
-                let tab_entity = entity.clone();
-                let clear_entity = entity.clone();
-                let select_entity = entity.clone();
-                let failure_entity = entity.clone();
-                let inspector_slots = SearchResultsInspectorSlots::new()
-                    .on_failure_action(move |action, _window, cx| {
-                        failure_entity.update(cx, |this, cx| {
-                            this.handle_search_failure_action(action, cx);
-                        });
-                    })
-                    .on_tab_select(move |tab, _window, cx| {
-                        tab_entity.update(cx, |this, cx| {
-                            this.set_search_results_tab(content_frame_id, tab, cx);
-                        });
-                    })
-                    .on_clear_filter(move |_window, cx| {
-                        clear_entity.update(cx, |this, cx| {
-                            this.set_search_results_filter(
-                                content_frame_id,
-                                ContentFilter::All,
-                                cx,
-                            );
-                        });
-                    })
-                    .on_result_select(move |tab, result_id, _window, cx| {
-                        select_entity.update(cx, |this, cx| {
-                            this.handle_search_result_selected(tab, &result_id, cx);
-                        });
-                    })
-                    .with_thumbnails(thumbnails);
-                let inspector_content = render_search_results_inspector(
-                    search_results,
-                    &inspector_slots,
-                    SearchResultsHeaderMode::Tabbed,
-                    cx,
-                );
-                WorkspaceSlots::new()
-                    .content_list(inspector_content)
-                    .content_list_filter_chip_strip(filter_chip_strip)
-                    .on_content_list_filter_select(move |filter, _window, cx| {
-                        filter_entity.update(cx, |this, cx| {
-                            this.set_search_results_filter(content_frame_id, filter, cx);
-                        });
-                    })
+                }
             }
             // ADR 0077 packet 006: the name-match track page loads through
             // its own fetch, independent of the Library tree and the
@@ -1225,71 +1362,48 @@ impl TopApp {
             // results rendering of this entry.
             Some(FrameNavigationEntry::IndexNameMatches(_)) => {
                 let detail_content = self.render_name_match_page_content(cx);
-                WorkspaceSlots::new().content_list(detail_content)
+                if fills_detail {
+                    WorkspaceSlots::new().detail_slot(detail_content)
+                } else {
+                    WorkspaceSlots::new().content_list(detail_content)
+                }
             }
             // ADR 0084 Decision 4: the body switch renders a release from
             // its stored, already-resolved data source. It makes no
             // database lookup here.
-            Some(FrameNavigationEntry::Release(_)) => {
-                match self.release_page_source.clone() {
-                    Some(ReleasePageSource::Index { feed_guid }) => {
-                        let activation_id = format!("index-feed:{feed_guid}");
-                        let label = self
-                            .release_page_labels
-                            .get(&feed_guid)
-                            .cloned()
-                            .unwrap_or_else(|| feed_guid.clone());
-                        // While the operator's own open-time fetch is still
-                        // loading, the cached content-list row shows at
-                        // once, when the content list already holds it.
-                        let detail = self
-                            .index_feed_detail_is_pending(&feed_guid)
-                            .then(|| {
-                                self.library.read(cx).recent_music_index_feed_detail(
-                                    &activation_id,
-                                    &feed_guid,
-                                    &label,
-                                )
-                            })
-                            .flatten()
-                            .unwrap_or_else(|| self.index_feed_detail_display(&feed_guid, &label));
-                        let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
+            Some(FrameNavigationEntry::Release(_)) => match self.release_page_source.clone() {
+                Some(ReleasePageSource::Index { feed_guid }) => {
+                    let activation_id = format!("index-feed:{feed_guid}");
+                    let label = self
+                        .release_page_labels
+                        .get(&feed_guid)
+                        .cloned()
+                        .unwrap_or_else(|| feed_guid.clone());
+                    // While the operator's own open-time fetch is still
+                    // loading, the cached content-list row shows at once,
+                    // when the content list already holds it.
+                    let detail = self
+                        .index_feed_detail_is_pending(&feed_guid)
+                        .then(|| {
+                            self.library.read(cx).recent_music_index_feed_detail(
+                                &activation_id,
+                                &feed_guid,
+                                &label,
+                            )
+                        })
+                        .flatten()
+                        .unwrap_or_else(|| self.index_feed_detail_display(&feed_guid, &label));
+                    let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
+                    if fills_detail {
+                        WorkspaceSlots::new().detail_slot(detail_content)
+                    } else {
                         WorkspaceSlots::new().content_list(detail_content)
                     }
-                    Some(ReleasePageSource::Library { .. }) | None => {
-                        let library_screen = self.render_workspace_screen_mount(
-                            WorkspaceScreenMount::Music,
-                            show_window_width,
-                            cx,
-                        );
-                        let mut slots = WorkspaceSlots::new().content_list(library_screen);
-
-                        if matches!(mount, WorkspaceScreenMount::Music) {
-                            let library_filter_control =
-                                self.library.read(cx).content_library_filter_control();
-                            let content_view_mode_control =
-                                self.library.read(cx).content_view_mode_control();
-                            let content_filter_entity = entity.clone();
-                            let content_view_mode_entity = entity.clone();
-                            slots = slots
-                                .content_list_library_filter_control(library_filter_control)
-                                .content_list_view_mode_control(content_view_mode_control)
-                                .on_content_list_filter_select(move |filter, _window, cx| {
-                                    content_filter_entity.update(cx, |this, cx| {
-                                        this.set_frame_filter(content_frame_id, filter, cx);
-                                    });
-                                })
-                                .on_content_list_view_mode_select(move |view_mode, _window, cx| {
-                                    content_view_mode_entity.update(cx, |this, cx| {
-                                        this.set_content_list_view_mode(view_mode, cx);
-                                    });
-                                });
-                        }
-
-                        slots
-                    }
                 }
-            }
+                Some(ReleasePageSource::Library { .. }) | None => {
+                    self.library_or_screen_slot(fills_detail)
+                }
+            },
             // ADR 0084 Decision 4: the body switch renders a track from
             // its stored, already-resolved data source. It makes no
             // database lookup here.
@@ -1298,39 +1412,14 @@ impl TopApp {
                     let label = self.track_opening_label(&target);
                     let detail = self.index_track_detail_display(&target, &label);
                     let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
-                    WorkspaceSlots::new().content_list(detail_content)
+                    if fills_detail {
+                        WorkspaceSlots::new().detail_slot(detail_content)
+                    } else {
+                        WorkspaceSlots::new().content_list(detail_content)
+                    }
                 }
                 Some(TrackPageSource::Library { .. }) | None => {
-                    let library_screen = self.render_workspace_screen_mount(
-                        WorkspaceScreenMount::Music,
-                        show_window_width,
-                        cx,
-                    );
-                    let mut slots = WorkspaceSlots::new().content_list(library_screen);
-
-                    if matches!(mount, WorkspaceScreenMount::Music) {
-                        let library_filter_control =
-                            self.library.read(cx).content_library_filter_control();
-                        let content_view_mode_control =
-                            self.library.read(cx).content_view_mode_control();
-                        let content_filter_entity = entity.clone();
-                        let content_view_mode_entity = entity.clone();
-                        slots = slots
-                            .content_list_library_filter_control(library_filter_control)
-                            .content_list_view_mode_control(content_view_mode_control)
-                            .on_content_list_filter_select(move |filter, _window, cx| {
-                                content_filter_entity.update(cx, |this, cx| {
-                                    this.set_frame_filter(content_frame_id, filter, cx);
-                                });
-                            })
-                            .on_content_list_view_mode_select(move |view_mode, _window, cx| {
-                                content_view_mode_entity.update(cx, |this, cx| {
-                                    this.set_content_list_view_mode(view_mode, cx);
-                                });
-                            });
-                    }
-
-                    slots
+                    self.library_or_screen_slot(fills_detail)
                 }
             },
             Some(FrameNavigationEntry::Settings) => {
@@ -1345,83 +1434,61 @@ impl TopApp {
             // fetch, independent of the Library tree and the Index results.
             Some(FrameNavigationEntry::PublisherDetail(_)) => {
                 let detail_content = self.render_publisher_page_content(cx);
-                WorkspaceSlots::new().content_list(detail_content)
-            }
-            // Entity details or default: render the Library-backed Music surface.
-            Some(
-                FrameNavigationEntry::ArtistDetail(_)
-                | FrameNavigationEntry::PlaylistDetail(_)
-                | FrameNavigationEntry::ReadinessIssues
-                | FrameNavigationEntry::SourceList,
-            )
-            | None => {
-                let library_screen = self.render_workspace_screen_mount(
-                    WorkspaceScreenMount::Music,
-                    show_window_width,
-                    cx,
-                );
-                let mut slots = WorkspaceSlots::new().content_list(library_screen);
-
-                if matches!(mount, WorkspaceScreenMount::Music) {
-                    let library_filter_control =
-                        self.library.read(cx).content_library_filter_control();
-                    let content_view_mode_control =
-                        self.library.read(cx).content_view_mode_control();
-                    let content_filter_entity = entity.clone();
-                    let content_view_mode_entity = entity.clone();
-                    slots = slots
-                        .content_list_library_filter_control(library_filter_control)
-                        .content_list_view_mode_control(content_view_mode_control)
-                        .on_content_list_filter_select(move |filter, _window, cx| {
-                            content_filter_entity.update(cx, |this, cx| {
-                                this.set_frame_filter(content_frame_id, filter, cx);
-                            });
-                        })
-                        .on_content_list_view_mode_select(move |view_mode, _window, cx| {
-                            content_view_mode_entity.update(cx, |this, cx| {
-                                this.set_content_list_view_mode(view_mode, cx);
-                            });
-                        });
+                if fills_detail {
+                    WorkspaceSlots::new().detail_slot(detail_content)
+                } else {
+                    WorkspaceSlots::new().content_list(detail_content)
                 }
-
-                slots
             }
-            // Unhandled nav variants: render active screen mount as fallback
-            _ => {
-                let library_screen = self.render_workspace_screen_mount(
-                    WorkspaceScreenMount::Music,
-                    show_window_width,
-                    cx,
-                );
-                let mut slots = WorkspaceSlots::new().content_list(library_screen);
-
-                if matches!(mount, WorkspaceScreenMount::Music) {
-                    let library_filter_control =
-                        self.library.read(cx).content_library_filter_control();
-                    let content_view_mode_control =
-                        self.library.read(cx).content_view_mode_control();
-                    let content_filter_entity = entity.clone();
-                    let content_view_mode_entity = entity.clone();
-                    slots = slots
-                        .content_list_library_filter_control(library_filter_control)
-                        .content_list_view_mode_control(content_view_mode_control)
-                        .on_content_list_filter_select(move |filter, _window, cx| {
-                            content_filter_entity.update(cx, |this, cx| {
-                                this.set_frame_filter(content_frame_id, filter, cx);
-                            });
-                        })
-                        .on_content_list_view_mode_select(move |view_mode, _window, cx| {
-                            content_view_mode_entity.update(cx, |this, cx| {
-                                this.set_content_list_view_mode(view_mode, cx);
-                            });
-                        });
-                }
-
-                slots
-            }
+            // Entity details, no selection, and every other nav variant
+            // (for example a search with no loaded results): render the
+            // Library-backed Music surface.
+            _ => self.library_or_screen_slot(fills_detail),
         };
 
+        // ADR 0084 Decisions 1 and 2: the Music list column shows the search
+        // results while the location starts from a search, else the Library
+        // list with its filter and view-mode controls. The open page does not
+        // change it. The sidebar column fills too.
+        let search_location_is_open = self
+            .workspace_layout
+            .frame_nav(content_frame_id)
+            .and_then(FrameNavigationState::active_search_query)
+            .is_some()
+            && self.search_results_detail.is_some();
+        if matches!(mount, WorkspaceScreenMount::Music) && search_location_is_open {
+            workspace_slots = self
+                .with_search_results_list(
+                    workspace_slots,
+                    content_frame_id,
+                    filter_chip_width_class,
+                    cx,
+                )
+                .source_list_slot(self.library_sidebar_view.clone());
+        } else if matches!(mount, WorkspaceScreenMount::Music) {
+            let library_filter_control = self.library.read(cx).content_library_filter_control();
+            let content_view_mode_control = self.library.read(cx).content_view_mode_control();
+            let content_filter_entity = entity.clone();
+            let content_view_mode_entity = entity.clone();
+            workspace_slots = workspace_slots
+                .source_list_slot(self.library_sidebar_view.clone())
+                .content_list(self.library_list_view.clone())
+                .content_list_library_filter_control(library_filter_control)
+                .content_list_view_mode_control(content_view_mode_control)
+                .on_content_list_filter_select(move |filter, _window, cx| {
+                    content_filter_entity.update(cx, |this, cx| {
+                        this.set_frame_filter(content_frame_id, filter, cx);
+                    });
+                })
+                .on_content_list_view_mode_select(move |view_mode, _window, cx| {
+                    content_view_mode_entity.update(cx, |this, cx| {
+                        this.set_content_list_view_mode(view_mode, cx);
+                    });
+                });
+        }
+
         let breadcrumb_labels = self.content_list_breadcrumb_labels(content_frame_id, cx);
+        let detail_breadcrumb_labels = breadcrumb_labels.clone();
         workspace_slots = workspace_slots.content_list_breadcrumb_labeler(move |entry| {
             breadcrumb_labels
                 .iter()
@@ -1451,8 +1518,36 @@ impl TopApp {
                 this.handle_content_list_forward_select(cx);
             });
         });
-        if matches!(mount, WorkspaceScreenMount::Music) {
-            workspace_slots = workspace_slots.content_list_history_controls_always_shown();
+
+        // ADR 0084 Decision 9: in Music, the detail column chrome projects
+        // the same breadcrumb, Back and Forward handlers as the content
+        // list, with Back and Forward always shown.
+        if fills_detail {
+            let detail_breadcrumb_entity = entity.clone();
+            let detail_back_entity = entity.clone();
+            let detail_forward_entity = entity.clone();
+            workspace_slots = workspace_slots
+                .detail_breadcrumb_labeler(move |entry| {
+                    detail_breadcrumb_labels
+                        .iter()
+                        .find_map(|(candidate, label)| (candidate == entry).then(|| label.clone()))
+                        .unwrap_or_else(|| entry.display_label())
+                })
+                .on_detail_breadcrumb_select(move |entry, _window, cx| {
+                    detail_breadcrumb_entity.update(cx, |this, cx| {
+                        this.handle_content_list_breadcrumb_select(entry, cx);
+                    });
+                })
+                .on_detail_back_select(move |_window, cx| {
+                    detail_back_entity.update(cx, |this, cx| {
+                        this.handle_content_list_back_select(cx);
+                    });
+                })
+                .on_detail_forward_select(move |_window, cx| {
+                    detail_forward_entity.update(cx, |this, cx| {
+                        this.handle_content_list_forward_select(cx);
+                    });
+                });
         }
 
         // Stage 6: Wire content pane width and resize handler
@@ -1482,9 +1577,6 @@ impl TopApp {
                     });
                 }
             });
-
-        // Stage 5: Detail frame is not rendered in visible layout
-        // (kept in model for future workflows but not auto-projected)
 
         render_workspace(&layout, workspace_slots, cx).into_any_element()
     }
@@ -1581,5 +1673,46 @@ impl Render for TopApp {
                     )),
             )
             .children(render_window_layers(window, cx))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        TopApp, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout, WorkspaceScreenMount,
+    };
+
+    /// C4-01: the Music visible layout has SourceList, ContentList and
+    /// Detail, in that order.
+    #[test]
+    fn adr_0084_columns_c4_01_music_visible_layout_has_three_columns_in_order() {
+        let layout = WorkspaceLayout::from_config(None);
+        let visible = TopApp::visible_workspace_layout(&layout, WorkspaceScreenMount::Music);
+        let kinds: Vec<_> = visible
+            .frames()
+            .iter()
+            .map(WorkspaceFrameState::kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                WorkspaceFrameKind::SourceList,
+                WorkspaceFrameKind::ContentList,
+                WorkspaceFrameKind::Detail,
+            ]
+        );
+    }
+
+    /// C4-01: the Settings visible layout has the content-list frame only.
+    #[test]
+    fn adr_0084_columns_c4_01_settings_visible_layout_has_content_list_only() {
+        let layout = WorkspaceLayout::from_config(None);
+        let visible = TopApp::visible_workspace_layout(&layout, WorkspaceScreenMount::Settings);
+        let kinds: Vec<_> = visible
+            .frames()
+            .iter()
+            .map(WorkspaceFrameState::kind)
+            .collect();
+        assert_eq!(kinds, vec![WorkspaceFrameKind::ContentList]);
     }
 }

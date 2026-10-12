@@ -47,6 +47,17 @@ pub(crate) enum FrameNavigationEntry {
 }
 
 impl FrameNavigationEntry {
+    /// Returns whether this entry opens a page in the Music detail column
+    /// (ADR 0084 Decisions 1 and 2). A list root (the Library root, a search,
+    /// the readiness list) fills the list column and opens no page.
+    #[must_use]
+    pub(crate) const fn opens_detail_page(&self) -> bool {
+        !matches!(
+            self,
+            Self::SourceList | Self::Search(_) | Self::ReadinessIssues | Self::Settings
+        )
+    }
+
     /// Returns the default visible label for this navigation entry.
     #[must_use]
     pub(crate) fn display_label(&self) -> String {

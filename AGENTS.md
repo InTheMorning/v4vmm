@@ -23,8 +23,9 @@ Phase 4A packet 1, [one navigation stack](docs/tasks/archive/adr-0084-task-001-o
 Packet 2, one page for each item, is complete as
 [task 002](docs/tasks/archive/adr-0084-task-002-one-release-route.md) and
 [task 003](docs/tasks/archive/adr-0084-task-003-one-track-route.md).
-[ADR 0081 task 001](docs/tasks/archive/adr-0081-task-001-remove-the-staged-frame-model.md) is complete. Packet 004, the
-three-column shell, comes next. The
+[ADR 0081 task 001](docs/tasks/archive/adr-0081-task-001-remove-the-staged-frame-model.md) is complete.
+[Task 004](docs/tasks/adr-0084-task-004-three-column-shell.md), the three-column shell, is implemented, and its visual
+check is open. The
 [ADR 0084 phase plan](docs/plans/adr-0084-music-column-browser-phase-plan.md) holds the order. Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
 

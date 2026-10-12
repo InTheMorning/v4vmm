@@ -3,10 +3,10 @@ use super::{
     track_download_updates_open_page, track_release_download_updates_open_page, BreadcrumbDisplay,
     BreadcrumbTruncation, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
     FilterChipStripDisplay, FilterChipStripWidthClass, FrameNavigationEntry, FrameNavigationState,
-    FrameShellDisplay, LibraryFilterControlDisplay, LibraryFilterControlTreatment, ReleaseKey,
-    ReleasePageSource, TrackKey, TrackPageSource, WorkspaceFrameConfig, WorkspaceFrameId,
-    WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout, WorkspaceLayoutConfig,
-    WorkspaceModelError,
+    FrameShellDisplay, LibraryFilterControlDisplay, LibraryFilterControlTreatment, MusicColumns,
+    ReleaseKey, ReleasePageSource, TrackKey, TrackPageSource, WorkspaceFrameConfig,
+    WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+    WorkspaceLayoutConfig, WorkspaceModelError,
 };
 
 fn frame(id: u64, kind: WorkspaceFrameKind) -> WorkspaceFrameState {
@@ -1742,4 +1742,107 @@ fn detail_frame_id(layout: &WorkspaceLayout) -> WorkspaceFrameId {
         .find(|frame| frame.kind() == WorkspaceFrameKind::Detail)
         .map(WorkspaceFrameState::id)
         .expect("the default layout has a Detail frame")
+}
+
+// ---------------------------------------------------------------------------
+// ADR 0084 Decision 1: the three-column Music shell (task 004).
+// ---------------------------------------------------------------------------
+
+/// C4-02: at the breakpoint and wider, all three columns show, whatever the
+/// page state.
+#[test]
+fn adr_0084_columns_c4_02_three_columns_show_at_the_breakpoint_and_wider() {
+    assert_eq!(
+        MusicColumns::for_width(940.0, 940.0, false),
+        MusicColumns::Three
+    );
+    assert_eq!(
+        MusicColumns::for_width(1200.0, 940.0, true),
+        MusicColumns::Three
+    );
+}
+
+/// C4-02: narrower than the breakpoint, the open-page state picks the list
+/// or the detail column. The sidebar always shows.
+#[test]
+fn adr_0084_columns_c4_02_narrow_width_picks_list_or_detail_by_page_state() {
+    let no_page_open = MusicColumns::for_width(700.0, 940.0, false);
+    assert_eq!(no_page_open, MusicColumns::SidebarList);
+    assert!(no_page_open.shows_list());
+    assert!(!no_page_open.shows_detail());
+
+    let page_open = MusicColumns::for_width(700.0, 940.0, true);
+    assert_eq!(page_open, MusicColumns::SidebarDetail);
+    assert!(!page_open.shows_list());
+    assert!(page_open.shows_detail());
+}
+
+/// C4-03: the Detail frame chrome shows Back and Forward always, with each
+/// control's typed availability still visible through `back`/`forward`.
+#[test]
+fn adr_0084_columns_c4_03_detail_frame_shows_history_controls_always() {
+    let frame = frame(3, WorkspaceFrameKind::Detail);
+    let nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    let display =
+        FrameShellDisplay::from_frame(&frame, &nav, false).with_history_controls_always_shown();
+
+    assert!(display.back_shown());
+    assert!(display.forward_shown());
+    assert!(display.back.disabled, "no back history exists yet");
+}
+
+/// C4-03: the ContentList frame chrome in Music shows neither Back nor
+/// Forward, even when the projected navigation has history.
+#[test]
+fn adr_0084_columns_c4_03_content_list_frame_hides_history_controls() {
+    let frame = frame(2, WorkspaceFrameKind::ContentList);
+    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    nav.push(track(1));
+    assert!(nav.can_go_back());
+    let display = FrameShellDisplay::from_frame(&frame, &nav, false).with_history_controls_hidden();
+
+    assert!(!display.back_shown());
+    assert!(!display.forward_shown());
+}
+
+/// C4-04: the breadcrumb attaches to the Detail frame's display, not to a
+/// ContentList display built from the same navigation state.
+#[test]
+fn adr_0084_columns_c4_04_breadcrumb_attaches_to_detail_not_content_list() {
+    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    nav.push(track(1));
+    let breadcrumb = BreadcrumbDisplay::project(
+        "detail-breadcrumb",
+        &nav,
+        FrameNavigationEntry::display_label,
+    );
+
+    let detail_frame = frame(3, WorkspaceFrameKind::Detail);
+    let detail_display =
+        FrameShellDisplay::from_frame(&detail_frame, &nav, false).with_breadcrumb(breadcrumb);
+    assert!(detail_display.breadcrumb.is_some());
+
+    let content_list_frame = frame(2, WorkspaceFrameKind::ContentList);
+    let content_list_display = FrameShellDisplay::from_frame(&content_list_frame, &nav, false);
+    assert!(content_list_display.breadcrumb.is_none());
+}
+
+/// C4-02 (ADR 0084 Decisions 1 and 2): a list root opens no detail page, so
+/// the narrow layout keeps the list column for it.
+#[test]
+fn adr_0084_columns_list_roots_open_no_detail_page() {
+    for root in [
+        FrameNavigationEntry::SourceList,
+        FrameNavigationEntry::Search("drums".to_string()),
+        FrameNavigationEntry::ReadinessIssues,
+    ] {
+        assert!(!root.opens_detail_page(), "{root:?} must open no page");
+    }
+    for page in [
+        FrameNavigationEntry::PlaylistDetail(1),
+        FrameNavigationEntry::Release(ReleaseKey::FeedGuid("feed".to_string())),
+        FrameNavigationEntry::IndexNameMatches("Haleen".to_string()),
+    ] {
+        assert!(page.opens_detail_page(), "{page:?} must open a page");
+    }
 }

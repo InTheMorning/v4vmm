@@ -1522,6 +1522,8 @@ fn workspace_frame_shell_composite_owns_shared_frame_chrome() {
 
 #[test]
 fn workspace_screen_mount_boundary_wraps_existing_screens_whole() {
+    // ADR 0084 Decision 1 replaces the whole-screen Music mount with three
+    // column views. Show and Settings stay whole-screen mounts.
     let app_source = read_source(&manifest_path("src/app.rs"));
     let mut violations = Vec::new();
 
@@ -1529,7 +1531,8 @@ fn workspace_screen_mount_boundary_wraps_existing_screens_whole() {
         "enum WorkspaceScreenMount",
         "fn active_workspace_screen_mount(&self) -> WorkspaceScreenMount",
         "fn render_workspace_screen_mount(",
-        "WorkspaceScreenMount::Music => self.library.clone().into_any_element()",
+        // ADR 0084 Decision 1: Music mounts as three column views.
+        "library_sidebar_view: Entity<LibraryColumnView>",
         "build_show_screen(self, show_window_width, cx).into_any_element()",
         "WorkspaceScreenMount::Settings => render_settings(self, cx)",
         "workspace render delegates to the active app-section mount",
@@ -1762,37 +1765,12 @@ fn workspace_split_pane_uses_fluid_resize_pattern() {
     );
 }
 
-/// Situational ADR 0046: every Library pane uses the measured shared fitting owner.
-#[test]
-fn adr_0046_library_split_uses_measured_shared_geometry() {
-    let source = read_source(&manifest_path("src/library/app_impl.rs"));
-    let render = source_between(&source, "impl Render for LibraryApp", "#[cfg(test)]");
-    let splits = render.split("SplitPane::new(chrome.split_pane_id)").skip(1);
-    let mut count = 0;
-    for split in splits {
-        let wiring = split.split(".into_any_element()").next().unwrap();
-        for required in [
-            ".leading_width(px(self.vm.split_pane_width()))",
-            ".fit_to(",
-            "self.split_pane_bounds",
-            ".stacked_height(self.vm.split_pane_height().map(px))",
-            ".on_resize(",
-            "layout::scaled_dimension(layout::CONTENT_PANE_MIN_WIDTH, cx)",
-            ".on_layout(",
-        ] {
-            assert!(
-                wiring.contains(required),
-                "Library split missing {required}"
-            );
-        }
-        count += 1;
-    }
-    assert_eq!(count, 2, "Cover recent content and selected details");
-    assert!(render.contains("this.split_pane_bounds != Some(*bounds)"));
-    assert!(render.contains("this.split_pane_bounds = Some(*bounds)"));
-    assert!(!render.contains("SPLIT_STACKED_LEADING_FRACTION"));
-    assert!(!render.contains("SplitPaneAxis::Vertical"));
-}
+// `adr_0046_library_split_uses_measured_shared_geometry` is deleted. ADR
+// 0084 Decision 1 replaces the two-pane Library `SplitPane` it guarded with
+// three independent Music columns. The two `SplitPane::new
+// (chrome.split_pane_id)` sites it checked, and `LibraryApp::split_pane_bounds`,
+// are deleted in the same change. `adr_0060_music_surface_is_dominant_content_without_operational_panes`
+// now asserts that the Library `SplitPane` stays deleted.
 
 /// Situational ADR 0066: normal notices preserve content height and open Settings passively.
 #[test]
@@ -2643,6 +2621,10 @@ const ADR_0081_DELETED_STAGED_FRAME_MODEL_NAMES: &[&str] = &[
     "fn default_detail_frame_id(",
     "fn default_content_frame_id(",
     "fn focused_frame(",
+    // A Detail filter strip under another name. The orchestrator removed it
+    // in review of ADR 0084 task 004 (ADR 0081 Decision 4).
+    "fn detail_filter_chips(",
+    "fn on_detail_filter_chips_select(",
 ];
 
 /// Situational ADR 0081: returns one violation message for each deleted
@@ -12924,7 +12906,6 @@ fn adr_0060_music_surface_vocabulary_and_primary_filter_are_guarded() {
     for required in [
         "AppTab::Music",
         "WorkspaceScreenMount::Music",
-        "WorkspaceScreenMount::Music => self.library.clone().into_any_element()",
         "last_music_content_nav: Option<FrameNavigationState>",
         "music_tab_focus: gpui::FocusHandle",
     ] {
@@ -13119,12 +13100,28 @@ fn adr_0060_music_surface_is_dominant_content_without_operational_panes() {
         "fn visible_workspace_layout(",
         "fn content_list_frame_title(",
     );
+    // ADR 0084 Decision 1 moves the Music column functions into their own
+    // `impl LibraryApp` block, ahead of the thin `impl Render for
+    // LibraryApp` fallback. This span covers both, by their shared end
+    // marker.
     let library_render = source_between(
         &library_app_source,
-        "impl Render for LibraryApp",
+        "pub(crate) fn render_sidebar_column(",
         "#[cfg(test)]",
     );
-    let content_marker = "let content = if matches!(self.detail, LibraryDetail::None)";
+    // ADR 0084 Decision 1 replaces the single two-pane no-selection body:
+    // the Library composes the Music surface from three column render
+    // functions. The detail column always renders through
+    // render_library_detail, which gives its own dominant-content empty
+    // state from a view model (C4-05).
+    let Some(detail_index) = library_render.find("pub(crate) fn render_detail_column(") else {
+        panic!(
+            "src/library/app_impl.rs: ADR 0084 Decision 1 Music detail column missing \
+             `pub(crate) fn render_detail_column(`"
+        );
+    };
+    let before_detail_column = &library_render[..detail_index];
+    let detail_column = &library_render[detail_index..];
     let mut violations = Vec::new();
 
     for required in [
@@ -13152,35 +13149,34 @@ fn adr_0060_music_surface_is_dominant_content_without_operational_panes() {
         }
     }
 
-    let Some(content_index) = library_render.find(content_marker) else {
-        violations.push(format!(
-            "src/library/app_impl.rs: ADR 0060 task 003 no-selection Music body missing `{content_marker}`"
-        ));
-        assert!(
-            violations.is_empty(),
-            "ADR 0060 Music dominant-content violations:\n{}",
-            violations.join("\n")
-        );
-        return;
-    };
-    let before_content_branch = &library_render[..content_index];
-    let content_branch = &library_render[content_index..];
-    if before_content_branch.contains("render_library_detail(") {
+    if before_detail_column.contains("render_library_detail(") {
         violations.push(
-            "src/library/app_impl.rs: ADR 0060 task 003 must not build the empty detail pane before the no-selection branch"
+            "src/library/app_impl.rs: ADR 0084 Decision 1 must not build the detail pane before render_detail_column"
                 .to_string(),
         );
     }
     for required in [
-        "leading_pane",
-        "SplitPane::new(chrome.split_pane_id)",
-        "render_library_detail(",
+        "fn render_sidebar_column(",
+        "fn render_list_column(",
+        "render_library_content_list(",
     ] {
-        if !content_branch.contains(required) {
+        if !library_render.contains(required) {
             violations.push(format!(
-                "src/library/app_impl.rs: ADR 0060 task 003 selected detail must still open inside the Music surface; missing `{required}`"
+                "src/library/app_impl.rs: ADR 0084 Decision 1 Music column split missing `{required}`"
             ));
         }
+    }
+    if !detail_column.contains("render_library_detail(") {
+        violations.push(
+            "src/library/app_impl.rs: ADR 0084 Decision 1 detail column must render through render_library_detail"
+                .to_string(),
+        );
+    }
+    if library_render.contains("SplitPane::new(chrome.split_pane_id)") {
+        violations.push(
+            "src/library/app_impl.rs: ADR 0084 Decision 1 deletes the two-pane Library split"
+                .to_string(),
+        );
     }
 
     for (file, source) in [
@@ -13229,6 +13225,40 @@ fn adr_0060_music_surface_is_dominant_content_without_operational_panes() {
     assert!(
         violations.is_empty(),
         "ADR 0060 Music dominant-content violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0084 Decision 1 (C4-06): the Library render has no
+/// `SplitPane`, and the Music column widths come from the named tokens.
+#[test]
+fn adr_0084_columns_c4_06_music_columns_use_named_tokens_with_no_split_pane() {
+    let workspace_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
+    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        ".w(MUSIC_SIDEBAR_WIDTH)",
+        ".w(MUSIC_LIST_COLUMN_WIDTH)",
+        ".min_w(MUSIC_DETAIL_MIN_WIDTH)",
+    ] {
+        if !workspace_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/workspace.rs: ADR 0084 Decision 1 Music column widths must come from a named token; missing `{required}`"
+            ));
+        }
+    }
+
+    if library_app_source.contains("SplitPane") {
+        violations.push(
+            "src/library/app_impl.rs: ADR 0084 Decision 1 the Library render must have no SplitPane"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 Decision 1 Music column token/SplitPane violations:\n{}",
         violations.join("\n")
     );
 }
@@ -14323,15 +14353,13 @@ fn adr_0062_music_default_content_projects_recent_music_rows() {
     let library_source = read_source(&manifest_path("src/library.rs"));
     let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
     let content_shell_source = read_source(&manifest_path("src/ui/shells/library/content_list.rs"));
-    let library_render = source_between(
+    // ADR 0084 Decision 1 replaces the two-pane no-selection branch: the
+    // Library list column always renders the content list, in its own
+    // function, with no detail branch beside it.
+    let list_column = source_between(
         &library_app_source,
-        "impl Render for LibraryApp",
-        "#[cfg(test)]",
-    );
-    let no_selection_branch = source_between(
-        library_render,
-        "let content = if matches!(self.detail, LibraryDetail::None) {",
-        "} else {",
+        "pub(crate) fn render_list_column(",
+        "pub(crate) fn render_detail_column(",
     );
     let mut violations = Vec::new();
 
@@ -14376,22 +14404,12 @@ fn adr_0062_music_default_content_projects_recent_music_rows() {
         }
     }
 
-    for required in [
-        "SplitPane::new(chrome.split_pane_id)",
-        ".leading(leading_pane)",
-        ".trailing(trailing_pane)",
-        "render_library_content_list(",
-    ] {
-        if !no_selection_branch.contains(required) {
-            violations.push(format!(
-                "src/library/app_impl.rs: Situational ADR 0062 Music no-selection branch must keep the source tree separate from content rows; missing `{required}`. Fix: render a source pane plus content-list pane."
-            ));
-        }
-    }
-
-    if no_selection_branch.trim() == "leading_pane" {
+    // ADR 0084 Decision 1: the list column is its own function and always
+    // renders the content list, so it needs no "keep the tree separate"
+    // check against a detail branch that no longer exists beside it.
+    if !list_column.contains("render_library_content_list(") {
         violations.push(
-            "src/library/app_impl.rs: Situational ADR 0062 Music no-selection branch must not return the navigation tree as the content region. Fix: render ContentListPageVm::visible_rows() in the content pane."
+            "src/library/app_impl.rs: ADR 0084 Decision 1 Music list column must render the content list; missing `render_library_content_list(`"
                 .to_string(),
         );
     }
@@ -14639,9 +14657,11 @@ fn adr_0062_recent_feeds_destination_is_retired() {
 fn adr_0062_music_default_content_query_stays_off_render_path() {
     let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
     let content_shell_source = read_source(&manifest_path("src/ui/shells/library/content_list.rs"));
+    // ADR 0084 Decision 1: the Music render path is the column render
+    // functions, from `render_sidebar_column` on.
     let library_render = source_between(
         &library_app_source,
-        "impl Render for LibraryApp",
+        "pub(crate) fn render_sidebar_column(",
         "#[cfg(test)]",
     );
     let mut violations = Vec::new();
@@ -17619,7 +17639,7 @@ fn adr_0075_observation_writer_and_library_retention_have_one_owner() {
     let retention = source_between(
         &vm,
         "pub(crate) fn retain_observation_failure(",
-        "pub(crate) fn is_resizing(",
+        "pub(crate) fn select_library_item(",
     );
     assert!(!retention.contains("set_error_status("));
     assert!(!retention.contains(".clear()"));
@@ -18010,7 +18030,7 @@ under an explicit refresh intent.";
     let retention = source_between(
         &vm,
         "pub(crate) fn retain_query_evidence(",
-        "pub(crate) fn is_resizing(",
+        "pub(crate) fn select_library_item(",
     );
     for required in [
         "CommandError::ObservedCommandFailure(failure)",

@@ -25,10 +25,6 @@ pub const INSPECTOR_WIDTH: Pixels = px(360.0);
 pub const INSPECTOR_MIN_WIDTH: Pixels = px(200.0);
 pub const INSPECTOR_MAX_WIDTH: Pixels = px(800.0);
 pub const SPLIT_HANDLE_WIDTH: Pixels = px(5.0);
-/// ADR 0046: stacked source navigation leaves two thirds for the current content.
-pub(crate) const SPLIT_STACKED_LEADING_FRACTION: f32 = 1.0 / 3.0;
-/// ADR 0046: leave usable navigation and detail viewports during vertical resizing.
-pub(crate) const SPLIT_STACKED_MIN_HEIGHT: Pixels = px(120.0);
 /// ADR 0066: keep normal-shell recovery notices from consuming the workspace.
 pub(crate) const CAPABILITY_NOTICE_MAX_HEIGHT: Pixels = px(160.0);
 pub const CONTENT_PANE_DEFAULT_WIDTH: Pixels = px(1024.0);
@@ -57,6 +53,16 @@ pub(crate) const MAINTENANCE_ACTION_BAND_FRACTION: f32 = 0.25;
 pub const MENU_MIN_WIDTH: Pixels = px(320.0);
 pub const MENU_MAX_WIDTH: Pixels = px(520.0);
 pub const TRACK_NUMBER_WIDTH: Pixels = px(24.0);
+
+/// ADR 0084 Decision 1: the Music sidebar column's fixed width.
+pub const MUSIC_SIDEBAR_WIDTH: Pixels = px(220.0);
+/// ADR 0084 Decision 1: the Music list column's fixed width.
+pub const MUSIC_LIST_COLUMN_WIDTH: Pixels = px(320.0);
+/// ADR 0084 Decision 1: the Music detail column's minimum width.
+pub const MUSIC_DETAIL_MIN_WIDTH: Pixels = px(360.0);
+/// ADR 0084 Decision 1: below this width, Music shows the sidebar and one
+/// more column, not all three.
+pub const MUSIC_SINGLE_COLUMN_BREAKPOINT: Pixels = px(940.0);
 
 #[must_use]
 pub fn scaled_dimension(base: Pixels, cx: &App) -> Pixels {

@@ -46,10 +46,9 @@ use crate::subscribe_service::{self, SubscribeFeedRequest, SubscribeTrackRequest
 use crate::ui::composites::{
     DisclosureIndicator, DisclosureIndicatorDisplay, DisclosureSupplementDisplay,
     DisclosureSupplementLabel, ListRow, ListRowA11yLabel, PlaylistOption, PlaylistOptionDisplay,
-    SkeletonTrackRow, SplitPane, StatusRole,
+    SkeletonTrackRow, StatusRole,
 };
 use crate::ui::control_styles::ControlStyle;
-use crate::ui::layouts as layout;
 use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
 use crate::ui::primitives::{Button as UiButton, Label};
 use crate::ui::shells::library::content_list::render_library_content_list;
@@ -84,9 +83,8 @@ use crate::view_models::workspace::{
 };
 use crate::views::{EntityIdentityLinks, LocalIdentityFacts};
 use gpui::{
-    div, prelude::*, px, AnyElement, ClickEvent, Context, Entity, FontWeight, Image,
-    InteractiveElement, IntoElement, MouseDownEvent, MouseUpEvent, Render, SharedString, Styled,
-    Window,
+    div, prelude::*, AnyElement, ClickEvent, Context, Entity, FontWeight, Image,
+    InteractiveElement, IntoElement, SharedString, Styled, Window,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::Size;
@@ -705,7 +703,6 @@ impl LibraryApp {
             tag_update_request_failed: false,
             recent_music_page: RecentFeedsPageVm::loading(),
             recent_music_scroll: gpui::ScrollHandle::new(),
-            split_pane_bounds: None,
         };
         app.maybe_start_musicbrainz_feed_saga(cx);
         app.maybe_start_playlist_rss_check(cx);
@@ -2936,8 +2933,16 @@ fn album_has_feed_identity_actions(facts: &LocalIdentityFacts) -> bool {
 // Render
 // ---------------------------------------------------------------------------
 
-impl Render for LibraryApp {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+impl LibraryApp {
+    /// Renders the Music sidebar column (ADR 0084 Decision 1). Its content
+    /// is the present leading pane, unchanged by this packet: the
+    /// feed-update banner, the library tree, Playlists, and Saved
+    /// Searches.
+    pub(crate) fn render_sidebar_column(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let chrome = LibraryViewModel::chrome_display()
             .with_playback_availability(self.playback_availability);
         let status = self.vm.status_snapshot();
@@ -2948,24 +2953,17 @@ impl Render for LibraryApp {
         };
         let status_text = status.text;
 
-        // Collect image URLs from tree, then fetch thumbnails (avoids borrow conflict).
-        let mut urls: Vec<String> = {
-            self.vm
-                .tree()
-                .artists
-                .iter()
-                .flat_map(|a| &a.albums)
-                .flat_map(album_thumbnail_urls)
-                .collect()
-        };
-        if let LibraryDetail::Album(album) = &self.detail {
-            urls.extend(album_thumbnail_urls(album));
-        }
-        if let LibraryDetail::Artist(artist) = &self.detail {
-            if let Some(url) = artist.view.image_url.clone() {
-                urls.push(url);
-            }
-        }
+        // Collect image URLs from the library tree, then fetch thumbnails
+        // (avoids borrow conflict). The detail column fetches its own
+        // image URLs, in render_detail_column.
+        let urls: Vec<String> = self
+            .vm
+            .tree()
+            .artists
+            .iter()
+            .flat_map(|a| &a.albums)
+            .flat_map(album_thumbnail_urls)
+            .collect();
         let hovered_url = self.vm.hovered_thumb_url().map(str::to_string);
         let mut album_thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
         for url in &urls {
@@ -2974,11 +2972,6 @@ impl Render for LibraryApp {
                 let img = self.thumbnail_for_url(Some(url), animated, cx);
                 album_thumbs.insert(url.clone(), img);
             }
-        }
-        let mut content_row_thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
-        for (row_id, url) in self.vm.content_list_thumbnail_sources() {
-            let img = self.thumbnail_for_url(Some(&url), false, cx);
-            content_row_thumbs.insert(row_id, img);
         }
 
         let tree_projection = self.vm.tree_projection();
@@ -3343,147 +3336,30 @@ impl Render for LibraryApp {
             )
             .into_any_element();
 
-        let on_pane_layout = cx.listener(|this, bounds: &gpui::Bounds<gpui::Pixels>, _, cx| {
-            if this.split_pane_bounds != Some(*bounds) {
-                this.split_pane_bounds = Some(*bounds);
-                this.vm.end_resize();
-                cx.notify();
-            }
-        });
+        leading_pane
+    }
 
-        let content = if matches!(self.detail, LibraryDetail::None) {
-            let content_list_pane = render_library_content_list(
-                self.vm.content_list_page(),
-                &content_row_thumbs,
-                &self.recent_music_scroll,
-                cx,
-            );
-            let trailing_pane = div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_h_0()
-                .min_w_0()
-                .overflow_hidden()
-                .child(content_list_pane)
-                .into_any_element();
-            SplitPane::new(chrome.split_pane_id)
-                .resize_handle_id(chrome.resize_handle_id)
-                .leading_width(px(self.vm.split_pane_width()))
-                .leading_min_width(layout::scaled_dimension(layout::INSPECTOR_MIN_WIDTH, cx))
-                .stacked_height(self.vm.split_pane_height().map(px))
-                .fit_to(
-                    self.split_pane_bounds,
-                    layout::scaled_dimension(layout::CONTENT_PANE_MIN_WIDTH, cx),
-                    layout::scaled_dimension(layout::SPLIT_STACKED_MIN_HEIGHT, cx),
-                )
-                .on_layout(move |bounds, window, cx| on_pane_layout(&bounds, window, cx))
-                .leading(leading_pane)
-                .trailing(trailing_pane)
-                .on_resize(cx.listener(|this, extent, _window, cx| {
-                    if this.vm.is_resizing() {
-                        match *extent {
-                            crate::ui::composites::split_pane::SplitPaneResize::Width(width) => {
-                                this.vm.resize_split_pane(
-                                    f32::from(width),
-                                    f32::from(layout::INSPECTOR_MIN_WIDTH),
-                                    f32::from(layout::INSPECTOR_MAX_WIDTH),
-                                );
-                            }
-                            crate::ui::composites::split_pane::SplitPaneResize::Height(height) => {
-                                this.vm.resize_split_pane_height(f32::from(height));
-                            }
-                        }
-                        cx.notify();
-                    }
-                }))
-                .on_resize_end(cx.listener(|this, _: &MouseUpEvent, _window, cx| {
-                    if this.vm.is_resizing() {
-                        this.vm.end_resize();
-                        cx.notify();
-                    }
-                }))
-                .on_resize_start(cx.listener(|this, _: &MouseDownEvent, _window, cx| {
-                    this.vm.begin_resize();
-                    cx.notify();
-                }))
-                .into_any_element()
-        } else {
-            let track_publisher_feed_guid = self.mounted_track_publisher_feed_guid();
-            let album_cover_color = match &self.detail {
-                LibraryDetail::Album(album) => {
-                    let url = album.image_href.clone();
-                    self.cover_color_for_url(url.as_deref(), cx)
-                }
-                _ => None,
-            };
-            let detail_pane = render_library_detail(
-                &self.detail,
-                self.vm.busy_track(),
-                self.vm.mb_status(),
-                &self.vm,
-                &album_thumbs,
-                self.vm.playlists(),
-                &chrome,
-                self.rename_playlist_input.clone(),
-                self.vm.renaming_playlist_id(),
-                self.playlist_actor.as_ref(),
-                self.playlist_rss_snapshot.as_ref(),
-                track_publisher_feed_guid.as_deref(),
-                album_cover_color,
-                cx,
-            );
-            let trailing_pane = div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_h_0()
-                .min_w_0()
-                .overflow_hidden()
-                .child(detail_pane)
-                .into_any_element();
-            SplitPane::new(chrome.split_pane_id)
-                .resize_handle_id(chrome.resize_handle_id)
-                .leading_width(px(self.vm.split_pane_width()))
-                .leading_min_width(layout::scaled_dimension(layout::INSPECTOR_MIN_WIDTH, cx))
-                .stacked_height(self.vm.split_pane_height().map(px))
-                .fit_to(
-                    self.split_pane_bounds,
-                    layout::scaled_dimension(layout::CONTENT_PANE_MIN_WIDTH, cx),
-                    layout::scaled_dimension(layout::SPLIT_STACKED_MIN_HEIGHT, cx),
-                )
-                .on_layout(move |bounds, window, cx| on_pane_layout(&bounds, window, cx))
-                .leading(leading_pane)
-                .trailing(trailing_pane)
-                .on_resize(cx.listener(|this, extent, _window, cx| {
-                    if this.vm.is_resizing() {
-                        match *extent {
-                            crate::ui::composites::split_pane::SplitPaneResize::Width(width) => {
-                                this.vm.resize_split_pane(
-                                    f32::from(width),
-                                    f32::from(layout::INSPECTOR_MIN_WIDTH),
-                                    f32::from(layout::INSPECTOR_MAX_WIDTH),
-                                );
-                            }
-                            crate::ui::composites::split_pane::SplitPaneResize::Height(height) => {
-                                this.vm.resize_split_pane_height(f32::from(height));
-                            }
-                        }
-                        cx.notify();
-                    }
-                }))
-                .on_resize_end(cx.listener(|this, _: &MouseUpEvent, _window, cx| {
-                    if this.vm.is_resizing() {
-                        this.vm.end_resize();
-                        cx.notify();
-                    }
-                }))
-                .on_resize_start(cx.listener(|this, _: &MouseDownEvent, _window, cx| {
-                    this.vm.begin_resize();
-                    cx.notify();
-                }))
-                .into_any_element()
-        };
+    /// Renders the Music list column (ADR 0084 Decision 1). It always
+    /// shows the content list. It no longer gives its place to the detail
+    /// page: the detail column renders separately, in
+    /// `render_detail_column`.
+    pub(crate) fn render_list_column(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let mut content_row_thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
+        for (row_id, url) in self.vm.content_list_thumbnail_sources() {
+            let img = self.thumbnail_for_url(Some(&url), false, cx);
+            content_row_thumbs.insert(row_id, img);
+        }
+
+        let content_list_pane = render_library_content_list(
+            self.vm.content_list_page(),
+            &content_row_thumbs,
+            &self.recent_music_scroll,
+            cx,
+        );
 
         div()
             .size_full()
@@ -3492,8 +3368,98 @@ impl Render for LibraryApp {
             .text_sm()
             .flex()
             .flex_col()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
             .overflow_hidden()
-            .child(content)
+            .child(content_list_pane)
+            .into_any_element()
+    }
+
+    /// Renders the Music detail column (ADR 0084 Decision 1). It shows the
+    /// Library page when a page is open, else the empty state that
+    /// `render_library_detail` gives from `LibraryChromeDisplay`.
+    pub(crate) fn render_detail_column(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let chrome = LibraryViewModel::chrome_display()
+            .with_playback_availability(self.playback_availability);
+
+        let mut urls: Vec<String> = Vec::new();
+        if let LibraryDetail::Album(album) = &self.detail {
+            urls.extend(album_thumbnail_urls(album));
+        }
+        if let LibraryDetail::Artist(artist) = &self.detail {
+            if let Some(url) = artist.view.image_url.clone() {
+                urls.push(url);
+            }
+        }
+        let hovered_url = self.vm.hovered_thumb_url().map(str::to_string);
+        let mut album_thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
+        for url in &urls {
+            if !album_thumbs.contains_key(url.as_str()) {
+                let animated = hovered_url.as_deref() == Some(url.as_str());
+                let img = self.thumbnail_for_url(Some(url), animated, cx);
+                album_thumbs.insert(url.clone(), img);
+            }
+        }
+
+        let track_publisher_feed_guid = self.mounted_track_publisher_feed_guid();
+        let album_cover_color = match &self.detail {
+            LibraryDetail::Album(album) => {
+                let url = album.image_href.clone();
+                self.cover_color_for_url(url.as_deref(), cx)
+            }
+            _ => None,
+        };
+        let detail_pane = render_library_detail(
+            &self.detail,
+            self.vm.busy_track(),
+            self.vm.mb_status(),
+            &self.vm,
+            &album_thumbs,
+            self.vm.playlists(),
+            &chrome,
+            self.rename_playlist_input.clone(),
+            self.vm.renaming_playlist_id(),
+            self.playlist_actor.as_ref(),
+            self.playlist_rss_snapshot.as_ref(),
+            track_publisher_feed_guid.as_deref(),
+            album_cover_color,
+            cx,
+        );
+
+        div()
+            .size_full()
+            .bg(color::bg_canvas())
+            .text_color(color::text_primary())
+            .text_sm()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .overflow_hidden()
+            .child(detail_pane)
+            .into_any_element()
+    }
+
+    /// Renders one Music column (ADR 0084 Decision 1). `LibraryColumnView`
+    /// calls this through `Entity::update`, so each Library listener keeps
+    /// using `cx.listener` on `Context<LibraryApp>` as it does today.
+    pub(crate) fn render_column(
+        &mut self,
+        column: super::LibraryColumn,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        match column {
+            super::LibraryColumn::Sidebar => self.render_sidebar_column(window, cx),
+            super::LibraryColumn::List => self.render_list_column(window, cx),
+            super::LibraryColumn::Detail => self.render_detail_column(window, cx),
+        }
     }
 }
 

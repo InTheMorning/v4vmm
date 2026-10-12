@@ -392,14 +392,17 @@ pub(crate) struct FrameChromeMenuItemDisplay {
 
 /// When the frame chrome shows its Back and Forward controls.
 ///
-/// ADR 0084 Decision 9: Back and Forward always show in the Music content
-/// frame. Each control keeps its typed availability.
+/// ADR 0084 Decision 9: Back and Forward always show in the Music detail
+/// column. Each control keeps its typed availability. ADR 0084 Decision 1:
+/// the Music sidebar and list columns show neither control.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum FrameHistoryControls {
     /// Each control shows only when its history is not empty.
     WhenAvailable,
     /// Both controls always show. An unavailable control shows as disabled.
     Always,
+    /// Neither control shows, whatever its availability.
+    Hidden,
 }
 
 /// Display contract consumed by the shared workspace frame shell.
@@ -511,16 +514,33 @@ impl FrameShellDisplay {
         self
     }
 
+    /// Returns this shell display with Back and Forward hidden, whatever
+    /// their availability (ADR 0084 Decision 1: the Music sidebar and list
+    /// columns show neither control).
+    #[must_use]
+    pub(crate) const fn with_history_controls_hidden(mut self) -> Self {
+        self.history_controls = FrameHistoryControls::Hidden;
+        self
+    }
+
     /// Returns whether the chrome shows the Back control.
     #[must_use]
     pub(crate) fn back_shown(&self) -> bool {
-        !self.back.disabled || self.history_controls == FrameHistoryControls::Always
+        match self.history_controls {
+            FrameHistoryControls::Hidden => false,
+            FrameHistoryControls::Always => true,
+            FrameHistoryControls::WhenAvailable => !self.back.disabled,
+        }
     }
 
     /// Returns whether the chrome shows the Forward control.
     #[must_use]
     pub(crate) fn forward_shown(&self) -> bool {
-        !self.forward.disabled || self.history_controls == FrameHistoryControls::Always
+        match self.history_controls {
+            FrameHistoryControls::Hidden => false,
+            FrameHistoryControls::Always => true,
+            FrameHistoryControls::WhenAvailable => !self.forward.disabled,
+        }
     }
 
     /// Returns this shell display with frame-local breadcrumbs attached.
