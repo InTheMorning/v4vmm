@@ -131,8 +131,12 @@ impl RenderOnce for ListRow {
         let hover_bg = color(cx, SemanticColor::SecondarySystemBackground);
         let has_click_action = on_click.is_some();
 
+        // ADR 0084 Decision 1: a row in a scrolling list keeps its content
+        // height. A list column has a fixed height, and a flex child shrinks
+        // by default, so a row without this overlaps the next row.
         let mut row = div()
             .id(self.id)
+            .flex_shrink_0()
             .px(pad_x)
             .py(pad_y)
             .when(has_click_action, |el| {

@@ -570,6 +570,8 @@ impl RenderOnce for WorkspaceShell {
             if let Some(source_list) = source_list_element {
                 row = row.child(
                     div()
+                        .flex()
+                        .flex_col()
                         .flex_shrink_0()
                         .w(MUSIC_SIDEBAR_WIDTH)
                         .h_full()
@@ -580,6 +582,8 @@ impl RenderOnce for WorkspaceShell {
             if let Some(content_list) = content_list_element {
                 row = row.child(
                     div()
+                        .flex()
+                        .flex_col()
                         .flex_shrink_0()
                         .w(MUSIC_LIST_COLUMN_WIDTH)
                         .h_full()
@@ -590,6 +594,8 @@ impl RenderOnce for WorkspaceShell {
             if let Some(detail) = detail_element {
                 row = row.child(
                     div()
+                        .flex()
+                        .flex_col()
                         .flex_1()
                         .min_w(MUSIC_DETAIL_MIN_WIDTH)
                         .h_full()

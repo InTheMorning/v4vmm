@@ -20272,3 +20272,59 @@ entry.\n{}",
         violations.join("\n")
     );
 }
+
+/// Situational ADR 0084 Decision 1: each Music column wrapper is a flex
+/// column with `min_h_0`. The frame inside a column sizes itself with
+/// `flex_1`, and that holds only in a flex parent. The operator found on
+/// 2026-10-12 that no Music column scrolled when the wrappers were not flex
+/// containers.
+#[test]
+fn adr_0084_columns_music_column_wrappers_are_flex_columns() {
+    let shell = read_source(&manifest_path("src/ui/shells/workspace.rs"));
+    let music_layout = source_between(
+        &shell,
+        "let layout_element: AnyElement = if is_music_three_column_layout",
+        "row.into_any_element()",
+    );
+    let mut violations = Vec::new();
+    for width in [
+        ".w(MUSIC_SIDEBAR_WIDTH)",
+        ".w(MUSIC_LIST_COLUMN_WIDTH)",
+        ".min_w(MUSIC_DETAIL_MIN_WIDTH)",
+    ] {
+        let wrapper_start = music_layout
+            .find(width)
+            .unwrap_or_else(|| panic!("ADR 0084 Decision 1: the Music layout must use `{width}`"));
+        let before = &music_layout[..wrapper_start];
+        let wrapper = &before[before.rfind("div()").unwrap_or(0)..];
+        let after = &music_layout[wrapper_start..];
+        let wrapper_end = after.find(".child(").unwrap_or(after.len());
+        let wrapper = format!("{wrapper}{}", &after[..wrapper_end]);
+        for required in [".flex()", ".flex_col()", ".min_h_0()"] {
+            if !wrapper.contains(required) {
+                violations.push(format!("the `{width}` column wrapper lacks `{required}`"));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 Decision 1 §Music Is Three Columns: a column wrapper must be a flex column with \
+`min_h_0`, so that its frame can scroll. Add `.flex().flex_col()` and `.min_h_0()` to the wrapper in \
+`WorkspaceShell::render`.\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0084 Decision 1: a `ListRow` keeps its content height in
+/// a scrolling list. The operator found on 2026-10-12 that content-list rows
+/// shrank and overlapped in the fixed-height list column.
+#[test]
+fn adr_0084_columns_list_rows_do_not_shrink_in_a_scrolling_column() {
+    let list_row = read_source(&manifest_path("src/ui/composites/list_row.rs"));
+    let render = source_between(&list_row, "impl RenderOnce for ListRow", "#[cfg(test)]");
+    assert!(
+        render.contains(".flex_shrink_0()"),
+        "ADR 0084 Decision 1 §Music Is Three Columns: a list row must not shrink in a scrolling \
+column. Keep `.flex_shrink_0()` on the row element of `ListRow`."
+    );
+}

@@ -157,8 +157,11 @@ fn render_content_list_tiles(
 
     container
         .child(
+            // ADR 0084 Decision 1: the tile grid keeps its content height in
+            // the fixed-height list column, so the column scrolls.
             div()
                 .id(ContentListPageVm::tiles_id())
+                .flex_shrink_0()
                 .flex()
                 .flex_row()
                 .flex_wrap()

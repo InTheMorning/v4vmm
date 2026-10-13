@@ -101,6 +101,7 @@ These are for the operator. No test proves them.
 - V3: Back, Forward and the breadcrumb show above the detail only.
 - V4: search results show in the list column. A search result, a publisher page and a name-match page show in the detail.
 - V5: at a width under 940 px, the list or the page shows, not both. Back from a page shows the list.
+- V5a: each column scrolls by itself. The operator added this criterion on 2026-10-12.
 - V6: Light and Dark, and a larger scale, show no clipped column, header or control.
 
 ## Exclusions
@@ -411,6 +412,13 @@ checkout, and a Library with one playlist, one album and one track, or more.
 15. Widen the window back past 940 px.
     - Correct: all three columns show again.
 
+**V5a - each column scrolls**
+
+15a. Scroll the left column, the middle column, and a long page in the right column, with the
+    wheel and with the scroll bar.
+    - Correct: each column scrolls by itself to its last item. The other columns do not move.
+    - Incorrect: a column does not scroll, or its content is cut off at the bottom.
+
 **V6 - Light, Dark, and a larger scale show no clipped column, header, or control**
 
 16. Open Settings -> General (`Ctrl+Comma`). Select Light, then Dark, then a larger scale. Return
@@ -428,7 +436,7 @@ None. This check reads your Library. It creates no fixture, and it writes no fil
 
 The orchestrator reviewed the diff against ADR 0084, ADR 0081, this packet and the [review checklist](../reviews/adr-0084-review-checklist.md). The column layout, the column views and the detail chrome keep to the design.
 
-Seven points were corrected in review:
+Nine points were corrected in review:
 
 1. The search results filled the detail column. Their filter chips moved to the `Detail` frame chrome through two new builders, `detail_filter_chips` and `on_detail_filter_chips_select`.
 
@@ -448,6 +456,10 @@ Seven points were corrected in review:
 
    The guard `adr_0065_readiness_rows_keep_state_labels_separate_from_actions` now reads the status line. Its rule stays: a state label carries no click handler and no button style. Step 4a of the visual check covers the rows.
 
-After the corrections, each check is Green: 1,870 unit tests, 307 guards, `fmt`, `clippy -D warnings`, `check --all-targets` with no warning, and `cargo build --bin v4vmm`.
+8. The operator found on 2026-10-12 that no Music column scrolled. Each frame sizes itself with `flex_1`, which holds only in a flex parent. The three column wrappers in `WorkspaceShell::render` set a width and `h_full` but were not flex containers, so each frame grew to its content height. Each wrapper is now a flex column with `min_h_0`. The new guard `adr_0084_columns_music_column_wrappers_are_flex_columns` blocks the defect, and a probe edit proved that it fails.
+
+9. After item 8, the operator found that the list rows shrank and overlapped, and the hover highlight showed the shrunk row. A flex child shrinks by default, and the list column now has a fixed height. `ListRow` now has `flex_shrink_0`, so each list that uses it keeps the row height. The tile grid of the content list has it too. The new guard `adr_0084_columns_list_rows_do_not_shrink_in_a_scrolling_column` covers `ListRow`.
+
+After the corrections, each check is Green: 1,870 unit tests, 309 guards, `fmt`, `clippy -D warnings`, `check --all-targets` with no warning, and `cargo build --bin v4vmm`.
 
 Merge recommendation: pass. Task 005 adds the destinations and uses `opens_detail_page` for its destination roots.
