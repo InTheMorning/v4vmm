@@ -17,15 +17,16 @@ use crate::ui::composites::{frame_shell, FrameShellSlots, SplitPane};
 use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::layouts::{
     CONTENT_PANE_DEFAULT_WIDTH, CONTENT_PANE_MIN_WIDTH, MUSIC_DETAIL_MIN_WIDTH,
-    MUSIC_LIST_COLUMN_WIDTH, MUSIC_SIDEBAR_WIDTH, MUSIC_SINGLE_COLUMN_BREAKPOINT,
-    WORKSPACE_QUEUE_COLLAPSE_BREAKPOINT, WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT,
+    MUSIC_LIST_COLUMN_WIDTH, MUSIC_SIDEBAR_COLLAPSED_WIDTH, MUSIC_SIDEBAR_COLLAPSE_BREAKPOINT,
+    MUSIC_SIDEBAR_WIDTH, MUSIC_SINGLE_COLUMN_BREAKPOINT, WORKSPACE_QUEUE_COLLAPSE_BREAKPOINT,
+    WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT,
 };
 use crate::ui::tokens::{resolve_color, FontSize, SemanticColor, Spacing};
 use crate::view_models::workspace::{
     BreadcrumbDisplay, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
     FilterChipStripDisplay, FrameNavigationEntry, FrameNavigationState, FrameShellDisplay,
-    LibraryFilterControlDisplay, MusicColumns, TrackKey, WorkspaceFrameKind, WorkspaceFrameState,
-    WorkspaceLayout,
+    LibraryFilterControlDisplay, MusicColumns, MusicDestination, MusicSidebarPreference,
+    MusicSidebarState, TrackKey, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
 };
 
 type WorkspaceFilterSelectHandler = Rc<dyn Fn(ContentFilter, &mut Window, &mut App) + 'static>;
@@ -64,6 +65,7 @@ pub(crate) struct WorkspaceSlots {
     on_content_pane_resize_start: Option<WorkspaceContentPaneResizeStartHandler>,
     on_content_pane_resize_move: Option<WorkspaceContentPaneResizeMoveHandler>,
     on_content_pane_resize_end: Option<WorkspaceContentPaneResizeHandler>,
+    source_list_sidebar_preference: MusicSidebarPreference,
 }
 
 impl WorkspaceSlots {
@@ -76,6 +78,18 @@ impl WorkspaceSlots {
     /// Music mount is the only caller today.
     pub(crate) fn source_list_slot(mut self, content: impl IntoElement) -> Self {
         self.source_list = Some(content.into_any_element());
+        self
+    }
+
+    /// Supplies the sidebar collapse preference (ADR 0084 Decision 1). The
+    /// shell resolves the sidebar column's width from this preference and
+    /// the workspace width, with the same pure function the Library's own
+    /// sidebar render uses, so both agree on one collapsed state.
+    pub(crate) fn source_list_sidebar_preference(
+        mut self,
+        preference: MusicSidebarPreference,
+    ) -> Self {
+        self.source_list_sidebar_preference = preference;
         self
     }
 
@@ -418,6 +432,19 @@ impl RenderOnce for WorkspaceShell {
             f32::from(MUSIC_SINGLE_COLUMN_BREAKPOINT),
             page_open,
         );
+        // ADR 0084 Decision 1: the sidebar width comes from its resolved
+        // collapse state. The Library's own sidebar render resolves the
+        // same state, from the same preference and workspace width, through
+        // the same pure function.
+        let sidebar_state = crate::view_models::workspace::resolve_music_sidebar_state(
+            self.slots.source_list_sidebar_preference,
+            f32::from(workspace_width),
+            f32::from(MUSIC_SIDEBAR_COLLAPSE_BREAKPOINT),
+        );
+        let sidebar_width = match sidebar_state {
+            MusicSidebarState::Expanded => MUSIC_SIDEBAR_WIDTH,
+            MusicSidebarState::Collapsed => MUSIC_SIDEBAR_COLLAPSED_WIDTH,
+        };
 
         for frame in self.layout.frames() {
             let frame_kind = frame.kind();
@@ -573,7 +600,7 @@ impl RenderOnce for WorkspaceShell {
                         .flex()
                         .flex_col()
                         .flex_shrink_0()
-                        .w(MUSIC_SIDEBAR_WIDTH)
+                        .w(sidebar_width)
                         .h_full()
                         .min_h_0()
                         .child(source_list),
@@ -749,7 +776,7 @@ fn collapsed_frames_hint(frame_titles: &[String], cx: &App) -> AnyElement {
 fn navigation_entry_for(kind: WorkspaceFrameKind) -> FrameNavigationEntry {
     match kind {
         WorkspaceFrameKind::SourceList | WorkspaceFrameKind::ContentList => {
-            FrameNavigationEntry::SourceList
+            FrameNavigationEntry::Destination(MusicDestination::Discover)
         }
         WorkspaceFrameKind::Detail => {
             FrameNavigationEntry::Track(TrackKey::from_index_track_target(None, String::new()))
@@ -778,7 +805,7 @@ mod tests {
         WORKSPACE_QUEUE_COLLAPSE_BREAKPOINT, WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT,
     };
     use crate::view_models::workspace::{
-        FrameNavigationEntry, FrameNavigationState, TrackKey, WorkspaceFrameKind,
+        FrameNavigationEntry, FrameNavigationState, MusicDestination, TrackKey, WorkspaceFrameKind,
     };
     use gpui::px;
 
@@ -791,7 +818,9 @@ mod tests {
     /// navigation state.
     #[test]
     fn adr_0084_columns_c4_04_music_breadcrumb_attaches_to_detail_only() {
-        let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+        let mut nav = FrameNavigationState::new(FrameNavigationEntry::Destination(
+            MusicDestination::Discover,
+        ));
         nav.push(track(1));
 
         assert!(should_render_breadcrumb(

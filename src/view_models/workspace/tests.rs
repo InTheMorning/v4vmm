@@ -4,13 +4,18 @@ use super::{
     BreadcrumbTruncation, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
     FilterChipStripDisplay, FilterChipStripWidthClass, FrameNavigationEntry, FrameNavigationState,
     FrameShellDisplay, LibraryFilterControlDisplay, LibraryFilterControlTreatment, MusicColumns,
-    ReleaseKey, ReleasePageSource, TrackKey, TrackPageSource, WorkspaceFrameConfig,
-    WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
-    WorkspaceLayoutConfig, WorkspaceModelError,
+    MusicDestination, ReleaseKey, ReleasePageSource, TrackKey, TrackPageSource,
+    WorkspaceFrameConfig, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState,
+    WorkspaceLayout, WorkspaceLayoutConfig, WorkspaceModelError,
 };
 
 fn frame(id: u64, kind: WorkspaceFrameKind) -> WorkspaceFrameState {
     WorkspaceFrameState::with_default_title(WorkspaceFrameId::new(id), kind)
+}
+
+/// Test helper: the default Music destination root, as a navigation entry.
+const fn discover() -> FrameNavigationEntry {
+    FrameNavigationEntry::Destination(MusicDestination::Discover)
 }
 
 /// Test helper: a `Track` entry with no release, keyed by `id` as its item
@@ -395,7 +400,7 @@ fn frame_shell_display_hides_header_when_no_header_facts_exist() {
         WorkspaceFrameKind::ContentList,
         "",
     );
-    let nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    let nav = FrameNavigationState::new(discover());
 
     let display = FrameShellDisplay::from_frame(&frame, &nav, false);
 
@@ -459,7 +464,7 @@ fn breadcrumb_display_projects_navigation_path() {
 /// call site), not the publisher feed GUID.
 #[test]
 fn adr_0077_publisher_navigation_breadcrumb_shows_view_model_title() {
-    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    let mut nav = FrameNavigationState::new(discover());
     nav.push(FrameNavigationEntry::PublisherDetail(
         "publisher-guid".to_string(),
     ));
@@ -477,7 +482,7 @@ fn adr_0077_publisher_navigation_breadcrumb_shows_view_model_title() {
 
 #[test]
 fn breadcrumb_display_projects_index_search_drilldown_path() {
-    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    let mut nav = FrameNavigationState::new(discover());
     nav.push(FrameNavigationEntry::Search("survival guide".to_string()));
     nav.push(FrameNavigationEntry::IndexNameMatches(
         "Survival Guide".to_string(),
@@ -497,7 +502,7 @@ fn breadcrumb_display_projects_index_search_drilldown_path() {
             .map(|segment| segment.label.as_str())
             .collect::<Vec<_>>(),
         [
-            "Library",
+            "Discover",
             "Search: survival guide",
             "\"Survival Guide\"",
             // ADR 0084 Decision 4: the entry itself carries no title, so its
@@ -521,7 +526,7 @@ fn breadcrumb_display_projects_index_search_drilldown_path() {
     assert_eq!(
         nav.path_entries(),
         vec![
-            FrameNavigationEntry::SourceList,
+            discover(),
             FrameNavigationEntry::Search("survival guide".to_string()),
             FrameNavigationEntry::IndexNameMatches("Survival Guide".to_string()),
             FrameNavigationEntry::Release(ReleaseKey::from_index_feed_guid("feed-guid")),
@@ -549,13 +554,13 @@ fn breadcrumb_display_projects_single_segment_as_current() {
 
 #[test]
 fn breadcrumb_display_projects_four_segment_paths_without_ellipsis() {
-    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    let mut nav = FrameNavigationState::new(discover());
     nav.push(FrameNavigationEntry::PlaylistDetail(7));
     nav.push(track(42));
     nav.push(FrameNavigationEntry::Release(ReleaseKey::LibraryFeed(11)));
 
     let display = BreadcrumbDisplay::project("crumbs", &nav, |entry| match entry {
-        FrameNavigationEntry::SourceList => "Library".to_string(),
+        FrameNavigationEntry::Destination(MusicDestination::Discover) => "Discover".to_string(),
         FrameNavigationEntry::PlaylistDetail(id) => format!("Playlist {id}"),
         FrameNavigationEntry::Track(key) => format!("Track {}", key.item_guid),
         FrameNavigationEntry::Release(ReleaseKey::LibraryFeed(id)) => format!("Album {id}"),
@@ -563,11 +568,8 @@ fn breadcrumb_display_projects_four_segment_paths_without_ellipsis() {
     });
 
     assert_eq!(display.segments.len(), 4);
-    assert_eq!(display.segments[0].label, "Library");
-    assert_eq!(
-        display.segments[0].target,
-        Some(FrameNavigationEntry::SourceList)
-    );
+    assert_eq!(display.segments[0].label, "Discover");
+    assert_eq!(display.segments[0].target, Some(discover()));
     assert_eq!(display.segments[1].label, "Playlist 7");
     assert_eq!(
         display.segments[1].target,
@@ -941,7 +943,7 @@ fn malformed_and_empty_workspace_layout_config_falls_back_to_default() {
 
 #[test]
 fn navigation_back_forward_boundaries_return_errors() {
-    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    let mut nav = FrameNavigationState::new(discover());
 
     assert!(
         !nav.can_go_back(),
@@ -1066,7 +1068,7 @@ fn adr_0046_forward_pop_nav_forward_restores_entry_back_left() {
         .expect("a pushed entry should allow going back");
     assert_eq!(
         entry_back_left,
-        FrameNavigationEntry::SourceList,
+        discover(),
         "Back should restore the entry that preceded the push"
     );
 
@@ -1095,7 +1097,7 @@ fn adr_0046_forward_pop_nav_forward_restores_entry_back_left() {
 /// and pushing a repeated GUID is a no-op, the same as every other entry.
 #[test]
 fn adr_0077_publisher_navigation_entry_keys_on_guid() {
-    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    let mut nav = FrameNavigationState::new(discover());
 
     nav.push(FrameNavigationEntry::PublisherDetail("guid-a".into()));
     assert_eq!(
@@ -1293,11 +1295,8 @@ fn open_search_results_in_content_list_replaces_search_ancestor_nav() {
 /// at most, also after a sequence that opens a page two times.
 #[test]
 fn adr_0084_nav_location_path_holds_each_page_once() {
-    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
-    nav.start_path(
-        FrameNavigationEntry::SourceList,
-        Some(FrameNavigationEntry::PlaylistDetail(0)),
-    );
+    let mut nav = FrameNavigationState::new(discover());
+    nav.start_path(discover(), Some(FrameNavigationEntry::PlaylistDetail(0)));
     nav.push(track(7));
     nav.push(FrameNavigationEntry::Release(ReleaseKey::LibraryFeed(3)));
     nav.push(track(7));
@@ -1305,7 +1304,7 @@ fn adr_0084_nav_location_path_holds_each_page_once() {
     assert_eq!(
         nav.path_entries(),
         vec![
-            FrameNavigationEntry::SourceList,
+            discover(),
             FrameNavigationEntry::PlaylistDetail(0),
             track(7),
         ],
@@ -1317,16 +1316,16 @@ fn adr_0084_nav_location_path_holds_each_page_once() {
 /// the path at that page, and Back returns to the longer path.
 #[test]
 fn adr_0084_nav_push_of_path_page_cuts_path_and_back_restores() {
-    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    let mut nav = FrameNavigationState::new(discover());
     nav.push(FrameNavigationEntry::PlaylistDetail(0));
     nav.push(track(7));
     let longer_path = nav.path_entries();
 
-    nav.push(FrameNavigationEntry::SourceList);
+    nav.push(discover());
 
     assert_eq!(
         nav.path_entries(),
-        vec![FrameNavigationEntry::SourceList],
+        vec![discover()],
         "a breadcrumb segment must cut the path at that segment"
     );
     assert_eq!(
@@ -1345,20 +1344,20 @@ fn adr_0084_nav_push_of_path_page_cuts_path_and_back_restores() {
 /// page only, and Back returns to the earlier location.
 #[test]
 fn adr_0084_nav_start_path_holds_destination_and_page() {
-    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    let mut nav = FrameNavigationState::new(discover());
     nav.push(FrameNavigationEntry::PlaylistDetail(0));
     nav.push(track(7));
     let earlier_path = nav.path_entries();
 
     nav.start_path(
-        FrameNavigationEntry::SourceList,
+        discover(),
         Some(FrameNavigationEntry::ArtistDetail("Haleen".to_string())),
     );
 
     assert_eq!(
         nav.path_entries(),
         vec![
-            FrameNavigationEntry::SourceList,
+            discover(),
             FrameNavigationEntry::ArtistDetail("Haleen".to_string()),
         ],
         "a sidebar click must start a new path"
@@ -1376,11 +1375,8 @@ fn adr_0084_nav_start_path_holds_destination_and_page() {
 /// history.
 #[test]
 fn adr_0084_nav_push_after_back_clears_forward_history() {
-    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
-    nav.start_path(
-        FrameNavigationEntry::SourceList,
-        Some(FrameNavigationEntry::PlaylistDetail(0)),
-    );
+    let mut nav = FrameNavigationState::new(discover());
+    nav.start_path(discover(), Some(FrameNavigationEntry::PlaylistDetail(0)));
     nav.go_back().expect("Back must be available");
     assert!(nav.can_go_forward(), "Back must create forward history");
 
@@ -1396,7 +1392,7 @@ fn adr_0084_nav_push_after_back_clears_forward_history() {
 /// the query in place. A search from another page adds one history entry.
 #[test]
 fn adr_0084_nav_search_replaces_in_place_or_adds_one_entry() {
-    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    let mut nav = FrameNavigationState::new(discover());
     nav.push(FrameNavigationEntry::PlaylistDetail(0));
 
     nav.replace_active_search_or_push(FrameNavigationEntry::Search("drums".to_string()));
@@ -1420,7 +1416,7 @@ fn adr_0084_nav_search_replaces_in_place_or_adds_one_entry() {
 #[test]
 fn adr_0084_nav_music_chrome_always_shows_history_controls() {
     let frame = frame(2, WorkspaceFrameKind::ContentList);
-    let nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    let nav = FrameNavigationState::new(discover());
 
     let other = FrameShellDisplay::from_frame(&frame, &nav, false);
     assert!(
@@ -1454,11 +1450,8 @@ fn adr_0084_nav_music_chrome_always_shows_history_controls() {
 /// not the history.
 #[test]
 fn adr_0084_nav_breadcrumb_projects_location_not_history() {
-    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
-    nav.start_path(
-        FrameNavigationEntry::SourceList,
-        Some(FrameNavigationEntry::PlaylistDetail(0)),
-    );
+    let mut nav = FrameNavigationState::new(discover());
+    nav.start_path(discover(), Some(FrameNavigationEntry::PlaylistDetail(0)));
     nav.push(track(7));
     nav.push(FrameNavigationEntry::PlaylistDetail(0));
     nav.push(track(7));
@@ -1472,7 +1465,7 @@ fn adr_0084_nav_breadcrumb_projects_location_not_history() {
 
     assert_eq!(
         ids,
-        vec!["source-list", "playlist-0", "track-7"],
+        vec!["destination-discover", "playlist-0", "track-7"],
         "the breadcrumb must not repeat the playlist or the track"
     );
     assert!(
@@ -1531,7 +1524,7 @@ fn adr_0084_release_resolver_follows_the_lookup_result() {
 /// opens push the same key, so the second push cuts the path at the first.
 #[test]
 fn adr_0084_release_path_holds_one_release_opened_from_both_origins() {
-    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    let mut nav = FrameNavigationState::new(discover());
     let library_open = FrameNavigationEntry::Release(ReleaseKey::FeedGuid("feed-guid".into()));
     let index_open = FrameNavigationEntry::Release(ReleaseKey::from_index_feed_guid("feed-guid"));
 
@@ -1542,7 +1535,7 @@ fn adr_0084_release_path_holds_one_release_opened_from_both_origins() {
     assert_eq!(
         nav.path_entries(),
         vec![
-            FrameNavigationEntry::SourceList,
+            discover(),
             FrameNavigationEntry::Release(ReleaseKey::FeedGuid("feed-guid".into())),
         ],
         "the Index open must cut the path at the earlier Library open of the same release"
@@ -1584,10 +1577,7 @@ fn adr_0084_release_download_updates_only_the_open_release_page() {
         "a download must not change another open release"
     );
     assert!(
-        !release_download_updates_open_page(
-            Some(&FrameNavigationEntry::SourceList),
-            Some("feed-a")
-        ),
+        !release_download_updates_open_page(Some(&discover()), Some("feed-a")),
         "a download must not change a page that is not a release"
     );
     assert!(
@@ -1678,10 +1668,7 @@ fn adr_0084_track_download_updates_only_the_open_track_page() {
         "a download must not change another open track"
     );
     assert!(
-        !track_download_updates_open_page(
-            Some(&FrameNavigationEntry::SourceList),
-            Some(&downloaded)
-        ),
+        !track_download_updates_open_page(Some(&discover()), Some(&downloaded)),
         "a download must not change a page that is not a track"
     );
     assert!(
@@ -1713,10 +1700,7 @@ fn adr_0084_track_release_download_updates_only_the_open_track_page() {
         "a track with no release never matches a downloaded release"
     );
     assert!(
-        !track_release_download_updates_open_page(
-            Some(&FrameNavigationEntry::SourceList),
-            Some("feed-a")
-        ),
+        !track_release_download_updates_open_page(Some(&discover()), Some("feed-a")),
         "a download must not change a page that is not a track"
     );
     assert!(
@@ -1782,7 +1766,7 @@ fn adr_0084_columns_c4_02_narrow_width_picks_list_or_detail_by_page_state() {
 #[test]
 fn adr_0084_columns_c4_03_detail_frame_shows_history_controls_always() {
     let frame = frame(3, WorkspaceFrameKind::Detail);
-    let nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    let nav = FrameNavigationState::new(discover());
     let display =
         FrameShellDisplay::from_frame(&frame, &nav, false).with_history_controls_always_shown();
 
@@ -1796,7 +1780,7 @@ fn adr_0084_columns_c4_03_detail_frame_shows_history_controls_always() {
 #[test]
 fn adr_0084_columns_c4_03_content_list_frame_hides_history_controls() {
     let frame = frame(2, WorkspaceFrameKind::ContentList);
-    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    let mut nav = FrameNavigationState::new(discover());
     nav.push(track(1));
     assert!(nav.can_go_back());
     let display = FrameShellDisplay::from_frame(&frame, &nav, false).with_history_controls_hidden();
@@ -1809,7 +1793,7 @@ fn adr_0084_columns_c4_03_content_list_frame_hides_history_controls() {
 /// ContentList display built from the same navigation state.
 #[test]
 fn adr_0084_columns_c4_04_breadcrumb_attaches_to_detail_not_content_list() {
-    let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+    let mut nav = FrameNavigationState::new(discover());
     nav.push(track(1));
     let breadcrumb = BreadcrumbDisplay::project(
         "detail-breadcrumb",
@@ -1832,9 +1816,9 @@ fn adr_0084_columns_c4_04_breadcrumb_attaches_to_detail_not_content_list() {
 #[test]
 fn adr_0084_columns_list_roots_open_no_detail_page() {
     for root in [
-        FrameNavigationEntry::SourceList,
+        FrameNavigationEntry::Destination(MusicDestination::Discover),
         FrameNavigationEntry::Search("drums".to_string()),
-        FrameNavigationEntry::ReadinessIssues,
+        FrameNavigationEntry::Destination(MusicDestination::NeedsAttention),
     ] {
         assert!(!root.opens_detail_page(), "{root:?} must open no page");
     }
@@ -1844,5 +1828,52 @@ fn adr_0084_columns_list_roots_open_no_detail_page() {
         FrameNavigationEntry::IndexNameMatches("Haleen".to_string()),
     ] {
         assert!(page.opens_detail_page(), "{page:?} must open a page");
+    }
+}
+
+/// D5-02 (ADR 0084 Decisions 2 and 9): a sidebar click starts a new path
+/// at the destination alone. A row of a destination list then gives the
+/// path the destination, then the page.
+#[test]
+fn adr_0084_destinations_d5_02_sidebar_click_starts_a_path_a_row_extends_it() {
+    let mut nav = FrameNavigationState::new(discover());
+
+    nav.start_path(
+        FrameNavigationEntry::Destination(MusicDestination::Releases),
+        None,
+    );
+    assert_eq!(
+        nav.path_entries(),
+        vec![FrameNavigationEntry::Destination(
+            MusicDestination::Releases
+        )],
+        "a sidebar click must give a path with the destination alone"
+    );
+
+    let release = FrameNavigationEntry::Release(ReleaseKey::LibraryFeed(7));
+    nav.push(release.clone());
+    assert_eq!(
+        nav.path_entries(),
+        vec![
+            FrameNavigationEntry::Destination(MusicDestination::Releases),
+            release
+        ],
+        "a row must give the path the destination, then the page"
+    );
+}
+
+/// D5-03 (ADR 0084 Decision 3): Music opens on `Destination(Discover)`,
+/// the default navigation entry of each Music frame kind.
+#[test]
+fn adr_0084_destinations_d5_03_music_opens_on_discover() {
+    for kind in [
+        WorkspaceFrameKind::SourceList,
+        WorkspaceFrameKind::ContentList,
+    ] {
+        assert_eq!(
+            super::default_navigation_entry(kind),
+            FrameNavigationEntry::Destination(MusicDestination::Discover),
+            "{kind:?} must default to the Discover destination"
+        );
     }
 }

@@ -2,7 +2,9 @@
 
 #![warn(clippy::pedantic)]
 
-use super::nav::{FrameNavigationEntry, FrameNavigationState, ReleaseKey, TrackKey};
+use super::nav::{
+    FrameNavigationEntry, FrameNavigationState, MusicDestination, ReleaseKey, TrackKey,
+};
 
 /// Breadcrumb path truncation policy.
 ///
@@ -116,7 +118,7 @@ fn breadcrumb_segment(
 
 fn breadcrumb_entry_id(entry: &FrameNavigationEntry) -> String {
     match entry {
-        FrameNavigationEntry::SourceList => "source-list".to_string(),
+        FrameNavigationEntry::Destination(destination) => destination_id(*destination),
         FrameNavigationEntry::PlaylistDetail(id) => format!("playlist-{id}"),
         FrameNavigationEntry::Release(key) => release_key_id(key),
         FrameNavigationEntry::Track(key) => track_key_id(key),
@@ -128,10 +130,22 @@ fn breadcrumb_entry_id(entry: &FrameNavigationEntry) -> String {
         FrameNavigationEntry::IndexNameMatches(name) => {
             format!("index-name-matches-{}", slug_id(name))
         }
-        FrameNavigationEntry::ReadinessIssues => "broadcast-readiness".to_string(),
         FrameNavigationEntry::Settings => "settings".to_string(),
         FrameNavigationEntry::QueueNowPlaying => "queue-now-playing".to_string(),
     }
+}
+
+/// The breadcrumb element id of a destination entry (ADR 0084 Decision 2).
+fn destination_id(destination: MusicDestination) -> String {
+    let slug = match destination {
+        MusicDestination::Discover => "discover",
+        MusicDestination::Releases => "releases",
+        MusicDestination::Artists => "artists",
+        MusicDestination::Tracks => "tracks",
+        MusicDestination::NeedsAttention => "needs-attention",
+        MusicDestination::Playlists => "playlists",
+    };
+    format!("destination-{slug}")
 }
 
 /// The breadcrumb element id of a release entry (ADR 0084 Decision 4). The

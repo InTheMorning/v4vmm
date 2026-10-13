@@ -2846,7 +2846,9 @@ fn adr_0047_task_010a_content_list_page_vm_owns_filter_projection() {
         "cached_rows: Vec<ContentListRowDisplay>",
         "pub(crate) fn set_filter(&mut self, filter: ContentFilter)",
         "pub(crate) fn visible_rows(&self) -> Vec<&ContentListRowDisplay>",
-        "pub(crate) fn empty_state(&self) -> Option<ContentListEmptyStateDisplay>",
+        // `empty_state` went with its one caller, the Library sidebar
+        // tree's own empty message. ADR 0084 Decision 2 removes that tree;
+        // `page_state_display` owns the content-list empty state now.
         "pub(crate) fn library_filter_control(&self) -> LibraryFilterControlDisplay",
         "pub(crate) fn library_filter_control_display(&self) -> LibraryFilterControlDisplay",
         "LibraryFilterControlDisplay::default_for_content_list(self.filter_state)",
@@ -2907,7 +2909,9 @@ fn adr_0047_task_010_content_list_library_filter_is_frame_local() {
         "replace_tree_rows(content_list_rows_from_tree(&tree))",
         "pub(crate) fn set_content_filter(&mut self, filter: ContentFilter)",
         "pub(crate) fn content_library_filter_control(&self) -> LibraryFilterControlDisplay",
-        "pub(crate) fn content_filter_empty_state(&self) -> Option<ContentListEmptyStateDisplay>",
+        // `content_filter_empty_state` went with its one caller, the
+        // Library sidebar tree's own empty message (ADR 0084 Decision 2
+        // removes that tree).
         "fn content_list_rows_from_tree(tree: &LibraryTree) -> Vec<ContentListRowDisplay>",
     ] {
         if !library_source.contains(required) {
@@ -5128,7 +5132,6 @@ fn interactive_surfaces_route_through_minimum_hit_target_token() {
 fn playlist_rows_scale_through_design_tokens() {
     let playlist_shell = read_source(&manifest_path("src/ui/shells/playlist.rs"));
     let thumbnail_shell = read_source(&manifest_path("src/ui/shells/library/thumbnail.rs"));
-    let library_shell = read_source(&manifest_path("src/library/app_impl.rs"));
     let layout_source = read_source(&manifest_path("src/ui/layouts.rs"));
     let mut violations = Vec::new();
 
@@ -5185,9 +5188,14 @@ fn playlist_rows_scale_through_design_tokens() {
         }
     }
 
-    if !library_shell.contains("Label::new(playlist_heading).weight(FontWeight::SEMIBOLD)") {
+    // ADR 0084 Decision 2 moves the playlist rows from the Library sidebar
+    // tree to the Playlists destination list, with no separate heading:
+    // the list column title already names the destination.
+    let destination_lists_shell =
+        read_source(&manifest_path("src/ui/shells/library/destination_lists.rs"));
+    if !destination_lists_shell.contains("Label::new(name)") {
         violations.push(
-            "src/library/app_impl.rs: playlist sidebar heading must render through the scaled Label primitive"
+            "src/ui/shells/library/destination_lists.rs: playlist rows must render through the scaled Label primitive"
                 .to_string(),
         );
     }
@@ -8858,18 +8866,9 @@ fn playlist_refresh_and_frame_navigation_preserve_context() {
         );
     }
 
-    assert!(
-        !library_source.contains(
-            ".id(playlist_header_id)\n                .px(spacing::SM)\n                .py(spacing::XS)\n                .rounded(spacing::XS)\n                .cursor_pointer()"
-        ),
-        "Playlist sidebar header must not make the entire header a disclosure click target"
-    );
-    assert!(
-        library_source.contains(
-            ".items_baseline()\n                        .cursor_pointer()\n                        .hover(|el| el.bg(color::bg_surface_hi()))\n                        .on_click(cx.listener(|this, _, _, cx| {"
-        ),
-        "Playlist sidebar disclosure click target must stay on the heading cluster"
-    );
+    // ADR 0084 Decision 2 removes the Playlists disclosure toggle: the
+    // Playlists destination list shows all its rows whenever it is the
+    // open destination, with no collapse header to guard.
 
     let library_struct_source = read_source(&manifest_path("src/library.rs"));
     for forbidden in [
@@ -10469,7 +10468,8 @@ fn nav_top_drives_content_list_body_switch() {
         "FrameNavigationEntry::PlaylistDetail(_)",
         "FrameNavigationEntry::IndexNameMatches(_)",
         "FrameNavigationEntry::Settings",
-        "FrameNavigationEntry::SourceList",
+        // ADR 0084 Decision 2 replaces `SourceList` with `Destination(_)`.
+        "FrameNavigationEntry::Destination(",
     ] {
         assert!(
             app_source.contains(nav_variant),
@@ -13241,7 +13241,12 @@ fn adr_0084_columns_c4_06_music_columns_use_named_tokens_with_no_split_pane() {
     let mut violations = Vec::new();
 
     for required in [
-        ".w(MUSIC_SIDEBAR_WIDTH)",
+        // ADR 0084 Decision 1, task 005: the sidebar width resolves from
+        // the collapse state, through `resolve_music_sidebar_state` and
+        // these two named tokens, not a literal at the `.w(...)` call.
+        "MUSIC_SIDEBAR_WIDTH",
+        "MUSIC_SIDEBAR_COLLAPSED_WIDTH",
+        ".w(sidebar_width)",
         ".w(MUSIC_LIST_COLUMN_WIDTH)",
         ".min_w(MUSIC_DETAIL_MIN_WIDTH)",
     ] {
@@ -13282,7 +13287,8 @@ fn adr_0061_root_content_frame_header_omits_redundant_section_title() {
     for required in [
         "fn root_content_frame_title() -> String",
         "String::new()",
-        "FrameNavigationEntry::SourceList | FrameNavigationEntry::Settings",
+        // ADR 0084 Decision 2 replaces `SourceList` with `Destination(_)`.
+        "FrameNavigationEntry::Destination(_) | FrameNavigationEntry::Settings",
     ] {
         if !content_list_frame_title.contains(required) && !app_source.contains(required) {
             violations.push(format!(
@@ -15434,7 +15440,9 @@ fn adr_0071_selection_and_primary_stay_in_shared_owners() {
     assert!(!logs.contains("SelectionGesture"));
     for file in [
         "src/app/tab_bar.rs",
-        "src/library/app_impl.rs",
+        // ADR 0084 Decision 2 moves the new-playlist input from the
+        // Library sidebar tree to the Playlists destination list.
+        "src/ui/shells/library/destination_lists.rs",
         "src/ui/shells/playlist.rs",
         "src/ui/composites/settings.rs",
         "src/ui/composites/playlist_popover.rs",
@@ -15684,10 +15692,13 @@ fn adr_0059_stream_working_retains_typed_actions() {
 #[test]
 fn adr_0065_feed_check_result_has_its_own_full_width_row() {
     let library = read_source(&manifest_path("src/library/app_impl.rs"));
+    // ADR 0084 Decision 2 replaces the Library sidebar tree with the
+    // destinations sidebar; the feed-check result row stays inside
+    // `render_sidebar_column`, so this section spans the whole function.
     let section = source_between(
         &library,
-        "let leading_pane = div()",
-        ".id(chrome.list_scroll_id)",
+        "pub(crate) fn render_sidebar_column(",
+        "pub(crate) fn render_list_column(",
     );
     let result_at = section.find(".when_some(feed_status,").unwrap();
     assert!(result_at > section.find("this.check_all_feeds(cx)").unwrap());
@@ -20273,6 +20284,54 @@ entry.\n{}",
     );
 }
 
+/// D5-03 (ADR 0084 Decision 2): Show's "Open in Music" opens
+/// `Destination(NeedsAttention)`.
+#[test]
+fn adr_0084_destinations_d5_03_show_opens_needs_attention_destination() {
+    let show_source = read_source(&manifest_path("src/app/show.rs"));
+    let function_body = show_source
+        .split("fn open_broadcast_readiness_in_music(")
+        .nth(1)
+        .and_then(|rest| rest.split("\n    fn ").next())
+        .expect("src/app/show.rs must define open_broadcast_readiness_in_music");
+
+    assert!(
+        function_body
+            .contains("FrameNavigationEntry::Destination(MusicDestination::NeedsAttention)"),
+        "ADR 0084 Decision 2: Show's \"Open in Music\" must open \
+`Destination(MusicDestination::NeedsAttention)`, through `open_broadcast_readiness_in_music`."
+    );
+}
+
+/// D5-08 (ADR 0084 Decision 2): `Destination(MusicDestination)` replaces
+/// `SourceList` and `ReadinessIssues`. The Library sidebar tree, and its
+/// renderer `render_library_sidebar`, go with them.
+#[test]
+fn adr_0084_destinations_d5_08_source_list_and_readiness_issues_stay_deleted() {
+    let mut violations = Vec::new();
+    for file in rust_files_under("src") {
+        let full_source = read_source(&file);
+        let source = production_source(&full_source);
+        for forbidden in [
+            "FrameNavigationEntry::SourceList",
+            "FrameNavigationEntry::ReadinessIssues",
+            "render_library_sidebar",
+        ] {
+            if source.contains(forbidden) {
+                violations.push(format!("{}: `{forbidden}`", file.display()));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 Decision 2 §The Destinations: `Destination(MusicDestination)` replaces \
+`SourceList` and `ReadinessIssues`. Push `FrameNavigationEntry::Destination(..)` in place of \
+either entry, and render each destination list in place of the Library sidebar tree.\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Situational ADR 0084 Decision 1: each Music column wrapper is a flex
 /// column with `min_h_0`. The frame inside a column sizes itself with
 /// `flex_1`, and that holds only in a flex parent. The operator found on
@@ -20288,7 +20347,10 @@ fn adr_0084_columns_music_column_wrappers_are_flex_columns() {
     );
     let mut violations = Vec::new();
     for width in [
-        ".w(MUSIC_SIDEBAR_WIDTH)",
+        // ADR 0084 Decision 1, task 005: the sidebar wrapper reads the
+        // width `resolve_music_sidebar_state` resolves, not the token
+        // literal.
+        ".w(sidebar_width)",
         ".w(MUSIC_LIST_COLUMN_WIDTH)",
         ".min_w(MUSIC_DETAIL_MIN_WIDTH)",
     ] {

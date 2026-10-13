@@ -30,13 +30,15 @@ pub(crate) use chrome::{
     FrameChromeMenuItemDisplay, FrameShellDisplay, LibraryFilterControlDisplay,
     LibraryFilterControlTreatment,
 };
-pub(crate) use columns::MusicColumns;
+pub(crate) use columns::{
+    resolve_music_sidebar_state, MusicColumns, MusicSidebarPreference, MusicSidebarState,
+};
 pub(crate) use frame::{WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState};
 pub(crate) use nav::{
     release_download_updates_open_page, resolve_release_page_source, resolve_track_page_source,
     track_download_updates_open_page, track_release_download_updates_open_page,
-    FrameNavigationEntry, FrameNavigationState, NavigationPathStart, ReleaseKey, ReleasePageSource,
-    TrackKey, TrackPageSource,
+    FrameNavigationEntry, FrameNavigationState, MusicDestination, NavigationPathStart, ReleaseKey,
+    ReleasePageSource, TrackKey, TrackPageSource,
 };
 
 /// Workspace model mutation failure.
@@ -407,8 +409,9 @@ impl WorkspaceLayout {
 
 fn default_navigation_entry(kind: WorkspaceFrameKind) -> FrameNavigationEntry {
     match kind {
+        // ADR 0084 Decision 3: Music opens on Discover.
         WorkspaceFrameKind::SourceList | WorkspaceFrameKind::ContentList => {
-            FrameNavigationEntry::SourceList
+            FrameNavigationEntry::Destination(MusicDestination::Discover)
         }
         WorkspaceFrameKind::Detail => {
             FrameNavigationEntry::Track(TrackKey::from_index_track_target(None, String::new()))

@@ -1,251 +1,179 @@
-//! Library sidebar tree surface.
+//! Music destinations sidebar (ADR 0084 Decisions 1 and 2).
 //!
-//! Renders the artist, album, and track tree. Selection and expansion state
-//! stay on `LibraryApp`; callbacks dispatch back through `cx.listener(...)`.
+//! Renders the collapse button, the six destinations, Saved Searches, and
+//! the feed area. Callbacks dispatch back through `cx.listener(...)` calls
+//! into `LibraryApp` mutator methods. The Library tree sidebar is gone:
+//! each destination now owns its own list, in the list column.
 
 #![warn(clippy::pedantic)]
 
-use std::collections::{BTreeMap, HashSet};
-use std::sync::Arc;
-
-use gpui::{div, prelude::*, AnyElement, Context, FontWeight, Image, SharedString};
+use gpui::{div, prelude::*, AnyElement, App, ClickEvent, Context, FontWeight, SharedString};
 
 use crate::library::LibraryApp;
-use crate::ui::composites::{
-    DisclosureIndicator, DisclosureIndicatorDisplay, DisclosureSupplementDisplay,
-    DisclosureSupplementLabel,
-};
-use crate::ui::shells::library::thumbnail::render_album_thumb;
+use crate::ui::icons::{Icon, IconName, IconSize};
+use crate::ui::primitives::Label;
 use crate::ui::style::{color, spacing};
+use crate::ui::tokens::SemanticColor;
 use crate::view_models::library::{
-    LibraryAlbumTreeDisplay, LibraryArtistTreeDisplay, LibraryTrackRowVm, LibraryTree,
-    LibraryTreeTrackDisplay, LibraryViewModel,
+    DestinationRowVm, MusicDestinationIcon, SidebarCollapseButtonVm,
 };
-use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
+use crate::view_models::workspace::{FrameNavigationEntry, MusicSidebarState, NavigationPathStart};
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "lifted legacy sidebar tree renderer stays intact during Task 007 decomposition"
-)]
-pub(crate) fn render_library_sidebar(
-    tree: &LibraryTree,
-    expanded_artists: &HashSet<String>,
-    expanded_albums: &HashSet<(String, String)>,
-    selected_id: Option<i64>,
-    album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
-    cx: &mut Context<LibraryApp>,
-) -> Vec<AnyElement> {
-    let mut items = Vec::new();
-    for artist in &tree.artists {
-        let artist_expanded = expanded_artists.contains(&artist.name);
-        let LibraryArtistTreeDisplay {
-            element_id,
-            title,
-            expanded,
-            album_count_label,
-        } = artist.tree_display(artist_expanded);
-        let artist_name = title.clone();
-
-        items.push(
-            div()
-                .id(SharedString::from(element_id))
-                .px(spacing::SM)
-                .py(spacing::XS)
-                .rounded(spacing::XS)
-                .cursor_pointer()
-                .hover(|el| el.bg(color::bg_surface_hi()))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.toggle_artist(&artist_name);
-                    this.open_page(
-                        FrameNavigationEntry::ArtistDetail(artist_name.clone()),
-                        NavigationPathStart::NewPath,
-                        cx,
-                    );
-                    cx.notify();
-                }))
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .gap(spacing::XS)
-                        .items_baseline()
-                        .child(DisclosureIndicator::new(DisclosureIndicatorDisplay {
-                            expanded,
-                        }))
-                        .child(
-                            div()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(color::text_primary())
-                                .child(SharedString::from(title)),
-                        )
-                        .child(DisclosureSupplementLabel::new(
-                            DisclosureSupplementDisplay {
-                                label: album_count_label.into(),
-                            },
-                        )),
-                )
-                .into_any_element(),
-        );
-
-        if artist_expanded {
-            for album in &artist.albums {
-                let album_key = (artist.name.clone(), album.name.clone());
-                let album_expanded = expanded_albums.contains(&album_key);
-                let LibraryAlbumTreeDisplay {
-                    element_id,
-                    title,
-                    expanded,
-                    track_count_label,
-                } = album.tree_display(&artist.name, album_expanded);
-                let artist_for_toggle = artist.name.clone();
-                let album_for_toggle = album.name.clone();
-                let album_for_select = album.clone();
-                let thumb_url = album.image_href.clone();
-                let thumb_image = thumb_url
-                    .as_ref()
-                    .and_then(|url| album_thumbs.get(url.as_str()))
-                    .and_then(Clone::clone);
-
-                items.push(
-                    div()
-                        .id(SharedString::from(element_id))
-                        .pl(spacing::LG + spacing::XS)
-                        .pr(spacing::SM)
-                        .py(spacing::XXS)
-                        .rounded(spacing::XS)
-                        .cursor_pointer()
-                        .hover(|el| el.bg(color::bg_surface_hi()))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.toggle_album(&artist_for_toggle, &album_for_toggle);
-                            // ADR 0084 Decision 4: an album with a feed GUID
-                            // or a feed id opens its one release route. An
-                            // album with neither has no navigation entry.
-                            match album_for_select.release_key() {
-                                Some(key) => this.open_page(
-                                    FrameNavigationEntry::Release(key),
-                                    NavigationPathStart::NewPath,
-                                    cx,
-                                ),
-                                None => this.select_album(&album_for_select, cx),
-                            }
-                            cx.notify();
-                        }))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .gap(spacing::XS)
-                                .items_center()
-                                .child(DisclosureIndicator::new(DisclosureIndicatorDisplay {
-                                    expanded,
-                                }))
-                                .child(hoverable_thumb(
-                                    thumb_url.clone(),
-                                    thumb_image.clone(),
-                                    34.0,
-                                    cx,
-                                ))
-                                .child(
-                                    div()
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .text_color(color::accent())
-                                        .child(SharedString::from(title)),
-                                )
-                                .child(DisclosureSupplementLabel::new(
-                                    DisclosureSupplementDisplay {
-                                        label: track_count_label.into(),
-                                    },
-                                )),
-                        )
-                        .into_any_element(),
-                );
-
-                if album_expanded {
-                    for track in &album.tracks {
-                        let track_key = track.track_key();
-                        let is_selected = selected_id == Some(track.id);
-                        let LibraryTreeTrackDisplay { element_id, title } =
-                            LibraryTrackRowVm::new(track, None).tree_display();
-                        let track_thumb_image = track
-                            .track_image_href
-                            .as_ref()
-                            .or(track.album_image_href.as_ref())
-                            .and_then(|url| album_thumbs.get(url.as_str()))
-                            .and_then(Clone::clone);
-
-                        let row = div()
-                            .id(SharedString::from(element_id))
-                            .pl(spacing::XXL + spacing::MD)
-                            .pr(spacing::SM)
-                            .py(spacing::XXS)
-                            .rounded(spacing::XS)
-                            .cursor_pointer()
-                            .when(is_selected, |el| el.bg(color::bg_selected()))
-                            .when(is_selected, |el| {
-                                el.border_l_2().border_color(color::accent())
-                            })
-                            .hover(|el| el.bg(color::bg_surface_hi()))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.open_page(
-                                    FrameNavigationEntry::Track(track_key.clone()),
-                                    NavigationPathStart::NewPath,
-                                    cx,
-                                );
-                            }))
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .gap(spacing::XS)
-                                    .child(render_album_thumb(track_thumb_image.clone(), 24.0, cx))
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .text_xs()
-                                            .text_color(if is_selected {
-                                                color::accent()
-                                            } else {
-                                                color::text_primary()
-                                            })
-                                            .child(SharedString::from(title)),
-                                    ),
-                            );
-
-                        items.push(row.into_any_element());
-                    }
-                }
-            }
-        }
+/// Maps a destination's semantic icon to a named `IconName` (ADR 0084
+/// Decision 1). The renderer owns this mapping; the view model names only
+/// the semantic icon.
+const fn icon_name(icon: MusicDestinationIcon) -> IconName {
+    match icon {
+        MusicDestinationIcon::Discover => IconName::Discover,
+        MusicDestinationIcon::Release => IconName::Release,
+        MusicDestinationIcon::Artist => IconName::Artist,
+        MusicDestinationIcon::Track => IconName::Track,
+        MusicDestinationIcon::Playlist => IconName::Playlist,
+        MusicDestinationIcon::Warning => IconName::Warning,
     }
-    items
 }
 
-fn hoverable_thumb(
-    url: Option<String>,
-    image: Option<Arc<Image>>,
-    size: f32,
+/// Renders the collapse button (ADR 0084 Decision 1).
+pub(crate) fn render_sidebar_collapse_button(
+    button: SidebarCollapseButtonVm,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let inner = render_album_thumb(image, size, cx);
-    let Some(url) = url else {
-        return inner;
-    };
-    let enter_url = url.clone();
-    let leave_url = url.clone();
-    let display = LibraryViewModel::hover_thumb_display(&url);
     div()
-        .id(SharedString::from(display.element_id))
-        .on_mouse_move(cx.listener(move |this, _, _, cx| {
-            if this.hovered_thumb_url() != Some(enter_url.as_str()) {
-                this.set_hovered_thumb(Some(enter_url.clone()), cx);
-            }
+        .id(button.element_id)
+        .flex()
+        .items_center()
+        .justify_center()
+        .w_full()
+        .py(spacing::XS)
+        .cursor_pointer()
+        .rounded(spacing::XS)
+        .hover(|el| el.bg(color::bg_surface_hi()))
+        .tooltip({
+            let tooltip = crate::ui::primitives::Tooltip::new(button.tooltip);
+            move |window, cx| tooltip.build(window, cx)
+        })
+        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+            this.toggle_sidebar_collapse(window, cx);
         }))
-        .on_hover(cx.listener(move |this, entered: &bool, _, cx| {
-            if !*entered && this.hovered_thumb_url() == Some(leave_url.as_str()) {
-                this.set_hovered_thumb(None, cx);
-            }
-        }))
-        .child(inner)
+        .child(Icon::new(IconName::ChevronLeft).size(IconSize::Action))
+        .into_any_element()
+}
+
+/// Renders one destination row, expanded (icon, label, and count) or
+/// collapsed (icon only) (ADR 0084 Decision 1).
+pub(crate) fn render_destination_row(
+    row: &DestinationRowVm,
+    state: MusicSidebarState,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let destination = row.destination;
+    let icon = icon_name(row.icon);
+    let selected = row.selected;
+    let tooltip_text = row.tooltip.clone();
+    let count_label = row.count.map(|count| count.to_string());
+    let shows_attention_mark = row.shows_attention_mark;
+
+    let mut el = div()
+        .id(SharedString::from(row.element_id))
+        .flex()
+        .items_center()
+        .cursor_pointer()
+        .rounded(spacing::XS)
+        .when(selected, |el| el.bg(color::bg_selected()))
+        .hover(|el| el.bg(color::bg_surface_hi()))
+        .tooltip({
+            let tooltip = crate::ui::primitives::Tooltip::new(tooltip_text);
+            move |window, cx| tooltip.build(window, cx)
+        })
+        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+            this.open_page(
+                FrameNavigationEntry::Destination(destination),
+                NavigationPathStart::NewPath,
+                cx,
+            );
+        }));
+
+    el = match state {
+        MusicSidebarState::Expanded => el
+            .w_full()
+            .gap(spacing::SM)
+            .px(spacing::SM)
+            .py(spacing::XS)
+            .child(render_destination_icon(
+                icon,
+                selected,
+                shows_attention_mark,
+                cx,
+            ))
+            .child(
+                Label::new(row.label)
+                    .color(if selected {
+                        SemanticColor::Accent
+                    } else {
+                        SemanticColor::Label
+                    })
+                    .weight(if selected {
+                        FontWeight::SEMIBOLD
+                    } else {
+                        FontWeight::NORMAL
+                    })
+                    .truncated(),
+            )
+            .when_some(count_label, |el, count| {
+                el.child(div().flex_1()).child(
+                    Label::new(count)
+                        .size(crate::ui::tokens::FontSize::Micro)
+                        .color(SemanticColor::TertiaryLabel),
+                )
+            }),
+        MusicSidebarState::Collapsed => {
+            el.justify_center()
+                .py(spacing::XS)
+                .child(render_destination_icon(
+                    icon,
+                    selected,
+                    shows_attention_mark,
+                    cx,
+                ))
+        }
+    };
+
+    el.into_any_element()
+}
+
+/// Renders a destination icon, with the attention mark when one is called
+/// for (ADR 0084 Decision 1). The mark never relies on color alone: the
+/// row's tooltip and accessibility label already give the count in text.
+fn render_destination_icon(
+    icon: IconName,
+    selected: bool,
+    shows_attention_mark: bool,
+    cx: &App,
+) -> AnyElement {
+    let color = if selected {
+        color::accent()
+    } else {
+        color::text_primary()
+    };
+    let glyph = Icon::new(icon).size(IconSize::Action).color(color);
+    if !shows_attention_mark {
+        return glyph.into_any_element();
+    }
+    div()
+        .relative()
+        .child(glyph)
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .right_0()
+                .size(spacing::XS)
+                .rounded_full()
+                .bg(crate::ui::tokens::resolve_color(
+                    cx,
+                    crate::ui::tokens::SemanticColor::Danger,
+                    None,
+                )),
+        )
         .into_any_element()
 }

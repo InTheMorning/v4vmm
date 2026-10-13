@@ -321,6 +321,7 @@ Update this table when a packet lands.
 | `v4vmm` | [0084 002 one release route](../tasks/archive/adr-0084-task-002-one-release-route.md) | Complete - 2026-10-11. The mechanical checks are Green. The operator passed V1 to V5 on 2026-10-11. |
 | `v4vmm` | [0084 003 one track route](../tasks/archive/adr-0084-task-003-one-track-route.md) | Complete - 2026-10-11. The mechanical checks are Green. The operator passed V1 to V5 on 2026-10-11. |
 | `v4vmm` | [0084 004 three-column shell](../tasks/archive/adr-0084-task-004-three-column-shell.md) | Complete - 2026-10-12. The mechanical checks are Green. The operator passed V1 to V6, with V5a, on 2026-10-12. |
+| `v4vmm` | [0084 005 destinations sidebar](../tasks/adr-0084-task-005-destinations-sidebar.md) | Implementation recorded - 2026-10-12. The mechanical checks are Green. The operator visual check V1 to V7 is open. |
 | `musicindex-live-publisher` | control surface 001 | complete - 2026-09-07 (`a5b434e`) |
 | `musicindex-live-publisher` | control surface 002 | complete - 2026-09-07 (`459854c`) |
 | `musicindex-live-publisher` | show log 001 | Not started. Resolve the producer timestamp source before implementation. Drop-file v1 has no producer timestamp. Scheduler times are monotonic. |

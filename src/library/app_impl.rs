@@ -44,50 +44,48 @@ use crate::presentation::{bridge_watch, present_command};
 use crate::runtime::musicbrainz_feed_saga::{MusicBrainzFeedSagaState, StartFeedLookup};
 use crate::subscribe_service::{self, SubscribeFeedRequest, SubscribeTrackRequest};
 use crate::ui::composites::{
-    DisclosureIndicator, DisclosureIndicatorDisplay, DisclosureSupplementDisplay,
-    DisclosureSupplementLabel, ListRow, ListRowA11yLabel, PlaylistOption, PlaylistOptionDisplay,
-    SkeletonTrackRow, StatusRole,
+    ListRow, ListRowA11yLabel, PlaylistOption, PlaylistOptionDisplay, StatusRole,
 };
 use crate::ui::control_styles::ControlStyle;
-use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
 use crate::ui::primitives::{Button as UiButton, Label};
 use crate::ui::shells::library::content_list::render_library_content_list;
+use crate::ui::shells::library::destination_lists::{
+    render_library_destination_rows, render_library_playlists_list,
+};
 use crate::ui::shells::library::detail::render_library_detail;
-use crate::ui::shells::library::sidebar::render_library_sidebar;
+use crate::ui::shells::library::sidebar::{render_destination_row, render_sidebar_collapse_button};
 use crate::ui::shells::library::track_detail_metadata::track_metadata_rows_for_frame;
 use crate::ui::shells::library_removal_confirmation::open_library_removal_confirmation_dialog;
 use crate::ui::shells::tag_update_confirmation::{
     open_tag_update_confirmation_dialog, render_tag_update_button, render_tag_update_report,
 };
-use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::style::color;
 use crate::ui::style::spacing;
 use crate::ui::tokens::{FontSize, SemanticColor, Spacing};
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::library::{
     description_line_count, AlbumNode, BroadcastRouteRepairCompletion,
-    BroadcastRouteRepairCompletionStatus, ContentListRowActionKind, FeedCheckRouteRepairOutcome,
-    FeedUpdateActionDisplay, FeedUpdateActionKind, FeedUpdateDisplay, FeedUpdatePhase,
-    InspectorPanelKind, LibraryTrackActionVm, LibraryTrackInspectorState, LibraryTrackRowVm,
-    LibraryViewModel, MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome,
-    PlaylistDetailActionsDisplay, PlaylistSidebarRowVm, PlaylistSidebarVm, RemovalConfirmation,
+    BroadcastRouteRepairCompletionStatus, ContentListRowActionKind, DestinationListRowTarget,
+    FeedCheckRouteRepairOutcome, FeedUpdateActionDisplay, FeedUpdateActionKind, FeedUpdateDisplay,
+    FeedUpdatePhase, InspectorPanelKind, LibraryTrackActionVm, LibraryTrackInspectorState,
+    LibraryTrackRowVm, LibraryViewModel, MbTrackStatus, PlaylistAppendIntent,
+    PlaylistAppendOutcome, PlaylistDetailActionsDisplay, RemovalConfirmation,
     SavedSearchesSectionDisplay, TrackSubscribeOutcome,
 };
-use crate::view_models::pagination::pending_skeleton_count;
 use crate::view_models::playlist_option_displays;
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::track_detail::TrackNameLinkTarget;
 use crate::view_models::workspace::{
-    ContentFilter, ContentViewMode, ContentViewModeControlDisplay, FrameNavigationEntry,
-    LibraryFilterControlDisplay, NavigationPathStart, ReleaseKey, TrackKey,
+    resolve_music_sidebar_state, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
+    FrameNavigationEntry, LibraryFilterControlDisplay, MusicDestination, MusicSidebarPreference,
+    MusicSidebarState, NavigationPathStart, ReleaseKey, TrackKey,
 };
 use crate::views::{EntityIdentityLinks, LocalIdentityFacts};
 use gpui::{
     div, prelude::*, AnyElement, ClickEvent, Context, Entity, FontWeight, Image,
     InteractiveElement, IntoElement, SharedString, Styled, Window,
 };
-use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::Size;
+use gpui_component::input::{InputEvent, InputState};
 use rusqlite::Connection;
 
 impl InspectorFrame {
@@ -467,6 +465,71 @@ impl LibraryApp {
         }
     }
 
+    /// Opens the page a Releases or Artists destination-list row names
+    /// (ADR 0084 Decision 2), in the current path.
+    pub(crate) fn open_destination_row(
+        &mut self,
+        target: &DestinationListRowTarget,
+        cx: &mut Context<Self>,
+    ) {
+        let entry = match target {
+            DestinationListRowTarget::Release(key) => FrameNavigationEntry::Release(key.clone()),
+            DestinationListRowTarget::Artist(name) => {
+                FrameNavigationEntry::ArtistDetail(name.clone())
+            }
+        };
+        self.open_page(entry, NavigationPathStart::CurrentPath, cx);
+    }
+
+    /// Resolves the Music sidebar's show state from the preference and the
+    /// current workspace width (ADR 0084 Decision 1). The workspace shell
+    /// resolves the same state from the same preference and width, through
+    /// the same pure function, so both agree.
+    pub(crate) fn sidebar_state(&self, window: &Window) -> MusicSidebarState {
+        resolve_music_sidebar_state(
+            self.vm.sidebar_preference(),
+            f32::from(window.bounds().size.width),
+            f32::from(crate::ui::layouts::MUSIC_SIDEBAR_COLLAPSE_BREAKPOINT),
+        )
+    }
+
+    /// The Music sidebar preference, for the top app's own resolve of the
+    /// sidebar column width (ADR 0084 Decision 1).
+    pub(crate) fn sidebar_preference(&self) -> MusicSidebarPreference {
+        self.vm.sidebar_preference()
+    }
+
+    /// The destination whose list the list column currently shows (ADR
+    /// 0084 Decision 2), for the top app's own content-list chrome.
+    pub(crate) fn active_destination(&self) -> MusicDestination {
+        self.vm.active_destination()
+    }
+
+    /// The hovered Releases-row thumbnail url, when the pointer is over
+    /// one (ADR 0084 Decision 2). `render_list_column` reads this to
+    /// animate the matching thumbnail, the same way the Library sidebar
+    /// tree once did.
+    pub(crate) fn hovered_thumb_url(&self) -> Option<&str> {
+        self.vm.hovered_thumb_url()
+    }
+
+    /// Records the hovered Releases-row thumbnail url (ADR 0084 Decision
+    /// 2).
+    pub(crate) fn set_hovered_thumb(&mut self, url: Option<String>, cx: &mut Context<Self>) {
+        if self.vm.set_hovered_thumb_url(url) {
+            cx.notify();
+        }
+    }
+
+    /// Sets the Music sidebar preference to the opposite of its currently
+    /// resolved state, so the collapse button always moves the sidebar
+    /// (ADR 0084 Decision 1).
+    pub(crate) fn toggle_sidebar_collapse(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let next = self.sidebar_state(window).toggled();
+        self.vm.set_sidebar_preference(next);
+        cx.notify();
+    }
+
     /// Opens the publisher page of an album or a track's album feed (ADR
     /// 0077 packet 004). The top app owns the publisher page fetch and its
     /// navigation entry.
@@ -579,34 +642,58 @@ impl LibraryApp {
         }
     }
 
+    /// Opens the Needs attention destination from an already-fetched
+    /// report (ADR 0084 Decision 2). Show's "Open in Music" calls this with
+    /// its own cached report, so this makes no database query.
     pub(crate) fn show_broadcast_readiness_report(
         &mut self,
         report: &BroadcastReadinessReport,
         cx: &mut Context<Self>,
     ) {
-        self.vm.replace_broadcast_readiness_report(report);
+        self.vm.show_needs_attention_report(report);
         cx.notify();
     }
 
-    fn refresh_current_broadcast_readiness_report(&mut self) {
-        if !self.vm.shows_broadcast_readiness_list() {
-            return;
+    /// Opens the Needs attention destination from a fresh query (ADR 0084
+    /// Decision 2: a sidebar click). The render path makes no query: this
+    /// runs only from an explicit destination-select event.
+    fn open_needs_attention_destination(&mut self) {
+        if let Some(report) = self.fetch_broadcast_readiness_report() {
+            self.vm.show_needs_attention_report(&report);
         }
-        let report = {
-            let conn = match self.conn.lock() {
-                Ok(conn) => conn,
-                Err(_) => {
-                    self.vm.set_error_status("database lock poisoned");
-                    return;
-                }
-            };
-            self.application_services
-                .query_service()
-                .broadcast_readiness_report(&conn, &self.music_dir)
+    }
+
+    /// Keeps the Needs attention count current (ADR 0084 Decision 2): on
+    /// load, after a feed check or a repair, and after a download or a
+    /// removal. It replaces the active list's rows only when Needs
+    /// attention is already open.
+    fn refresh_current_broadcast_readiness_report(&mut self) {
+        if let Some(report) = self.fetch_broadcast_readiness_report() {
+            self.vm.refresh_needs_attention_report(&report);
+        }
+    }
+
+    /// The broadcast readiness report, from the Library connection and
+    /// `music_dir`. Each caller already runs off the render path, in a
+    /// command completion or an explicit destination-select event.
+    fn fetch_broadcast_readiness_report(&mut self) -> Option<BroadcastReadinessReport> {
+        let conn = match self.conn.lock() {
+            Ok(conn) => conn,
+            Err(_) => {
+                self.vm.set_error_status("database lock poisoned");
+                return None;
+            }
         };
-        match report {
-            Ok(report) => self.vm.replace_broadcast_readiness_report(&report),
-            Err(error) => self.vm.set_error_status(error),
+        match self
+            .application_services
+            .query_service()
+            .broadcast_readiness_report(&conn, &self.music_dir)
+        {
+            Ok(report) => Some(report),
+            Err(error) => {
+                self.vm.set_error_status(error);
+                None
+            }
         }
     }
 
@@ -966,6 +1053,14 @@ impl LibraryApp {
     }
 
     pub fn begin_new_playlist(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // ADR 0084 Decision 2: the Playlists list, with its inline input,
+        // lives in the list column now. `cmd-n` opens that destination so
+        // the input is in view.
+        self.open_page(
+            FrameNavigationEntry::Destination(MusicDestination::Playlists),
+            NavigationPathStart::NewPath,
+            cx,
+        );
         if !self.vm.playlist_sidebar().creating_playlist {
             self.vm.toggle_creating_playlist();
         }
@@ -1093,6 +1188,9 @@ impl LibraryApp {
             |this, result, _cx| {
                 this.vm.replace_tree(result.tree);
                 this.vm.finish_library_reload(result.count);
+                // ADR 0084 Decision 2: the Needs attention count stays
+                // current on each Library load.
+                this.refresh_current_broadcast_readiness_report();
             },
             |this, err, _cx| this.vm.set_error_status(err),
         );
@@ -1165,7 +1263,7 @@ impl LibraryApp {
         self.load_track_source_context(track, cx);
     }
 
-    fn cycle_playlist_sort(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn cycle_playlist_sort(&mut self, cx: &mut Context<Self>) {
         self.vm.cycle_playlist_sort();
         self.vm.sort_loaded_playlists();
         cx.notify();
@@ -1313,7 +1411,7 @@ impl LibraryApp {
         let _ = state.handle.try_send(PagedTrackListMsg::Refresh);
     }
 
-    fn create_playlist(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn create_playlist(&mut self, cx: &mut Context<Self>) {
         let name = self.new_playlist_input.read(cx).value().to_string();
         let name = name.trim();
         if name.is_empty() {
@@ -1328,9 +1426,11 @@ impl LibraryApp {
             |this, result, cx| {
                 this.vm.close_creating_playlist();
                 this.reload_playlists();
+                // ADR 0084 Decision 2: "+" opens the playlist from the
+                // Playlists destination, in the current path.
                 this.open_page(
                     FrameNavigationEntry::PlaylistDetail(result.playlist_id()),
-                    NavigationPathStart::NewPath,
+                    NavigationPathStart::CurrentPath,
                     cx,
                 );
             },
@@ -1378,6 +1478,13 @@ impl LibraryApp {
 
     pub(crate) fn cancel_playlist_rename(&mut self, cx: &mut Context<Self>) {
         self.vm.cancel_playlist_rename();
+        cx.notify();
+    }
+
+    /// Toggles the inline new-playlist input of the Playlists destination
+    /// list (ADR 0084 Decision 2).
+    pub(crate) fn toggle_creating_playlist(&mut self, cx: &mut Context<Self>) {
+        self.vm.toggle_creating_playlist();
         cx.notify();
     }
 
@@ -1728,16 +1835,6 @@ impl LibraryApp {
         None
     }
 
-    pub(crate) fn hovered_thumb_url(&self) -> Option<&str> {
-        self.vm.hovered_thumb_url()
-    }
-
-    pub(crate) fn set_hovered_thumb(&mut self, url: Option<String>, cx: &mut Context<Self>) {
-        if self.vm.set_hovered_thumb_url(url) {
-            cx.notify();
-        }
-    }
-
     pub(crate) fn select_album(&mut self, album: &AlbumNode, cx: &mut Context<Self>) {
         if let Some(feed_id) = album.feed_id {
             self.vm.select_library_item(feed_id);
@@ -1900,17 +1997,48 @@ impl LibraryApp {
             FrameNavigationEntry::PlaylistDetail(playlist_id) => {
                 self.select_playlist(*playlist_id, cx);
             }
+            // ADR 0084 Decision 2: a destination becoming the current
+            // location fills the list column with its items and clears
+            // the detail column.
+            FrameNavigationEntry::Destination(destination) => {
+                self.show_destination_list(*destination);
+                self.clear_detail();
+            }
             FrameNavigationEntry::Search(_)
             | FrameNavigationEntry::IndexNameMatches(_)
-            | FrameNavigationEntry::SourceList
             | FrameNavigationEntry::Settings => {
                 // Reset detail to default/unset state for root navigation
                 self.clear_detail();
             }
-            // `Release` and `Track` mount through the top app. Other nav
-            // entries (ReadinessIssues, QueueNowPlaying) don't drive
-            // library detail.
+            // `Release` and `Track` mount through the top app. `QueueNowPlaying`
+            // doesn't drive library detail.
             _ => {}
+        }
+    }
+
+    /// Fills the list column with the items of `destination` (ADR 0084
+    /// Decision 2). Each branch reuses data this entity already holds or
+    /// already loads: no new query runs on the render path.
+    fn show_destination_list(&mut self, destination: MusicDestination) {
+        self.vm.set_active_destination(destination);
+        match destination {
+            MusicDestination::Discover => {
+                self.vm
+                    .replace_recent_music_content(&self.recent_music_page);
+            }
+            MusicDestination::Releases
+            | MusicDestination::Artists
+            | MusicDestination::Playlists => {
+                // The Releases, Artists, and Playlists lists read straight
+                // from the Library tree and the loaded playlists; they hold
+                // no `ContentListPageVm` state of their own.
+            }
+            MusicDestination::Tracks => {
+                self.vm.show_tracks_destination();
+            }
+            MusicDestination::NeedsAttention => {
+                self.open_needs_attention_destination();
+            }
         }
     }
 
@@ -2159,14 +2287,6 @@ impl LibraryApp {
             .flat_map(|album| &album.tracks)
             .find(|track| track.track_key() == *key)
             .map(|track| LibraryTrackRowVm::new(track, None).display_title())
-    }
-
-    pub(crate) fn toggle_artist(&mut self, name: &str) {
-        self.vm.toggle_artist(name);
-    }
-
-    pub(crate) fn toggle_album(&mut self, artist: &str, album: &str) {
-        self.vm.toggle_album(artist, album);
     }
 
     /// "Remove album…" of an album page: a destructive menu item, so it
@@ -2940,200 +3060,39 @@ impl LibraryApp {
     /// Searches.
     pub(crate) fn render_sidebar_column(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let chrome = LibraryViewModel::chrome_display()
-            .with_playback_availability(self.playback_availability);
-        let status = self.vm.status_snapshot();
-        let status_color = if status.is_error {
-            StatusRole::Danger.color(cx)
-        } else {
-            color::text_muted()
-        };
-        let status_text = status.text;
+        let sidebar_state = self.sidebar_state(window);
+        let collapse_button = LibraryViewModel::sidebar_collapse_button(sidebar_state);
+        let destination_rows = self.vm.destination_rows();
 
-        // Collect image URLs from the library tree, then fetch thumbnails
-        // (avoids borrow conflict). The detail column fetches its own
-        // image URLs, in render_detail_column.
-        let urls: Vec<String> = self
-            .vm
-            .tree()
-            .artists
-            .iter()
-            .flat_map(|a| &a.albums)
-            .flat_map(album_thumbnail_urls)
-            .collect();
-        let hovered_url = self.vm.hovered_thumb_url().map(str::to_string);
-        let mut album_thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
-        for url in &urls {
-            if !album_thumbs.contains_key(url.as_str()) {
-                let animated = hovered_url.as_deref() == Some(url.as_str());
-                let img = self.thumbnail_for_url(Some(url), animated, cx);
-                album_thumbs.insert(url.clone(), img);
-            }
+        let mut items: Vec<AnyElement> = vec![render_sidebar_collapse_button(collapse_button, cx)];
+        for row in &destination_rows {
+            items.push(render_destination_row(row, sidebar_state, cx));
         }
 
-        let tree_projection = self.vm.tree_projection();
-        let tree_items: Vec<AnyElement> = render_library_sidebar(
-            &tree_projection.tree,
-            &tree_projection.expanded_artists,
-            &tree_projection.expanded_albums,
-            self.vm.selected_id(),
-            &album_thumbs,
-            cx,
-        );
-        let filtered_empty = tree_projection.is_empty();
-        let content_filter_empty_state = self.vm.content_filter_empty_state();
-
-        let PlaylistSidebarVm {
-            header_id: playlist_header_id,
-            sort_button_id: playlist_sort_button_id,
-            add_button_id: playlist_add_button_id,
-            new_playlist_input_id,
-            new_playlist_add_button_id,
-            expanded: playlists_expanded,
-            heading: playlist_heading,
-            sort_label: playlist_sort_label,
-            add_label: playlist_add_label,
-            new_playlist_add_label,
-            creating_playlist,
-            rows: playlist_rows,
-        } = self.vm.playlist_sidebar();
-        let mut left_items: Vec<AnyElement> = Vec::new();
-
-        left_items.push(
-            div()
-                .px(Spacing::SM.scaled(cx))
-                .py(Spacing::XS.scaled(cx))
-                .rounded(Spacing::XS.scaled(cx))
+        // ADR 0084 Decision 1: the collapsed sidebar shows the destinations
+        // only. Saved Searches and the feed area show expanded only.
+        if matches!(sidebar_state, MusicSidebarState::Collapsed) {
+            return div()
                 .flex()
-                .flex_row()
-                .justify_between()
+                .flex_col()
+                .flex_1()
+                .min_h_0()
                 .items_center()
-                .child(
-                    div()
-                        .id(playlist_header_id)
-                        .flex()
-                        .flex_row()
-                        .gap(Spacing::XS.scaled(cx))
-                        .items_baseline()
-                        .cursor_pointer()
-                        .hover(|el| el.bg(color::bg_surface_hi()))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.vm.toggle_playlists_expanded();
-                            cx.notify();
-                        }))
-                        .child(DisclosureIndicator::new(DisclosureIndicatorDisplay {
-                            expanded: playlists_expanded,
-                        }))
-                        .child(Label::new(playlist_heading).weight(FontWeight::SEMIBOLD)),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .gap(Spacing::XS.scaled(cx))
-                        .items_center()
-                        .child(
-                            UiButton::styled(playlist_sort_button_id, ControlStyle::ToolbarIcon)
-                                .label(playlist_sort_label)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.cycle_playlist_sort(cx);
-                                })),
-                        )
-                        .child(
-                            UiButton::styled(playlist_add_button_id, ControlStyle::ToolbarIcon)
-                                .label(playlist_add_label)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.vm.toggle_creating_playlist();
-                                    cx.notify();
-                                })),
-                        ),
-                )
-                .into_any_element(),
-        );
-
-        if playlists_expanded {
-            for row in playlist_rows {
-                let PlaylistSidebarRowVm {
-                    id: playlist_id,
-                    element_id,
-                    name,
-                    track_count_label,
-                    selected,
-                } = row;
-                let row_a11y_label = format!("Playlist: {name}");
-                left_items.push(
-                    ListRow::compact(SharedString::from(element_id))
-                        .a11y_label(ListRowA11yLabel {
-                            label: row_a11y_label.into(),
-                        })
-                        .selected(selected)
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                            this.open_page(
-                                FrameNavigationEntry::PlaylistDetail(playlist_id),
-                                NavigationPathStart::NewPath,
-                                cx,
-                            );
-                        }))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .pl(Spacing::MD.scaled(cx))
-                                .child(
-                                    Label::new(name)
-                                        .color(if selected {
-                                            SemanticColor::Accent
-                                        } else {
-                                            SemanticColor::Label
-                                        })
-                                        .truncated(),
-                                )
-                                .child(DisclosureSupplementLabel::new(
-                                    DisclosureSupplementDisplay {
-                                        label: track_count_label.into(),
-                                    },
-                                )),
-                        )
-                        .into_any_element(),
-                );
-            }
-
-            if creating_playlist {
-                left_items.push(
-                    div()
-                        .id(new_playlist_input_id)
-                        .pl(spacing::LG + spacing::XS)
-                        .pr(spacing::SM)
-                        .py(spacing::XXS)
-                        .flex()
-                        .flex_row()
-                        .gap(spacing::XS)
-                        .items_center()
-                        .child(
-                            Input::new(&self.new_playlist_input)
-                                .cleanable(false)
-                                .scaled(Size::Small, cx)
-                                .with_primary_selection(&self.new_playlist_input),
-                        )
-                        .child(
-                            UiButton::styled(new_playlist_add_button_id, ControlStyle::Primary)
-                                .label(new_playlist_add_label)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.create_playlist(cx);
-                                })),
-                        )
-                        .into_any_element(),
-                );
-            }
+                .gap(spacing::XXS)
+                .p(spacing::XS)
+                .overflow_hidden()
+                .bg(color::bg_sidebar())
+                .children(items)
+                .into_any_element();
         }
 
         if let Some(SavedSearchesSectionDisplay { heading, rows }) =
             self.vm.saved_searches_section()
         {
-            left_items.push(
+            items.push(
                 div()
                     .px(Spacing::SM.scaled(cx))
                     .py(Spacing::XS.scaled(cx))
@@ -3143,7 +3102,7 @@ impl LibraryApp {
             for saved_search in rows {
                 let saved_search_id = saved_search.id;
                 let row_id = format!("saved-search-{saved_search_id}");
-                left_items.push(
+                items.push(
                     ListRow::compact(SharedString::from(row_id))
                         .a11y_label(ListRowA11yLabel {
                             label: saved_search.a11y_label.into(),
@@ -3169,19 +3128,6 @@ impl LibraryApp {
             }
         }
 
-        if self.vm.is_library_loading() && tree_items.is_empty() {
-            let count = pending_skeleton_count(true, false);
-            for i in 0..count {
-                left_items.push(
-                    SkeletonTrackRow::new(("library-skeleton-row", i))
-                        .show_thumbnail(false)
-                        .into_any_element(),
-                );
-            }
-        } else {
-            left_items.extend(tree_items);
-        }
-
         let tag_update_button = crate::view_models::tag_update::button(
             self.tag_update_snapshot.as_ref(),
         )
@@ -3198,15 +3144,31 @@ impl LibraryApp {
             self.tag_update_request_failed,
         )
         .map(|report| render_tag_update_report(report, cx));
+        let status = self.vm.status_snapshot();
+        let status_color = if status.is_error {
+            StatusRole::Danger.color(cx)
+        } else {
+            color::text_muted()
+        };
+        let status_text = status.text;
         // ADR 0083 Decision 1: the sidebar surface, distinct from the
         // content canvas behind `trailing_pane`.
-        let leading_pane = div()
+        div()
             .flex()
             .flex_col()
             .flex_1()
             .min_h_0()
             .overflow_hidden()
             .bg(color::bg_sidebar())
+            .child(
+                div()
+                    .id("music-destinations-scroll")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .p(spacing::SM)
+                    .child(div().flex().flex_col().gap(spacing::XXS).children(items)),
+            )
             .child({
                 let FeedUpdateDisplay {
                     state_label: feed_state_label,
@@ -3234,7 +3196,7 @@ impl LibraryApp {
                             .gap(spacing::SM)
                             .px(spacing::MD)
                             .py(spacing::XS)
-                            .border_b_1()
+                            .border_t_1()
                             .border_color(color::border_subtle())
                             .child(
                                 div()
@@ -3298,45 +3260,7 @@ impl LibraryApp {
                         )
                     })
             })
-            .child(
-                div()
-                    .id(chrome.list_scroll_id)
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .p(spacing::SM)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(spacing::XXS)
-                            .children(left_items)
-                            .when(self.vm.should_show_empty_library(filtered_empty), |el| {
-                                let mut empty_label = div()
-                                    .text_center()
-                                    .p(spacing::XXL + spacing::LG)
-                                    .text_color(color::text_muted());
-                                if let Some(empty_state) = content_filter_empty_state {
-                                    empty_label = empty_label
-                                        .child(div().mt(spacing::SM).child(empty_state.title))
-                                        .child(
-                                            div()
-                                                .mt(spacing::XS)
-                                                .text_xs()
-                                                .child(empty_state.secondary),
-                                        );
-                                } else {
-                                    empty_label = empty_label.child(
-                                        div().mt(spacing::SM).child(chrome.empty_library_label),
-                                    );
-                                }
-                                el.child(empty_label)
-                            }),
-                    ),
-            )
-            .into_any_element();
-
-        leading_pane
+            .into_any_element()
     }
 
     /// Renders the Music list column (ADR 0084 Decision 1). It always
@@ -3348,18 +3272,46 @@ impl LibraryApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let mut content_row_thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
-        for (row_id, url) in self.vm.content_list_thumbnail_sources() {
-            let img = self.thumbnail_for_url(Some(&url), false, cx);
-            content_row_thumbs.insert(row_id, img);
-        }
-
-        let content_list_pane = render_library_content_list(
-            self.vm.content_list_page(),
-            &content_row_thumbs,
-            &self.recent_music_scroll,
-            cx,
-        );
+        // ADR 0084 Decision 2: the list column shows the items of the
+        // current root destination.
+        let content_list_pane = match self.vm.active_destination() {
+            MusicDestination::Discover
+            | MusicDestination::Tracks
+            | MusicDestination::NeedsAttention => {
+                let mut content_row_thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
+                for (row_id, url) in self.vm.content_list_thumbnail_sources() {
+                    let img = self.thumbnail_for_url(Some(&url), false, cx);
+                    content_row_thumbs.insert(row_id, img);
+                }
+                render_library_content_list(
+                    self.vm.content_list_page(),
+                    &content_row_thumbs,
+                    &self.recent_music_scroll,
+                    cx,
+                )
+            }
+            MusicDestination::Releases => {
+                let rows = self.vm.releases_list();
+                let hovered_url = self.vm.hovered_thumb_url().map(str::to_string);
+                let mut thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
+                for row in &rows {
+                    if let Some(href) = row.thumbnail_href.as_deref() {
+                        let animated = hovered_url.as_deref() == Some(href);
+                        let img = self.thumbnail_for_url(Some(href), animated, cx);
+                        thumbs.insert(row.element_id.clone(), img);
+                    }
+                }
+                render_library_destination_rows(rows, "releases", &thumbs, cx)
+            }
+            MusicDestination::Artists => {
+                let rows = self.vm.artists_list();
+                render_library_destination_rows(rows, "artists", &BTreeMap::new(), cx)
+            }
+            MusicDestination::Playlists => {
+                let sidebar = self.vm.playlist_sidebar();
+                render_library_playlists_list(sidebar, &self.new_playlist_input, cx)
+            }
+        };
 
         div()
             .size_full()

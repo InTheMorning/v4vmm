@@ -8,14 +8,55 @@
 
 use super::WorkspaceModelError;
 
+/// A Music destination, in sidebar order (ADR 0084 Decision 2).
+///
+/// Each destination is a list root: the sidebar selects one, and the list
+/// column fills with its items. A destination opens no page by itself.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum MusicDestination {
+    Discover,
+    Releases,
+    Artists,
+    Tracks,
+    NeedsAttention,
+    Playlists,
+}
+
+impl MusicDestination {
+    /// Every destination, in sidebar order (ADR 0084 Decision 2).
+    pub(crate) const ALL: [Self; 6] = [
+        Self::Discover,
+        Self::Releases,
+        Self::Artists,
+        Self::Tracks,
+        Self::NeedsAttention,
+        Self::Playlists,
+    ];
+
+    /// The visible destination name.
+    #[must_use]
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Discover => "Discover",
+            Self::Releases => "Releases",
+            Self::Artists => "Artists",
+            Self::Tracks => "Tracks",
+            Self::NeedsAttention => "Needs attention",
+            Self::Playlists => "Playlists",
+        }
+    }
+}
+
 /// Navigation target stored in a frame's history.
 ///
 /// Entries are typed so frame history can distinguish entity detail,
 /// workspace source, queue, and search destinations without parsing strings.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum FrameNavigationEntry {
-    /// Source-list frame root.
-    SourceList,
+    /// A Music destination, the root of a sidebar-started location (ADR
+    /// 0084 Decisions 1 and 2). It replaces `SourceList` and
+    /// `ReadinessIssues`.
+    Destination(MusicDestination),
     /// Playlist detail by playlist id.
     PlaylistDetail(i64),
     /// A release, keyed by its identity, whatever its origin (ADR 0084
@@ -38,8 +79,6 @@ pub(crate) enum FrameNavigationEntry {
     /// no artist identity, no role, and no page type: it is a search
     /// result, never an artist page.
     IndexNameMatches(String),
-    /// Music content list filtered to tracks that need broadcast readiness work.
-    ReadinessIssues,
     /// Application settings.
     Settings,
     /// Queue and Now Playing frame root.
@@ -48,13 +87,13 @@ pub(crate) enum FrameNavigationEntry {
 
 impl FrameNavigationEntry {
     /// Returns whether this entry opens a page in the Music detail column
-    /// (ADR 0084 Decisions 1 and 2). A list root (the Library root, a search,
-    /// the readiness list) fills the list column and opens no page.
+    /// (ADR 0084 Decisions 1 and 2). A list root (a destination, a search)
+    /// fills the list column and opens no page.
     #[must_use]
     pub(crate) const fn opens_detail_page(&self) -> bool {
         !matches!(
             self,
-            Self::SourceList | Self::Search(_) | Self::ReadinessIssues | Self::Settings
+            Self::Destination(_) | Self::Search(_) | Self::Settings
         )
     }
 
@@ -62,7 +101,7 @@ impl FrameNavigationEntry {
     #[must_use]
     pub(crate) fn display_label(&self) -> String {
         match self {
-            Self::SourceList => "Library".to_string(),
+            Self::Destination(destination) => destination.label().to_string(),
             Self::PlaylistDetail(id) => format!("Playlist {id}"),
             // The top app gives the real title from the resolved data
             // source. This fallback shows only before that title is known.
@@ -84,7 +123,6 @@ impl FrameNavigationEntry {
                     format!("Search: {query}")
                 }
             }
-            Self::ReadinessIssues => "Broadcast Readiness".to_string(),
             Self::Settings => "Settings".to_string(),
             Self::QueueNowPlaying => "Queue".to_string(),
         }
@@ -391,6 +429,15 @@ impl FrameNavigationState {
     #[must_use]
     pub(crate) fn path_entries(&self) -> Vec<FrameNavigationEntry> {
         self.current.entries().cloned().collect()
+    }
+
+    /// Returns the root entry of the current location (ADR 0084 Decision 2):
+    /// the destination or the search that the current path started from.
+    /// A sidebar click or a search replaces this; a row or a link never
+    /// does.
+    #[must_use]
+    pub(crate) fn root(&self) -> &FrameNavigationEntry {
+        self.current.ancestors.first().unwrap_or(&self.current.page)
     }
 
     /// Returns whether the current location has more than one page.

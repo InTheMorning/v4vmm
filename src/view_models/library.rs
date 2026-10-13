@@ -53,7 +53,7 @@ use crate::view_models::text_filter::contains_normalized;
 use crate::view_models::text_filter::normalize;
 use crate::view_models::workspace::{
     ContentFilter, ContentViewMode, ContentViewModeControlDisplay, LibraryFilterControlDisplay,
-    ReleaseKey, TrackKey,
+    MusicDestination, MusicSidebarPreference, MusicSidebarState, ReleaseKey, TrackKey,
 };
 use crate::view_models::ActionStatusMessageDisplay;
 use crate::views::{FeedMetadataFacts, LocalIdentityFacts, TrackRef};
@@ -378,38 +378,6 @@ pub(crate) struct LibraryTree {
     pub(crate) artists: Vec<ArtistNode>,
 }
 
-impl ArtistNode {
-    #[must_use]
-    pub(crate) fn tree_display(&self, expanded: bool) -> LibraryArtistTreeDisplay {
-        LibraryArtistTreeDisplay {
-            element_id: format!("artist-{}", self.name),
-            title: self.name.clone(),
-            expanded,
-            album_count_label: format!(
-                "({} album{})",
-                self.albums.len(),
-                plural(self.albums.len())
-            ),
-        }
-    }
-}
-
-impl AlbumNode {
-    #[must_use]
-    pub(crate) fn tree_display(
-        &self,
-        artist_name: &str,
-        expanded: bool,
-    ) -> LibraryAlbumTreeDisplay {
-        LibraryAlbumTreeDisplay {
-            element_id: format!("album-{artist_name}-{}", self.name),
-            title: self.name.clone(),
-            expanded,
-            track_count_label: format!("({})", self.tracks.len()),
-        }
-    }
-}
-
 /// Pure data snapshots loaded by the library screen.
 ///
 /// This groups DB-derived read models and in-flight metadata/feed state
@@ -426,53 +394,8 @@ pub(crate) struct LibrarySnapshot {
     feed_update_state: FeedUpdateState,
 }
 
-/// Projected library tree plus the expansion state needed to render it.
-#[derive(Clone, Debug)]
-pub(crate) struct LibraryTreeProjection {
-    pub(crate) tree: LibraryTree,
-    pub(crate) expanded_artists: HashSet<String>,
-    pub(crate) expanded_albums: HashSet<(String, String)>,
-}
-
-impl LibraryTreeProjection {
-    #[must_use]
-    pub(crate) fn is_empty(&self) -> bool {
-        self.tree.artists.is_empty()
-    }
-}
-
-/// Display contract for an artist row in the Library sidebar tree.
-///
-/// ADR 0083 Decision 10: `expanded` is a typed disclosure state, not a
-/// character. The renderer draws the disclosure chevron from it.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct LibraryArtistTreeDisplay {
-    pub(crate) element_id: String,
-    pub(crate) title: String,
-    pub(crate) expanded: bool,
-    pub(crate) album_count_label: String,
-}
-
-/// Display contract for an album row in the Library sidebar tree.
-///
-/// ADR 0083 Decision 10: `expanded` is a typed disclosure state, not a
-/// character. The renderer draws the disclosure chevron from it.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct LibraryAlbumTreeDisplay {
-    pub(crate) element_id: String,
-    pub(crate) title: String,
-    pub(crate) expanded: bool,
-    pub(crate) track_count_label: String,
-}
-
-/// Display contract for a track row in the Library sidebar tree.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct LibraryTreeTrackDisplay {
-    pub(crate) element_id: String,
-    pub(crate) title: String,
-}
-
-/// Display-ready projection for the playlist sidebar section.
+/// Display-ready projection for the Playlists destination list (ADR 0084
+/// Decision 2).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PlaylistSidebarVm {
     pub(crate) header_id: &'static str,
@@ -480,9 +403,6 @@ pub(crate) struct PlaylistSidebarVm {
     pub(crate) add_button_id: &'static str,
     pub(crate) new_playlist_input_id: &'static str,
     pub(crate) new_playlist_add_button_id: &'static str,
-    /// ADR 0083 Decision 10: a typed disclosure state, not a character. The
-    /// renderer draws the disclosure chevron from it.
-    pub(crate) expanded: bool,
     pub(crate) heading: &'static str,
     pub(crate) sort_label: &'static str,
     pub(crate) add_label: &'static str,
@@ -507,7 +427,6 @@ pub(crate) struct LibraryChromeDisplay {
     pub(crate) playback_availability:
         Result<(), crate::application::capability::ExecutionUnavailable>,
     pub(crate) search_button_id: &'static str,
-    pub(crate) list_scroll_id: &'static str,
     pub(crate) artist_detail_scroll_id: &'static str,
     pub(crate) playlist_detail_scroll_id: &'static str,
     pub(crate) track_detail_scroll_id: &'static str,
@@ -515,7 +434,6 @@ pub(crate) struct LibraryChromeDisplay {
     pub(crate) new_playlist_placeholder: &'static str,
     pub(crate) search_heading: &'static str,
     pub(crate) search_button_label: &'static str,
-    pub(crate) empty_library_label: &'static str,
     pub(crate) empty_detail_label: &'static str,
 }
 
@@ -532,7 +450,6 @@ impl LibraryChromeDisplay {
     const VALUE: Self = Self {
         playback_availability: Ok(()),
         search_button_id: "lib-search-btn",
-        list_scroll_id: "library-list",
         artist_detail_scroll_id: "artist-detail-scroll",
         playlist_detail_scroll_id: "playlist-detail-scroll",
         track_detail_scroll_id: "track-detail-scroll",
@@ -540,7 +457,6 @@ impl LibraryChromeDisplay {
         new_playlist_placeholder: "New playlist name\u{2026}",
         search_heading: "Search Library",
         search_button_label: "Search",
-        empty_library_label: "No library tracks yet",
         // ADR 0084 Decision 1: the detail column's empty state names the
         // list column by its role, not the old split pane.
         empty_detail_label: "Select an item in the list.",
@@ -567,11 +483,6 @@ impl LibraryStatusSnapshot {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct AlbumThumbDisplay {
     pub(crate) fallback_icon: &'static str,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct HoverThumbDisplay {
-    pub(crate) element_id: String,
 }
 
 /// Action kind for the feed-update toolbar.
@@ -1474,6 +1385,85 @@ pub(crate) struct ContentListIndexFeedSelection {
     pub(crate) label: String,
 }
 
+/// A sidebar destination icon (ADR 0084 Decision 1), semantic and
+/// GPUI-free. The renderer maps each name to a named `IconName`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum MusicDestinationIcon {
+    Discover,
+    Release,
+    Artist,
+    Track,
+    Playlist,
+    Warning,
+}
+
+/// Display data for one sidebar destination row (ADR 0084 Decisions 1 and
+/// 2). The Needs attention count has no database query on the render
+/// path: the Library stores it from the events of "Design".
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct DestinationRowVm {
+    /// The destination this row opens.
+    pub(crate) destination: MusicDestination,
+    /// Stable element id.
+    pub(crate) element_id: &'static str,
+    /// The named icon the renderer maps to `IconName`.
+    pub(crate) icon: MusicDestinationIcon,
+    /// The visible destination name.
+    pub(crate) label: &'static str,
+    /// The tooltip text, with the count when the destination has one.
+    pub(crate) tooltip: String,
+    /// The accessibility label, with the count when the destination has one.
+    pub(crate) a11y_label: String,
+    /// The destination's count, when it has one (Needs attention,
+    /// Playlists).
+    pub(crate) count: Option<usize>,
+    /// Whether this destination is the root of the current location.
+    pub(crate) selected: bool,
+    /// Whether the collapsed icon shows an attention mark (ADR 0084
+    /// Decision 1). Never the only sign of the count: the tooltip and the
+    /// accessibility label give it in text.
+    pub(crate) shows_attention_mark: bool,
+}
+
+/// Display data for the sidebar collapse button (ADR 0084 Decision 1).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SidebarCollapseButtonVm {
+    /// Stable element id.
+    pub(crate) element_id: &'static str,
+    /// The accessibility label, naming the action the next click takes.
+    pub(crate) a11y_label: &'static str,
+    /// The tooltip text, naming the action the next click takes.
+    pub(crate) tooltip: &'static str,
+    /// The preference the next click sets.
+    pub(crate) next_preference: MusicSidebarPreference,
+}
+
+/// The navigation entry a destination-list row opens (ADR 0084 Decision 2).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum DestinationListRowTarget {
+    Release(ReleaseKey),
+    Artist(String),
+}
+
+/// One row of the Releases or Artists destination list (ADR 0084 Decision
+/// 2). The Library already holds this data in its loaded tree; giving
+/// these rows runs no new database query.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct DestinationListRowVm {
+    /// Stable element id.
+    pub(crate) element_id: String,
+    /// The primary row label: the release or artist name.
+    pub(crate) label: String,
+    /// The secondary row text.
+    pub(crate) secondary_text: String,
+    /// The accessibility label for the row.
+    pub(crate) a11y_label: String,
+    /// The row's thumbnail href, when it has one.
+    pub(crate) thumbnail_href: Option<String>,
+    /// The entry the row opens.
+    pub(crate) open: DestinationListRowTarget,
+}
+
 /// GPUI-free page VM for a workspace content-list frame.
 #[derive(Clone, Debug)]
 pub(crate) struct ContentListPageVm {
@@ -1759,14 +1749,6 @@ impl ContentListPageVm {
             .into_iter()
             .map(|row| row.id.as_str())
             .collect()
-    }
-
-    /// Returns the active empty state when the current filter hides all rows.
-    #[must_use]
-    pub(crate) fn empty_state(&self) -> Option<ContentListEmptyStateDisplay> {
-        self.visible_rows()
-            .is_empty()
-            .then(|| ContentListEmptyStateDisplay::for_filter(self.filter_state))
     }
 
     /// Returns loading placeholders for the active content-list load.
@@ -2128,13 +2110,24 @@ pub(crate) struct LibraryViewModel {
     // Loaded snapshots — owned here so the screen can become a thin
     // Render impl. None of these carry GPUI types.
     snapshot: LibrarySnapshot,
-    // Sidebar expansion + sort.
-    expanded_artists: HashSet<String>,
-    expanded_albums: HashSet<(String, String)>,
-    playlists_expanded: bool,
+    // Sidebar sort.
     playlist_sort: PlaylistSort,
     saved_searches: Vec<SavedSearchEntry>,
     content_list_page: ContentListPageVm,
+    /// The sidebar collapse preference (ADR 0084 Decision 1). Session
+    /// state only; never written to `config.toml`.
+    sidebar_preference: MusicSidebarPreference,
+    /// The destination whose list the list column currently shows (ADR
+    /// 0084 Decision 2). The top app sets this once, when a destination
+    /// becomes the current location; it carries no history, so it is not
+    /// the navigation stack `adr_0084_nav_library_screens_keep_no_navigation_stack`
+    /// forbids.
+    active_destination: MusicDestination,
+    /// The Needs attention count (ADR 0084 Decision 2), kept off the
+    /// render path: the Library stores it from `show_needs_attention_report`
+    /// and `refresh_needs_attention_report`, at the load, feed-check,
+    /// repair, download, and removal events "Design" names.
+    needs_attention_count: usize,
     album_description_states: BTreeMap<i64, DescriptionState>,
     track_description_states: BTreeMap<i64, DescriptionState>,
     // Selection / focus.
@@ -2151,27 +2144,25 @@ pub(crate) struct LibraryViewModel {
     observation_failures:
         BTreeMap<i64, std::sync::Arc<crate::provider_observation::ObservationWriteFailure>>,
     library_loading: bool,
-    // Search + playlist creation.
-    search_query: String,
+    // Playlist creation.
     creating_playlist: bool,
     renaming_playlist_id: Option<i64>,
 }
 
 impl LibraryViewModel {
     /// Construct a view-model with the legacy `LibraryApp::new`
-    /// defaults: empty tree + snapshots, empty expansion sets,
-    /// playlists sidebar already expanded, sort by name, no selection,
-    /// no operation in flight.
+    /// defaults: empty tree + snapshots, the sidebar auto-collapsing,
+    /// sort by name, no selection, no operation in flight.
     #[must_use]
     pub(crate) fn new() -> Self {
         Self {
             snapshot: LibrarySnapshot::default(),
-            expanded_artists: HashSet::new(),
-            expanded_albums: HashSet::new(),
-            playlists_expanded: true,
             playlist_sort: PlaylistSort::default(),
             saved_searches: Vec::new(),
             content_list_page: ContentListPageVm::new(Vec::new()),
+            sidebar_preference: MusicSidebarPreference::default(),
+            active_destination: MusicDestination::Discover,
+            needs_attention_count: 0,
             album_description_states: BTreeMap::new(),
             track_description_states: BTreeMap::new(),
             selected_id: None,
@@ -2185,7 +2176,6 @@ impl LibraryViewModel {
             observation_failures: BTreeMap::new(),
             observation_receipts: BTreeMap::new(),
             library_loading: false,
-            search_query: String::new(),
             creating_playlist: false,
             renaming_playlist_id: None,
         }
@@ -2202,8 +2192,62 @@ impl LibraryViewModel {
         self.snapshot.tree = tree;
     }
 
-    pub(crate) fn replace_broadcast_readiness_report(&mut self, report: &BroadcastReadinessReport) {
-        let rows = report
+    /// Shows the Library tracks, by the Tracks destination (ADR 0084
+    /// Decision 2). It reuses the already-loaded tree: no new query.
+    pub(crate) fn show_tracks_destination(&mut self) {
+        self.content_list_page
+            .replace_rows(content_list_rows_from_tree(&self.snapshot.tree));
+    }
+
+    #[must_use]
+    pub(crate) fn sidebar_preference(&self) -> MusicSidebarPreference {
+        self.sidebar_preference
+    }
+
+    pub(crate) fn set_sidebar_preference(&mut self, preference: MusicSidebarPreference) {
+        self.sidebar_preference = preference;
+    }
+
+    /// The destination whose list the list column currently shows (ADR
+    /// 0084 Decision 2).
+    #[must_use]
+    pub(crate) const fn active_destination(&self) -> MusicDestination {
+        self.active_destination
+    }
+
+    /// Records the destination whose list the list column now shows (ADR
+    /// 0084 Decision 2).
+    pub(crate) fn set_active_destination(&mut self, destination: MusicDestination) {
+        self.active_destination = destination;
+    }
+
+    /// Always shows the readiness rows of `report`, whatever the
+    /// previously active destination list (ADR 0084 Decision 2: opening
+    /// Needs attention, from the sidebar or from Show).
+    pub(crate) fn show_needs_attention_report(&mut self, report: &BroadcastReadinessReport) {
+        self.needs_attention_count = report.problem_count();
+        self.content_list_page
+            .replace_broadcast_readiness_rows(self.broadcast_readiness_rows(report));
+    }
+
+    /// Keeps the Needs attention count current at the ADR 0084 Decision 2
+    /// events: on load, after a feed check or a repair, and after a
+    /// download or a removal. Only replaces the active list rows when
+    /// Needs attention is already open, so this never hijacks another
+    /// open destination's list.
+    pub(crate) fn refresh_needs_attention_report(&mut self, report: &BroadcastReadinessReport) {
+        self.needs_attention_count = report.problem_count();
+        if self.shows_broadcast_readiness_list() {
+            self.content_list_page
+                .replace_broadcast_readiness_rows(self.broadcast_readiness_rows(report));
+        }
+    }
+
+    fn broadcast_readiness_rows(
+        &self,
+        report: &BroadcastReadinessReport,
+    ) -> Vec<ContentListRowDisplay> {
+        report
             .problem_tracks()
             .into_iter()
             .map(|track| {
@@ -2213,9 +2257,7 @@ impl LibraryViewModel {
                         .contains(&track.track_id),
                 )
             })
-            .collect();
-        self.content_list_page
-            .replace_broadcast_readiness_rows(rows);
+            .collect()
     }
 
     pub(crate) fn update_album_identity_facts(
@@ -2317,49 +2359,13 @@ impl LibraryViewModel {
         self.status = "Loading library\u{2026}".to_string();
     }
 
+    /// No screen reads this since the sidebar tree's loading skeleton went
+    /// with ADR 0084 Decision 2. This type's own tests still read it
+    /// directly.
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn is_library_loading(&self) -> bool {
         self.library_loading
-    }
-
-    #[must_use]
-    pub(crate) fn tree_projection(&self) -> LibraryTreeProjection {
-        let query = self.search_query.trim();
-        let tree = if query.is_empty() {
-            self.snapshot.tree.clone()
-        } else {
-            filter_tree(&self.snapshot.tree, query)
-        };
-
-        if query.is_empty() {
-            return LibraryTreeProjection {
-                tree,
-                expanded_artists: self.expanded_artists.clone(),
-                expanded_albums: self.expanded_albums.clone(),
-            };
-        }
-
-        let expanded_artists = tree
-            .artists
-            .iter()
-            .map(|artist| artist.name.clone())
-            .collect();
-        let expanded_albums = tree
-            .artists
-            .iter()
-            .flat_map(|artist| {
-                artist
-                    .albums
-                    .iter()
-                    .map(move |album| (artist.name.clone(), album.name.clone()))
-            })
-            .collect();
-
-        LibraryTreeProjection {
-            tree,
-            expanded_artists,
-            expanded_albums,
-        }
     }
 
     #[must_use]
@@ -2388,13 +2394,6 @@ impl LibraryViewModel {
     #[must_use]
     pub(crate) fn content_view_mode_control(&self) -> ContentViewModeControlDisplay {
         self.content_list_page.view_mode_control_display()
-    }
-
-    #[must_use]
-    pub(crate) fn content_filter_empty_state(&self) -> Option<ContentListEmptyStateDisplay> {
-        (self.content_filter() != ContentFilter::All)
-            .then(|| self.content_list_page.empty_state())
-            .flatten()
     }
 
     #[must_use]
@@ -2486,7 +2485,6 @@ impl LibraryViewModel {
             add_button_id: "playlists-add",
             new_playlist_input_id: "playlist-new-input",
             new_playlist_add_button_id: "playlist-add-btn",
-            expanded: self.playlists_expanded,
             heading: "Playlists",
             sort_label: self.playlist_sort_label(),
             add_label: "+",
@@ -2504,6 +2502,128 @@ impl LibraryViewModel {
                     selected: self.selected_playlist_id == Some(playlist.id),
                 })
                 .collect(),
+        }
+    }
+
+    /// Rows of the Releases destination list, by name (ADR 0084 Decision
+    /// 2). It reuses the already-loaded tree: no new query.
+    #[must_use]
+    pub(crate) fn releases_list(&self) -> Vec<DestinationListRowVm> {
+        let mut rows: Vec<DestinationListRowVm> = self
+            .snapshot
+            .tree
+            .artists
+            .iter()
+            .flat_map(|artist| artist.albums.iter().map(move |album| (artist, album)))
+            .filter_map(|(artist, album)| {
+                let key = album.release_key()?;
+                Some(DestinationListRowVm {
+                    element_id: format!("music-release-row-{}", release_row_slug(&key)),
+                    label: album.name.clone(),
+                    secondary_text: artist.name.clone(),
+                    a11y_label: format!("Release: {}", album.name),
+                    thumbnail_href: album.image_href.clone(),
+                    open: DestinationListRowTarget::Release(key),
+                })
+            })
+            .collect();
+        rows.sort_by_key(|row| row.label.to_lowercase());
+        rows
+    }
+
+    /// Rows of the Artists destination list, by name (ADR 0084 Decision
+    /// 2). It reuses the already-loaded tree: no new query.
+    #[must_use]
+    pub(crate) fn artists_list(&self) -> Vec<DestinationListRowVm> {
+        let mut rows: Vec<DestinationListRowVm> = self
+            .snapshot
+            .tree
+            .artists
+            .iter()
+            .map(|artist| DestinationListRowVm {
+                element_id: format!("music-artist-row-{}", release_row_slug_text(&artist.name)),
+                label: artist.name.clone(),
+                secondary_text: format!(
+                    "{} album{}",
+                    artist.albums.len(),
+                    plural(artist.albums.len())
+                ),
+                a11y_label: format!("Artist: {}", artist.name),
+                thumbnail_href: None,
+                open: DestinationListRowTarget::Artist(artist.name.clone()),
+            })
+            .collect();
+        rows.sort_by_key(|row| row.label.to_lowercase());
+        rows
+    }
+
+    /// Rows of the six sidebar destinations, in sidebar order (ADR 0084
+    /// Decisions 1 and 2).
+    #[must_use]
+    pub(crate) fn destination_rows(&self) -> Vec<DestinationRowVm> {
+        MusicDestination::ALL
+            .into_iter()
+            .map(|destination| self.destination_row(destination))
+            .collect()
+    }
+
+    fn destination_row(&self, destination: MusicDestination) -> DestinationRowVm {
+        let count = self.destination_count(destination);
+        let label = destination.label();
+        let (tooltip, a11y_label) = match count {
+            Some(count) if count > 0 => (
+                format!("{label}, {count} track{}", plural(count)),
+                format!("{label}, {count} track{}", plural(count)),
+            ),
+            _ => (label.to_string(), label.to_string()),
+        };
+        DestinationRowVm {
+            destination,
+            element_id: destination_element_id(destination),
+            icon: destination_icon(destination),
+            label,
+            tooltip,
+            a11y_label,
+            count,
+            selected: self.active_destination == destination,
+            shows_attention_mark: matches!(destination, MusicDestination::NeedsAttention)
+                && count.is_some_and(|count| count > 0),
+        }
+    }
+
+    /// The destination's count, when it has one (ADR 0084 Decision 1):
+    /// Needs attention and Playlists.
+    #[must_use]
+    fn destination_count(&self, destination: MusicDestination) -> Option<usize> {
+        match destination {
+            MusicDestination::NeedsAttention => Some(self.needs_attention_count),
+            MusicDestination::Playlists => Some(self.snapshot.playlists.len()),
+            MusicDestination::Discover
+            | MusicDestination::Releases
+            | MusicDestination::Artists
+            | MusicDestination::Tracks => None,
+        }
+    }
+
+    /// Display data for the sidebar collapse button (ADR 0084 Decision 1).
+    /// The next click sets the opposite of the currently resolved state.
+    #[must_use]
+    pub(crate) const fn sidebar_collapse_button(
+        resolved: MusicSidebarState,
+    ) -> SidebarCollapseButtonVm {
+        match resolved {
+            MusicSidebarState::Expanded => SidebarCollapseButtonVm {
+                element_id: "music-sidebar-collapse",
+                a11y_label: "Collapse the Music sidebar",
+                tooltip: "Collapse sidebar",
+                next_preference: MusicSidebarPreference::Collapsed,
+            },
+            MusicSidebarState::Collapsed => SidebarCollapseButtonVm {
+                element_id: "music-sidebar-collapse",
+                a11y_label: "Expand the Music sidebar",
+                tooltip: "Expand sidebar",
+                next_preference: MusicSidebarPreference::Expanded,
+            },
         }
     }
 
@@ -2585,20 +2705,8 @@ impl LibraryViewModel {
     }
 
     #[must_use]
-    pub(crate) fn hover_thumb_display(url: &str) -> HoverThumbDisplay {
-        HoverThumbDisplay {
-            element_id: format!("thumb-{url}"),
-        }
-    }
-
-    #[must_use]
     pub(crate) fn status_snapshot(&self) -> LibraryStatusSnapshot {
         LibraryStatusSnapshot::from_text(&self.status)
-    }
-
-    #[must_use]
-    pub(crate) fn should_show_empty_library(&self, filtered_empty: bool) -> bool {
-        filtered_empty && !self.status_snapshot().is_error
     }
 
     #[must_use]
@@ -2859,22 +2967,6 @@ impl LibraryViewModel {
     #[cfg(test)]
     pub(crate) fn status(&self) -> &str {
         &self.status
-    }
-
-    /// Only this type's own tests read the query back directly; the screen
-    /// has no wired search box yet.
-    #[must_use]
-    #[cfg(test)]
-    pub(crate) fn search_query(&self) -> &str {
-        &self.search_query
-    }
-
-    /// `apply_search_query` below needs this as a direct helper; no screen
-    /// wires a source-list search box yet.
-    #[cfg(test)]
-    pub(crate) fn set_source_text_filter(&mut self, filter: Option<String>) {
-        self.search_query = normalize(filter).unwrap_or_default();
-        self.selected_id = None;
     }
 
     pub(crate) fn set_error_status(&mut self, error: impl std::fmt::Display) {
@@ -3203,11 +3295,6 @@ impl LibraryViewModel {
         self.finish_broadcast_route_repair(&completion);
     }
 
-    #[cfg(test)]
-    pub(crate) fn apply_search_query(&mut self, query: impl Into<String>) {
-        self.set_source_text_filter(Some(query.into()));
-    }
-
     pub(crate) fn toggle_creating_playlist(&mut self) {
         self.creating_playlist = !self.creating_playlist;
     }
@@ -3238,28 +3325,6 @@ impl LibraryViewModel {
         self.renaming_playlist_id == Some(playlist_id)
     }
 
-    /// Toggle the expansion state of an artist node by name.
-    pub(crate) fn toggle_artist(&mut self, name: &str) {
-        if !self.expanded_artists.remove(name) {
-            self.expanded_artists.insert(name.to_string());
-        }
-    }
-
-    /// Toggle the expansion state of an album node, keyed on the
-    /// `(artist, album)` pair to keep two albums with the same name
-    /// from collapsing onto each other.
-    pub(crate) fn toggle_album(&mut self, artist: &str, album: &str) {
-        let key = (artist.to_string(), album.to_string());
-        if !self.expanded_albums.remove(&key) {
-            self.expanded_albums.insert(key);
-        }
-    }
-
-    /// Flip the playlists sidebar expansion flag.
-    pub(crate) fn toggle_playlists_expanded(&mut self) {
-        self.playlists_expanded = !self.playlists_expanded;
-    }
-
     /// Advance the playlist sort order one step.
     pub(crate) fn cycle_playlist_sort(&mut self) {
         self.playlist_sort = self.playlist_sort.next();
@@ -3281,21 +3346,6 @@ impl LibraryViewModel {
 
     fn pending_feed_update_label(count: usize) -> String {
         feed_change_count_label(count)
-    }
-
-    // Both lookups are exercised by the unit tests below but not yet
-    // by the legacy renderer (which still uses `LibraryTreeProjection`).
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn is_artist_expanded(&self, name: &str) -> bool {
-        self.expanded_artists.contains(name)
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn is_album_expanded(&self, artist: &str, album: &str) -> bool {
-        self.expanded_albums
-            .contains(&(artist.to_string(), album.to_string()))
     }
 
     #[must_use]
@@ -3389,62 +3439,6 @@ fn broadcast_route_repair_completion_message(
     }
 }
 
-fn filter_tree(tree: &LibraryTree, query: &str) -> LibraryTree {
-    let q = query.trim().to_lowercase();
-    if q.is_empty() {
-        return tree.clone();
-    }
-    let mut artists = Vec::new();
-    for artist in &tree.artists {
-        let artist_match = artist.name.to_lowercase().contains(&q);
-        let mut albums = Vec::new();
-        for album in &artist.albums {
-            let album_match = album.name.to_lowercase().contains(&q);
-            let keep_all = artist_match || album_match;
-            let tracks: Vec<TrackRow> = if keep_all {
-                album.tracks.clone()
-            } else {
-                album
-                    .tracks
-                    .iter()
-                    .filter(|track| {
-                        track
-                            .track_title
-                            .as_deref()
-                            .unwrap_or("")
-                            .to_lowercase()
-                            .contains(&q)
-                    })
-                    .cloned()
-                    .collect()
-            };
-            if keep_all || !tracks.is_empty() {
-                albums.push(AlbumNode {
-                    name: album.name.clone(),
-                    feed_id: album.feed_id,
-                    feed_guid: album.feed_guid.clone(),
-                    feed_url: album.feed_url.clone(),
-                    language: album.language.clone(),
-                    description: album.description.clone(),
-                    image_href: album.image_href.clone(),
-                    publisher_feed_guid: album.publisher_feed_guid.clone(),
-                    identity_facts: album.identity_facts.clone(),
-                    metadata_facts: album.metadata_facts.clone(),
-                    stored_values: album.stored_values.clone(),
-                    tracks,
-                });
-            }
-        }
-        if !albums.is_empty() {
-            artists.push(ArtistNode {
-                name: artist.name.clone(),
-                albums,
-            });
-        }
-    }
-    LibraryTree { artists }
-}
-
 fn track_row_matches_text_filter(track: &TrackRow, filter: &str) -> bool {
     [
         track.track_title.as_deref(),
@@ -3475,6 +3469,53 @@ fn content_list_rows_from_recent_feeds(rows: &[RecentFeedResultRow]) -> Vec<Cont
     rows.iter()
         .map(|(_id, row)| ContentListRowDisplay::from_release_result(row.clone()))
         .collect()
+}
+
+/// A stable element-id fragment for a release key (ADR 0084 Decision 2).
+fn release_row_slug(key: &ReleaseKey) -> String {
+    match key {
+        ReleaseKey::FeedGuid(feed_guid) => format!("guid-{}", release_row_slug_text(feed_guid)),
+        ReleaseKey::LibraryFeed(feed_id) => format!("feed-{feed_id}"),
+    }
+}
+
+/// A stable element-id fragment from free text (ADR 0084 Decision 2).
+fn release_row_slug_text(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+/// The sidebar element id of a destination (ADR 0084 Decision 2).
+const fn destination_element_id(destination: MusicDestination) -> &'static str {
+    match destination {
+        MusicDestination::Discover => "music-destination-discover",
+        MusicDestination::Releases => "music-destination-releases",
+        MusicDestination::Artists => "music-destination-artists",
+        MusicDestination::Tracks => "music-destination-tracks",
+        MusicDestination::NeedsAttention => "music-destination-needs-attention",
+        MusicDestination::Playlists => "music-destination-playlists",
+    }
+}
+
+/// The named icon of a destination (ADR 0084 Decision 1). The renderer
+/// maps this to an `IconName`.
+const fn destination_icon(destination: MusicDestination) -> MusicDestinationIcon {
+    match destination {
+        MusicDestination::Discover => MusicDestinationIcon::Discover,
+        MusicDestination::Releases => MusicDestinationIcon::Release,
+        MusicDestination::Artists => MusicDestinationIcon::Artist,
+        MusicDestination::Tracks => MusicDestinationIcon::Track,
+        MusicDestination::NeedsAttention => MusicDestinationIcon::Warning,
+        MusicDestination::Playlists => MusicDestinationIcon::Playlist,
+    }
 }
 
 /// The track key of a content-list track row, keyed by the Library track
@@ -3523,26 +3564,6 @@ impl<'a> LibraryTrackRowVm<'a> {
             .as_deref()
             .unwrap_or("[untitled]")
             .to_string()
-    }
-
-    /// Leading zero-padded tree-row number, empty when there is no track
-    /// number.
-    #[must_use]
-    pub(crate) fn tree_number_prefix(&self) -> String {
-        self.track
-            .track_number
-            .map(|n| format!("{n:02} - "))
-            .unwrap_or_default()
-    }
-
-    /// Complete display contract for the track row inside the Library
-    /// sidebar tree.
-    #[must_use]
-    pub(crate) fn tree_display(&self) -> LibraryTreeTrackDisplay {
-        LibraryTreeTrackDisplay {
-            element_id: format!("tree-track-{}", self.track.id),
-            title: format!("{}{}", self.tree_number_prefix(), self.compact_title()),
-        }
     }
 
     /// Artist grouping label:
@@ -4682,11 +4703,6 @@ mod tests {
             [("library", None), ("index", Some("New"))],
             "all filter should show library and index rows with VM-owned state labels"
         );
-        assert_eq!(
-            page.empty_state(),
-            None,
-            "all filter should not show an empty state when rows exist"
-        );
     }
 
     #[test]
@@ -4837,15 +4853,6 @@ mod tests {
             page.visible_rows().is_empty(),
             "library source filter should hide matching index text"
         );
-        assert_eq!(
-            page.empty_state(),
-            Some(ContentListEmptyStateDisplay {
-                title: "No library content",
-                secondary: "No local rows match this frame filter.",
-                clear_filter_action_id: Some("content-list.clear-filter"),
-            }),
-            "empty state should still reflect the active source filter"
-        );
     }
 
     #[test]
@@ -4925,24 +4932,6 @@ mod tests {
             row.thumbnail_href(),
             Some("saw.jpg"),
             "Situational ADR 0062 content-list artwork guard: tree-derived rows should carry AlbumNode image_href into the shared row contract"
-        );
-    }
-
-    #[test]
-    fn content_list_page_vm_projects_empty_filter_state() {
-        let mut page =
-            ContentListPageVm::new(vec![content_row("library", ContentListRowSource::Library)]);
-
-        page.set_filter(ContentFilter::Index);
-
-        assert_eq!(
-            page.empty_state(),
-            Some(ContentListEmptyStateDisplay {
-                title: "No index content",
-                secondary: "No index rows match this frame filter.",
-                clear_filter_action_id: Some("content-list.clear-filter"),
-            }),
-            "filtering away every row should surface an empty-filter state"
         );
     }
 
@@ -5201,27 +5190,6 @@ mod tests {
         let mut r = row();
         r.track_number = Some(7);
         assert_eq!(LibraryTrackRowVm::new(&r, None).number_prefix(), "7. ");
-    }
-
-    #[test]
-    fn tree_number_prefix_preserves_legacy_zero_padded_display() {
-        assert_eq!(
-            LibraryTrackRowVm::new(&row(), None).tree_number_prefix(),
-            ""
-        );
-
-        let mut r = row();
-        r.track_number = Some(0);
-        assert_eq!(
-            LibraryTrackRowVm::new(&r, None).tree_number_prefix(),
-            "00 - "
-        );
-
-        r.track_number = Some(7);
-        assert_eq!(
-            LibraryTrackRowVm::new(&r, None).tree_number_prefix(),
-            "07 - "
-        );
     }
 
     #[test]
@@ -6369,12 +6337,9 @@ mod tests {
     }
 
     #[test]
-    fn library_view_model_starts_with_playlists_expanded_and_default_sort() {
+    fn library_view_model_starts_with_default_sort() {
         let vm = LibraryViewModel::new();
-        assert!(vm.playlists_expanded);
         assert_eq!(vm.playlist_sort, PlaylistSort::Name);
-        assert!(vm.expanded_artists.is_empty());
-        assert!(vm.expanded_albums.is_empty());
     }
 
     #[test]
@@ -6385,7 +6350,6 @@ mod tests {
         assert_eq!(vm.hovered_thumb_url, None);
         assert_eq!(vm.busy_track, None);
         assert!(vm.status.is_empty());
-        assert!(vm.search_query.is_empty());
         assert!(!vm.creating_playlist);
     }
 
@@ -6404,84 +6368,19 @@ mod tests {
     }
 
     #[test]
-    fn library_view_model_tree_projection_uses_saved_expansion_without_query() {
-        let mut vm = LibraryViewModel::new();
-        vm.replace_tree(library_tree());
-        vm.toggle_artist("Aphex Twin");
-        vm.toggle_album("Aphex Twin", "Selected Ambient Works");
-
-        let projection = vm.tree_projection();
-
-        assert_eq!(projection.tree.artists.len(), 2);
-        assert!(projection.expanded_artists.contains("Aphex Twin"));
-        assert!(projection
-            .expanded_albums
-            .contains(&("Aphex Twin".into(), "Selected Ambient Works".into())));
-    }
-
-    #[test]
-    fn library_view_model_tree_projection_filters_tracks_and_expands_matches() {
-        let mut vm = LibraryViewModel::new();
-        vm.replace_tree(library_tree());
-        vm.apply_search_query("  cliff  ");
-
-        let projection = vm.tree_projection();
-
-        assert_eq!(projection.tree.artists.len(), 1);
-        assert_eq!(projection.tree.artists[0].name, "Aphex Twin");
-        assert_eq!(projection.tree.artists[0].albums.len(), 1);
-        assert_eq!(
-            projection.tree.artists[0].albums[0].tracks[0]
-                .track_title
-                .as_deref(),
-            Some("Cliffs")
-        );
-        assert!(projection.expanded_artists.contains("Aphex Twin"));
-        assert!(projection
-            .expanded_albums
-            .contains(&("Aphex Twin".into(), "Selected Ambient Works".into())));
-    }
-
-    #[test]
-    fn library_view_model_tree_projection_album_match_keeps_all_album_tracks() {
-        let mut vm = LibraryViewModel::new();
-        vm.replace_tree(library_tree());
-        vm.apply_search_query("ambient");
-
-        let projection = vm.tree_projection();
-
-        assert_eq!(projection.tree.artists.len(), 1);
-        assert_eq!(projection.tree.artists[0].albums.len(), 1);
-        assert_eq!(projection.tree.artists[0].albums[0].tracks.len(), 2);
-    }
-
-    #[test]
     fn library_view_model_content_filter_does_not_filter_source_tree() {
         let mut vm = LibraryViewModel::new();
         vm.replace_tree(library_tree());
 
         vm.set_content_filter(ContentFilter::Index);
-        let projection = vm.tree_projection();
-
         assert_eq!(
-            projection.tree.artists.len(),
+            vm.tree().artists.len(),
             2,
             "content-source filters must not hide local Library source-tree rows"
         );
-        assert_eq!(
-            vm.content_filter_empty_state(),
-            Some(ContentListEmptyStateDisplay {
-                title: "No index content",
-                secondary: "No index rows match this frame filter.",
-                clear_filter_action_id: Some("content-list.clear-filter"),
-            }),
-            "empty-filter state should be owned by the content-list page VM"
-        );
 
         vm.set_content_filter(ContentFilter::Library);
-        let projection = vm.tree_projection();
-
-        assert_eq!(projection.tree.artists.len(), 2);
+        assert_eq!(vm.tree().artists.len(), 2);
         assert_eq!(
             vm.content_library_filter_control().current.filter,
             ContentFilter::Library,
@@ -6518,7 +6417,7 @@ mod tests {
             ],
         };
 
-        vm.replace_broadcast_readiness_report(&report);
+        vm.show_needs_attention_report(&report);
 
         assert_eq!(
             vm.content_list_page.source(),
@@ -6669,7 +6568,7 @@ mod tests {
                 "Embedded MusicIndex Value Routes tag is missing.",
             )],
         };
-        vm.replace_broadcast_readiness_report(&report);
+        vm.show_needs_attention_report(&report);
 
         assert!(vm.begin_broadcast_route_repair(7));
 
@@ -6736,121 +6635,6 @@ mod tests {
             ContentViewMode::List,
             "Situational ADR 0062 content-list view mode guard: LibraryViewModel should project the selected mode into chrome display"
         );
-    }
-
-    #[test]
-    fn library_view_model_source_text_filter_trims_and_clears_selection() {
-        let mut vm = LibraryViewModel::new();
-        vm.replace_tree(library_tree());
-        vm.select_library_item(99);
-
-        vm.set_source_text_filter(Some("  ambient  ".to_string()));
-
-        assert_eq!(vm.search_query(), "ambient");
-        assert_eq!(vm.selected_id(), None);
-        assert_eq!(
-            vm.tree_projection().tree.artists[0].albums[0].tracks.len(),
-            2,
-            "source-list text filter should reuse existing tree query projection"
-        );
-
-        vm.set_source_text_filter(Some("   ".to_string()));
-
-        assert_eq!(vm.search_query(), "");
-        assert_eq!(
-            vm.tree_projection().tree.artists.len(),
-            2,
-            "whitespace source-list filter should clear the query"
-        );
-    }
-
-    #[test]
-    fn library_tree_artist_display_projects_row_chrome() {
-        let tree = library_tree();
-        let artist = &tree.artists[0];
-
-        let expanded = artist.tree_display(true);
-        assert_eq!(expanded.element_id, "artist-Aphex Twin");
-        assert_eq!(expanded.title, "Aphex Twin");
-        assert!(expanded.expanded);
-        assert_eq!(expanded.album_count_label, "(2 albums)");
-
-        let collapsed = artist.tree_display(false);
-        assert!(!collapsed.expanded);
-    }
-
-    #[test]
-    fn library_tree_album_display_projects_row_chrome() {
-        let tree = library_tree();
-        let album = &tree.artists[0].albums[0];
-
-        let expanded = album.tree_display("Aphex Twin", true);
-        assert_eq!(
-            expanded.element_id,
-            "album-Aphex Twin-Selected Ambient Works"
-        );
-        assert_eq!(expanded.title, "Selected Ambient Works");
-        assert!(expanded.expanded);
-        assert_eq!(expanded.track_count_label, "(2)");
-
-        let collapsed = album.tree_display("Aphex Twin", false);
-        assert!(!collapsed.expanded);
-    }
-
-    #[test]
-    fn library_tree_track_display_projects_id_and_prefixed_title() {
-        let mut track = row();
-        track.id = 42;
-        track.track_number = Some(7);
-        track.track_title = Some("Pulsewidth".into());
-
-        let display = LibraryTrackRowVm::new(&track, None).tree_display();
-
-        assert_eq!(display.element_id, "tree-track-42");
-        assert_eq!(display.title, "07 - Pulsewidth");
-    }
-
-    #[test]
-    fn library_view_model_apply_search_query_clears_track_selection() {
-        let mut vm = LibraryViewModel::new();
-        vm.select_library_item(99);
-
-        vm.apply_search_query("aphex");
-
-        assert_eq!(vm.selected_id(), None);
-        assert_eq!(vm.search_query(), "aphex");
-    }
-
-    #[test]
-    fn library_view_model_toggle_artist_round_trip() {
-        let mut vm = LibraryViewModel::new();
-        assert!(!vm.is_artist_expanded("Aphex"));
-        vm.toggle_artist("Aphex");
-        assert!(vm.is_artist_expanded("Aphex"));
-        vm.toggle_artist("Aphex");
-        assert!(!vm.is_artist_expanded("Aphex"));
-    }
-
-    #[test]
-    fn library_view_model_toggle_album_keys_on_artist_and_album() {
-        let mut vm = LibraryViewModel::new();
-        vm.toggle_album("Aphex", "SAW II");
-        assert!(vm.is_album_expanded("Aphex", "SAW II"));
-        // Different (artist, album) combination is independent.
-        assert!(!vm.is_album_expanded("Aphex", "Drukqs"));
-        assert!(!vm.is_album_expanded("Other", "SAW II"));
-        vm.toggle_album("Aphex", "SAW II");
-        assert!(!vm.is_album_expanded("Aphex", "SAW II"));
-    }
-
-    #[test]
-    fn library_view_model_toggle_playlists_expanded_flips_flag() {
-        let mut vm = LibraryViewModel::new();
-        assert!(vm.playlist_sidebar().expanded);
-        vm.toggle_playlists_expanded();
-        assert!(!vm.playlist_sidebar().expanded);
-        vm.toggle_playlists_expanded();
-        assert!(vm.playlist_sidebar().expanded);
     }
 
     #[test]
@@ -6923,7 +6707,6 @@ mod tests {
         assert_eq!(sidebar.add_button_id, "playlists-add");
         assert_eq!(sidebar.new_playlist_input_id, "playlist-new-input");
         assert_eq!(sidebar.new_playlist_add_button_id, "playlist-add-btn");
-        assert!(sidebar.expanded);
         assert_eq!(sidebar.heading, "Playlists");
         assert_eq!(sidebar.sort_label, "A–Z");
         assert_eq!(sidebar.add_label, "+");
@@ -6936,6 +6719,162 @@ mod tests {
         assert_eq!(sidebar.rows[0].track_count_label, "(3)");
         assert!(!sidebar.rows[0].selected);
         assert!(sidebar.rows[1].selected);
+    }
+
+    /// D5-01: the view model gives the six destinations in Decision 2
+    /// order, each with a label, a named icon, a tooltip and an
+    /// accessibility label.
+    #[test]
+    fn adr_0084_destinations_d5_01_destination_rows_are_in_sidebar_order_with_full_display_data() {
+        let vm = LibraryViewModel::new();
+        let rows = vm.destination_rows();
+
+        assert_eq!(
+            rows.iter().map(|row| row.destination).collect::<Vec<_>>(),
+            vec![
+                MusicDestination::Discover,
+                MusicDestination::Releases,
+                MusicDestination::Artists,
+                MusicDestination::Tracks,
+                MusicDestination::NeedsAttention,
+                MusicDestination::Playlists,
+            ]
+        );
+        for row in &rows {
+            assert_eq!(row.label, row.destination.label());
+            assert!(!row.element_id.is_empty());
+            assert!(!row.tooltip.is_empty());
+            assert!(!row.a11y_label.is_empty());
+        }
+        assert_eq!(
+            rows[0].icon,
+            MusicDestinationIcon::Discover,
+            "Discover must carry its named icon"
+        );
+        assert_eq!(rows[4].icon, MusicDestinationIcon::Warning);
+    }
+
+    /// D5-06: with a Needs attention count, the collapsed destination
+    /// exposes a mark, and its tooltip and its accessibility label give
+    /// the count. Without a count, no mark shows.
+    #[test]
+    fn adr_0084_destinations_d5_06_needs_attention_mark_and_count_text() {
+        let mut vm = LibraryViewModel::new();
+        let before = vm.destination_rows();
+        let needs_attention = &before[4];
+        assert_eq!(
+            needs_attention.destination,
+            MusicDestination::NeedsAttention
+        );
+        assert!(!needs_attention.shows_attention_mark);
+        assert_eq!(needs_attention.count, Some(0));
+
+        let report = BroadcastReadinessReport {
+            summary: crate::application::queries::broadcast::BroadcastReadinessSummary {
+                no_route_tag: 2,
+                ..Default::default()
+            },
+            tracks: Vec::new(),
+        };
+        vm.refresh_needs_attention_report(&report);
+
+        let after = vm.destination_rows();
+        let needs_attention = &after[4];
+        assert!(needs_attention.shows_attention_mark);
+        assert_eq!(needs_attention.count, Some(2));
+        assert!(needs_attention.tooltip.contains('2'));
+        assert!(needs_attention.a11y_label.contains('2'));
+    }
+
+    /// D5-04: the Playlists destination list gives the playlist count as
+    /// its row count, used by the sidebar destination row too.
+    #[test]
+    fn adr_0084_destinations_d5_04_playlists_destination_count_tracks_loaded_playlists() {
+        let mut vm = LibraryViewModel::new();
+        let mut alpha = playlist("Alpha");
+        alpha.id = 10;
+        vm.replace_playlists(vec![alpha]);
+
+        let rows = vm.destination_rows();
+        assert_eq!(rows[5].destination, MusicDestination::Playlists);
+        assert_eq!(rows[5].count, Some(1));
+    }
+
+    /// D5-07: the collapse button has a typed action, an accessibility
+    /// label and a tooltip, each from the view model, and the next
+    /// preference is always the opposite of the resolved state.
+    #[test]
+    fn adr_0084_destinations_d5_07_collapse_button_is_typed_from_the_view_model() {
+        let expanded_button =
+            LibraryViewModel::sidebar_collapse_button(MusicSidebarState::Expanded);
+        assert_eq!(
+            expanded_button.next_preference,
+            MusicSidebarPreference::Collapsed
+        );
+        assert!(!expanded_button.a11y_label.is_empty());
+        assert!(!expanded_button.tooltip.is_empty());
+
+        let collapsed_button =
+            LibraryViewModel::sidebar_collapse_button(MusicSidebarState::Collapsed);
+        assert_eq!(
+            collapsed_button.next_preference,
+            MusicSidebarPreference::Expanded
+        );
+        assert_ne!(collapsed_button.a11y_label, expanded_button.a11y_label);
+    }
+
+    /// D5-04: the Releases destination list gives one row for each Library
+    /// release, by name, keyed so a row opens its release page.
+    #[test]
+    fn adr_0084_destinations_d5_04_releases_list_is_sorted_by_name_with_release_targets() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+
+        let rows = vm.releases_list();
+
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Selected Ambient Works", "Tri Repetae", "Windowlicker"],
+            "releases must sort by name"
+        );
+        assert_eq!(rows[0].secondary_text, "Aphex Twin");
+        assert_eq!(rows[0].thumbnail_href, Some("saw.jpg".to_string()));
+        assert_eq!(
+            rows[0].open,
+            DestinationListRowTarget::Release(ReleaseKey::from_index_feed_guid("saw-guid")),
+            "a release with a feed GUID must key by it, like the Index route"
+        );
+        assert_eq!(
+            rows[2].open,
+            DestinationListRowTarget::Release(ReleaseKey::LibraryFeed(20)),
+            "a release with no feed GUID must key by its Library feed id"
+        );
+    }
+
+    /// D5-04: the Artists destination list gives one row for each Library
+    /// artist, by name, keyed so a row opens its artist page.
+    #[test]
+    fn adr_0084_destinations_d5_04_artists_list_is_sorted_by_name_with_artist_targets() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+
+        let rows = vm.artists_list();
+
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Aphex Twin", "Autechre"],
+            "artists must sort by name"
+        );
+        assert_eq!(
+            rows[0].open,
+            DestinationListRowTarget::Artist("Aphex Twin".to_string())
+        );
+        assert_eq!(rows[0].secondary_text, "2 albums");
+        assert_eq!(rows[1].secondary_text, "1 album");
     }
 
     #[test]
@@ -7019,20 +6958,9 @@ mod tests {
     }
 
     #[test]
-    fn library_view_model_playlist_sidebar_reflects_collapsed_state() {
-        let mut vm = LibraryViewModel::new();
-        vm.toggle_playlists_expanded();
-
-        let sidebar = vm.playlist_sidebar();
-
-        assert!(!sidebar.expanded);
-    }
-
-    #[test]
     fn library_chrome_display_projects_shell_labels() {
         let display = LibraryViewModel::chrome_display();
         assert_eq!(display.search_button_id, "lib-search-btn");
-        assert_eq!(display.list_scroll_id, "library-list");
         assert_eq!(display.artist_detail_scroll_id, "artist-detail-scroll");
         assert_eq!(display.playlist_detail_scroll_id, "playlist-detail-scroll");
         assert_eq!(display.track_detail_scroll_id, "track-detail-scroll");
@@ -7043,7 +6971,6 @@ mod tests {
         );
         assert_eq!(display.search_heading, "Search Library");
         assert_eq!(display.search_button_label, "Search");
-        assert_eq!(display.empty_library_label, "No library tracks yet");
         assert_eq!(display.empty_detail_label, "Select an item in the list.");
     }
 
@@ -7056,14 +6983,12 @@ mod tests {
 
         assert_eq!(status.text, "Error: offline");
         assert!(status.is_error);
-        assert!(!vm.should_show_empty_library(true));
 
         let mut vm = LibraryViewModel::new();
         vm.finish_library_reload(0);
         let status = vm.status_snapshot();
         assert_eq!(status.text, "0 library tracks");
         assert!(!status.is_error);
-        assert!(vm.should_show_empty_library(true));
     }
 
     #[test]
@@ -7624,12 +7549,6 @@ mod tests {
             LibraryViewModel::album_thumb_display(),
             AlbumThumbDisplay {
                 fallback_icon: "\u{1F3B5}",
-            }
-        );
-        assert_eq!(
-            LibraryViewModel::hover_thumb_display("https://example.test/a.png"),
-            HoverThumbDisplay {
-                element_id: "thumb-https://example.test/a.png".into(),
             }
         );
     }

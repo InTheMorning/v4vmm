@@ -41,8 +41,8 @@ use crate::view_models::settings::{SettingsAction, SettingsVm};
 use crate::view_models::show::{EventSectionInput, ShowCommandState, ShowPageVm};
 use crate::view_models::workspace::{
     ContentFilter, ContentViewMode, FilterChipStripWidthClass, FrameNavigationEntry,
-    FrameNavigationState, NavigationPathStart, ReleasePageSource, TrackPageSource,
-    WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+    FrameNavigationState, MusicDestination, NavigationPathStart, ReleasePageSource,
+    TrackPageSource, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
     WorkspaceLayoutConfig,
 };
 
@@ -592,7 +592,9 @@ impl TopApp {
                     .is_some_and(|nav| matches!(nav.current(), FrameNavigationEntry::Settings));
                 if restoring_from_settings {
                     let nav = self.last_music_content_nav.clone().unwrap_or_else(|| {
-                        FrameNavigationState::new(FrameNavigationEntry::SourceList)
+                        FrameNavigationState::new(FrameNavigationEntry::Destination(
+                            MusicDestination::Discover,
+                        ))
                     });
                     if let Err(error) = self.workspace_layout.replace_nav(content_list_id, nav) {
                         self.settings_status = format!("Error switching tabs: {error}");
@@ -600,18 +602,15 @@ impl TopApp {
                 }
 
                 self.sync_search_results_detail_with_nav(content_list_id);
-                let entry = self
-                    .workspace_layout
-                    .frame_nav(content_list_id)
-                    .map_or(FrameNavigationEntry::SourceList, |nav| {
-                        nav.current().clone()
-                    });
+                let entry = self.workspace_layout.frame_nav(content_list_id).map_or(
+                    FrameNavigationEntry::Destination(MusicDestination::Discover),
+                    |nav| nav.current().clone(),
+                );
                 self.library.update(cx, |library, cx| {
                     if !matches!(
                         entry,
                         FrameNavigationEntry::Search(_)
-                            | FrameNavigationEntry::ReadinessIssues
-                            | FrameNavigationEntry::SourceList
+                            | FrameNavigationEntry::Destination(_)
                             | FrameNavigationEntry::Settings
                     ) {
                         library.hydrate_detail_from_nav(&entry, cx);
@@ -725,8 +724,9 @@ impl TopApp {
     }
 
     /// Opens a Music page in the one navigation stack (ADR 0084 Decision 9).
-    /// A new path starts at the Library root. The page restores through the
-    /// function that Back and Forward use.
+    /// A new path starts at `entry` itself, a destination
+    /// (ADR 0084 Decision 2). The page restores through the function that
+    /// Back and Forward use.
     fn open_music_page(
         &mut self,
         entry: &FrameNavigationEntry,
@@ -737,11 +737,10 @@ impl TopApp {
             return;
         };
         let changed = match start {
-            NavigationPathStart::NewPath => self.workspace_layout.start_nav_path(
-                content_list_id,
-                FrameNavigationEntry::SourceList,
-                Some(entry.clone()),
-            ),
+            NavigationPathStart::NewPath => {
+                self.workspace_layout
+                    .start_nav_path(content_list_id, entry.clone(), None)
+            }
             NavigationPathStart::CurrentPath => self
                 .workspace_layout
                 .push_nav(content_list_id, entry.clone()),
@@ -950,10 +949,11 @@ impl TopApp {
         };
         let content_list_id =
             saved_id(WorkspaceFrameKind::ContentList).unwrap_or(WORKSPACE_CONTENT_FRAME_ID);
+        let list_title = Self::music_list_frame_title(layout, content_list_id);
         let mut frames = vec![WorkspaceFrameState::new(
             content_list_id,
             WorkspaceFrameKind::ContentList,
-            "Library",
+            list_title,
         )];
         let source_list_id = saved_id(WorkspaceFrameKind::SourceList)
             .unwrap_or_else(|| Self::unused_workspace_frame_id(&frames, WorkspaceFrameId::new(1)));
@@ -1012,7 +1012,7 @@ impl TopApp {
         };
 
         match nav.current() {
-            FrameNavigationEntry::SourceList | FrameNavigationEntry::Settings => {
+            FrameNavigationEntry::Destination(_) | FrameNavigationEntry::Settings => {
                 Self::root_content_frame_title()
             }
             FrameNavigationEntry::Search(_) => "Search Results".to_string(),
@@ -1026,8 +1026,22 @@ impl TopApp {
             // "Artist". The entry names no artist.
             FrameNavigationEntry::IndexNameMatches(_) => "Tracks matching".to_string(),
             FrameNavigationEntry::PublisherDetail(_) => "Publisher".to_string(),
-            FrameNavigationEntry::ReadinessIssues => "Broadcast Readiness".to_string(),
             FrameNavigationEntry::QueueNowPlaying => "Queue".to_string(),
+        }
+    }
+
+    /// Gives the Music list column's title: the destination name, or
+    /// "Search Results" while the location starts from a search (ADR 0084
+    /// Decision 2). The list column shows the root of the location, not
+    /// its current page.
+    fn music_list_frame_title(layout: &WorkspaceLayout, frame_id: WorkspaceFrameId) -> String {
+        let Some(nav) = layout.frame_nav(frame_id) else {
+            return Self::root_content_frame_title();
+        };
+        match nav.root() {
+            FrameNavigationEntry::Destination(destination) => destination.label().to_string(),
+            FrameNavigationEntry::Search(_) => "Search Results".to_string(),
+            _ => Self::root_content_frame_title(),
         }
     }
 
@@ -1465,27 +1479,51 @@ impl TopApp {
                     filter_chip_width_class,
                     cx,
                 )
-                .source_list_slot(self.library_sidebar_view.clone());
+                .source_list_slot(self.library_sidebar_view.clone())
+                .source_list_sidebar_preference(self.library.read(cx).sidebar_preference());
         } else if matches!(mount, WorkspaceScreenMount::Music) {
-            let library_filter_control = self.library.read(cx).content_library_filter_control();
-            let content_view_mode_control = self.library.read(cx).content_view_mode_control();
-            let content_filter_entity = entity.clone();
-            let content_view_mode_entity = entity.clone();
             workspace_slots = workspace_slots
                 .source_list_slot(self.library_sidebar_view.clone())
-                .content_list(self.library_list_view.clone())
-                .content_list_library_filter_control(library_filter_control)
-                .content_list_view_mode_control(content_view_mode_control)
-                .on_content_list_filter_select(move |filter, _window, cx| {
-                    content_filter_entity.update(cx, |this, cx| {
-                        this.set_frame_filter(content_frame_id, filter, cx);
+                .source_list_sidebar_preference(self.library.read(cx).sidebar_preference())
+                .content_list(self.library_list_view.clone());
+            // ADR 0084 Decision 2: Releases, Artists, and Playlists read
+            // straight from the Library tree and the loaded playlists, not
+            // through the content-list page view model, so its filter and
+            // view-mode chrome would control nothing there. Tracks has no
+            // filter control; Discover and Needs attention keep both.
+            let destination = self.library.read(cx).active_destination();
+            let shows_library_filter_control = matches!(
+                destination,
+                MusicDestination::Discover | MusicDestination::NeedsAttention
+            );
+            let shows_generic_content_controls = matches!(
+                destination,
+                MusicDestination::Discover
+                    | MusicDestination::Tracks
+                    | MusicDestination::NeedsAttention
+            );
+            if shows_generic_content_controls {
+                let content_view_mode_control = self.library.read(cx).content_view_mode_control();
+                let content_view_mode_entity = entity.clone();
+                workspace_slots = workspace_slots
+                    .content_list_view_mode_control(content_view_mode_control)
+                    .on_content_list_view_mode_select(move |view_mode, _window, cx| {
+                        content_view_mode_entity.update(cx, |this, cx| {
+                            this.set_content_list_view_mode(view_mode, cx);
+                        });
                     });
-                })
-                .on_content_list_view_mode_select(move |view_mode, _window, cx| {
-                    content_view_mode_entity.update(cx, |this, cx| {
-                        this.set_content_list_view_mode(view_mode, cx);
+            }
+            if shows_library_filter_control {
+                let library_filter_control = self.library.read(cx).content_library_filter_control();
+                let content_filter_entity = entity.clone();
+                workspace_slots = workspace_slots
+                    .content_list_library_filter_control(library_filter_control)
+                    .on_content_list_filter_select(move |filter, _window, cx| {
+                        content_filter_entity.update(cx, |this, cx| {
+                            this.set_frame_filter(content_frame_id, filter, cx);
+                        });
                     });
-                });
+            }
         }
 
         let breadcrumb_labels = self.content_list_breadcrumb_labels(content_frame_id, cx);

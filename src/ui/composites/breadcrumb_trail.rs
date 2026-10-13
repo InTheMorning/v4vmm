@@ -147,7 +147,7 @@ fn separator(color: gpui::Rgba) -> AnyElement {
 mod tests {
     use super::*;
     use crate::view_models::workspace::{
-        BreadcrumbSegment, BreadcrumbTruncation, FrameNavigationEntry, TrackKey,
+        BreadcrumbSegment, BreadcrumbTruncation, FrameNavigationEntry, MusicDestination, TrackKey,
     };
 
     fn test_breadcrumb_display() -> BreadcrumbDisplay {
@@ -158,7 +158,9 @@ mod tests {
                     id: "seg-0".to_string(),
                     label: "Library".to_string(),
                     a11y_label: "Library".to_string(),
-                    target: Some(FrameNavigationEntry::SourceList),
+                    target: Some(FrameNavigationEntry::Destination(
+                        MusicDestination::Discover,
+                    )),
                     is_current: false,
                 },
                 BreadcrumbSegment {
@@ -220,7 +222,9 @@ mod tests {
             id: "seg-current".to_string(),
             label: "Current".to_string(),
             a11y_label: "Current".to_string(),
-            target: Some(FrameNavigationEntry::SourceList),
+            target: Some(FrameNavigationEntry::Destination(
+                MusicDestination::Discover,
+            )),
             is_current: true,
         };
         // Current segment should render as plain text even with target and handler
@@ -233,7 +237,9 @@ mod tests {
             id: "seg-button".to_string(),
             label: "Navigate".to_string(),
             a11y_label: "Navigate to Library".to_string(),
-            target: Some(FrameNavigationEntry::SourceList),
+            target: Some(FrameNavigationEntry::Destination(
+                MusicDestination::Discover,
+            )),
             is_current: false,
         };
         // This segment has target, no is_current, and would render as button if handler present

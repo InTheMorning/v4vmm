@@ -63,6 +63,12 @@ pub const MUSIC_DETAIL_MIN_WIDTH: Pixels = px(360.0);
 /// ADR 0084 Decision 1: below this width, Music shows the sidebar and one
 /// more column, not all three.
 pub const MUSIC_SINGLE_COLUMN_BREAKPOINT: Pixels = px(940.0);
+/// ADR 0084 Decision 1: the Music sidebar column's collapsed width, each
+/// destination as an icon only.
+pub const MUSIC_SIDEBAR_COLLAPSED_WIDTH: Pixels = px(56.0);
+/// ADR 0084 Decision 1: below this width, the `Auto` sidebar preference
+/// collapses the sidebar to icons.
+pub const MUSIC_SIDEBAR_COLLAPSE_BREAKPOINT: Pixels = px(1100.0);
 
 #[must_use]
 pub fn scaled_dimension(base: Pixels, cx: &App) -> Pixels {

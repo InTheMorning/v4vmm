@@ -163,6 +163,7 @@ The operator asked on 2026-10-08 for a later phase that tunes how fast the app r
 6. 2026-10-08: "Download album" and "Copy feed URL" on an Index track page first read the album feed from MusicIndex. Nothing on the page shows that read (`download_index_album_of_track` and `copy_index_feed_url_of_track` in `src/app/search_dispatch.rs`). Their results show only in `settings_status`.
 7. 2026-10-08: the toolbar search shows no state for an unreachable MusicIndex before it sends the request. A failure shows only after the request (flow map, job 1).
 8. 2026-10-08: multiple selection (Phase 4A) adds downloads of many releases at one time. The action bar needs a progress state for the whole selection.
+9. 2026-10-12: the Needs attention count runs the broadcast readiness report on the UI thread after each Library event that can change it: load, feed check, repair, download and removal. The report reads the database and examines each track file (`refresh_current_broadcast_readiness_report` in `src/library/app_impl.rs`, ADR 0084 task 005).
 
 ## Visual Requirements Moved From Pending Checks - 2026-10-07
 

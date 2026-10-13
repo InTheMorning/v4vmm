@@ -43,7 +43,7 @@ use crate::view_models::show::{
     PublisherServiceOperation, PublisherServiceRole, ShowCardKind, ShowCommandId, ShowLogRequestId,
     ShowPageVm, StreamEncoderOperation, PUBLISHER_LOG_LINE_COUNT,
 };
-use crate::view_models::workspace::FrameNavigationEntry;
+use crate::view_models::workspace::{FrameNavigationEntry, MusicDestination};
 use crate::{config, db};
 
 use super::queue_now_playing::{queue_now_playing_vm, queue_transport_action};
@@ -1057,7 +1057,7 @@ impl TopApp {
             // one history entry.
             if let Err(error) = self.workspace_layout.start_nav_path(
                 content_list_id,
-                FrameNavigationEntry::ReadinessIssues,
+                FrameNavigationEntry::Destination(MusicDestination::NeedsAttention),
                 None,
             ) {
                 self.settings_status = format!("Error opening broadcast readiness: {error}");
@@ -1074,7 +1074,12 @@ impl TopApp {
             && self
                 .content_list_frame_id()
                 .and_then(|id| self.workspace_layout.frame_nav(id))
-                .is_some_and(|nav| matches!(nav.current(), FrameNavigationEntry::ReadinessIssues))
+                .is_some_and(|nav| {
+                    matches!(
+                        nav.current(),
+                        FrameNavigationEntry::Destination(MusicDestination::NeedsAttention)
+                    )
+                })
     }
 }
 

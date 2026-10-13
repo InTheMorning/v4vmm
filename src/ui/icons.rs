@@ -46,6 +46,16 @@ pub enum IconName {
     DragHandle,
     NotAllowed,
     Warning,
+    /// Discover destination (ADR 0084 Decision 1).
+    Discover,
+    /// Release destination and release rows (ADR 0084 Decision 1).
+    Release,
+    /// Artist destination (ADR 0084 Decision 1).
+    Artist,
+    /// Track destination (ADR 0084 Decision 1).
+    Track,
+    /// Playlist destination (ADR 0084 Decision 1).
+    Playlist,
 }
 
 impl IconName {
@@ -71,7 +81,12 @@ impl IconName {
             | Self::More
             | Self::DragHandle
             | Self::NotAllowed
-            | Self::Warning => None,
+            | Self::Warning
+            | Self::Discover
+            | Self::Release
+            | Self::Artist
+            | Self::Track
+            | Self::Playlist => None,
         }
     }
 
@@ -99,7 +114,12 @@ impl IconName {
             | Self::Previous
             | Self::Next
             | Self::DragHandle
-            | Self::NotAllowed => None,
+            | Self::NotAllowed
+            | Self::Discover
+            | Self::Release
+            | Self::Artist
+            | Self::Track
+            | Self::Playlist => None,
         }
     }
 
@@ -114,6 +134,12 @@ impl IconName {
             Self::Next => Some(LucideIconName::SkipForward),
             Self::DragHandle => Some(LucideIconName::GripVertical),
             Self::NotAllowed => Some(LucideIconName::Ban),
+            // ADR 0084 Decision 1: the destination icons.
+            Self::Discover => Some(LucideIconName::Compass),
+            Self::Release => Some(LucideIconName::Disc),
+            Self::Artist => Some(LucideIconName::Users),
+            Self::Track => Some(LucideIconName::Music),
+            Self::Playlist => Some(LucideIconName::ListMusic),
             Self::Add
             | Self::Back
             | Self::ChevronLeft
@@ -155,7 +181,12 @@ impl IconName {
             | Self::More
             | Self::DragHandle
             | Self::NotAllowed
-            | Self::Warning => None,
+            | Self::Warning
+            | Self::Discover
+            | Self::Release
+            | Self::Artist
+            | Self::Track
+            | Self::Playlist => None,
         }
     }
 }
@@ -326,7 +357,18 @@ fn nostr_icon_image() -> Arc<Image> {
 // bundle. The macro embeds only these SVG files, not all 1,830 icons.
 gpui_kit_assets::icon_assets!(
     ExtraLucideIcons,
-    [Square, SkipBack, SkipForward, GripVertical, Ban]
+    [
+        Square,
+        SkipBack,
+        SkipForward,
+        GripVertical,
+        Ban,
+        Compass,
+        Disc,
+        Users,
+        Music,
+        ListMusic
+    ]
 );
 
 /// The asset source this app registers at start.
@@ -386,6 +428,11 @@ mod tests {
         IconName::DragHandle,
         IconName::NotAllowed,
         IconName::Warning,
+        IconName::Discover,
+        IconName::Release,
+        IconName::Artist,
+        IconName::Track,
+        IconName::Playlist,
     ];
 
     /// R83-21: every `IconName` other than `Rss` and `Nostr` resolves to a
@@ -444,6 +491,17 @@ mod tests {
             Some(LucideIconName::GripVertical)
         );
         assert_eq!(IconName::NotAllowed.extra_icon(), Some(LucideIconName::Ban));
+        assert_eq!(
+            IconName::Discover.extra_icon(),
+            Some(LucideIconName::Compass)
+        );
+        assert_eq!(IconName::Release.extra_icon(), Some(LucideIconName::Disc));
+        assert_eq!(IconName::Artist.extra_icon(), Some(LucideIconName::Users));
+        assert_eq!(IconName::Track.extra_icon(), Some(LucideIconName::Music));
+        assert_eq!(
+            IconName::Playlist.extra_icon(),
+            Some(LucideIconName::ListMusic)
+        );
     }
 
     /// Confirms the asset source `bootstrap.rs` registers at app start
