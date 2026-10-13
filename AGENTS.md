@@ -19,14 +19,9 @@ Phase 3, the tokens, is complete. Phase 4, the Library, is in progress. Its firs
 and one album page for the Library and the Index, are complete. Phase 4A, flow and information architecture, decided the
 Music structure in [ADR 0084](docs/adr/0084-music-column-browser.md).
 
-Phase 4A packet 1, [one navigation stack](docs/tasks/archive/adr-0084-task-001-one-navigation-stack.md), is complete.
-Packet 2, one page for each item, is complete as
-[task 002](docs/tasks/archive/adr-0084-task-002-one-release-route.md) and
-[task 003](docs/tasks/archive/adr-0084-task-003-one-track-route.md).
-[ADR 0081 task 001](docs/tasks/archive/adr-0081-task-001-remove-the-staged-frame-model.md) is complete.
-[Task 004](docs/tasks/adr-0084-task-004-three-column-shell.md), the three-column shell, is implemented, and its visual
-check is open. The
-[ADR 0084 phase plan](docs/plans/adr-0084-music-column-browser-phase-plan.md) holds the order. Phase 4 and 5 packets carry the
+Phase 4A builds ADR 0084 in the packets of the
+[ADR 0084 phase plan](docs/plans/adr-0084-music-column-browser-phase-plan.md). Music has one navigation stack, one page
+for each item, and three columns. Task 005, the destinations sidebar, comes next. Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
 
 Each file in `docs/tasks/` is open: it is Ready, or it waits for an operator check. Finished tasks are in

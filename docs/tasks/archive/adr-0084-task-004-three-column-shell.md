@@ -1,6 +1,6 @@
 # ADR 0084 Task 004: The Three-Column Shell
 
-Status: Implementation recorded - 2026-10-12. The mechanical checks are Green. The operator visual check V1 to V6 is open.
+Status: Complete - 2026-10-12. The mechanical checks are Green. The operator passed V1 to V6, with V5a, on 2026-10-12.
 
 ## Goal
 
@@ -11,10 +11,10 @@ This packet builds the columns only. The sidebar keeps its present content. Task
 
 ## Authority
 
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 1, the column table, and Decision 9: Back and Forward show in the chrome of the detail column.
-- [ADR 0046](../adr/0046-workspace-frame-architecture.md) as ADR 0084 amends it: the Music frames are `SourceList`, `ContentList` and `Detail`. Invariant 5: the frame shell is shared.
-- [ADR 0081](../adr/0081-remove-the-staged-frame-model.md) Decision 2: a slot is added when a screen fills it. This packet fills the `SourceList` and `Detail` slots.
-- The durable set in [AGENTS.md](../../AGENTS.md): renderer portability, token discipline, typed action state, and "Current-view state must update in place".
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 1, the column table, and Decision 9: Back and Forward show in the chrome of the detail column.
+- [ADR 0046](../../adr/0046-workspace-frame-architecture.md) as ADR 0084 amends it: the Music frames are `SourceList`, `ContentList` and `Detail`. Invariant 5: the frame shell is shared.
+- [ADR 0081](../../adr/0081-remove-the-staged-frame-model.md) Decision 2: a slot is added when a screen fills it. This packet fills the `SourceList` and `Detail` slots.
+- The durable set in [AGENTS.md](../../../AGENTS.md): renderer portability, token discipline, typed action state, and "Current-view state must update in place".
 
 ## Recorded Facts - 2026-10-12
 
@@ -114,7 +114,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md), the [source map](../architecture/source-map.md), the [phase plan](../plans/adr-0084-music-column-browser-phase-plan.md) and the archived [task 003](archive/adr-0084-task-003-one-track-route.md).
+- [Agent rules](../../../AGENTS.md), the [source map](../../architecture/source-map.md), the [phase plan](../../plans/adr-0084-music-column-browser-phase-plan.md) and the archived [task 003](adr-0084-task-003-one-track-route.md).
 - `src/app.rs` (`render_workspace_content`, `render_workspace_screen_mount`, `visible_workspace_layout`, `content_list_frame_title`).
 - `src/ui/shells/workspace.rs`, `src/ui/composites/frame_shell.rs`, `src/view_models/workspace/chrome.rs`.
 - `src/library.rs`, `src/library/app_impl.rs` (`impl Render for LibraryApp`).
@@ -434,7 +434,7 @@ None. This check reads your Library. It creates no fixture, and it writes no fil
 
 ## Orchestrator Review - 2026-10-12
 
-The orchestrator reviewed the diff against ADR 0084, ADR 0081, this packet and the [review checklist](../reviews/adr-0084-review-checklist.md). The column layout, the column views and the detail chrome keep to the design.
+The orchestrator reviewed the diff against ADR 0084, ADR 0081, this packet and the [review checklist](../../reviews/adr-0084-review-checklist.md). The column layout, the column views and the detail chrome keep to the design.
 
 Nine points were corrected in review:
 
