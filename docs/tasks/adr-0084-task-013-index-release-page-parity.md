@@ -1,6 +1,6 @@
 # ADR 0084 Task 013: Index Release Page Parity
 
-Status: Ready - 2026-10-16.
+Status: Implemented - 2026-10-16. Mechanical checks Green. The operator visual check (V1 to V6) is open.
 
 ## Goal
 
@@ -209,3 +209,198 @@ Stop and report the problem, and do not guess, when:
 - A fourth caller of `DisclosureTextPanel` exists, or a caller needs a state that "Design" does not give.
 - The preview needs a renderer measurement, not the view-model estimate.
 - A change needs a file in "Do not touch".
+
+## Implementation Result - 2026-10-16
+
+Each Required Change is done.
+
+### Files Changed
+
+- `src/view_models/library.rs`:
+  - Adds `DESCRIPTION_CHARS_PER_LINE`, `DescriptionShowMoreDisplay` and
+    `DescriptionDisclosureDisplay`, with its `project` method. Adds the private
+    `description_preview` function.
+  - Changes `description_line_count`. It now sums each line's estimated wrapped lines,
+    `ceil(chars / DESCRIPTION_CHARS_PER_LINE)` with a minimum of one, not a plain count of
+    source lines.
+  - Adds `keyed_description_state` and `toggle_keyed_description_state`. These two pure
+    functions read and toggle a disclosure state by its key, with no GPUI type.
+  - Adds tests R13-01 to R13-04.
+- `src/ui/composites/disclosure_group.rs`:
+  - Changes `DisclosureTextPanelDisplay`. Field `body` is now `Option<SharedString>`. A new
+    field, `show_more`, holds an optional label pair.
+  - The `DisclosureTextPanel` render method shows the body only when it is present. It adds a
+    "Show more" button, styled `ControlStyle::Ghost`, when `show_more` is present. The button's
+    click calls the same `on_toggle` handler as the header.
+  - Updates two existing tests for the new fields. Adds one test for `show_more`.
+- `src/ui/shells/library/feed_detail.rs`: The Library release page's description panel now reads
+  `DescriptionDisclosureDisplay::project`, not a raw `collapsed`/`body` pair.
+- `src/ui/shells/library/track_detail.rs`: The Library track page's description panel now reads
+  `DescriptionDisclosureDisplay::project`, by the same change.
+- `src/app/search_dispatch.rs`:
+  - `index_feed_track_rows` sets `ReleaseTrackRowSlot::on_click` on each row with a track GUID.
+    The click opens the track's page in the content-list frame, with the track title as its
+    label. A row with no track GUID keeps no click. The new pure function
+    `index_track_row_click_key` builds its `TrackKey`, or gives `None` with no track GUID.
+  - `index_feed_description_panel` is now a `TopApp` method. It reads the Index release
+    description state, projects it with `DescriptionDisclosureDisplay::project`, and gives the
+    panel an `on_toggle` handler.
+  - `index_track_detail_slots` sets `description_panel` through the new
+    `index_track_description_panel` method, by the same pattern. The new free function
+    `index_track_description_target` builds its state key: the Index activation target of the
+    track.
+  - Adds `index_release_description_state`, `toggle_index_release_description`,
+    `index_track_description_state` and `toggle_index_track_description`. These are thin `TopApp`
+    wrappers around the pure functions in `src/view_models/library.rs`.
+  - Adds test R13-05.
+- `src/app.rs`: Adds two `TopApp` fields, `index_release_description_states` and
+  `index_track_description_states`. Each field is a `BTreeMap<String, DescriptionState>` that
+  lives for the session only. Adds their construction in `TopApp::new`.
+- `tests/architecture_tests.rs`: Updates
+  `adr_0047_phase_c_inspector_rewire_uses_vm_state_and_shared_disclosures`. Its required string for
+  `track_detail.rs` changes from the retired `description_state.is_visible()` call to the new
+  `DescriptionDisclosureDisplay::project(` call, since Required Change 3 replaces that call site.
+  Adds `adr_0084_index_page_r13_06_track_row_click_and_description_toggle_are_wired` (R13-06).
+
+### Behavior Changed
+
+- A click on a track row of an Index release page now opens that track's page, the same as a
+  click on a Library row. Back returns to the release page.
+- The Description section's header, and its "show" or "hide" word, now open and close the
+  section on an Index release page. Before this change, a click there did nothing.
+- A long description that is collapsed now shows its first lines, with a "Show more" button at
+  the end. This rule applies to a release page and a track page, for both origins, the Library
+  and the Index. Before this change, a Library page showed its full text with no preview. An
+  Index release page always showed its full text, with no collapse at all.
+- An Index track page now shows its description, with the same collapse rule. Before this change,
+  it showed no description.
+- `description_line_count` now counts a long paragraph with no line break as more than one line,
+  so it collapses too. Before this change, only a description with several source lines could
+  collapse.
+
+### Checks
+
+| Command | Result |
+|---|---|
+| `cargo test --lib adr_0084_index_page_` | Green, 5 tests |
+| `cargo test` | Green: 1,867 unit tests, 312 guards, 10 ignored doc tests |
+| `cargo test --test architecture_tests` | Green, 312 tests |
+| `cargo fmt -- --check` | Green |
+| `cargo clippy -- -D warnings` | Green |
+| `cargo check --all-targets` | Green, no warning |
+| `cargo build --bin v4vmm` | Green |
+
+### Deviations From The Task
+
+1. `tests/architecture_tests.rs` also updates
+   `adr_0047_phase_c_inspector_rewire_uses_vm_state_and_shared_disclosures`. Required Change 7 does
+   not name this guard by number. Required Change 3 replaces the `description_state.is_visible()`
+   call in `track_detail.rs` with `DescriptionDisclosureDisplay::project(`. The guard's old
+   required string no longer appears in that file. This fix is a direct, mechanical result of
+   Required Change 3, inside this packet's own scope.
+2. This packet does not record the open V1 to V6 gate in `docs/pending-human-checks.md` or in
+   `docs/plans/broadcast-chain-delivery-order.md`. AGENTS.md asks for an open visual gate to go in
+   both files. This packet's own rules name only this packet file as an editable document. Tasks
+   004, 005 and 006 recorded the same scope limit, in their own deviations.
+
+### Unresolved Concerns
+
+- The two files named in Deviation 2 still need the open V1 to V6 gate recorded, outside this
+  packet's own editable scope.
+- No person walked V1 to V6 yet. A green mechanical suite gives no evidence about them.
+
+## Operator Visual Check
+
+This check reads the app only. It needs a Linux desktop session, this checkout, and a reachable
+MusicIndex endpoint. It needs one Index release with a long description, and one Index release
+with a short description. A long description has more than 450 characters, or more than five
+source lines.
+
+"New releases" in Discover, or a search result, finds such releases. A release with long-form
+album notes commonly gives the long description. A release with one short line of liner notes
+commonly gives the short one.
+
+1. Close v4vmm. Make the binary.
+
+   ```bash
+   cd /home/citizen/build/v4vmm
+   cargo build --bin v4vmm
+   ```
+2. Open the app.
+
+   ```bash
+   target/debug/v4vmm
+   ```
+
+**V1 - a track row of an Index release page opens its track page**
+
+3. Open Discover. Open an Index release from "New releases" that is not in your Library.
+4. Click a track row.
+   - Correct: the detail column shows that track's page. The breadcrumb adds the track title.
+   - Incorrect: the click does nothing.
+5. Click Back in the detail column.
+   - Correct: the detail column returns to the release page.
+
+**V2 - a long description collapses, with "Show more"**
+
+6. Open the Index release with the long description.
+7. Look at its Description section.
+   - Correct: the section shows its first lines, cut at a word, ending in "…", with a "Show more"
+     button under them.
+   - Incorrect: the section shows the full text, or shows no text at all.
+8. Click "Show more".
+   - Correct: the section shows the full text. The header word changes from "show" to "hide".
+9. Click the header's "hide" word.
+   - Correct: the section returns to its preview and "Show more".
+
+**V3 - a short description shows in full, and its header hides and shows it**
+
+10. Open the Index release with the short description.
+11. Look at its Description section.
+    - Correct: the section shows the full text, with no "Show more" button.
+12. Click the header's "hide" word.
+    - Correct: the section shows no text. The header word changes to "show".
+13. Click the header's "show" word.
+    - Correct: the section shows the full text again.
+
+**V4 - a Library release page shows the same preview and "Show more"**
+
+14. Open Releases, then a Library release with a long description, for example "Chatti und
+    Claude". Do not download a release for this step.
+15. Look at that Library release page. Look at its Description section.
+    - Correct: it shows the same preview and the same "Show more" rule as V2.
+
+**V5 - an Index track page shows its description**
+
+16. Open an Index track that names its own description. Not every track has one. A track row of
+    an Index release page (V1), or a track search result, opens a track page.
+17. Look at its Description section.
+    - Correct: it shows the same collapse rule as V2 and V3, by the length of that track's text.
+    - Incorrect: the track page shows no Description section at all.
+
+**V6 - Light, Dark and a larger scale show no clipping**
+
+18. Open Settings, then General (`Ctrl+Comma`). Select Light, then Dark, then a larger scale.
+    Return to the Index release of V2 after each change.
+    - Correct: the preview, "Show more", and the header stay fully visible, with no clipped text,
+      icon, or control, in every combination.
+    - Incorrect: the preview, "Show more", or the header is clipped, cut off, or overlaps another
+      element.
+19. Close the app.
+
+**Clean-up**
+
+None. This check reads the app only. It writes no file and changes no stored data. Set the theme
+and the scale of V6 back to your usual values.
+
+## Orchestrator Review - 2026-10-16
+
+The orchestrator reviewed the diff against ADR 0084 Decision 4, ADR 0047 item 8 with its amendment, this packet and the [review checklist](../reviews/adr-0084-review-checklist.md). The orchestrator also ran each check.
+
+- The projection, the preview cut, the composite, the Index states, the row click and the Index track description follow "Design". The renderer decides no state and no label. No stop condition fired.
+- The row click gave the fixed text "Track" when a track has no title. The orchestrator changed it to the track GUID, the same fallback as the search path.
+- The visual check had three errors. Step 14 downloaded a release, but the check reads the app only. The clean-up named a removal path that nobody confirmed. Step 16 said that a "New releases" row opens a track page, but it opens a release page. Step 14 now uses a Library release, and step 16 uses a track row of an Index release page.
+- The agent changed the ADR 0047 Phase C guard because Required Change 3 removed its marker. The new marker pins the same contract.
+- The orchestrator recorded the open gate in the pending checks and in the delivery order.
+
+Merge recommendation: pass. Packet 007, Releases, comes after the visual check.

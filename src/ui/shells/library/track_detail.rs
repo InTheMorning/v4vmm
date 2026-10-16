@@ -22,7 +22,9 @@ use crate::ui::shells::library::track_detail_metadata::{
 };
 use crate::ui::shells::track;
 use crate::ui::style::spacing;
-use crate::view_models::library::{DescriptionState, LibraryChromeDisplay, LibraryViewModel};
+use crate::view_models::library::{
+    DescriptionDisclosureDisplay, DescriptionState, LibraryChromeDisplay, LibraryViewModel,
+};
 use crate::view_models::track_detail::{
     LibraryTrackActionState, TrackDetailSurfaceContext, TrackDetailVm,
 };
@@ -150,14 +152,20 @@ pub(crate) fn render_library_track_detail_core(
     if let Some(description) =
         LibraryViewModel::display_description_text(description_text.as_deref())
     {
-        let collapsed = !description_state.is_visible();
+        let display = DescriptionDisclosureDisplay::project(description, description_state);
         slots.description_panel = Some(TrackSurfaceElement::from_element(
             DisclosureTextPanel::new(DisclosureTextPanelDisplay {
                 id: "library-track-description".into(),
                 label: SharedString::from(detail_page.detail().labels().description_label()),
                 a11y_label: SharedString::from("Toggle track description"),
-                body: SharedString::from(description.to_string()),
-                collapsed,
+                collapsed: display.collapsed,
+                body: display.body.map(SharedString::from),
+                show_more: display.show_more.map(|show_more| {
+                    (
+                        SharedString::from(show_more.label),
+                        SharedString::from(show_more.a11y_label),
+                    )
+                }),
             })
             .on_toggle(cx.listener(|this, _, _, cx| {
                 this.toggle_track_description(cx);

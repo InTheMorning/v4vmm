@@ -158,11 +158,10 @@ Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 202
 - Scheduling: it needs a macOS desktop session.
 - V2, macOS part: `cmd-[` and `cmd-]` outside a text box do the same as Back and Forward. Indent and outdent still work in a macOS text box.
 
-## 5. Discover — ADR 0084 Task 006
+## 5. Index Release Page Parity — ADR 0084 Task 013
 
 Open - implementation and mechanical checks are complete on 2026-10-16. Operator inspection is pending.
 
-- Owner: [task 006](tasks/adr-0084-task-006-discover.md#operator-visual-check).
+- Owner: [task 013](tasks/adr-0084-task-013-index-release-page-parity.md#operator-visual-check).
 - Scheduling: walk it before packet 007 starts. It reads the app only. It needs a reachable MusicIndex endpoint.
-- V1 to V5 passed on 2026-10-16. V6 stopped at step 13 because the debug binary had GPUI test-support. Walk V6 and V7 again with a normal binary.
-- V1 to V7: Music opens on "New releases", Tiles and List, paging, and Back with the scroll position. The state words, no filter control, no Saved Searches, and each track on a release page. The narrow layout, and themes and scale.
+- V1 to V6: an Index track row opens its track page. A long description shows a preview and "Show more". A short description hides and shows. A Library release has the same preview. An Index track page shows its description. Themes and scale.

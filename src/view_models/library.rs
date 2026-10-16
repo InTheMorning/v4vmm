@@ -74,6 +74,12 @@ const BROADCAST_REMOVED_REMOVE_FROM_LIBRARY_LABEL: &str = "Remove from library";
 /// Rendered-line threshold before descriptions start collapsed.
 pub(crate) const DESCRIPTION_AUTO_COLLAPSE_LINES: usize = 5;
 
+/// Estimated characters of one wrapped line, used to turn a source
+/// line's character count into its estimated number of wrapped lines
+/// (ADR 0047 item 8, amended 2026-10-16). The number is an estimate
+/// before layout measurement exists, not a rendered character count.
+pub(crate) const DESCRIPTION_CHARS_PER_LINE: usize = 90;
+
 /// Tooltip shown when a track must be downloaded before metadata actions.
 pub(crate) const DOWNLOAD_REQUIRED_METADATA_TOOLTIP: &str = "Download track to enable";
 
@@ -128,18 +134,162 @@ impl DescriptionState {
 }
 
 /// Estimate rendered description lines before layout measurement exists.
+///
+/// Each source line counts as its own estimated number of wrapped lines:
+/// `ceil(chars / DESCRIPTION_CHARS_PER_LINE)`, with a minimum of one line
+/// (ADR 0047 item 8, amended 2026-10-16). A long paragraph with no line
+/// break thus collapses too, where a plain count of source lines never
+/// would.
 #[must_use]
 pub(crate) fn description_line_count(description: Option<&str>) -> usize {
     let Some(description) = display_description_text(description) else {
         return 0;
     };
-    description.lines().count().max(1)
+    description
+        .lines()
+        .map(|line| {
+            line.chars()
+                .count()
+                .div_ceil(DESCRIPTION_CHARS_PER_LINE)
+                .max(1)
+        })
+        .sum()
 }
 
 /// Return description text that is meaningful enough to display.
 #[must_use]
 pub(crate) fn display_description_text(description: Option<&str>) -> Option<&str> {
     description.map(str::trim).filter(|value| !value.is_empty())
+}
+
+/// "Show more" control of a collapsed, long description panel (ADR 0047
+/// item 8, amended 2026-10-16).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct DescriptionShowMoreDisplay {
+    /// "Show more".
+    pub(crate) label: &'static str,
+    /// "Show the full description".
+    pub(crate) a11y_label: &'static str,
+}
+
+const DESCRIPTION_SHOW_MORE_LABEL: &str = "Show more";
+const DESCRIPTION_SHOW_MORE_A11Y_LABEL: &str = "Show the full description";
+
+/// What a description panel shows (ADR 0047 item 8, amended 2026-10-16).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct DescriptionDisclosureDisplay {
+    /// The header shows the closed chevron and "show".
+    pub(crate) collapsed: bool,
+    /// The text to show. `None` shows no body.
+    pub(crate) body: Option<String>,
+    /// "Show more" at the end of a preview. `None` when the full text
+    /// shows.
+    pub(crate) show_more: Option<DescriptionShowMoreDisplay>,
+}
+
+impl DescriptionDisclosureDisplay {
+    /// Project what a description panel shows, from its full text and its
+    /// disclosure state (ADR 0047 item 8, amended 2026-10-16).
+    ///
+    /// A visible state (`AutoExpanded`, `UserExpanded`) always shows the
+    /// full text, with an open header and no "Show more". A collapsed
+    /// state (`AutoCollapsed`, `UserCollapsed`) shows a preview and "Show
+    /// more" for a long description, or no body at all for a short one.
+    #[must_use]
+    pub(crate) fn project(text: &str, state: DescriptionState) -> Self {
+        if state.is_visible() {
+            return Self {
+                collapsed: false,
+                body: Some(text.to_string()),
+                show_more: None,
+            };
+        }
+        if description_line_count(Some(text)) > DESCRIPTION_AUTO_COLLAPSE_LINES {
+            return Self {
+                collapsed: true,
+                body: Some(description_preview(text)),
+                show_more: Some(DescriptionShowMoreDisplay {
+                    label: DESCRIPTION_SHOW_MORE_LABEL,
+                    a11y_label: DESCRIPTION_SHOW_MORE_A11Y_LABEL,
+                }),
+            };
+        }
+        Self {
+            collapsed: true,
+            body: None,
+            show_more: None,
+        }
+    }
+}
+
+/// Cut `text` to its first [`DESCRIPTION_AUTO_COLLAPSE_LINES`] estimated
+/// wrapped lines (ADR 0047 item 8, amended 2026-10-16).
+///
+/// The cut falls at the last word boundary inside that budget, and the
+/// result ends with "…". The cut never falls inside a word, and it never
+/// falls inside a multi-byte character: both the line budget and the
+/// character budget walk `char` boundaries, never byte offsets.
+fn description_preview(text: &str) -> String {
+    let mut budget_lines = DESCRIPTION_AUTO_COLLAPSE_LINES;
+    let mut kept_lines: Vec<&str> = Vec::new();
+    for line in text.lines() {
+        let wrapped = line
+            .chars()
+            .count()
+            .div_ceil(DESCRIPTION_CHARS_PER_LINE)
+            .max(1);
+        if wrapped <= budget_lines {
+            kept_lines.push(line);
+            budget_lines -= wrapped;
+            if budget_lines == 0 {
+                break;
+            }
+            continue;
+        }
+        let char_budget = budget_lines * DESCRIPTION_CHARS_PER_LINE;
+        let end_byte = line
+            .char_indices()
+            .nth(char_budget)
+            .map_or(line.len(), |(byte_index, _)| byte_index);
+        let candidate = &line[..end_byte];
+        let cut_at = candidate
+            .rfind(char::is_whitespace)
+            .unwrap_or(candidate.len());
+        kept_lines.push(candidate[..cut_at].trim_end());
+        break;
+    }
+    format!("{}…", kept_lines.join("\n").trim_end())
+}
+
+/// Read the disclosure state of a keyed description, by its stored
+/// toggle, or its auto projection when no toggle is stored yet (ADR 0084
+/// Decision 4, ADR 0047 item 8 amended 2026-10-16).
+///
+/// The Index release and the Index track pages each keep one map of this
+/// shape, for the session only. This function and
+/// [`toggle_keyed_description_state`] carry no GPUI type, so a test calls
+/// them directly, with a plain map.
+#[must_use]
+pub(crate) fn keyed_description_state(
+    states: &BTreeMap<String, DescriptionState>,
+    key: &str,
+    description: &str,
+) -> DescriptionState {
+    states
+        .get(key)
+        .copied()
+        .unwrap_or_else(|| DescriptionState::project(description_line_count(Some(description))))
+}
+
+/// Toggle the disclosure state of a keyed description, in place (ADR 0084
+/// Decision 4). The caller's map holds the result for the session.
+pub(crate) fn toggle_keyed_description_state(
+    states: &mut BTreeMap<String, DescriptionState>,
+    key: &str,
+    description: &str,
+) {
+    let current = keyed_description_state(states, key, description);
+    states.insert(key.to_string(), current.toggle());
 }
 
 /// Library track inspector panels that require explicit disclosure.
@@ -5117,6 +5267,113 @@ mod tests {
         assert_eq!(
             DescriptionState::AutoExpanded.project_sticky(6),
             DescriptionState::AutoCollapsed
+        );
+    }
+
+    /// R13-01 (ADR 0084 task 013): `DescriptionDisclosureDisplay::project`
+    /// gives the four cases of the design table.
+    #[test]
+    fn adr_0084_index_page_r13_01_description_disclosure_display_projects_four_cases() {
+        let long = "word ".repeat(100);
+        let short = "A short description.";
+
+        let long_visible =
+            DescriptionDisclosureDisplay::project(&long, DescriptionState::AutoExpanded);
+        assert!(!long_visible.collapsed);
+        assert_eq!(long_visible.body, Some(long.clone()));
+        assert!(long_visible.show_more.is_none());
+
+        let long_collapsed =
+            DescriptionDisclosureDisplay::project(&long, DescriptionState::AutoCollapsed);
+        assert!(long_collapsed.collapsed);
+        let preview = long_collapsed
+            .body
+            .expect("a long, collapsed description shows a preview");
+        assert!(preview.len() < long.len());
+        assert_eq!(
+            long_collapsed.show_more,
+            Some(DescriptionShowMoreDisplay {
+                label: "Show more",
+                a11y_label: "Show the full description",
+            })
+        );
+
+        let short_visible =
+            DescriptionDisclosureDisplay::project(short, DescriptionState::UserExpanded);
+        assert!(!short_visible.collapsed);
+        assert_eq!(short_visible.body, Some(short.to_string()));
+        assert!(short_visible.show_more.is_none());
+
+        let short_collapsed =
+            DescriptionDisclosureDisplay::project(short, DescriptionState::UserCollapsed);
+        assert!(short_collapsed.collapsed);
+        assert_eq!(short_collapsed.body, None);
+        assert!(short_collapsed.show_more.is_none());
+    }
+
+    /// R13-02 (ADR 0084 task 013): the preview of a long description ends
+    /// with "…", cuts at a word boundary, keeps a multi-byte character
+    /// whole, and is shorter than the full text.
+    #[test]
+    fn adr_0084_index_page_r13_02_preview_cuts_at_word_boundary_and_keeps_multi_byte_chars() {
+        // "é" is a two-byte UTF-8 character. The budget cut must fall on a
+        // character boundary and on a word boundary, never inside "é".
+        let long = "é ".repeat(300);
+
+        let display = DescriptionDisclosureDisplay::project(&long, DescriptionState::AutoCollapsed);
+        let body = display
+            .body
+            .expect("a long, collapsed description shows a preview");
+
+        assert!(body.ends_with('…'), "preview must end with an ellipsis");
+        assert!(
+            body.chars().count() < long.chars().count(),
+            "preview must be shorter than the full text"
+        );
+        let without_ellipsis = body.trim_end_matches('…');
+        assert!(
+            long.starts_with(without_ellipsis),
+            "preview must be a prefix of the full text"
+        );
+        assert!(
+            without_ellipsis.ends_with('é'),
+            "preview must keep a multi-byte character whole, not split"
+        );
+    }
+
+    /// R13-03 (ADR 0084 task 013): `description_line_count` counts a
+    /// single 600-character paragraph as more than
+    /// `DESCRIPTION_AUTO_COLLAPSE_LINES` lines, and a short paragraph as 1.
+    #[test]
+    fn adr_0084_index_page_r13_03_description_line_count_estimates_wrapped_lines() {
+        let long = "a".repeat(600);
+        assert!(description_line_count(Some(&long)) > DESCRIPTION_AUTO_COLLAPSE_LINES);
+
+        let short = "a".repeat(10);
+        assert_eq!(description_line_count(Some(&short)), 1);
+    }
+
+    /// R13-04 (ADR 0084 task 013): the Index description state of a feed
+    /// GUID starts from `DescriptionState::project` and changes with each
+    /// toggle, through a pure function with no GPUI.
+    #[test]
+    fn adr_0084_index_page_r13_04_keyed_description_state_is_sticky_per_key() {
+        let mut states: BTreeMap<String, DescriptionState> = BTreeMap::new();
+        let long = "a".repeat(600);
+
+        assert_eq!(
+            keyed_description_state(&states, "feed-a", &long),
+            DescriptionState::AutoCollapsed
+        );
+
+        toggle_keyed_description_state(&mut states, "feed-a", &long);
+        assert_eq!(
+            keyed_description_state(&states, "feed-a", "short"),
+            DescriptionState::UserExpanded
+        );
+        assert_eq!(
+            keyed_description_state(&states, "feed-b", "short"),
+            DescriptionState::AutoExpanded
         );
     }
 

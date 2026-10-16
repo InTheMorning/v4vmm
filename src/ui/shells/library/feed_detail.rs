@@ -38,8 +38,8 @@ use crate::view_models::entity_detail::{
     EntityActionKind, EntityActionTone, EntityActionVm, EntitySurfaceContext, ReleaseDetailVm,
 };
 use crate::view_models::library::{
-    AlbumNode, LibraryAlbumDetailVm, LibraryTrackRowDisplay, LibraryTrackRowVm, LibraryViewModel,
-    MbStatusKind, MbTrackStatus,
+    AlbumNode, DescriptionDisclosureDisplay, LibraryAlbumDetailVm, LibraryTrackRowDisplay,
+    LibraryTrackRowVm, LibraryViewModel, MbStatusKind, MbTrackStatus,
 };
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
@@ -161,6 +161,7 @@ pub(crate) fn render_library_feed_detail(
         LibraryViewModel::display_description_text(album.description.as_deref()),
     ) {
         let description_state = library_vm.album_description_state(feed_id, Some(description));
+        let display = DescriptionDisclosureDisplay::project(description, description_state);
         slots.description_panel = Some(ReleaseSurfaceElement::from_element(
             DisclosureTextPanel::new(DisclosureTextPanelDisplay {
                 id: (
@@ -170,8 +171,14 @@ pub(crate) fn render_library_feed_detail(
                     .into(),
                 label: SharedString::from("Description"),
                 a11y_label: SharedString::from("Toggle feed description"),
-                body: SharedString::from(description.to_string()),
-                collapsed: !description_state.is_visible(),
+                collapsed: display.collapsed,
+                body: display.body.map(SharedString::from),
+                show_more: display.show_more.map(|show_more| {
+                    (
+                        SharedString::from(show_more.label),
+                        SharedString::from(show_more.a11y_label),
+                    )
+                }),
             })
             .on_toggle(cx.listener(move |this, _, _, cx| {
                 this.toggle_album_description(feed_id, cx);

@@ -43,14 +43,17 @@ use crate::view_models::album_page::{
     ALBUM_PAGE_MENU_A11Y_LABEL,
 };
 use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm, SharedTrackRowVm};
-use crate::view_models::library::LibraryTrackRowVm;
+use crate::view_models::library::{
+    display_description_text, keyed_description_state, toggle_keyed_description_state,
+    DescriptionDisclosureDisplay, DescriptionState, LibraryTrackRowVm,
+};
 use crate::view_models::publisher_page::PublisherPageContext;
 use crate::view_models::search_results::{
     IndexDetailDisplay, IndexDetailKind, SearchResultsInspectorPageVm, SearchResultsTab,
 };
 use crate::view_models::track_detail::{
-    TrackDetailSurfaceContext, TrackDetailVm, TrackNameLinkTarget, TrackPageAction,
-    TrackPageActions,
+    TrackDetailPageVm, TrackDetailSurfaceContext, TrackDetailVm, TrackNameLinkTarget,
+    TrackPageAction, TrackPageActions,
 };
 use crate::view_models::workspace::{
     release_download_updates_open_page, resolve_release_page_source, resolve_track_page_source,
@@ -1058,7 +1061,7 @@ impl TopApp {
                 .and_then(|url| self.index_cover_color(&url, cx)),
             name_links,
             primary_actions: Self::index_feed_primary_actions(feed, cx),
-            description_panel: index_feed_description_panel(feed),
+            description_panel: self.index_feed_description_panel(feed, cx),
             track_rows: Some(self.index_feed_track_rows(feed, cx)),
             ..ReleaseDetailBehaviorSlots::default()
         }
@@ -1089,6 +1092,10 @@ impl TopApp {
             hero_image: self.index_track_hero_image(track, cx),
             name_links,
             primary_actions: Self::index_track_page_actions(&page.page_actions(), track, cx),
+            // ADR 0084 Decision 4, ADR 0047 item 8 (amended 2026-10-16):
+            // an Index track page shows its description, with the same
+            // panel and the same projection as the Index release page.
+            description_panel: self.index_track_description_panel(track, &page, cx),
             ..TrackDetailBehaviorSlots::default()
         }
     }
@@ -1393,21 +1400,34 @@ impl TopApp {
         feed: &FeedView,
         cx: &mut Context<Self>,
     ) -> Vec<ReleaseSurfaceElement> {
+        let feed_guid = feed_guid_from_view(feed);
         feed.tracks
             .iter()
             .enumerate()
             .map(|(index, track)| {
                 let row = SharedTrackRowVm::new(track, EntitySurfaceContext::Library, index);
                 let row_id = row.element_id();
-                render_release_track_row(
-                    SharedString::from(row_id),
-                    row,
-                    ReleaseTrackRowSlot {
-                        thumbnail: self.index_track_row_thumbnail(feed, track, cx),
-                        actions: self.index_track_row_actions(feed, track, index, cx),
-                        ..ReleaseTrackRowSlot::default()
-                    },
-                )
+                let mut slot = ReleaseTrackRowSlot {
+                    thumbnail: self.index_track_row_thumbnail(feed, track, cx),
+                    actions: self.index_track_row_actions(feed, track, index, cx),
+                    ..ReleaseTrackRowSlot::default()
+                };
+                // ADR 0084 Decision 4: a click on an Index track row opens
+                // its track page, the same as a Library row. A track with
+                // no track GUID gets no click, as today.
+                if let Some(key) =
+                    index_track_row_click_key(feed_guid.as_deref(), track_guid_from_view(track))
+                {
+                    // The search path uses the same fallback: the track GUID.
+                    let label = track.title.clone().unwrap_or_else(|| key.item_guid.clone());
+                    slot = slot.on_click(cx.listener(move |this, _, _, cx| {
+                        let Some(content_frame_id) = this.content_list_frame_id() else {
+                            return;
+                        };
+                        this.open_track_in_frame(content_frame_id, &key, label.clone(), cx);
+                    }));
+                }
+                render_release_track_row(SharedString::from(row_id), row, slot)
             })
             .collect()
     }
@@ -1722,28 +1742,134 @@ impl TopApp {
         self.library
             .update(cx, |library, _cx| library.scan_tag_updates());
     }
-}
 
-fn index_feed_description_panel(feed: &FeedView) -> Option<ReleaseSurfaceElement> {
-    let description = feed.description.as_deref()?.trim();
-    if description.is_empty() {
-        return None;
+    /// The description panel of an Index release page (ADR 0084 Decision
+    /// 4, ADR 0047 item 8 amended 2026-10-16). `None` when the feed names
+    /// no description. The panel keeps its disclosure state in
+    /// `index_release_description_states`, by feed GUID, for the session
+    /// only.
+    fn index_feed_description_panel(
+        &mut self,
+        feed: &FeedView,
+        cx: &mut Context<Self>,
+    ) -> Option<ReleaseSurfaceElement> {
+        let description = display_description_text(feed.description.as_deref())?.to_string();
+        let feed_guid = feed_guid_from_view(feed).unwrap_or_else(|| "unknown".to_string());
+        let state = self.index_release_description_state(&feed_guid, &description);
+        let display = DescriptionDisclosureDisplay::project(&description, state);
+        let id = SharedString::from(format!("index-feed-description:{feed_guid}"));
+        let toggle_feed_guid = feed_guid;
+        let toggle_description = description;
+        Some(ReleaseSurfaceElement::from_element(
+            DisclosureTextPanel::new(DisclosureTextPanelDisplay {
+                id: id.into(),
+                label: SharedString::from("Description"),
+                a11y_label: SharedString::from("Toggle feed description"),
+                collapsed: display.collapsed,
+                body: display.body.map(SharedString::from),
+                show_more: display.show_more.map(|show_more| {
+                    (
+                        SharedString::from(show_more.label),
+                        SharedString::from(show_more.a11y_label),
+                    )
+                }),
+            })
+            .on_toggle(cx.listener(move |this, _, _, cx| {
+                this.toggle_index_release_description(&toggle_feed_guid, &toggle_description, cx);
+            }))
+            .into_any_element(),
+        ))
     }
 
-    Some(ReleaseSurfaceElement::from_element(
-        DisclosureTextPanel::new(DisclosureTextPanelDisplay {
-            id: SharedString::from(format!(
-                "index-feed-description:{}",
-                feed_guid_from_view(feed).unwrap_or_else(|| "unknown".to_string())
-            ))
-            .into(),
-            label: SharedString::from("Description"),
-            a11y_label: SharedString::from("Toggle feed description"),
-            body: SharedString::from(description.to_string()),
-            collapsed: false,
-        })
-        .into_any_element(),
-    ))
+    /// The disclosure state of an Index release's description, by feed
+    /// GUID (ADR 0084 Decision 4, ADR 0047 item 8 amended 2026-10-16). The
+    /// state lives for the session only; it is not stored.
+    fn index_release_description_state(
+        &self,
+        feed_guid: &str,
+        description: &str,
+    ) -> DescriptionState {
+        keyed_description_state(
+            &self.index_release_description_states,
+            feed_guid,
+            description,
+        )
+    }
+
+    fn toggle_index_release_description(
+        &mut self,
+        feed_guid: &str,
+        description: &str,
+        cx: &mut Context<Self>,
+    ) {
+        toggle_keyed_description_state(
+            &mut self.index_release_description_states,
+            feed_guid,
+            description,
+        );
+        cx.notify();
+    }
+
+    /// The description panel of an Index track page (ADR 0084 Decision 4,
+    /// ADR 0047 item 8 amended 2026-10-16). `None` when the track names no
+    /// description. Same panel, same projection and the same id pattern
+    /// as the Index release page.
+    fn index_track_description_panel(
+        &mut self,
+        track: &TrackView,
+        page: &TrackDetailPageVm<'_>,
+        cx: &mut Context<Self>,
+    ) -> Option<TrackSurfaceElement> {
+        let description = page.detail().description()?;
+        let target = index_track_description_target(track);
+        let state = self.index_track_description_state(&target, &description);
+        let display = DescriptionDisclosureDisplay::project(&description, state);
+        let label = SharedString::from(page.detail().labels().description_label());
+        let id = SharedString::from(format!("index-track-description:{target}"));
+        let toggle_target = target;
+        let toggle_description = description;
+        Some(TrackSurfaceElement::from_element(
+            DisclosureTextPanel::new(DisclosureTextPanelDisplay {
+                id: id.into(),
+                label,
+                a11y_label: SharedString::from("Toggle track description"),
+                collapsed: display.collapsed,
+                body: display.body.map(SharedString::from),
+                show_more: display.show_more.map(|show_more| {
+                    (
+                        SharedString::from(show_more.label),
+                        SharedString::from(show_more.a11y_label),
+                    )
+                }),
+            })
+            .on_toggle(cx.listener(move |this, _, _, cx| {
+                this.toggle_index_track_description(&toggle_target, &toggle_description, cx);
+            }))
+            .into_any_element(),
+        ))
+    }
+
+    /// The disclosure state of an Index track's description, by its Index
+    /// activation target (ADR 0084 Decision 4, ADR 0047 item 8 amended
+    /// 2026-10-16). The state lives for the session only; it is not
+    /// stored.
+    fn index_track_description_state(&self, target: &str, description: &str) -> DescriptionState {
+        keyed_description_state(&self.index_track_description_states, target, description)
+    }
+
+    fn toggle_index_track_description(
+        &mut self,
+        target: &str,
+        description: &str,
+        cx: &mut Context<Self>,
+    ) {
+        toggle_keyed_description_state(
+            &mut self.index_track_description_states,
+            target,
+            description,
+        );
+        cx.notify();
+    }
 }
 
 fn index_feed_artwork_url(feed: &FeedView) -> Option<&str> {
@@ -1832,6 +1958,27 @@ fn track_guid_from_view(track: &TrackView) -> Option<String> {
         Some(TrackRef::Musicindex(track_guid)) => Some(track_guid.clone()),
         Some(TrackRef::LocalTrackId(_)) | None => None,
     })
+}
+
+/// The click key of an Index track row (ADR 0084 Decision 4, "The Index
+/// track rows"). `None` when the track has no track GUID, so the row
+/// gets no click, as today. A pure function: a test calls it with no
+/// GPUI.
+fn index_track_row_click_key(
+    feed_guid: Option<&str>,
+    track_guid: Option<String>,
+) -> Option<TrackKey> {
+    Some(TrackKey::from_index_track_target(feed_guid, track_guid?))
+}
+
+/// The Index activation target of a track, for its description state key
+/// (ADR 0084 Decision 4). Built the same way as the track-row click key.
+fn index_track_description_target(track: &TrackView) -> String {
+    TrackKey::from_index_track_target(
+        track.feed_guid.as_deref(),
+        track_guid_from_view(track).unwrap_or_default(),
+    )
+    .index_target()
 }
 
 #[cfg(test)]
@@ -1931,6 +2078,23 @@ mod index_detail_dispatch_tests {
             (Some("feed-guid"), "track-guid")
         );
         assert_eq!(split_index_track_target("track-guid"), (None, "track-guid"));
+    }
+
+    /// R13-05 (ADR 0084 task 013): the Index track row click builds the
+    /// key `TrackKey::from_index_track_target`, through a pure function.
+    /// A track with no GUID gives no key.
+    #[test]
+    fn adr_0084_index_page_r13_05_track_row_click_key_needs_a_track_guid() {
+        assert_eq!(
+            index_track_row_click_key(Some("feed-1"), Some("track-1".to_string())),
+            Some(TrackKey::from_index_track_target(Some("feed-1"), "track-1"))
+        );
+        assert_eq!(
+            index_track_row_click_key(None, Some("track-1".to_string())),
+            Some(TrackKey::from_index_track_target(None, "track-1"))
+        );
+        assert_eq!(index_track_row_click_key(Some("feed-1"), None), None);
+        assert_eq!(index_track_row_click_key(None, None), None);
     }
 }
 

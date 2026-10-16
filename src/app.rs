@@ -35,6 +35,7 @@ use crate::ui::shells::workspace::{render_workspace, WorkspaceSlots};
 use crate::ui::tokens::{color, SemanticColor};
 use crate::view_models::app_toolbar::AppToolbarVm;
 use crate::view_models::cached_files::CachedFilesVm;
+use crate::view_models::library::DescriptionState;
 use crate::view_models::publisher_page::PublisherPageContext;
 use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchResultsTab};
 use crate::view_models::settings::{SettingsAction, SettingsVm};
@@ -224,6 +225,14 @@ pub struct TopApp {
     /// target (ADR 0084 Decision 4). The breadcrumb and the Index loading
     /// page show it until the track's own title loads.
     track_page_labels: BTreeMap<String, String>,
+    /// The disclosure state of an Index release's description, by feed
+    /// GUID (ADR 0084 Decision 4, ADR 0047 item 8 amended 2026-10-16). The
+    /// state lives for the session only; it is not stored.
+    index_release_description_states: BTreeMap<String, DescriptionState>,
+    /// The disclosure state of an Index track's description, by its Index
+    /// activation target (ADR 0084 Decision 4, ADR 0047 item 8 amended
+    /// 2026-10-16). Same rule as the release state above.
+    index_track_description_states: BTreeMap<String, DescriptionState>,
 }
 
 impl TopApp {
@@ -494,6 +503,8 @@ impl TopApp {
             release_page_labels: BTreeMap::new(),
             track_page_source: None,
             track_page_labels: BTreeMap::new(),
+            index_release_description_states: BTreeMap::new(),
+            index_track_description_states: BTreeMap::new(),
         }
     }
 

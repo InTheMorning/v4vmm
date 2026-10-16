@@ -36,14 +36,16 @@
 #![warn(clippy::pedantic)]
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::{
     div, prelude::*, App, ClickEvent, ElementId, InteractiveElement, IntoElement, RenderOnce,
     SharedString, StatefulInteractiveElement, Styled, Window,
 };
 
+use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::{Icon, IconName, IconSize};
-use crate::ui::primitives::{Label, MultilineText, SectionHeader};
+use crate::ui::primitives::{Button, Label, MultilineText, SectionHeader};
 use crate::ui::tokens::{FontSize, Radius, SemanticColor, Size, Spacing};
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
@@ -106,8 +108,14 @@ pub struct DisclosureTextPanelDisplay {
     pub id: ElementId,
     pub label: SharedString,
     pub a11y_label: SharedString,
-    pub body: SharedString,
+    /// The text to show. `None` shows no body (ADR 0047 item 8, amended
+    /// 2026-10-16: a short, collapsed description shows no body).
+    pub body: Option<SharedString>,
     pub collapsed: bool,
+    /// "Show more" label and accessibility label, at the end of a
+    /// preview. `None` when the full text shows, or when the description
+    /// is short (ADR 0047 item 8, amended 2026-10-16).
+    pub show_more: Option<(SharedString, SharedString)>,
 }
 
 impl DisclosureGroup {
@@ -209,33 +217,48 @@ impl RenderOnce for DisclosureGroup {
 impl RenderOnce for DisclosureTextPanel {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let collapsed = self.display.collapsed;
+        let panel_id = self.display.id.clone();
         let mut header = DisclosureGroup::new(DisclosureGroupDisplay {
             id: self.display.id,
             label: self.display.label,
             a11y_label: self.display.a11y_label,
         })
         .collapsed(collapsed);
-        if let Some(handler) = self.on_toggle {
+        if let Some(handler) = self.on_toggle.clone() {
             header = header.on_toggle(move |event, window, cx| handler(event, window, cx));
         }
 
-        div()
+        let mut panel = div()
             .border_1()
             .border_color(crate::ui::tokens::color(cx, SemanticColor::Separator))
             .rounded(Radius::MD.scaled(cx))
             .p(Spacing::SM.scaled(cx))
-            .child(header)
-            .when(!collapsed, |el| {
-                el.child(
-                    div().mt(Spacing::XS.scaled(cx)).child(
-                        MultilineText::new(self.display.body)
-                            .max_lines(usize::MAX)
-                            .wrap_lines()
-                            .size(FontSize::Micro)
-                            .color(SemanticColor::Label),
-                    ),
-                )
-            })
+            .child(header);
+
+        if let Some(body) = self.display.body {
+            panel = panel.child(
+                div().mt(Spacing::XS.scaled(cx)).child(
+                    MultilineText::new(body)
+                        .max_lines(usize::MAX)
+                        .wrap_lines()
+                        .size(FontSize::Micro)
+                        .color(SemanticColor::Label),
+                ),
+            );
+        }
+
+        if let Some((label, a11y_label)) = self.display.show_more {
+            let show_more_id = ElementId::NamedChild(Arc::new(panel_id), "show-more".into());
+            let mut show_more = Button::styled(show_more_id, ControlStyle::Ghost)
+                .label(label)
+                .a11y_label(a11y_label);
+            if let Some(handler) = self.on_toggle {
+                show_more = show_more.on_click(move |event, window, cx| handler(event, window, cx));
+            }
+            panel = panel.child(div().mt(Spacing::XS.scaled(cx)).child(show_more));
+        }
+
+        panel
     }
 }
 
@@ -292,14 +315,39 @@ mod tests {
             id: "description".into(),
             label: "Description".into(),
             a11y_label: "Toggle Description section".into(),
-            body: "Long form text".into(),
+            body: Some("Long form text".into()),
             collapsed: true,
+            show_more: None,
         });
 
         assert_eq!(panel.display.label, SharedString::from("Description"));
-        assert_eq!(panel.display.body, SharedString::from("Long form text"));
+        assert_eq!(
+            panel.display.body,
+            Some(SharedString::from("Long form text"))
+        );
         assert!(panel.display.collapsed);
+        assert!(panel.display.show_more.is_none());
         assert!(panel.on_toggle.is_none());
+    }
+
+    #[test]
+    fn text_panel_owns_its_show_more_pair() {
+        let panel = DisclosureTextPanel::new(DisclosureTextPanelDisplay {
+            id: "description".into(),
+            label: "Description".into(),
+            a11y_label: "Toggle Description section".into(),
+            body: Some("A preview of a long text…".into()),
+            collapsed: true,
+            show_more: Some(("Show more".into(), "Show the full description".into())),
+        });
+
+        assert_eq!(
+            panel.display.show_more,
+            Some((
+                SharedString::from("Show more"),
+                SharedString::from("Show the full description")
+            ))
+        );
     }
 
     #[test]
@@ -308,8 +356,9 @@ mod tests {
             id: "description".into(),
             label: "Description".into(),
             a11y_label: "Toggle Description section".into(),
-            body: "Long form text".into(),
+            body: Some("Long form text".into()),
             collapsed: false,
+            show_more: None,
         })
         .on_toggle(|_, _, _| {});
 

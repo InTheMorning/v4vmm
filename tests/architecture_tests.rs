@@ -1264,7 +1264,10 @@ fn adr_0047_phase_c_inspector_rewire_uses_vm_state_and_shared_disclosures() {
 
     for required in [
         "DisclosureTextPanel",
-        "description_state.is_visible()",
+        // ADR 0084 task 013 moved the collapsed/preview decision from a
+        // direct `description_state.is_visible()` read into the shared
+        // projection, so this disclosure contract now pins that call.
+        "DescriptionDisclosureDisplay::project(",
         "LibraryViewModel::display_description_text",
         "toggle_track_description",
     ] {
@@ -2825,6 +2828,44 @@ fn adr_0084_discover_r6_06_three_state_filter_control_is_deleted() {
     assert!(
         violations.is_empty(),
         "ADR 0084 Decision 8 filter-control deletion violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R13-06 (ADR 0084 task 013, Decision 4): an Index release page's track
+/// rows open their track page, and its description panel takes a toggle.
+#[test]
+fn adr_0084_index_page_r13_06_track_row_click_and_description_toggle_are_wired() {
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let mut violations = Vec::new();
+
+    let track_rows_fn = source_between(
+        &search_dispatch_source,
+        "fn index_feed_track_rows(",
+        "fn index_track_row_thumbnail(",
+    );
+    if !track_rows_fn.contains(".on_click(") {
+        violations.push(
+            "src/app/search_dispatch.rs: ADR 0084 Decision 4 index_feed_track_rows must set ReleaseTrackRowSlot::on_click"
+                .to_string(),
+        );
+    }
+
+    let description_panel_fn = source_between(
+        &search_dispatch_source,
+        "fn index_feed_description_panel(",
+        "fn index_release_description_state(",
+    );
+    if !description_panel_fn.contains(".on_toggle(") {
+        violations.push(
+            "src/app/search_dispatch.rs: ADR 0084 Decision 4 index_feed_description_panel must take an on_toggle handler"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 task 013 Index release page parity violations:\n{}",
         violations.join("\n")
     );
 }

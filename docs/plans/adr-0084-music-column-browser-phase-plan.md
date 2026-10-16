@@ -38,7 +38,7 @@ Music becomes the column browser of ADR 0084. It gets one navigation stack, one 
 | 010 | 7 | The search results view for the list column width (Decision 2). Task 004 put the present search view in the list column on 2026-10-12, by operator decision | 006 | Not written |
 | 011 | 8 | The logo frame for collections (Decision 12) | 007, 008 | Not written |
 | 012 | 3 | Saved searches: their storage (a migration through the ADR 0016 registry), a "Save search" action on the search results, and one Discover view for each (Decisions 2 and 3). The operator decided on 2026-10-16 to add them as a separate packet | 006, 010 | Not written |
-| [013](../tasks/adr-0084-task-013-index-release-page-parity.md) | 3 | Index release page parity: the track row click, the description toggle, the Index track page description, and the collapsed description preview with "Show more" (Decision 4, ADR 0047 item 8 amended 2026-10-16). The operator decided on 2026-10-16 to do it before packet 007 | 006 | Ready 2026-10-16 |
+| [013](../tasks/adr-0084-task-013-index-release-page-parity.md) | 3 | Index release page parity: the track row click, the description toggle, the Index track page description, and the collapsed description preview with "Show more" (Decision 4, ADR 0047 item 8 amended 2026-10-16). The operator decided on 2026-10-16 to do it before packet 007 | 006 | Implemented 2026-10-16. Mechanical checks Green. Visual check open |
 
 The overhaul plan names eight steps. Step 2 has two packets, 002 and 003, because the release route and the track route each change many files. Step 3 has three packets, 004 to 006, decided on 2026-10-12: the icon-only sidebar needs the destinations, and Discover needs the destination model.
 

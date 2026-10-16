@@ -1,6 +1,6 @@
 # ADR 0084 Task 006: Discover
 
-Status: Implementation recorded - 2026-10-16. The mechanical checks are Green. V1 to V5 passed on 2026-10-16. V6 stopped at step 13 because the debug binary had GPUI test-support. V6 and V7 are open.
+Status: Complete - 2026-10-16. The mechanical checks are Green. The operator passed V1 to V7 on 2026-10-16.
 
 ## Goal
 
@@ -11,13 +11,13 @@ The saved-search code that no path loads goes. A later packet adds saved searche
 
 ## Authority
 
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 3 (Discover and "New releases"), Decision 8 (Discover shows everything, with the state word on each Library item) and Decision 9 (the location path).
-- [ADR 0062](../adr/0062-music-content-surface.md): the recency order and the paging. ADR 0084 replaces its three-state control.
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 3 (Discover and "New releases"), Decision 8 (Discover shows everything, with the state word on each Library item) and Decision 9 (the location path).
+- [ADR 0062](../../adr/0062-music-content-surface.md): the recency order and the paging. ADR 0084 replaces its three-state control.
 - AGENTS.md: code that no entry point reaches is deleted, not parked.
 
 ## Recorded Facts - 2026-10-16
 
-- [Task 005](archive/adr-0084-task-005-destinations-sidebar.md) made `FrameNavigationEntry::Destination(MusicDestination)` the root of each sidebar path. Music opens on `Destination(Discover)`. The Discover list column shows the content list with the `RecentMusic` source (recent Index releases, paged), the view-mode control (Tiles, List) and the three-state filter control (All, Library, Index).
+- [Task 005](adr-0084-task-005-destinations-sidebar.md) made `FrameNavigationEntry::Destination(MusicDestination)` the root of each sidebar path. Music opens on `Destination(Discover)`. The Discover list column shows the content list with the `RecentMusic` source (recent Index releases, paged), the view-mode control (Tiles, List) and the three-state filter control (All, Library, Index).
 - The filter control shows on Discover only. Its owners are `LibraryFilterControlDisplay` and `LibraryFilterControlTreatment` in `src/view_models/workspace/chrome.rs`, the composite `src/ui/composites/library_filter_control.rs`, `content_library_filter_control` and `set_content_filter` in `src/library/app_impl.rs`, and the frame shell. The guards `adr_0047_task_010_content_list_library_filter_is_frame_local` and `adr_0062_library_tri_state_control_contract_is_vm_owned` pin it.
 - A second live reader of the filter state: `render_library_feed_detail` in `src/ui/shells/library/feed_detail.rs` reads `LibraryViewModel::content_filter()` and hides the tracks of the open Library release that do not match it. A filter set on Discover thus changed the release page. The task 006 agent found it on 2026-10-16 and stopped, as the packet required.
 - The search results keep their own All, Library and Index chips (`FilterChipStripDisplay`). This packet does not change them. `ContentFilter` stays for them.
@@ -103,7 +103,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md), the [source map](../architecture/source-map.md), the [phase plan](../plans/adr-0084-music-column-browser-phase-plan.md) and the archived [task 005](archive/adr-0084-task-005-destinations-sidebar.md), with its Orchestrator Review.
+- [Agent rules](../../../AGENTS.md), the [source map](../../architecture/source-map.md), the [phase plan](../../plans/adr-0084-music-column-browser-phase-plan.md) and the archived [task 005](adr-0084-task-005-destinations-sidebar.md), with its Orchestrator Review.
 - `src/view_models/workspace/nav.rs`, `breadcrumb.rs`, `chrome.rs`, `mod.rs`, `tests.rs`.
 - `src/app.rs`, `src/app/breadcrumb.rs`.
 - `src/library.rs`, `src/library/app_impl.rs`, `src/library/column_view.rs`.
@@ -493,7 +493,7 @@ None. This check reads the app only. It writes no file and changes no stored dat
 
 ## Orchestrator Review - 2026-10-16
 
-The orchestrator reviewed the diff against ADR 0084, ADR 0062, this packet and the [review checklist](../reviews/adr-0084-review-checklist.md), and ran each check.
+The orchestrator reviewed the diff against ADR 0084, ADR 0062, this packet and the [review checklist](../../reviews/adr-0084-review-checklist.md), and ran each check.
 
 - The agent stopped first at a correct stop condition: the Library release page read the three-state filter. The orchestrator decided Required Change 6a under ADR 0084 Decisions 4 and 8, and the agent then completed the packet.
 - The Discover views, the paths, the restore of a view by Back and the deletions keep to the design. No item is renamed to pass a guard.
@@ -523,3 +523,5 @@ The operator walked V2 to V6 on 2026-10-16. V2 to V5 passed. The operator found 
 - On 2026-10-16 the operator rejected that cause. With one page and with each page loaded, three resizes across 940 px gave no hang. A second test shaped all 481 strings again in 13 ms for each pass. The cause of the hang stays unknown.
 - On 2026-10-16 a third profile found the cause. The hang is not a defect of the app. The operator ran `target/debug/v4vmm`, and that file was the binary with GPUI `test-support`. In that binary, `App::flush_effects` draws each window at once after each effect, so each X11 resize event drew a full frame. The orchestrator ran `cargo test --test architecture_tests` after document edits, after the last `cargo build --bin v4vmm`, and that test run linked the test-support binary to `target/debug/v4vmm` again. The release build has no test-support code, and it did not hang. The orchestrator now runs `cargo build --bin v4vmm` after each test run. V6 and V7 stay open until the operator walks them again with a normal binary.
 - The Index release page defects that the operator found during V3 are outside this packet. The phase plan lists them under "Open Findings".
+
+The operator walked V6 and V7 again on 2026-10-16 with a normal debug binary, and both passed. Scroll did not lag. The next page of "New releases" still takes about 400 ms to show when the scroll reaches the end, as before this packet.
