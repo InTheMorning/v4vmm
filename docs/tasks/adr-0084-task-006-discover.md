@@ -504,3 +504,12 @@ The orchestrator reviewed the diff against ADR 0084, ADR 0062, this packet and t
 After the corrections, each check is Green: 1,860 unit tests, 311 guards, `fmt`, `clippy -D warnings`, `check --all-targets` with no warning, and `cargo build --bin v4vmm`.
 
 Merge recommendation: pass. Packet 007, Releases, comes next.
+
+## Operator Check Findings - 2026-10-16
+
+The operator walked V1 and found two defects.
+
+- "New releases" showed the Library tracks after the Index releases. `ContentListPageVm::visible_rows` and `thumbnail_sources` added each Library row to the `RecentMusic` page. The fix removes that addition, so the view shows the Index releases only (ADR 0084 Decision 3). An Index release that the Library holds now shows "In library" and no "New" mark (Decision 8), through `ContentListPageVm::mark_library_releases`. The `replace_tree` and `replace_recent_music_content` functions apply the mark. The test `adr_0084_discover_new_release_in_library_shows_its_state` and the changed test `content_list_page_vm_projects_first_recent_music_page` are the guard.
+- Scroll was slow. The fix above removes the extra rows from "New releases". The list column still makes an element for each row on each frame. Item 10 of the responsiveness list in the overhaul plan records it. No packet owns it yet.
+
+V1 stays open until the operator walks it again.

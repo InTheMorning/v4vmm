@@ -1145,6 +1145,14 @@ impl ContentListRowDisplay {
         }
     }
 
+    /// Shows this row as a Library item: "In library", and no "New" mark
+    /// (ADR 0084 Decision 8).
+    fn mark_in_library(&mut self) {
+        self.library_badge =
+            ContentListLibraryBadgeDisplay::for_source(ContentListRowSource::Library);
+        self.state_label = None;
+    }
+
     #[must_use]
     fn matches_text_filter(&self, filter: &str) -> bool {
         filter.is_empty()
@@ -1635,18 +1643,16 @@ impl ContentListPageVm {
         self.has_more
     }
 
-    /// Returns every visible row (ADR 0084 Decision 8: Discover shows
-    /// everything, with the state word on each Library item). The
-    /// `RecentMusic` source adds the full local library, deduped by row
-    /// id, to the recency page it already holds.
+    /// Returns every visible row. ADR 0084 Decision 3: "New releases" (the
+    /// `RecentMusic` source) shows the Index releases only, newest first.
+    /// Decision 8: a release that is also in the Library shows its state
+    /// word, through `mark_library_releases`. The Library tracks do not
+    /// join the recency page.
     #[must_use]
     pub(crate) fn visible_rows(&self) -> Vec<&ContentListRowDisplay> {
         let mut rows = Vec::new();
         let mut seen_ids = BTreeSet::new();
         Self::push_rows(&mut rows, &mut seen_ids, &self.cached_rows);
-        if self.source == ContentListPageSource::RecentMusic {
-            Self::push_rows(&mut rows, &mut seen_ids, &self.library_rows);
-        }
 
         rows.into_iter()
             .filter(|row| {
@@ -1744,10 +1750,20 @@ impl ContentListPageVm {
         let mut sources = Vec::new();
         let mut seen_ids = BTreeSet::new();
         Self::push_thumbnail_sources(&mut sources, &mut seen_ids, &self.cached_rows);
-        if self.source == ContentListPageSource::RecentMusic {
-            Self::push_thumbnail_sources(&mut sources, &mut seen_ids, &self.library_rows);
-        }
         sources
+    }
+
+    /// Marks each Index release row whose feed GUID the Library holds as
+    /// "In library" (ADR 0084 Decision 8). Such a row is not "New".
+    pub(crate) fn mark_library_releases(&mut self, library_feed_guids: &BTreeSet<String>) {
+        for row in &mut self.cached_rows {
+            let Some(feed_guid) = row.id.strip_prefix(Self::INDEX_FEED_PREFIX) else {
+                continue;
+            };
+            if library_feed_guids.contains(feed_guid) {
+                row.mark_in_library();
+            }
+        }
     }
 
     fn push_thumbnail_sources<'a>(
@@ -2102,6 +2118,21 @@ impl LibraryViewModel {
         self.content_list_page
             .replace_tree_rows(content_list_rows_from_tree(&tree));
         self.snapshot.tree = tree;
+        self.mark_recent_library_releases();
+    }
+
+    /// Gives each "New releases" row that the Library holds its state word
+    /// (ADR 0084 Decision 8).
+    fn mark_recent_library_releases(&mut self) {
+        let feed_guids: BTreeSet<String> = self
+            .snapshot
+            .tree
+            .artists
+            .iter()
+            .flat_map(|artist| &artist.albums)
+            .filter_map(|album| album.feed_guid.clone())
+            .collect();
+        self.content_list_page.mark_library_releases(&feed_guids);
     }
 
     /// Shows the Library tracks, by the Tracks destination (ADR 0084
@@ -2310,6 +2341,7 @@ impl LibraryViewModel {
 
     pub(crate) fn replace_recent_music_content(&mut self, page: &RecentFeedsPageVm) {
         self.content_list_page.replace_recent_feeds_page(page);
+        self.mark_recent_library_releases();
     }
 
     #[must_use]
@@ -4809,6 +4841,48 @@ mod tests {
         );
     }
 
+    /// ADR 0084 Decision 8: a New releases row that the Library holds
+    /// shows "In library" and no "New" mark.
+    #[test]
+    fn adr_0084_discover_new_release_in_library_shows_its_state() {
+        let mut recent = RecentFeedsPageVm::loading();
+        recent.finish_load(
+            recent_feed_batch(
+                vec![
+                    ("index-feed:held", "Held Release"),
+                    ("index-feed:fresh", "Fresh Release"),
+                ],
+                None,
+                true,
+            ),
+            false,
+        );
+        let mut page = ContentListPageVm::new(Vec::new());
+        page.replace_recent_feeds_page(&recent);
+
+        page.mark_library_releases(&BTreeSet::from(["held".to_string()]));
+
+        let rows = page.visible_rows();
+        assert_eq!(
+            rows[0].library_badge.state,
+            ContentListLibraryBadgeState::InLibrary,
+            "a release in the Library must show its Library state"
+        );
+        assert_eq!(
+            rows[0].state_label, None,
+            "a release in the Library is not New"
+        );
+        assert_eq!(
+            rows[1].library_badge.state,
+            ContentListLibraryBadgeState::NotInLibrary,
+            "a release outside the Library keeps its Index state"
+        );
+        assert!(
+            rows[1].state_label.is_some(),
+            "a release outside the Library stays New"
+        );
+    }
+
     #[test]
     fn content_list_page_vm_projects_first_recent_music_page() {
         let mut recent = RecentFeedsPageVm::loading();
@@ -4831,8 +4905,8 @@ mod tests {
         assert_eq!(page.source(), ContentListPageSource::RecentMusic);
         assert_eq!(
             page.visible_row_ids(),
-            ["index-feed:newest", "index-feed:older", "local"],
-            "recent music rows must preserve the newest-first index order and keep local library rows visible"
+            ["index-feed:newest", "index-feed:older"],
+            "ADR 0084 Decision 3: New releases shows the Index releases only, newest first, with no Library track"
         );
         assert_eq!(
             page.visible_rows()[0].entity_kind(),
