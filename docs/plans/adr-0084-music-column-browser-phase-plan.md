@@ -31,13 +31,14 @@ Music becomes the column browser of ADR 0084. It gets one navigation stack, one 
 | [003](../tasks/archive/adr-0084-task-003-one-track-route.md) | 2 | One route for each track, by the same method. A Library track row opens its track page. Fixes flow map finding 2 | 002 | Complete 2026-10-11 |
 | [004](../tasks/archive/adr-0084-task-004-three-column-shell.md) | 3 | The three-column shell: the sidebar, the list and the detail as three frames. Back, Forward and the breadcrumb move to the detail column (Decisions 1 and 9) | 003, ADR 0081 task 001 | Complete 2026-10-12 |
 | [005](../tasks/archive/adr-0084-task-005-destinations-sidebar.md) | 3 | The destinations sidebar: the six destinations, the icon-only sidebar and its attention mark, the destination lists, Needs attention and Playlists. It deletes the sidebar tree and fixes finding 5 (Decisions 1 and 2) | 004 | Complete 2026-10-16 |
-| [006](../tasks/adr-0084-task-006-discover.md) | 3 | Discover: the default destination, its views column and "New releases". It deletes the three-state filter control (Decision 8) and the saved-search code that no path loads (operator decision of 2026-10-16) (Decisions 3 and 8) | 005 | Implemented 2026-10-16. Mechanical checks Green. Visual check open |
+| [006](../tasks/archive/adr-0084-task-006-discover.md) | 3 | Discover: the default destination, its views column and "New releases". It deletes the three-state filter control (Decision 8) and the saved-search code that no path loads (operator decision of 2026-10-16) (Decisions 3 and 8) | 005 | Complete 2026-10-16 |
 | 007 | 4 | Releases: the kind, the two scopes, the singles groups and the group page (Decisions 5, 6 and 8) | 006 | Not written |
 | 008 | 5 | The artist page with two levels and its scope (Decisions 7 and 8). Fixes finding 6 | 007, ADR 0082 tasks 002 and 003 | Not written |
 | 009 | 6 | Multiple selection, the action bar and the reserved audition place (Decisions 10 and 11). Fixes finding 3 | 006 | Not written |
 | 010 | 7 | The search results view for the list column width (Decision 2). Task 004 put the present search view in the list column on 2026-10-12, by operator decision | 006 | Not written |
 | 011 | 8 | The logo frame for collections (Decision 12) | 007, 008 | Not written |
 | 012 | 3 | Saved searches: their storage (a migration through the ADR 0016 registry), a "Save search" action on the search results, and one Discover view for each (Decisions 2 and 3). The operator decided on 2026-10-16 to add them as a separate packet | 006, 010 | Not written |
+| [013](../tasks/adr-0084-task-013-index-release-page-parity.md) | 3 | Index release page parity: the track row click, the description toggle, the Index track page description, and the collapsed description preview with "Show more" (Decision 4, ADR 0047 item 8 amended 2026-10-16). The operator decided on 2026-10-16 to do it before packet 007 | 006 | Ready 2026-10-16 |
 
 The overhaul plan names eight steps. Step 2 has two packets, 002 and 003, because the release route and the track route each change many files. Step 3 has three packets, 004 to 006, decided on 2026-10-12: the icon-only sidebar needs the destinations, and Discover needs the destination model.
 
@@ -46,14 +47,11 @@ The overhaul plan names eight steps. Step 2 has two packets, 002 and 003, becaus
 1. Packets 002 and 003, one at a time. Each packet runs in its own session.
 2. [ADR 0081 task 001](../tasks/archive/adr-0081-task-001-remove-the-staged-frame-model.md) before packet 004. Complete on 2026-10-11. Both change `src/view_models/workspace/`, and packet 004 changes the frame layout.
 3. [ADR 0082 tasks 002 and 003](adr-0082-publisher-roles-phase-plan.md) before packet 008. Packet 008 replaces the publisher page layout that task 002 changes.
-4. Packets 004 to 012 in register order. Write each packet at the start of its session, from the result of the packet before it.
+4. Packet 013 before packet 007, by operator decision of 2026-10-16. Then packets 007 to 012 in register order. Write each packet at the start of its session, from the result of the packet before it.
 
 ## Open Findings
 
-- 2026-10-11: a track row on an Index release page has no click action, so it opens no track page. An Index track page opens only from a search result or a name-match page. ADR 0084 Decision 4 gives each track one page, and a Library release page row opens its track page. No packet owns this yet. Packet 009, the shared row and selection model, is the first packet that changes these rows (`index_feed_track_rows` in `src/app/search_dispatch.rs`).
-- 2026-10-16: the operator found again that a track row on an Index release page does nothing when clicked. The same row on a Library release page opens its track page.
-- 2026-10-16: on an Index release page, the "hide" control and the arrow of the Description section do nothing. On a Library release page they work. The Index page gives its description panel no toggle handler (`index_feed_description_panel` in `src/app/search_dispatch.rs`). No packet owns this yet.
-- 2026-10-16: the operator asked that a long description shows collapsed, with "show more" at its end. Today a release page shows the full description. No packet owns this yet.
+None today. Packet 013 owns the Index release page findings of 2026-10-11 and 2026-10-16.
 
 ## Affected Modules
 

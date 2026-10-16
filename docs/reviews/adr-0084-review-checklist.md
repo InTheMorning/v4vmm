@@ -9,6 +9,7 @@ This checklist is advisory. It states no rule. [ADR 0084](../adr/0084-music-colu
 - Task: `docs/tasks/archive/adr-0084-task-001-one-navigation-stack.md`
 - Task: `docs/tasks/archive/adr-0084-task-002-one-release-route.md`
 - Task: `docs/tasks/archive/adr-0084-task-003-one-track-route.md`
+- Task: `docs/tasks/adr-0084-task-013-index-release-page-parity.md`
 
 ## Required Checks
 
