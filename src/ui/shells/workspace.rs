@@ -25,8 +25,8 @@ use crate::ui::tokens::{resolve_color, FontSize, SemanticColor, Spacing};
 use crate::view_models::workspace::{
     BreadcrumbDisplay, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
     FilterChipStripDisplay, FrameNavigationEntry, FrameNavigationState, FrameShellDisplay,
-    LibraryFilterControlDisplay, MusicColumns, MusicDestination, MusicSidebarPreference,
-    MusicSidebarState, TrackKey, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+    MusicColumns, MusicDestination, MusicSidebarPreference, MusicSidebarState, TrackKey,
+    WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
 };
 
 type WorkspaceFilterSelectHandler = Rc<dyn Fn(ContentFilter, &mut Window, &mut App) + 'static>;
@@ -48,7 +48,6 @@ pub(crate) struct WorkspaceSlots {
     source_list: Option<AnyElement>,
     content_list: Option<AnyElement>,
     detail: Option<AnyElement>,
-    content_list_library_filter_control: Option<LibraryFilterControlDisplay>,
     content_list_view_mode_control: Option<ContentViewModeControlDisplay>,
     content_list_filter_chip_strip: Option<FilterChipStripDisplay>,
     on_content_list_filter_select: Option<WorkspaceFilterSelectHandler>,
@@ -103,15 +102,6 @@ impl WorkspaceSlots {
     /// Music mount is the only caller today.
     pub(crate) fn detail_slot(mut self, content: impl IntoElement) -> Self {
         self.detail = Some(content.into_any_element());
-        self
-    }
-
-    /// Supplies frame-local library-membership filter chrome for the content-list frame.
-    pub(crate) fn content_list_library_filter_control(
-        mut self,
-        display: LibraryFilterControlDisplay,
-    ) -> Self {
-        self.content_list_library_filter_control = Some(display);
         self
     }
 
@@ -285,18 +275,6 @@ impl WorkspaceSlots {
         }
     }
 
-    fn library_filter_control_for(
-        &self,
-        kind: WorkspaceFrameKind,
-    ) -> Option<LibraryFilterControlDisplay> {
-        match kind {
-            WorkspaceFrameKind::ContentList => self.content_list_library_filter_control.clone(),
-            WorkspaceFrameKind::SourceList
-            | WorkspaceFrameKind::Detail
-            | WorkspaceFrameKind::QueueNowPlaying => None,
-        }
-    }
-
     fn view_mode_control_for(
         &self,
         kind: WorkspaceFrameKind,
@@ -464,7 +442,6 @@ impl RenderOnce for WorkspaceShell {
             }
 
             let filter_chip_strip = self.slots.filter_chip_strip_for(frame_kind);
-            let library_filter_control = self.slots.library_filter_control_for(frame_kind);
             let view_mode_control = self.slots.view_mode_control_for(frame_kind);
             let on_filter_select = self.slots.filter_select_handler_for(frame_kind);
             let on_view_mode_select = self.slots.view_mode_select_handler_for(frame_kind);
@@ -499,9 +476,6 @@ impl RenderOnce for WorkspaceShell {
             }
             if let Some(filter_chip_strip) = filter_chip_strip {
                 display = display.with_filter_chip_strip(filter_chip_strip);
-            }
-            if let Some(library_filter_control) = library_filter_control {
-                display = display.with_library_filter_control(library_filter_control);
             }
             if let Some(view_mode_control) = view_mode_control {
                 display = display.with_view_mode_control(view_mode_control);

@@ -3,7 +3,8 @@
 #![warn(clippy::pedantic)]
 
 use super::nav::{
-    FrameNavigationEntry, FrameNavigationState, MusicDestination, ReleaseKey, TrackKey,
+    DiscoverView, FrameNavigationEntry, FrameNavigationState, MusicDestination, ReleaseKey,
+    TrackKey,
 };
 
 /// Breadcrumb path truncation policy.
@@ -119,6 +120,7 @@ fn breadcrumb_segment(
 fn breadcrumb_entry_id(entry: &FrameNavigationEntry) -> String {
     match entry {
         FrameNavigationEntry::Destination(destination) => destination_id(*destination),
+        FrameNavigationEntry::DiscoverView(view) => discover_view_id(*view),
         FrameNavigationEntry::PlaylistDetail(id) => format!("playlist-{id}"),
         FrameNavigationEntry::Release(key) => release_key_id(key),
         FrameNavigationEntry::Track(key) => track_key_id(key),
@@ -146,6 +148,15 @@ fn destination_id(destination: MusicDestination) -> String {
         MusicDestination::Playlists => "playlists",
     };
     format!("destination-{slug}")
+}
+
+/// The breadcrumb element id of a Discover view entry (ADR 0084 Decision
+/// 3).
+fn discover_view_id(view: DiscoverView) -> String {
+    let slug = match view {
+        DiscoverView::NewReleases => "new-releases",
+    };
+    format!("discover-view-{slug}")
 }
 
 /// The breadcrumb element id of a release entry (ADR 0084 Decision 4). The

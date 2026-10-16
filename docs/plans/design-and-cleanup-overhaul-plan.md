@@ -133,7 +133,7 @@ Steps:
    4. Releases: the kind of each release, the two scopes and the singles groups with their group page (Decisions 5, 6 and 8).
    5. The artist page with two levels and its scope (Decisions 7 and 8). It replaces the Library artist page by name and the name match page, and fixes finding 6.
    6. Multiple selection and the action bar, with the reserved audition place in the row composite (Decisions 10 and 11). It fixes finding 3.
-   7. Search results in the list column, and saved searches as Discover views (Decisions 2 and 3).
+   7. Search results in the list column (Decision 2). Saved searches need storage first. The [ADR 0084 phase plan](adr-0084-music-column-browser-phase-plan.md) registers them as packet 012, by operator decision of 2026-10-16.
    8. The logo frame for collections (Decision 12).
 
 ### Phase 5: Settings

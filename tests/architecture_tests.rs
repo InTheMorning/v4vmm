@@ -1043,12 +1043,9 @@ fn adr_0047_phase_b_view_model_contracts_are_gpui_free_and_shared() {
 
     for required in [
         "pub(crate) enum ContentFilter",
-        "pub(crate) struct LibraryFilterControlDisplay",
-        "pub(crate) struct LibraryFilterControlStateDisplay",
-        "pub(crate) enum LibraryFilterControlTreatment",
         "pub(crate) struct FilterChipOption",
         "pub(crate) struct FilterChipStripDisplay",
-        "pub(crate) fn default_for_content_list",
+        "fn default_for_content_list",
         "pub(crate) fn default_for_search_inspector",
     ] {
         if !workspace_source.contains(required) {
@@ -1066,8 +1063,6 @@ fn adr_0047_phase_b_view_model_contracts_are_gpui_free_and_shared() {
         "pub(crate) const fn musicbrainz_enabled",
         "pub(crate) enum DescriptionState",
         "pub(crate) const DESCRIPTION_AUTO_COLLAPSE_LINES: usize = 5",
-        "pub(crate) struct SavedSearchEntry",
-        "pub(crate) fn set_saved_searches",
     ] {
         if !library_source.contains(required) {
             violations.push(format!(
@@ -2712,9 +2707,6 @@ impl WorkspaceLayout {
 #[test]
 fn adr_0047_phase_d_filter_controls_render_through_frame_shell() {
     let filter_source = read_source(&manifest_path("src/ui/composites/filter_chip_strip.rs"));
-    let library_filter_source = read_source(&manifest_path(
-        "src/ui/composites/library_filter_control.rs",
-    ));
     let frame_shell_source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
     let composites_mod_source = read_source(&manifest_path("src/ui/composites/mod.rs"));
     let workspace_source = workspace_vm_source();
@@ -2735,24 +2727,6 @@ fn adr_0047_phase_d_filter_controls_render_through_frame_shell() {
         }
     }
 
-    for required in [
-        "pub(crate) struct LibraryFilterControl",
-        "pub(crate) struct LibraryFilterControlSlots",
-        "library_filter_control(",
-        "Button::styled(",
-        "SharedString::from(display.id)",
-        "control_style(display.current.treatment)",
-        ".label_treatment(label_treatment(display.current.treatment))",
-        ".on_activate(move |window, cx|",
-        "handler(next_filter, window, cx)",
-    ] {
-        if !library_filter_source.contains(required) {
-            violations.push(format!(
-                "src/ui/composites/library_filter_control.rs: Situational ADR 0062 library tri-state control composite missing `{required}`"
-            ));
-        }
-    }
-
     for forbidden in [
         "rgb(",
         ".absolute()",
@@ -2765,19 +2739,11 @@ fn adr_0047_phase_d_filter_controls_render_through_frame_shell() {
                 "src/ui/composites/filter_chip_strip.rs: ADR 0047 Task 009 must reuse primitives/tokens and avoid `{forbidden}`"
             ));
         }
-        if library_filter_source.contains(forbidden) {
-            violations.push(format!(
-                "src/ui/composites/library_filter_control.rs: Situational ADR 0062 library tri-state control must reuse primitives/tokens and avoid `{forbidden}`"
-            ));
-        }
     }
 
     for required in [
         "pub mod filter_chip_strip;",
         "pub(crate) use filter_chip_strip::{filter_chip_strip, FilterChipStrip, FilterChipStripSlots}",
-        "pub mod library_filter_control;",
-        "pub(crate) use library_filter_control::{",
-        "library_filter_control, LibraryFilterControl, LibraryFilterControlSlots",
     ] {
         if !composites_mod_source.contains(required) {
             violations.push(format!(
@@ -2789,8 +2755,6 @@ fn adr_0047_phase_d_filter_controls_render_through_frame_shell() {
     for required in [
         "filter_chip_strip: Option<FilterChipStripDisplay>",
         "pub(crate) fn with_filter_chip_strip",
-        "library_filter_control: Option<LibraryFilterControlDisplay>",
-        "pub(crate) fn with_library_filter_control",
     ] {
         if !workspace_source.contains(required) {
             violations.push(format!(
@@ -2803,15 +2767,10 @@ fn adr_0047_phase_d_filter_controls_render_through_frame_shell() {
         "use crate::ui::composites::{",
         "filter_chip_strip",
         "FilterChipStripSlots",
-        "library_filter_control",
-        "LibraryFilterControlSlots",
         "type FrameFilterSelectHandler",
         "on_filter_select",
         "display.filter_chip_strip.clone()",
-        "display.library_filter_control.clone()",
-        "library_filter_control_display.is_some()",
         "filter_chip_strip_display.is_some()",
-        "library_filter_control(display, filter_slots)",
         "filter_chip_strip(display, filter_slots)",
     ] {
         if !frame_shell_source.contains(required) {
@@ -2821,175 +2780,51 @@ fn adr_0047_phase_d_filter_controls_render_through_frame_shell() {
         }
     }
 
-    assert!(
-        violations.is_empty(),
-        "ADR 0047 Task 009 and Situational ADR 0062 frame filter control violations:\n{}",
-        violations.join("\n")
-    );
-}
-
-#[test]
-fn adr_0047_task_010a_content_list_page_vm_owns_filter_projection() {
-    let library_source = read_source(&manifest_path("src/view_models/library.rs"));
-    let mut violations = Vec::new();
-
-    for required in [
-        "use crate::view_models::workspace::{",
-        "ContentFilter",
-        "LibraryFilterControlDisplay",
-        "pub(crate) enum ContentListRowSource",
-        "pub(crate) const fn matches_filter(self, filter: ContentFilter) -> bool",
-        "pub(crate) struct ContentListRowDisplay",
-        "pub(crate) struct ContentListEmptyStateDisplay",
-        "pub(crate) struct ContentListPageVm",
-        "filter_state: ContentFilter",
-        "cached_rows: Vec<ContentListRowDisplay>",
-        "pub(crate) fn set_filter(&mut self, filter: ContentFilter)",
-        "pub(crate) fn visible_rows(&self) -> Vec<&ContentListRowDisplay>",
-        // `empty_state` went with its one caller, the Library sidebar
-        // tree's own empty message. ADR 0084 Decision 2 removes that tree;
-        // `page_state_display` owns the content-list empty state now.
-        "pub(crate) fn library_filter_control(&self) -> LibraryFilterControlDisplay",
-        "pub(crate) fn library_filter_control_display(&self) -> LibraryFilterControlDisplay",
-        "LibraryFilterControlDisplay::default_for_content_list(self.filter_state)",
-    ] {
-        if !library_source.contains(required) {
+    // ADR 0084 Decision 8 (operator decision of 2026-10-16): the Music
+    // content-list tri-state filter control is deleted, not kept beside
+    // the search-results filter chips.
+    for forbidden in ["LibraryFilterControlDisplay", "library_filter_control"] {
+        if workspace_source.contains(forbidden)
+            || composites_mod_source.contains(forbidden)
+            || frame_shell_source.contains(forbidden)
+        {
             violations.push(format!(
-                "src/view_models/library.rs: ADR 0047 Task 010a content-list page VM ownership contract missing `{required}`"
+                "ADR 0084 Decision 8 deletes the Music content-list filter control; found `{forbidden}`"
             ));
         }
     }
 
-    if library_source.contains("enum ContentFilter") {
-        violations.push(
-            "src/view_models/library.rs: ADR 0047 Task 010a must reuse workspace ContentFilter, not define a second enum"
-                .to_string(),
-        );
-    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 Task 009 frame filter control violations:\n{}",
+        violations.join("\n")
+    );
+}
 
-    for path in rust_files_under("src/ui") {
-        let source = read_source(&path);
-        for forbidden in ["ContentListRowSource"] {
+/// ADR 0084 Decision 8 (operator decision of 2026-10-16): the Music
+/// content-list tri-state filter control is deleted. This replaces
+/// `adr_0047_task_010a_content_list_page_vm_owns_filter_projection` and
+/// `adr_0047_task_010_content_list_library_filter_is_frame_local`, which
+/// pinned the deleted control's ownership contract.
+#[test]
+fn adr_0084_discover_r6_06_three_state_filter_control_is_deleted() {
+    let mut violations = Vec::new();
+
+    for forbidden in ["LibraryFilterControlDisplay", "library_filter_control"] {
+        for path in rust_files_under("src") {
+            let source = read_source(&path);
             if source.contains(forbidden) {
                 violations.push(format!(
-                    "{}: ADR 0047 Task 010a keeps source filtering VM-owned; UI must not reference `{forbidden}`",
+                    "{}: ADR 0084 Decision 8 deletes the Music content-list filter control; found `{forbidden}`",
                     rel_path(&path)
                 ));
             }
         }
     }
 
-    let app_source = read_source(&manifest_path("src/app.rs"));
-    for forbidden in ["ContentListPageVm", "SetFrameFilter"] {
-        if app_source.contains(forbidden) {
-            violations.push(format!(
-                "src/app.rs: ADR 0047 Task 010a must not wire content-list filter commands yet; found `{forbidden}`"
-            ));
-        }
-    }
-
     assert!(
         violations.is_empty(),
-        "ADR 0047 Task 010a content-list page VM violations:\n{}",
-        violations.join("\n")
-    );
-}
-
-#[test]
-fn adr_0047_task_010_content_list_library_filter_is_frame_local() {
-    let app_source = read_source(&manifest_path("src/app.rs"));
-    let library_source = read_source(&manifest_path("src/view_models/library.rs"));
-    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
-    let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
-    let mut violations = Vec::new();
-
-    for required in [
-        "content_list_page: ContentListPageVm",
-        "self.content_list_page",
-        "replace_tree_rows(content_list_rows_from_tree(&tree))",
-        "pub(crate) fn set_content_filter(&mut self, filter: ContentFilter)",
-        "pub(crate) fn content_library_filter_control(&self) -> LibraryFilterControlDisplay",
-        // `content_filter_empty_state` went with its one caller, the
-        // Library sidebar tree's own empty message (ADR 0084 Decision 2
-        // removes that tree).
-        "fn content_list_rows_from_tree(tree: &LibraryTree) -> Vec<ContentListRowDisplay>",
-    ] {
-        if !library_source.contains(required) {
-            violations.push(format!(
-                "src/view_models/library.rs: ADR 0047 Task 010 content-list filter ownership missing `{required}`"
-            ));
-        }
-    }
-
-    if library_source.contains("filter_tree_to_content_rows(&tree, &self.content_list_page)") {
-        violations.push(
-            "src/view_models/library.rs: ADR 0049 forbids filtering the Library source tree with the ContentList content filter"
-                .to_string(),
-        );
-    }
-
-    for required in [
-        "pub(crate) fn content_library_filter_control(&self) -> LibraryFilterControlDisplay",
-        "self.vm.content_library_filter_control()",
-        "pub(crate) fn set_content_filter(&mut self, filter: ContentFilter, cx: &mut Context<Self>)",
-        "self.vm.set_content_filter(filter)",
-    ] {
-        if !library_app_source.contains(required) {
-            violations.push(format!(
-                "src/library/app_impl.rs: ADR 0047 Task 010 LibraryApp filter bridge missing `{required}`"
-            ));
-        }
-    }
-
-    for required in [
-        "content_list_library_filter_control: Option<LibraryFilterControlDisplay>",
-        "on_content_list_filter_select: Option<WorkspaceFilterSelectHandler>",
-        "pub(crate) fn content_list_library_filter_control(",
-        "pub(crate) fn on_content_list_filter_select(",
-        "library_filter_control_for(",
-        "filter_select_handler_for(",
-        "display.with_library_filter_control(library_filter_control)",
-        "shell_slots.on_filter_select",
-    ] {
-        if !workspace_shell_source.contains(required) {
-            violations.push(format!(
-                "src/ui/shells/workspace.rs: ADR 0047 Task 010 workspace filter slot missing `{required}`"
-            ));
-        }
-    }
-
-    for required in [
-        "fn set_frame_filter(",
-        "frame_id: WorkspaceFrameId",
-        "filter: ContentFilter",
-        "frame.kind() == WorkspaceFrameKind::ContentList",
-        ".content_list_library_filter_control(library_filter_control)",
-        ".on_content_list_filter_select(move |filter, _window, cx|",
-        "this.set_frame_filter(content_frame_id, filter, cx)",
-    ] {
-        if !app_source.contains(required) {
-            violations.push(format!(
-                "src/app.rs: ADR 0047 Task 010 app frame-filter dispatch missing `{required}`"
-            ));
-        }
-    }
-
-    for forbidden in [
-        "static CONTENT_FILTER",
-        "global_content_filter",
-        "toolbar_content_filter",
-        "WorkspaceSlots::new().content_list_filter_chip_strip(FilterChipStripDisplay::default",
-    ] {
-        if app_source.contains(forbidden) || workspace_shell_source.contains(forbidden) {
-            violations.push(format!(
-                "ADR 0047 Task 010 must keep filters frame-local and VM-projected; found `{forbidden}`"
-            ));
-        }
-    }
-
-    assert!(
-        violations.is_empty(),
-        "ADR 0047 Task 010 content-list frame filter violations:\n{}",
+        "ADR 0084 Decision 8 filter-control deletion violations:\n{}",
         violations.join("\n")
     );
 }
@@ -3180,14 +3015,21 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         }
     }
 
-    for required in [
-        "let active_filter = library_vm.content_filter();",
-        "ContentFilter::Library => track.is_in_library",
-        "ContentFilter::Index => !track.is_in_library",
+    // ADR 0084 Decisions 4 and 8 (operator decision of 2026-10-16): the
+    // release page reads no list filter. It always shows every track.
+    if !feed_detail_source.contains(".release_track_rows()") {
+        violations.push(
+            "src/ui/shells/library/feed_detail.rs: ADR 0084 Decisions 4 and 8 require the release page to read album.release_track_rows(), with no list filter"
+                .to_string(),
+        );
+    }
+    for forbidden in [
+        "library_vm.content_filter()",
+        "ContentFilter::Library => track",
     ] {
-        if !feed_detail_source.contains(required) {
+        if feed_detail_source.contains(forbidden) {
             violations.push(format!(
-                "src/ui/shells/library/feed_detail.rs: ADR 0049 inspector filter projection missing `{required}`"
+                "src/ui/shells/library/feed_detail.rs: ADR 0084 Decision 8 deletes the release page's list filter; found `{forbidden}`"
             ));
         }
     }
@@ -3753,11 +3595,9 @@ fn adr_0047_task_014_search_results_inspector_shell_contract() {
 }
 
 #[test]
-fn adr_0047_task_015_search_submit_and_saved_search_commands() {
+fn adr_0047_task_015_search_submit_commands() {
     let app_source = read_source(&manifest_path("src/app.rs"));
     let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
-    let library_event_source = read_source(&manifest_path("src/library.rs"));
-    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
     let workspace_source = workspace_vm_source();
     let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
     let mut violations = Vec::new();
@@ -3781,14 +3621,12 @@ fn adr_0047_task_015_search_submit_and_saved_search_commands() {
 
     for required in [
         "search_results_detail: Option<SearchResultsInspectorPageVm>",
-        "fn open_saved_search(",
         "fn set_search_results_filter(",
         "fn set_search_results_tab(",
         "SearchResultsInspectorSlots::new()",
         ".on_tab_select(move |tab, _window, cx|",
         ".on_clear_filter(move |_window, cx|",
         "SearchResultsHeaderMode::Tabbed,",
-        "LibraryAppEvent::OpenSavedSearch",
     ] {
         if !app_source.contains(required) {
             violations.push(format!(
@@ -3838,46 +3676,42 @@ fn adr_0047_task_015_search_submit_and_saved_search_commands() {
         }
     }
 
-    for required in ["OpenSavedSearch {", "saved_search_id: i64", "query: String"] {
-        if !library_event_source.contains(required) {
-            violations.push(format!(
-                "src/library.rs: ADR 0047 Task 015 saved-search event missing `{required}`"
-            ));
-        }
-    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 Task 015 search-submit command violations:\n{}",
+        violations.join("\n")
+    );
+}
 
-    for required in [
-        "SavedSearchesSectionDisplay",
-        "fn open_saved_search(&mut self, saved_search_id: i64",
-        ".saved_searches()",
-        "LibraryAppEvent::OpenSavedSearch",
-        "self.vm.saved_searches_section()",
-        "ListRow::compact(SharedString::from(row_id))",
-        "this.open_saved_search(saved_search_id, cx);",
-    ] {
-        if !library_app_source.contains(required) {
-            violations.push(format!(
-                "src/library/app_impl.rs: ADR 0047 Task 015 source-list saved-search command missing `{required}`"
-            ));
-        }
-    }
+/// R6-07 (ADR 0084 Decision 3, operator decision of 2026-10-16): saved
+/// searches had no storage and no save action, so they are deleted. This
+/// replaces the saved-search half of
+/// `adr_0047_task_015_search_submit_and_saved_search_commands`.
+#[test]
+fn adr_0084_discover_r6_07_saved_searches_are_deleted() {
+    let mut violations = Vec::new();
 
     for forbidden in [
-        "this.select_playlist(saved_search_id",
-        "this.select_track(saved_search_id",
-        "select_playlist_with_history(saved_search_id",
-        "select_track_with_history(saved_search_id",
+        "SavedSearchEntry",
+        "SavedSearchesSectionDisplay",
+        "OpenSavedSearch",
+        "saved_searches_section",
+        "fn open_saved_search(",
     ] {
-        if library_app_source.contains(forbidden) {
-            violations.push(format!(
-                "src/library/app_impl.rs: ADR 0047 Task 015 saved-search activation must not disturb source-list selection; found `{forbidden}`"
-            ));
+        for path in rust_files_under("src") {
+            let source = read_source(&path);
+            if source.contains(forbidden) {
+                violations.push(format!(
+                    "{}: the operator decision of 2026-10-16 deletes saved searches; found `{forbidden}`",
+                    rel_path(&path)
+                ));
+            }
         }
     }
 
     assert!(
         violations.is_empty(),
-        "ADR 0047 Task 015 search-submit and saved-search command violations:\n{}",
+        "Saved-search deletion violations:\n{}",
         violations.join("\n")
     );
 }
@@ -12899,11 +12733,6 @@ fn adr_0060_music_surface_vocabulary_and_primary_filter_are_guarded() {
         "fn render_workspace_content(",
         "impl Drop for TopApp",
     );
-    let set_frame_filter = source_between(
-        &app_source,
-        "fn set_frame_filter(",
-        "fn set_search_results_filter(",
-    );
     let mut violations = Vec::new();
 
     for required in [
@@ -12983,36 +12812,11 @@ fn adr_0060_music_surface_vocabulary_and_primary_filter_are_guarded() {
         }
     }
 
-    for required in [
-        "if matches!(mount, WorkspaceScreenMount::Music)",
-        ".content_list_library_filter_control(library_filter_control)",
-        "this.set_frame_filter(content_frame_id, filter, cx)",
-    ] {
-        if !render_workspace_content.contains(required) {
-            violations.push(format!(
-                "src/app.rs: ADR 0060 task 003 Music default state must expose the content filter; missing `{required}`"
-            ));
-        }
-    }
-
-    if !set_frame_filter.contains("matches!(mount, WorkspaceScreenMount::Music)") {
+    if !render_workspace_content.contains("if matches!(mount, WorkspaceScreenMount::Music)") {
         violations.push(
-            "src/app.rs: ADR 0060 task 003 Music filter selection must route from the default state"
+            "src/app.rs: ADR 0060 task 003 Music default state must branch on the Music mount"
                 .to_string(),
         );
-    }
-
-    for required in [
-        "LibraryFilterControlDisplay::default_for_content_list(self.filter_state)",
-        "pub(crate) const fn state_displays()",
-        "keyboard_cycle_order",
-        "next_filter",
-    ] {
-        if !workspace_chrome_source.contains(required) && !library_vm_source.contains(required) {
-            violations.push(format!(
-                "Situational ADR 0062 library tri-state control guard missing `{required}`"
-            ));
-        }
     }
 
     for required in [
@@ -13037,17 +12841,6 @@ fn adr_0060_music_surface_vocabulary_and_primary_filter_are_guarded() {
             "src/view_models/library.rs: Situational ADR 0062 library tri-state control guard forbids content-list chip-strip projection"
                 .to_string(),
         );
-    }
-
-    for forbidden in [
-        "has_filterable_content_detail",
-        "FrameNavigationEntry::SourceList",
-    ] {
-        if set_frame_filter.contains(forbidden) {
-            violations.push(format!(
-                "src/app.rs: ADR 0060 task 003 Music filter selection must not depend on prior detail/navigation state; found `{forbidden}`"
-            ));
-        }
     }
 
     if !db_source.contains("is_in_library") {
@@ -14246,7 +14039,7 @@ fn adr_0062_mixed_entity_row_contract_is_kind_backed() {
     let row_contract = source_between(
         &library_source,
         "pub(crate) enum ContentListEntityKind",
-        "/// Empty-state display for a filtered content-list frame.",
+        "/// Empty-state display for the content-list frame.",
     );
     let row_struct = source_between(
         &library_source,
@@ -14709,62 +14502,17 @@ fn adr_0062_music_default_content_query_stays_off_render_path() {
     );
 }
 
-/// Situational ADR 0062: library membership is one tri-state control.
+/// ADR 0084 Decision 8 (operator decision of 2026-10-16): the library
+/// membership tri-state control is deleted. This replaces
+/// `adr_0062_library_tri_state_control_contract_is_vm_owned`, which
+/// pinned the deleted control. `adr_0084_discover_r6_06_three_state_filter_control_is_deleted`
+/// guards the deletion; the merged local-and-recency row set it also
+/// pinned stays covered by `content_list_page_vm_projects_first_recent_music_page`
+/// and `adr_0084_discover_r6_05_shows_every_row_regardless_of_source`.
 #[test]
-fn adr_0062_library_tri_state_control_contract_is_vm_owned() {
-    let workspace_source = workspace_vm_source();
+fn adr_0084_discover_library_rows_still_merge_into_recent_music() {
     let library_source = read_source(&manifest_path("src/view_models/library.rs"));
-    let library_filter_source = read_source(&manifest_path(
-        "src/ui/composites/library_filter_control.rs",
-    ));
-    let button_source = read_source(&manifest_path("src/ui/primitives/button.rs"));
     let mut violations = Vec::new();
-
-    for required in [
-        "pub(crate) enum LibraryFilterControlTreatment",
-        "pub(crate) struct LibraryFilterControlStateDisplay",
-        "pub(crate) struct LibraryFilterControlDisplay",
-        "text_label: &'static str",
-        "state_label: &'static str",
-        "a11y_label: &'static str",
-        "next_filter: ContentFilter",
-        "keyboard_cycle_order: [ContentFilter; 3]",
-        "ContentFilter::All => LibraryFilterControlStateDisplay",
-        "text_label: \"Library\"",
-        "state_label: \"Any\"",
-        "a11y_label: \"Any library status\"",
-        "treatment: LibraryFilterControlTreatment::Off",
-        "ContentFilter::Library => LibraryFilterControlStateDisplay",
-        "state_label: \"In library\"",
-        "a11y_label: \"In library\"",
-        "treatment: LibraryFilterControlTreatment::Highlighted",
-        "ContentFilter::Index => LibraryFilterControlStateDisplay",
-        "state_label: \"Not in library\"",
-        "a11y_label: \"Not in library\"",
-        "treatment: LibraryFilterControlTreatment::StruckThrough",
-        "matches!(self, Self::StruckThrough)",
-        "ContentFilter::All => ContentFilter::Library",
-        "ContentFilter::Library => ContentFilter::Index",
-        "ContentFilter::Index => ContentFilter::All",
-    ] {
-        if !workspace_source.contains(required) {
-            violations.push(format!(
-                "src/view_models/workspace/chrome.rs: Situational ADR 0062 library tri-state control contract missing `{required}`. Fix: keep labels, a11y text, treatments, and cycle order in the view model."
-            ));
-        }
-    }
-
-    for required in [
-        "pub(crate) fn library_filter_control_display(&self) -> LibraryFilterControlDisplay",
-        "LibraryFilterControlDisplay::default_for_content_list(self.filter_state)",
-        "pub(crate) fn content_library_filter_control(&self) -> LibraryFilterControlDisplay",
-    ] {
-        if !library_source.contains(required) {
-            violations.push(format!(
-                "src/view_models/library.rs: Situational ADR 0062 library tri-state control projection missing `{required}`. Fix: project the Music content filter through LibraryFilterControlDisplay."
-            ));
-        }
-    }
 
     for required in [
         "library_rows: Vec<ContentListRowDisplay>",
@@ -14772,77 +14520,17 @@ fn adr_0062_library_tri_state_control_contract_is_vm_owned() {
         "self.library_rows = cached_rows;",
         "self.library_rows.clone_from(&cached_rows);",
         "&self.library_rows",
-        "self.has_more && !matches!(self.filter_state, ContentFilter::Library)",
-        "if self.has_more()",
     ] {
         if !library_source.contains(required) {
             violations.push(format!(
-                "src/view_models/library.rs: Situational ADR 0062 library tri-state data-source contract missing `{required}`. Fix: keep local library rows available when the recent-music source is active, and do not expose remote pagination for the Library-only state."
+                "src/view_models/library.rs: ADR 0084 Decision 8 data-source contract missing `{required}`. Fix: keep local library rows available when the recent-music source is active."
             ));
         }
-    }
-
-    for required in [
-        "Button::styled(",
-        "SharedString::from(display.id)",
-        "control_style(display.current.treatment)",
-        ".label(display.current.text_label)",
-        ".a11y_label(display.current.a11y_label)",
-        ".label_treatment(label_treatment(display.current.treatment))",
-        "LibraryFilterControlTreatment::StruckThrough => ButtonLabelTreatment::LineThrough",
-        "LibraryFilterControlTreatment::StruckThrough => ControlStyle::Secondary",
-        "LibraryFilterControlTreatment::Off => Some(SemanticColor::SecondaryLabel)",
-        "button.foreground(foreground)",
-        ".on_activate(move |window, cx|",
-        "handler(next_filter, window, cx)",
-    ] {
-        if !library_filter_source.contains(required) {
-            violations.push(format!(
-                "src/ui/composites/library_filter_control.rs: Situational ADR 0062 library tri-state renderer bridge missing `{required}`. Fix: render the VM display contract and dispatch the VM-projected next filter."
-            ));
-        }
-    }
-
-    for forbidden in [
-        "ContentFilter::All",
-        "ContentFilter::Library",
-        "ContentFilter::Index",
-        "text_label:",
-        "a11y_label:",
-        "\"Library:",
-        "\"Not in library\"",
-    ] {
-        if library_filter_source.contains(forbidden) {
-            violations.push(format!(
-                "src/ui/composites/library_filter_control.rs: Situational ADR 0062 forbids renderer-owned tri-state labels or state branches; found `{forbidden}`. Fix: keep state strings and state mapping in the view model."
-            ));
-        }
-    }
-
-    for required in [
-        "pub const fn label_treatment(mut self, treatment: ButtonLabelTreatment)",
-        "pub fn on_activate<F>(mut self, handler: F) -> Self",
-        ".tab_index(0)",
-        ".on_key_down(move |event, window, cx|",
-        "keyboard_activation_key(event)",
-    ] {
-        if !button_source.contains(required) {
-            violations.push(format!(
-                "src/ui/primitives/button.rs: Situational ADR 0062 library tri-state control primitive support missing `{required}`. Fix: keep Button text treatment and keyboard activation support."
-            ));
-        }
-    }
-
-    if !button_source.contains("ButtonLabelTreatment::LineThrough") {
-        violations.push(
-            "src/ui/primitives/button.rs: Situational ADR 0062 library tri-state control needs a primitive text-treatment hook. Fix: expose label_treatment on Button so exclusion is not color-only."
-                .to_string(),
-        );
     }
 
     assert!(
         violations.is_empty(),
-        "Situational ADR 0062 library tri-state control violations:\n{}",
+        "ADR 0084 Decision 8 recent-music data-source violations:\n{}",
         violations.join("\n")
     );
 }
@@ -16097,7 +15785,7 @@ fn adr_0069_settings_group_ownership() {
     assert!(app.contains("settings_scroll: crate::ui::composites::settings::SettingsScrollHandles"));
     assert!(screen.contains("app.settings_scroll.handle(app.settings.selected())"));
     assert!(!form.contains("truncate()"));
-    let select = source_between(&app, "fn select_tab(", "fn set_frame_filter(");
+    let select = source_between(&app, "fn select_tab(", "fn set_content_list_view_mode(");
     let navigation = source_between(select, "AppTab::Settings => {", "AppTab::Music => {");
     assert!(navigation.contains("self.settings.dispatch(SettingsAction::Open)"));
     for forbidden in [
@@ -16723,8 +16411,6 @@ fn adr_0060_search_uses_music_section_navigation() {
     );
     assert!(app.contains("self.submit_global_search(window, cx)"));
     assert!(toolbar.contains("this.submit_global_search(window, cx)"));
-    let saved = source_between(&app, "fn open_saved_search(", "fn select_tab(");
-    assert!(saved.contains("self.open_search_results_in_content_list(query, window, cx)"));
     let open = source_between(
         &search,
         "pub(super) fn open_search_results_in_content_list(",

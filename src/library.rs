@@ -31,7 +31,9 @@ use crate::view_models::library::{
     LibraryTrackInspectorState, LibraryViewModel,
 };
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
-use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
+use crate::view_models::workspace::{
+    ContentViewMode, DiscoverView, FrameNavigationEntry, NavigationPathStart,
+};
 use crate::views::ArtistView;
 
 // ---------------------------------------------------------------------------
@@ -45,6 +47,9 @@ pub(crate) enum LibraryDetail {
     Album(AlbumNode),
     Track(Box<InspectorFrame>),
     Playlist(PlaylistDetail),
+    /// A view of the Discover column is open in the detail column (ADR
+    /// 0084 Decision 3).
+    Discover(DiscoverView),
 }
 
 #[derive(Clone, Debug)]
@@ -67,10 +72,10 @@ pub(crate) enum LibraryAppEvent {
         playlist_id: i64,
         playlist_position: i64,
     },
-    OpenSavedSearch {
-        saved_search_id: i64,
-        query: String,
-    },
+    /// Requests a content view-mode change, from the Discover detail
+    /// header (ADR 0084 Decision 3). The top app owns the mutation and
+    /// its config persistence (ADR 0062).
+    SetContentViewMode(ContentViewMode),
     OpenIndexFeedDetail {
         feed_guid: String,
         label: String,

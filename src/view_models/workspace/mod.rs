@@ -27,8 +27,7 @@ pub(crate) use breadcrumb::{BreadcrumbDisplay, BreadcrumbSegment};
 pub(crate) use chrome::{
     ContentFilter, ContentViewMode, ContentViewModeControlDisplay, FilterChipOption,
     FilterChipStripDisplay, FilterChipStripWidthClass, FrameChromeButtonDisplay,
-    FrameChromeMenuItemDisplay, FrameShellDisplay, LibraryFilterControlDisplay,
-    LibraryFilterControlTreatment,
+    FrameChromeMenuItemDisplay, FrameShellDisplay,
 };
 pub(crate) use columns::{
     resolve_music_sidebar_state, toggle_music_sidebar_preference, MusicColumns,
@@ -37,7 +36,7 @@ pub(crate) use columns::{
 pub(crate) use frame::{WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState};
 pub(crate) use nav::{
     release_download_updates_open_page, resolve_release_page_source, resolve_track_page_source,
-    track_download_updates_open_page, track_release_download_updates_open_page,
+    track_download_updates_open_page, track_release_download_updates_open_page, DiscoverView,
     FrameNavigationEntry, FrameNavigationState, MusicDestination, NavigationPathStart, ReleaseKey,
     ReleasePageSource, TrackKey, TrackPageSource,
 };
@@ -402,7 +401,11 @@ impl WorkspaceLayout {
     fn ensure_frame_navigation_entries(&mut self) {
         for frame in &self.frames {
             self.frame_navigation.entry(frame.id()).or_insert_with(|| {
-                FrameNavigationState::new(default_navigation_entry(frame.kind()))
+                let root = default_navigation_entry(frame.kind());
+                match default_navigation_child(frame.kind()) {
+                    Some(page) => FrameNavigationState::new_with_page(root, page),
+                    None => FrameNavigationState::new(root),
+                }
             });
         }
     }
@@ -418,5 +421,17 @@ fn default_navigation_entry(kind: WorkspaceFrameKind) -> FrameNavigationEntry {
             FrameNavigationEntry::Track(TrackKey::from_index_track_target(None, String::new()))
         }
         WorkspaceFrameKind::QueueNowPlaying => FrameNavigationEntry::QueueNowPlaying,
+    }
+}
+
+/// The page under the Music default location, when its destination opens
+/// one beneath it (ADR 0084 Decision 3: Music opens on Discover, then
+/// "New releases").
+fn default_navigation_child(kind: WorkspaceFrameKind) -> Option<FrameNavigationEntry> {
+    match kind {
+        WorkspaceFrameKind::SourceList | WorkspaceFrameKind::ContentList => {
+            MusicDestination::Discover.default_child_page()
+        }
+        WorkspaceFrameKind::Detail | WorkspaceFrameKind::QueueNowPlaying => None,
     }
 }

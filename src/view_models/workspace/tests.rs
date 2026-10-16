@@ -2,11 +2,11 @@ use super::{
     release_download_updates_open_page, resolve_release_page_source, resolve_track_page_source,
     track_download_updates_open_page, track_release_download_updates_open_page, BreadcrumbDisplay,
     BreadcrumbTruncation, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
-    FilterChipStripDisplay, FilterChipStripWidthClass, FrameNavigationEntry, FrameNavigationState,
-    FrameShellDisplay, LibraryFilterControlDisplay, LibraryFilterControlTreatment, MusicColumns,
-    MusicDestination, ReleaseKey, ReleasePageSource, TrackKey, TrackPageSource,
-    WorkspaceFrameConfig, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState,
-    WorkspaceLayout, WorkspaceLayoutConfig, WorkspaceModelError,
+    DiscoverView, FilterChipStripDisplay, FilterChipStripWidthClass, FrameNavigationEntry,
+    FrameNavigationState, FrameShellDisplay, MusicColumns, MusicDestination, ReleaseKey,
+    ReleasePageSource, TrackKey, TrackPageSource, WorkspaceFrameConfig, WorkspaceFrameId,
+    WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout, WorkspaceLayoutConfig,
+    WorkspaceModelError,
 };
 
 fn frame(id: u64, kind: WorkspaceFrameKind) -> WorkspaceFrameState {
@@ -24,72 +24,103 @@ fn track(id: i64) -> FrameNavigationEntry {
     FrameNavigationEntry::Track(TrackKey::from_index_track_target(None, id.to_string()))
 }
 
+/// R6-02 (ADR 0084 Decision 3): the Music opening path gives
+/// `Destination(Discover)`, then `DiscoverView(NewReleases)`.
 #[test]
-fn library_filter_control_states_map_to_content_filters() {
-    let states = LibraryFilterControlDisplay::state_displays();
+fn adr_0084_discover_r6_02_music_opens_on_discover_then_new_releases() {
+    let layout = WorkspaceLayout::default_layout();
+    let content_list_id = layout
+        .frames()
+        .iter()
+        .find(|frame| frame.kind() == WorkspaceFrameKind::ContentList)
+        .map(WorkspaceFrameState::id)
+        .expect("the default layout has a content-list frame");
+    let nav = layout
+        .frame_nav(content_list_id)
+        .expect("the content-list frame has navigation");
 
     assert_eq!(
-        states.map(|state| state.filter),
-        [
-            ContentFilter::All,
-            ContentFilter::Library,
-            ContentFilter::Index
+        nav.path_entries(),
+        vec![
+            discover(),
+            FrameNavigationEntry::DiscoverView(DiscoverView::NewReleases),
         ],
-        "Situational ADR 0062 library tri-state control guard: display states must map to all ContentFilter values"
-    );
-    assert_eq!(
-        states.map(|state| state.text_label),
-        ["Library", "Library", "Library"],
-        "Situational ADR 0062 library tri-state control guard: every state must expose the library axis label"
-    );
-    assert_eq!(
-        states.map(|state| state.state_label),
-        ["Any", "In library", "Not in library"],
-        "Situational ADR 0062 library tri-state control guard: every state must expose an explicit state label"
-    );
-    assert_eq!(
-        states.map(|state| state.treatment),
-        [
-            LibraryFilterControlTreatment::Off,
-            LibraryFilterControlTreatment::Highlighted,
-            LibraryFilterControlTreatment::StruckThrough
-        ],
-        "Situational ADR 0062 library tri-state control guard: display states must expose non-color treatments"
+        "Music must open on Discover, then New releases"
     );
 }
 
+/// R6-02 (ADR 0084 Decision 3): a sidebar click on Discover gives the
+/// same path as the Music opening path. `MusicDestination::default_child_page`
+/// is the one place both the opening path and the sidebar click read.
 #[test]
-fn library_filter_control_exclusion_accessibility_is_explicit() {
-    let display = LibraryFilterControlDisplay::default_for_content_list(ContentFilter::Index);
+fn adr_0084_discover_r6_02_discover_sidebar_click_opens_new_releases() {
+    let mut nav =
+        FrameNavigationState::new(FrameNavigationEntry::Destination(MusicDestination::Tracks));
+
+    nav.start_path(discover(), MusicDestination::Discover.default_child_page());
 
     assert_eq!(
-        display.current.a11y_label, "Not in library",
-        "Situational ADR 0062 library tri-state control guard: excluding state must announce `Not in library`"
+        nav.path_entries(),
+        vec![
+            discover(),
+            FrameNavigationEntry::DiscoverView(DiscoverView::NewReleases),
+        ],
+        "a sidebar click on Discover must give Destination(Discover), then DiscoverView(NewReleases)"
     );
+}
+
+/// R6-02: a destination with no default child page starts a path with
+/// only its destination.
+#[test]
+fn adr_0084_discover_r6_02_other_destinations_have_no_default_child_page() {
+    for destination in [
+        MusicDestination::Releases,
+        MusicDestination::Artists,
+        MusicDestination::Tracks,
+        MusicDestination::NeedsAttention,
+        MusicDestination::Playlists,
+    ] {
+        assert_eq!(
+            destination.default_child_page(),
+            None,
+            "{destination:?} must open no page under it by default"
+        );
+    }
+}
+
+/// R6-03 (ADR 0084 Decision 3): a release opened from "New releases"
+/// gives a path with `Destination(Discover)`, `DiscoverView(NewReleases)`
+/// and the release, and Back returns to `DiscoverView(NewReleases)`.
+#[test]
+fn adr_0084_discover_r6_03_release_opens_under_new_releases_and_back_returns() {
+    let new_releases = FrameNavigationEntry::DiscoverView(DiscoverView::NewReleases);
+    let mut nav = FrameNavigationState::new_with_page(discover(), new_releases.clone());
+    let release = FrameNavigationEntry::Release(ReleaseKey::LibraryFeed(42));
+
+    nav.push(release.clone());
+    assert_eq!(
+        nav.path_entries(),
+        vec![discover(), new_releases.clone(), release],
+        "a release opened from New releases must give the full Discover path"
+    );
+
+    let current = nav
+        .go_back()
+        .expect("New releases is one back-history entry away");
+    assert_eq!(
+        *current, new_releases,
+        "Back from a release must return to New releases"
+    );
+}
+
+/// R6-04 (ADR 0084 Decision 3): `DiscoverView` opens a detail page, so
+/// the narrow layout shows it.
+#[test]
+fn adr_0084_discover_r6_04_discover_view_opens_a_detail_page() {
     assert!(
-        display.current.treatment.line_through(),
-        "Situational ADR 0062 library tri-state control guard: excluding state must not rely on color alone"
+        FrameNavigationEntry::DiscoverView(DiscoverView::NewReleases).opens_detail_page(),
+        "DiscoverView must open a detail page, so the narrow layout shows it"
     );
-}
-
-#[test]
-fn library_filter_control_documents_activation_cycle() {
-    let all = LibraryFilterControlDisplay::default_for_content_list(ContentFilter::All);
-    let library = LibraryFilterControlDisplay::default_for_content_list(ContentFilter::Library);
-    let index = LibraryFilterControlDisplay::default_for_content_list(ContentFilter::Index);
-
-    assert_eq!(
-        all.keyboard_cycle_order,
-        [
-            ContentFilter::All,
-            ContentFilter::Library,
-            ContentFilter::Index
-        ],
-        "Situational ADR 0062 library tri-state control guard: keyboard cycle order must be documented in the VM"
-    );
-    assert_eq!(all.next_filter, ContentFilter::Library);
-    assert_eq!(library.next_filter, ContentFilter::Index);
-    assert_eq!(index.next_filter, ContentFilter::All);
 }
 
 #[test]
@@ -315,10 +346,6 @@ fn frame_shell_display_passes_through_header_text_and_slot_id() {
         "filter chips are opt-in frame chrome"
     );
     assert_eq!(
-        display.library_filter_control, None,
-        "library filter controls are opt-in frame chrome"
-    );
-    assert_eq!(
         display.view_mode_control, None,
         "view-mode controls are opt-in frame chrome"
     );
@@ -342,22 +369,6 @@ fn frame_shell_display_accepts_optional_filter_chip_strip() {
         display.filter_chip_strip,
         Some(filters),
         "frame shell should carry optional frame-local filters without applying them"
-    );
-}
-
-#[test]
-fn frame_shell_display_accepts_optional_library_filter_control() {
-    let frame = frame(7, WorkspaceFrameKind::ContentList);
-    let nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(1));
-    let filters = LibraryFilterControlDisplay::default_for_content_list(ContentFilter::Library);
-
-    let display = FrameShellDisplay::from_frame(&frame, &nav, true)
-        .with_library_filter_control(filters.clone());
-
-    assert_eq!(
-        display.library_filter_control,
-        Some(filters),
-        "frame shell should carry optional frame-local library filters without applying them"
     );
 }
 
@@ -1068,7 +1079,10 @@ fn adr_0046_forward_pop_nav_forward_restores_entry_back_left() {
         .expect("a pushed entry should allow going back");
     assert_eq!(
         entry_back_left,
-        discover(),
+        // ADR 0084 Decision 3: the default layout opens on Discover, then
+        // "New releases". A pushed page therefore sits under that page,
+        // not under the bare Discover destination.
+        FrameNavigationEntry::DiscoverView(DiscoverView::NewReleases),
         "Back should restore the entry that preceded the push"
     );
 

@@ -43,14 +43,15 @@ use crate::metadata::{
 use crate::presentation::{bridge_watch, present_command};
 use crate::runtime::musicbrainz_feed_saga::{MusicBrainzFeedSagaState, StartFeedLookup};
 use crate::subscribe_service::{self, SubscribeFeedRequest, SubscribeTrackRequest};
-use crate::ui::composites::{
-    ListRow, ListRowA11yLabel, PlaylistOption, PlaylistOptionDisplay, StatusRole,
-};
+use crate::ui::composites::{PlaylistOption, PlaylistOptionDisplay, StatusRole};
 use crate::ui::control_styles::ControlStyle;
-use crate::ui::primitives::{Button as UiButton, Label};
-use crate::ui::shells::library::content_list::render_library_content_list;
+use crate::ui::primitives::Button as UiButton;
+use crate::ui::shells::library::content_list::{
+    render_discover_new_releases_detail, render_library_content_list,
+};
 use crate::ui::shells::library::destination_lists::{
-    render_library_destination_rows, render_library_playlists_list,
+    render_library_destination_rows, render_library_discover_views_list,
+    render_library_playlists_list,
 };
 use crate::ui::shells::library::detail::render_library_detail;
 use crate::ui::shells::library::sidebar::{render_destination_row, render_sidebar_collapse_button};
@@ -61,7 +62,6 @@ use crate::ui::shells::tag_update_confirmation::{
 };
 use crate::ui::style::color;
 use crate::ui::style::spacing;
-use crate::ui::tokens::{FontSize, SemanticColor, Spacing};
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::library::{
     description_line_count, AlbumNode, BroadcastRouteRepairCompletion,
@@ -70,21 +70,20 @@ use crate::view_models::library::{
     FeedUpdatePhase, InspectorPanelKind, LibraryTrackActionVm, LibraryTrackInspectorState,
     LibraryTrackRowVm, LibraryViewModel, MbTrackStatus, PlaylistAppendIntent,
     PlaylistAppendOutcome, PlaylistDetailActionsDisplay, RemovalConfirmation,
-    SavedSearchesSectionDisplay, TrackSubscribeOutcome,
+    TrackSubscribeOutcome,
 };
 use crate::view_models::playlist_option_displays;
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::track_detail::TrackNameLinkTarget;
 use crate::view_models::workspace::{
-    resolve_music_sidebar_state, toggle_music_sidebar_preference, ContentFilter, ContentViewMode,
-    ContentViewModeControlDisplay, FrameNavigationEntry, LibraryFilterControlDisplay,
-    MusicDestination, MusicSidebarPreference, MusicSidebarState, NavigationPathStart, ReleaseKey,
-    TrackKey,
+    resolve_music_sidebar_state, toggle_music_sidebar_preference, ContentViewMode,
+    ContentViewModeControlDisplay, DiscoverView, FrameNavigationEntry, MusicDestination,
+    MusicSidebarPreference, MusicSidebarState, NavigationPathStart, ReleaseKey, TrackKey,
 };
 use crate::views::{EntityIdentityLinks, LocalIdentityFacts};
 use gpui::{
-    div, prelude::*, AnyElement, ClickEvent, Context, Entity, FontWeight, Image,
-    InteractiveElement, IntoElement, SharedString, Styled, Window,
+    div, prelude::*, AnyElement, Context, Entity, FontWeight, Image, InteractiveElement,
+    IntoElement, SharedString, Styled, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
 use rusqlite::Connection;
@@ -382,21 +381,12 @@ fn reset_removed_inspector_frame(frame: &mut InspectorFrame, message: &'static s
 // ---------------------------------------------------------------------------
 
 impl LibraryApp {
-    pub(crate) fn content_library_filter_control(&self) -> LibraryFilterControlDisplay {
-        self.vm.content_library_filter_control()
-    }
-
     pub(crate) fn content_view_mode_control(&self) -> ContentViewModeControlDisplay {
         self.vm.content_view_mode_control()
     }
 
     pub(crate) const fn content_view_mode(&self) -> ContentViewMode {
         self.vm.content_view_mode()
-    }
-
-    pub(crate) fn set_content_filter(&mut self, filter: ContentFilter, cx: &mut Context<Self>) {
-        self.vm.set_content_filter(filter);
-        cx.notify();
     }
 
     pub(crate) fn set_content_view_mode(
@@ -406,6 +396,18 @@ impl LibraryApp {
     ) {
         self.vm.set_content_view_mode(view_mode);
         cx.notify();
+    }
+
+    /// Requests a content view-mode change from the Discover detail
+    /// header (ADR 0084 Decision 3). The top app owns the mutation and
+    /// its config persistence, the same path the content-list frame
+    /// chrome uses for Tracks (ADR 0062).
+    pub(crate) fn request_content_view_mode(
+        &mut self,
+        view_mode: ContentViewMode,
+        cx: &mut Context<Self>,
+    ) {
+        cx.emit(super::LibraryAppEvent::SetContentViewMode(view_mode));
     }
 
     pub(crate) fn start_recent_music_load(&mut self, append: bool, cx: &mut Context<Self>) {
@@ -480,6 +482,17 @@ impl LibraryApp {
             }
         };
         self.open_page(entry, NavigationPathStart::CurrentPath, cx);
+    }
+
+    /// Opens a Discover view row in the current path (ADR 0084 Decision
+    /// 3). The row the operator clicked already names the view the list
+    /// shows, so this always lands in the Discover location.
+    pub(crate) fn open_discover_view(&mut self, view: DiscoverView, cx: &mut Context<Self>) {
+        self.open_page(
+            FrameNavigationEntry::DiscoverView(view),
+            NavigationPathStart::CurrentPath,
+            cx,
+        );
     }
 
     /// Resolves the Music sidebar's show state from the preference and the
@@ -712,20 +725,6 @@ impl LibraryApp {
             .content_list_index_feed_detail(activation_id, fallback_id, fallback_label)
     }
 
-    fn open_saved_search(&mut self, saved_search_id: i64, cx: &mut Context<Self>) {
-        if let Some(saved_search) = self
-            .vm
-            .saved_searches()
-            .iter()
-            .find(|saved_search| saved_search.id == saved_search_id)
-        {
-            cx.emit(super::LibraryAppEvent::OpenSavedSearch {
-                saved_search_id,
-                query: saved_search.query.clone(),
-            });
-        }
-    }
-
     #[expect(
         clippy::too_many_arguments,
         reason = "top-level app bootstrap passes persisted content mode into the library surface"
@@ -801,6 +800,10 @@ impl LibraryApp {
         app.maybe_start_tag_update(cx);
         app.start_async_reload(cx);
         app.start_recent_music_load(false, cx);
+        // ADR 0084 Decision 3: Music opens on Discover, then "New
+        // releases". The detail column reads `self.detail`, so the
+        // first render needs it set, not only the navigation path.
+        app.show_discover_view(DiscoverView::NewReleases);
         app
     }
 
@@ -1219,7 +1222,8 @@ impl LibraryApp {
             LibraryDetail::None
             | LibraryDetail::Artist(_)
             | LibraryDetail::Album(_)
-            | LibraryDetail::Track(_) => None,
+            | LibraryDetail::Track(_)
+            | LibraryDetail::Discover(_) => None,
         };
         if let Some(playlist_id) = playlist_id {
             self.select_playlist(playlist_id, cx);
@@ -2009,6 +2013,11 @@ impl LibraryApp {
                 self.show_destination_list(*destination);
                 self.clear_detail();
             }
+            // ADR 0084 Decision 3: a Discover view becoming the current
+            // location fills the detail column with that view.
+            FrameNavigationEntry::DiscoverView(view) => {
+                self.show_discover_view(*view);
+            }
             FrameNavigationEntry::Search(_)
             | FrameNavigationEntry::IndexNameMatches(_)
             | FrameNavigationEntry::Settings => {
@@ -2027,15 +2036,15 @@ impl LibraryApp {
     fn show_destination_list(&mut self, destination: MusicDestination) {
         self.vm.set_active_destination(destination);
         match destination {
-            MusicDestination::Discover => {
-                self.vm
-                    .replace_recent_music_content(&self.recent_music_page);
-            }
-            MusicDestination::Releases
+            // ADR 0084 Decision 3: Discover's list column shows its views,
+            // not the content list. `show_discover_view` fills the
+            // detail column with the open view, from the navigation path.
+            MusicDestination::Discover
+            | MusicDestination::Releases
             | MusicDestination::Artists
             | MusicDestination::Playlists => {
-                // The Releases, Artists, and Playlists lists read straight
-                // from the Library tree and the loaded playlists; they hold
+                // The Discover views, Releases, Artists, and Playlists
+                // lists read straight from already-loaded data; they hold
                 // no `ContentListPageVm` state of their own.
             }
             MusicDestination::Tracks => {
@@ -2043,6 +2052,20 @@ impl LibraryApp {
             }
             MusicDestination::NeedsAttention => {
                 self.open_needs_attention_destination();
+            }
+        }
+    }
+
+    /// Fills the detail column with a Discover view (ADR 0084 Decision
+    /// 3). The root of this page's path is always Discover.
+    fn show_discover_view(&mut self, view: DiscoverView) {
+        self.vm.set_active_destination(MusicDestination::Discover);
+        self.vm.clear_library_selection();
+        match view {
+            DiscoverView::NewReleases => {
+                self.detail = LibraryDetail::Discover(view);
+                self.vm
+                    .replace_recent_music_content(&self.recent_music_page);
             }
         }
     }
@@ -2523,7 +2546,8 @@ impl LibraryApp {
             LibraryDetail::None
             | LibraryDetail::Artist(_)
             | LibraryDetail::Album(_)
-            | LibraryDetail::Playlist(_) => None,
+            | LibraryDetail::Playlist(_)
+            | LibraryDetail::Discover(_) => None,
         }
     }
 
@@ -3078,7 +3102,9 @@ impl LibraryApp {
         }
 
         // ADR 0084 Decision 1: the collapsed sidebar shows the destinations
-        // only. Saved Searches and the feed area show expanded only.
+        // only. The feed area shows expanded only. The operator decided
+        // on 2026-10-16 to delete Saved Searches: it had no storage and
+        // no save action, so its section never showed a row.
         if matches!(sidebar_state, MusicSidebarState::Collapsed) {
             return div()
                 .flex()
@@ -3092,45 +3118,6 @@ impl LibraryApp {
                 .bg(color::bg_sidebar())
                 .children(items)
                 .into_any_element();
-        }
-
-        if let Some(SavedSearchesSectionDisplay { heading, rows }) =
-            self.vm.saved_searches_section()
-        {
-            items.push(
-                div()
-                    .px(Spacing::SM.scaled(cx))
-                    .py(Spacing::XS.scaled(cx))
-                    .child(Label::new(heading).weight(FontWeight::SEMIBOLD))
-                    .into_any_element(),
-            );
-            for saved_search in rows {
-                let saved_search_id = saved_search.id;
-                let row_id = format!("saved-search-{saved_search_id}");
-                items.push(
-                    ListRow::compact(SharedString::from(row_id))
-                        .a11y_label(ListRowA11yLabel {
-                            label: saved_search.a11y_label.into(),
-                        })
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                            this.open_saved_search(saved_search_id, cx);
-                        }))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .pl(Spacing::MD.scaled(cx))
-                                .child(Label::new(saved_search.label).truncated())
-                                .child(
-                                    Label::new(saved_search.query)
-                                        .size(FontSize::Micro)
-                                        .color(SemanticColor::TertiaryLabel)
-                                        .truncated(),
-                                ),
-                        )
-                        .into_any_element(),
-                );
-            }
         }
 
         let tag_update_button = crate::view_models::tag_update::button(
@@ -3281,11 +3268,14 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         // ADR 0084 Decision 2: the list column shows the items of the
-        // current root destination.
+        // current root destination. ADR 0084 Decision 3: Discover shows
+        // its views, not the content list.
         let content_list_pane = match self.vm.active_destination() {
-            MusicDestination::Discover
-            | MusicDestination::Tracks
-            | MusicDestination::NeedsAttention => {
+            MusicDestination::Discover => {
+                let rows = self.vm.discover_view_rows();
+                render_library_discover_views_list(&rows, cx)
+            }
+            MusicDestination::Tracks | MusicDestination::NeedsAttention => {
                 let mut content_row_thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
                 for (row_id, url) in self.vm.content_list_thumbnail_sources() {
                     let img = self.thumbnail_for_url(Some(&url), false, cx);
@@ -3336,14 +3326,66 @@ impl LibraryApp {
             .into_any_element()
     }
 
-    /// Renders the Music detail column (ADR 0084 Decision 1). It shows the
-    /// Library page when a page is open, else the empty state that
-    /// `render_library_detail` gives from `LibraryChromeDisplay`.
+    /// Renders the Music detail column (ADR 0084 Decision 1). It shows a
+    /// Discover view (ADR 0084 Decision 3), the Library page when a page
+    /// is open, or else the empty state that `render_library_detail`
+    /// gives from `LibraryChromeDisplay`.
     pub(crate) fn render_detail_column(
         &mut self,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let detail_pane = if let LibraryDetail::Discover(view) = &self.detail {
+            let view = *view;
+            self.render_discover_view_detail(view, cx)
+        } else {
+            self.render_library_detail_pane(cx)
+        };
+
+        div()
+            .size_full()
+            .bg(color::bg_canvas())
+            .text_color(color::text_primary())
+            .text_sm()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .overflow_hidden()
+            .child(detail_pane)
+            .into_any_element()
+    }
+
+    /// Renders the open Discover view in the detail column (ADR 0084
+    /// Decision 3).
+    fn render_discover_view_detail(
+        &mut self,
+        view: DiscoverView,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        match view {
+            DiscoverView::NewReleases => {
+                let mut content_row_thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
+                for (row_id, url) in self.vm.content_list_thumbnail_sources() {
+                    let img = self.thumbnail_for_url(Some(&url), false, cx);
+                    content_row_thumbs.insert(row_id, img);
+                }
+                let view_mode_display = self.vm.content_view_mode_control();
+                render_discover_new_releases_detail(
+                    self.vm.content_list_page(),
+                    view_mode_display,
+                    &content_row_thumbs,
+                    &self.recent_music_scroll,
+                    cx,
+                )
+            }
+        }
+    }
+
+    /// Renders the Library release, track, artist and playlist pages, and
+    /// the empty detail state (ADR 0084 Decision 1).
+    fn render_library_detail_pane(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let chrome = LibraryViewModel::chrome_display()
             .with_playback_availability(self.playback_availability);
 
@@ -3374,7 +3416,7 @@ impl LibraryApp {
             }
             _ => None,
         };
-        let detail_pane = render_library_detail(
+        render_library_detail(
             &self.detail,
             self.vm.busy_track(),
             self.vm.mb_status(),
@@ -3389,21 +3431,7 @@ impl LibraryApp {
             track_publisher_feed_guid.as_deref(),
             album_cover_color,
             cx,
-        );
-
-        div()
-            .size_full()
-            .bg(color::bg_canvas())
-            .text_color(color::text_primary())
-            .text_sm()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .overflow_hidden()
-            .child(detail_pane)
-            .into_any_element()
+        )
     }
 
     /// Renders one Music column (ADR 0084 Decision 1). `LibraryColumnView`

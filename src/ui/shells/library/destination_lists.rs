@@ -29,9 +29,67 @@ use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::style::spacing;
 use crate::ui::tokens::{FontSize, SemanticColor};
 use crate::view_models::library::{
-    DestinationListRowTarget, DestinationListRowVm, PlaylistSidebarRowVm, PlaylistSidebarVm,
+    DestinationListRowTarget, DestinationListRowVm, DiscoverViewRowVm, PlaylistSidebarRowVm,
+    PlaylistSidebarVm,
 };
 use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
+
+/// Renders the Discover views list column (ADR 0084 Decision 3). "New
+/// releases" is the only view today.
+pub(crate) fn render_library_discover_views_list(
+    rows: &[DiscoverViewRowVm],
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    div()
+        .id("music-discover-views-list")
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
+        .overflow_y_scroll()
+        .px(spacing::MD)
+        .pb(spacing::MD)
+        .gap(spacing::XXS)
+        .children(rows.iter().map(|row| render_discover_view_row(row, cx)))
+        .into_any_element()
+}
+
+fn render_discover_view_row(row: &DiscoverViewRowVm, cx: &mut Context<LibraryApp>) -> AnyElement {
+    let view = row.view;
+
+    ListRow::new(SharedString::from(row.element_id.clone()))
+        .a11y_label(ListRowA11yLabel {
+            label: SharedString::from(row.a11y_label.clone()),
+        })
+        .selected(row.selected)
+        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+            this.open_discover_view(view, cx);
+        }))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .pl(spacing::MD)
+                .child(
+                    Label::new(row.label)
+                        .color(if row.selected {
+                            SemanticColor::Accent
+                        } else {
+                            SemanticColor::Label
+                        })
+                        .weight(FontWeight::MEDIUM)
+                        .truncated(),
+                )
+                .child(
+                    Label::new(row.subtitle)
+                        .size(FontSize::Micro)
+                        .color(SemanticColor::TertiaryLabel)
+                        .truncated(),
+                ),
+        )
+        .into_any_element()
+}
 
 /// Renders the Releases or Artists destination list (ADR 0084 Decision 2).
 /// `empty_label` names the row kind for the empty-list message, for

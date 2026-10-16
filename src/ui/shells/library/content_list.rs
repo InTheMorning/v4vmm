@@ -18,8 +18,8 @@ use gpui::{
 
 use crate::library::LibraryApp;
 use crate::ui::composites::{
-    EntityKind, ListRow, ListRowA11yLabel, SkeletonTrackRow, TagBadge, TagBadgeDisplay, Thumbnail,
-    ThumbnailSize,
+    view_mode_control, EntityKind, ListRow, ListRowA11yLabel, SkeletonTrackRow, TagBadge,
+    TagBadgeDisplay, Thumbnail, ThumbnailSize, ViewModeControlSlots,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -32,7 +32,7 @@ use crate::view_models::library::{
     ContentListRowDisplay,
 };
 use crate::view_models::pagination::{should_auto_load_more, AUTO_PAGINATE_THRESHOLD_PX};
-use crate::view_models::workspace::ContentViewMode;
+use crate::view_models::workspace::{ContentViewMode, ContentViewModeControlDisplay};
 
 struct ContentListRenderState<'a> {
     visible_rows: Vec<&'a ContentListRowDisplay>,
@@ -71,6 +71,48 @@ pub(crate) fn render_library_content_list(
         .min_h_0()
         .min_w_0()
         .overflow_hidden()
+        .child(body)
+        .into_any_element()
+}
+
+/// Renders the Discover "New releases" view in the detail column (ADR
+/// 0084 Decision 3). The view-mode control sits in the view's own
+/// header: ADR 0081 Decision 4 keeps a new Detail filter strip out of
+/// the frame chrome, and a view-mode control is not a filter, but this
+/// packet adds no new frame-chrome slot either. The content list below
+/// keeps its own scroll handle, so Back to this view keeps its scroll
+/// position.
+pub(crate) fn render_discover_new_releases_detail(
+    page: &ContentListPageVm,
+    view_mode: ContentViewModeControlDisplay,
+    thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
+    scroll_handle: &ScrollHandle,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let entity = cx.entity();
+    let view_mode_slots = ViewModeControlSlots::new().on_select(move |mode, _window, cx| {
+        entity.update(cx, |this, cx| {
+            this.request_content_view_mode(mode, cx);
+        });
+    });
+    let body = render_library_content_list(page, thumbnails, scroll_handle, cx);
+
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .flex_shrink_0()
+                .justify_end()
+                .px(Spacing::MD.scaled(cx))
+                .py(Spacing::XS.scaled(cx))
+                .child(view_mode_control(view_mode, view_mode_slots)),
+        )
         .child(body)
         .into_any_element()
 }

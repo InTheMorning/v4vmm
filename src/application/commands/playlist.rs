@@ -571,7 +571,7 @@ mod tests {
         let arm = app
             .split("LibraryAppEvent::PlayPlaylistAt {")
             .nth(1)
-            .and_then(|rest| rest.split("LibraryAppEvent::OpenSavedSearch").next())
+            .and_then(|rest| rest.split("LibraryAppEvent::SetContentViewMode").next())
             .expect("app.rs handles PlayPlaylistAt");
         assert!(
             arm.contains("RssCheckTrigger::PlaybackStart"),

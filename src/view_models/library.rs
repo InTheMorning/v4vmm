@@ -52,8 +52,8 @@ use crate::view_models::text_filter::contains_normalized;
 #[cfg(test)]
 use crate::view_models::text_filter::normalize;
 use crate::view_models::workspace::{
-    ContentFilter, ContentViewMode, ContentViewModeControlDisplay, LibraryFilterControlDisplay,
-    MusicDestination, MusicSidebarPreference, MusicSidebarState, ReleaseKey, TrackKey,
+    ContentViewMode, ContentViewModeControlDisplay, DiscoverView, MusicDestination,
+    MusicSidebarPreference, MusicSidebarState, ReleaseKey, TrackKey,
 };
 use crate::view_models::ActionStatusMessageDisplay;
 use crate::views::{FeedMetadataFacts, LocalIdentityFacts, TrackRef};
@@ -290,22 +290,6 @@ impl LibraryTrackInspectorDisplay {
             Some(DOWNLOAD_REQUIRED_METADATA_TOOLTIP)
         }
     }
-}
-
-/// Source-list entry for an in-memory saved search.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct SavedSearchEntry {
-    pub(crate) id: i64,
-    pub(crate) query: String,
-    pub(crate) label: String,
-    pub(crate) a11y_label: String,
-}
-
-/// Optional display section for saved searches beneath playlists.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct SavedSearchesSectionDisplay {
-    pub(crate) heading: &'static str,
-    pub(crate) rows: Vec<SavedSearchEntry>,
 }
 
 /// Per-track `MusicBrainz` lookup state owned by the library screen and
@@ -667,16 +651,6 @@ pub(crate) enum ContentListRowSource {
 }
 
 impl ContentListRowSource {
-    /// Returns whether this source is visible under the content filter.
-    #[must_use]
-    pub(crate) const fn matches_filter(self, filter: ContentFilter) -> bool {
-        match filter {
-            ContentFilter::All => true,
-            ContentFilter::Library => matches!(self, Self::Library),
-            ContentFilter::Index => matches!(self, Self::Index),
-        }
-    }
-
     const fn from_search_result_origin(origin: SearchResultOrigin) -> Self {
         match origin {
             SearchResultOrigin::Library => Self::Library,
@@ -1254,36 +1228,24 @@ fn broadcast_readiness_row_actions(
     }
 }
 
-/// Empty-state display for a filtered content-list frame.
+/// Empty-state display for the content-list frame.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ContentListEmptyStateDisplay {
     /// Primary empty-state title.
     pub(crate) title: &'static str,
     /// Secondary empty-state explanation.
     pub(crate) secondary: &'static str,
-    /// Optional command id that clears the active filter.
-    pub(crate) clear_filter_action_id: Option<&'static str>,
 }
 
 impl ContentListEmptyStateDisplay {
+    /// ADR 0084 Decision 8 deleted the three-state filter: the
+    /// content-list frame has no filter left to report an empty state
+    /// for. This is the generic "no rows" fallback.
     #[must_use]
-    const fn for_filter(filter: ContentFilter) -> Self {
-        match filter {
-            ContentFilter::All => Self {
-                title: "No content",
-                secondary: "No rows are available for this frame.",
-                clear_filter_action_id: None,
-            },
-            ContentFilter::Library => Self {
-                title: "No library content",
-                secondary: "No local rows match this frame filter.",
-                clear_filter_action_id: Some("content-list.clear-filter"),
-            },
-            ContentFilter::Index => Self {
-                title: "No index content",
-                secondary: "No index rows match this frame filter.",
-                clear_filter_action_id: Some("content-list.clear-filter"),
-            },
+    const fn for_no_rows() -> Self {
+        Self {
+            title: "No content",
+            secondary: "No rows are available for this frame.",
         }
     }
 
@@ -1292,7 +1254,6 @@ impl ContentListEmptyStateDisplay {
         Self {
             title: "No recent music",
             secondary: "MusicIndex did not return recent music.",
-            clear_filter_action_id: None,
         }
     }
 
@@ -1300,7 +1261,6 @@ impl ContentListEmptyStateDisplay {
         Self {
             title: "No readiness issues",
             secondary: "Local library tracks with files have payment routes.",
-            clear_filter_action_id: None,
         }
     }
 }
@@ -1464,10 +1424,27 @@ pub(crate) struct DestinationListRowVm {
     pub(crate) open: DestinationListRowTarget,
 }
 
+/// One row of the Discover views list column (ADR 0084 Decision 3). "New
+/// releases" is the only view today.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct DiscoverViewRowVm {
+    /// The view this row opens.
+    pub(crate) view: DiscoverView,
+    /// Stable element id.
+    pub(crate) element_id: String,
+    /// The visible view name.
+    pub(crate) label: &'static str,
+    /// The view's subtitle.
+    pub(crate) subtitle: &'static str,
+    /// The accessibility label for the row.
+    pub(crate) a11y_label: String,
+    /// Whether this view is the open page of the current location.
+    pub(crate) selected: bool,
+}
+
 /// GPUI-free page VM for a workspace content-list frame.
 #[derive(Clone, Debug)]
 pub(crate) struct ContentListPageVm {
-    filter_state: ContentFilter,
     view_mode: ContentViewMode,
     text_filter: Option<String>,
     cached_rows: Vec<ContentListRowDisplay>,
@@ -1498,7 +1475,6 @@ impl ContentListPageVm {
             ContentListPageLoadState::Loaded
         };
         Self {
-            filter_state: ContentFilter::default(),
             view_mode: ContentViewMode::default(),
             text_filter: None,
             cached_rows,
@@ -1586,17 +1562,6 @@ impl ContentListPageVm {
         }
     }
 
-    /// Returns the selected content filter.
-    #[must_use]
-    pub(crate) const fn filter(&self) -> ContentFilter {
-        self.filter_state
-    }
-
-    /// Sets the selected content filter for this frame-local page.
-    pub(crate) fn set_filter(&mut self, filter: ContentFilter) {
-        self.filter_state = filter;
-    }
-
     /// Returns the selected content presentation mode.
     #[must_use]
     pub(crate) const fn view_mode(&self) -> ContentViewMode {
@@ -1633,7 +1598,6 @@ impl ContentListPageVm {
         self.library_rows.clone_from(&rows);
         self.cached_rows = rows;
         self.source = ContentListPageSource::BroadcastReadiness;
-        self.filter_state = ContentFilter::Library;
         self.text_filter = None;
         self.view_mode = ContentViewMode::List;
         self.load_state = if self.cached_rows.is_empty() {
@@ -1661,62 +1625,27 @@ impl ContentListPageVm {
 
     /// Returns whether the active source is loading.
     #[must_use]
-    pub(crate) fn is_loading(&self) -> bool {
-        self.loading && !matches!(self.filter_state, ContentFilter::Library)
+    pub(crate) const fn is_loading(&self) -> bool {
+        self.loading
     }
 
     /// Returns whether the active source reports another page.
     #[must_use]
-    pub(crate) fn has_more(&self) -> bool {
-        self.has_more && !matches!(self.filter_state, ContentFilter::Library)
+    pub(crate) const fn has_more(&self) -> bool {
+        self.has_more
     }
 
-    /// Returns rows visible under the current frame-local filter.
+    /// Returns every visible row (ADR 0084 Decision 8: Discover shows
+    /// everything, with the state word on each Library item). The
+    /// `RecentMusic` source adds the full local library, deduped by row
+    /// id, to the recency page it already holds.
     #[must_use]
     pub(crate) fn visible_rows(&self) -> Vec<&ContentListRowDisplay> {
         let mut rows = Vec::new();
         let mut seen_ids = BTreeSet::new();
-        match self.filter_state {
-            ContentFilter::All => {
-                Self::push_source_rows(
-                    &mut rows,
-                    &mut seen_ids,
-                    &self.cached_rows,
-                    self.filter_state,
-                );
-                if self.source == ContentListPageSource::RecentMusic {
-                    Self::push_source_rows(
-                        &mut rows,
-                        &mut seen_ids,
-                        &self.library_rows,
-                        self.filter_state,
-                    );
-                }
-            }
-            ContentFilter::Library => {
-                Self::push_source_rows(
-                    &mut rows,
-                    &mut seen_ids,
-                    &self.library_rows,
-                    self.filter_state,
-                );
-                if self.source == ContentListPageSource::RecentMusic {
-                    Self::push_source_rows(
-                        &mut rows,
-                        &mut seen_ids,
-                        &self.cached_rows,
-                        self.filter_state,
-                    );
-                }
-            }
-            ContentFilter::Index => {
-                Self::push_source_rows(
-                    &mut rows,
-                    &mut seen_ids,
-                    &self.cached_rows,
-                    self.filter_state,
-                );
-            }
+        Self::push_rows(&mut rows, &mut seen_ids, &self.cached_rows);
+        if self.source == ContentListPageSource::RecentMusic {
+            Self::push_rows(&mut rows, &mut seen_ids, &self.library_rows);
         }
 
         rows.into_iter()
@@ -1728,14 +1657,13 @@ impl ContentListPageVm {
             .collect()
     }
 
-    fn push_source_rows<'a>(
+    fn push_rows<'a>(
         target: &mut Vec<&'a ContentListRowDisplay>,
         seen_ids: &mut BTreeSet<&'a str>,
         source_rows: &'a [ContentListRowDisplay],
-        filter: ContentFilter,
     ) {
         for row in source_rows {
-            if row.source.matches_filter(filter) && seen_ids.insert(row.id.as_str()) {
+            if seen_ids.insert(row.id.as_str()) {
                 target.push(row);
             }
         }
@@ -1785,11 +1713,10 @@ impl ContentListPageVm {
                     ContentListEmptyStateDisplay::for_broadcast_readiness()
                 } else if self.cached_rows.is_empty()
                     && self.source == ContentListPageSource::RecentMusic
-                    && self.filter_state != ContentFilter::Library
                 {
                     ContentListEmptyStateDisplay::for_recent_music()
                 } else {
-                    ContentListEmptyStateDisplay::for_filter(self.filter_state)
+                    ContentListEmptyStateDisplay::for_no_rows()
                 };
                 ContentListPageStateDisplay::Empty(empty)
             }),
@@ -1919,25 +1846,12 @@ impl ContentListPageVm {
     pub(crate) const fn skeleton_tile_id(index: usize) -> (&'static str, usize) {
         ("music-content-loading-tile", index)
     }
-
-    /// Returns the frame-local library-membership filter display for this content list.
-    #[must_use]
-    #[cfg(test)]
-    pub(crate) fn library_filter_control(&self) -> LibraryFilterControlDisplay {
-        self.library_filter_control_display()
-    }
-
-    /// Returns the frame-local library-membership filter display.
-    #[must_use]
-    pub(crate) fn library_filter_control_display(&self) -> LibraryFilterControlDisplay {
-        LibraryFilterControlDisplay::default_for_content_list(self.filter_state)
-    }
 }
 
 /// `set_text_filter` and `text_filter` are ADR 0048 active-frame text-filter
 /// infrastructure with no production caller: no screen wires a frame-local
 /// search box to this page yet. Several of this type's own tests need them
-/// as direct helpers to exercise the live `set_filter`/`replace_rows`
+/// as direct helpers to exercise the live `replace_rows`
 /// composition, so they stay here, compiled only for tests.
 #[cfg(test)]
 impl ContentListPageVm {
@@ -2112,7 +2026,6 @@ pub(crate) struct LibraryViewModel {
     snapshot: LibrarySnapshot,
     // Sidebar sort.
     playlist_sort: PlaylistSort,
-    saved_searches: Vec<SavedSearchEntry>,
     content_list_page: ContentListPageVm,
     /// The sidebar collapse preference (ADR 0084 Decision 1). Session
     /// state only; never written to `config.toml`.
@@ -2158,7 +2071,6 @@ impl LibraryViewModel {
         Self {
             snapshot: LibrarySnapshot::default(),
             playlist_sort: PlaylistSort::default(),
-            saved_searches: Vec::new(),
             content_list_page: ContentListPageVm::new(Vec::new()),
             sidebar_preference: MusicSidebarPreference::default(),
             active_destination: MusicDestination::Discover,
@@ -2366,20 +2278,6 @@ impl LibraryViewModel {
     #[cfg(test)]
     pub(crate) fn is_library_loading(&self) -> bool {
         self.library_loading
-    }
-
-    #[must_use]
-    pub(crate) const fn content_filter(&self) -> ContentFilter {
-        self.content_list_page.filter()
-    }
-
-    pub(crate) fn set_content_filter(&mut self, filter: ContentFilter) {
-        self.content_list_page.set_filter(filter);
-    }
-
-    #[must_use]
-    pub(crate) fn content_library_filter_control(&self) -> LibraryFilterControlDisplay {
-        self.content_list_page.library_filter_control_display()
     }
 
     #[must_use]
@@ -2614,6 +2512,28 @@ impl LibraryViewModel {
         }
     }
 
+    /// Rows of the Discover views list column, in list order (ADR 0084
+    /// Decision 3). "New releases" is the only view today, so it is
+    /// always the open page of the Discover location.
+    #[expect(
+        clippy::unused_self,
+        reason = "kept as an instance method so a later view's selected state travels with the VM"
+    )]
+    #[must_use]
+    pub(crate) fn discover_view_rows(&self) -> Vec<DiscoverViewRowVm> {
+        DiscoverView::ALL
+            .into_iter()
+            .map(|view| DiscoverViewRowVm {
+                view,
+                element_id: discover_view_element_id(view),
+                label: view.label(),
+                subtitle: view.subtitle(),
+                a11y_label: format!("{}, {}", view.label(), view.subtitle()),
+                selected: true,
+            })
+            .collect()
+    }
+
     /// Display data for the sidebar collapse button (ADR 0084 Decision 1).
     /// The next click sets the opposite of the currently resolved state.
     #[must_use]
@@ -2634,27 +2554,6 @@ impl LibraryViewModel {
                 next_preference: MusicSidebarPreference::Expanded,
             },
         }
-    }
-
-    #[must_use]
-    pub(crate) fn saved_searches(&self) -> &[SavedSearchEntry] {
-        &self.saved_searches
-    }
-
-    /// `saved_searches` and `saved_searches_section` are live; no loader
-    /// calls this setter yet, so this type's own test needs it as a direct
-    /// helper to seed saved searches.
-    #[cfg(test)]
-    pub(crate) fn set_saved_searches(&mut self, saved_searches: Vec<SavedSearchEntry>) {
-        self.saved_searches = saved_searches;
-    }
-
-    #[must_use]
-    pub(crate) fn saved_searches_section(&self) -> Option<SavedSearchesSectionDisplay> {
-        (!self.saved_searches.is_empty()).then(|| SavedSearchesSectionDisplay {
-            heading: "Saved Searches",
-            rows: self.saved_searches.clone(),
-        })
     }
 
     #[must_use]
@@ -3527,6 +3426,14 @@ const fn destination_icon(destination: MusicDestination) -> MusicDestinationIcon
     }
 }
 
+/// The list-row element id of a Discover view (ADR 0084 Decision 3).
+fn discover_view_element_id(view: DiscoverView) -> String {
+    let slug = match view {
+        DiscoverView::NewReleases => "new-releases",
+    };
+    format!("music-discover-view-{slug}")
+}
+
 /// The track key of a content-list track row, keyed by the Library track
 /// id a row's own id carries (ADR 0084 Decision 4, Required Change 5).
 /// `None` when `row_id` does not parse as a track id, or no track in
@@ -3913,6 +3820,15 @@ impl AlbumNode {
             return Some(ReleaseKey::FeedGuid(feed_guid));
         }
         self.feed_id.map(ReleaseKey::LibraryFeed)
+    }
+
+    /// The release page's track rows (ADR 0084 Decisions 4 and 8,
+    /// operator decision of 2026-10-16). The release page reads no list
+    /// filter: it always shows each track of the release, each with its
+    /// own state word.
+    #[must_use]
+    pub(crate) fn release_track_rows(&self) -> &[TrackRow] {
+        &self.tracks
     }
 }
 
@@ -4651,9 +4567,12 @@ mod tests {
         );
     }
 
+    /// ADR 0084 Decision 8 (operator decision of 2026-10-16): with the
+    /// three-state filter gone, every mixed row kind shows regardless of
+    /// its source.
     #[test]
-    fn content_list_page_vm_filters_every_mixed_row_kind_by_source() {
-        let mut page = ContentListPageVm::new(vec![
+    fn adr_0084_discover_r6_05_shows_every_row_regardless_of_source() {
+        let page = ContentListPageVm::new(vec![
             ContentListRowDisplay::from_release_result(release_result(
                 "release",
                 "Release",
@@ -4669,40 +4588,21 @@ mod tests {
         assert_eq!(
             page.visible_row_ids(),
             ["release", "track"],
-            "ContentFilter::All should preserve every mixed row kind"
-        );
-
-        page.set_filter(ContentFilter::Library);
-        assert_eq!(
-            page.visible_row_ids(),
-            ["release"],
-            "ContentFilter::Library should keep source semantics for mixed rows"
-        );
-
-        page.set_filter(ContentFilter::Index);
-        assert_eq!(
-            page.visible_row_ids(),
-            ["track"],
-            "ContentFilter::Index should keep source semantics for mixed rows"
+            "every mixed row kind must show, library and index alike"
         );
     }
 
     #[test]
-    fn content_list_page_vm_defaults_to_all_filter() {
+    fn content_list_page_vm_shows_library_and_index_rows_with_state_labels() {
         let page = ContentListPageVm::new(vec![
             content_row("library", ContentListRowSource::Library),
             content_row("index", ContentListRowSource::Index),
         ]);
 
         assert_eq!(
-            page.filter(),
-            ContentFilter::All,
-            "content list pages should default to the all-content filter"
-        );
-        assert_eq!(
             page.cached_rows().len(),
             2,
-            "cached rows should preserve the unfiltered row set"
+            "cached rows should preserve every row"
         );
         assert_eq!(
             page.visible_rows()
@@ -4710,7 +4610,7 @@ mod tests {
                 .map(|row| (row.id.as_str(), row.state_label))
                 .collect::<Vec<_>>(),
             [("library", None), ("index", Some("New"))],
-            "all filter should show library and index rows with VM-owned state labels"
+            "every row should show with VM-owned state labels"
         );
     }
 
@@ -4742,7 +4642,6 @@ mod tests {
             content_row("library", ContentListRowSource::Library),
             content_row("index", ContentListRowSource::Index),
         ]);
-        page.set_filter(ContentFilter::Index);
         let tile_rows = page
             .visible_row_ids()
             .into_iter()
@@ -4762,35 +4661,7 @@ mod tests {
                 .map(str::to_string)
                 .collect::<Vec<_>>(),
             tile_rows,
-            "Situational ADR 0062 content-list view mode guard: tile and list modes should expose the same visible rows for the same filter"
-        );
-    }
-
-    #[test]
-    fn content_list_page_vm_set_filter_updates_visible_rows() {
-        let mut page = ContentListPageVm::new(vec![
-            content_row("library", ContentListRowSource::Library),
-            content_row("index", ContentListRowSource::Index),
-        ]);
-
-        page.set_filter(ContentFilter::Library);
-        assert_eq!(
-            page.visible_rows()
-                .iter()
-                .map(|row| row.id.as_str())
-                .collect::<Vec<_>>(),
-            ["library"],
-            "library filter should show only library-sourced rows"
-        );
-
-        page.set_filter(ContentFilter::Index);
-        assert_eq!(
-            page.visible_rows()
-                .iter()
-                .map(|row| row.id.as_str())
-                .collect::<Vec<_>>(),
-            ["index"],
-            "index filter should show only index-sourced rows"
+            "Situational ADR 0062 content-list view mode guard: tile and list modes should expose the same visible rows"
         );
     }
 
@@ -4831,44 +4702,9 @@ mod tests {
     }
 
     #[test]
-    fn content_list_page_vm_text_filter_composes_with_source_filter() {
-        let mut page = ContentListPageVm::new(vec![
-            ContentListRowDisplay::new(
-                "library",
-                "Shared Title",
-                "Local Artist",
-                ContentListRowSource::Library,
-            ),
-            ContentListRowDisplay::new(
-                "index",
-                "Shared Title",
-                "Remote Artist",
-                ContentListRowSource::Index,
-            ),
-        ]);
-
-        page.set_filter(ContentFilter::Library);
-        page.set_text_filter(Some("shared".to_string()));
-
-        assert_eq!(
-            page.visible_row_ids(),
-            ["library"],
-            "content source filtering should remain active with text filtering"
-        );
-
-        page.set_text_filter(Some("remote".to_string()));
-
-        assert!(
-            page.visible_rows().is_empty(),
-            "library source filter should hide matching index text"
-        );
-    }
-
-    #[test]
-    fn content_list_page_vm_replace_rows_preserves_filter() {
+    fn content_list_page_vm_replace_rows_preserves_text_filter() {
         let mut page =
             ContentListPageVm::new(vec![content_row("library", ContentListRowSource::Library)]);
-        page.set_filter(ContentFilter::Index);
         page.set_text_filter(Some("next".to_string()));
 
         page.replace_rows(vec![
@@ -4876,12 +4712,11 @@ mod tests {
             content_row("next-index", ContentListRowSource::Index),
         ]);
 
-        assert_eq!(page.filter(), ContentFilter::Index);
         assert_eq!(page.text_filter(), Some("next"));
         assert_eq!(
             page.visible_row_ids(),
-            ["next-index"],
-            "row refresh should preserve frame-local source and text filters"
+            ["next-library", "next-index"],
+            "row refresh should preserve the frame-local text filter"
         );
     }
 
@@ -4898,11 +4733,10 @@ mod tests {
         remote.album_title = Some("Remote Album".into());
 
         let tracks = vec![local, remote];
-        let mut page = ContentListPageVm::from_tracks(&tracks);
+        let page = ContentListPageVm::from_tracks(&tracks);
 
-        page.set_filter(ContentFilter::Library);
         let visible_rows = page.visible_rows();
-        assert_eq!(visible_rows.len(), 1);
+        assert_eq!(visible_rows.len(), 2, "both tracks must show together");
         assert_eq!(visible_rows[0].id, "1");
         assert_eq!(visible_rows[0].title(), "Local Track");
         assert_eq!(visible_rows[0].secondary_text(), "Local Artist");
@@ -4914,16 +4748,13 @@ mod tests {
             "TrackRow.is_in_library should project local rows as library content"
         );
 
-        page.set_filter(ContentFilter::Index);
-        let visible_rows = page.visible_rows();
-        assert_eq!(visible_rows.len(), 1);
-        assert_eq!(visible_rows[0].id, "2");
-        assert_eq!(visible_rows[0].title(), "Remote Feed");
-        assert_eq!(visible_rows[0].secondary_text(), "Remote Album");
-        assert_eq!(visible_rows[0].entity_kind(), ContentListEntityKind::Track);
-        assert_eq!(visible_rows[0].source, ContentListRowSource::Index);
+        assert_eq!(visible_rows[1].id, "2");
+        assert_eq!(visible_rows[1].title(), "Remote Feed");
+        assert_eq!(visible_rows[1].secondary_text(), "Remote Album");
+        assert_eq!(visible_rows[1].entity_kind(), ContentListEntityKind::Track);
+        assert_eq!(visible_rows[1].source, ContentListRowSource::Index);
         assert_eq!(
-            visible_rows[0].library_badge.state,
+            visible_rows[1].library_badge.state,
             ContentListLibraryBadgeState::NotInLibrary,
             "non-library TrackRow values should project remote rows as index content"
         );
@@ -4944,30 +4775,37 @@ mod tests {
         );
     }
 
+    /// R6a (ADR 0084 Decisions 4 and 8, operator decision of 2026-10-16):
+    /// the release page's row projection gives every track of the
+    /// release, library and index alike. The release page reads no list
+    /// filter.
     #[test]
-    fn content_list_page_vm_library_filter_control_preserves_selected_filter() {
-        let mut page = ContentListPageVm::new(Vec::new());
-
-        page.set_filter(ContentFilter::Library);
-        let display = page.library_filter_control();
+    fn adr_0084_discover_r6a_release_page_shows_every_track() {
+        let mut local = row();
+        local.id = 1;
+        local.is_in_library = true;
+        let mut remote = row();
+        remote.id = 2;
+        remote.is_in_library = false;
+        let album = AlbumNode {
+            name: "Selected Ambient Works".into(),
+            feed_id: Some(10),
+            feed_guid: Some("saw-guid".into()),
+            feed_url: Some("https://example.test/saw.xml".into()),
+            language: None,
+            description: None,
+            image_href: None,
+            publisher_feed_guid: None,
+            identity_facts: LocalIdentityFacts::default(),
+            metadata_facts: Box::<FeedMetadataFacts>::default(),
+            stored_values: None,
+            tracks: vec![local, remote],
+        };
 
         assert_eq!(
-            display.current.filter,
-            ContentFilter::Library,
-            "content-list library filter should reflect the page-local selected filter"
-        );
-        assert_eq!(
-            display.keyboard_cycle_order,
-            [
-                ContentFilter::All,
-                ContentFilter::Library,
-                ContentFilter::Index
-            ],
-            "Situational ADR 0062 library tri-state control guard: content-list library filter documents the keyboard cycle order"
-        );
-        assert!(
-            display.keyboard_cycle_order.contains(&ContentFilter::Index),
-            "Situational ADR 0062 library tri-state control guard: content-list library filter exposes the exclusion state"
+            album.release_track_rows().len(),
+            2,
+            "the release page must show every track, library and index alike"
         );
     }
 
@@ -4994,7 +4832,7 @@ mod tests {
         assert_eq!(
             page.visible_row_ids(),
             ["index-feed:newest", "index-feed:older", "local"],
-            "all-state recent music rows should preserve the newest-first index order and keep local library rows visible"
+            "recent music rows must preserve the newest-first index order and keep local library rows visible"
         );
         assert_eq!(
             page.visible_rows()[0].entity_kind(),
@@ -5031,83 +4869,6 @@ mod tests {
             "has_more should expose a VM-owned load-more display without a cursor"
         );
         assert_eq!(page.page_state_display(), None);
-    }
-
-    #[test]
-    fn content_list_page_vm_preserves_library_rows_when_recent_music_is_active() {
-        let mut recent = RecentFeedsPageVm::loading();
-        recent.finish_load(
-            recent_feed_batch(
-                vec![
-                    ("index-feed:newest", "Newest Release"),
-                    ("index-feed:older", "Older Release"),
-                ],
-                Some("next"),
-                true,
-            ),
-            false,
-        );
-        let mut page =
-            ContentListPageVm::new(vec![content_row("local", ContentListRowSource::Library)]);
-
-        page.replace_recent_feeds_page(&recent);
-
-        page.set_filter(ContentFilter::Library);
-        assert_eq!(
-            page.visible_row_ids(),
-            ["local"],
-            "Situational ADR 0062 library tri-state data-source guard: the Library state must filter local rows even after recent music becomes active"
-        );
-        assert_eq!(
-            page.page_state_display(),
-            None,
-            "library rows from the tree should prevent a false no-library-content state"
-        );
-        assert_eq!(
-            page.load_more_display(),
-            None,
-            "library-only filtering should hide the remote recency load-more action"
-        );
-        assert!(
-            !page.has_more(),
-            "library-only filtering should not advertise remote recency pages"
-        );
-
-        page.set_filter(ContentFilter::Index);
-        assert_eq!(
-            page.visible_row_ids(),
-            ["index-feed:newest", "index-feed:older"],
-            "the Index state should continue to filter the recent MusicIndex rows"
-        );
-        assert!(
-            page.has_more(),
-            "index filtering should keep remote recency pagination available"
-        );
-    }
-
-    #[test]
-    fn content_list_page_vm_uses_local_empty_state_when_library_filter_hides_remote_loading() {
-        let mut page = ContentListPageVm::new(Vec::new());
-
-        page.begin_recent_music_load(false);
-        page.set_filter(ContentFilter::Library);
-
-        assert_eq!(
-            page.loading_display(),
-            None,
-            "library-only filtering should hide remote recency loading placeholders"
-        );
-        assert_eq!(
-            page.page_state_display(),
-            Some(ContentListPageStateDisplay::Empty(
-                ContentListEmptyStateDisplay {
-                    title: "No library content",
-                    secondary: "No local rows match this frame filter.",
-                    clear_filter_action_id: Some("content-list.clear-filter"),
-                }
-            )),
-            "library-only filtering should fall back to the local filter empty state"
-        );
     }
 
     #[test]
@@ -5166,7 +4927,6 @@ mod tests {
                 ContentListEmptyStateDisplay {
                     title: "No recent music",
                     secondary: "MusicIndex did not return recent music.",
-                    clear_filter_action_id: None,
                 }
             )),
             "empty Recent Feeds results should use the recency empty display"
@@ -6377,27 +6137,6 @@ mod tests {
     }
 
     #[test]
-    fn library_view_model_content_filter_does_not_filter_source_tree() {
-        let mut vm = LibraryViewModel::new();
-        vm.replace_tree(library_tree());
-
-        vm.set_content_filter(ContentFilter::Index);
-        assert_eq!(
-            vm.tree().artists.len(),
-            2,
-            "content-source filters must not hide local Library source-tree rows"
-        );
-
-        vm.set_content_filter(ContentFilter::Library);
-        assert_eq!(vm.tree().artists.len(), 2);
-        assert_eq!(
-            vm.content_library_filter_control().current.filter,
-            ContentFilter::Library,
-            "frame chrome should reflect the selected library-membership filter"
-        );
-    }
-
-    #[test]
     fn library_view_model_broadcast_readiness_report_replaces_content_list() {
         let mut vm = LibraryViewModel::new();
         vm.replace_tree(library_tree());
@@ -6432,7 +6171,6 @@ mod tests {
             vm.content_list_page.source(),
             ContentListPageSource::BroadcastReadiness
         );
-        assert_eq!(vm.content_filter(), ContentFilter::Library);
         assert_eq!(vm.content_view_mode(), ContentViewMode::List);
         let rows = vm.content_list_page.visible_rows();
         assert_eq!(rows.len(), 2);
@@ -6896,41 +6634,22 @@ mod tests {
         assert_eq!(rows[1].secondary_text, "1 album");
     }
 
+    /// R6-01 (ADR 0084 Decision 3): the Discover views view model gives
+    /// "New releases" first, with its subtitle and its open entry.
     #[test]
-    fn library_view_model_saved_searches_start_empty_without_section() {
+    fn adr_0084_discover_r6_01_discover_view_rows_give_new_releases_first() {
         let vm = LibraryViewModel::new();
 
-        assert!(vm.saved_searches().is_empty());
-        assert!(vm.saved_searches_section().is_none());
-    }
+        let rows = vm.discover_view_rows();
 
-    #[test]
-    fn library_view_model_saved_searches_preserve_seeded_order() {
-        let mut vm = LibraryViewModel::new();
-        let first = SavedSearchEntry {
-            id: 10,
-            query: "artist:aphex".into(),
-            label: "Aphex".into(),
-            a11y_label: "Open saved search Aphex".into(),
-        };
-        let second = SavedSearchEntry {
-            id: 20,
-            query: "tag:ambient".into(),
-            label: "Ambient".into(),
-            a11y_label: "Open saved search Ambient".into(),
-        };
-
-        vm.set_saved_searches(vec![first.clone(), second.clone()]);
-
-        assert_eq!(vm.saved_searches(), &[first.clone(), second.clone()]);
-        assert_eq!(
-            vm.saved_searches_section(),
-            Some(SavedSearchesSectionDisplay {
-                heading: "Saved Searches",
-                rows: vec![first.clone(), second.clone()],
-            })
+        assert_eq!(rows.len(), 1, "Discover has one view today");
+        assert_eq!(rows[0].view, DiscoverView::NewReleases);
+        assert_eq!(rows[0].label, "New releases");
+        assert_eq!(rows[0].subtitle, "Newest first, from the Index");
+        assert!(
+            rows[0].selected,
+            "New releases is always the open view of the Discover location"
         );
-        assert_eq!(vm.saved_searches(), &[first, second]);
     }
 
     #[test]

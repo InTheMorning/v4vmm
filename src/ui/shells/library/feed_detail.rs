@@ -109,15 +109,12 @@ pub(crate) fn render_library_feed_detail(
     let feed_busy = album
         .feed_id
         .is_some_and(|feed_id| library_vm.busy_feed() == Some(feed_id));
-    let active_filter = library_vm.content_filter();
+    // ADR 0084 Decisions 4 and 8 (operator decision of 2026-10-16): the
+    // release page reads no list filter. It always shows each track of
+    // the release, each with its own state word.
     let track_rows: Vec<ReleaseSurfaceElement> = album
-        .tracks
+        .release_track_rows()
         .iter()
-        .filter(|track| match active_filter {
-            crate::view_models::workspace::ContentFilter::All => true,
-            crate::view_models::workspace::ContentFilter::Library => track.is_in_library,
-            crate::view_models::workspace::ContentFilter::Index => !track.is_in_library,
-        })
         .map(|track| {
             ReleaseSurfaceElement::from_element(render_library_track_row(
                 track,

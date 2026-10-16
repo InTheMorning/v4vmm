@@ -40,7 +40,7 @@ use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchRes
 use crate::view_models::settings::{SettingsAction, SettingsVm};
 use crate::view_models::show::{EventSectionInput, ShowCommandState, ShowPageVm};
 use crate::view_models::workspace::{
-    ContentFilter, ContentViewMode, FilterChipStripWidthClass, FrameNavigationEntry,
+    ContentFilter, ContentViewMode, DiscoverView, FilterChipStripWidthClass, FrameNavigationEntry,
     FrameNavigationState, MusicDestination, NavigationPathStart, ReleasePageSource,
     TrackPageSource, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
     WorkspaceLayoutConfig,
@@ -331,7 +331,7 @@ impl TopApp {
         let library_sub = cx.subscribe_in(
             &library,
             window,
-            move |this: &mut Self, library, event: &LibraryAppEvent, window, cx| match event {
+            move |this: &mut Self, library, event: &LibraryAppEvent, _window, cx| match event {
                 LibraryAppEvent::PlayPlaylistAt {
                     track_id,
                     playlist_id,
@@ -349,10 +349,13 @@ impl TopApp {
                         );
                     });
                 }
-                LibraryAppEvent::OpenSavedSearch {
-                    saved_search_id,
-                    query,
-                } => this.open_saved_search(*saved_search_id, query, window, cx),
+                // ADR 0084 Decision 8: the Discover detail header requests a
+                // view-mode change. The top app owns the mutation and its
+                // config persistence (ADR 0062), the same path the
+                // content-list frame chrome uses for Tracks.
+                LibraryAppEvent::SetContentViewMode(view_mode) => {
+                    this.set_content_list_view_mode(*view_mode, cx);
+                }
                 LibraryAppEvent::OpenIndexFeedDetail { feed_guid, label } => {
                     this.open_index_feed_detail_from_music(feed_guid, label.clone(), cx);
                 }
@@ -540,16 +543,6 @@ impl TopApp {
         }
     }
 
-    fn open_saved_search(
-        &mut self,
-        _saved_search_id: i64,
-        query: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.open_search_results_in_content_list(query, window, cx);
-    }
-
     fn select_tab(&mut self, tab: AppTab, window: &mut Window, cx: &mut Context<Self>) {
         self.tab = tab;
         self.focus_active_tab(window, cx);
@@ -592,9 +585,10 @@ impl TopApp {
                     .is_some_and(|nav| matches!(nav.current(), FrameNavigationEntry::Settings));
                 if restoring_from_settings {
                     let nav = self.last_music_content_nav.clone().unwrap_or_else(|| {
-                        FrameNavigationState::new(FrameNavigationEntry::Destination(
-                            MusicDestination::Discover,
-                        ))
+                        FrameNavigationState::new_with_page(
+                            FrameNavigationEntry::Destination(MusicDestination::Discover),
+                            FrameNavigationEntry::DiscoverView(DiscoverView::NewReleases),
+                        )
                     });
                     if let Err(error) = self.workspace_layout.replace_nav(content_list_id, nav) {
                         self.settings_status = format!("Error switching tabs: {error}");
@@ -621,30 +615,6 @@ impl TopApp {
             AppTab::Show => {}
         }
 
-        cx.notify();
-    }
-
-    fn set_frame_filter(
-        &mut self,
-        frame_id: WorkspaceFrameId,
-        filter: ContentFilter,
-        cx: &mut Context<Self>,
-    ) {
-        let mount = self.active_workspace_screen_mount();
-        let layout = Self::visible_workspace_layout(&self.workspace_layout, mount);
-        let is_content_frame = layout
-            .frames()
-            .iter()
-            .any(|frame| frame.id() == frame_id && frame.kind() == WorkspaceFrameKind::ContentList);
-        if !is_content_frame {
-            return;
-        }
-
-        if matches!(mount, WorkspaceScreenMount::Music) {
-            self.library.update(cx, |library, cx| {
-                library.set_content_filter(filter, cx);
-            });
-        }
         cx.notify();
     }
 
@@ -725,8 +695,10 @@ impl TopApp {
 
     /// Opens a Music page in the one navigation stack (ADR 0084 Decision 9).
     /// A new path starts at `entry` itself, a destination
-    /// (ADR 0084 Decision 2). The page restores through the function that
-    /// Back and Forward use.
+    /// (ADR 0084 Decision 2). A destination with a default child page
+    /// (ADR 0084 Decision 3: Discover opens "New releases") opens that
+    /// page under it, in the same path start. The page restores through
+    /// the function that Back and Forward use.
     fn open_music_page(
         &mut self,
         entry: &FrameNavigationEntry,
@@ -736,11 +708,18 @@ impl TopApp {
         let Some(content_list_id) = self.content_list_frame_id() else {
             return;
         };
-        let changed = match start {
-            NavigationPathStart::NewPath => {
-                self.workspace_layout
-                    .start_nav_path(content_list_id, entry.clone(), None)
+        let default_child = match (start, entry) {
+            (NavigationPathStart::NewPath, FrameNavigationEntry::Destination(destination)) => {
+                destination.default_child_page()
             }
+            _ => None,
+        };
+        let changed = match start {
+            NavigationPathStart::NewPath => self.workspace_layout.start_nav_path(
+                content_list_id,
+                entry.clone(),
+                default_child.clone(),
+            ),
             NavigationPathStart::CurrentPath => self
                 .workspace_layout
                 .push_nav(content_list_id, entry.clone()),
@@ -750,7 +729,8 @@ impl TopApp {
             cx.notify();
             return;
         }
-        self.restore_content_list_nav_entry(content_list_id, entry, cx);
+        let opened_entry = default_child.unwrap_or_else(|| entry.clone());
+        self.restore_content_list_nav_entry(content_list_id, &opened_entry, cx);
     }
 
     /// Restores the page for a navigation entry that Back or Forward just
@@ -1015,6 +995,7 @@ impl TopApp {
             FrameNavigationEntry::Destination(_) | FrameNavigationEntry::Settings => {
                 Self::root_content_frame_title()
             }
+            FrameNavigationEntry::DiscoverView(view) => view.label().to_string(),
             FrameNavigationEntry::Search(_) => "Search Results".to_string(),
             FrameNavigationEntry::PlaylistDetail(_) => "Playlist".to_string(),
             // ADR 0084 Decision 4/5: the curator sees "Track" for a track
@@ -1486,19 +1467,15 @@ impl TopApp {
                 .source_list_slot(self.library_sidebar_view.clone())
                 .source_list_sidebar_preference(self.library.read(cx).sidebar_preference())
                 .content_list(self.library_list_view.clone());
-            // ADR 0084 Decision 2: Releases, Artists, and Playlists read
-            // straight from the Library tree and the loaded playlists, not
-            // through the content-list page view model, so its filter and
-            // view-mode chrome would control nothing there. Only Discover
-            // keeps the filter control: each Tracks and Needs attention row
-            // is a Library track. Needs attention rows carry actions, so
-            // that list has no tile view.
+            // ADR 0084 Decision 3: Discover's "New releases" moved to the
+            // detail column, with its own view-mode control in its own
+            // header. Releases, Artists, and Playlists read straight from
+            // the Library tree and the loaded playlists, so the
+            // content-list chrome would control nothing there either.
+            // Only Tracks keeps the content-list view-mode control: Needs
+            // attention rows carry actions, so that list has no tile view.
             let destination = self.library.read(cx).active_destination();
-            let shows_library_filter_control = matches!(destination, MusicDestination::Discover);
-            let shows_generic_content_controls = matches!(
-                destination,
-                MusicDestination::Discover | MusicDestination::Tracks
-            );
+            let shows_generic_content_controls = matches!(destination, MusicDestination::Tracks);
             if shows_generic_content_controls {
                 let content_view_mode_control = self.library.read(cx).content_view_mode_control();
                 let content_view_mode_entity = entity.clone();
@@ -1507,17 +1484,6 @@ impl TopApp {
                     .on_content_list_view_mode_select(move |view_mode, _window, cx| {
                         content_view_mode_entity.update(cx, |this, cx| {
                             this.set_content_list_view_mode(view_mode, cx);
-                        });
-                    });
-            }
-            if shows_library_filter_control {
-                let library_filter_control = self.library.read(cx).content_library_filter_control();
-                let content_filter_entity = entity.clone();
-                workspace_slots = workspace_slots
-                    .content_list_library_filter_control(library_filter_control)
-                    .on_content_list_filter_select(move |filter, _window, cx| {
-                        content_filter_entity.update(cx, |this, cx| {
-                            this.set_frame_filter(content_frame_id, filter, cx);
                         });
                     });
             }

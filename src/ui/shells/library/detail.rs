@@ -41,7 +41,11 @@ pub(crate) fn render_library_detail(
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     match detail {
-        LibraryDetail::None => div()
+        // ADR 0084 Decision 3: `LibraryApp::render_detail_column` renders an
+        // open Discover view before it reaches this dispatcher. If a later
+        // path reaches this arm, it shows the empty state. The render path
+        // never panics.
+        LibraryDetail::None | LibraryDetail::Discover(_) => div()
             .size_full()
             .flex()
             .items_center()

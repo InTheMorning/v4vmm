@@ -20,8 +20,8 @@ use gpui::{
 };
 
 use crate::ui::composites::{
-    filter_chip_strip, library_filter_control, view_mode_control, BreadcrumbTrail,
-    FilterChipStripSlots, LibraryFilterControlSlots, ViewModeControlSlots,
+    filter_chip_strip, view_mode_control, BreadcrumbTrail, FilterChipStripSlots,
+    ViewModeControlSlots,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::IconName;
@@ -32,7 +32,6 @@ use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor, Spac
 use crate::view_models::workspace::{
     ContentFilter, ContentViewMode, ContentViewModeControlDisplay, FilterChipStripDisplay,
     FrameChromeButtonDisplay, FrameChromeMenuItemDisplay, FrameNavigationEntry, FrameShellDisplay,
-    LibraryFilterControlDisplay,
 };
 
 type FrameButtonHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
@@ -208,7 +207,6 @@ fn render_chrome(
 ) -> impl IntoElement {
     let content_slot_id = display.content_slot_id.clone();
     let filter_chip_strip_display = display.filter_chip_strip.clone();
-    let library_filter_control_display = display.library_filter_control.clone();
     let view_mode_control_display = display.view_mode_control.clone();
     let breadcrumb_display = display.breadcrumb.clone();
     let header_visible = display.header_visible();
@@ -305,12 +303,8 @@ fn render_chrome(
         chrome = chrome.child(header);
     }
 
-    if library_filter_control_display.is_some()
-        || filter_chip_strip_display.is_some()
-        || view_mode_control_display.is_some()
-    {
+    if filter_chip_strip_display.is_some() || view_mode_control_display.is_some() {
         chrome = chrome.child(frame_filter_row(
-            library_filter_control_display,
             filter_chip_strip_display,
             view_mode_control_display,
             slots.on_filter_select,
@@ -340,7 +334,6 @@ fn render_chrome(
 }
 
 fn frame_filter_row(
-    library_filter_display: Option<LibraryFilterControlDisplay>,
     filter_chip_display: Option<FilterChipStripDisplay>,
     view_mode_display: Option<ContentViewModeControlDisplay>,
     handler: Option<FrameFilterSelectHandler>,
@@ -352,16 +345,6 @@ fn frame_filter_row(
         .flex_row()
         .items_center()
         .gap(Spacing::XS.scaled(cx));
-
-    if let Some(display) = library_filter_display {
-        let mut filter_slots = LibraryFilterControlSlots::new();
-        if let Some(handler) = handler.clone() {
-            filter_slots = filter_slots.on_activate(move |filter, window, cx| {
-                handler(filter, window, cx);
-            });
-        }
-        row = row.child(library_filter_control(display, filter_slots));
-    }
 
     if let Some(display) = filter_chip_display {
         let mut filter_slots = FilterChipStripSlots::new();

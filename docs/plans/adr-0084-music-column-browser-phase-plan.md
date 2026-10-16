@@ -31,12 +31,13 @@ Music becomes the column browser of ADR 0084. It gets one navigation stack, one 
 | [003](../tasks/archive/adr-0084-task-003-one-track-route.md) | 2 | One route for each track, by the same method. A Library track row opens its track page. Fixes flow map finding 2 | 002 | Complete 2026-10-11 |
 | [004](../tasks/archive/adr-0084-task-004-three-column-shell.md) | 3 | The three-column shell: the sidebar, the list and the detail as three frames. Back, Forward and the breadcrumb move to the detail column (Decisions 1 and 9) | 003, ADR 0081 task 001 | Complete 2026-10-12 |
 | [005](../tasks/archive/adr-0084-task-005-destinations-sidebar.md) | 3 | The destinations sidebar: the six destinations, the icon-only sidebar and its attention mark, the destination lists, Needs attention and Playlists. It deletes the sidebar tree and fixes finding 5 (Decisions 1 and 2) | 004 | Complete 2026-10-16 |
-| 006 | 3 | Discover: the default destination, its views column and "New releases". Saved searches move to Discover views (Decisions 2 and 3) | 005 | Not written |
+| [006](../tasks/adr-0084-task-006-discover.md) | 3 | Discover: the default destination, its views column and "New releases". It deletes the three-state filter control (Decision 8) and the saved-search code that no path loads (operator decision of 2026-10-16) (Decisions 3 and 8) | 005 | Implemented 2026-10-16. Mechanical checks Green. Visual check open |
 | 007 | 4 | Releases: the kind, the two scopes, the singles groups and the group page (Decisions 5, 6 and 8) | 006 | Not written |
 | 008 | 5 | The artist page with two levels and its scope (Decisions 7 and 8). Fixes finding 6 | 007, ADR 0082 tasks 002 and 003 | Not written |
 | 009 | 6 | Multiple selection, the action bar and the reserved audition place (Decisions 10 and 11). Fixes finding 3 | 006 | Not written |
 | 010 | 7 | The search results view for the list column width (Decision 2). Task 004 put the present search view in the list column on 2026-10-12, by operator decision | 006 | Not written |
 | 011 | 8 | The logo frame for collections (Decision 12) | 007, 008 | Not written |
+| 012 | 3 | Saved searches: their storage (a migration through the ADR 0016 registry), a "Save search" action on the search results, and one Discover view for each (Decisions 2 and 3). The operator decided on 2026-10-16 to add them as a separate packet | 006, 010 | Not written |
 
 The overhaul plan names eight steps. Step 2 has two packets, 002 and 003, because the release route and the track route each change many files. Step 3 has three packets, 004 to 006, decided on 2026-10-12: the icon-only sidebar needs the destinations, and Discover needs the destination model.
 
@@ -45,7 +46,7 @@ The overhaul plan names eight steps. Step 2 has two packets, 002 and 003, becaus
 1. Packets 002 and 003, one at a time. Each packet runs in its own session.
 2. [ADR 0081 task 001](../tasks/archive/adr-0081-task-001-remove-the-staged-frame-model.md) before packet 004. Complete on 2026-10-11. Both change `src/view_models/workspace/`, and packet 004 changes the frame layout.
 3. [ADR 0082 tasks 002 and 003](adr-0082-publisher-roles-phase-plan.md) before packet 008. Packet 008 replaces the publisher page layout that task 002 changes.
-4. Packets 004 to 011 in register order. Write each packet at the start of its session, from the result of the packet before it.
+4. Packets 004 to 012 in register order. Write each packet at the start of its session, from the result of the packet before it.
 
 ## Open Findings
 

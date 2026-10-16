@@ -157,3 +157,11 @@ Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 202
 - Owner: [task 015](tasks/adr-0046-task-015-forward-navigation.md#operator-visual-check).
 - Scheduling: it needs a macOS desktop session.
 - V2, macOS part: `cmd-[` and `cmd-]` outside a text box do the same as Back and Forward. Indent and outdent still work in a macOS text box.
+
+## 5. Discover — ADR 0084 Task 006
+
+Open - implementation and mechanical checks are complete on 2026-10-16. Operator inspection is pending.
+
+- Owner: [task 006](tasks/adr-0084-task-006-discover.md#operator-visual-check).
+- Scheduling: walk it before packet 007 starts. It reads the app only. It needs a reachable MusicIndex endpoint.
+- V1 to V7: Music opens on "New releases", Tiles and List, paging, and Back with the scroll position. The state words, no filter control, no Saved Searches, and each track on a release page. The narrow layout, and themes and scale.

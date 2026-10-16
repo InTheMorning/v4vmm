@@ -3,8 +3,8 @@
 //! ADR 0047 moves All / Library / Index filters into frame chrome. This
 //! composite renders the shared VM display contract as either a segmented
 //! control or, for narrow frame chrome, the existing context-menu primitive.
-//! ADR 0062 moves the Music content list to `library_filter_control`; this
-//! module remains for the search-inspector caller.
+//! ADR 0084 Decision 8 deletes the Music content-list tri-state filter;
+//! this module remains for the search-inspector caller.
 
 #![warn(clippy::pedantic)]
 
