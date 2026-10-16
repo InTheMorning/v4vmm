@@ -22,7 +22,7 @@ Music structure in [ADR 0084](docs/adr/0084-music-column-browser.md).
 Phase 4A builds ADR 0084 in the packets of the
 [ADR 0084 phase plan](docs/plans/adr-0084-music-column-browser-phase-plan.md). Music has one navigation stack, one page
 for each item, three columns, the six destinations and Discover.
-[Packet 013](docs/tasks/adr-0084-task-013-index-release-page-parity.md), Index release page parity, is implemented, and its visual check is open. Packet 007, Releases, follows it. Phase 4 and 5 packets carry the
+[Packet 013](docs/tasks/adr-0084-task-013-index-release-page-parity.md), Index release page parity, is implemented, and its visual check is open. Packet 014, a scrollbar on each Music column, follows it, and then packet 007, Releases. Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
 
 Each file in `docs/tasks/` is open: it is Ready, or it waits for an operator check. Finished tasks are in
