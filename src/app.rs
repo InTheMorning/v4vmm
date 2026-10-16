@@ -1489,18 +1489,15 @@ impl TopApp {
             // ADR 0084 Decision 2: Releases, Artists, and Playlists read
             // straight from the Library tree and the loaded playlists, not
             // through the content-list page view model, so its filter and
-            // view-mode chrome would control nothing there. Tracks has no
-            // filter control; Discover and Needs attention keep both.
+            // view-mode chrome would control nothing there. Only Discover
+            // keeps the filter control: each Tracks and Needs attention row
+            // is a Library track. Needs attention rows carry actions, so
+            // that list has no tile view.
             let destination = self.library.read(cx).active_destination();
-            let shows_library_filter_control = matches!(
-                destination,
-                MusicDestination::Discover | MusicDestination::NeedsAttention
-            );
+            let shows_library_filter_control = matches!(destination, MusicDestination::Discover);
             let shows_generic_content_controls = matches!(
                 destination,
-                MusicDestination::Discover
-                    | MusicDestination::Tracks
-                    | MusicDestination::NeedsAttention
+                MusicDestination::Discover | MusicDestination::Tracks
             );
             if shows_generic_content_controls {
                 let content_view_mode_control = self.library.read(cx).content_view_mode_control();

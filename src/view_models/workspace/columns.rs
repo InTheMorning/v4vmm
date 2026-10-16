@@ -114,6 +114,29 @@ pub(crate) fn resolve_music_sidebar_state(
     }
 }
 
+/// Gives the preference after a press of the collapse button (ADR 0084
+/// Decision 1).
+///
+/// The press moves the sidebar to the opposite of its resolved state. When
+/// that state is the one that the width rule gives, the preference returns
+/// to `Auto`, so the sidebar follows the width again. Otherwise the press
+/// sets an explicit preference that holds at each width.
+#[must_use]
+pub(crate) fn toggle_music_sidebar_preference(
+    preference: MusicSidebarPreference,
+    width_px: f32,
+    breakpoint_px: f32,
+) -> MusicSidebarPreference {
+    let next = resolve_music_sidebar_state(preference, width_px, breakpoint_px).toggled();
+    let width_rule =
+        resolve_music_sidebar_state(MusicSidebarPreference::Auto, width_px, breakpoint_px);
+    if resolve_music_sidebar_state(next, width_px, breakpoint_px) == width_rule {
+        MusicSidebarPreference::Auto
+    } else {
+        next
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{resolve_music_sidebar_state, MusicSidebarPreference, MusicSidebarState};
@@ -155,6 +178,32 @@ mod tests {
         assert_eq!(
             MusicSidebarState::Collapsed.toggled(),
             MusicSidebarPreference::Expanded
+        );
+    }
+
+    /// A collapse and an expand at a wide width return the preference to
+    /// `Auto`, so the sidebar collapses again under the breakpoint. The
+    /// operator found on 2026-10-16 that the sidebar no longer followed the
+    /// width after steps 10 to 12 of the task 005 visual check.
+    #[test]
+    fn adr_0084_destinations_toggle_back_to_the_width_rule_restores_auto() {
+        use super::toggle_music_sidebar_preference;
+        let collapsed =
+            toggle_music_sidebar_preference(MusicSidebarPreference::Auto, 1400.0, 1100.0);
+        assert_eq!(collapsed, MusicSidebarPreference::Collapsed);
+        let restored = toggle_music_sidebar_preference(collapsed, 1400.0, 1100.0);
+        assert_eq!(restored, MusicSidebarPreference::Auto);
+        assert_eq!(
+            resolve_music_sidebar_state(restored, 900.0, 1100.0),
+            MusicSidebarState::Collapsed,
+            "after the restore, a narrow width collapses the sidebar again"
+        );
+        let expanded_narrow =
+            toggle_music_sidebar_preference(MusicSidebarPreference::Auto, 900.0, 1100.0);
+        assert_eq!(
+            expanded_narrow,
+            MusicSidebarPreference::Expanded,
+            "an expand under the breakpoint holds"
         );
     }
 }

@@ -500,4 +500,13 @@ The orchestrator reviewed the diff against ADR 0084, this packet and the [review
 - Deviation 1 is accepted: the readiness report now runs after each Library event that can change it, so that the count stays current. The query runs on the UI thread, as it did before for the open list. The overhaul plan records it as a responsiveness concern.
 - The visual check had two small errors: the playlist count of the intro, and the new-playlist key on Linux. The orchestrator corrected them.
 
+The operator walked the check on 2026-10-16 and found these defects. The orchestrator corrected each one:
+
+1. V5: the sidebar did not collapse under 1100 px. Steps 10 to 12 collapse and expand the sidebar, and each press stored a fixed preference, so the width rule stopped for the session. The new pure function `toggle_music_sidebar_preference` returns the preference to `Auto` when a press gives the state of the width rule. The test `adr_0084_destinations_toggle_back_to_the_width_rule_restores_auto` proves it.
+2. The All, Library and Index filter and the Tiles and List control showed above Needs attention. Each readiness row is a Library track and carries actions, so the filter shows on Discover only, and Tiles and List on Discover and Tracks.
+3. The sidebar showed a count of zero. A zero count now shows nothing. The Playlists tooltip said "1 track". Each count now names its own items, and the D5-04 test proves it.
+4. The feed area clipped its last button at 220 px. The status text and the buttons now stack, and the buttons wrap.
+
+After the corrections, each check is Green: 1,867 unit tests, 311 guards, `fmt`, `clippy -D warnings`, `check --all-targets` with no warning, and `cargo build --bin v4vmm`.
+
 Merge recommendation: pass. Task 006 moves Saved Searches and Discover into the Discover views.

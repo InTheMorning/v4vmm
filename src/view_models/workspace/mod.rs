@@ -31,7 +31,8 @@ pub(crate) use chrome::{
     LibraryFilterControlTreatment,
 };
 pub(crate) use columns::{
-    resolve_music_sidebar_state, MusicColumns, MusicSidebarPreference, MusicSidebarState,
+    resolve_music_sidebar_state, toggle_music_sidebar_preference, MusicColumns,
+    MusicSidebarPreference, MusicSidebarState,
 };
 pub(crate) use frame::{WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState};
 pub(crate) use nav::{

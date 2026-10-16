@@ -76,9 +76,10 @@ use crate::view_models::playlist_option_displays;
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::track_detail::TrackNameLinkTarget;
 use crate::view_models::workspace::{
-    resolve_music_sidebar_state, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
-    FrameNavigationEntry, LibraryFilterControlDisplay, MusicDestination, MusicSidebarPreference,
-    MusicSidebarState, NavigationPathStart, ReleaseKey, TrackKey,
+    resolve_music_sidebar_state, toggle_music_sidebar_preference, ContentFilter, ContentViewMode,
+    ContentViewModeControlDisplay, FrameNavigationEntry, LibraryFilterControlDisplay,
+    MusicDestination, MusicSidebarPreference, MusicSidebarState, NavigationPathStart, ReleaseKey,
+    TrackKey,
 };
 use crate::views::{EntityIdentityLinks, LocalIdentityFacts};
 use gpui::{
@@ -525,7 +526,11 @@ impl LibraryApp {
     /// resolved state, so the collapse button always moves the sidebar
     /// (ADR 0084 Decision 1).
     pub(crate) fn toggle_sidebar_collapse(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let next = self.sidebar_state(window).toggled();
+        let next = toggle_music_sidebar_preference(
+            self.vm.sidebar_preference(),
+            f32::from(window.bounds().size.width),
+            f32::from(crate::ui::layouts::MUSIC_SIDEBAR_COLLAPSE_BREAKPOINT),
+        );
         self.vm.set_sidebar_preference(next);
         cx.notify();
     }
@@ -3187,13 +3192,15 @@ impl LibraryApp {
                     .flex_col()
                     .w_full()
                     .min_w_0()
+                    // ADR 0084 Decision 1: the sidebar is narrow, so the
+                    // status text and the buttons stack, and the buttons
+                    // wrap. A row of both clipped the last button.
                     .child(
                         div()
                             .flex()
-                            .flex_row()
-                            .items_center()
-                            .justify_between()
-                            .gap(spacing::SM)
+                            .flex_col()
+                            .items_start()
+                            .gap(spacing::XS)
                             .px(spacing::MD)
                             .py(spacing::XS)
                             .border_t_1()
@@ -3223,6 +3230,7 @@ impl LibraryApp {
                                 div()
                                     .flex()
                                     .flex_row()
+                                    .flex_wrap()
                                     .items_center()
                                     .gap(spacing::SM)
                                     // ADR 0076 Decision 8: the button is

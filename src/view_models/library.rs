@@ -2568,14 +2568,23 @@ impl LibraryViewModel {
     }
 
     fn destination_row(&self, destination: MusicDestination) -> DestinationRowVm {
-        let count = self.destination_count(destination);
+        // ADR 0084 Decision 1: a count of zero shows nothing. Each count
+        // names its own items: tracks for Needs attention, playlists for
+        // Playlists.
+        let count = self
+            .destination_count(destination)
+            .filter(|count| *count > 0);
         let label = destination.label();
+        let noun = match destination {
+            MusicDestination::Playlists => "playlist",
+            _ => "track",
+        };
         let (tooltip, a11y_label) = match count {
-            Some(count) if count > 0 => (
-                format!("{label}, {count} track{}", plural(count)),
-                format!("{label}, {count} track{}", plural(count)),
+            Some(count) => (
+                format!("{label}, {count} {noun}{}", plural(count)),
+                format!("{label}, {count} {noun}{}", plural(count)),
             ),
-            _ => (label.to_string(), label.to_string()),
+            None => (label.to_string(), label.to_string()),
         };
         DestinationRowVm {
             destination,
@@ -2587,7 +2596,7 @@ impl LibraryViewModel {
             count,
             selected: self.active_destination == destination,
             shows_attention_mark: matches!(destination, MusicDestination::NeedsAttention)
-                && count.is_some_and(|count| count > 0),
+                && count.is_some(),
         }
     }
 
@@ -6767,7 +6776,8 @@ mod tests {
             MusicDestination::NeedsAttention
         );
         assert!(!needs_attention.shows_attention_mark);
-        assert_eq!(needs_attention.count, Some(0));
+        // A count of zero shows nothing (orchestrator review, 2026-10-16).
+        assert_eq!(needs_attention.count, None);
 
         let report = BroadcastReadinessReport {
             summary: crate::application::queries::broadcast::BroadcastReadinessSummary {
@@ -6798,6 +6808,15 @@ mod tests {
         let rows = vm.destination_rows();
         assert_eq!(rows[5].destination, MusicDestination::Playlists);
         assert_eq!(rows[5].count, Some(1));
+        assert_eq!(
+            rows[5].tooltip, "Playlists, 1 playlist",
+            "the Playlists count names playlists, not tracks"
+        );
+        assert_eq!(
+            rows[4].count, None,
+            "a Needs attention count of zero shows nothing"
+        );
+        assert_eq!(rows[4].tooltip, "Needs attention");
     }
 
     /// D5-07: the collapse button has a typed action, an accessibility
