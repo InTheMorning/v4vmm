@@ -51,6 +51,10 @@ The overhaul plan names eight steps. Step 2 has two packets, 002 and 003, becaus
 ## Open Findings
 
 - 2026-10-11: a track row on an Index release page has no click action, so it opens no track page. An Index track page opens only from a search result or a name-match page. ADR 0084 Decision 4 gives each track one page, and a Library release page row opens its track page. No packet owns this yet. Packet 009, the shared row and selection model, is the first packet that changes these rows (`index_feed_track_rows` in `src/app/search_dispatch.rs`).
+- 2026-10-16: the operator found again that a track row on an Index release page does nothing when clicked. The same row on a Library release page opens its track page.
+- 2026-10-16: on an Index release page, the "hide" control and the arrow of the Description section do nothing. On a Library release page they work. The Index page gives its description panel no toggle handler (`index_feed_description_panel` in `src/app/search_dispatch.rs`). No packet owns this yet.
+- 2026-10-16: the operator asked that a long description shows collapsed, with "show more" at its end. Today a release page shows the full description. No packet owns this yet.
+- 2026-10-16: a resize of the window across the narrow-layout width stopped the app for about 15 seconds, more than one time, during task 006 check V6. The cause is not known yet. Task 006 records it.
 
 ## Affected Modules
 

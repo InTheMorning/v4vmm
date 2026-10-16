@@ -736,10 +736,14 @@ impl ContentListLibraryBadgeState {
         }
     }
 
-    const fn label(self) -> &'static str {
+    /// The visible word. ADR 0084 Decision 8 gives the state word to each
+    /// Library item only, so an Index item shows no word. The operator
+    /// confirmed this on 2026-10-16: no word makes a Library item easy to
+    /// see.
+    const fn label(self) -> Option<&'static str> {
         match self {
-            Self::InLibrary => "In library",
-            Self::NotInLibrary => "Not in library",
+            Self::InLibrary => Some("In library"),
+            Self::NotInLibrary => None,
         }
     }
 
@@ -756,8 +760,8 @@ impl ContentListLibraryBadgeState {
 pub(crate) struct ContentListLibraryBadgeDisplay {
     /// Library-membership state represented by the badge.
     pub(crate) state: ContentListLibraryBadgeState,
-    /// Visible badge label.
-    pub(crate) label: &'static str,
+    /// Visible badge label. `None` shows no word (ADR 0084 Decision 8).
+    pub(crate) label: Option<&'static str>,
     /// Accessibility label for assistive technologies and tooltips.
     pub(crate) a11y_label: &'static str,
 }
@@ -4563,7 +4567,7 @@ mod tests {
             row.library_badge,
             ContentListLibraryBadgeDisplay {
                 state: ContentListLibraryBadgeState::NotInLibrary,
-                label: "Not in library",
+                label: None,
                 a11y_label: "Library status: Not in library",
             }
         );
@@ -4593,7 +4597,7 @@ mod tests {
             row.library_badge,
             ContentListLibraryBadgeDisplay {
                 state: ContentListLibraryBadgeState::NotInLibrary,
-                label: "Not in library",
+                label: None,
                 a11y_label: "Library status: Not in library",
             }
         );
@@ -4876,6 +4880,10 @@ mod tests {
             rows[1].library_badge.state,
             ContentListLibraryBadgeState::NotInLibrary,
             "a release outside the Library keeps its Index state"
+        );
+        assert_eq!(
+            rows[1].library_badge.label, None,
+            "ADR 0084 Decision 8: an Index item shows no state word"
         );
         assert!(
             rows[1].state_label.is_some(),

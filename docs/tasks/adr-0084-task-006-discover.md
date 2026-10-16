@@ -1,6 +1,6 @@
 # ADR 0084 Task 006: Discover
 
-Status: Implementation recorded - 2026-10-16. The mechanical checks are Green. V1 passed on 2026-10-16. The operator visual check V2 to V7 is open.
+Status: Implementation recorded - 2026-10-16. The mechanical checks are Green. V1 to V5 passed on 2026-10-16. V6 failed at step 13, and V6 and V7 are open.
 
 ## Goal
 
@@ -510,6 +510,12 @@ Merge recommendation: pass. Packet 007, Releases, comes next.
 The operator walked V1 and found two defects.
 
 - "New releases" showed the Library tracks after the Index releases. `ContentListPageVm::visible_rows` and `thumbnail_sources` added each Library row to the `RecentMusic` page. The fix removes that addition, so the view shows the Index releases only (ADR 0084 Decision 3). An Index release that the Library holds now shows "In library" and no "New" mark (Decision 8), through `ContentListPageVm::mark_library_releases`. The `replace_tree` and `replace_recent_music_content` functions apply the mark. The test `adr_0084_discover_new_release_in_library_shows_its_state` and the changed test `content_list_page_vm_projects_first_recent_music_page` are the guard.
-- Scroll was slow. After the fix above, the operator found that scroll is slow only while the tiles show placeholders, in the debug build and in the release build. Item 10 of the responsiveness list in the overhaul plan records it and its possible cause. On 2026-10-16 the operator decided that a separate packet fixes it, not this packet.
+- Scroll was slow. After the fix above, the operator found that scroll is slow only while the tiles show placeholders. This occurs in the debug build and in the release build. Item 10 of the responsiveness list in the overhaul plan records it and its possible cause. On 2026-10-16 the operator decided that a separate packet fixes it, not this packet.
 
 The operator walked V1 again on 2026-10-16 after the fix, and it passed. "New releases" showed releases only, and a release in the Library showed "In library" with no "New" mark.
+
+The operator walked V2 to V6 on 2026-10-16. V2 to V5 passed. The operator found these defects:
+
+- An Index release showed "Not in library". The operator prefers no word, because then a Library item is easy to see. ADR 0084 Decision 8 gives the state word to each Library item only. The fix gives `ContentListLibraryBadgeDisplay` an optional label, and an Index item has no label. The test `adr_0084_discover_new_release_in_library_shows_its_state` is the guard.
+- V6 step 13 failed. A resize of the window to under 940 px stopped the app for about 15 seconds. Then the app showed the new layout and stopped again. The cause is not known yet, and a profile of the app is necessary to find it. V6 and V7 stay open.
+- The Index release page defects that the operator found during V3 are outside this packet. The phase plan lists them under "Open Findings".

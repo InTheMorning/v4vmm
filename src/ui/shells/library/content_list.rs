@@ -382,12 +382,14 @@ fn render_content_list_tile_badges(
             kind: entity_kind,
             label: Some(SharedString::from(row.entity_badge.label)),
         }))
-        .child(
-            Label::new(row.library_badge.label)
-                .size(FontSize::Micro)
-                .color(SemanticColor::TertiaryLabel)
-                .truncated(),
-        );
+        .when_some(row.library_badge.label, |badges, label| {
+            badges.child(
+                Label::new(label)
+                    .size(FontSize::Micro)
+                    .color(SemanticColor::TertiaryLabel)
+                    .truncated(),
+            )
+        });
 
     if let Some(state_label) = row.state_label {
         badges = badges.child(
@@ -452,11 +454,13 @@ fn render_content_list_row_text(
         .flex_wrap()
         .items_center()
         .gap(Spacing::XS.scaled(cx))
-        .child(
-            Label::new(row.library_badge.label)
-                .size(FontSize::Micro)
-                .color(SemanticColor::TertiaryLabel),
-        );
+        .when_some(row.library_badge.label, |status, label| {
+            status.child(
+                Label::new(label)
+                    .size(FontSize::Micro)
+                    .color(SemanticColor::TertiaryLabel),
+            )
+        });
     if let Some(state_label) = row.state_label {
         status = status.child(
             Label::new(state_label)
