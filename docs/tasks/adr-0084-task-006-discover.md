@@ -1,6 +1,6 @@
 # ADR 0084 Task 006: Discover
 
-Status: Implementation recorded - 2026-10-16. The mechanical checks are Green. V1 to V5 passed on 2026-10-16. V6 failed at step 13, and V6 and V7 are open.
+Status: Implementation recorded - 2026-10-16. The mechanical checks are Green. V1 to V5 passed on 2026-10-16. V6 stopped at step 13 because the debug binary had GPUI test-support. V6 and V7 are open.
 
 ## Goal
 
@@ -520,4 +520,6 @@ The operator walked V2 to V6 on 2026-10-16. V2 to V5 passed. The operator found 
 - V6 step 13 failed. A resize of the window to under 940 px stopped the app for about 15 seconds. Then the app showed the new layout and stopped again. The cause is not known yet, and a profile of the app is necessary to find it. V6 and V7 stay open.
 - On 2026-10-16 the operator recorded a 41-second `perf` profile of the debug build during resize steps. The hang did not occur in that run. The UI thread used 14% of the samples, mostly in layout and text shaping. The `butt` status command used 72%. Responsiveness item 11 records it.
 - On 2026-10-16 the operator took two `eu-stack` snapshots, one during a hang and one after. During the hang, the UI thread was in a window resize: GPUI drew the window, Taffy laid out deeply nested flex elements, and cosmic-text shaped text with a fallback font. After the hang, the UI thread was idle. A test outside the repository shaped 481 New releases strings with Figtree. Each string took less than 0.1 ms, also with "…". The probable cause is the quantity of rows: before the hang, check V2 loaded each Index page. The list has no virtual list, so each resize frame lays out each row again. Responsiveness item 10 owns this cause, and it is not confirmed.
+- On 2026-10-16 the operator rejected that cause. With one page and with each page loaded, three resizes across 940 px gave no hang. A second test shaped all 481 strings again in 13 ms for each pass. The cause of the hang stays unknown.
+- On 2026-10-16 a third profile found the cause. The hang is not a defect of the app. The operator ran `target/debug/v4vmm`, and that file was the binary with GPUI `test-support`. In that binary, `App::flush_effects` draws each window at once after each effect, so each X11 resize event drew a full frame. The orchestrator ran `cargo test --test architecture_tests` after document edits, after the last `cargo build --bin v4vmm`, and that test run linked the test-support binary to `target/debug/v4vmm` again. The release build has no test-support code, and it did not hang. The orchestrator now runs `cargo build --bin v4vmm` after each test run. V6 and V7 stay open until the operator walks them again with a normal binary.
 - The Index release page defects that the operator found during V3 are outside this packet. The phase plan lists them under "Open Findings".

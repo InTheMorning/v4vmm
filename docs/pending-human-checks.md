@@ -164,5 +164,5 @@ Open - implementation and mechanical checks are complete on 2026-10-16. Operator
 
 - Owner: [task 006](tasks/adr-0084-task-006-discover.md#operator-visual-check).
 - Scheduling: walk it before packet 007 starts. It reads the app only. It needs a reachable MusicIndex endpoint.
-- V1 to V5 passed on 2026-10-16. V6 failed at step 13: a resize stopped the app for about 15 seconds. V6 and V7 stay open.
+- V1 to V5 passed on 2026-10-16. V6 stopped at step 13 because the debug binary had GPUI test-support. Walk V6 and V7 again with a normal binary.
 - V1 to V7: Music opens on "New releases", Tiles and List, paging, and Back with the scroll position. The state words, no filter control, no Saved Searches, and each track on a release page. The narrow layout, and themes and scale.
