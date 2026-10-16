@@ -518,4 +518,5 @@ The operator walked V2 to V6 on 2026-10-16. V2 to V5 passed. The operator found 
 
 - An Index release showed "Not in library". The operator prefers no word, because then a Library item is easy to see. ADR 0084 Decision 8 gives the state word to each Library item only. The fix gives `ContentListLibraryBadgeDisplay` an optional label, and an Index item has no label. The test `adr_0084_discover_new_release_in_library_shows_its_state` is the guard.
 - V6 step 13 failed. A resize of the window to under 940 px stopped the app for about 15 seconds. Then the app showed the new layout and stopped again. The cause is not known yet, and a profile of the app is necessary to find it. V6 and V7 stay open.
+- On 2026-10-16 the operator recorded a 41-second `perf` profile of the debug build during resize steps. The hang did not occur in that run. The UI thread used 14% of the samples, mostly in layout and text shaping. The `butt` status command used 72%. Responsiveness item 11 records it.
 - The Index release page defects that the operator found during V3 are outside this packet. The phase plan lists them under "Open Findings".
