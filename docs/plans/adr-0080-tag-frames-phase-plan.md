@@ -32,6 +32,8 @@ Until packet 002 is complete, packet 001 keeps each MusicBrainz URL value that t
 
 - An MP4 file has the same defect as packet 003 corrected for Vorbis. The writer stores `TDRC` and `TYER` in two freeform atoms, and the reader gives both values as `TDRC`.
   Thus the scan always reports `TYER` on an MP4 file with a date. The reader label does not name the atom, so a key comparison cannot correct it. No packet owns this defect yet.
+- Operator observation of 2026-10-16: the "Update 2 files" list showed two files, "Ethereal Realm ( 528hz )" and "Whispers". Each showed one frame: `TYER: 2025 (file: 2025-10-19)` and `TYER: 2025 (file: 2025-10-03)`. The operator wrote no tag.
+  It is not confirmed that the two files are MP4 files, or that a write changes the stored date.
 
 ## Session Rules
 

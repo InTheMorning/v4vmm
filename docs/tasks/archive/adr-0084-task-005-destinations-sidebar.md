@@ -1,23 +1,23 @@
 # ADR 0084 Task 005: The Destinations Sidebar
 
-Status: Implementation recorded - 2026-10-12. The mechanical checks are Green. The operator visual check V1 to V7 is open.
+Status: Complete - 2026-10-16. The mechanical checks are Green. The operator passed V1 to V7 on 2026-10-16.
 
 ## Goal
 
 The Music sidebar lists six destinations: Discover, Releases, Artists, Tracks, Needs attention and Playlists. A click on a destination fills the list column with its items, and a row opens its page in the detail column.
 The sidebar collapses to icons. Needs attention shows its count, and the collapsed icon shows a mark. The sidebar tree of artists, albums and tracks goes.
 
-This packet fixes finding 5 of the [Music flow map](../architecture/music-flow-map.md): Music reaches the tracks that need attention without Show.
+This packet fixes finding 5 of the [Music flow map](../../architecture/music-flow-map.md): Music reaches the tracks that need attention without Show.
 
 ## Authority
 
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 1 (the sidebar, its icons, tooltips, accessibility labels and attention mark) and Decision 2 (the destinations and their order).
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 9: a sidebar click starts a new path, with the destination first.
-- The durable set in [AGENTS.md](../../AGENTS.md): token discipline, typed action state, never rely on color alone, and "Current-view state must update in place".
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 1 (the sidebar, its icons, tooltips, accessibility labels and attention mark) and Decision 2 (the destinations and their order).
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 9: a sidebar click starts a new path, with the destination first.
+- The durable set in [AGENTS.md](../../../AGENTS.md): token discipline, typed action state, never rely on color alone, and "Current-view state must update in place".
 
 ## Recorded Facts - 2026-10-12
 
-- [Task 004](archive/adr-0084-task-004-three-column-shell.md) built the three columns. `LibraryApp::render_sidebar_column` in `src/library/app_impl.rs` renders the feed status and actions, Playlists (sort, "+", the inline new-playlist input), Saved Searches and the tree (`render_library_sidebar` in `src/ui/shells/library/sidebar.rs`).
+- [Task 004](adr-0084-task-004-three-column-shell.md) built the three columns. `LibraryApp::render_sidebar_column` in `src/library/app_impl.rs` renders the feed status and actions, Playlists (sort, "+", the inline new-playlist input), Saved Searches and the tree (`render_library_sidebar` in `src/ui/shells/library/sidebar.rs`).
 - The list column always shows the content list (`render_library_content_list`). `ContentListPageVm` in `src/view_models/library.rs` has three sources: `Tree` (Library tracks), `RecentMusic` (recent Index releases, paged, ADR 0062) and `BroadcastReadiness` (the readiness list).
 - The location root of a sidebar path is `FrameNavigationEntry::SourceList`, labeled "Library". The readiness list root is `FrameNavigationEntry::ReadinessIssues`. About 20 places use the two entries.
 - The readiness list opens only from Show: `open_broadcast_readiness_in_music` in `src/app/show.rs`. `LibraryApp::refresh_current_broadcast_readiness_report` already builds the report from the Library connection and `music_dir`, with no Show dependency. `BroadcastReadinessReport::problem_count` gives the count.
@@ -120,7 +120,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md), the [source map](../architecture/source-map.md), the [phase plan](../plans/adr-0084-music-column-browser-phase-plan.md) and the archived [task 004](archive/adr-0084-task-004-three-column-shell.md), with its Orchestrator Review.
+- [Agent rules](../../../AGENTS.md), the [source map](../../architecture/source-map.md), the [phase plan](../../plans/adr-0084-music-column-browser-phase-plan.md) and the archived [task 004](adr-0084-task-004-three-column-shell.md), with its Orchestrator Review.
 - `src/view_models/workspace/nav.rs`, `columns.rs`, `breadcrumb.rs`, `tests.rs`.
 - `src/app.rs`, `src/app/show.rs`, `src/app/breadcrumb.rs`.
 - `src/library.rs`, `src/library/app_impl.rs`, `src/library/column_view.rs`.
@@ -492,7 +492,7 @@ other file and changes no other stored data.
 
 ## Orchestrator Review - 2026-10-12
 
-The orchestrator reviewed the diff against ADR 0084, this packet and the [review checklist](../reviews/adr-0084-review-checklist.md), and ran each check. Each check is Green: 1,866 unit tests, 311 guards, `fmt`, `clippy -D warnings`, `check --all-targets` with no warning, and `cargo build --bin v4vmm`.
+The orchestrator reviewed the diff against ADR 0084, this packet and the [review checklist](../../reviews/adr-0084-review-checklist.md), and ran each check. Each check is Green: 1,866 unit tests, 311 guards, `fmt`, `clippy -D warnings`, `check --all-targets` with no warning, and `cargo build --bin v4vmm`.
 
 - The destination model, the root entry, the lists, the collapsed sidebar and the count keep to the design. No item is renamed to pass a guard.
 - The new lists use `ListRow` in flex columns with `min_h_0`, so the scroll rules of the task 004 review hold.
