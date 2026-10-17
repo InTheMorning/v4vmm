@@ -24,7 +24,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 3 | Capabilities that match the contract for track includes | Contract correction | Small |
 | 4 | Field renames are breaking changes | Release policy | Wanted |
 | 5 | Search returns one entity one time | Search correction | Deployed in release 0.8.0 on 2026-10-08 |
-| 6 | A list of releases and of artists by name | API addition | Wanted |
+| 6 | A list of releases and of artists by name | API addition | Accepted as Stophammer ADR 0070 on 2026-10-17 |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -265,8 +265,8 @@ is unique only in its feed. The v4vmm change to
 **Request 6, lists in name order.** The report is correct. No route gives
 either list. Stophammer
 [ADR 0070](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0070-a-name-list-gives-each-identity-one-row.md)
-is Proposed on 2026-10-17. It is advisory until the Stophammer operator
-accepts it.
+is Accepted on 2026-10-17. Its tasks 001 and 002 give the two routes. A
+release record names the release that carries them.
 
 - `GET /v1/feeds/by-name` gives the releases in name order, with the fields of
   `/v1/feeds/recent`, `cursor` and `from`.
