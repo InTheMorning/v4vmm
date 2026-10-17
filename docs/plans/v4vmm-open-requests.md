@@ -281,6 +281,8 @@ release record names the release that carries them.
 - Each row gives `sort_name`, the key of ADR 0049 §7. The node compares the
   keys by Unicode code point. v4vmm can merge its Library rows by the same key.
   The node does not remove a leading "The".
+- The node keeps the artist list in memory (ADR 0070 §4a, amended on
+  2026-10-17). After a change, the list can be at most 30 seconds old.
 
 In the backup of 2026-09-26, 34 names had some releases with a publisher feed
 and some without. Such a name shows two times: one `publisher` row and one
