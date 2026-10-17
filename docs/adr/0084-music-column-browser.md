@@ -20,6 +20,8 @@ It amends these decisions:
 - [ADR 0082](0082-publisher-roles-belong-to-each-album-link.md) Decision 2: each group of a publisher page divides its releases by kind (Decision 6).
 - [ADR 0083](0083-design-language.md): Decision 9 is superseded by Decision 3 of this ADR. Decisions 4, 5 and 6 gain the additions of Decisions 12, 5 and 10.
 
+Amended 2026-10-17 by operator decision: Decision 1 adds a visible scrollbar to each Music column that scrolls. [Task 014](../tasks/adr-0084-task-014-music-column-scrollbars.md) builds it.
+
 ## Context
 
 The operator found the Music flow scattered and hard to learn on 2026-10-08. The [Music flow map](../architecture/music-flow-map.md) records seven structural findings in the code:
@@ -51,6 +53,8 @@ The Music section shows three columns:
 | Detail | The page of the selected item | `Detail` |
 
 One shared shell owns the three columns. At a narrow width the sidebar collapses to icons. Each icon has a tooltip and an accessibility label. A destination with items that need attention shows a mark on its icon. Its tooltip and its accessibility label give the count, so the mark never relies on color alone. The operator can collapse and expand the sidebar at any width.
+
+Each column that can scroll shows a vertical scrollbar. A person can drag it, so a column scrolls without a mouse wheel or a touchpad. The scrollbar keeps the shared scrollbar gutter of [ADR 0063](0063-show-dashboard-layout.md), so it covers no content. The operator decided this on 2026-10-17.
 
 ### 2. The Destinations
 
