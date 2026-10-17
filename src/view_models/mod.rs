@@ -83,6 +83,7 @@ pub(crate) mod playlist_rss_check;
 pub(crate) mod publisher_page;
 pub(crate) mod queue_now_playing;
 pub(crate) mod recent_feeds;
+pub(crate) mod release_kind;
 pub mod search_results;
 pub(crate) mod show;
 pub(crate) mod tag_update;

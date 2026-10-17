@@ -7,6 +7,7 @@
 #![warn(clippy::pedantic)]
 
 use crate::view_models::entity_detail::ReleaseMembershipState;
+use crate::view_models::release_kind::ReleaseKind;
 
 /// The label of a publisher link. ADR 0077 Decision 6: `publisher_text` is
 /// the feed owner, so a publisher link does not show it.
@@ -31,26 +32,31 @@ pub enum AlbumPageAction {
 
 impl AlbumPageAction {
     /// The visible label. A label that opens a confirmation ends with "…".
+    /// `kind` names the release (ADR 0084 Decision 5) for "Download …" and
+    /// "Remove …", for example "Download single".
     #[must_use]
-    pub const fn label(self) -> &'static str {
+    pub(crate) fn label(self, kind: ReleaseKind) -> String {
         match self {
-            Self::DownloadAlbum => "Download album",
-            Self::AddToPlaylist => "Add to playlist",
-            Self::CopyFeedUrl => "Copy feed URL",
-            Self::MusicBrainzLookup => "MusicBrainz lookup",
-            Self::RemoveAlbum => "Remove album…",
+            Self::DownloadAlbum => format!("Download {}", kind.noun()),
+            Self::AddToPlaylist => "Add to playlist".to_string(),
+            Self::CopyFeedUrl => "Copy feed URL".to_string(),
+            Self::MusicBrainzLookup => "MusicBrainz lookup".to_string(),
+            Self::RemoveAlbum => format!("Remove {}…", kind.noun()),
         }
     }
 
-    /// The accessibility label.
+    /// The accessibility label. `kind` names the release (ADR 0084
+    /// Decision 5), the same way as [`Self::label`].
     #[must_use]
-    pub const fn a11y_label(self) -> &'static str {
+    pub(crate) fn a11y_label(self, kind: ReleaseKind) -> String {
         match self {
-            Self::DownloadAlbum => "Download this album",
-            Self::AddToPlaylist => "Add this album to a playlist",
-            Self::CopyFeedUrl => "Copy the feed URL of this album",
-            Self::MusicBrainzLookup => "Look up missing MusicBrainz fields for this album",
-            Self::RemoveAlbum => "Remove this album from the Library",
+            Self::DownloadAlbum => format!("Download this {}", kind.noun()),
+            Self::AddToPlaylist => "Add this album to a playlist".to_string(),
+            Self::CopyFeedUrl => "Copy the feed URL of this album".to_string(),
+            Self::MusicBrainzLookup => {
+                "Look up missing MusicBrainz fields for this album".to_string()
+            }
+            Self::RemoveAlbum => format!("Remove this {} from the Library", kind.noun()),
         }
     }
 
@@ -280,7 +286,7 @@ mod tests {
         let last = actions.menu.last().expect("the menu has items");
         assert_eq!(last.action, AlbumPageAction::RemoveAlbum);
         assert!(last.action.is_destructive());
-        assert!(last.action.label().ends_with('…'));
+        assert!(last.action.label(ReleaseKind::Album).ends_with('…'));
         assert_eq!(
             actions
                 .menu
@@ -290,5 +296,36 @@ mod tests {
             1
         );
         assert!(!actions.filled.action.is_destructive());
+    }
+
+    /// R7-05 (ADR 0084 Decision 5): the download and the removal label
+    /// name the release kind, and the accessibility label names the same
+    /// kind.
+    #[test]
+    fn adr_0084_release_kind_r7_05_download_and_remove_name_the_kind() {
+        assert_eq!(
+            AlbumPageAction::DownloadAlbum.label(ReleaseKind::Single),
+            "Download single"
+        );
+        assert_eq!(
+            AlbumPageAction::DownloadAlbum.label(ReleaseKind::Ep),
+            "Download EP"
+        );
+        assert_eq!(
+            AlbumPageAction::DownloadAlbum.label(ReleaseKind::Album),
+            "Download album"
+        );
+        assert_eq!(
+            AlbumPageAction::DownloadAlbum.a11y_label(ReleaseKind::Single),
+            "Download this single"
+        );
+        assert_eq!(
+            AlbumPageAction::RemoveAlbum.label(ReleaseKind::Single),
+            "Remove single…"
+        );
+        assert_eq!(
+            AlbumPageAction::RemoveAlbum.a11y_label(ReleaseKind::Single),
+            "Remove this single from the Library"
+        );
     }
 }

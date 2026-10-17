@@ -13,6 +13,7 @@ use crate::view_models::entity_detail::{
     EntityActionKind, EntityActionTarget, EntityActionTone, EntityActionVm,
 };
 use crate::view_models::format::fmt_date;
+use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::track::fmt_dur;
 use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
 use crate::views::{FeedRef, TrackRef, TrackView};
@@ -835,28 +836,40 @@ pub enum TrackPageAction {
 
 impl TrackPageAction {
     /// The visible label. A label that opens a confirmation ends with "…".
+    ///
+    /// `release_kind` names the release that "Download …" downloads (ADR
+    /// 0084 Decision 5), when the page knows it. A Library track page
+    /// knows its release in the Library tree. An Index track page knows
+    /// no kind, and gives `None`, so the label says "Download release".
     #[must_use]
-    pub const fn label(self) -> &'static str {
+    pub(crate) fn label(self, release_kind: Option<ReleaseKind>) -> String {
         match self {
-            Self::DownloadAlbum => "Download album",
-            Self::DownloadTrack => "Download track",
-            Self::AddToPlaylist => "Add to playlist",
-            Self::CopyFeedUrl => "Copy feed URL",
-            Self::MusicBrainzLookup => "MusicBrainz lookup",
-            Self::RemoveTrack => "Remove track…",
+            Self::DownloadAlbum => match release_kind {
+                Some(kind) => format!("Download {}", kind.noun()),
+                None => "Download release".to_string(),
+            },
+            Self::DownloadTrack => "Download track".to_string(),
+            Self::AddToPlaylist => "Add to playlist".to_string(),
+            Self::CopyFeedUrl => "Copy feed URL".to_string(),
+            Self::MusicBrainzLookup => "MusicBrainz lookup".to_string(),
+            Self::RemoveTrack => "Remove track…".to_string(),
         }
     }
 
-    /// The accessibility label.
+    /// The accessibility label. `release_kind` names the release the same
+    /// way as [`Self::label`].
     #[must_use]
-    pub const fn a11y_label(self) -> &'static str {
+    pub(crate) fn a11y_label(self, release_kind: Option<ReleaseKind>) -> String {
         match self {
-            Self::DownloadAlbum => "Download the album of this track",
-            Self::DownloadTrack => "Download this track",
-            Self::AddToPlaylist => "Add this track to a playlist",
-            Self::CopyFeedUrl => "Copy the feed URL of this track",
-            Self::MusicBrainzLookup => "Look up this track in MusicBrainz",
-            Self::RemoveTrack => "Remove this track from the Library",
+            Self::DownloadAlbum => match release_kind {
+                Some(kind) => format!("Download the {} of this track", kind.noun()),
+                None => "Download the release of this track".to_string(),
+            },
+            Self::DownloadTrack => "Download this track".to_string(),
+            Self::AddToPlaylist => "Add this track to a playlist".to_string(),
+            Self::CopyFeedUrl => "Copy the feed URL of this track".to_string(),
+            Self::MusicBrainzLookup => "Look up this track in MusicBrainz".to_string(),
+            Self::RemoveTrack => "Remove this track from the Library".to_string(),
         }
     }
 
@@ -1536,6 +1549,29 @@ mod tests {
         );
         let last = actions.menu.last().expect("menu has items");
         assert!(last.action.is_destructive());
-        assert!(last.action.label().ends_with('…'));
+        assert!(last.action.label(None).ends_with('…'));
+    }
+
+    /// R7-06 (ADR 0084 Decision 5): the download label of a track page
+    /// names the release kind when the page knows it, and says "Download
+    /// release" when it does not.
+    #[test]
+    fn adr_0084_release_kind_r7_06_track_download_label_names_the_known_kind() {
+        assert_eq!(
+            TrackPageAction::DownloadAlbum.label(None),
+            "Download release"
+        );
+        assert_eq!(
+            TrackPageAction::DownloadAlbum.label(Some(ReleaseKind::Single)),
+            "Download single"
+        );
+        assert_eq!(
+            TrackPageAction::DownloadAlbum.a11y_label(None),
+            "Download the release of this track"
+        );
+        assert_eq!(
+            TrackPageAction::DownloadAlbum.a11y_label(Some(ReleaseKind::Single)),
+            "Download the single of this track"
+        );
     }
 }

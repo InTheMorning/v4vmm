@@ -45,6 +45,7 @@ use crate::view_models::playlist_detail::PlaylistDetailPageVm;
 use crate::view_models::recent_feeds::{
     RecentFeedResultRow, RecentFeedsPageState, RecentFeedsPageVm,
 };
+use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::search_results::{
     FeedResultDisplay, IndexDetailDisplay, SearchResultOrigin, TrackResultDisplay,
 };
@@ -860,11 +861,16 @@ pub(crate) struct ContentListEntityBadgeDisplay {
 }
 
 impl ContentListEntityBadgeDisplay {
-    const fn for_kind(kind: ContentListEntityKind) -> Self {
+    /// The entity badge of one mixed content-list row. A release row's
+    /// label names its resolved kind (ADR 0084 Decision 5): "Album", "EP"
+    /// or "Single", in place of "Release". The badge kind, its color and
+    /// its icon stay the row's entity type.
+    fn for_kind(kind: &ContentListRowKind) -> Self {
+        let entity_kind = kind.entity_kind();
         Self {
-            kind,
-            label: kind.label(),
-            a11y_label: kind.a11y_label(),
+            kind: entity_kind,
+            label: kind.badge_label(),
+            a11y_label: entity_kind.a11y_label(),
         }
     }
 }
@@ -1117,6 +1123,25 @@ impl ContentListRowKind {
             Self::Track(display) => ContentListRowSource::from_search_result_origin(display.origin),
         }
     }
+
+    /// The visible entity-badge label (ADR 0084 Decision 5): a release
+    /// row names its resolved kind, and a track row names "Track".
+    fn badge_label(&self) -> &'static str {
+        match self {
+            Self::Release(display) => release_kind_of_feed_result(display).label(),
+            Self::Track(_) => ContentListEntityKind::Track.label(),
+        }
+    }
+}
+
+/// The kind of a release result row (ADR 0084 Decision 5). A row with no
+/// loaded feed detail, for example a bare search fixture, resolves with
+/// no stated value and no loaded track, which gives Album.
+fn release_kind_of_feed_result(display: &FeedResultDisplay) -> ReleaseKind {
+    match &display.remote_feed {
+        Some(feed) => ReleaseKind::resolve(feed.release_kind.as_deref(), feed.track_count()),
+        None => ReleaseKind::resolve(None, 0),
+    }
 }
 
 /// Display row cached by the GPUI-free content-list page VM.
@@ -1286,15 +1311,15 @@ impl ContentListRowDisplay {
 
     fn from_kind(kind: ContentListRowKind) -> Self {
         let source = kind.source();
-        let entity_kind = kind.entity_kind();
+        let entity_badge = ContentListEntityBadgeDisplay::for_kind(&kind);
         Self {
             id: kind.id().to_string(),
-            kind,
-            entity_badge: ContentListEntityBadgeDisplay::for_kind(entity_kind),
+            entity_badge,
             library_badge: ContentListLibraryBadgeDisplay::for_source(source),
             source,
             state_label: row_state_label_for_source(source),
             activation: ContentListRowActivation::OpenContentRow,
+            kind,
             actions: Vec::new(),
         }
     }
@@ -2604,7 +2629,9 @@ impl LibraryViewModel {
                 Some(DestinationListRowVm {
                     element_id: format!("music-release-row-{}", release_row_slug(&key)),
                     label: album.name.clone(),
-                    secondary_text: artist.name.clone(),
+                    // ADR 0084 Decision 5: the row names the kind after
+                    // the artist, for example "Haleen · Single".
+                    secondary_text: format!("{} · {}", artist.name, album.release_kind().label()),
                     a11y_label: format!("Release: {}", album.name),
                     thumbnail_href: album.image_href.clone(),
                     open: DestinationListRowTarget::Release(key),
@@ -4016,6 +4043,15 @@ impl AlbumNode {
     pub(crate) fn release_track_rows(&self) -> &[TrackRow] {
         &self.tracks
     }
+
+    /// The kind of this release (ADR 0084 Decision 5).
+    #[must_use]
+    pub(crate) fn release_kind(&self) -> ReleaseKind {
+        ReleaseKind::resolve(
+            self.metadata_facts.release_kind.as_deref(),
+            self.tracks.len(),
+        )
+    }
 }
 
 impl TrackRow {
@@ -4705,11 +4741,13 @@ mod tests {
         assert_eq!(row.title(), "Release");
         assert_eq!(row.secondary_text(), "12 tracks");
         assert_eq!(row.entity_kind(), ContentListEntityKind::Release);
+        // ADR 0084 Decision 5: with no loaded feed detail, the resolved
+        // kind has no stated value and no loaded track, so it is Album.
         assert_eq!(
             row.entity_badge,
             ContentListEntityBadgeDisplay {
                 kind: ContentListEntityKind::Release,
-                label: "Release",
+                label: "Album",
                 a11y_label: "Entity type: Release",
             }
         );
@@ -4719,6 +4757,30 @@ mod tests {
                 state: ContentListLibraryBadgeState::NotInLibrary,
                 label: None,
                 a11y_label: "Library status: Not in library",
+            }
+        );
+    }
+
+    /// R7-03 (ADR 0084 Decision 5): a release row with one loaded track
+    /// shows the badge label "Single". The badge kind, used for its color
+    /// and its icon, stays `Release`.
+    #[test]
+    fn adr_0084_release_kind_r7_03_content_list_release_badge_names_the_kind() {
+        let remote_feed = crate::views::FeedView {
+            tracks: vec![crate::views::TrackView::default()],
+            ..crate::views::FeedView::default()
+        };
+        let row = ContentListRowDisplay::from_release_result(
+            release_result("release-1", "Release", SearchResultOrigin::Index)
+                .with_remote_feed(remote_feed),
+        );
+
+        assert_eq!(
+            row.entity_badge,
+            ContentListEntityBadgeDisplay {
+                kind: ContentListEntityKind::Release,
+                label: "Single",
+                a11y_label: "Entity type: Release",
             }
         );
     }
@@ -6935,7 +6997,9 @@ mod tests {
             vec!["Selected Ambient Works", "Tri Repetae", "Windowlicker"],
             "releases must sort by name"
         );
-        assert_eq!(rows[0].secondary_text, "Aphex Twin");
+        // ADR 0084 Decision 5: "Selected Ambient Works" has two tracks and
+        // no stated kind, which resolves to Album.
+        assert_eq!(rows[0].secondary_text, "Aphex Twin · Album");
         assert_eq!(rows[0].thumbnail_href, Some("saw.jpg".to_string()));
         assert_eq!(
             rows[0].open,
@@ -6947,6 +7011,23 @@ mod tests {
             DestinationListRowTarget::Release(ReleaseKey::LibraryFeed(20)),
             "a release with no feed GUID must key by its Library feed id"
         );
+    }
+
+    /// R7-04 (ADR 0084 Decision 5): the Releases list names the kind after
+    /// the artist. "Windowlicker" has one track and no stated kind, which
+    /// resolves to Single.
+    #[test]
+    fn adr_0084_release_kind_r7_04_releases_list_names_the_kind_after_the_artist() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+
+        let rows = vm.releases_list();
+        let windowlicker = rows
+            .iter()
+            .find(|row| row.label == "Windowlicker")
+            .expect("the fixture names a Windowlicker release");
+
+        assert_eq!(windowlicker.secondary_text, "Aphex Twin · Single");
     }
 
     /// D5-04: the Artists destination list gives one row for each Library

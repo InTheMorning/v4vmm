@@ -48,6 +48,7 @@ use crate::view_models::library::{
     DescriptionDisclosureDisplay, DescriptionState, LibraryTrackRowVm,
 };
 use crate::view_models::publisher_page::PublisherPageContext;
+use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::search_results::{
     IndexDetailDisplay, IndexDetailKind, SearchResultsInspectorPageVm, SearchResultsTab,
 };
@@ -1101,8 +1102,11 @@ impl TopApp {
     }
 
     /// The action row of an Index track page (ADR 0083 Decision 5): the
-    /// filled "Download album". An Index track has no plain action and, with
-    /// no feed URL, no menu item.
+    /// filled "Download release". An Index track has no plain action and,
+    /// with no feed URL, no menu item. `TrackView` carries no stated kind
+    /// and no track count of its release (ADR 0084 Decision 5), and this
+    /// packet sends no new `MusicIndex` request for one, so the label
+    /// names no known kind.
     fn index_track_page_actions(
         actions: &TrackPageActions,
         track: &TrackView,
@@ -1115,8 +1119,8 @@ impl TopApp {
             SharedString::from(format!("index-track-page-action:{action:?}")),
             ControlStyle::Primary,
         )
-        .label(action.label())
-        .a11y_label(action.a11y_label())
+        .label(action.label(None))
+        .a11y_label(action.a11y_label(None))
         .disabled(!filled.available);
         let button = match (action, feed_guid.clone()) {
             (TrackPageAction::DownloadAlbum, Some(feed_guid)) if filled.available => button
@@ -1132,8 +1136,8 @@ impl TopApp {
                 let action = display.action;
                 let mut item = ContextMenuItem::new(ContextMenuItemDisplay {
                     id: SharedString::from(format!("index-track-page-menu:{action:?}")),
-                    label: SharedString::from(action.label()),
-                    a11y_label: SharedString::from(action.a11y_label()),
+                    label: SharedString::from(action.label(None)),
+                    a11y_label: SharedString::from(action.a11y_label(None)),
                     destructive: action.is_destructive(),
                     disabled: !display.available,
                 });
@@ -1273,11 +1277,13 @@ impl TopApp {
     }
 
     /// The action row of an Index album page (ADR 0083 Decision 5): the
-    /// filled "Download album" and the "⋯" menu with "Copy feed URL".
+    /// filled "Download …" and the "⋯" menu with "Copy feed URL". The
+    /// label names the release kind (ADR 0084 Decision 5).
     fn index_feed_primary_actions(
         feed: &FeedView,
         cx: &mut Context<Self>,
     ) -> Vec<ReleaseSurfaceElement> {
+        let kind = ReleaseKind::resolve(feed.release_kind.as_deref(), feed.track_count());
         let actions = album_page_actions(AlbumPageOrigin::Index, feed.feed_url.as_deref());
         let filled = actions.filled;
         let action = filled.action;
@@ -1285,8 +1291,8 @@ impl TopApp {
             SharedString::from(format!("index-album-page-action:{action:?}")),
             ControlStyle::Primary,
         )
-        .label(action.label())
-        .a11y_label(action.a11y_label())
+        .label(action.label(kind))
+        .a11y_label(action.a11y_label(kind))
         .disabled(!filled.available);
         let button = if action == AlbumPageAction::DownloadAlbum && filled.available {
             let feed_for_download = feed.clone();
@@ -1303,8 +1309,8 @@ impl TopApp {
                 let action = display.action;
                 let mut item = ContextMenuItem::new(ContextMenuItemDisplay {
                     id: SharedString::from(format!("index-album-page-menu:{action:?}")),
-                    label: SharedString::from(action.label()),
-                    a11y_label: SharedString::from(action.a11y_label()),
+                    label: SharedString::from(action.label(kind)),
+                    a11y_label: SharedString::from(action.a11y_label(kind)),
                     destructive: action.is_destructive(),
                     disabled: !display.available,
                 });

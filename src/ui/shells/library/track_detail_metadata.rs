@@ -210,7 +210,10 @@ pub(crate) fn render_library_track_detail_actions(
 }
 
 /// One button of the track page action row. "Add to playlist" opens the
-/// shared playlist popover.
+/// shared playlist popover. This Library page never shows "Download
+/// album": a Library track that is not downloaded shows "Download track"
+/// instead (ADR 0083 Decision 5), so `TrackPageAction::label` and
+/// `a11y_label` always read no known release kind here.
 fn render_track_page_button(
     display: TrackPageActionDisplay,
     style: ControlStyle,
@@ -224,8 +227,8 @@ fn render_track_page_button(
         return AddToPlaylistPopover::new(AddToPlaylistDisplay {
             id: SharedString::from(playlist_display.popover_id),
             playlists: playlist_options(playlists),
-            trigger_label: SharedString::from(action.label()),
-            trigger_a11y_label: SharedString::from(action.a11y_label()),
+            trigger_label: SharedString::from(action.label(None)),
+            trigger_a11y_label: SharedString::from(action.a11y_label(None)),
             new_playlist_a11y_label: SharedString::from("Create a new playlist"),
             back_a11y_label: SharedString::from("Back to playlist choices"),
             create_a11y_label: SharedString::from("Create playlist and add track"),
@@ -244,8 +247,8 @@ fn render_track_page_button(
         SharedString::from(format!("track-page-action:{action:?}")),
         style,
     )
-    .label(action.label())
-    .a11y_label(action.a11y_label())
+    .label(action.label(None))
+    .a11y_label(action.a11y_label(None))
     .disabled(!display.available);
     if !display.available {
         return button.into_any_element();
@@ -271,8 +274,8 @@ fn render_track_page_menu(
         let action = display.action;
         let mut item = ContextMenuItem::new(ContextMenuItemDisplay {
             id: SharedString::from(format!("track-page-menu:{action:?}")),
-            label: SharedString::from(action.label()),
-            a11y_label: SharedString::from(action.a11y_label()),
+            label: SharedString::from(action.label(None)),
+            a11y_label: SharedString::from(action.a11y_label(None)),
             destructive: action.is_destructive(),
             disabled: !display.available,
         });

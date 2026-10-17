@@ -229,12 +229,13 @@ fn render_library_album_button(
 ) -> AnyElement {
     let action = display.action;
     let feed_id = album.feed_id;
+    let kind = album.release_kind();
     if let (AlbumPageAction::AddToPlaylist, Some(feed_id)) = (action, feed_id) {
         return AddToPlaylistPopover::new(AddToPlaylistDisplay {
             id: SharedString::from(format!("album-feed-add:{feed_id}")),
             playlists: playlist_options(playlists),
-            trigger_label: SharedString::from(action.label()),
-            trigger_a11y_label: SharedString::from(action.a11y_label()),
+            trigger_label: SharedString::from(action.label(kind)),
+            trigger_a11y_label: SharedString::from(action.a11y_label(kind)),
             new_playlist_a11y_label: SharedString::from("Create a new playlist"),
             back_a11y_label: SharedString::from("Back to playlist choices"),
             create_a11y_label: SharedString::from("Create playlist and add album"),
@@ -254,8 +255,8 @@ fn render_library_album_button(
         SharedString::from(format!("album-page-action:{action:?}")),
         ControlStyle::Primary,
     )
-    .label(action.label())
-    .a11y_label(action.a11y_label())
+    .label(action.label(kind))
+    .a11y_label(action.a11y_label(kind))
     .disabled(!available);
     let (true, Some(feed_id)) = (available, feed_id) else {
         return button.into_any_element();
@@ -277,13 +278,14 @@ fn render_library_album_menu(
 ) -> AnyElement {
     let entity = cx.entity();
     let feed_id = album.feed_id;
+    let kind = album.release_kind();
     let menu_items = items.iter().map(|display| {
         let action = display.action;
         let available = display.available && feed_id.is_some();
         let mut item = ContextMenuItem::new(ContextMenuItemDisplay {
             id: SharedString::from(format!("album-page-menu:{action:?}")),
-            label: SharedString::from(action.label()),
-            a11y_label: SharedString::from(action.a11y_label()),
+            label: SharedString::from(action.label(kind)),
+            a11y_label: SharedString::from(action.a11y_label(kind)),
             destructive: action.is_destructive(),
             disabled: !available,
         });

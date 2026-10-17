@@ -572,6 +572,18 @@ impl FeedView {
             publisher_feed_guid: None,
         }
     }
+
+    /// The track count that resolves this release's kind (ADR 0084
+    /// Decision 5). This method reads the loaded track list first. With
+    /// no loaded list, it falls back to the stated track count.
+    #[must_use]
+    pub fn track_count(&self) -> usize {
+        if self.tracks.is_empty() {
+            usize::try_from(self.episode_count.unwrap_or_default()).unwrap_or_default()
+        } else {
+            self.tracks.len()
+        }
+    }
 }
 
 /// The publisher feed GUID of the received `music_to_publisher` entry that

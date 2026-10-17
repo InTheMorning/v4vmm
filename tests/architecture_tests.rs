@@ -20203,3 +20203,36 @@ scroll position after each scroll change, as `src/ui/composites/log_frame.rs` do
 after each scroll change."
     );
 }
+
+/// R7-07, situational ADR 0084 Decision 5: no renderer or view model
+/// outside `src/view_models/release_kind.rs` spells out the old static
+/// release-action text. A production line that names a release action
+/// builds its text from `ReleaseKind` instead.
+#[test]
+fn adr_0084_release_kind_r7_07_no_hardcoded_download_or_remove_album_literal() {
+    let mut files = Vec::new();
+    collect_rust_files(&manifest_path("src"), &mut files);
+    let release_kind_path = manifest_path("src/view_models/release_kind.rs");
+    let mut violations = Vec::new();
+    for file in files {
+        if file == release_kind_path {
+            continue;
+        }
+        let source = read_source(&file);
+        // Comments may still describe the action informally, and a test
+        // may build the old text on purpose to prove a regression stays
+        // fixed. Neither counts as the renderer literal this guard forbids.
+        let code = code_only(&source);
+        let checked = production_source(&code);
+        for forbidden in ["\"Download album\"", "\"Remove album\u{2026}\""] {
+            if checked.contains(forbidden) {
+                violations.push(format!(
+                    "{}: ADR 0084 Decision 5 forbids the literal {forbidden} outside \
+release_kind.rs and tests. Build the label from `ReleaseKind` instead.",
+                    rel_path(&file)
+                ));
+            }
+        }
+    }
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}

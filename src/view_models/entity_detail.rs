@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 
 use crate::view_models::album_page::{AlbumNameLinkTarget, AlbumNameLinkVm, PUBLISHER_LINK_LABEL};
 use crate::view_models::format::{fmt_date, fmt_runtime};
+use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::track::fmt_dur;
 use crate::view_models::{ActionStatusMessageDisplay, ActionStatusMessageWidth};
 use crate::views::{
@@ -762,11 +763,11 @@ impl<'a> ReleaseDetailVm<'a> {
         let mut facts = Vec::with_capacity(MAX_RELEASE_SUMMARY_FACTS);
         facts.push(ReleaseFactVm {
             key: "Release Kind",
-            value: self
-                .view
-                .release_kind
-                .clone()
-                .unwrap_or_else(|| "Unknown".to_string()),
+            // ADR 0084 Decision 5: the fact names the resolved kind, for
+            // both origins, in place of the raw stated value.
+            value: ReleaseKind::resolve(self.view.release_kind.as_deref(), self.view.track_count())
+                .label()
+                .to_string(),
         });
         // ADR 0075 packet 050, operator decision D50-1: the feed's own
         // publication date, named with the provider that supplied it.
@@ -1503,13 +1504,51 @@ mod tests {
                 .map(|fact| (fact.key, fact.value.as_str()))
                 .collect::<Vec<_>>(),
             vec![
-                ("Release Kind", "album"),
+                ("Release Kind", "Album"),
                 ("Published", "Apr 1, 2024 (RSS)"),
                 ("First track published", "Apr 5, 2024 (MusicIndex)"),
                 ("Tracks", "2"),
                 ("Duration", "3 min"),
                 ("Language", "en"),
             ]
+        );
+    }
+
+    /// R7-02 (ADR 0084 Decision 5): the release page names the resolved
+    /// kind. An Index feed that states no kind and has one loaded track
+    /// shows "Single". A Library album with five tracks shows "Album",
+    /// read from its track list, not from its stated episode count.
+    #[test]
+    fn adr_0084_release_kind_r7_02_summary_facts_name_the_resolved_kind() {
+        let mut single = feed_view();
+        single.release_kind = Some("unknown".into());
+        single.tracks.truncate(1);
+        single.episode_count = Some(1);
+        let facts = ReleaseDetailVm::new(&single, EntitySurfaceContext::Discover).summary_facts();
+        assert_eq!(
+            facts
+                .iter()
+                .find(|fact| fact.key == "Release Kind")
+                .map(|fact| fact.value.as_str()),
+            Some("Single")
+        );
+
+        let mut album = feed_view();
+        album.release_kind = None;
+        album.tracks = (1..=5)
+            .map(|number| TrackView {
+                track_number: Some(number),
+                ..TrackView::default()
+            })
+            .collect();
+        album.episode_count = Some(5);
+        let facts = ReleaseDetailVm::new(&album, EntitySurfaceContext::Library).summary_facts();
+        assert_eq!(
+            facts
+                .iter()
+                .find(|fact| fact.key == "Release Kind")
+                .map(|fact| fact.value.as_str()),
+            Some("Album")
         );
     }
 
