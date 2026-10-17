@@ -1,6 +1,6 @@
 # ADR 0084 Task 007: The Release Kind
 
-Status: Ready - 2026-10-17.
+Status: Complete - 2026-10-17. The mechanical checks are Green. The operator passed V1 to V6 on 2026-10-17.
 
 ## Goal
 
@@ -8,9 +8,9 @@ Each release shows its kind: Album, EP or Single. One pure function gives the ki
 
 ## Authority
 
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 5: the kind comes from the value that the feed states, when it names album, EP or single. Without a stated value, a release with one track is a single, and any other release is an album. EP shows only when the feed states it.
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 4: one page for each item, whatever its origin.
-- [ADR 0060](../adr/0060-workflow-surface-structure.md) Vocabulary: the curator sees "Release". Internal names do not change.
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 5: the kind comes from the value that the feed states, when it names album, EP or single. Without a stated value, a release with one track is a single, and any other release is an album. EP shows only when the feed states it.
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 4: one page for each item, whatever its origin.
+- [ADR 0060](../../adr/0060-workflow-surface-structure.md) Vocabulary: the curator sees "Release". Internal names do not change.
 - The orchestrator split the old packet 007 on 2026-10-17. This packet owns Decision 5. Packet 015 owns the singles groups (Decision 6), and packet 016 owns the scopes (Decision 8).
 
 ## Recorded Facts - 2026-10-17
@@ -101,7 +101,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md), the [source map](../architecture/source-map.md) and the [phase plan](../plans/adr-0084-music-column-browser-phase-plan.md).
+- [Agent rules](../../../AGENTS.md), the [source map](../../architecture/source-map.md) and the [phase plan](../../plans/adr-0084-music-column-browser-phase-plan.md).
 - `src/views.rs` (`FeedView`, `TrackView`), `src/view_models/entity_detail.rs`, `src/view_models/feed.rs`.
 - `src/view_models/library.rs` (`AlbumNode`, `ContentListEntityBadgeDisplay`, `releases_list`, the content rows from recent feeds).
 - `src/view_models/album_page.rs`, `src/view_models/track_detail.rs`.
@@ -341,7 +341,7 @@ and the scale of V6 back to your usual values.
 
 ## Orchestrator Review - 2026-10-17
 
-The orchestrator reviewed the diff against ADR 0084 Decisions 4 and 5, this packet and the [review checklist](../reviews/adr-0084-review-checklist.md). The orchestrator also ran each check.
+The orchestrator reviewed the diff against ADR 0084 Decisions 4 and 5, this packet and the [review checklist](../../reviews/adr-0084-review-checklist.md). The orchestrator also ran each check.
 
 - `ReleaseKind`, the release page fact, the badge, the Releases rows and the action labels follow "Design". The badge keeps its kind, its color and its icon.
 - Deviation 1, the change of two label functions from `pub` to `pub(crate)`, prevents a compiler warning. It changes no caller.
@@ -351,3 +351,7 @@ The orchestrator reviewed the diff against ADR 0084 Decisions 4 and 5, this pack
 - The orchestrator recorded the open gate in the pending checks and in the delivery order.
 
 Merge recommendation: pass. Packet 015, the singles groups, comes after the visual check.
+
+## Operator Check - 2026-10-17
+
+The operator walked V1 to V6 with a normal debug binary, and each step passed.
