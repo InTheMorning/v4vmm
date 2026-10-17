@@ -12,11 +12,12 @@ use std::sync::Arc;
 
 use gpui::{
     div, AnyElement, App, ClickEvent, Image, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window,
+    SharedString, Styled, Window,
 };
-use gpui_component::scroll::ScrollableElement;
 
 use crate::runtime::paged_list_vm::{PagedListVm, RowSlot};
+use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{
     EntityKind, Segment, SegmentDisplay, SegmentedControl, TagBadge, TagBadgeDisplay, Thumbnail,
     ThumbnailSize,
@@ -229,37 +230,40 @@ pub(crate) fn render_index_detail_display(display: &IndexDetailDisplay, cx: &App
         );
     }
 
-    div()
-        .id(SharedString::from(format!(
-            "index-detail-{}",
-            detail_id_suffix(display.kind)
-        )))
+    let suffix = detail_id_suffix(display.kind);
+    let container = div()
+        .id(SharedString::from(format!("index-detail-{suffix}")))
         .flex()
         .flex_col()
         .flex_1()
         .min_h_0()
         .min_w_0()
-        .overflow_y_scroll()
         .p(Spacing::MD.scaled(cx))
-        .gap(Spacing::LG.scaled(cx))
         .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_start()
-                .gap(Spacing::MD.scaled(cx))
-                .child(Thumbnail::new(kind, ThumbnailSize::Lg))
-                .child(heading),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(Spacing::XS.scaled(cx))
-                .child(detail_metadata_row("Source", "Index", cx))
-                .child(detail_metadata_row("ID", &display.id, cx)),
-        )
-        .into_any_element()
+            page_scroll_content(cx)
+                .gap(Spacing::LG.scaled(cx))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_start()
+                        .gap(Spacing::MD.scaled(cx))
+                        .child(Thumbnail::new(kind, ThumbnailSize::Lg))
+                        .child(heading),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(Spacing::XS.scaled(cx))
+                        .child(detail_metadata_row("Source", "Index", cx))
+                        .child(detail_metadata_row("ID", &display.id, cx)),
+                ),
+        );
+    music_column_scrollbar(
+        container,
+        SharedString::from(format!("index-detail-{suffix}-scrollbar")),
+    )
 }
 
 /// Renders a remote Index feed through the shared release-detail shell.
@@ -282,17 +286,16 @@ pub(crate) fn render_index_track_detail(
     let page = TrackDetailVm::new(track, TrackDetailSurfaceContext::Discover).page();
     slots.external_links = render_track_page_identity_actions(&page);
 
-    div()
+    let container = div()
         .id(SharedString::from("index-detail-track"))
         .flex()
         .flex_col()
         .flex_1()
         .min_h_0()
         .min_w_0()
-        .overflow_y_scroll()
         .p(Spacing::MD.scaled(cx))
-        .child(build_track_detail_surface(&page, slots))
-        .into_any_element()
+        .child(page_scroll_content(cx).child(build_track_detail_surface(&page, slots)));
+    music_column_scrollbar(container, "index-detail-track-scrollbar")
 }
 
 fn render_inspector_header(
@@ -444,39 +447,44 @@ fn render_result_window<Row>(
         window.total().min(window.page_size())
     };
 
-    div()
+    let tab_slug = tab_id(tab);
+    let container = div()
         .id(SharedString::from(format!(
-            "search-results-{}-rows",
-            tab_id(tab)
+            "search-results-{tab_slug}-rows"
         )))
         .flex()
         .flex_col()
         .flex_1()
         .min_h_0()
         .min_w_0()
-        .overflow_y_scroll()
         .px(Spacing::MD.scaled(cx))
         .pb(Spacing::MD.scaled(cx))
-        .gap(Spacing::XXS.scaled(cx))
-        .children((0..visible_rows).map(|index| {
-            if show_loading_placeholders {
-                render_pending_result_row(tab, kind, index)
-            } else {
-                match window.peek_row(index) {
-                    RowSlot::Ready(row) => {
-                        let fields = fields_for(row.as_ref());
-                        let thumbnail = fields
-                            .thumbnail_href
-                            .and_then(|href| slots.thumbnail_for_href(href));
-                        render_result_row(tab, kind, fields, thumbnail, on_result_select)
+        .child(
+            page_scroll_content(cx)
+                .gap(Spacing::XXS.scaled(cx))
+                .children((0..visible_rows).map(|index| {
+                    if show_loading_placeholders {
+                        render_pending_result_row(tab, kind, index)
+                    } else {
+                        match window.peek_row(index) {
+                            RowSlot::Ready(row) => {
+                                let fields = fields_for(row.as_ref());
+                                let thumbnail = fields
+                                    .thumbnail_href
+                                    .and_then(|href| slots.thumbnail_for_href(href));
+                                render_result_row(tab, kind, fields, thumbnail, on_result_select)
+                            }
+                            RowSlot::Pending(placeholder) => {
+                                render_pending_result_row(tab, kind, placeholder.index)
+                            }
+                        }
                     }
-                    RowSlot::Pending(placeholder) => {
-                        render_pending_result_row(tab, kind, placeholder.index)
-                    }
-                }
-            }
-        }))
-        .into_any_element()
+                })),
+        );
+    music_column_scrollbar(
+        container,
+        SharedString::from(format!("search-results-{tab_slug}-rows-scrollbar")),
+    )
 }
 
 const fn entity_kind_for_tab(tab: SearchResultsTab) -> EntityKind {
@@ -557,7 +565,7 @@ fn render_empty_state(
         content = content.child(clear_button);
     }
 
-    div()
+    let container = div()
         .id("search-results-notice")
         .flex()
         .flex_col()
@@ -565,10 +573,14 @@ fn render_empty_state(
         .min_h_0()
         .min_w_0()
         .items_center()
-        .overflow_y_scrollbar()
         .p(Spacing::MD.scaled(cx))
-        .child(content)
-        .into_any_element()
+        .child(
+            page_scroll_content(cx)
+                .w_full()
+                .items_center()
+                .child(content),
+        );
+    music_column_scrollbar(container, "search-results-notice-scrollbar")
 }
 
 const fn entity_kind_for_index_detail(kind: IndexDetailKind) -> EntityKind {

@@ -39,7 +39,7 @@ Music becomes the column browser of ADR 0084. It gets one navigation stack, one 
 | 011 | 8 | The logo frame for collections (Decision 12) | 007, 008 | Not written |
 | 012 | 3 | Saved searches: their storage (a migration through the ADR 0016 registry), a "Save search" action on the search results, and one Discover view for each (Decisions 2 and 3). The operator decided on 2026-10-16 to add them as a separate packet | 006, 010 | Not written |
 | [013](../tasks/archive/adr-0084-task-013-index-release-page-parity.md) | 3 | Index release page parity: the track row click, the description toggle, the Index track page description, and the collapsed description preview with "Show more" (Decision 4, ADR 0047 item 8 amended 2026-10-16). The operator decided on 2026-10-16 to do it before packet 007 | 006 | Complete 2026-10-17 |
-| [014](../tasks/adr-0084-task-014-music-column-scrollbars.md) | 3 | A scrollbar on each scrolling Music column: the sidebar, the list and the detail column, from one shared composite, with named tokens (Decision 1). Today a Music column scrolls only with a mouse wheel or a touchpad (operator decision of 2026-10-16) | 013 | Ready 2026-10-17 |
+| [014](../tasks/archive/adr-0084-task-014-music-column-scrollbars.md) | 3 | A scrollbar on each scrolling Music column: the sidebar, the list and the detail column, from one shared composite, with named tokens (Decision 1). Today a Music column scrolls only with a mouse wheel or a touchpad (operator decision of 2026-10-16) | 013 | Complete 2026-10-17 |
 
 The overhaul plan names eight steps. Step 2 has two packets, 002 and 003, because the release route and the track route each change many files. Step 3 has three packets, 004 to 006, decided on 2026-10-12: the icon-only sidebar needs the destinations, and Discover needs the destination model.
 
@@ -52,7 +52,7 @@ The overhaul plan names eight steps. Step 2 has two packets, 002 and 003, becaus
 
 ## Open Findings
 
-None today. Packet 013 owns the Index release page findings of 2026-10-11 and 2026-10-16.
+- 2026-10-17: a track, artist, playlist, publisher or name-match page has one fixed scroll id for each page type. Two pages of one type, opened one after the other, thus share one scroll position. A release page has one scroll id for each release since task 014. No packet owns this yet (`track_detail_scroll_id` and the other scroll ids in `src/view_models/library.rs` chrome, and `src/ui/shells/`).
 
 ## Affected Modules
 

@@ -18,6 +18,8 @@ use gpui_component::input::Input;
 use gpui_component::Size;
 
 use crate::library::LibraryApp;
+use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{
     DisclosureSupplementDisplay, DisclosureSupplementLabel, EntityKind, ListRow, ListRowA11yLabel,
     Thumbnail, ThumbnailSize,
@@ -40,19 +42,21 @@ pub(crate) fn render_library_discover_views_list(
     rows: &[DiscoverViewRowVm],
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    div()
+    let container = div()
         .id("music-discover-views-list")
         .flex()
         .flex_col()
         .flex_1()
         .min_h_0()
         .min_w_0()
-        .overflow_y_scroll()
         .px(spacing::MD)
         .pb(spacing::MD)
-        .gap(spacing::XXS)
-        .children(rows.iter().map(|row| render_discover_view_row(row, cx)))
-        .into_any_element()
+        .child(
+            page_scroll_content(cx)
+                .gap(spacing::XXS)
+                .children(rows.iter().map(|row| render_discover_view_row(row, cx))),
+        );
+    music_column_scrollbar(container, "music-discover-views-list-scrollbar")
 }
 
 fn render_discover_view_row(row: &DiscoverViewRowVm, cx: &mut Context<LibraryApp>) -> AnyElement {
@@ -100,20 +104,10 @@ pub(crate) fn render_library_destination_rows(
     thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let mut container = div()
-        .id("music-destination-list-rows")
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h_0()
-        .min_w_0()
-        .overflow_y_scroll()
-        .px(spacing::MD)
-        .pb(spacing::MD)
-        .gap(spacing::XXS);
+    let mut content = page_scroll_content(cx).gap(spacing::XXS);
 
     if rows.is_empty() {
-        container = container.child(
+        content = content.child(
             div()
                 .text_center()
                 .p(spacing::XXL)
@@ -125,13 +119,33 @@ pub(crate) fn render_library_destination_rows(
                 .child(format!("No {empty_label} yet")),
         );
     } else {
-        container = container.children(rows.into_iter().map(|row| {
+        content = content.children(rows.into_iter().map(|row| {
             let thumbnail = thumbnails.get(&row.element_id).cloned().flatten();
             render_destination_list_row(row, thumbnail, cx)
         }));
     }
 
-    container.into_any_element()
+    let container = div()
+        .id("music-destination-list-rows")
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
+        .px(spacing::MD)
+        .pb(spacing::MD)
+        .child(content);
+
+    // ADR 0084 task 014 Recorded Facts: the Releases list and the Artists
+    // list call this function from the same line, so the scrollbar id
+    // must name the row kind. Without it, the two lists would share one
+    // scroll position.
+    music_column_scrollbar(
+        container,
+        SharedString::from(format!(
+            "music-destination-list-rows-{empty_label}-scrollbar"
+        )),
+    )
 }
 
 fn render_destination_list_row(
@@ -336,17 +350,15 @@ pub(crate) fn render_library_playlists_list(
         );
     }
 
-    div()
+    let container = div()
         .id("music-playlists-destination-list")
         .flex()
         .flex_col()
         .flex_1()
         .min_h_0()
         .min_w_0()
-        .overflow_y_scroll()
         .pt(spacing::MD)
         .pb(spacing::MD)
-        .gap(spacing::XXS)
-        .children(items)
-        .into_any_element()
+        .child(page_scroll_content(cx).gap(spacing::XXS).children(items));
+    music_column_scrollbar(container, "music-playlists-destination-list-scrollbar")
 }

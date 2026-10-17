@@ -20,7 +20,7 @@ It amends these decisions:
 - [ADR 0082](0082-publisher-roles-belong-to-each-album-link.md) Decision 2: each group of a publisher page divides its releases by kind (Decision 6).
 - [ADR 0083](0083-design-language.md): Decision 9 is superseded by Decision 3 of this ADR. Decisions 4, 5 and 6 gain the additions of Decisions 12, 5 and 10.
 
-Amended 2026-10-17 by operator decision: Decision 1 adds a visible scrollbar to each Music column that scrolls. [Task 014](../tasks/adr-0084-task-014-music-column-scrollbars.md) builds it.
+Amended 2026-10-17 by operator decision: Decision 1 adds a visible scrollbar to each Music column that scrolls. [Task 014](../tasks/archive/adr-0084-task-014-music-column-scrollbars.md) builds it.
 
 ## Context
 

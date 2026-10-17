@@ -14,6 +14,7 @@
 #![warn(clippy::pedantic)]
 
 pub mod content_list;
+pub mod content_list_scroll;
 pub mod destination_lists;
 pub mod detail;
 pub mod feed_detail;

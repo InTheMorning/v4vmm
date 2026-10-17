@@ -43,6 +43,8 @@ use crate::metadata::{
 use crate::presentation::{bridge_watch, present_command};
 use crate::runtime::musicbrainz_feed_saga::{MusicBrainzFeedSagaState, StartFeedLookup};
 use crate::subscribe_service::{self, SubscribeFeedRequest, SubscribeTrackRequest};
+use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{PlaylistOption, PlaylistOptionDisplay, StatusRole};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::Button as UiButton;
@@ -3145,6 +3147,15 @@ impl LibraryApp {
         let status_text = status.text;
         // ADR 0083 Decision 1: the sidebar surface, distinct from the
         // content canvas behind `trailing_pane`.
+        let destinations_scroll = {
+            let container = div()
+                .id("music-destinations-scroll")
+                .flex_1()
+                .min_h_0()
+                .p(spacing::SM)
+                .child(page_scroll_content(cx).gap(spacing::XXS).children(items));
+            music_column_scrollbar(container, "music-destinations-scroll-scrollbar")
+        };
         div()
             .flex()
             .flex_col()
@@ -3152,15 +3163,7 @@ impl LibraryApp {
             .min_h_0()
             .overflow_hidden()
             .bg(color::bg_sidebar())
-            .child(
-                div()
-                    .id("music-destinations-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .p(spacing::SM)
-                    .child(div().flex().flex_col().gap(spacing::XXS).children(items)),
-            )
+            .child(destinations_scroll)
             .child({
                 let FeedUpdateDisplay {
                     state_label: feed_state_label,

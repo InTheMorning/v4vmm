@@ -14,6 +14,8 @@ use gpui::{
 };
 
 use crate::library::{LibraryApp, LibraryArtistDetail};
+use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{
     DisclosureSupplementDisplay, DisclosureSupplementLabel, EntityKind, Thumbnail, ThumbnailSize,
 };
@@ -95,26 +97,27 @@ pub(crate) fn render_library_feed_list(
         })
         .collect();
 
-    div()
+    let container = div()
         .id(chrome.artist_detail_scroll_id)
         .flex_1()
         .min_h_0()
         .min_w_0()
-        .overflow_y_scroll()
         .p(spacing::LG)
-        .child(render_artist_detail_shell(
-            &page,
-            ArtistDetailBehaviorSlots {
-                image: artist_image,
-                feed_section: Some(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(spacing::XXS)
-                        .children(feed_rows)
-                        .into_any_element(),
-                ),
-            },
-        ))
-        .into_any_element()
+        .child(
+            page_scroll_content(cx).child(render_artist_detail_shell(
+                &page,
+                ArtistDetailBehaviorSlots {
+                    image: artist_image,
+                    feed_section: Some(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(spacing::XXS)
+                            .children(feed_rows)
+                            .into_any_element(),
+                    ),
+                },
+            )),
+        );
+    music_column_scrollbar(container, "artist-detail-scroll-scrollbar")
 }

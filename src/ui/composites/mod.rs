@@ -33,6 +33,7 @@ pub mod frame_shell;
 pub mod identity_action;
 pub mod list_row;
 pub mod live_status_strip;
+pub(crate) mod music_column_scroll;
 pub mod musicbrainz_panel;
 pub(crate) mod page_scroll_content;
 pub mod playlist_popover;

@@ -2117,7 +2117,10 @@ fn adr_0066_search_failure_report_stays_readable_and_vm_owned() {
         "Size::NoticeWidth",
         "min_w_0()",
         "wrap_lines()",
-        "overflow_y_scrollbar()",
+        // ADR 0084 Decision 1, amended 2026-10-17 (task 014): the notice
+        // scrolls through the shared helper, not its own
+        // `overflow_y_scrollbar()` call.
+        "music_column_scrollbar(",
         "flex_wrap()",
         "failure.action(intent)",
         "failure.visible_report()",
@@ -5358,7 +5361,8 @@ fn adr_0042_composite_call_site_reconciliation_is_current() {
         "MusicBrainzPanel must keep its Library metadata caller"
     );
     assert!(
-        entity_shell.contains("ReleaseDetailSurface::new(page.detail_scroll_id)")
+        // ADR 0084 task 014: the caller passes the scroll id of each release.
+        entity_shell.contains("ReleaseDetailSurface::new(page.detail_scroll_key")
             && adr.contains("release_detail_surface` is retained")
             && audit.contains("`release_detail_surface` now has one direct Rust caller"),
         "ReleaseDetailSurface single direct caller must remain documented as the shared entity shell contract"
@@ -20115,5 +20119,87 @@ fn adr_0084_columns_list_rows_do_not_shrink_in_a_scrolling_column() {
         render.contains(".flex_shrink_0()"),
         "ADR 0084 Decision 1 §Music Is Three Columns: a list row must not shrink in a scrolling \
 column. Keep `.flex_shrink_0()` on the row element of `ListRow`."
+    );
+}
+
+/// Situational ADR 0084 Decision 1, amended 2026-10-17 (task 014 R14-01):
+/// each file in the Music scroll container list of the task 014 Recorded
+/// Facts calls the shared helper of `src/ui/composites/
+/// music_column_scroll.rs`, and none calls `.overflow_y_scroll()` on its
+/// own. One scroll method serves every Music column, so a column never
+/// shows two scrollbars and never covers its own content.
+#[test]
+fn adr_0084_scrollbars_r14_01_music_columns_use_the_shared_helper() {
+    // Each inner slice is one Music column owner. `content_list.rs` keeps
+    // its paging wire-up in the sibling `content_list_scroll.rs`, under
+    // the ADR 0038 Task 007 line ceiling, so the two are checked together.
+    const MUSIC_SCROLL_CONTAINER_FILE_GROUPS: &[&[&str]] = &[
+        &["src/library/app_impl.rs"],
+        &["src/ui/shells/library/destination_lists.rs"],
+        &[
+            "src/ui/shells/library/content_list.rs",
+            "src/ui/shells/library/content_list_scroll.rs",
+        ],
+        &["src/ui/shells/search_results_inspector.rs"],
+        &["src/ui/composites/release_detail_surface.rs"],
+        &["src/ui/shells/library/track_detail.rs"],
+        &["src/ui/shells/library/feed_list.rs"],
+        &["src/ui/shells/playlist.rs"],
+        &["src/ui/shells/publisher.rs"],
+        &["src/ui/shells/name_match_page.rs"],
+    ];
+
+    let mut violations = Vec::new();
+    for group in MUSIC_SCROLL_CONTAINER_FILE_GROUPS {
+        let label = group.join(", ");
+        let combined: String = group
+            .iter()
+            .map(|relative| read_source(&manifest_path(relative)))
+            .collect();
+        if combined.contains(".overflow_y_scroll()") {
+            violations.push(format!("{label}: calls `.overflow_y_scroll()` on its own."));
+        }
+        let uses_helper = combined.contains("music_column_scrollbar(")
+            || combined.contains("music_column_tracked_scrollbar(");
+        if !uses_helper {
+            violations.push(format!("{label}: calls neither shared helper function."));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 Decision 1, amended 2026-10-17: a Music column must scroll through \
+`music_column_scrollbar` or `music_column_tracked_scrollbar` in \
+`src/ui/composites/music_column_scroll.rs`, never through its own `.overflow_y_scroll()`. \
+Fix each named file.\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0084 Decision 1, amended 2026-10-17 (task 014 R14-03):
+/// the Music list column's near-end paging decision does not depend on
+/// `on_scroll_wheel` alone. A scrollbar drag and a touchpad gesture carry
+/// no wheel event, so the check reads the scroll position after each
+/// change instead, the way `src/ui/composites/log_frame.rs` reads its own
+/// handle.
+#[test]
+fn adr_0084_scrollbars_r14_03_content_list_paging_is_not_wheel_only() {
+    // `content_list.rs` keeps its paging wire-up in the sibling
+    // `content_list_scroll.rs` (ADR 0038 Task 007 line ceiling).
+    let combined = read_source(&manifest_path("src/ui/shells/library/content_list.rs"))
+        + &read_source(&manifest_path(
+            "src/ui/shells/library/content_list_scroll.rs",
+        ));
+    assert!(
+        !combined.contains("on_scroll_wheel"),
+        "ADR 0084 Decision 1, amended 2026-10-17: `src/ui/shells/library/content_list.rs` and \
+`content_list_scroll.rs` must not decide pagination from `on_scroll_wheel` alone. Fix: read the \
+scroll position after each scroll change, as `src/ui/composites/log_frame.rs` does."
+    );
+    assert!(
+        combined.contains("should_load_more_near_scroll_end"),
+        "ADR 0084 Decision 1, amended 2026-10-17: `src/ui/shells/library/content_list.rs` or \
+`content_list_scroll.rs` must call `should_load_more_near_scroll_end` to decide the next page load \
+after each scroll change."
     );
 }

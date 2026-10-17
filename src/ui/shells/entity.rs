@@ -81,7 +81,7 @@ pub fn render_release_detail_shell(
     page: &ReleaseDetailPageVm<'_>,
     slots: ReleaseDetailBehaviorSlots,
 ) -> AnyElement {
-    let mut surface = ReleaseDetailSurface::new(page.detail_scroll_id)
+    let mut surface = ReleaseDetailSurface::new(page.detail_scroll_key.clone())
         .scrollable(true)
         .header(ReleaseSurfaceElement::from_element(
             CoverBackdrop::new(

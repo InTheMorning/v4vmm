@@ -12,11 +12,12 @@ use std::sync::Arc;
 
 use gpui::{
     div, prelude::FluentBuilder, AnyElement, App, ClickEvent, Context, FontWeight, Image,
-    InteractiveElement, IntoElement, ParentElement, ScrollHandle, ScrollWheelEvent, SharedString,
+    InteractiveElement, IntoElement, ParentElement, ScrollHandle, SharedString,
     StatefulInteractiveElement, Styled,
 };
 
 use crate::library::LibraryApp;
+use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{
     view_mode_control, EntityKind, ListRow, ListRowA11yLabel, SkeletonTrackRow, TagBadge,
     TagBadgeDisplay, Thumbnail, ThumbnailSize, ViewModeControlSlots,
@@ -25,13 +26,13 @@ use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
     Button as UiButton, Image as ImagePrimitive, ImageSize, Label, Skeleton,
 };
+use crate::ui::shells::library::content_list_scroll::attach_content_list_scroll;
 use crate::ui::tokens::{color, ArtworkShadow, FontSize, Radius, SemanticColor, Size, Spacing};
 use crate::view_models::library::{
     ContentListEntityKind, ContentListLoadMoreDisplay, ContentListLoadingStateDisplay,
     ContentListPageStateDisplay, ContentListPageVm, ContentListRowActionDisplay,
     ContentListRowDisplay,
 };
-use crate::view_models::pagination::{should_auto_load_more, AUTO_PAGINATE_THRESHOLD_PX};
 use crate::view_models::workspace::{ContentViewMode, ContentViewModeControlDisplay};
 
 struct ContentListRenderState<'a> {
@@ -128,27 +129,9 @@ fn render_content_list_rows(
         .loading_display
         .as_ref()
         .map_or(0, |display| display.skeleton_count);
-    let mut container = div()
-        .id(ContentListPageVm::rows_id())
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h_0()
-        .min_w_0()
-        .overflow_y_scroll()
-        .px(Spacing::MD.scaled(cx))
-        .pb(Spacing::MD.scaled(cx))
-        .gap(Spacing::XXS.scaled(cx));
 
-    container = attach_content_list_auto_pagination(
-        container,
-        page.has_more(),
-        page.is_loading(),
-        scroll_handle,
-        cx,
-    );
-
-    container
+    let mut content = page_scroll_content(cx)
+        .gap(Spacing::XXS.scaled(cx))
         .children(render_state.visible_rows.into_iter().map(|row| {
             render_content_list_row(row, thumbnails.get(&row.id).cloned().flatten(), cx)
         }))
@@ -156,14 +139,32 @@ fn render_content_list_rows(
             SkeletonTrackRow::new(ContentListPageVm::skeleton_row_id(index))
                 .show_duration(false)
                 .into_any_element()
-        }))
-        .when_some(render_state.state_display, |el, display| {
-            el.child(render_content_list_state(display, cx))
-        })
-        .when_some(render_state.load_more_display, |el, display| {
-            el.child(render_content_list_load_more(display, cx))
-        })
-        .into_any_element()
+        }));
+    if let Some(display) = render_state.state_display {
+        content = content.child(render_content_list_state(display, cx));
+    }
+    if let Some(display) = render_state.load_more_display {
+        content = content.child(render_content_list_load_more(display, cx));
+    }
+
+    let container = div()
+        .id(ContentListPageVm::rows_id())
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
+        .px(Spacing::MD.scaled(cx))
+        .pb(Spacing::MD.scaled(cx))
+        .child(content);
+
+    attach_content_list_scroll(
+        container,
+        page.has_more(),
+        page.is_loading(),
+        scroll_handle,
+        cx,
+    )
 }
 
 fn render_content_list_tiles(
@@ -177,75 +178,47 @@ fn render_content_list_tiles(
         .loading_display
         .as_ref()
         .map_or(0, |display| display.skeleton_count);
-    let mut container = div()
+
+    let mut content = page_scroll_content(cx).gap(Spacing::SM.scaled(cx)).child(
+        // ADR 0084 Decision 1: the tile grid keeps its content height in
+        // the fixed-height list column, so the column scrolls.
+        div()
+            .id(ContentListPageVm::tiles_id())
+            .flex_shrink_0()
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .gap(Spacing::MD.scaled(cx))
+            .children(render_state.visible_rows.into_iter().map(|row| {
+                render_content_list_tile(row, thumbnails.get(&row.id).cloned().flatten(), cx)
+            }))
+            .children((0..pending_tiles).map(|index| render_pending_content_tile(index, cx))),
+    );
+    if let Some(display) = render_state.state_display {
+        content = content.child(render_content_list_state(display, cx));
+    }
+    if let Some(display) = render_state.load_more_display {
+        content = content.child(render_content_list_load_more(display, cx));
+    }
+
+    let container = div()
         .id(ContentListPageVm::rows_id())
         .flex()
         .flex_col()
         .flex_1()
         .min_h_0()
         .min_w_0()
-        .overflow_y_scroll()
         .px(Spacing::MD.scaled(cx))
         .pb(Spacing::MD.scaled(cx))
-        .gap(Spacing::SM.scaled(cx));
+        .child(content);
 
-    container = attach_content_list_auto_pagination(
+    attach_content_list_scroll(
         container,
         page.has_more(),
         page.is_loading(),
         scroll_handle,
         cx,
-    );
-
-    container
-        .child(
-            // ADR 0084 Decision 1: the tile grid keeps its content height in
-            // the fixed-height list column, so the column scrolls.
-            div()
-                .id(ContentListPageVm::tiles_id())
-                .flex_shrink_0()
-                .flex()
-                .flex_row()
-                .flex_wrap()
-                .gap(Spacing::MD.scaled(cx))
-                .children(render_state.visible_rows.into_iter().map(|row| {
-                    render_content_list_tile(row, thumbnails.get(&row.id).cloned().flatten(), cx)
-                }))
-                .children((0..pending_tiles).map(|index| render_pending_content_tile(index, cx))),
-        )
-        .when_some(render_state.state_display, |el, display| {
-            el.child(render_content_list_state(display, cx))
-        })
-        .when_some(render_state.load_more_display, |el, display| {
-            el.child(render_content_list_load_more(display, cx))
-        })
-        .into_any_element()
-}
-
-fn attach_content_list_auto_pagination<E>(
-    mut container: E,
-    has_more: bool,
-    is_loading: bool,
-    scroll_handle: &ScrollHandle,
-    cx: &mut Context<LibraryApp>,
-) -> E
-where
-    E: InteractiveElement + StatefulInteractiveElement,
-{
-    container = container.track_scroll(scroll_handle);
-    let scroll_for_listener = scroll_handle.clone();
-    container.on_scroll_wheel(cx.listener(move |this, _: &ScrollWheelEvent, _window, cx| {
-        if !has_more {
-            return;
-        }
-
-        let max_y = f32::from(scroll_for_listener.max_offset().y);
-        let offset_y = f32::from(scroll_for_listener.offset().y);
-        let remaining = max_y + offset_y;
-        if should_auto_load_more(remaining, AUTO_PAGINATE_THRESHOLD_PX, has_more, is_loading) {
-            this.start_recent_music_load(true, cx);
-        }
-    }))
+    )
 }
 
 fn render_content_list_row(

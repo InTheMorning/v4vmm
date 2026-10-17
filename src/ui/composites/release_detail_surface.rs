@@ -12,6 +12,8 @@ use gpui::{
     div, prelude::*, AnyElement, App, IntoElement, ParentElement, RenderOnce, SharedString, Window,
 };
 
+use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 
 /// Shared release detail layout: header, actions, details, panels, rows.
@@ -98,39 +100,48 @@ impl ReleaseDetailSurface {
 
 impl RenderOnce for ReleaseDetailSurface {
     fn render(self, _window: &mut gpui::Window, cx: &mut gpui::App) -> impl IntoElement {
-        let mut root = div()
-            .id(self.id)
-            .flex()
-            .flex_col()
-            .gap(Spacing::LG.scaled(cx))
-            .when(self.scrollable, |el| {
-                el.flex_1()
-                    .min_h_0()
-                    .min_w_0()
-                    .overflow_y_scroll()
-                    .p(Spacing::LG.scaled(cx))
-            });
+        let scrollable = self.scrollable;
+        let id = self.id;
+        let mut body = div().flex().flex_col().gap(Spacing::LG.scaled(cx));
 
         if let Some(header) = self.header {
-            root = root.child(header);
+            body = body.child(header);
         }
 
         if let Some(actions) = self.actions {
             std::mem::drop(self.actions_a11y_label);
-            root = root.child(actions);
+            body = body.child(actions);
         }
 
         if let Some(details) = self.details {
-            root = root.child(details);
+            body = body.child(details);
         }
 
-        root = root.children(self.panels);
+        body = body.children(self.panels);
 
         if let Some(section) = self.track_section {
-            root = root.child(track_section(section, cx));
+            body = body.child(track_section(section, cx));
         }
 
-        root.children(self.after_section)
+        body = body.children(self.after_section);
+
+        if scrollable {
+            // ADR 0084 Decision 1, amended 2026-10-17: the release page
+            // scrolls with the shared gutter scrollbar. The caller gives
+            // an id for each release, so two release pages do not share
+            // one scroll position.
+            let scrollbar_id = SharedString::from(format!("{id}-scrollbar"));
+            let container = div()
+                .id(id)
+                .flex_1()
+                .min_h_0()
+                .min_w_0()
+                .p(Spacing::LG.scaled(cx))
+                .child(page_scroll_content(cx).child(body));
+            music_column_scrollbar(container, scrollbar_id)
+        } else {
+            body.id(id).into_any_element()
+        }
     }
 }
 

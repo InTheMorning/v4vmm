@@ -558,6 +558,10 @@ pub struct EntityDetailRow {
 pub struct ReleaseDetailPageVm<'a> {
     pub hero: ReleaseHeroVm<'a>,
     pub detail_scroll_id: &'static str,
+    /// The scroll id of this one release (ADR 0084 Decision 1, amended
+    /// 2026-10-17). Two release pages, opened one after the other, do
+    /// not share one scroll position.
+    pub detail_scroll_key: String,
     pub identity_actions: Vec<EntityActionVm>,
     pub identity_action_prefix: &'static str,
     pub actions_a11y_label: &'static str,
@@ -728,6 +732,7 @@ impl<'a> ReleaseDetailVm<'a> {
         ReleaseDetailPageVm {
             hero: self.hero(),
             detail_scroll_id: self.detail_scroll_id(),
+            detail_scroll_key: self.detail_scroll_key(),
             identity_actions: self.identity_actions(),
             identity_action_prefix: self.identity_action_prefix(),
             actions_a11y_label: self.actions_a11y_label(),
@@ -912,6 +917,21 @@ impl<'a> ReleaseDetailVm<'a> {
             EntitySurfaceContext::Discover => "Discover release actions",
             EntitySurfaceContext::Library => "Library release actions",
         }
+    }
+
+    /// The scroll id of this one release: the page scroll id and the
+    /// release identity, the feed GUID first, then the feed URL, then the
+    /// title (ADR 0084 Decision 1, amended 2026-10-17).
+    #[must_use]
+    pub fn detail_scroll_key(&self) -> String {
+        let identity = self
+            .view
+            .feed_guid
+            .as_deref()
+            .or(self.view.feed_url.as_deref())
+            .or(self.view.title.as_deref())
+            .unwrap_or_default();
+        format!("{}:{identity}", self.detail_scroll_id())
     }
 
     #[must_use]
@@ -1766,6 +1786,27 @@ mod tests {
             ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).identity_actions();
 
         assert_eq!(discover_actions, library_actions);
+    }
+
+    /// ADR 0084 Decision 1 (amended 2026-10-17, task 014): two releases
+    /// of one origin get two scroll ids, so their pages do not share one
+    /// scroll position.
+    #[test]
+    fn adr_0084_scrollbars_release_pages_get_one_scroll_id_each() {
+        let mut first = feed_view();
+        first.feed_guid = Some("guid-first".to_string());
+        let mut second = feed_view();
+        second.feed_guid = Some("guid-second".to_string());
+
+        let first_key = ReleaseDetailVm::new(&first, EntitySurfaceContext::Library)
+            .page()
+            .detail_scroll_key;
+        let second_key = ReleaseDetailVm::new(&second, EntitySurfaceContext::Library)
+            .page()
+            .detail_scroll_key;
+
+        assert_ne!(first_key, second_key);
+        assert_eq!(first_key, "album-detail-scroll:guid-first");
     }
 
     #[test]

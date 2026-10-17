@@ -14,6 +14,8 @@ use gpui::{
 use gpui_component::input::{Input, InputState};
 use gpui_component::Size;
 
+use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{
     DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow, DetailTextRow, EntityKind, StatusRole,
 };
@@ -150,60 +152,59 @@ pub(crate) fn render_playlist_detail_shell(
         render_playlist_rows_with_reorder_targets(page.playlist_id(), rows, on_reorder.as_ref(), cx)
     };
 
-    div()
+    let content =
+        page_scroll_content(cx)
+            .gap(spacing::MD)
+            .child(DetailHeader::new(DetailHeaderDisplay {
+                kind: EntityKind::Playlist,
+                title: SharedString::from(header_display.title),
+                subtitle: None,
+                data_rows: Vec::new(),
+            }))
+            .child(DetailGrid::new(
+                page.detail_rows()
+                    .into_iter()
+                    .map(|(key, value)| {
+                        DetailRow::text(DetailTextRow {
+                            key: key.into(),
+                            value,
+                            max_lines: 6,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            ))
+            .child(render_playlist_actions(
+                page,
+                PlaylistActionSlots {
+                    on_rename,
+                    rename_input,
+                    renaming,
+                    on_submit_rename,
+                    on_cancel_rename,
+                    on_delete,
+                    on_check_rss,
+                },
+                cx,
+            ))
+            .children(page.rss_check_report().map(|report| {
+                render_rss_check_report(report, on_download_added_track.as_ref(), cx)
+            }))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(spacing::XXS)
+                    .children(track_rows),
+            );
+
+    let container = div()
         .id(page.scroll_id())
         .flex_1()
         .min_h_0()
         .min_w_0()
-        .overflow_y_scroll()
         .p(spacing::LG)
-        .flex()
-        .flex_col()
-        .gap(spacing::MD)
-        .child(DetailHeader::new(DetailHeaderDisplay {
-            kind: EntityKind::Playlist,
-            title: SharedString::from(header_display.title),
-            subtitle: None,
-            data_rows: Vec::new(),
-        }))
-        .child(DetailGrid::new(
-            page.detail_rows()
-                .into_iter()
-                .map(|(key, value)| {
-                    DetailRow::text(DetailTextRow {
-                        key: key.into(),
-                        value,
-                        max_lines: 6,
-                    })
-                })
-                .collect::<Vec<_>>(),
-        ))
-        .child(render_playlist_actions(
-            page,
-            PlaylistActionSlots {
-                on_rename,
-                rename_input,
-                renaming,
-                on_submit_rename,
-                on_cancel_rename,
-                on_delete,
-                on_check_rss,
-            },
-            cx,
-        ))
-        .children(
-            page.rss_check_report().map(|report| {
-                render_rss_check_report(report, on_download_added_track.as_ref(), cx)
-            }),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(spacing::XXS)
-                .children(track_rows),
-        )
-        .into_any_element()
+        .child(content);
+    music_column_scrollbar(container, "playlist-detail-scroll-scrollbar")
 }
 
 fn render_playlist_rows_with_reorder_targets(

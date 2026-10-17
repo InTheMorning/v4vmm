@@ -15,6 +15,8 @@ use crate::db;
 use crate::feed_service::track_row_to_track_context;
 use crate::library::{InspectorFrame, LazyPanel, LibraryApp};
 use crate::metadata::{TagCompareResult, TrackContext};
+use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{DisclosureTextPanel, DisclosureTextPanelDisplay, TrackSurfaceElement};
 use crate::ui::shells::library::track_detail_metadata::{
     pending_id3_edits_for_track_detail, render_library_track_detail_actions,
@@ -43,22 +45,21 @@ pub(crate) fn render_library_track_detail(
         LazyPanel::Loaded(result) => Some(result),
         LazyPanel::Loading | LazyPanel::Empty(_) | LazyPanel::Hidden => None,
     };
-    div()
+    let container = div()
         .id(SharedString::from(chrome.track_detail_scroll_id))
         .flex_1()
         .min_h_0()
         .min_w_0()
-        .overflow_y_scroll()
         .p(spacing::LG)
-        .child(render_library_track_window(
+        .child(page_scroll_content(cx).child(render_library_track_window(
             frame,
             context,
             result,
             playlists,
             publisher_feed_guid,
             cx,
-        ))
-        .into_any_element()
+        )));
+    music_column_scrollbar(container, "track-detail-scroll-scrollbar")
 }
 
 fn render_library_track_window(

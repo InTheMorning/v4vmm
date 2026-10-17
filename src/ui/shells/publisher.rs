@@ -15,6 +15,8 @@ use gpui::{
     div, prelude::*, AnyElement, App, Image, IntoElement, ParentElement, SharedString, Styled,
 };
 
+use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{
     DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay, EntityKind, ListRow, TagBadge,
     TagBadgeDisplay, Thumbnail, ThumbnailSize,
@@ -45,19 +47,21 @@ pub(crate) fn render_publisher_page(
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     cx: &App,
 ) -> AnyElement {
-    div()
+    let container = div()
         .id("publisher-page")
         .flex()
         .flex_col()
         .flex_1()
         .min_h_0()
         .min_w_0()
-        .overflow_y_scroll()
-        .gap(Spacing::LG.scaled(cx))
         .p(Spacing::LG.scaled(cx))
-        .child(render_header(vm))
-        .child(render_groups(vm, context, album_thumbs, cx))
-        .into_any_element()
+        .child(
+            page_scroll_content(cx)
+                .gap(Spacing::LG.scaled(cx))
+                .child(render_header(vm))
+                .child(render_groups(vm, context, album_thumbs, cx)),
+        );
+    music_column_scrollbar(container, "publisher-page-scrollbar")
 }
 
 fn render_header(vm: &PublisherPageVm) -> AnyElement {

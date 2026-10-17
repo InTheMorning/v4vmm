@@ -13,6 +13,8 @@ use std::sync::Arc;
 
 use gpui::{div, prelude::*, AnyElement, App, Image, IntoElement, ParentElement, Styled};
 
+use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::EntityKind;
 use crate::ui::primitives::{Label, LabelVariant, SectionHeader};
 use crate::ui::shells::search_result_rows::{
@@ -35,19 +37,21 @@ pub(crate) fn render_name_match_page(
     on_result_select: &SearchResultSelectHandler,
     cx: &App,
 ) -> AnyElement {
-    div()
+    let container = div()
         .id("name-match-page")
         .flex()
         .flex_col()
         .flex_1()
         .min_h_0()
         .min_w_0()
-        .overflow_y_scroll()
-        .gap(Spacing::LG.scaled(cx))
         .p(Spacing::LG.scaled(cx))
-        .child(SectionHeader::new(vm.title_text()))
-        .child(render_body(vm, track_thumbs, on_result_select, cx))
-        .into_any_element()
+        .child(
+            page_scroll_content(cx)
+                .gap(Spacing::LG.scaled(cx))
+                .child(SectionHeader::new(vm.title_text()))
+                .child(render_body(vm, track_thumbs, on_result_select, cx)),
+        );
+    music_column_scrollbar(container, "name-match-page-scrollbar")
 }
 
 fn render_body(
