@@ -260,6 +260,32 @@ The key of `unique_hits` in v4vmm must hold `feed_guid`, because a track GUID
 is unique only in its feed. The v4vmm change to
 `src/application/queries/search.rs` adds it.
 
+## Stophammer Answers - 2026-10-17
+
+**Request 6, lists in name order.** The report is correct. No route gives
+either list. Stophammer
+[ADR 0070](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0070-a-name-list-gives-each-identity-one-row.md)
+is Proposed on 2026-10-17. It is advisory until the Stophammer operator
+accepts it.
+
+- `GET /v1/feeds/by-name` gives the releases in name order, with the fields of
+  `/v1/feeds/recent`, `cursor` and `from`.
+- `GET /v1/artist-names` gives one row for each identity of v4vmm ADR 0084
+  Decision 7. A `publisher` row is a publisher feed, with its `feed_guid`. A
+  `name` row is the text of the releases that open the name level, with
+  `release_count`. The node does not merge a `publisher` row and a `name` row
+  with the same text.
+- A `name` row counts a release whose only links are links with
+  `role_agreement` `both` and no `artist` role, as the v4vmm decision of
+  2026-10-08 gives.
+- Each row gives `sort_name`, the key of ADR 0049 §7. The node compares the
+  keys by Unicode code point. v4vmm can merge its Library rows by the same key.
+  The node does not remove a leading "The".
+
+In the backup of 2026-09-26, 34 names had some releases with a publisher feed
+and some without. Such a name shows two times: one `publisher` row and one
+`name` row. 19 publisher feeds had no music feed, and each one has a row.
+
 ## Deferred, Not Requested Now
 
 **A reverse album list.** The publisher view lists only the albums that the publisher feed lists (`load_publisher` in `src/query.rs`).
