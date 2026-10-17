@@ -24,6 +24,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 3 | Capabilities that match the contract for track includes | Contract correction | Small |
 | 4 | Field renames are breaking changes | Release policy | Wanted |
 | 5 | Search returns one entity one time | Search correction | Deployed in release 0.8.0 on 2026-10-08 |
+| 6 | A list of releases and of artists by name | API addition | Wanted |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -79,6 +80,19 @@ The search for "How Bout You" on 2026-10-04 also gave one track two times.
 
 **Request.** Give each entity one time in one search response, with its best rank.
 v4vmm now drops a second hit of the same entity. That client fix does not correct the result count or the pagination.
+
+### 6. A List Of Releases And Of Artists By Name
+
+**What happens.** On 2026-10-17, the contract of release 0.7.0 gives no list of releases or artists in name order. `GET /v1/feeds/recent` pages the releases newest first. `GET /v1/publishers` needs a search text `q`.
+
+**Why v4vmm needs it.** v4vmm ADR 0084 Decision 8 gives the Releases list and the Artists list a scope "Everything". It shows the Library items and the Index items together, in one name order. The v4vmm operator decided on 2026-10-17 to ask for this list, not to show a second order.
+
+**Request.** Two paged lists, each in name order, with a cursor:
+
+- music releases, with `feed_guid`, `title`, `release_artist`, `image_url`, `episode_count` and `release_kind`, as in `/v1/feeds/recent`
+- artists, with the publisher feed GUID when one exists, and the artist name
+
+A start text, for example `from=M`, would let a client open the list at a letter. The name order can use the normalization rule of the artist count (ADR 0049 §7).
 
 ## Open Question
 
