@@ -21,6 +21,7 @@ pub mod feed_detail;
 pub mod feed_list;
 pub mod playlist_detail;
 pub mod sidebar;
+pub mod singles_group;
 pub mod thumbnail;
 pub mod track_detail;
 pub mod track_detail_metadata;

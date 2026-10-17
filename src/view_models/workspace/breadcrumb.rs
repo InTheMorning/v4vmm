@@ -6,6 +6,8 @@ use super::nav::{
     DiscoverView, FrameNavigationEntry, FrameNavigationState, MusicDestination, ReleaseKey,
     TrackKey,
 };
+use crate::view_models::artist_identity::ArtistIdentity;
+use crate::view_models::singles_group::SinglesGroupKey;
 
 /// Breadcrumb path truncation policy.
 ///
@@ -128,6 +130,7 @@ fn breadcrumb_entry_id(entry: &FrameNavigationEntry) -> String {
         FrameNavigationEntry::PublisherDetail(publisher_feed_guid) => {
             format!("publisher-{}", slug_id(publisher_feed_guid))
         }
+        FrameNavigationEntry::SinglesGroup(key) => singles_group_id(key),
         FrameNavigationEntry::Search(query) => format!("search-{}", slug_id(query)),
         FrameNavigationEntry::IndexNameMatches(name) => {
             format!("index-name-matches-{}", slug_id(name))
@@ -178,6 +181,15 @@ fn track_key_id(key: &TrackKey) -> String {
         }
         Some(ReleaseKey::LibraryFeed(feed_id)) => format!("track-feed-{feed_id}-{item}"),
         None => format!("track-{item}"),
+    }
+}
+
+/// The breadcrumb element id of a singles group entry (ADR 0084 Decision
+/// 6). The id carries the identity level and its text.
+fn singles_group_id(key: &SinglesGroupKey) -> String {
+    match &key.0 {
+        ArtistIdentity::Publisher(guid) => format!("singles-publisher-{}", slug_id(guid)),
+        ArtistIdentity::Name(name) => format!("singles-name-{}", slug_id(name)),
     }
 }
 

@@ -1891,3 +1891,18 @@ fn adr_0084_destinations_d5_03_music_opens_on_discover() {
         );
     }
 }
+
+/// R15-10 (ADR 0084 Decision 6): a singles group entry opens a page in the
+/// detail column, and its fallback label is "Singles".
+#[test]
+fn adr_0084_singles_group_r15_10_group_entry_opens_a_detail_page() {
+    use crate::view_models::artist_identity::ArtistIdentity;
+    use crate::view_models::singles_group::SinglesGroupKey;
+
+    let entry = FrameNavigationEntry::SinglesGroup(SinglesGroupKey(ArtistIdentity::Name(
+        "Haleen".to_string(),
+    )));
+
+    assert!(entry.opens_detail_page());
+    assert_eq!(entry.display_label(), "Singles");
+}

@@ -59,8 +59,8 @@ use crate::view_models::track_detail::{
 use crate::view_models::workspace::{
     release_download_updates_open_page, resolve_release_page_source, resolve_track_page_source,
     track_download_updates_open_page, track_release_download_updates_open_page,
-    FrameNavigationEntry, FrameNavigationState, ReleaseKey, ReleasePageSource, TrackKey,
-    TrackPageSource, WorkspaceFrameId,
+    FrameNavigationEntry, FrameNavigationState, NavigationPathStart, ReleaseKey, ReleasePageSource,
+    TrackKey, TrackPageSource, WorkspaceFrameId,
 };
 use crate::views::{FeedRef, FeedView, TrackRef, TrackView};
 
@@ -1049,12 +1049,20 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) -> ReleaseDetailBehaviorSlots {
         let entity = cx.entity();
-        let name_links = render_album_name_links(
+        // ADR 0084 Decision 6: a release whose key is in a Library singles
+        // group links to that group. An Index release that is not in the
+        // Library gets no link.
+        let release_key = feed
+            .feed_guid
+            .as_deref()
+            .map(ReleaseKey::from_index_feed_guid);
+        let links = self.library.read(cx).release_page_name_links(
             ReleaseDetailVm::new(feed, EntitySurfaceContext::Library).name_links(),
-            move |target, _window, cx| {
-                entity.update(cx, |this, cx| this.open_index_album_name_link(target, cx));
-            },
+            release_key.as_ref(),
         );
+        let name_links = render_album_name_links(links, move |target, _window, cx| {
+            entity.update(cx, |this, cx| this.open_index_album_name_link(target, cx));
+        });
         ReleaseDetailBehaviorSlots {
             hero_image: self.index_feed_hero_image(feed, cx),
             cover_color: index_feed_artwork_url(feed)
@@ -1364,6 +1372,15 @@ impl TopApp {
                 self.open_publisher_page(
                     publisher_feed_guid.clone(),
                     PublisherPageContext::Index,
+                    cx,
+                );
+            }
+            // ADR 0084 Decision 6: the group page goes into the current
+            // path.
+            AlbumNameLinkTarget::SinglesGroup(key) => {
+                self.open_music_page(
+                    &FrameNavigationEntry::SinglesGroup(key.clone()),
+                    NavigationPathStart::CurrentPath,
                     cx,
                 );
             }

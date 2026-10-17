@@ -22,7 +22,8 @@ Music structure in [ADR 0084](docs/adr/0084-music-column-browser.md).
 Phase 4A builds ADR 0084 in the packets of the
 [ADR 0084 phase plan](docs/plans/adr-0084-music-column-browser-phase-plan.md). Music has one navigation stack, one page
 for each item, three columns, the six destinations and Discover.
-Packet 015, the singles groups, comes next. Phase 4 and 5 packets carry the
+Packet 016 waits for Stophammer request 6. Packet 008, the artist page, comes next after
+[ADR 0082 packets 002 and 003](docs/plans/adr-0082-publisher-roles-phase-plan.md). Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
 
 Each file in `docs/tasks/` is open: it is Ready, or it waits for an operator check. Finished tasks are in

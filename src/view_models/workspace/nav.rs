@@ -7,6 +7,7 @@
 #![warn(clippy::pedantic)]
 
 use super::WorkspaceModelError;
+use crate::view_models::singles_group::SinglesGroupKey;
 
 /// A Music destination, in sidebar order (ADR 0084 Decision 2).
 ///
@@ -121,6 +122,9 @@ pub(crate) enum FrameNavigationEntry {
     /// Publisher page by publisher feed GUID (ADR 0077 Decision 1). This
     /// entry never keys on name text or on `publisher_text`.
     PublisherDetail(String),
+    /// The page of one Library singles group, by its group key (ADR 0084
+    /// Decision 6). The key holds no label.
+    SinglesGroup(SinglesGroupKey),
     /// Search results by submitted query.
     Search(String),
     /// Tracks `MusicIndex` gives for one name query (ADR 0077 packet 006,
@@ -166,6 +170,9 @@ impl FrameNavigationEntry {
             // The publisher page view model gives the real title. This
             // fallback shows only when no caller supplies that title.
             Self::PublisherDetail(publisher_feed_guid) => publisher_feed_guid.clone(),
+            // The Library gives the real title from its loaded tree. This
+            // fallback shows only when the Library has no such group.
+            Self::SinglesGroup(_) => "Singles".to_string(),
             Self::Search(query) => {
                 if query.trim().is_empty() {
                     "Search".to_string()

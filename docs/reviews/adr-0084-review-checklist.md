@@ -12,6 +12,7 @@ This checklist is advisory. It states no rule. [ADR 0084](../adr/0084-music-colu
 - Task: `docs/tasks/archive/adr-0084-task-013-index-release-page-parity.md`
 - Task: `docs/tasks/archive/adr-0084-task-014-music-column-scrollbars.md`
 - Task: `docs/tasks/archive/adr-0084-task-007-release-kind.md`
+- Task: `docs/tasks/archive/adr-0084-task-015-singles-groups.md`
 
 ## Required Checks
 

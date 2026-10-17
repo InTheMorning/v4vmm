@@ -9,7 +9,7 @@
     reason = "legacy screen module is being migrated incrementally under ADR 0023"
 )]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -31,6 +31,7 @@ use crate::view_models::library::{
     LibraryTrackInspectorState, LibraryViewModel,
 };
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
+use crate::view_models::singles_group::SinglesGroupKey;
 use crate::view_models::workspace::{
     ContentViewMode, DiscoverView, FrameNavigationEntry, NavigationPathStart,
 };
@@ -41,6 +42,10 @@ use crate::views::ArtistView;
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "one LibraryDetail value exists for each Library screen; the two publisher link fields of ADR 0084 Decision 7 grew AlbumNode past the lint limit"
+)]
 pub(crate) enum LibraryDetail {
     None,
     Artist(Box<LibraryArtistDetail>),
@@ -50,6 +55,10 @@ pub(crate) enum LibraryDetail {
     /// A view of the Discover column is open in the detail column (ADR
     /// 0084 Decision 3).
     Discover(DiscoverView),
+    /// The page of one Library singles group (ADR 0084 Decision 6). The
+    /// page reads the current tree at each render, so a download or a
+    /// removal updates it in place.
+    SinglesGroup(SinglesGroupKey),
 }
 
 #[derive(Clone, Debug)]
@@ -227,6 +236,14 @@ pub struct LibraryApp {
     recent_music_page: RecentFeedsPageVm,
     /// Scroll state for default Music recency pagination.
     recent_music_scroll: ScrollHandle,
+    /// The singles groups whose Releases list rows show their singles
+    /// (ADR 0084 Decision 6). This is view state. It is not stored.
+    expanded_singles_groups: BTreeSet<SinglesGroupKey>,
+    /// The Library feed ids that wait for a download from a singles group
+    /// page, newest first (ADR 0084 Decision 6). `download_feed` runs one
+    /// download at a time, so the next one starts when the current one
+    /// ends.
+    queued_feed_downloads: VecDeque<i64>,
 }
 
 pub(crate) struct PlaylistActorState {

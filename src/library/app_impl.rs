@@ -53,7 +53,7 @@ use crate::ui::shells::library::content_list::{
 };
 use crate::ui::shells::library::destination_lists::{
     render_library_destination_rows, render_library_discover_views_list,
-    render_library_playlists_list,
+    render_library_playlists_list, render_library_releases_list,
 };
 use crate::ui::shells::library::detail::render_library_detail;
 use crate::ui::shells::library::sidebar::{render_destination_row, render_sidebar_collapse_button};
@@ -71,11 +71,12 @@ use crate::view_models::library::{
     FeedCheckRouteRepairOutcome, FeedUpdateActionDisplay, FeedUpdateActionKind, FeedUpdateDisplay,
     FeedUpdatePhase, InspectorPanelKind, LibraryTrackActionVm, LibraryTrackInspectorState,
     LibraryTrackRowVm, LibraryViewModel, MbTrackStatus, PlaylistAppendIntent,
-    PlaylistAppendOutcome, PlaylistDetailActionsDisplay, RemovalConfirmation,
+    PlaylistAppendOutcome, PlaylistDetailActionsDisplay, ReleasesListEntryVm, RemovalConfirmation,
     TrackSubscribeOutcome,
 };
 use crate::view_models::playlist_option_displays;
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
+use crate::view_models::singles_group::{SinglesGroupKey, SinglesGroupPageVm};
 use crate::view_models::track_detail::TrackNameLinkTarget;
 use crate::view_models::workspace::{
     resolve_music_sidebar_state, toggle_music_sidebar_preference, ContentViewMode,
@@ -589,6 +590,71 @@ impl LibraryApp {
             crate::view_models::album_page::AlbumNameLinkTarget::Publisher(publisher_feed_guid) => {
                 self.open_publisher_page(publisher_feed_guid, cx);
             }
+            // ADR 0084 Decision 6: the link of a single page opens its
+            // group page in the current path.
+            crate::view_models::album_page::AlbumNameLinkTarget::SinglesGroup(key) => {
+                self.open_page(
+                    FrameNavigationEntry::SinglesGroup(key.clone()),
+                    NavigationPathStart::CurrentPath,
+                    cx,
+                );
+            }
+        }
+    }
+
+    /// Opens the page of a singles group in the current path (ADR 0084
+    /// Decision 6).
+    pub(crate) fn open_singles_group(&mut self, key: &SinglesGroupKey, cx: &mut Context<Self>) {
+        self.open_page(
+            FrameNavigationEntry::SinglesGroup(key.clone()),
+            NavigationPathStart::CurrentPath,
+            cx,
+        );
+    }
+
+    /// Opens or closes a singles group row of the Releases list in place
+    /// (ADR 0084 Decision 6). It does not navigate.
+    pub(crate) fn toggle_singles_group(&mut self, key: &SinglesGroupKey, cx: &mut Context<Self>) {
+        if !self.expanded_singles_groups.remove(key) {
+            self.expanded_singles_groups.insert(key.clone());
+        }
+        cx.notify();
+    }
+
+    /// The name links of a release page with the link to the Library group
+    /// of a single, when the release `key` is in one (ADR 0084 Decision 6).
+    pub(crate) fn release_page_name_links(
+        &self,
+        base: Vec<crate::view_models::album_page::AlbumNameLinkVm>,
+        key: Option<&ReleaseKey>,
+    ) -> Vec<crate::view_models::album_page::AlbumNameLinkVm> {
+        self.vm.release_page_name_links(base, key)
+    }
+
+    /// The page of a singles group, from the current tree (ADR 0084
+    /// Decision 6).
+    pub(crate) fn singles_group_page(&self, key: &SinglesGroupKey) -> SinglesGroupPageVm {
+        self.vm.singles_group_page(key)
+    }
+
+    /// Downloads each single of a group page that is not in the Library,
+    /// newest first (ADR 0084 Decision 6). `download_feed` runs one
+    /// download at a time, so this queues the feed ids and starts the
+    /// first one.
+    pub(crate) fn download_singles(&mut self, feed_ids: &[i64], cx: &mut Context<Self>) {
+        self.queued_feed_downloads.extend(feed_ids.iter().copied());
+        self.start_next_queued_download(cx);
+    }
+
+    /// Starts the next queued download, when no download runs. A feed
+    /// that starts no download, for example a feed with no tracks, does
+    /// not stop the queue.
+    fn start_next_queued_download(&mut self, cx: &mut Context<Self>) {
+        while !(self.vm.has_busy_track() || self.vm.has_busy_feed()) {
+            let Some(feed_id) = self.queued_feed_downloads.pop_front() else {
+                return;
+            };
+            self.download_feed(feed_id, cx);
         }
     }
 
@@ -796,6 +862,8 @@ impl LibraryApp {
             tag_update_request_failed: false,
             recent_music_page: RecentFeedsPageVm::loading(),
             recent_music_scroll: gpui::ScrollHandle::new(),
+            expanded_singles_groups: BTreeSet::new(),
+            queued_feed_downloads: std::collections::VecDeque::new(),
         };
         app.maybe_start_musicbrainz_feed_saga(cx);
         app.maybe_start_playlist_rss_check(cx);
@@ -1036,12 +1104,14 @@ impl LibraryApp {
                 self.vm.fail_track_subscribe(
                     "The added track is no longer stored, so the app cannot download it.",
                 );
+                self.start_next_queued_download(cx);
                 cx.notify();
             }
             Err(error) => {
                 self.vm.fail_track_subscribe(format!(
                     "The app could not read the added track from the database. {error:#}"
                 ));
+                self.start_next_queued_download(cx);
                 cx.notify();
             }
         }
@@ -1225,7 +1295,8 @@ impl LibraryApp {
             | LibraryDetail::Artist(_)
             | LibraryDetail::Album(_)
             | LibraryDetail::Track(_)
-            | LibraryDetail::Discover(_) => None,
+            | LibraryDetail::Discover(_)
+            | LibraryDetail::SinglesGroup(_) => None,
         };
         if let Some(playlist_id) = playlist_id {
             self.select_playlist(playlist_id, cx);
@@ -1684,15 +1755,31 @@ impl LibraryApp {
         playlist_id: i64,
         cx: &mut Context<Self>,
     ) {
+        self.add_albums_to_playlist(&[feed_id], playlist_id, cx);
+    }
+
+    /// Adds the tracks of each album to a playlist, in the order of
+    /// `feed_ids`, through one append (ADR 0084 Decision 6). A singles
+    /// group page uses this path to add its singles newest first.
+    pub(crate) fn add_albums_to_playlist(
+        &mut self,
+        feed_ids: &[i64],
+        playlist_id: i64,
+        cx: &mut Context<Self>,
+    ) {
         let conn = self.conn.lock().expect("lock db");
-        let tracks = match db::feed_tracks(&conn, feed_id) {
-            Ok(t) => t,
-            Err(err) => {
-                self.vm.fail_album_tracks_load(err);
-                cx.notify();
-                return;
+        let mut tracks = Vec::new();
+        for feed_id in feed_ids {
+            match db::feed_tracks(&conn, *feed_id) {
+                Ok(feed_tracks) => tracks.extend(feed_tracks),
+                Err(err) => {
+                    drop(conn);
+                    self.vm.fail_album_tracks_load(err);
+                    cx.notify();
+                    return;
+                }
             }
-        };
+        }
         drop(conn);
         let track_ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
         if track_ids.is_empty() {
@@ -1711,6 +1798,17 @@ impl LibraryApp {
         feed_id: i64,
         cx: &mut Context<Self>,
     ) {
+        self.create_playlist_and_add_albums(name, vec![feed_id], cx);
+    }
+
+    /// Creates a playlist, then adds the tracks of each album to it in the
+    /// order of `feed_ids` (ADR 0084 Decision 6).
+    pub(crate) fn create_playlist_and_add_albums(
+        &mut self,
+        name: &str,
+        feed_ids: Vec<i64>,
+        cx: &mut Context<Self>,
+    ) {
         let command = CreatePlaylist::new(Arc::clone(&self.conn), name.to_string());
         present_command(
             &self.command_runner,
@@ -1719,7 +1817,7 @@ impl LibraryApp {
             cx,
             move |this, result, cx| {
                 this.reload_playlists();
-                this.add_album_to_playlist(feed_id, result.playlist_id(), cx);
+                this.add_albums_to_playlist(&feed_ids, result.playlist_id(), cx);
             },
             |this, err, _cx| this.vm.fail_playlist_create(err),
         );
@@ -1905,6 +2003,18 @@ impl LibraryApp {
         let tracks = db::feed_tracks(&conn, feed_id).ok()?;
         let first = tracks.first()?;
         let language = db::feed_language_by_id(&conn, feed_id).ok().flatten();
+        let (publisher_feed_guid, publisher_link_role, publisher_role_agreement) =
+            match db::publisher_relationships::owned_publisher_link(&conn, feed_id)
+                .ok()
+                .flatten()
+            {
+                Some(link) => (
+                    Some(link.publisher_feed_guid),
+                    link.role,
+                    link.role_agreement,
+                ),
+                None => (None, None, None),
+            };
         Some(AlbumNode {
             name: first
                 .feed_title
@@ -1920,11 +2030,9 @@ impl LibraryApp {
                 .album_image_href
                 .clone()
                 .or_else(|| first.track_image_href.clone()),
-            publisher_feed_guid: db::publisher_relationships::owned_publisher_feed_guid(
-                &conn, feed_id,
-            )
-            .ok()
-            .flatten(),
+            publisher_feed_guid,
+            publisher_link_role,
+            publisher_role_agreement,
             identity_facts: crate::local_identity::feed_facts(&conn, feed_id).unwrap_or_default(),
             metadata_facts: Box::new(
                 crate::local_metadata::feed_facts(&conn, feed_id).unwrap_or_default(),
@@ -2019,6 +2127,12 @@ impl LibraryApp {
             // location fills the detail column with that view.
             FrameNavigationEntry::DiscoverView(view) => {
                 self.show_discover_view(*view);
+            }
+            // ADR 0084 Decision 6: the group page reads the tree at each
+            // render.
+            FrameNavigationEntry::SinglesGroup(key) => {
+                self.vm.clear_library_selection();
+                self.detail = LibraryDetail::SinglesGroup(key.clone());
             }
             FrameNavigationEntry::Search(_)
             | FrameNavigationEntry::IndexNameMatches(_)
@@ -2282,6 +2396,11 @@ impl LibraryApp {
             FrameNavigationEntry::Release(key) => self
                 .release_label(key)
                 .unwrap_or_else(|| "Release".to_string()),
+            // ADR 0084 Decision 6: the breadcrumb label is the page title.
+            FrameNavigationEntry::SinglesGroup(key) => {
+                let page = self.singles_group_page(key);
+                page.title
+            }
             _ => entry.display_label(),
         }
     }
@@ -2367,8 +2486,12 @@ impl LibraryApp {
                 );
                 this.refresh_origin_playlist_actor();
                 this.start_async_reload_preserving_detail(cx);
+                this.start_next_queued_download(cx);
             },
-            |this, error, _cx| this.vm.fail_feed_download(error),
+            |this, error, cx| {
+                this.vm.fail_feed_download(error);
+                this.start_next_queued_download(cx);
+            },
         );
     }
 
@@ -2464,14 +2587,18 @@ impl LibraryApp {
             cx,
             |this, result, cx| {
                 this.vm.clear_busy_feed();
+                // ADR 0084 Decision 6: a queued singles download waits for
+                // each busy feed or track. The end of this work starts it.
+                this.start_next_queued_download(cx);
                 this.apply_library_removal_result_to_selected_detail(result.target());
                 // A mounted readiness list drops the removed track in place.
                 this.refresh_current_broadcast_readiness_report();
                 this.refresh_origin_playlist_actor();
                 this.start_async_reload_preserving_detail(cx);
             },
-            |this, err, _cx| {
+            |this, err, cx| {
                 this.vm.clear_busy_feed();
+                this.start_next_queued_download(cx);
                 this.vm.set_error_status(err);
             },
         );
@@ -2534,11 +2661,15 @@ impl LibraryApp {
                     path,
                     outcome.format_warning().map(str::to_string),
                 ));
+                this.start_next_queued_download(cx);
                 this.refresh_origin_playlist_actor();
                 this.start_async_reload_preserving_detail(cx);
                 this.scan_tag_updates();
             },
-            |this, error, _cx| this.vm.fail_track_subscribe(error),
+            |this, error, cx| {
+                this.vm.fail_track_subscribe(error);
+                this.start_next_queued_download(cx);
+            },
         );
     }
 
@@ -2549,7 +2680,8 @@ impl LibraryApp {
             | LibraryDetail::Artist(_)
             | LibraryDetail::Album(_)
             | LibraryDetail::Playlist(_)
-            | LibraryDetail::Discover(_) => None,
+            | LibraryDetail::Discover(_)
+            | LibraryDetail::SinglesGroup(_) => None,
         }
     }
 
@@ -2737,6 +2869,7 @@ impl LibraryApp {
                     path.clone(),
                     result.format_warning().map(str::to_string),
                 ));
+                this.start_next_queued_download(cx);
                 if let Some(frame) = this.selected_track_frame_mut() {
                     if frame.entity_id == track_id {
                         frame.subscription_busy = false;
@@ -2756,8 +2889,9 @@ impl LibraryApp {
                 this.refresh_origin_playlist_actor();
                 this.start_async_reload_preserving_detail(cx);
             },
-            move |this, err, _cx| {
+            move |this, err, cx| {
                 this.vm.fail_track_subscribe(&err);
+                this.start_next_queued_download(cx);
                 if let Some(frame) = this.selected_track_frame_mut() {
                     if frame.entity_id == track_id {
                         frame.subscription_busy = false;
@@ -3292,17 +3426,35 @@ impl LibraryApp {
                 )
             }
             MusicDestination::Releases => {
-                let rows = self.vm.releases_list();
+                let entries = self.vm.releases_list(&self.expanded_singles_groups);
                 let hovered_url = self.vm.hovered_thumb_url().map(str::to_string);
-                let mut thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
-                for row in &rows {
-                    if let Some(href) = row.thumbnail_href.as_deref() {
-                        let animated = hovered_url.as_deref() == Some(href);
-                        let img = self.thumbnail_for_url(Some(href), animated, cx);
-                        thumbs.insert(row.element_id.clone(), img);
+                let mut sources: Vec<(String, String)> = Vec::new();
+                for entry in &entries {
+                    match entry {
+                        ReleasesListEntryVm::Release(row) => {
+                            if let Some(href) = row.thumbnail_href.clone() {
+                                sources.push((row.element_id.clone(), href));
+                            }
+                        }
+                        ReleasesListEntryVm::SinglesGroup(group) => {
+                            if let Some(href) = group.thumbnail_href.clone() {
+                                sources.push((group.element_id.clone(), href));
+                            }
+                            sources.extend(group.singles.iter().filter_map(|row| {
+                                row.thumbnail_href
+                                    .clone()
+                                    .map(|href| (row.element_id.clone(), href))
+                            }));
+                        }
                     }
                 }
-                render_library_destination_rows(rows, "releases", &thumbs, cx)
+                let mut thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
+                for (element_id, href) in sources {
+                    let animated = hovered_url.as_deref() == Some(href.as_str());
+                    let img = self.thumbnail_for_url(Some(&href), animated, cx);
+                    thumbs.insert(element_id, img);
+                }
+                render_library_releases_list(entries, &thumbs, cx)
             }
             MusicDestination::Artists => {
                 let rows = self.vm.artists_list();
@@ -3496,6 +3648,8 @@ mod tests {
             description: None,
             image_href: Some("https://example.test/art.png".into()),
             publisher_feed_guid: None,
+            publisher_link_role: None,
+            publisher_role_agreement: None,
             identity_facts: LocalIdentityFacts::default(),
             metadata_facts: Box::<crate::views::FeedMetadataFacts>::default(),
             stored_values: None,

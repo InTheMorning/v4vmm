@@ -30,7 +30,9 @@ use crate::application::queries::stored_values::FeedStoredValues;
 use crate::db::{self, TrackRow};
 use crate::feed_service;
 use crate::metadata::MusicBrainzLookupResult;
+use crate::view_models::album_page::AlbumNameLinkVm;
 use crate::view_models::artist_detail::{ArtistDetailFactVm, ArtistDetailPageVm};
+use crate::view_models::artist_identity::ArtistIdentity;
 use crate::view_models::entity_detail::{
     EntityActionTarget, EntityActionVm, PlaylistActionState, ReleaseMembershipState,
     TrackActionState, TrackMembershipState,
@@ -48,6 +50,9 @@ use crate::view_models::recent_feeds::{
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::search_results::{
     FeedResultDisplay, IndexDetailDisplay, SearchResultOrigin, TrackResultDisplay,
+};
+use crate::view_models::singles_group::{
+    release_page_name_links, singles_groups, SinglesGroupKey, SinglesGroupPageVm, SinglesGroupRowVm,
 };
 use crate::view_models::text_filter::contains_normalized;
 #[cfg(test)]
@@ -498,6 +503,13 @@ pub(crate) struct AlbumNode {
     /// relationship states `music_names_publisher = true` (ADR 0077
     /// Decision 2, packet 004). `None` when the album names no publisher.
     pub(crate) publisher_feed_guid: Option<String>,
+    /// The role set of the owned publisher link, joined by `", "` (ADR
+    /// 0082 Decision 2). `None` when the album names no publisher or the
+    /// link states no role.
+    pub(crate) publisher_link_role: Option<String>,
+    /// The role agreement of the owned publisher link: `both`,
+    /// `one_side`, `conflict`, or `None` (ADR 0082 Decision 2).
+    pub(crate) publisher_role_agreement: Option<String>,
     pub(crate) identity_facts: LocalIdentityFacts,
     pub(crate) metadata_facts: Box<FeedMetadataFacts>,
     /// The stored values of the feed from the stored value projection
@@ -1611,6 +1623,47 @@ pub(crate) struct DestinationListRowVm {
     pub(crate) open: DestinationListRowTarget,
 }
 
+/// One entry of the Releases destination list (ADR 0084 Decisions 2 and
+/// 6).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ReleasesListEntryVm {
+    /// A release that is not in a singles group.
+    Release(DestinationListRowVm),
+    /// A Library singles group.
+    SinglesGroup(SinglesGroupRowVm),
+}
+
+impl ReleasesListEntryVm {
+    /// The sort label: the release name or the display artist.
+    #[must_use]
+    pub(crate) fn label(&self) -> &str {
+        match self {
+            Self::Release(row) => &row.label,
+            Self::SinglesGroup(row) => &row.label,
+        }
+    }
+}
+
+/// The release row of one Library album in the Releases list (ADR 0084
+/// Decisions 2 and 5). `None` when the album has no release key.
+#[must_use]
+pub(crate) fn destination_release_row(
+    artist: &ArtistNode,
+    album: &AlbumNode,
+) -> Option<DestinationListRowVm> {
+    let key = album.release_key()?;
+    Some(DestinationListRowVm {
+        element_id: format!("music-release-row-{}", release_row_slug(&key)),
+        label: album.name.clone(),
+        // ADR 0084 Decision 5: the row names the kind after the artist,
+        // for example "Haleen · Single".
+        secondary_text: format!("{} · {}", artist.name, album.release_kind().label()),
+        a11y_label: format!("Release: {}", album.name),
+        thumbnail_href: album.image_href.clone(),
+        open: DestinationListRowTarget::Release(key),
+    })
+}
+
 /// One row of the Discover views list column (ADR 0084 Decision 3). "New
 /// releases" is the only view today.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2614,32 +2667,64 @@ impl LibraryViewModel {
         }
     }
 
-    /// Rows of the Releases destination list, by name (ADR 0084 Decision
-    /// 2). It reuses the already-loaded tree: no new query.
+    /// Entries of the Releases destination list, by label (ADR 0084
+    /// Decisions 2 and 6). It reuses the already-loaded tree: no new query.
+    ///
+    /// Each Library singles group gives one group entry, and its singles
+    /// give no release entry. Each other release gives one release entry.
+    /// `expanded` is the set of group keys whose rows show their singles.
+    /// The label of a release entry is the release name, and the label of
+    /// a group entry is the display artist.
     #[must_use]
-    pub(crate) fn releases_list(&self) -> Vec<DestinationListRowVm> {
-        let mut rows: Vec<DestinationListRowVm> = self
-            .snapshot
-            .tree
+    pub(crate) fn releases_list(
+        &self,
+        expanded: &BTreeSet<SinglesGroupKey>,
+    ) -> Vec<ReleasesListEntryVm> {
+        let tree = &self.snapshot.tree;
+        let groups = singles_groups(tree);
+        let mut entries: Vec<ReleasesListEntryVm> = tree
             .artists
             .iter()
             .flat_map(|artist| artist.albums.iter().map(move |album| (artist, album)))
-            .filter_map(|(artist, album)| {
-                let key = album.release_key()?;
-                Some(DestinationListRowVm {
-                    element_id: format!("music-release-row-{}", release_row_slug(&key)),
-                    label: album.name.clone(),
-                    // ADR 0084 Decision 5: the row names the kind after
-                    // the artist, for example "Haleen · Single".
-                    secondary_text: format!("{} · {}", artist.name, album.release_kind().label()),
-                    a11y_label: format!("Release: {}", album.name),
-                    thumbnail_href: album.image_href.clone(),
-                    open: DestinationListRowTarget::Release(key),
-                })
+            .filter_map(|(artist, album)| destination_release_row(artist, album))
+            .filter(|row| match &row.open {
+                DestinationListRowTarget::Release(key) => {
+                    !groups.iter().any(|group| group.contains(key))
+                }
+                DestinationListRowTarget::Artist(_) => true,
             })
+            .map(ReleasesListEntryVm::Release)
             .collect();
-        rows.sort_by_key(|row| row.label.to_lowercase());
-        rows
+        entries.extend(groups.iter().map(|group| {
+            ReleasesListEntryVm::SinglesGroup(SinglesGroupRowVm::new(
+                group,
+                expanded.contains(&group.key()),
+                destination_release_row,
+            ))
+        }));
+        entries.sort_by_key(|entry| entry.label().to_lowercase());
+        entries
+    }
+
+    /// The name links of a release page with the link to the Library
+    /// singles group of the release, when its `key` is in one (ADR 0084
+    /// Decision 6).
+    #[must_use]
+    pub(crate) fn release_page_name_links(
+        &self,
+        base: Vec<AlbumNameLinkVm>,
+        key: Option<&ReleaseKey>,
+    ) -> Vec<AlbumNameLinkVm> {
+        release_page_name_links(base, &singles_groups(&self.snapshot.tree), key)
+    }
+
+    /// The page of a singles group, from the current tree (ADR 0084
+    /// Decision 6). A download or a removal in progress makes the main
+    /// action not available.
+    #[must_use]
+    pub(crate) fn singles_group_page(&self, key: &SinglesGroupKey) -> SinglesGroupPageVm {
+        let busy = self.has_busy_feed() || self.has_busy_track();
+        SinglesGroupPageVm::from_tree(&self.snapshot.tree, key, busy)
     }
 
     /// Rows of the Artists destination list, by name (ADR 0084 Decision
@@ -4052,6 +4137,19 @@ impl AlbumNode {
             self.tracks.len(),
         )
     }
+
+    /// The artist identity of this release (ADR 0084 Decision 7).
+    /// `artist_text` is the name of the [`ArtistNode`] that holds the
+    /// album.
+    #[must_use]
+    pub(crate) fn artist_identity(&self, artist_text: &str) -> ArtistIdentity {
+        ArtistIdentity::resolve(
+            self.publisher_feed_guid.as_deref(),
+            self.publisher_link_role.as_deref(),
+            self.publisher_role_agreement.as_deref(),
+            artist_text,
+        )
+    }
 }
 
 impl TrackRow {
@@ -4128,6 +4226,8 @@ mod album_node_release_key_tests {
             description: None,
             image_href: None,
             publisher_feed_guid: None,
+            publisher_link_role: None,
+            publisher_role_agreement: None,
             identity_facts: LocalIdentityFacts::default(),
             metadata_facts: Box::<FeedMetadataFacts>::default(),
             stored_values: None,
@@ -5044,6 +5144,8 @@ mod tests {
             description: None,
             image_href: None,
             publisher_feed_guid: None,
+            publisher_link_role: None,
+            publisher_role_agreement: None,
             identity_facts: LocalIdentityFacts::default(),
             metadata_facts: Box::<FeedMetadataFacts>::default(),
             stored_values: None,
@@ -6338,6 +6440,8 @@ mod tests {
                             description: None,
                             image_href: Some("saw.jpg".into()),
                             publisher_feed_guid: None,
+                            publisher_link_role: None,
+                            publisher_role_agreement: None,
                             identity_facts: LocalIdentityFacts::default(),
                             metadata_facts: Box::<FeedMetadataFacts>::default(),
                             stored_values: None,
@@ -6352,6 +6456,8 @@ mod tests {
                             description: None,
                             image_href: None,
                             publisher_feed_guid: None,
+                            publisher_link_role: None,
+                            publisher_role_agreement: None,
                             identity_facts: LocalIdentityFacts::default(),
                             metadata_facts: Box::<FeedMetadataFacts>::default(),
                             stored_values: None,
@@ -6370,6 +6476,8 @@ mod tests {
                         description: None,
                         image_href: None,
                         publisher_feed_guid: None,
+                        publisher_link_role: None,
+                        publisher_role_agreement: None,
                         identity_facts: LocalIdentityFacts::default(),
                         metadata_facts: Box::<FeedMetadataFacts>::default(),
                         stored_values: None,
@@ -6981,6 +7089,145 @@ mod tests {
         assert_ne!(collapsed_button.a11y_label, expanded_button.a11y_label);
     }
 
+    /// The release rows of a Releases list with no singles group.
+    fn release_rows(entries: Vec<ReleasesListEntryVm>) -> Vec<DestinationListRowVm> {
+        entries
+            .into_iter()
+            .map(|entry| match entry {
+                ReleasesListEntryVm::Release(row) => row,
+                ReleasesListEntryVm::SinglesGroup(group) => {
+                    panic!("the fixture has no singles group: {group:?}")
+                }
+            })
+            .collect()
+    }
+
+    /// A tree with three singles of "Haleen", two in the Library, and one
+    /// album of "Aphex Twin" (ADR 0084 Decision 6).
+    fn singles_tree() -> LibraryTree {
+        let single = |name: &str, feed_id: i64, pub_date: i64, in_library: bool| {
+            let mut track = row();
+            track.id = feed_id * 10;
+            track.feed_id = feed_id;
+            track.pub_date = Some(pub_date);
+            track.is_in_library = in_library;
+            AlbumNode {
+                name: name.into(),
+                feed_id: Some(feed_id),
+                feed_guid: Some(format!("guid-{feed_id}")),
+                feed_url: None,
+                language: None,
+                description: None,
+                image_href: Some(format!("{feed_id}.jpg")),
+                publisher_feed_guid: None,
+                publisher_link_role: None,
+                publisher_role_agreement: None,
+                identity_facts: LocalIdentityFacts::default(),
+                metadata_facts: Box::<FeedMetadataFacts>::default(),
+                stored_values: None,
+                tracks: vec![track],
+            }
+        };
+        let mut album = library_tree().artists.remove(0);
+        album.albums.truncate(1);
+        LibraryTree {
+            artists: vec![
+                album,
+                ArtistNode {
+                    name: "Haleen".into(),
+                    albums: vec![
+                        single("Middle", 1, 200, true),
+                        single("Newest", 2, 300, false),
+                        single("Oldest", 3, 100, true),
+                    ],
+                },
+            ],
+        }
+    }
+
+    /// R15-05 (ADR 0084 Decision 6): the singles of a group give one group
+    /// entry and no release entry. The group entry sorts by the display
+    /// artist and names the count and the Library state.
+    #[test]
+    fn adr_0084_singles_group_r15_05_releases_list_gives_one_group_entry() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(singles_tree());
+
+        let entries = vm.releases_list(&BTreeSet::new());
+
+        assert_eq!(
+            entries
+                .iter()
+                .map(ReleasesListEntryVm::label)
+                .collect::<Vec<_>>(),
+            vec!["Haleen", "Selected Ambient Works"],
+            "the group entry replaces its singles and sorts by its label"
+        );
+        let ReleasesListEntryVm::SinglesGroup(group) = &entries[0] else {
+            panic!("the first entry must be the Haleen group");
+        };
+        assert_eq!(group.label, "Haleen");
+        assert_eq!(group.secondary_text, "3 singles · 2 in Library · By name");
+        assert_eq!(group.a11y_label, "Haleen, 3 singles, 2 in Library, By name");
+        assert_eq!(group.thumbnail_href.as_deref(), Some("2.jpg"));
+        assert_eq!(
+            group.open,
+            SinglesGroupKey(ArtistIdentity::Name("Haleen".into()))
+        );
+
+        let mut tree = singles_tree();
+        for album in &mut tree.artists[1].albums {
+            for track in &mut album.tracks {
+                track.is_in_library = true;
+            }
+        }
+        vm.replace_tree(tree);
+        let entries = vm.releases_list(&BTreeSet::new());
+        let ReleasesListEntryVm::SinglesGroup(group) = &entries[0] else {
+            panic!("the first entry must be the Haleen group");
+        };
+        assert_eq!(group.secondary_text, "3 singles · In Library · By name");
+    }
+
+    /// R15-06 (ADR 0084 Decision 6): with the group key in the expanded
+    /// set, the group entry gives its singles rows newest first and "Hide
+    /// singles". Without the key, it gives no singles rows and "Show
+    /// singles".
+    #[test]
+    fn adr_0084_singles_group_r15_06_expanded_group_gives_its_singles() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(singles_tree());
+        let key = SinglesGroupKey(ArtistIdentity::Name("Haleen".into()));
+
+        let expanded = BTreeSet::from([key.clone()]);
+        let entries = vm.releases_list(&expanded);
+        let ReleasesListEntryVm::SinglesGroup(group) = &entries[0] else {
+            panic!("the first entry must be the Haleen group");
+        };
+        assert!(group.expanded);
+        assert_eq!(group.disclosure_a11y_label, "Hide singles");
+        assert_eq!(
+            group
+                .singles
+                .iter()
+                .map(|row| row.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Newest", "Middle", "Oldest"]
+        );
+        assert_eq!(
+            group.singles[0].open,
+            DestinationListRowTarget::Release(ReleaseKey::FeedGuid("guid-2".into()))
+        );
+
+        let entries = vm.releases_list(&BTreeSet::new());
+        let ReleasesListEntryVm::SinglesGroup(group) = &entries[0] else {
+            panic!("the first entry must be the Haleen group");
+        };
+        assert!(!group.expanded);
+        assert_eq!(group.disclosure_a11y_label, "Show singles");
+        assert!(group.singles.is_empty());
+    }
+
     /// D5-04: the Releases destination list gives one row for each Library
     /// release, by name, keyed so a row opens its release page.
     #[test]
@@ -6988,7 +7235,7 @@ mod tests {
         let mut vm = LibraryViewModel::new();
         vm.replace_tree(library_tree());
 
-        let rows = vm.releases_list();
+        let rows = release_rows(vm.releases_list(&BTreeSet::new()));
 
         assert_eq!(
             rows.iter()
@@ -7021,7 +7268,7 @@ mod tests {
         let mut vm = LibraryViewModel::new();
         vm.replace_tree(library_tree());
 
-        let rows = vm.releases_list();
+        let rows = release_rows(vm.releases_list(&BTreeSet::new()));
         let windowlicker = rows
             .iter()
             .find(|row| row.label == "Windowlicker")

@@ -20236,3 +20236,36 @@ release_kind.rs and tests. Build the label from `ReleaseKind` instead.",
     }
     assert!(violations.is_empty(), "{}", violations.join("\n"));
 }
+
+/// R15-09, situational ADR 0084 Decision 6: one function groups the
+/// Library singles, `singles_groups` in `src/view_models/singles_group.rs`.
+/// The Releases list, the group page and the single page link each use
+/// it. No other production code selects releases by
+/// `ReleaseKind::Single`, so two groupings cannot disagree.
+#[test]
+fn adr_0084_singles_group_r15_09_only_the_owner_groups_singles() {
+    let mut files = Vec::new();
+    collect_rust_files(&manifest_path("src"), &mut files);
+    let owners = [
+        manifest_path("src/view_models/release_kind.rs"),
+        manifest_path("src/view_models/singles_group.rs"),
+    ];
+    let mut violations = Vec::new();
+    for file in files {
+        if owners.contains(&file) {
+            continue;
+        }
+        let source = read_source(&file);
+        let code = code_only(&source);
+        let checked = production_source(&code);
+        if checked.contains("ReleaseKind::Single") {
+            violations.push(format!(
+                "{}: ADR 0084 Decision 6: only `singles_groups` in \
+src/view_models/singles_group.rs groups releases by `ReleaseKind::Single`. Call \
+`singles_groups` and read its groups instead.",
+                rel_path(&file)
+            ));
+        }
+    }
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}

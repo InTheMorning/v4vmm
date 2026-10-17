@@ -15,6 +15,7 @@ use crate::media::cover_color::CoverColor;
 use crate::ui::shells::library::feed_detail::render_library_feed_detail;
 use crate::ui::shells::library::feed_list::render_library_feed_list;
 use crate::ui::shells::library::playlist_detail::render_library_playlist_detail;
+use crate::ui::shells::library::singles_group::render_library_singles_group_page;
 use crate::ui::shells::library::track_detail::render_library_track_detail;
 use crate::ui::style::color;
 use crate::view_models::library::{LibraryChromeDisplay, LibraryViewModel, MbTrackStatus};
@@ -73,6 +74,12 @@ pub(crate) fn render_library_detail(
 
         LibraryDetail::Track(frame) => {
             render_library_track_detail(frame, playlists, chrome, track_publisher_feed_guid, cx)
+        }
+
+        // ADR 0084 Decision 6: the group page reads the current tree at
+        // each render, so a download or a removal updates it in place.
+        LibraryDetail::SinglesGroup(key) => {
+            render_library_singles_group_page(library_vm.singles_group_page(key), playlists, cx)
         }
 
         LibraryDetail::Playlist(detail) => render_library_playlist_detail(

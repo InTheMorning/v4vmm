@@ -1,5 +1,6 @@
 //! Releases, Artists, and Playlists destination lists (ADR 0084 Decision
-//! 2).
+//! 2), with the singles group rows of the Releases list (ADR 0084
+//! Decision 6).
 //!
 //! Each destination reads straight from the Library tree or the loaded
 //! playlists; none of these owns a `ContentListPageVm`. Row labels and
@@ -21,8 +22,8 @@ use crate::library::LibraryApp;
 use crate::ui::composites::music_column_scroll::music_column_scrollbar;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{
-    DisclosureSupplementDisplay, DisclosureSupplementLabel, EntityKind, ListRow, ListRowA11yLabel,
-    Thumbnail, ThumbnailSize,
+    DisclosureIndicator, DisclosureIndicatorDisplay, DisclosureSupplementDisplay,
+    DisclosureSupplementLabel, EntityKind, ListRow, ListRowA11yLabel, Thumbnail, ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
@@ -32,8 +33,9 @@ use crate::ui::style::spacing;
 use crate::ui::tokens::{FontSize, SemanticColor};
 use crate::view_models::library::{
     DestinationListRowTarget, DestinationListRowVm, DiscoverViewRowVm, PlaylistSidebarRowVm,
-    PlaylistSidebarVm,
+    PlaylistSidebarVm, ReleasesListEntryVm,
 };
+use crate::view_models::singles_group::SinglesGroupRowVm;
 use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
 
 /// Renders the Discover views list column (ADR 0084 Decision 3). "New
@@ -104,9 +106,143 @@ pub(crate) fn render_library_destination_rows(
     thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
+    let children: Vec<AnyElement> = rows
+        .into_iter()
+        .map(|row| {
+            let thumbnail = thumbnails.get(&row.element_id).cloned().flatten();
+            render_destination_list_row(row, thumbnail, cx)
+        })
+        .collect();
+    render_destination_list_container(children, empty_label, cx)
+}
+
+/// Renders the Releases destination list (ADR 0084 Decisions 2 and 6): a
+/// release row for each release that is not in a group, and a group row
+/// for each Library singles group. An open group row shows each of its
+/// singles below it, indented.
+pub(crate) fn render_library_releases_list(
+    entries: Vec<ReleasesListEntryVm>,
+    thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let mut children: Vec<AnyElement> = Vec::new();
+    for entry in entries {
+        match entry {
+            ReleasesListEntryVm::Release(row) => {
+                let thumbnail = thumbnails.get(&row.element_id).cloned().flatten();
+                children.push(render_destination_list_row(row, thumbnail, cx));
+            }
+            ReleasesListEntryVm::SinglesGroup(group) => {
+                render_singles_group_rows(group, thumbnails, cx, &mut children);
+            }
+        }
+    }
+    render_destination_list_container(children, "releases", cx)
+}
+
+/// Renders one singles group row and, when it is open, the indented row of
+/// each single (ADR 0084 Decision 6). The chevron opens and closes the row
+/// in place. A click on the row body opens the group page.
+fn render_singles_group_rows(
+    group: SinglesGroupRowVm,
+    thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
+    cx: &mut Context<LibraryApp>,
+    children: &mut Vec<AnyElement>,
+) {
+    let SinglesGroupRowVm {
+        element_id,
+        label,
+        secondary_text,
+        a11y_label,
+        thumbnail_href,
+        open,
+        expanded,
+        disclosure_element_id,
+        disclosure_a11y_label,
+        singles,
+    } = group;
+    let thumbnail = thumbnails.get(&element_id).cloned().flatten();
+    let thumb_element_id = format!("{element_id}-thumb");
+    let open_key = open.clone();
+    let toggle_key = open;
+
+    let disclosure = div()
+        .id(SharedString::from(disclosure_element_id))
+        .flex()
+        .items_center()
+        .justify_center()
+        .cursor_pointer()
+        .tooltip({
+            let tooltip = crate::ui::primitives::Tooltip::new(disclosure_a11y_label);
+            move |window, cx| tooltip.build(window, cx)
+        })
+        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+            // The chevron toggles the row in place. The row body click
+            // that opens the group page must not also run.
+            cx.stop_propagation();
+            this.toggle_singles_group(&toggle_key, cx);
+        }))
+        .child(DisclosureIndicator::new(DisclosureIndicatorDisplay {
+            expanded,
+        }));
+
+    children.push(
+        ListRow::new(SharedString::from(element_id))
+            .a11y_label(ListRowA11yLabel {
+                label: SharedString::from(a11y_label),
+            })
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                this.open_singles_group(&open_key, cx);
+            }))
+            .child(disclosure)
+            .child(render_hoverable_release_thumb(
+                thumb_element_id,
+                thumbnail_href,
+                Thumbnail::new(EntityKind::Release, ThumbnailSize::Sm).image(thumbnail),
+                cx,
+            ))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        Label::new(label)
+                            .size(FontSize::Micro)
+                            .weight(FontWeight::MEDIUM)
+                            .truncated(),
+                    )
+                    .child(
+                        Label::new(secondary_text)
+                            .size(FontSize::Micro)
+                            .color(SemanticColor::TertiaryLabel)
+                            .truncated(),
+                    ),
+            )
+            .into_any_element(),
+    );
+
+    for row in singles {
+        let thumbnail = thumbnails.get(&row.element_id).cloned().flatten();
+        children.push(
+            div()
+                .pl(spacing::LG)
+                .child(render_destination_list_row(row, thumbnail, cx))
+                .into_any_element(),
+        );
+    }
+}
+
+/// The scroll container of a Releases or Artists destination list.
+/// `empty_label` names the row kind for the empty-list message and the
+/// scrollbar id.
+fn render_destination_list_container(
+    children: Vec<AnyElement>,
+    empty_label: &'static str,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
     let mut content = page_scroll_content(cx).gap(spacing::XXS);
 
-    if rows.is_empty() {
+    if children.is_empty() {
         content = content.child(
             div()
                 .text_center()
@@ -119,10 +255,7 @@ pub(crate) fn render_library_destination_rows(
                 .child(format!("No {empty_label} yet")),
         );
     } else {
-        content = content.children(rows.into_iter().map(|row| {
-            let thumbnail = thumbnails.get(&row.element_id).cloned().flatten();
-            render_destination_list_row(row, thumbnail, cx)
-        }));
+        content = content.children(children);
     }
 
     let container = div()

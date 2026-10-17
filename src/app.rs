@@ -1018,6 +1018,7 @@ impl TopApp {
             // "Artist". The entry names no artist.
             FrameNavigationEntry::IndexNameMatches(_) => "Tracks matching".to_string(),
             FrameNavigationEntry::PublisherDetail(_) => "Publisher".to_string(),
+            FrameNavigationEntry::SinglesGroup(_) => "Singles".to_string(),
             FrameNavigationEntry::QueueNowPlaying => "Queue".to_string(),
         }
     }

@@ -33,7 +33,8 @@ impl TopApp {
     ) -> String {
         match entry {
             // ADR 0084 Decision 9: the Library gives the names of its pages.
-            FrameNavigationEntry::PlaylistDetail(_) => {
+            // ADR 0084 Decision 6: a singles group page is one of them.
+            FrameNavigationEntry::PlaylistDetail(_) | FrameNavigationEntry::SinglesGroup(_) => {
                 self.library.read(cx).navigation_label(entry)
             }
             // ADR 0084 Decision 4: the Library album name, the loaded Index

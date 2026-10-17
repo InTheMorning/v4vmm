@@ -8,6 +8,7 @@
 
 use crate::view_models::entity_detail::ReleaseMembershipState;
 use crate::view_models::release_kind::ReleaseKind;
+use crate::view_models::singles_group::SinglesGroupKey;
 
 /// The label of a publisher link. ADR 0077 Decision 6: `publisher_text` is
 /// the feed owner, so a publisher link does not show it.
@@ -175,6 +176,9 @@ pub enum AlbumNameLinkTarget {
     Artist(String),
     /// The publisher page of a publisher feed GUID (ADR 0077 Decision 1).
     Publisher(String),
+    /// The page of the Library singles group of a single (ADR 0084
+    /// Decision 6).
+    SinglesGroup(SinglesGroupKey),
 }
 
 /// A name under the album title that links to a page.

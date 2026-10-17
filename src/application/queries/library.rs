@@ -397,10 +397,21 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
                         .or_else(|| tracks.iter().find_map(|t| t.track_image_href.clone()));
                     // ADR 0077 packet 004: the "open publisher" action of
                     // the album needs the stored owned relationship, when
-                    // one exists (Decision 2).
-                    let publisher_feed_guid = feed_id.and_then(|fid| {
-                        db::publisher_relationships::owned_publisher_feed_guid(conn, fid).ok()?
+                    // one exists (Decision 2). ADR 0084 Decision 7: the
+                    // artist identity also reads the role and the role
+                    // agreement of that link.
+                    let publisher_link = feed_id.and_then(|fid| {
+                        db::publisher_relationships::owned_publisher_link(conn, fid).ok()?
                     });
+                    let (publisher_feed_guid, publisher_link_role, publisher_role_agreement) =
+                        match publisher_link {
+                            Some(link) => (
+                                Some(link.publisher_feed_guid),
+                                link.role,
+                                link.role_agreement,
+                            ),
+                            None => (None, None, None),
+                        };
                     AlbumNode {
                         name: album_name,
                         feed_id,
@@ -410,6 +421,8 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
                         description,
                         image_href,
                         publisher_feed_guid,
+                        publisher_link_role,
+                        publisher_role_agreement,
                         identity_facts: feed_id
                             .and_then(|fid| crate::local_identity::feed_facts(conn, fid).ok())
                             .unwrap_or_default(),

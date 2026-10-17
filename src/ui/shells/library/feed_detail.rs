@@ -139,7 +139,10 @@ pub(crate) fn render_library_feed_detail(
     let projection = ReleaseDetailVm::new(&feed_view, EntitySurfaceContext::Library);
     let page = projection.page();
     let entity = cx.entity();
-    let name_links = render_album_name_links(projection.name_links(), move |target, _, cx| {
+    // ADR 0084 Decision 6: a single in a Library group links to its group.
+    let links =
+        library_vm.release_page_name_links(projection.name_links(), album.release_key().as_ref());
+    let name_links = render_album_name_links(links, move |target, _, cx| {
         entity.update(cx, |this, cx| this.open_album_name_link(target, cx));
     });
     let mut slots = ReleaseDetailBehaviorSlots {

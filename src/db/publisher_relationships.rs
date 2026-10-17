@@ -307,6 +307,51 @@ pub(crate) fn owned_publisher_feed_guid(conn: &Connection, feed_id: i64) -> Resu
     .context("Read owned publisher feed GUID")
 }
 
+/// The owned publisher link of one local feed: the publisher feed GUID,
+/// the role set and the role agreement of the link (ADR 0084 Decision 7,
+/// ADR 0082 Decision 2).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct OwnedPublisherLink {
+    /// The publisher feed GUID that the feed names.
+    pub(crate) publisher_feed_guid: String,
+    /// The role set of the link, joined by `", "`. `None` when the row
+    /// states no role.
+    pub(crate) role: Option<String>,
+    /// `both`, `one_side`, `conflict`, or `None` when the row states no
+    /// agreement.
+    pub(crate) role_agreement: Option<String>,
+}
+
+/// The owned publisher link of one local feed (ADR 0084 Decision 7). It
+/// reads the same row as [`owned_publisher_feed_guid`], with the same
+/// `WHERE` clause and the same order. `None` when the feed has no such
+/// stored row.
+///
+/// # Errors
+///
+/// Returns an error when the database read fails.
+pub(crate) fn owned_publisher_link(
+    conn: &Connection,
+    feed_id: i64,
+) -> Result<Option<OwnedPublisherLink>> {
+    use rusqlite::OptionalExtension as _;
+    conn.query_row(
+        "SELECT publisher_feed_guid, role, role_agreement FROM feed_publisher_relationships
+         WHERE feed_id = ?1 AND direction = 'music_to_publisher' AND music_names_publisher = 1
+         ORDER BY observed_at DESC LIMIT 1",
+        params![feed_id],
+        |row| {
+            Ok(OwnedPublisherLink {
+                publisher_feed_guid: row.get(0)?,
+                role: row.get(1)?,
+                role_agreement: row.get(2)?,
+            })
+        },
+    )
+    .optional()
+    .context("Read owned publisher link")
+}
+
 /// The RSS-stated remote of the first `music_to_publisher` row of a feed:
 /// the remote feed GUID and the remote feed URL (ADR 0076 packet 002).
 ///
@@ -797,6 +842,52 @@ mod tests {
             None,
             "a feed with no stored relationship row exposes no publisher feed GUID"
         );
+    }
+
+    /// R15-02 (ADR 0084 task 015): `owned_publisher_link` reads `role` and
+    /// `role_agreement` of the same row that `owned_publisher_feed_guid`
+    /// reads, the newest owned row. A feed with no owned row gives `None`.
+    #[test]
+    fn adr_0084_singles_group_r15_02_owned_publisher_link_reads_the_same_row() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        upgrades::create_fixture(&conn, CURRENT_VERSION).unwrap();
+        conn.execute_batch(
+            "INSERT INTO feeds(id, feed_url, feed_guid) VALUES (1, 'https://example.test/one.xml', 'album-guid-1');
+             INSERT INTO feeds(id, feed_url, feed_guid) VALUES (2, 'https://example.test/two.xml', 'album-guid-2');",
+        )
+        .unwrap();
+        let older = PublisherRelationship {
+            music_names_publisher: Some(true),
+            role_agreement: Some(crate::api::RoleAgreement::OneSide),
+            ..entry("publisher-old", Some("artist"))
+        };
+        let newer = PublisherRelationship {
+            music_names_publisher: Some(true),
+            role_agreement: Some(crate::api::RoleAgreement::Both),
+            ..entry("publisher-new", Some("label, producer"))
+        };
+        let not_owned = PublisherRelationship {
+            music_names_publisher: Some(false),
+            ..entry("publisher-b", Some("artist"))
+        };
+        upsert_feed_publisher_relationships(&mut conn, 1, None, Some(&[older]), 10).unwrap();
+        upsert_feed_publisher_relationships(&mut conn, 1, None, Some(&[newer]), 20).unwrap();
+        upsert_feed_publisher_relationships(&mut conn, 2, None, Some(&[not_owned]), 10).unwrap();
+
+        let link = owned_publisher_link(&conn, 1)
+            .unwrap()
+            .expect("feed 1 has an owned row");
+        assert_eq!(
+            Some(link.publisher_feed_guid.as_str()),
+            owned_publisher_feed_guid(&conn, 1).unwrap().as_deref(),
+            "both reads must select the same row"
+        );
+        assert_eq!(link.publisher_feed_guid, "publisher-new");
+        assert_eq!(link.role.as_deref(), Some("label, producer"));
+        assert_eq!(link.role_agreement.as_deref(), Some("both"));
+
+        assert_eq!(owned_publisher_link(&conn, 2).unwrap(), None);
+        assert_eq!(owned_publisher_link(&conn, 99).unwrap(), None);
     }
 
     /// R82-1-05 (ADR 0082 packet 001): migration 18 adds `album_names_as`
