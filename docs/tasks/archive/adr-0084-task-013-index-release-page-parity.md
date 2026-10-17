@@ -1,6 +1,6 @@
 # ADR 0084 Task 013: Index Release Page Parity
 
-Status: Implemented - 2026-10-16. Mechanical checks Green. The operator visual check (V1 to V6) is open.
+Status: Complete - 2026-10-17. The mechanical checks are Green. The operator passed V1 to V6 on 2026-10-17.
 
 ## Goal
 
@@ -10,8 +10,8 @@ A long description that is collapsed shows its first lines, with "Show more" at 
 
 ## Authority
 
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 4: one page for each item, whatever its origin. The origin selects only the data source.
-- [ADR 0047](../adr/0047-library-search-unification.md) item 8, with its amendment of 2026-10-16: a collapsed long description shows a preview and "Show more".
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 4: one page for each item, whatever its origin. The origin selects only the data source.
+- [ADR 0047](../../adr/0047-library-search-unification.md) item 8, with its amendment of 2026-10-16: a collapsed long description shows a preview and "Show more".
 - The operator decided on 2026-10-16 to do this packet before packet 007.
 
 ## Recorded Facts - 2026-10-16
@@ -129,7 +129,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md), the [source map](../architecture/source-map.md), the [phase plan](../plans/adr-0084-music-column-browser-phase-plan.md) and the archived [task 006](archive/adr-0084-task-006-discover.md), with its Orchestrator Review.
+- [Agent rules](../../../AGENTS.md), the [source map](../../architecture/source-map.md), the [phase plan](../../plans/adr-0084-music-column-browser-phase-plan.md) and the archived [task 006](adr-0084-task-006-discover.md), with its Orchestrator Review.
 - `src/view_models/library.rs` (`DescriptionState`, `description_line_count`, the album and track description states, and their tests).
 - `src/ui/composites/disclosure_group.rs`, `src/ui/primitives/multiline_text.rs`, `src/ui/primitives/section_header.rs`, `src/ui/control_styles.rs`.
 - `src/ui/shells/library/feed_detail.rs`, `src/ui/shells/library/track_detail.rs`, `src/ui/shells/entity.rs`, `src/ui/shells/track.rs`.
@@ -395,7 +395,7 @@ and the scale of V6 back to your usual values.
 
 ## Orchestrator Review - 2026-10-16
 
-The orchestrator reviewed the diff against ADR 0084 Decision 4, ADR 0047 item 8 with its amendment, this packet and the [review checklist](../reviews/adr-0084-review-checklist.md). The orchestrator also ran each check.
+The orchestrator reviewed the diff against ADR 0084 Decision 4, ADR 0047 item 8 with its amendment, this packet and the [review checklist](../../reviews/adr-0084-review-checklist.md). The orchestrator also ran each check.
 
 - The projection, the preview cut, the composite, the Index states, the row click and the Index track description follow "Design". The renderer decides no state and no label. No stop condition fired.
 - The row click gave the fixed text "Track" when a track has no title. The orchestrator changed it to the track GUID, the same fallback as the search path.
@@ -404,3 +404,7 @@ The orchestrator reviewed the diff against ADR 0084 Decision 4, ADR 0047 item 8 
 - The orchestrator recorded the open gate in the pending checks and in the delivery order.
 
 Merge recommendation: pass. Packet 007, Releases, comes after the visual check.
+
+## Operator Check - 2026-10-17
+
+The operator walked V1 to V6 with a normal debug binary and a maximized window, and each step passed. The check used "Stray" and "Soundtrack to the coming apocalypse" for a long description, "My Love" for a short description and its track row, and "Chatti und Claude" for a Library release.
