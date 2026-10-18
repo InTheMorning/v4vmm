@@ -26,6 +26,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 5 | Search returns one entity one time | Search correction | Deployed in release 0.8.0 on 2026-10-08 |
 | 6 | A list of releases and of artists by name | API addition | Deployed in release 0.9.0 on 2026-10-18 |
 | 7 | The named feed rank and the release kind facts in each publisher relationship entry | API field addition | Deployed in release 0.11.0 on 2026-10-18, without `remote_release_kind` |
+| 8 | Each list row and each search row is complete | API rule and field additions | Wanted |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -120,6 +121,61 @@ The rank comes from the `position` of each `remote_items` entry, as `publisher_f
 The track count is a count of the items of the album.
 
 **What v4vmm does with it.** v4vmm ADR 0084 packet 008, the artist page, waits for these fields. The v4vmm operator decided on 2026-10-18 that the packet waits, and that the app sends no request for each album.
+
+### 8. Each List Row And Each Search Row Is Complete
+
+**What happens.** Stophammer already applies one rule in three decisions. One read of a row gives the facts that a client needs to show the row.
+
+- ADR 0042, Invariants: "A search result holds the fields that a client needs to show a row."
+- ADR 0059 (request 1): each entry that names a feed gives the title, the image and the artist of that feed.
+- ADR 0068, Alternatives: a batch route for the publisher facts is rejected, because "The row is the place a client already reads."
+- ADR 0069 §3a (request 7): the rank is on the row, so that a client does not read each album.
+
+The two name lists of ADR 0070 (release 0.9.0) and the search route do not apply this rule. The v4vmm orchestrator found four gaps on 2026-10-18. It read the contract of release 0.11.0 and sent read-only GET requests to `https://api.musicindex.org`.
+
+**A. An artist list row cannot be classified.** A `publisher` row of `GET /v1/artist-names` gives `name`, `key`, `sort_name`, `feed_guid` and `image_url`. It gives no link facts.
+
+The facts of ADR 0068 are only on `GET /v1/feeds/recent` with `include=link_facts`.
+Thus a client cannot tell an artist feed from a label feed in the name list. Sir Libre Records, with its agreed `label` links, is one example.
+
+**B. A release row names its artist, but gives no key.** A row of `GET /v1/feeds/by-name` and of `GET /v1/feeds/recent` gives `publisher_feed_title`, the title of the primary party. It gives no feed GUID, no rank and no role of that feed.
+A client can show the name. It cannot open the page of that feed or group the release by it, unless it reads each release.
+
+**C. A row gives a count, but no route lists the counted items.** A `name` row of `GET /v1/artist-names` gives `release_count`. No route lists those releases.
+`GET /v1/feeds/by-name` has no artist filter. `GET /v1/tracks?artist=` gives tracks, not releases, and matches the exact track artist only.
+
+**D. Search does not find a publisher feed.** On 2026-10-18, `GET /v1/search?q=Sir%20Libre&type=feed` gave one music feed that has no relation to Sir Libre Records.
+ADR 0038 states: "Public list and search endpoints return only feeds with `raw_medium = 'music'`." On 2026-10-01, the Stophammer operator removed the search part of ADR 0068 for this reason.
+Since then, `GET /v1/feeds/recent`, `GET /v1/feeds/by-name` and `GET /v1/artist-names` give publisher feeds. Only search keeps the rule.
+
+**Why the two clients need it.**
+
+- musicindex.org pays for gap A now. Its ADR 0010 item 7 reads the full publisher list on each visit: 1,772 feeds, 200 rows at a time.
+  `confirmPublisherRows` in `search.html` then reads `GET /v1/feeds/{guid}?include=publisher` for each row that states a role without agreement. This is the pattern that ADR 0068 rejected.
+- v4vmm ADR 0084 Decision 8 gives the Artists list and the Releases list a scope "Everything". Without A, that scope shows label feeds as artists, which v4vmm ADR 0085 Decision 2 forbids.
+  Without B, the Index singles cannot form a group, because v4vmm ADR 0084 Decision 6 keys a group on the artist feed.
+- Without C, the v4vmm name level page (ADR 0084 Decision 7) has no Index releases.
+- Without D, a curator and a site visitor cannot find a label by its name (v4vmm flow map finding 6).
+- The weakest part: musicindex.org uses no rank today, so only v4vmm needs the rank 1 count of A. C and D are a v4vmm need and a defect of the API itself. The site has no screen for them today.
+
+**Request.**
+
+1. A rule, recorded in one Stophammer ADR: each list row and each search row gives the facts that a client needs to show, classify and link the row, with no second read. A new route follows the rule at its design. Then a client does not find each gap after a release.
+2. Gap A: `include=link_facts` on `GET /v1/artist-names`, with the four fields of ADR 0068 on each `publisher` row.
+   Also `first_named_count`: the number of music feeds that give this feed `album_names_rank` 1. Null on a `name` row.
+3. Gap B: on each row of `GET /v1/feeds/by-name` and `GET /v1/feeds/recent`, the named feeds of the release.
+   Each item gives `feed_guid`, `album_names_rank`, `role` and `role_agreement`, as the `music_to_publisher` entries of `GET /v1/feeds/{guid}?include=publisher` give them. An include, for example `include=named_feeds`, is sufficient.
+4. Gap C: a filter `artist_key` on `GET /v1/feeds/by-name`. It gives the releases of the name level (ADR 0070 §4) whose `release_artist` has that sort key, the same set that `release_count` counts.
+5. Gap D: `type=publisher` on `GET /v1/search`, which finds feeds with the medium `publisher` by title. The values `feed` and `track` keep their present results.
+   This changes ADR 0038 and the operator decision of 2026-10-01. Stophammer decides it apart from items 1 to 4.
+6. A related correction: ADR 0070 §4 puts a release on the name level when each link has an agreed role set without `artist`.
+   v4vmm ADR 0085 Decision 6 uses the first named feed. The two rules give different results only for an album that names two feeds. `album_names_rank` lets Stophammer use the first named feed. Stophammer decides whether to align.
+
+The field names are a proposal. Stophammer selects the names in its own ADR.
+musicindex.org can add its own entry to `docs/plans/musicindex-open-requests.md` for items 1 and 2.
+
+**What v4vmm does with it.** v4vmm ADR 0084 packet 016 (the two scopes) and packet 017 (the name level page) wait for items 2 to 4. Packet 010 (search) waits for item 5.
+Until then, packet 010 can use `GET /v1/artist-names?from=` to find the start of a name. v4vmm sends no request for each row.
 
 ## Open Question
 

@@ -22,12 +22,14 @@ Music structure in [ADR 0084](docs/adr/0084-music-column-browser.md).
 Phase 4A builds ADR 0084 in the packets of the
 [ADR 0084 phase plan](docs/plans/adr-0084-music-column-browser-phase-plan.md). Music has one navigation stack, one page
 for each item, three columns, the six destinations and Discover.
-Packet 016, the scope control, is not written. Stophammer release 0.9.0 gave its name lists (request 6).
+Packets 016, the scopes, and 017, the name level, wait for Stophammer request 8. It asks for complete list and search rows.
 
 [ADR 0082 packet 003](docs/tasks/adr-0082-task-003-release-page-named-feeds.md), the named feeds of a release, is Ready.
 It builds [ADR 0085](docs/adr/0085-artists-by-confirmation.md) Decisions 5 and 6, and adds migration 19.
 [Packet 008](docs/tasks/adr-0084-task-008-feed-page-and-artists.md), the feed page and the Artists list, builds ADR 0085
-Decisions 1 to 4. It waits for packet 003. Stophammer release 0.11.0 gave its two facts. Packet 017, the name level, comes after it. Phase 4 and 5 packets carry the
+Decisions 1 to 4. It waits for packet 003. Stophammer release 0.11.0 gave its two facts. Packet 017 comes after it.
+
+Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
 
 Each file in `docs/tasks/` is open: it is Ready, or it waits for an operator check. Finished tasks are in
