@@ -25,6 +25,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 4 | Field renames are breaking changes | Release policy | Wanted |
 | 5 | Search returns one entity one time | Search correction | Deployed in release 0.8.0 on 2026-10-08 |
 | 6 | A list of releases and of artists by name | API addition | Deployed in release 0.9.0 on 2026-10-18 |
+| 7 | The named feed rank and the release kind facts in each publisher relationship entry | API field addition | Accepted on 2026-10-18, without `remote_release_kind` |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -93,6 +94,32 @@ v4vmm now drops a second hit of the same entity. That client fix does not correc
 - artists, with the publisher feed GUID when one exists, and the artist name
 
 A start text, for example `from=M`, would let a client open the list at a letter. The name order can use the normalization rule of the artist count (ADR 0049 §7).
+
+### 7. The Named Feed Rank And The Release Kind Facts In Each Publisher Relationship Entry
+
+Changed on 2026-10-18 to the scope that Stophammer accepted.
+
+**What happens.** On 2026-10-18, the v4vmm orchestrator read `PublisherResponse` in `src/query.rs` of release 0.10.0. A `publisher_to_music` entry gives `remote_feed_title`, `remote_feed_image_url`, `remote_release_artist` and `remote_release_artist_source` (request 1, ADR 0059).
+It gives no position of the publisher feed in the `<podcast:publisher>` element of the album. It also gives no `release_kind` and no track count of the album.
+
+Stophammer has the position: the `position` of each `remote_items` entry with `source` `podcast_publisher`. Stophammer uses the lowest position to select `publisher_feed_title`.
+
+**Why v4vmm needs it.** v4vmm ADR 0085 Decision 2 gives the level "Unverified artist" only to the primary named feed of an album, the first one in RSS sequence. ADR 0084 Decision 6 splits the releases of an artist page into "Albums and EPs" and "Singles".
+v4vmm decides the kind itself: the stated `release_kind` first, then the track count (ADR 0084 Decision 5). The artist page reads one `?include=publisher` response. Without these fields, it sends one more request for each album.
+
+**Request.** Add these fields to each `PublisherResponse` entry, for the album of the entry:
+
+| Field | Value |
+|---|---|
+| `album_names_rank` | The sequence number of this publisher feed among the feeds that the album names in `<podcast:publisher>`, from 1. Null when the album does not name the feed |
+| `remote_episode_count` | The track count of the album, as `episode_count` in `/v1/feeds/recent` |
+
+The request does not include `remote_release_kind`. Stophammer stores `unknown` as the `release_kind` of each feed, because RSS states no album, EP or single kind. v4vmm decides the kind from the track count.
+
+The rank comes from the `position` of each `remote_items` entry, as `publisher_feed_title` does. A raw position is not sufficient. The counter also counts other channel items, and one entry does not show the positions of the other named feeds.
+The track count is a count of the items of the album.
+
+**What v4vmm does with it.** v4vmm ADR 0084 packet 008, the artist page, waits for these fields. The v4vmm operator decided on 2026-10-18 that the packet waits, and that the app sends no request for each album.
 
 ## Open Question
 
@@ -296,6 +323,16 @@ Release 0.9.0 delivers request 6 (Stophammer ADR 0070). `GET /node/info` gives `
 - On 2026-10-18, the first artist list after a start of the node took about 7 seconds. A page from the copy in memory took less than 0.1 second.
 - The contract text of `album_names_as` gives `"publisher"` or null, as v4vmm asked at the check of release 0.7.0.
 - A feed that empties its payment routes or its remote items now signs an event. A community node then deletes the same rows.
+
+## Stophammer Answers - 2026-10-18
+
+**Request 7.** The report is correct. The Stophammer operator decided on 2026-10-18. The text of the request above now gives the accepted scope.
+
+- `album_names_rank` is accepted as Stophammer ADR 0069 §3a. The node counts the items of the album with the source `podcast_publisher`, in the sequence of their `position`. An item that names a feed that the node does not hold also counts, so the rank does not change when the node indexes another feed. The rank is null when `album_names_as` is null. The node derives no main artist from the rank. In the backup of 2026-09-26, 6 albums named more than one publisher feed.
+- `remote_episode_count` is accepted as an amendment of ADR 0059 §1. It is on each `publisher` and `remote_items` entry, as the other `remote_*` fields are. In the backup, 6,036 of the music feeds had exactly one track.
+- `remote_release_kind` is declined. Each of the 10,424 feeds in the backup, and each of the 200 newest feeds on the live API on 2026-10-18, gives `release_kind` `unknown`. The ingest writes that value, because RSS has no element that states album, EP or single. `itunes:type` gives `episodic` or `serial`. So v4vmm ADR 0084 Decision 5 can use the track count alone.
+
+A release record gives the release.
 
 ## Deferred, Not Requested Now
 
