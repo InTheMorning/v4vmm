@@ -132,6 +132,8 @@ Steps:
    3. The three-column shell: the destinations, the collapsible sidebar, Discover with "New releases", Needs attention and Playlists (Decisions 1 to 3). It deletes the sidebar tree and fixes finding 5.
    4. Releases: the kind of each release, the two scopes and the singles groups with their group page (Decisions 5, 6 and 8).
    5. The artist page with two levels and its scope (Decisions 7 and 8). It replaces the Library artist page by name and the name match page, and fixes finding 6.
+      The operator split it on 2026-10-18. [ADR 0084 packet 008](../tasks/adr-0084-task-008-feed-page-and-artists.md) builds the feed level and the Artists list. Packet 017 builds the name level, and replaces the two old pages.
+      Packet 010 fixes finding 6, and packet 016 adds the scope.
    6. Multiple selection and the action bar, with the reserved audition place in the row composite (Decisions 10 and 11). It fixes finding 3.
    7. Search results in the list column (Decision 2). Saved searches need storage first. The [ADR 0084 phase plan](adr-0084-music-column-browser-phase-plan.md) registers them as packet 012, by operator decision of 2026-10-16.
    8. The logo frame for collections (Decision 12).
@@ -248,10 +250,14 @@ The operator walked §2 and §19 on the one track page on 2026-10-07. They left 
 ### Phase 4: Publisher And Artist Pages
 
 - **§12 Library Artist View Without Artist Storage — ADR 0077 Task 001.** Owner: [task 001](../tasks/adr-0077-task-001-remove-dead-artist-storage.md).
+  - Carried by ADR 0084 packet 017, the name level page, from 2026-10-18.
   - Precondition: migration 13 deletes the stored artist rows. Make the SQLite backup before the first run of the new build.
   - V1: a Library artist view shows its tracks and albums, with no aliases, area, active years or source subjects.
   - A missing track, an empty view, or an error report is wrong.
 - **§20 Publisher Page And Navigation — ADR 0077 Task 004.** Owner: [task 004](../tasks/adr-0077-task-004-publisher-navigation-and-presentation.md).
+  - Carried from 2026-10-18: [ADR 0082 packet 003](../tasks/adr-0082-task-003-release-page-named-feeds.md) V2 carries the rest of V1, and V4 carries V2. [ADR 0084 packet 008](../tasks/adr-0084-task-008-feed-page-and-artists.md) V5 carries the failure part of V3.
+    Packet 008 V3 carries the "Not listed" mark of V4, V6 carries its derived count, and V8 carries V5.
+  - Retired: the type in V1 (ADR 0082 Decision 1), the two groups of V3 (ADR 0084 Decision 4), and the stated and assumed role text of V4 (ADR 0085 Decision 3).
   - Precondition: needs a Library album whose album hydration stored a `music_to_publisher` row. V3 changes the MusicIndex endpoint in Settings. Restore it after the check.
   - V1: an album page opens its publisher page, with its title, its type and its albums, in Light and Dark themes.
   - V2: a track page opens the publisher page of its album.
@@ -260,11 +266,13 @@ The operator walked §2 and §19 on the one track page on 2026-10-07. They left 
   - V5: normal and narrow widths show each element in its place, with no clipped text.
   - The Index track page shows no "Open publisher" action. The packet records this as a deviation.
 - **§21 Feed Owner Text And Name Grouping — ADR 0077 Task 005.** Owner: [task 005](../tasks/adr-0077-task-005-feed-owner-text-and-name-search.md).
+  - Carried from 2026-10-18: ADR 0082 packet 003 V5 carries V1. ADR 0084 packet 017 carries V3 and V4.
   - V1: an album page shows `publisher_text` as "Feed owner" text that opens nothing, in Light and Dark themes.
   - V3: a Library artist page without a publisher relationship shows "Grouped by name".
   - V4: normal and narrow widths show each element in its place, with no clipped text.
   - V2 cannot be walked. The name search of this packet reached only parked code. Section 23 (packet 006) replaces it. Its own rule moved to "Phase 4: Search" below.
 - **§28 Confirmed And Unconfirmed Artists — ADR 0077 Task 007.** Owner: [task 007](../tasks/adr-0077-task-007-confirmed-and-unconfirmed-artists.md).
+  - Carried from 2026-10-18: ADR 0084 packet 008 V6 carries V1 to V3, and V8 carries V4.
   - Precondition: the check only reads pages. It needs network access to `api.musicindex.org`.
   - V1: the DETOX publisher page shows "Artists that name this feed: 1" with the name, and the unconfirmed fact with 0.
   - V2: a publisher whose listed albums do not name it shows 0 confirmed artists and its unconfirmed artists with their names.

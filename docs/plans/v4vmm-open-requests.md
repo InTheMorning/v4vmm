@@ -25,7 +25,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 4 | Field renames are breaking changes | Release policy | Wanted |
 | 5 | Search returns one entity one time | Search correction | Deployed in release 0.8.0 on 2026-10-08 |
 | 6 | A list of releases and of artists by name | API addition | Deployed in release 0.9.0 on 2026-10-18 |
-| 7 | The named feed rank and the release kind facts in each publisher relationship entry | API field addition | Accepted on 2026-10-18, without `remote_release_kind` |
+| 7 | The named feed rank and the release kind facts in each publisher relationship entry | API field addition | Deployed in release 0.11.0 on 2026-10-18, without `remote_release_kind` |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -314,6 +314,15 @@ release record names the release that carries them.
 In the backup of 2026-09-26, 34 names had some releases with a publisher feed
 and some without. Such a name shows two times: one `publisher` row and one
 `name` row. 19 publisher feeds had no music feed, and each one has a row.
+
+## Release 0.11.0 - 2026-10-18
+
+Release 0.11.0 delivers request 7 (Stophammer ADR 0069 §3a and ADR 0059 §1). `GET /node/info` gives `git_revision` `99e90f7`.
+
+- Each `publisher` row gives `album_names_rank`. The DETOX publisher feed `137aaa9c-75ff-4916-9f23-e02968b2d15e` gives rank 1 on each of its 30 rows.
+- 6 albums name two publisher feeds. Each one gives rank 1 to the artist and rank 2 to Sir Libre Records, in both directions.
+- Each `publisher` and `remote_items` entry gives `remote_episode_count`.
+- The node gives no `remote_release_kind`, as the answer of 2026-10-18 states.
 
 ## Release 0.9.0 - 2026-10-18
 
