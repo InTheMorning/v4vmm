@@ -35,8 +35,7 @@ holds each open check. Walk a new check right after its packet. The procedures i
 regression checks.
 
 Ready packets include
-[ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md). ADR 0082 packet 002 is implemented.
-Its visual check is open.
+[ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md). ADR 0082 packet 002 is complete.
 
 Known open defects:
 

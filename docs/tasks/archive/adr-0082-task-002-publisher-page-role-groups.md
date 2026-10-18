@@ -1,7 +1,7 @@
 # ADR 0082 Task 002: Publisher Page Role Groups
 
 Status: Implemented - 2026-10-17. Cases R82-2-01 to R82-2-08 pass. Mechanical checks are Green.
-Its visual gate is open for V3 in [pending human checks](../pending-human-checks.md). V1, V2 and V4 retired on 2026-10-18, because [ADR 0085](../adr/0085-artists-by-confirmation.md) replaces the groups and the row role text. ADR 0078 moved to the archive with this packet.
+Complete - 2026-10-18. The operator passed V3 on 2026-10-18 with Faces Pale and Sir Libre Records. V1, V2 and V4 retired on 2026-10-18, because [ADR 0085](../../adr/0085-artists-by-confirmation.md) replaces the groups and the row role text. ADR 0078 moved to the archive with this packet.
 
 ## Goal
 
@@ -10,9 +10,9 @@ The header lists the agreed roles, and a section shows the feeds that share albu
 
 ## Authority
 
-- [ADR 0082](../adr/0082-publisher-roles-belong-to-each-album-link.md) Decisions 1 to 5. It supersedes [ADR 0078](../adr/archive/0078-publisher-page-type-from-stated-role.md).
-- [ADR 0077](../adr/0077-publisher-feed-artist-binding.md) Decisions 1 and 3, and its packets 003, 004 and 007.
-- The durable set in [AGENTS.md](../../AGENTS.md): renderer portability, element hierarchy, typed action state and token discipline.
+- [ADR 0082](../../adr/0082-publisher-roles-belong-to-each-album-link.md) Decisions 1 to 5. It supersedes [ADR 0078](../../adr/archive/0078-publisher-page-type-from-stated-role.md).
+- [ADR 0077](../../adr/0077-publisher-feed-artist-binding.md) Decisions 1 and 3, and its packets 003, 004 and 007.
+- The durable set in [AGENTS.md](../../../AGENTS.md): renderer portability, element hierarchy, typed action state and token discipline.
 
 ## Recorded Facts - 2026-10-02
 
@@ -88,7 +88,7 @@ These are for the operator. No test proves them. V1, V2 and V4 retired on 2026-1
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/view_models/publisher_page.rs`, `src/ui/shells/publisher.rs`, `src/app/publisher_dispatch.rs`.
 - `src/application/queries/feed.rs` and `src/application/queries/library.rs`: the page facts.
 - `tests/architecture_tests.rs`: the ADR 0077 publisher page guards.
@@ -140,10 +140,10 @@ Do not erase `/tmp/v4vmm-governance.ie6k8TQf`. Color alone is not a correct diff
 
 1. Find a publisher feed with one agreed role or more.
 2. Check the Recorded Facts of this packet and of
-   [packet 001](archive/adr-0082-task-001-contract-0-7-0-and-link-facts.md) first.
+   [packet 001](adr-0082-task-001-contract-0-7-0-and-link-facts.md) first.
    The DETOX feed gave only null `role_agreement` values on 2026-10-02.
-3. Check [the open Stophammer requests](../plans/v4vmm-open-requests.md) and
-   [the publisher feed research notes](../notes/2026-09-23-publisher-feed-artist-research.md)
+3. Check [the open Stophammer requests](../../plans/v4vmm-open-requests.md) and
+   [the publisher feed research notes](../../notes/2026-09-23-publisher-feed-artist-research.md)
    for a newer candidate.
 4. When those sources name no candidate, search a few Index publisher feeds.
    A feed with a two-way validated link and a stated role on both sides is a correct candidate.
@@ -167,8 +167,9 @@ Do not erase `/tmp/v4vmm-governance.ie6k8TQf`. Color alone is not a correct diff
 ### V3: "Shares albums with" shows when the list has entries, and each entry opens its publisher page
 
 1. Open a publisher page whose feed has one co-credited feed or more.
-2. Check the sources in V2, step 1, for a candidate.
-   A feed with several shared albums, under more than one publisher, is a correct candidate.
+2. A known candidate, recorded on 2026-10-18: search "Face Pale", open the release, and click its artist "Faces Pale"
+   (`66222b31-294a-4921-be38-f4fae1a61591`). Its page shares one album with "Sir Libre Records"
+   (`34bf795f-f551-4db1-8877-ad19aa5f89c8`). The Sir Libre Records page shares albums with Motive to Kill, Faces Pale and Crash Landing.
 3. Check that the page shows a "Shares albums with" section, below the album groups.
 4. Check that the section shows one row for each co-credited feed.
 5. Check that each row names its title, its roles and its shared album count.

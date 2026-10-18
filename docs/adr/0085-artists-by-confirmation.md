@@ -4,6 +4,8 @@
 
 Accepted - 2026-10-18. The operator asked for this decision, answered its open questions and accepted it on 2026-10-18.
 
+Amended 2026-10-18: the operator passed ADR 0082 packet 002 V3 with Sir Libre Records and found "Publisher of" over a role caption unclear. Decision 3 now gives one section for each relation, with "As <roles>" for a role other than artist, and one "Role not confirmed" section.
+
 It supersedes [ADR 0082](0082-publisher-roles-belong-to-each-album-link.md) Decisions 1, 2, 3 and 6.
 ADR 0082 Decisions 4 and 5 stay.
 It amends [ADR 0084](0084-music-column-browser.md) Decision 7: the publisher level becomes the feed level, and Decisions 5 and 6 of this ADR replace the "Publisher" link of the release page.
@@ -60,19 +62,27 @@ Each feed and each credit name in Artists has one level. The level comes from th
 - The Artists list shows no level word. Only the artist page shows the level (Decision 3).
 - "Unverified" tells that nothing confirms the role. The app uses "artist" as its default word for a named feed, not as a derived fact.
 
-### 3. The Artist Page Groups Releases By Kind
+### 3. Each Page Section Names One Relation
 
-The page of a feed has no type. It shows the level of Decision 2 in its header, in words.
+The page of a feed has no type. It shows the level of Decision 2 in its header, in words. Its releases go in these sections, in this sequence:
 
-- The releases that name the feed group by kind, as ADR 0084 Decision 6 gives: "Albums and EPs", then "Singles".
-- A release with a link that has `role_agreement` `one_side` or `conflict` shows one role line, with the source texts of ADR 0082 Decision 3 ("stated by the album only", "not confirmed").
-  In these texts, the page uses the feed title, not "this feed" and not "the publisher".
-- The releases that the feed lists and that do not name the feed (`album_names_as` is null) come last, under "Listed by <feed title>, not named by the album".
-- A release appears one time.
+| Section | Releases |
+|---|---|
+| "Albums and EPs", then "Singles" (ADR 0084 Decision 6) | The release names the feed, and the link has an agreed role set that contains `artist`, or no stated role. This is the discography of the feed |
+| "As <roles>", for example "As label" or "As label and producer" | The release names the feed, and the link has an agreed role set without `artist`. One section for each different role set |
+| "Role not confirmed" | The release names the feed, and the link has `role_agreement` `one_side` or `conflict` |
+| "Listed by <feed title> only" | The feed lists the release, and the release does not name the feed (`album_names_as` is null) |
+
+- No section heading names the relation "artist". On an artist page, the heading is the release kind.
+- An "As <roles>" heading gives the role words in alphabetical sequence. It writes the first word with a capital letter and joins the last two words with "and".
+  The role words come from the feeds. The app keeps no list of role words. Thus "label" and "recordLabel" are different words, and a link with each one is a conflict.
+- Each row in "Role not confirmed" tells who stated which role, by feed title. Examples: "Sir Libre Records: label · the album: recordLabel" and "The album: label · Sir Libre Records: no role".
+- A row in another section shows no role line. Its section already tells the relation.
+- A release appears one time. A section with no release is absent.
 
 ### 4. Other Roles Appear When A Feed States Them
 
-- When a link of the feed has an agreed role set without `artist`, its releases show under a "<roles> of" heading, for example "Label of". The role words come from the feed. The app keeps no list of role words.
+- An "As <roles>" section of Decision 3 shows only when a feed states a role other than `artist`.
 - The header lists the agreed roles, as ADR 0082 Decision 4 gives.
 - "Shares albums with" stays as ADR 0082 Decision 5 gives. Each row shows the feed title, its roles and the count of shared albums, with no source text.
 - A Labels destination is a subsequent decision. The operator makes it when many feeds have a label role.
@@ -125,6 +135,8 @@ The named feeds of an album keep the sequence of the RSS: the `position` of each
 
 - A page type from roles and from name matches, as the MusicIndex site does (site ADRs 0007 and 0010). Rejected: a name match derives a role (ADR 0075 Decision I), and a feed with five roles gets one layout.
 - Keep the word "publisher", with "<roles> of" headings for each relation. The orchestrator proposed it on 2026-10-18. Rejected by the operator: the word has more than one meaning, and the role headings are mostly empty while a small number of feeds state `rel`.
+- The heading "<Role> releases", for example "Label releases", or "<Role> of". Rejected by the operator on 2026-10-18 in favor of "As <roles>", which reads well with each role word.
+- Two sections for unconfirmed roles, "Role stated by one side" and "Roles differ". Rejected by the operator on 2026-10-18: each row already tells who stated what.
 - A level word on each Artists list row. Rejected by the operator on 2026-10-18: the word repeats on almost all rows.
 - Two sections in the Artists list, "Artists" and "Unverified artists". Rejected by the operator on 2026-10-18, in favor of the level on the artist page only.
 - The source text "albums give" on "Shares albums with" rows, as the MusicIndex site writes. Rejected by the operator on 2026-10-18: the row shows the roles only.
@@ -137,12 +149,12 @@ Mechanical, phrased at the owning layer:
 
 - A guard finds no interface string constant in `src/view_models` or `src/ui` that names a feed "publisher". The guard cites this ADR.
 - The artists view model gives the level of Decision 2 for each `role_agreement` and `album_names_as` combination. Its list rows expose no level text.
-- The artist page view model groups releases by kind, puts the listed releases last and puts each release one time.
+- The artist page view model gives the sections of Decision 3 in their sequence, with each release one time. A test uses the Sir Libre Records facts of 2026-10-18: 3 agreed `label` links, 3 conflicts of `label` and `recordLabel`, and 1 listed release.
 - The release page view model gives a role row only when the agreed role set does not contain `artist`.
 
 Visual, for the operator:
 
 - HeyCitizen shows "Artist" and its five roles. DETOX shows "Unverified artist". No screen shows the word "publisher".
-- A label feed shows its "Label of" heading, and its release shows the "Label:" row.
+- Sir Libre Records shows "As label", "Role not confirmed" and "Listed by Sir Libre Records only". Its release shows the "Label:" row.
 - The release view model gives the named feeds in their position sequence, and selects the artist feed by the rule of Decision 6.
 - A test with two named feeds and a newer observation of the second feed still selects the first feed.
