@@ -4023,12 +4023,14 @@ impl<'a> LibraryArtistDetailVm<'a> {
             .into_iter()
             .map(|(feed_id, (feed_title, tracks))| {
                 let feed_name = feed_title.unwrap_or_else(|| "Untitled Feed".to_string());
-                let first = tracks.first();
-                let thumb_url = first.and_then(|t| {
-                    t.album_image_href
-                        .clone()
-                        .or_else(|| t.track_image_href.clone())
-                });
+                // The first track can have no image while another track of
+                // the release has one. Read each track, as the Library tree
+                // does for `AlbumNode::image_href`: the album image first,
+                // then a track image.
+                let thumb_url = tracks
+                    .iter()
+                    .find_map(|t| t.album_image_href.clone())
+                    .or_else(|| tracks.iter().find_map(|t| t.track_image_href.clone()));
                 ArtistFeedSummaryVm {
                     feed_id,
                     feed_name,
@@ -5970,6 +5972,31 @@ mod tests {
         assert_eq!(display.title, "Single");
         assert_eq!(display.thumb_url.as_deref(), Some("single-img"));
         assert_eq!(display.track_count_label, "1 track");
+    }
+
+    /// The operator found on 2026-10-18 that "The Heycitizen Experience"
+    /// showed no cover on the artist page, because its first track has no
+    /// image. The cover comes from any track of the release.
+    #[test]
+    fn artist_detail_vm_thumb_url_reads_each_track_of_the_release() {
+        let first = track_for_feed(1, Some("A"));
+        let mut second = track_for_feed(1, Some("A"));
+        second.track_image_href = Some("track-img".into());
+        let mut third = track_for_feed(1, Some("A"));
+        third.album_image_href = Some("album-img".into());
+        let tracks = [first.clone(), second.clone()];
+        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
+        assert_eq!(
+            vm.feed_summaries()[0].thumb_url.as_deref(),
+            Some("track-img")
+        );
+
+        let tracks = [first, second, third];
+        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
+        assert_eq!(
+            vm.feed_summaries()[0].thumb_url.as_deref(),
+            Some("album-img")
+        );
     }
 
     #[test]

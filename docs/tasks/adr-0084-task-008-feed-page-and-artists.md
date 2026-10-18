@@ -43,6 +43,10 @@ The Artists list holds the confirmed artists, the unverified artists and the nam
   - `src/view_models/library.rs:72`, `:3608` and `:3641`: "Publisher must add payment routes." and the summary "n track(s) needs publisher routes".
 - The Show section and the startup reports use "publisher" for the `musicindex-live-publisher` broadcast service. That word names a service, not a feed. ADR 0085 Decision 1 does not apply to it.
 - ADR 0082 packet 003 adds `named_feeds.rs`, `role_words.rs`, migration 19 and the artist feed selection. This packet uses them.
+- The operator found two gaps on 2026-10-18, in the check of ADR 0082 packet 003:
+  - A release row of the feed page opens nothing. `render_album_row` in `src/ui/shells/publisher.rs` gives the row no `on_click`. `PublisherPageAlbumVm` has `feed_guid`, but no open action. ADR 0077 packet 004 recorded "Row navigation stays a follow-up", and no packet took it.
+  - The header shows the monogram "PB", because `render_header` gives `DetailHeader` no image. `PublisherPageFacts` has no image of the feed itself. The Index path (`publisher_page_facts_from_feed` in `src/application/queries/feed.rs`) does not read `api::Feed::image_url`.
+- One release route exists: `ReleaseKey::from_index_feed_guid` and `open_release_in_frame` in `src/app/search_dispatch.rs` (ADR 0084 Decision 4). The resolver opens the Library source when the Library holds the release.
 
 ## Design
 
@@ -148,6 +152,14 @@ Change each string below. Each new string is a named constant in its view model.
 - A feed row and a name row with the same label are two rows. The element id of a feed row comes from its feed GUID.
 - Sort the rows by the lowercase label.
 
+### The release rows and the header image
+
+- Each release row exposes a typed open action, with an accessibility label such as "Open the release Face Pale". The target is `ReleaseKey::from_index_feed_guid(feed_guid)`. The one release route then selects the Library source or the Index source (ADR 0084 Decision 4).
+- A row with no feed GUID has an unavailable action. The view model decides it, not the screen.
+- `publisher_dispatch.rs` passes an open-release callback to the screen, beside the present open-feed callback of "Shares albums with". It opens the route in the current frame, as a release row of a list does.
+- `PublisherPageFacts` gets `feed_image_url: Option<String>`. The Index path reads `api::Feed::image_url`. The Library path reads the stored image of the feed when the Library holds the feed, else the Index value.
+- The header shows that image through the present image path of the artist header (`src/ui/shells/artist.rs`). With no image, it keeps the monogram of its entity kind.
+
 ### The guard
 
 Add a situational guard to `tests/architecture_tests.rs`. It cites ADR 0085 Decision 1.
@@ -172,6 +184,7 @@ Use "feed", "artist" or the RSS element name. Only the Decision 7 frame title sa
 4. Change `src/ui/shells/publisher.rs` to compose the level fact and the sections. Use the present section header composite and its levels.
 5. Change `artists_list` to give the rows of "The Artists list".
 6. Add the guard. Delete each guard text of ADR 0082 Decisions 1 to 3 that this packet replaces.
+7. Add the open action of each release row, its callback, and the header image.
 
 ## Mechanical Acceptance Criteria
 
@@ -193,6 +206,8 @@ Use the prefix `adr_0085_feed_page_` for behavioral tests beside the owning code
 | R85-8-12 | The decode reads `album_names_rank` and `remote_episode_count` from a recorded response, and the stored 0.11.0 contract has them |
 | R85-8-13 | The guard of ADR 0085 Decision 1 passes, and a test string with the word "Publisher" in a scanned file fails it |
 | R85-8-14 | `frame_title()` gives "Artist" for the HeyCitizen and DETOX facts, and "Label" for the Sir Libre Records facts. A feed with rank 2 rows and no stated role gives "Publisher". A null rank gives "Feed", and so does a rank 2 row with a one-side `artist` role |
+| R85-8-15 | Each release row with a feed GUID exposes an available open action with the release key of that GUID and an accessibility label. A row with no feed GUID exposes an unavailable action |
+| R85-8-16 | The Index facts carry `image_url` of the feed response as `feed_image_url`, and the view model exposes it for the header |
 
 ## Visual Acceptance Criteria
 
@@ -207,6 +222,7 @@ These are for the operator. No test proves them.
 - V6: the DETOX page shows "Artists that name this feed: 1" with the name, and the unconfirmed fact with 0. A feed whose listed releases do not name it shows 0 and the unconfirmed names. The two labels read clearly. This carries §28 V1 to V3.
 - V7: the track page labels the feed owner "Feed owner". The RSS check report names the field "podcast:publisher". The readiness list says "The feed owner must add payment routes."
 - V8: normal and narrow widths, Light and Dark themes, and the larger type sizes show each element in its place, with no clipped text. The section headers are stronger than the row text. This carries §20 V5 and §28 V4.
+- V9: a click on a release row of a feed page opens that release page, from the Library and from the Index. Back returns to the feed page. The HeyCitizen header shows the feed image, not "PB". Found by the operator on 2026-10-18.
 
 ADR 0085 Decision 3 retires the stated and assumed role text of §20 V4. ADR 0084 Decision 4 retires the "two groups" part of §20 V3.
 
@@ -248,7 +264,7 @@ Revert the commit. This packet adds no migration and no stored data.
 
 ## Operator Visual Check
 
-The implementer writes this section at completion. It gives numbered steps for V1 to V8.
+The implementer writes this section at completion. It gives numbered steps for V1 to V9.
 It states the needed state, what counts as wrong, and the cleanup. V5 changes the MusicIndex endpoint in Settings, and its cleanup restores it.
 Do not delete `/tmp/v4vmm-governance.ie6k8TQf`. Color alone is not a valid difference.
 
@@ -282,9 +298,9 @@ Do not touch:
 - The Stophammer checkout at `../stophammer`.
 
 Acceptance criteria:
-- Each case R85-8-01 to R85-8-14 has a passing test or guard.
+- Each case R85-8-01 to R85-8-16 has a passing test or guard.
 - Each command in "Checks" is Green, and `cargo check --all-targets` gives no warning.
-- The packet has an "Operator visual check" section for V1 to V8.
+- The packet has an "Operator visual check" section for V1 to V9.
 
 At the end, report:
 1. files changed

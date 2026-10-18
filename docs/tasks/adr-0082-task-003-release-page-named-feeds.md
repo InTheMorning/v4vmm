@@ -1,7 +1,9 @@
 # ADR 0082 Task 003: The Named Feeds Of A Release
 
 Status: Implemented - 2026-10-18. Cases R85-3-01 to R85-3-17 pass. Mechanical checks are Green.
-The visual gate is open. No person walked V1 to V7.
+
+Operator check - 2026-10-18: the operator passed V1 and V3 with the debug build. V2 and V4 to V7 stay open.
+The visual gate stays open.
 
 ## Goal
 

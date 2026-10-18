@@ -164,5 +164,7 @@ Open - implementation and mechanical checks are complete on 2026-10-18. Operator
 
 - Owner: [task 003](tasks/adr-0082-task-003-release-page-named-feeds.md#operator-visual-check).
 - Precondition: migration 19 adds one column. Make the SQLite backup of step 1 before the first run of the new build. The check needs network access to `api.musicindex.org`.
-- V1 to V4: the role row of Sir Libre Records, the HeyCitizen and DETOX artist links, and the track page link.
+- V1 and V3 passed on 2026-10-18.
+- V2 and V4: the HeyCitizen artist link, and the track page link.
 - V5 to V7: "Feed owner", the Library links after the migration, and the widths, themes and type sizes.
+- Fix of 2026-10-18: the Library artist page of HeyCitizen shows the cover of "The Heycitizen Experience", not "FD". `LibraryArtistDetailVm::feed_summaries` now reads the image of each track.
