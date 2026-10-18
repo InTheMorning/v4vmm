@@ -164,7 +164,5 @@ Open - implementation and mechanical checks are complete on 2026-10-17. Operator
 
 - Owner: [task 002](tasks/adr-0082-task-002-publisher-page-role-groups.md#operator-visual-check).
 - Scheduling: walk it before ADR 0084 packet 008 starts. The check only reads pages. It needs network access to `api.musicindex.org`.
-- V1: the DETOX publisher page shows "Publisher of", with its albums under "Role not stated", and no type.
-- V2: a publisher with agreed roles shows each role subgroup and the header roles.
+- V1, V2 and V4 retired on 2026-10-18. [ADR 0085](adr/0085-artists-by-confirmation.md) replaces the groups and the row role text. ADR 0084 packet 008 carries the new checks.
 - V3: "Shares albums with" shows when the list has entries, and each entry opens its publisher page.
-- V4: normal and narrow widths, Light and Dark themes, and the larger type sizes show each element in its place, with no clipped text.

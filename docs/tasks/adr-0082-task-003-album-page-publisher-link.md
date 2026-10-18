@@ -1,6 +1,6 @@
 # ADR 0082 Task 003: Album Page Publisher Link
 
-Status: Ready - 2026-10-02. It runs after [packet 001](archive/adr-0082-task-001-contract-0-7-0-and-link-facts.md). Implementation has not started.
+Status: Blocked - 2026-10-18. [ADR 0085](../adr/0085-artists-by-confirmation.md) Decisions 5 and 6 replace the publisher link of this packet. The orchestrator rewrites this packet before it starts. Implementation has not started.
 Its visual gate opens when the implementation is complete. Visual checks are paused, so the gate stays open.
 
 ## Goal

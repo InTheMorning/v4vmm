@@ -45,7 +45,7 @@ pub use label::{Label, LabelVariant};
 pub use loading::LoadingMessage;
 pub use multiline_text::MultilineText;
 pub use popover::{Popover, PopoverAlignment, PopoverPlacement};
-pub use section_header::SectionHeader;
+pub use section_header::{SectionHeader, SectionHeaderLevel};
 pub use skeleton::Skeleton;
 pub use stack::{HStack, Spacer, StackAlignment, VStack, ZStack};
 pub use surface::{Surface, SurfaceElevation};

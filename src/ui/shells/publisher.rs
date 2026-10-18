@@ -23,7 +23,7 @@ use crate::ui::composites::{
     DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay, EntityKind, ListRow, ListRowA11yLabel,
     TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize,
 };
-use crate::ui::primitives::{Label, LabelVariant, SectionHeader};
+use crate::ui::primitives::{Label, LabelVariant, SectionHeader, SectionHeaderLevel};
 use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Spacing};
 use crate::view_models::publisher_page::{
     AlbumNameGroupVm, AlbumRoleDisplay, AlbumRoleSubgroupVm, CoCreditedFeedVm, OtherAlbumsStatus,
@@ -117,20 +117,18 @@ fn render_groups(
             if let OtherAlbumsStatus::Unavailable { report, detail } = vm.other_albums_status() {
                 sections = sections.child(unavailable_notice(report, &detail, cx));
             }
-            sections = sections.child(scope_section(
-                PublisherPageVm::LIBRARY_SCOPE_LABEL,
-                &vm.library_groups(),
-                mark_in_library,
-                album_thumbs,
-                cx,
-            ));
-            sections = sections.child(scope_section(
-                PublisherPageVm::OTHER_SCOPE_LABEL,
-                &vm.other_groups(),
-                mark_in_library,
-                album_thumbs,
-                cx,
-            ));
+            // ADR 0082 packet 002 correction: `library_scopes` already
+            // drops an empty scope. This loop decides no emptiness of its
+            // own.
+            for scope in vm.library_scopes() {
+                sections = sections.child(scope_section(
+                    scope.label,
+                    &scope.groups,
+                    mark_in_library,
+                    album_thumbs,
+                    cx,
+                ));
+            }
         }
         PublisherPageContext::Index => {
             for group in &vm.index_groups() {
@@ -193,7 +191,7 @@ fn scope_section(
         .flex()
         .flex_col()
         .gap(Spacing::SM.scaled(cx))
-        .child(SectionHeader::new(label))
+        .child(SectionHeader::new(label).level(SectionHeaderLevel::Container))
         .child(body)
         .into_any_element()
 }
@@ -332,13 +330,15 @@ fn title_display_text(title: &TitleDisplay) -> (String, Option<&'static str>) {
 
 /// A row's role text and source, ready to view (ADR 0082 Decision 3). A
 /// conflict shows in a warning tone. A stated role (agreed or one-side)
-/// shows in an accent tone. An unstated role shows in a quiet tone. Color
-/// alone is not the only difference: the text itself names the state.
+/// shows in a plain secondary tone, never the accent tone of a clickable
+/// item: this text opens nothing. An unstated role shows in a quiet tone.
+/// Color alone is not the only difference: the text itself names the
+/// state.
 fn render_role(role: &AlbumRoleDisplay) -> AnyElement {
     let tone = if role.is_conflict() {
         SemanticColor::WarningLabel
     } else if role.is_stated() {
-        SemanticColor::Accent
+        SemanticColor::SecondaryLabel
     } else {
         SemanticColor::TertiaryLabel
     };

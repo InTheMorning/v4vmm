@@ -20,6 +20,8 @@ It amends these decisions:
 - [ADR 0082](0082-publisher-roles-belong-to-each-album-link.md) Decision 2: each group of a publisher page divides its releases by kind (Decision 6).
 - [ADR 0083](0083-design-language.md): Decision 9 is superseded by Decision 3 of this ADR. Decisions 4, 5 and 6 gain the additions of Decisions 12, 5 and 10.
 
+Amended 2026-10-18 by [ADR 0085](0085-artists-by-confirmation.md): in Decision 7, the publisher level is the feed level, and ADR 0085 Decisions 5 and 6 replace the "Publisher" link and the label rule. ADR 0085 Decision 3 groups the releases of an artist page by kind.
+
 Amended 2026-10-17 by operator decision: Decision 1 adds a visible scrollbar to each Music column that scrolls. [Task 014](../tasks/archive/adr-0084-task-014-music-column-scrollbars.md) builds it.
 
 ## Context
@@ -121,12 +123,10 @@ The group key is the artist identity of Decision 7. Two artists with the same na
 
 An artist page has one layout and one of two identities. The page says which identity it has.
 
-- **Publisher level.** The page of a publisher feed, keyed by its feed GUID ([ADR 0077](0077-publisher-feed-artist-binding.md) Decision 1). It shows the feed title, and the groups and roles of [ADR 0082](0082-publisher-roles-belong-to-each-album-link.md).
+- **Feed level.** The page of a feed that albums name, keyed by its feed GUID ([ADR 0077](0077-publisher-feed-artist-binding.md) Decision 1). It shows the feed title, its confirmation level and the releases of [ADR 0085](0085-artists-by-confirmation.md) Decisions 2 to 4.
 - **Name level.** A labeled grouping of the releases that name an artist text and name no publisher feed, for example "Releases that name Ledbetter". The page says that a name is not an identity, and it never merges with a publisher page.
 
-The artist name on a release page opens the publisher level when the release names its publisher feed ([ADR 0077](0077-publisher-feed-artist-binding.md) Decision 2). Otherwise it opens the name level. The "Publisher" link stays ([ADR 0082](0082-publisher-roles-belong-to-each-album-link.md) Decision 6).
-
-The operator decided on 2026-10-08: when the agreed role of the link does not include artist, for example a label, the artist name opens the name level, and only the "Publisher" link opens the publisher page.
+The artist name on a release page opens the feed level of the artist feed of [ADR 0085](0085-artists-by-confirmation.md) Decision 6. When the release names no feed, it opens the name level. ADR 0085 Decisions 5 and 6 give the role rows and the "Also named" rows of the other named feeds.
 
 This replaces the Library artist page by name and the Index name match page.
 

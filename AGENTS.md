@@ -23,8 +23,8 @@ Phase 4A builds ADR 0084 in the packets of the
 [ADR 0084 phase plan](docs/plans/adr-0084-music-column-browser-phase-plan.md). Music has one navigation stack, one page
 for each item, three columns, the six destinations and Discover.
 Packet 016 waits for Stophammer request 6.
-Packet 008, the artist page, comes next after
-[ADR 0082 packet 003](docs/plans/adr-0082-publisher-roles-phase-plan.md). Phase 4 and 5 packets carry the
+Packet 008, the artist page, builds [ADR 0085](docs/adr/0085-artists-by-confirmation.md), and it is written next.
+[ADR 0082 packet 003](docs/plans/adr-0082-publisher-roles-phase-plan.md) needs a rewrite for ADR 0085 before it starts. Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
 
 Each file in `docs/tasks/` is open: it is Ready, or it waits for an operator check. Finished tasks are in
@@ -34,7 +34,7 @@ The operator resumed visual checks on 2026-10-02. [Pending human checks](docs/pe
 holds each open check. Walk a new check right after its packet. The procedures in `docs/runbooks/` stay
 regression checks.
 
-Ready packets include [ADR 0082 packet 003](docs/plans/adr-0082-publisher-roles-phase-plan.md) and
+Ready packets include
 [ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md). ADR 0082 packet 002 is implemented.
 Its visual check is open.
 
@@ -69,6 +69,9 @@ cannot act is absent, not disabled.
 
 **One page for each item.** Music is a column browser. Each release, track, artist and playlist has one
 page, whatever its origin. The Library is a state that each page and list shows, not a place. ADR 0084.
+
+**Artists, not publishers.** The interface never calls a feed a "publisher". A feed that
+albums name is an artist, confirmed or unverified, and other roles show when a feed states them. ADR 0085.
 
 **Provenance first.** Provenance is the element in the RSS document that
 asserted a value: the channel, the item, or a person. MusicIndex is a cache of

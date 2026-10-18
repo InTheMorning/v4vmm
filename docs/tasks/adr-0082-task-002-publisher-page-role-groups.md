@@ -1,7 +1,7 @@
 # ADR 0082 Task 002: Publisher Page Role Groups
 
 Status: Implemented - 2026-10-17. Cases R82-2-01 to R82-2-08 pass. Mechanical checks are Green.
-Its visual gate is open for V1 to V4 in [pending human checks](../pending-human-checks.md). ADR 0078 moved to the archive with this packet.
+Its visual gate is open for V3 in [pending human checks](../pending-human-checks.md). V1, V2 and V4 retired on 2026-10-18, because [ADR 0085](../adr/0085-artists-by-confirmation.md) replaces the groups and the row role text. ADR 0078 moved to the archive with this packet.
 
 ## Goal
 
@@ -74,7 +74,7 @@ Use the prefix `adr_0082_role_groups_` for behavioral tests beside the owning co
 
 ## Visual Acceptance Criteria
 
-These are for the operator. No test proves them.
+These are for the operator. No test proves them. V1, V2 and V4 retired on 2026-10-18 by ADR 0085. V3 stays open.
 
 - V1: the DETOX publisher page shows "Publisher of", with its albums under "Role not stated", and no type.
 - V2: a publisher with agreed roles shows each role subgroup and the header roles.
@@ -193,11 +193,31 @@ Do not erase `/tmp/v4vmm-governance.ie6k8TQf`. Color alone is not a correct diff
    no clipped text.
 7. Check the group captions, the role subgroup captions and the row role text.
 8. Check the header "Roles:" row and the "Shares albums with" entries.
-9. Wrong: a caption or a row role text is cut off mid-word, with no visual sign.
-10. Wrong: two elements overlap.
-11. Wrong: a role or a confirmation condition reads only through color, with no text
+9. On the Library page, check the scope heading ("Library Albums" or "Other Albums").
+   It must be visibly stronger than the group heading ("Publisher of" or "Listed, not
+   named") below it.
+10. Check that the group heading is visibly stronger than the role subgroup caption below
+    it.
+11. Wrong: a caption or a row role text is cut off mid-word, with no visual sign.
+12. Wrong: two elements overlap.
+13. Wrong: a role or a confirmation condition reads only through color, with no text
     difference.
-12. Cleanup: restore the window to its earlier size and theme.
+14. Wrong: the scope heading, the group heading and the subgroup caption look the same
+    strength.
+15. Cleanup: restore the window to its earlier size and theme.
+
+### Operator correction - 2026-10-17
+
+The operator walked V2 on the HeyCitizen publisher page, Library scope, and found three
+defects. Each one is now fixed.
+
+- The empty "Other Albums" heading is gone. The view model gives the screen only the
+  non-empty scopes, through a new `library_scopes()` method.
+- The scope heading, the group heading and the role subgroup caption now show a visible
+  level difference. `SectionHeader` gained a typed `SectionHeaderLevel`, and the Library
+  scope headings use its stronger `Container` level.
+- The row role text no longer uses the accent tone of a clickable item. A stated role now
+  shows in a plain secondary tone.
 
 ## Prompt for lower-context coding model
 

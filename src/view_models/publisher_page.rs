@@ -493,6 +493,16 @@ pub(crate) struct AlbumNameGroupVm {
     pub(crate) subgroups: Vec<AlbumRoleSubgroupVm>,
 }
 
+/// One Library page scope, with its groups, ready to view (ADR 0082
+/// packet 002 correction). `PublisherPageVm::library_scopes` never gives
+/// one with no group: an empty scope is absent, the same as an empty
+/// group or subgroup.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PublisherPageScopeVm {
+    pub(crate) label: &'static str,
+    pub(crate) groups: Vec<AlbumNameGroupVm>,
+}
+
 /// The derived artist count of a publisher feed (ADR 0077 Task 007).
 /// `MusicIndex` derives it from album credits.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -669,6 +679,23 @@ impl PublisherPageVm {
             .cloned()
             .collect();
         Self::album_name_groups(&albums)
+    }
+
+    /// The Library page's scopes, in order (ADR 0082 packet 002
+    /// correction): the Library scope, then the other scope. A scope with
+    /// no group is absent, the same as an empty group or subgroup. The
+    /// screen decides no emptiness of its own: it shows exactly the
+    /// scopes this method gives.
+    #[must_use]
+    pub(crate) fn library_scopes(&self) -> Vec<PublisherPageScopeVm> {
+        [
+            (Self::LIBRARY_SCOPE_LABEL, self.library_groups()),
+            (Self::OTHER_SCOPE_LABEL, self.other_groups()),
+        ]
+        .into_iter()
+        .filter(|(_, groups)| !groups.is_empty())
+        .map(|(label, groups)| PublisherPageScopeVm { label, groups })
+        .collect()
     }
 
     /// R3-11, R7-05 (ADR 0077 Task 007): the confirmed artist count.
@@ -1417,6 +1444,57 @@ mod tests {
         assert_eq!(library, vec![Some("local".to_owned())]);
         assert_eq!(other, vec![Some("remote".to_owned())]);
         assert_eq!(vm.other_albums_status(), OtherAlbumsStatus::Loaded);
+    }
+
+    /// Orchestrator review: an empty scope is absent, the same as an
+    /// empty group or subgroup. A Library page with no "other" album must
+    /// give the Library scope only.
+    #[test]
+    fn adr_0082_role_groups_empty_scope_is_absent() {
+        let mut local = album_with_guid("local", None, None, None);
+        local.in_library = true;
+        let vm = PublisherPageVm::new(facts(vec![local]));
+
+        let scopes = vm.library_scopes();
+
+        assert_eq!(scopes.len(), 1, "the empty Other Albums scope is absent");
+        assert_eq!(scopes[0].label, PublisherPageVm::LIBRARY_SCOPE_LABEL);
+        assert_eq!(
+            flatten(&scopes[0].groups)
+                .into_iter()
+                .map(|album| album.feed_guid)
+                .collect::<Vec<_>>(),
+            vec![Some("local".to_owned())]
+        );
+    }
+
+    /// Orchestrator review: a scope with no group is absent even when the
+    /// `other_albums_status` notice shows. The notice and the scope list
+    /// are two separate facts: a failed request still leaves the Library
+    /// scope, and still gives an empty, so absent, other scope.
+    #[test]
+    fn adr_0082_role_groups_empty_scope_is_absent_when_other_albums_fail() {
+        let mut local = album_with_guid("local", None, None, None);
+        local.in_library = true;
+        let mut page_facts = facts(vec![local]);
+        page_facts.other_albums_failure = Some("HTTP 503 from /v1/feeds/p".into());
+        let vm = PublisherPageVm::new(page_facts);
+
+        let scopes = vm.library_scopes();
+
+        assert_eq!(
+            scopes.len(),
+            1,
+            "the other scope is still absent, and the notice is a separate fact"
+        );
+        assert_eq!(
+            vm.other_albums_status(),
+            OtherAlbumsStatus::Unavailable {
+                report: OtherAlbumsStatus::UNAVAILABLE_REPORT,
+                detail: "HTTP 503 from /v1/feeds/p".into(),
+            },
+            "the notice still shows, apart from the scope list"
+        );
     }
 
     /// R4-04: the page title text is the view model title, from the
