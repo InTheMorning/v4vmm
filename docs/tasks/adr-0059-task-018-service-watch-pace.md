@@ -1,6 +1,6 @@
 # ADR 0059 Task 018: The Service Watch Reads At The Pace Of Its Viewer
 
-Status: Ready - 2026-10-18. Implementation has not started.
+Status: Implemented - 2026-10-18. Cases R59-18-01 to R59-18-08 pass. Mechanical checks are Green. The visual gate is open.
 
 ## Goal
 
@@ -131,14 +131,168 @@ cargo build --bin v4vmm
 
 Revert the commit. This packet adds no migration and no stored data.
 
+## Implementation Result - 2026-10-18
+
+Files changed:
+
+- `src/runtime/broadcast_service_watch.rs`: added `BroadcastServiceWatchPace`, its three named
+  interval constants, `BroadcastServiceWatchCommand::SetPace`, `BroadcastServiceWatchHandle::set_pace`,
+  and the pace-aware read loop. Removed `BROADCAST_SERVICE_POLL_INTERVAL`. The loop tracks the
+  last encoder read time with `tokio::time::Instant` and carries the last encoder snapshot over a
+  unit-only tick. Added the `adr_0059_watch_pace_` tests and a `CountingBroadcastStatusReader` fake.
+- `src/view_models/show.rs`: `ShowCommandState::observe` returns `true` when a waiting command ends.
+  Added `ShowCommandState::has_waiting`, the pace function `broadcast_service_watch_pace`, and the
+  redraw function `broadcast_service_snapshot_redraw`. Added `adr_0059_watch_pace_` tests for the
+  pace function, the redraw function, and the three-fresh-read release at the `Viewed` pace.
+- `src/presentation/gpui_vm_bridge.rs` and `src/presentation/mod.rs`: added `bridge_watch_with_redraw`,
+  which calls `cx.notify()` only when `apply` returns `true`. `bridge_watch` calls it with an
+  `apply` that always returns `true`, so each other caller keeps its initial behavior.
+- `src/app.rs`: added the `broadcast_service_watch_pace` field, its start value, and the
+  `BroadcastServiceWatchPace` import. `select_tab` sends the pace after it sets the tab and focuses it.
+- `src/app/show.rs`: `apply_publisher_service_snapshot` returns the redraw decision and calls
+  `sync_broadcast_service_watch_pace` after `observe`. Added `sync_broadcast_service_watch_pace`,
+  which sends the watch a changed pace only. `maybe_start_broadcast_service_watch` uses
+  `bridge_watch_with_redraw`, and sends the pace again after it starts the watch.
+  `open_broadcast_readiness_in_music` sends the pace after it sets the tab to Music.
+- `src/runtime/mod.rs`: exported `BroadcastServiceWatchPace`.
+- `Cargo.toml`: added a `tokio` dev-dependency with the `test-util` feature, so a test can pause and
+  read `tokio::time::Instant`. The production binary does not include this feature.
+- `docs/tasks/adr-0059-task-018-service-watch-pace.md`: this packet. The Status line, this section,
+  and the Operator Visual Check section below.
+
+Behavior changed:
+
+- Outside Show, with no Show command waiting, the watch reads each unit and the encoder each 10
+  seconds (`Background` pace). Before this change, it read each one each second.
+- In Show, or with a Show command waiting, the watch reads each unit each second and the encoder
+  each 5 seconds (`Viewed` pace).
+- A change of pace to `Viewed` reads all services at once, so Show never shows a value older than
+  its new pace.
+- `refresh_now` still reads the units and the encoder at once, at either pace.
+- The app redraws only when a unit's state, the encoder's status, or a command's progress changes.
+  A tick that only changes the read time no longer redraws.
+
+Checks:
+
+| Check | Result |
+|---|---|
+| `cargo test --lib adr_0059_watch_pace_` | Green. 8 passed. |
+| `cargo test` | Green. 1937 lib tests, 317 architecture tests, 10 ignored doc tests. |
+| `cargo test --test architecture_tests` | Green. 317 passed. |
+| `cargo fmt -- --check` | Green after one `cargo fmt` pass fixed three wrapped lines its own formatter had not yet seen. |
+| `cargo clippy -- -D warnings` | Green. No warning. |
+| `cargo check --all-targets` | Green. No warning. |
+| `cargo build --bin v4vmm` | Green. See its own result below. |
+
+Deviations from the task:
+
+- Added the `tokio` `test-util` dev-dependency to `Cargo.toml`. The packet does not name this file.
+  The watch tests need `tokio::time::pause` and `#[tokio::test(start_paused = true)]`. Without this
+  feature, Tokio removes each one from the compiled test code. This dependency change applies to
+  tests only. The production binary does not include it.
+- `maybe_start_broadcast_service_watch` sends the pace again after it starts the watch. The Design
+  section names only `select_tab`, `open_broadcast_readiness_in_music`, and each `observe` as senders.
+  A config change can restart the watch while Show is open, or while a command waits. The restarted
+  watch always starts at `Background`. Without this added send, that one condition would stay at
+  `Background` until the next section change or `observe`.
+- `ShowCommandState::observe` and `apply_publisher_service_snapshot` return the changed boolean
+  values the packet describes, so each caller gets the fact it needs. R59-18-07 is proved against
+  the extracted `broadcast_service_snapshot_redraw` function, not against
+  `apply_publisher_service_snapshot` directly. That method takes a GPUI `Context<TopApp>`, and no
+  fixture in this project builds a full `TopApp` in a test. `apply_publisher_service_snapshot` is a
+  thin wrapper around the tested function, the stored snapshot, the reprojection, and the log read,
+  in the sequence the packet names.
+
+Unresolved concerns:
+
+- The V1 `butt -S` count in the Operator Visual Check below polls each 0.05 seconds. A `butt -S`
+  invocation shorter than that can be missed. The section names a more accurate alternative.
+- No person walked the Operator Visual Check. The visual gate stays open.
+
 ## Operator Visual Check
 
-The implementer writes this section at completion. It gives numbered steps for V1 to V3.
-
-V1 measures the processor load with `top -b -d 5 -n 6 -p "$(pgrep -n v4vmm)"` in Music, before and after the change, with the same binary type. It also counts `butt -S` starts over 60 seconds, for example with `pgrep -f 'butt -S'` in a loop, or with the process accounting tool that the implementer names.
-
-V2 and V3 need the configured publisher unit, the producer unit and `butt`. The cleanup returns each service to its state before the check.
+V1, V2, and V3 are open. No test proves them. Follow each numbered list at a terminal in a desktop
+session. Do not run `cargo run` or any other display attempt. That rule stands.
 Do not delete `/tmp/v4vmm-governance.ie6k8TQf`.
+
+### V1: processor load and `butt` starts in Music
+
+Needed state: the configured publisher unit, the producer unit, and `butt` are all reachable, as in
+normal use. Pick one binary type (debug or release) and use that same type for both runs.
+
+1. Build the binary: `cargo build --bin v4vmm` (debug) or `cargo build --release --bin v4vmm`
+   (release).
+2. Start v4vmm and open Music. Leave it open and idle.
+3. Find its process ID: `pgrep -n v4vmm`.
+4. Measure processor load for 30 seconds: `top -b -d 5 -n 6 -p "$(pgrep -n v4vmm)"`.
+5. Save this script as `count_butt_starts.sh` and run it with `bash count_butt_starts.sh`. It counts
+   each new `butt -S` process over 60 seconds:
+
+   ```bash
+   #!/usr/bin/env bash
+   rm -f /tmp/butt-s-starts.seen
+   touch /tmp/butt-s-starts.seen
+   end=$((SECONDS + 60))
+   while [ "$SECONDS" -lt "$end" ]; do
+     for pid in $(pgrep -f "butt -S" 2>/dev/null); do
+       if ! grep -qx "$pid" /tmp/butt-s-starts.seen 2>/dev/null; then
+         echo "$pid" >> /tmp/butt-s-starts.seen
+       fi
+     done
+     sleep 0.05
+   done
+   echo "butt -S starts in 60 seconds: $(wc -l < /tmp/butt-s-starts.seen)"
+   ```
+
+   For a more exact count, use a process accounting tool such as `execsnoop-bpfcc` instead, filtered
+   to `butt`.
+6. Repeat steps 3 to 5 while Show is open. Compare the two results.
+
+What would count as wrong: the processor load in Music stays as high as the 2026-10-16 profile (72%
+of samples busy over 41 seconds). The script reports more than about 6 `butt -S` starts in Music over
+60 seconds (more than roughly once each 10 seconds). The fan runs as fast in Music as in Show.
+
+Cleanup: the script stops on its own after 60 seconds. Remove its temporary file:
+`rm -f /tmp/butt-s-starts.seen count_butt_starts.sh`. Close v4vmm.
+
+### V2: Show shows the current state at once
+
+Needed state: the configured publisher unit, the producer unit, and `butt` are all reachable. You
+can start, stop, or connect each one from outside the app, for example with `systemctl --user` and a
+`butt -S` or connect command.
+
+1. Start v4vmm. Open Music or Settings.
+2. Leave it open for 15 seconds or more. The watch then settles at the `Background` pace.
+3. Outside the app, change one service: stop or start the publisher unit, or connect or disconnect
+   `butt`.
+4. In the app, select Show. Record the time of this step.
+5. Watch the Live Metadata section's publisher and producer rows, and the Stream section.
+
+What would count as wrong: the Live Metadata section still shows the state from before step 3.
+This is wrong only if it stays for more than about 1 second after you open Show. The Stream section
+still shows the old connection state for more than about 5 seconds after you open Show.
+
+Cleanup: return each service to the state it had before step 3. Close v4vmm.
+
+### V3: a command started in Show still ends with its result
+
+Needed state: the configured publisher unit is reachable, and is in a state where "Start publisher"
+or "Stop publisher" has a real effect (for example, stopped, so Start changes it).
+
+1. Start v4vmm and open Show.
+2. Press "Start publisher" (or "Stop publisher" if the unit is already active).
+3. Confirm the button shows a working state right after the press.
+4. Before the command finishes, switch to Music or Settings.
+5. Wait about 10 seconds.
+6. Switch back to Show.
+7. When Settings shows a publisher recovery action, for example "Start publisher", stay in Settings and press it.
+8. Check that its result shows within a few seconds.
+
+What would count as wrong: the button still shows "working" long after the unit actually started or
+stopped. The Live Metadata section shows a state that disagrees with the unit's real state, checked
+with `systemctl --user status`. The command's result (success or failure) never reaches Show. The Settings action of step 7 shows no result for about 10 seconds or more.
+
+Cleanup: return the publisher unit to the state it had before step 2.
 
 ## Prompt for lower-context coding model
 
@@ -187,3 +341,15 @@ Stop and report the problem, and do not guess, when:
 - A screen other than Show reads the service snapshot.
 - `observe` needs a read that the `Background` pace does not give.
 - A change needs a file in "Do not touch".
+
+## Orchestrator Review - 2026-10-18
+
+Pass, after one fix. The orchestrator made the fix in the same change.
+
+- A command that began outside Show, for example from a Settings recovery action, kept the `Background` pace until the next read. That read could come 10 seconds later, so the command waited longer for its first fresh read.
+  `dispatch_show_command` and the event target path of `src/app/show.rs` now send the pace when the command begins.
+  No test reaches `TopApp`, so the manual check V3 covers it: a command started from Settings shows its result within a few seconds.
+- V2 named step 2 for the change of state. The change happens in step 3.
+- The `tokio` dev-dependency with `test-util` reaches only the test build. `cargo tree -e normal,build,features -i tokio` shows no `test-util`.
+- The rest agrees with the packet: the pace constants, `SetPace`, the encoder interval, the redraw decision, and the pace at each section change and after each watch restart.
+

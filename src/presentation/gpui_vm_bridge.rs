@@ -5,6 +5,12 @@
 //! Whenever the actor publishes a new snapshot, the bridge applies it
 //! to the GPUI entity and calls [`Context::notify`].
 //!
+//! [`bridge_watch_with_redraw`] (ADR 0059) is the same bridge, but `apply`
+//! reports whether the snapshot changed what the screen shows. The bridge
+//! calls [`Context::notify`] only when `apply` returns `true`. Use it for a
+//! watch whose snapshots carry a changed read time on almost every publish,
+//! so a redraw on each one would cost more than it shows.
+//!
 //! ### Why reactive, not polled?
 //!
 //! `tokio::sync::watch` is natively coalescing: only the latest value
@@ -54,6 +60,27 @@ where
     S: Clone + Send + Sync + 'static,
     F: FnMut(&mut T, S, &mut Context<T>) + 'static,
 {
+    bridge_watch_with_redraw(
+        rx,
+        move |entity, snapshot, cx| {
+            apply(entity, snapshot, cx);
+            true
+        },
+        cx,
+    );
+}
+
+/// Installs a reactive bridge that redraws only when `apply` reports a change.
+///
+/// This is [`bridge_watch`], except `apply` returns `bool`, and the bridge
+/// calls `cx.notify()` only when it returns `true` (ADR 0059). Use it for a
+/// watch whose snapshots carry no visible change on most publishes.
+pub fn bridge_watch_with_redraw<T, S, F>(rx: watch::Receiver<S>, mut apply: F, cx: &mut Context<T>)
+where
+    T: 'static,
+    S: Clone + Send + Sync + 'static,
+    F: FnMut(&mut T, S, &mut Context<T>) -> bool + 'static,
+{
     let mut rx = rx;
     cx.spawn(async move |entity, cx| loop {
         if rx.changed().await.is_err() {
@@ -62,8 +89,9 @@ where
         let snapshot = rx.borrow_and_update().clone();
         if entity
             .update(cx, |this, cx| {
-                apply(this, snapshot, cx);
-                cx.notify();
+                if apply(this, snapshot, cx) {
+                    cx.notify();
+                }
             })
             .is_err()
         {

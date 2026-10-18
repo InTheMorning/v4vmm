@@ -17,7 +17,7 @@ pub(crate) mod session_transition;
 pub use async_command_presenter::present_command;
 pub use event_bridge::PresentationEventBridge;
 pub use gpui_event_bridge::GpuiEventBridge;
-pub use gpui_vm_bridge::bridge_watch;
+pub use gpui_vm_bridge::{bridge_watch, bridge_watch_with_redraw};
 pub use runtime_host::RuntimeHost;
 
 pub(crate) mod database_tools;

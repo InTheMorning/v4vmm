@@ -23,7 +23,7 @@ use crate::presentation::{bridge_watch, present_command, GpuiEventBridge};
 use crate::runtime::playback_polling::{PlaybackPollingHandle, PlaybackTickOutcome};
 use crate::runtime::{
     BroadcastReadinessSnapshot, BroadcastReadinessWatchHandle, BroadcastServiceWatchHandle,
-    BroadcastServiceWatchSnapshot,
+    BroadcastServiceWatchPace, BroadcastServiceWatchSnapshot,
 };
 use crate::theme_profile::ThemeProfile;
 use crate::ui::layouts as layout;
@@ -165,6 +165,8 @@ pub struct TopApp {
     publisher_service_watch: Option<BroadcastServiceWatchHandle>,
     publisher_watch_generation: u64,
     publisher_service_snapshot: Option<BroadcastServiceWatchSnapshot>,
+    /// The pace last sent to the service watch, so a repeat is never sent (ADR 0059).
+    broadcast_service_watch_pace: BroadcastServiceWatchPace,
     show_log_resize: Option<(f32, f32)>,
     event_section_input: Option<EventSectionInput>,
     event_session: show::EventSession,
@@ -468,6 +470,7 @@ impl TopApp {
             publisher_service_watch: None,
             publisher_watch_generation: 0,
             publisher_service_snapshot: None,
+            broadcast_service_watch_pace: BroadcastServiceWatchPace::Background,
             show_log_resize: None,
             event_section_input: None,
             event_session: show::EventSession::default(),
@@ -557,6 +560,7 @@ impl TopApp {
     fn select_tab(&mut self, tab: AppTab, window: &mut Window, cx: &mut Context<Self>) {
         self.tab = tab;
         self.focus_active_tab(window, cx);
+        self.sync_broadcast_service_watch_pace();
 
         if matches!(tab, AppTab::Show) {
             self.queue_text_filter = None;

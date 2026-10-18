@@ -26,11 +26,11 @@ use crate::broadcast::registry::BroadcastRegistry;
 use crate::broadcast::transport::Transport;
 use crate::config::BroadcastHostConfig;
 use crate::presentation::present_command;
-use crate::presentation::{bridge_watch, RuntimeHost};
+use crate::presentation::{bridge_watch, bridge_watch_with_redraw, RuntimeHost};
 use crate::runtime::{
     BroadcastEncoderWatchTarget, BroadcastReadinessSnapshot, BroadcastReadinessWatchHandle,
-    BroadcastServiceRole, BroadcastServiceWatchHandle, BroadcastServiceWatchSnapshot,
-    BroadcastServiceWatchUnit,
+    BroadcastServiceRole, BroadcastServiceWatchHandle, BroadcastServiceWatchPace,
+    BroadcastServiceWatchSnapshot, BroadcastServiceWatchUnit,
 };
 use crate::ui::composites::{live_status_strip, LiveStatusStrip, LiveStatusStripSlots};
 use crate::ui::shells::show::{render_show, ShowShell, ShowSlots};
@@ -282,17 +282,38 @@ impl TopApp {
         let generation = self.publisher_watch_generation;
         let handle = start_broadcast_service_watch(&host, units, encoder);
         self.publisher_service_snapshot = Some(handle.latest());
-        bridge_watch(
+        bridge_watch_with_redraw(
             handle.subscribe(),
             move |this: &mut Self, snapshot, cx| {
                 if this.publisher_watch_generation != generation {
-                    return;
+                    return false;
                 }
-                this.apply_publisher_service_snapshot(snapshot, cx);
+                this.apply_publisher_service_snapshot(snapshot, cx)
             },
             cx,
         );
         self.publisher_service_watch = Some(handle);
+        // The fresh watch always starts at Background; correct it for the
+        // current section and any command still waiting (ADR 0059).
+        self.broadcast_service_watch_pace = BroadcastServiceWatchPace::Background;
+        self.sync_broadcast_service_watch_pace();
+    }
+
+    /// Send the broadcast service watch the pace its current viewer needs
+    /// (ADR 0059). A command resolving outside Show can still lower the
+    /// pace, so this also runs after each snapshot's `observe`.
+    pub(super) fn sync_broadcast_service_watch_pace(&mut self) {
+        let pace = crate::view_models::show::broadcast_service_watch_pace(
+            self.tab == AppTab::Show,
+            &self.show_commands,
+        );
+        if pace == self.broadcast_service_watch_pace {
+            return;
+        }
+        self.broadcast_service_watch_pace = pace;
+        if let Some(handle) = self.publisher_service_watch.as_ref() {
+            let _ = handle.set_pace(pace);
+        }
     }
 
     pub(super) fn refresh_show_page(&self, cx: &mut Context<Self>) {
@@ -333,20 +354,36 @@ impl TopApp {
         );
     }
 
+    /// Apply one service-watch snapshot. Returns whether the Show page must
+    /// redraw for it: a changed unit or encoder state, a changed command
+    /// progress, or a started log read (ADR 0059). A changed read time alone
+    /// never redraws.
     fn apply_publisher_service_snapshot(
         &mut self,
         snapshot: BroadcastServiceWatchSnapshot,
         cx: &mut Context<Self>,
-    ) {
-        self.show_commands.observe(&snapshot);
-        self.publisher_service_snapshot = Some(snapshot);
+    ) -> bool {
+        let command_progress_changed = self.show_commands.observe(&snapshot);
+        self.sync_broadcast_service_watch_pace();
+        let previous_snapshot = self.publisher_service_snapshot.replace(snapshot);
         self.reproject_show_page_from_current_queue();
+        let mut log_read_started = false;
         if self.tab == AppTab::Show {
             if let Some((role, request)) = self.show_page.log_pane.refresh_request() {
                 self.read_publisher_logs(role, request, cx);
+                log_read_started = true;
             }
         }
-        cx.notify();
+        let next = self
+            .publisher_service_snapshot
+            .as_ref()
+            .expect("the snapshot this call just stored");
+        crate::view_models::show::broadcast_service_snapshot_redraw(
+            previous_snapshot.as_ref(),
+            next,
+            command_progress_changed,
+            log_read_started,
+        )
     }
 
     fn apply_broadcast_readiness_snapshot(
@@ -490,6 +527,10 @@ impl TopApp {
     ) where
         C: ApplicationCommand<Output = ShowCommandCompletion>,
     {
+        // ADR 0059: a command that begins outside Show, for example from a
+        // Settings recovery action, needs the Viewed pace at once. Else its
+        // first fresh read can come only after the Background interval.
+        self.sync_broadcast_service_watch_pace();
         self.settings_status.clear();
         self.reproject_show_page_from_current_queue();
         let error_action = action.clone();
@@ -950,6 +991,8 @@ impl TopApp {
             }
             return;
         };
+        // ADR 0059: the waiting command needs the Viewed pace at once.
+        self.sync_broadcast_service_watch_pace();
         self.event_session.next_request += 1;
         let request = self.event_session.next_request;
         let context = input.context.clone();
@@ -1052,6 +1095,7 @@ impl TopApp {
         };
 
         self.tab = AppTab::Music;
+        self.sync_broadcast_service_watch_pace();
         if let Some(content_list_id) = self.content_list_frame_id() {
             // ADR 0084 Decision 9: the readiness list starts a new path, as
             // one history entry.

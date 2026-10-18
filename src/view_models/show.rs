@@ -182,11 +182,15 @@ impl ShowCommandState {
     }
 
     /// Reconcile a watch delivery once; projection alone must not count as another sample.
+    ///
+    /// Returns `true` when a command's progress changed, which is the only
+    /// visible effect of this call (ADR 0059).
     pub(crate) fn observe(
         &mut self,
         snapshot: &broadcast_service_watch::BroadcastServiceWatchSnapshot,
-    ) {
+    ) -> bool {
         const MAX_FRESH_SAMPLES: u8 = 3;
+        let before = self.progress.len();
         self.progress.retain(|_, progress| {
             let Some(returned_at) = progress.returned_at else {
                 return true;
@@ -202,12 +206,53 @@ impl ShowCommandState {
             progress.fresh_samples += 1;
             !progress.intent.resolved_by(snapshot) && progress.fresh_samples < MAX_FRESH_SAMPLES
         });
+        before != self.progress.len()
+    }
+
+    /// Whether a command still waits for its result or for fresh confirming reads (ADR 0059).
+    #[must_use]
+    pub(crate) fn has_waiting(&self) -> bool {
+        !self.progress.is_empty()
     }
 
     /// Invalidate the old host's commands without reusing their sequence numbers.
     pub(crate) fn clear(&mut self) {
         self.progress.clear();
     }
+}
+
+/// Pace the broadcast service watch should read at (ADR 0059).
+///
+/// The Show section wants a fast view. Each other section wants a slow
+/// read, unless one of its commands still waits for its result.
+#[must_use]
+pub(crate) fn broadcast_service_watch_pace(
+    show_is_open: bool,
+    commands: &ShowCommandState,
+) -> broadcast_service_watch::BroadcastServiceWatchPace {
+    if show_is_open || commands.has_waiting() {
+        broadcast_service_watch::BroadcastServiceWatchPace::Viewed
+    } else {
+        broadcast_service_watch::BroadcastServiceWatchPace::Background
+    }
+}
+
+/// Whether a service-watch snapshot changed what the Show page would show (ADR 0059).
+///
+/// A changed read time alone is not a reason to redraw. The caller passes
+/// the result of `ShowCommandState::observe` and whether it started a
+/// publisher or producer log read; this combines those with a comparison of
+/// the observed unit and encoder state.
+#[must_use]
+pub(crate) fn broadcast_service_snapshot_redraw(
+    previous: Option<&broadcast_service_watch::BroadcastServiceWatchSnapshot>,
+    next: &broadcast_service_watch::BroadcastServiceWatchSnapshot,
+    command_progress_changed: bool,
+    log_read_started: bool,
+) -> bool {
+    let observed_state_changed =
+        previous.is_none_or(|stored| stored.units != next.units || stored.encoder != next.encoder);
+    observed_state_changed || command_progress_changed || log_read_started
 }
 
 /// Display-ready empty state for an idle show surface.
@@ -3307,6 +3352,112 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// R59-18-06 (ADR 0059): the pace function prefers Show, then a waiting command.
+    #[test]
+    fn adr_0059_watch_pace_function_prefers_show_then_waiting_command() {
+        let mut commands = ShowCommandState::default();
+        assert_eq!(
+            broadcast_service_watch_pace(true, &commands),
+            broadcast_service_watch::BroadcastServiceWatchPace::Viewed,
+            "Show gives Viewed"
+        );
+        assert_eq!(
+            broadcast_service_watch_pace(false, &commands),
+            broadcast_service_watch::BroadcastServiceWatchPace::Background,
+            "no waiting command outside Show gives Background"
+        );
+        commands
+            .begin_service(
+                PublisherServiceRole::Publisher,
+                PublisherServiceOperation::Start,
+            )
+            .unwrap();
+        assert_eq!(
+            broadcast_service_watch_pace(false, &commands),
+            broadcast_service_watch::BroadcastServiceWatchPace::Viewed,
+            "a waiting command outside Show gives Viewed"
+        );
+    }
+
+    /// R59-18-07 (ADR 0059): only an observed-state, command, or log-read change redraws.
+    #[test]
+    fn adr_0059_watch_pace_redraw_ignores_read_time_alone() {
+        let base = command_snapshot(ServiceState::Active, Instant::now());
+        let mut later_only = base.clone();
+        later_only.read_started_at = base.read_started_at + std::time::Duration::from_secs(1);
+        later_only.at = later_only.read_started_at + std::time::Duration::from_millis(100);
+
+        assert!(
+            !broadcast_service_snapshot_redraw(Some(&base), &later_only, false, false),
+            "a changed read time alone must not redraw"
+        );
+        assert!(
+            broadcast_service_snapshot_redraw(None, &later_only, false, false),
+            "no stored snapshot yet must redraw"
+        );
+
+        let mut changed_state = later_only.clone();
+        changed_state.units[0].state = ServiceState::Inactive;
+        assert!(
+            broadcast_service_snapshot_redraw(Some(&base), &changed_state, false, false),
+            "a changed unit state must redraw"
+        );
+
+        let mut changed_encoder = later_only.clone();
+        changed_encoder.encoder.status.state = EncoderState::Connected;
+        assert!(
+            broadcast_service_snapshot_redraw(Some(&base), &changed_encoder, false, false),
+            "a changed encoder status must redraw"
+        );
+
+        assert!(
+            broadcast_service_snapshot_redraw(Some(&base), &later_only, true, false),
+            "changed command progress must redraw"
+        );
+        assert!(
+            broadcast_service_snapshot_redraw(Some(&base), &later_only, false, true),
+            "a started log read must redraw"
+        );
+    }
+
+    /// R59-18-08 (ADR 0059): three fresh Viewed reads end a waiting command,
+    /// even when its service state never resolves.
+    #[test]
+    fn adr_0059_watch_pace_three_fresh_viewed_reads_release_a_waiting_command() {
+        let mut commands = ShowCommandState::default();
+        let id = commands
+            .begin_service(
+                PublisherServiceRole::Publisher,
+                PublisherServiceOperation::Start,
+            )
+            .unwrap();
+        let returned_at = Instant::now();
+        assert!(commands.complete(id, returned_at, true));
+        assert!(commands.has_waiting());
+
+        let viewed_unit_interval = std::time::Duration::from_secs(1);
+        for n in 1u32..3 {
+            let sample = command_snapshot(
+                ServiceState::Unknown,
+                returned_at + viewed_unit_interval * n,
+            );
+            commands.observe(&sample);
+            assert!(
+                commands.has_waiting(),
+                "fewer than 3 fresh reads keep the command waiting"
+            );
+        }
+        let sample = command_snapshot(
+            ServiceState::Unknown,
+            returned_at + viewed_unit_interval * 3,
+        );
+        commands.observe(&sample);
+        assert!(
+            !commands.has_waiting(),
+            "the third fresh read ends the wait"
+        );
     }
 
     /// Situational ADR 0059: stream actions stay mounted and disabled until command readback resolves.

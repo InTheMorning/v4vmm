@@ -40,8 +40,8 @@ holds each open check. Walk a new check right after its packet. The procedures i
 regression checks.
 
 Ready packets include
-[ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md) and
-[ADR 0059 task 018](docs/tasks/adr-0059-task-018-service-watch-pace.md), the service watch pace. ADR 0082 packet 002 is complete.
+[ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md).
+[ADR 0059 task 018](docs/tasks/adr-0059-task-018-service-watch-pace.md), the service watch pace, is implemented. Its visual gate is open. ADR 0082 packet 002 is complete.
 
 Known open defects:
 

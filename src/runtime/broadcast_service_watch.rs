@@ -5,6 +5,13 @@
 //! The actor observes service state for the local broadcast chain and publishes
 //! GPUI-free snapshots over `tokio::sync::watch`. Blocking service reads run on
 //! Tokio's blocking pool so the desktop render thread never waits on the rig.
+//!
+//! The actor reads at the pace its caller sets with
+//! [`BroadcastServiceWatchHandle::set_pace`]. `Viewed` reads the units each
+//! second and the encoder each 5 seconds. `Background` reads both each 10
+//! seconds. A unit-only tick keeps the last encoder value. `refresh_now` and
+//! a change to `Viewed` always read the encoder too, so the caller never
+//! waits past the new pace for a confirming read.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -17,8 +24,41 @@ use crate::broadcast::control::{self, ServiceState, UnitRef};
 use crate::broadcast::encoder::{self, EncoderStatus, EncoderTarget};
 use crate::broadcast::transport::Transport;
 
-const BROADCAST_SERVICE_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const INBOX_CAPACITY: usize = 8;
+
+/// Unit read interval at the `Viewed` pace (ADR 0059).
+const VIEWED_UNIT_INTERVAL: Duration = Duration::from_secs(1);
+/// Encoder read interval at the `Viewed` pace (ADR 0059).
+const VIEWED_ENCODER_INTERVAL: Duration = Duration::from_secs(5);
+/// Unit and encoder read interval at the `Background` pace (ADR 0059).
+const BACKGROUND_INTERVAL: Duration = Duration::from_secs(10);
+
+/// How often the service watch reads (ADR 0059).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BroadcastServiceWatchPace {
+    /// Show is open, or a Show command waits for its result.
+    Viewed,
+    /// Each other condition.
+    Background,
+}
+
+impl BroadcastServiceWatchPace {
+    /// Interval between unit reads at this pace.
+    const fn unit_interval(self) -> Duration {
+        match self {
+            Self::Viewed => VIEWED_UNIT_INTERVAL,
+            Self::Background => BACKGROUND_INTERVAL,
+        }
+    }
+
+    /// Interval between encoder reads at this pace.
+    const fn encoder_interval(self) -> Duration {
+        match self {
+            Self::Viewed => VIEWED_ENCODER_INTERVAL,
+            Self::Background => BACKGROUND_INTERVAL,
+        }
+    }
+}
 
 /// Role of one service in the broadcast chain.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -194,6 +234,17 @@ impl BroadcastServiceWatchHandle {
             .try_send(BroadcastServiceWatchCommand::RefreshNow)
             .is_ok()
     }
+
+    /// Set the pace the watch reads at (ADR 0059).
+    ///
+    /// A change to `Viewed` reads all services at once. Returns `false` when
+    /// the actor has shut down or its inbox is full.
+    #[must_use]
+    pub fn set_pace(&self, pace: BroadcastServiceWatchPace) -> bool {
+        self.inbox
+            .try_send(BroadcastServiceWatchCommand::SetPace(pace))
+            .is_ok()
+    }
 }
 
 impl Drop for BroadcastServiceWatchHandle {
@@ -207,6 +258,7 @@ impl Drop for BroadcastServiceWatchHandle {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BroadcastServiceWatchCommand {
     RefreshNow,
+    SetPace(BroadcastServiceWatchPace),
 }
 
 /// Spawns the broadcast service watch actor on the current tokio runtime.
@@ -220,7 +272,6 @@ pub fn start(
         units,
         encoder,
         Arc::new(ControlBroadcastStatusReader),
-        BROADCAST_SERVICE_POLL_INTERVAL,
         session,
     )
 }
@@ -250,16 +301,14 @@ fn start_with_reader(
     units: Vec<BroadcastServiceWatchUnit>,
     encoder: BroadcastEncoderWatchTarget,
     reader: SharedBroadcastStatusReader,
-    interval: Duration,
 ) -> BroadcastServiceWatchHandle {
-    start_in_session(units, encoder, reader, interval, &SessionLifecycle::new())
+    start_in_session(units, encoder, reader, &SessionLifecycle::new())
 }
 
 fn start_in_session(
     units: Vec<BroadcastServiceWatchUnit>,
     encoder: BroadcastEncoderWatchTarget,
     reader: SharedBroadcastStatusReader,
-    interval: Duration,
     session: &SessionLifecycle,
 ) -> BroadcastServiceWatchHandle {
     let (snapshot_tx, snapshot_rx) =
@@ -269,38 +318,78 @@ fn start_in_session(
 
     let stop = session.stop_token();
     session.spawn_actor("Broadcast service observations", async move {
-        publish_snapshot(
+        // The first read at start always reads the encoder too (ADR 0059).
+        let mut pace = BroadcastServiceWatchPace::Background;
+        let mut last_encoder = publish_snapshot(
             &snapshot_tx,
             units.clone(),
             encoder.clone(),
             Arc::clone(&reader),
+            true,
+            unknown_encoder_snapshot(&encoder),
         )
         .await;
+        let mut last_encoder_read = tokio::time::Instant::now();
+        let mut next_unit_tick = tokio::time::Instant::now() + pace.unit_interval();
         loop {
             tokio::select! {
                 biased;
                 () = stop.cancelled() => break,
                 _ = &mut shutdown_rx => break,
                 command = inbox_rx.recv() => {
-                    let Some(BroadcastServiceWatchCommand::RefreshNow) = command else {
-                        break;
-                    };
-                    publish_snapshot(
-                        &snapshot_tx,
-                        units.clone(),
-                        encoder.clone(),
-                        Arc::clone(&reader),
-                    )
-                    .await;
+                    match command {
+                        None => break,
+                        Some(BroadcastServiceWatchCommand::RefreshNow) => {
+                            last_encoder = publish_snapshot(
+                                &snapshot_tx,
+                                units.clone(),
+                                encoder.clone(),
+                                Arc::clone(&reader),
+                                true,
+                                last_encoder,
+                            )
+                            .await;
+                            last_encoder_read = tokio::time::Instant::now();
+                            next_unit_tick = tokio::time::Instant::now() + pace.unit_interval();
+                        }
+                        Some(BroadcastServiceWatchCommand::SetPace(new_pace)) => {
+                            if new_pace != pace {
+                                pace = new_pace;
+                                // A change to Viewed reads all services at once (ADR 0059).
+                                if pace == BroadcastServiceWatchPace::Viewed {
+                                    last_encoder = publish_snapshot(
+                                        &snapshot_tx,
+                                        units.clone(),
+                                        encoder.clone(),
+                                        Arc::clone(&reader),
+                                        true,
+                                        last_encoder,
+                                    )
+                                    .await;
+                                    last_encoder_read = tokio::time::Instant::now();
+                                }
+                                next_unit_tick = tokio::time::Instant::now() + pace.unit_interval();
+                            }
+                        }
+                    }
                 }
-                () = tokio::time::sleep(interval) => {
-                    publish_snapshot(
+                () = tokio::time::sleep_until(next_unit_tick) => {
+                    let now = tokio::time::Instant::now();
+                    let read_encoder =
+                        now.saturating_duration_since(last_encoder_read) >= pace.encoder_interval();
+                    last_encoder = publish_snapshot(
                         &snapshot_tx,
                         units.clone(),
                         encoder.clone(),
                         Arc::clone(&reader),
+                        read_encoder,
+                        last_encoder,
                     )
                     .await;
+                    if read_encoder {
+                        last_encoder_read = now;
+                    }
+                    next_unit_tick = now + pace.unit_interval();
                 }
             }
         }
@@ -313,32 +402,48 @@ fn start_in_session(
     }
 }
 
+/// Publish one snapshot. Returns the published encoder snapshot, so the
+/// caller can carry it over into a later unit-only tick (ADR 0059).
 async fn publish_snapshot(
     snapshot_tx: &watch::Sender<BroadcastServiceWatchSnapshot>,
     units: Vec<BroadcastServiceWatchUnit>,
     encoder: BroadcastEncoderWatchTarget,
     reader: SharedBroadcastStatusReader,
-) {
+    read_encoder: bool,
+    previous_encoder: BroadcastEncoderSnapshot,
+) -> BroadcastEncoderSnapshot {
     let fallback = BroadcastServiceWatchSnapshot::unknown(&units, &encoder);
-    let snapshot = read_broadcast_status(units, encoder, reader)
+    let snapshot = read_broadcast_status(units, encoder, reader, read_encoder, previous_encoder)
         .await
         .unwrap_or(fallback);
+    let published_encoder = snapshot.encoder.clone();
     let _ = snapshot_tx.send(snapshot);
+    published_encoder
 }
 
 async fn read_broadcast_status(
     units: Vec<BroadcastServiceWatchUnit>,
     encoder: BroadcastEncoderWatchTarget,
     reader: SharedBroadcastStatusReader,
+    read_encoder: bool,
+    previous_encoder: BroadcastEncoderSnapshot,
 ) -> Result<BroadcastServiceWatchSnapshot, tokio::task::JoinError> {
-    tokio::task::spawn_blocking(move || read_broadcast_status_blocking(&units, &encoder, &reader))
-        .await
+    tokio::task::spawn_blocking(move || {
+        read_broadcast_status_blocking(&units, &encoder, &reader, read_encoder, &previous_encoder)
+    })
+    .await
 }
 
+/// Read the units, and the encoder only when `read_encoder` is true.
+///
+/// When `read_encoder` is false, the returned snapshot keeps
+/// `previous_encoder` unchanged (ADR 0059).
 fn read_broadcast_status_blocking(
     units: &[BroadcastServiceWatchUnit],
     encoder: &BroadcastEncoderWatchTarget,
     reader: &SharedBroadcastStatusReader,
+    read_encoder: bool,
+    previous_encoder: &BroadcastEncoderSnapshot,
 ) -> BroadcastServiceWatchSnapshot {
     BroadcastServiceWatchSnapshot::new(
         Instant::now(),
@@ -353,7 +458,11 @@ fn read_broadcast_status_blocking(
                     .unwrap_or(ServiceState::Unknown),
             })
             .collect(),
-        read_encoder_snapshot(encoder, reader),
+        if read_encoder {
+            read_encoder_snapshot(encoder, reader)
+        } else {
+            previous_encoder.clone()
+        },
     )
 }
 
@@ -392,6 +501,7 @@ fn unknown_encoder_snapshot(encoder: &BroadcastEncoderWatchTarget) -> BroadcastE
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
     use tokio::time::timeout;
@@ -422,6 +532,8 @@ mod tests {
             &watch_units(),
             &watch_encoder(),
             &(Arc::clone(&reader) as SharedBroadcastStatusReader),
+            true,
+            &unknown_encoder_snapshot(&watch_encoder()),
         );
         let reads = reader.0.lock().unwrap();
         assert_eq!(reads.len(), 3);
@@ -444,6 +556,8 @@ mod tests {
             units,
             watch_encoder(),
             Arc::clone(&reader) as SharedBroadcastStatusReader,
+            true,
+            unknown_encoder_snapshot(&watch_encoder()),
         )
         .await
         .expect("join");
@@ -500,6 +614,8 @@ mod tests {
             units,
             watch_encoder(),
             Arc::clone(&reader) as SharedBroadcastStatusReader,
+            true,
+            unknown_encoder_snapshot(&watch_encoder()),
         )
         .await
         .expect("join");
@@ -522,6 +638,8 @@ mod tests {
             Vec::new(),
             BroadcastEncoderWatchTarget::not_configured(),
             Arc::clone(&reader) as SharedBroadcastStatusReader,
+            true,
+            unknown_encoder_snapshot(&BroadcastEncoderWatchTarget::not_configured()),
         )
         .await
         .expect("join");
@@ -536,7 +654,7 @@ mod tests {
         );
     }
 
-    #[tokio::test(flavor = "current_thread")]
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn service_watch_refresh_now_publishes_without_waiting_for_interval() {
         let units = watch_units();
         let reader = Arc::new(StubBroadcastStatusReader::new(
@@ -548,11 +666,12 @@ mod tests {
             ],
             vec![Ok(EncoderStatus::unknown()), Ok(connected_encoder_status())],
         ));
+        // The default Background pace reads again only after 10 seconds, and
+        // this test never advances time, so only refresh_now can publish again.
         let handle = start_with_reader(
             units,
             watch_encoder(),
             Arc::clone(&reader) as SharedBroadcastStatusReader,
-            Duration::from_secs(60),
         );
         let mut receiver = handle.subscribe();
 
@@ -564,6 +683,140 @@ mod tests {
 
         assert!(handle.refresh_now());
         wait_for_states(&mut receiver, &[ServiceState::Active, ServiceState::Active]).await;
+        drop(handle);
+    }
+
+    /// R59-18-01 (ADR 0059): `Background` reads the units and the encoder no
+    /// more than every 10 seconds.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn adr_0059_watch_pace_background_reads_units_and_encoder_at_most_every_ten_seconds() {
+        let reader = Arc::new(CountingBroadcastStatusReader::new());
+        let handle = start_with_reader(
+            one_watch_unit(),
+            watch_encoder(),
+            Arc::clone(&reader) as SharedBroadcastStatusReader,
+        );
+        let mut rx = handle.subscribe();
+        rx.changed().await.expect("the first read at start");
+        let start_units = reader.unit_reads();
+        let start_encoder = reader.encoder_reads();
+
+        for _ in 0..3 {
+            rx.changed().await.expect("a Background tick");
+        }
+
+        assert_eq!(reader.unit_reads() - start_units, 3);
+        assert_eq!(reader.encoder_reads() - start_encoder, 3);
+        drop(handle);
+    }
+
+    /// R59-18-02 (ADR 0059): `Viewed` reads the units each second and the
+    /// encoder each 5 seconds.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn adr_0059_watch_pace_viewed_reads_units_each_second_and_encoder_each_five_seconds() {
+        let reader = Arc::new(CountingBroadcastStatusReader::new());
+        let handle = start_with_reader(
+            one_watch_unit(),
+            watch_encoder(),
+            Arc::clone(&reader) as SharedBroadcastStatusReader,
+        );
+        let mut rx = handle.subscribe();
+        rx.changed().await.expect("the first read at start");
+
+        assert!(handle.set_pace(BroadcastServiceWatchPace::Viewed));
+        rx.changed()
+            .await
+            .expect("the pace change reads all services at once");
+        let start_units = reader.unit_reads();
+        let start_encoder = reader.encoder_reads();
+
+        for _ in 0..10 {
+            rx.changed().await.expect("a Viewed tick");
+        }
+
+        assert_eq!(reader.unit_reads() - start_units, 10);
+        assert_eq!(reader.encoder_reads() - start_encoder, 2);
+        drop(handle);
+    }
+
+    /// R59-18-03 (ADR 0059): a change to `Viewed` reads all services at once.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn adr_0059_watch_pace_set_pace_viewed_reads_all_services_at_once() {
+        let reader = Arc::new(CountingBroadcastStatusReader::new());
+        let handle = start_with_reader(
+            one_watch_unit(),
+            watch_encoder(),
+            Arc::clone(&reader) as SharedBroadcastStatusReader,
+        );
+        let mut rx = handle.subscribe();
+        rx.changed().await.expect("the first read at start");
+        let start_units = reader.unit_reads();
+        let start_encoder = reader.encoder_reads();
+
+        assert!(handle.set_pace(BroadcastServiceWatchPace::Viewed));
+        rx.changed()
+            .await
+            .expect("the pace change reads all services at once");
+
+        assert_eq!(reader.unit_reads() - start_units, 1);
+        assert_eq!(reader.encoder_reads() - start_encoder, 1);
+        drop(handle);
+    }
+
+    /// R59-18-04 (ADR 0059): `refresh_now` reads the units and the encoder,
+    /// also before the encoder interval ends.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn adr_0059_watch_pace_refresh_now_reads_before_the_encoder_interval_ends() {
+        let reader = Arc::new(CountingBroadcastStatusReader::new());
+        let handle = start_with_reader(
+            one_watch_unit(),
+            watch_encoder(),
+            Arc::clone(&reader) as SharedBroadcastStatusReader,
+        );
+        let mut rx = handle.subscribe();
+        rx.changed().await.expect("the first read at start");
+        assert!(handle.set_pace(BroadcastServiceWatchPace::Viewed));
+        rx.changed()
+            .await
+            .expect("the pace change reads all services at once");
+        // One second after the last encoder read, under the five-second
+        // Viewed encoder interval, so this tick does not read the encoder.
+        rx.changed().await.expect("a Viewed unit tick");
+        let start_units = reader.unit_reads();
+        let start_encoder = reader.encoder_reads();
+
+        assert!(handle.refresh_now());
+        rx.changed()
+            .await
+            .expect("refresh_now reads before the encoder interval ends");
+
+        assert_eq!(reader.unit_reads() - start_units, 1);
+        assert_eq!(reader.encoder_reads() - start_encoder, 1);
+        drop(handle);
+    }
+
+    /// R59-18-05 (ADR 0059): a snapshot between two encoder reads keeps the
+    /// last encoder value.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn adr_0059_watch_pace_unit_only_ticks_keep_the_last_encoder_value() {
+        let reader = Arc::new(CountingBroadcastStatusReader::new());
+        let handle = start_with_reader(
+            one_watch_unit(),
+            watch_encoder(),
+            Arc::clone(&reader) as SharedBroadcastStatusReader,
+        );
+        let mut rx = handle.subscribe();
+        rx.changed().await.expect("the first read at start");
+        assert!(handle.set_pace(BroadcastServiceWatchPace::Viewed));
+        rx.changed()
+            .await
+            .expect("the pace change reads all services at once");
+        let encoder_after_pace_change = rx.borrow().encoder.clone();
+
+        for _ in 0..4 {
+            rx.changed().await.expect("a unit-only Viewed tick");
+            assert_eq!(rx.borrow().encoder, encoder_after_pace_change);
+        }
         drop(handle);
     }
 
@@ -610,6 +863,16 @@ mod tests {
                 UnitRef::new("mixxx-now-playing.service").expect("producer unit"),
             ),
         ]
+    }
+
+    /// One unit, for a pace test that only needs to count read batches.
+    fn one_watch_unit() -> Vec<BroadcastServiceWatchUnit> {
+        vec![BroadcastServiceWatchUnit::new(
+            BroadcastServiceRole::Publisher,
+            "Local",
+            Transport::local(),
+            UnitRef::publisher("mixxx").expect("publisher unit"),
+        )]
     }
 
     fn connected_encoder_status() -> EncoderStatus {
@@ -681,6 +944,52 @@ mod tests {
                 .expect("encoder responses lock")
                 .pop_front()
                 .expect("stub encoder response")
+        }
+    }
+
+    /// Counts reads for the pace tests. Each encoder read reports a distinct
+    /// listener count, so a test can tell a fresh read from a kept value.
+    struct CountingBroadcastStatusReader {
+        unit_reads: AtomicUsize,
+        encoder_reads: AtomicUsize,
+    }
+
+    impl CountingBroadcastStatusReader {
+        fn new() -> Self {
+            Self {
+                unit_reads: AtomicUsize::new(0),
+                encoder_reads: AtomicUsize::new(0),
+            }
+        }
+
+        fn unit_reads(&self) -> usize {
+            self.unit_reads.load(Ordering::SeqCst)
+        }
+
+        fn encoder_reads(&self) -> usize {
+            self.encoder_reads.load(Ordering::SeqCst)
+        }
+    }
+
+    impl BroadcastStatusReader for CountingBroadcastStatusReader {
+        fn show(&self, _transport: &Transport, _unit: &UnitRef) -> Result<ServiceState, String> {
+            self.unit_reads.fetch_add(1, Ordering::SeqCst);
+            Ok(ServiceState::Active)
+        }
+
+        fn encoder_status(&self, _target: &EncoderTarget) -> Result<EncoderStatus, String> {
+            let read = self.encoder_reads.fetch_add(1, Ordering::SeqCst);
+            Ok(EncoderStatus {
+                state: EncoderState::Connected,
+                recording: RecordingState::Stopped {
+                    seconds: Some(0),
+                    path: None,
+                },
+                signal: AudioSignalState::Present,
+                listeners: ListenerCount::Known(read as u64),
+                song: None,
+                stream_seconds: Some(read as u64),
+            })
         }
     }
 }
