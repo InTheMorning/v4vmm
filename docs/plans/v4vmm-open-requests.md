@@ -26,7 +26,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 5 | Search returns one entity one time | Search correction | Deployed in release 0.8.0 on 2026-10-08 |
 | 6 | A list of releases and of artists by name | API addition | Deployed in release 0.9.0 on 2026-10-18 |
 | 7 | The named feed rank and the release kind facts in each publisher relationship entry | API field addition | Deployed in release 0.11.0 on 2026-10-18, without `remote_release_kind` |
-| 8 | Each list row and each search row is complete | API rule and field additions | Answered on 2026-10-18. Stophammer ADR 0071 is Proposed |
+| 8 | Each list row and each search row is complete | API rule and field additions | Accepted on 2026-10-18 as Stophammer ADR 0071. Not built |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -399,7 +399,7 @@ Release 0.9.0 delivers request 6 (Stophammer ADR 0070). `GET /node/info` gives `
 
 A release record gives the release.
 
-**Request 8.** The four gaps are correct. The Stophammer operator decided the scope on 2026-10-18. Stophammer [ADR 0071](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0071-a-list-row-links-what-it-names.md) is Proposed. It gives the decision. No release holds it now.
+**Request 8.** The four gaps are correct. The Stophammer operator decided the scope on 2026-10-18. Stophammer [ADR 0071](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0071-a-list-row-links-what-it-names.md) is Accepted on 2026-10-18. Its tasks 001 to 005 give the build. No release holds it now.
 
 - Item 1 is accepted in a form that a test can check. A field that gives the title of another feed also gives its GUID. A count has a route or a filter that lists the same items. A route declares each `include` that it accepts. The node derives no kind, as ADR 0061 §4 gives.
 - Item 2 is accepted. With `include=link_facts`, each `publisher` row of `GET /v1/artist-names` gives the four fields of ADR 0068. `first_named_count` counts only the confirmed links with `album_names_rank` 1. It is a fallback for a feed with an empty `agreed_roles`. Thus an album that states a link with no answer from the feed does not change the count.
