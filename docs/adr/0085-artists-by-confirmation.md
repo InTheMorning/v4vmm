@@ -6,6 +6,9 @@ Accepted - 2026-10-18. The operator asked for this decision, answered its open q
 
 Amended 2026-10-18: the operator passed ADR 0082 packet 002 V3 with Sir Libre Records and found "Publisher of" over a role caption unclear. Decision 3 now gives one section for each relation, with "As <roles>" for a role other than artist, and one "Role not confirmed" section.
 
+Amended 2026-10-18 again: the operator decided the frame title of a feed page. Decision 7 gives it. It reserves "Publisher" for a feed that is definitely not an artist, which is the one exception to Decision 1.
+The operator also accepted the read of Decision 6 for a primary named feed with an agreed role without `artist`. Decision 6 now states it.
+
 It supersedes [ADR 0082](0082-publisher-roles-belong-to-each-album-link.md) Decisions 1, 2, 3 and 6.
 ADR 0082 Decisions 4 and 5 stay.
 It amends [ADR 0084](0084-music-column-browser.md) Decision 7: the publisher level becomes the feed level, and Decisions 5 and 6 of this ADR replace the "Publisher" link of the release page.
@@ -44,6 +47,8 @@ These keep the technical term:
 - code identifiers, database columns and API field names
 - the CLI JSON output
 - the Inspect sources view, which shows each RSS value with its element name, for example `podcast:remoteItem medium="publisher"`
+
+One interface text is an exception: the frame title "Publisher" of Decision 7. No other interface text uses the word for a feed.
 
 ### 2. Artists Have Three Confirmation Levels
 
@@ -100,13 +105,29 @@ The page of a feed has no type. It shows the level of Decision 2 in its header, 
 The named feeds of an album keep the sequence of the RSS: the `position` of each item with `source` `podcast_publisher`. The first one is the primary named feed.
 
 - The artist feed of the album is the first named feed with an agreed role set that contains `artist`. When no named feed has one, it is the primary named feed, and the release page says that the artist is unverified.
+- Sometimes no named feed has an agreed `artist` role, and the primary named feed has an agreed role set without `artist`. Then the album has no artist feed. The artist name opens the name level, and the primary named feed shows as a role row.
 - Each other named feed with a stated role shows as a role row of Decision 5, for example "Label: Sir Libre Records".
 - Each other named feed with no stated role shows as an "Also named" row with its feed title. The row opens the page of that feed.
 - An observation time never selects a named feed.
 
+### 7. The Frame Title Of A Feed Page Names Its Relation
+
+The frame title of a feed page comes from the facts of its page, in this sequence:
+
+| Page | Frame title |
+|---|---|
+| The level is Artist or Unverified artist (Decision 2) | "Artist" |
+| No artist level, and a link has an agreed role set | The agreed role words, as the "As <roles>" heading of Decision 3 gives them, with a capital first letter. Example: "Label" |
+| No link has an agreed role, no side states `artist`, and each named link has a known rank that is not 1 | "Publisher" |
+| Each other page | "Feed" |
+
+- "Publisher" names only a feed that is definitely not an artist. The feed is never the first named feed of an album, no link agrees on a role, and no side states `artist`.
+- An unknown rank never gives "Publisher". Before the page facts load, the title is "Feed".
+- The header, the sections and the rows keep Decision 1.
+
 ## Invariants
 
-- No interface text names a feed "publisher".
+- No interface text names a feed "publisher", apart from the frame title of Decision 7.
 - A level comes from `role_agreement`, `role` and `album_names_as` only. A count, a name match or a credit text never selects it.
 - Each level shows in words. Color is never the only difference.
 - A release appears one time on one page.
@@ -147,14 +168,16 @@ The named feeds of an album keep the sequence of the RSS: the `position` of each
 
 Mechanical, phrased at the owning layer:
 
-- A guard finds no interface string constant in `src/view_models` or `src/ui` that names a feed "publisher". The guard cites this ADR.
+- A guard finds no interface string constant in `src/view_models` or `src/ui` that names a feed "publisher". The one frame title constant of Decision 7 is the exception. The guard cites this ADR.
+- The feed page view model gives the frame title of Decision 7 for each row of its table. A feed with an unknown rank gets "Feed", not "Publisher".
 - The artists view model gives the level of Decision 2 for each `role_agreement` and `album_names_as` combination. Its list rows expose no level text.
 - The artist page view model gives the sections of Decision 3 in their sequence, with each release one time. A test uses the Sir Libre Records facts of 2026-10-18: 3 agreed `label` links, 3 conflicts of `label` and `recordLabel`, and 1 listed release.
 - The release page view model gives a role row only when the agreed role set does not contain `artist`.
 
 Visual, for the operator:
 
-- HeyCitizen shows "Artist" and its five roles. DETOX shows "Unverified artist". No screen shows the word "publisher".
+- HeyCitizen shows "Artist" and its five roles. DETOX shows "Unverified artist". No screen shows the word "publisher", apart from the frame title of Decision 7.
+- The frame title of the Sir Libre Records page is "Label".
 - Sir Libre Records shows "As label", "Role not confirmed" and "Listed by Sir Libre Records only". Its release shows the "Label:" row.
 - The release view model gives the named feeds in their position sequence, and selects the artist feed by the rule of Decision 6.
 - A test with two named feeds and a newer observation of the second feed still selects the first feed.

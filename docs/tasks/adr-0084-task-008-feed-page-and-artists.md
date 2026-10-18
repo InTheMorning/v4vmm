@@ -12,6 +12,7 @@ The Artists list holds the confirmed artists, the unverified artists and the nam
 - [ADR 0085](../adr/0085-artists-by-confirmation.md) Decision 1: no interface text names a feed "publisher".
 - [ADR 0085](../adr/0085-artists-by-confirmation.md) Decision 2: the three levels. The Artists list shows no level word. Only the artist page shows the level.
 - [ADR 0085](../adr/0085-artists-by-confirmation.md) Decision 3: the sections, their sequence and their row text.
+- [ADR 0085](../adr/0085-artists-by-confirmation.md) Decision 7: the frame title, and the one use of "Publisher".
 - [ADR 0085](../adr/0085-artists-by-confirmation.md) Decision 4, and [ADR 0082](../adr/0082-publisher-roles-belong-to-each-album-link.md) Decisions 4 and 5: the header roles and "Shares albums with" stay.
 - [ADR 0084](../adr/0084-music-column-browser.md) Decision 7: the feed level of the artist page. Decision 4: one page for each item, and the Library is a state. Decision 6: "Albums and EPs" before "Singles". Decision 5: the kind of a release.
 - [ADR 0075](../adr/0075-metadata-contract.md) section 6: the stored contract changes in the same change as its decode.
@@ -105,7 +106,7 @@ Change each string below. Each new string is a named constant in its view model.
 | `publisher_page.rs` | "Not listed by the publisher" | "Not listed by this feed" |
 | `publisher_page.rs` | "The app could not load the other albums of this publisher from MusicIndex. …" | "The app could not load the other releases of this feed from MusicIndex. The releases in the Library stay on this page." |
 | `publisher_page.rs` | "No publisher page is open." | "No feed page is open." |
-| `src/app.rs` | frame title "Publisher" | Open. See "Open Question" |
+| `src/app.rs` | frame title "Publisher" for each feed page | The title of "The frame title" |
 | `publisher_dispatch.rs` | "Failed to navigate to publisher: …" | "The app could not open the feed page: …" |
 | `singles_group.rs` | "Publisher feed" | "Artist feed" |
 | `singles_group.rs` | "Grouped by the publisher feed that each single names." | "Grouped by the artist feed of each single." |
@@ -120,15 +121,20 @@ Change each string below. Each new string is a named constant in its view model.
 - The feed page header uses `EntityKind::Artist` for the levels `Artist` and `UnverifiedArtist`, and `EntityKind::Feed` for `None`. Delete `EntityKind::Publisher` and its color token when no caller remains. Else record each caller.
 - Code identifiers, routes, element ids and the CLI JSON keep their names.
 
-### Open Question
+### The frame title
 
-The new frame title of a feed page is open. The operator wants to think it through, recorded on 2026-10-18.
+[ADR 0085](../adr/0085-artists-by-confirmation.md) Decision 7, decided by the operator on 2026-10-18, gives the frame title of a feed page.
 
-- `content_list_frame_title` in `src/app.rs` gives the title of the Music list frame and the detail frame (`WorkspaceFrameState`). The other Music pages give a kind word, for example "Release" or "Track".
-- The breadcrumb label of a feed page already gives the feed title.
-- The candidates are "Feed", "Artist" and the feed title. A label feed such as Sir Libre Records is not an artist (ADR 0085 Decision 2).
-- The orchestrator has not confirmed which screen draws this title. The implementer finds it first and reports it.
-- The orchestrator writes the operator's answer into this packet before the implementation starts.
+- `PublisherPageVm::frame_title()` gives it, from the facts of the page, in the sequence of the Decision 7 table:
+  - "Artist" for the levels `Artist` and `UnverifiedArtist`.
+  - With no artist level and one agreed role set or more: `capitalize_first(role_list_text(...))` of the agreed role words, as in the header roles. Example: "Label".
+  - With no agreed role, no side that states `artist`, and a known rank that is not 1 on each named row: "Publisher".
+  - Each other page: "Feed".
+- A side states `artist` when an item of `role_words(publisher_rel)` or `role_words(music_rel)` is `artist`, read without case.
+- A null `named_rank` on a named row gives "Feed". It never gives "Publisher".
+- `content_list_frame_title` in `src/app.rs` uses this title for a loaded page. Before the facts load, it uses "Feed".
+- The orchestrator has not confirmed which screen draws this title. The implementer records it in the result.
+- "Publisher" is one named constant in `publisher_page.rs`. No other interface text uses the word.
 
 ### The Artists list
 
@@ -149,12 +155,13 @@ Add a situational guard to `tests/architecture_tests.rs`. It cites ADR 0085 Deci
 - It scans the string literals of `src/view_models/`, `src/ui/`, `src/views.rs`, `src/app.rs` and `src/app/`, outside `#[cfg(test)]` modules and comments.
 - It fails on the word "publisher" in any case.
 - It does not fail on the element name `podcast:publisher`, or on a snake_case or kebab-case identifier such as `music_to_publisher` or `publisher-page`.
+- It permits the one frame title constant of ADR 0085 Decision 7, by its name.
 - It skips a named list of files that use the word for the broadcast publisher service: the Show and startup view models and screens, and `src/app/show.rs`. Each entry of the list gives this reason.
 - Its failure message names the file, the line and the fix:
 
 ```text
 ADR 0085 §1 The Interface Does Not Name A Feed "Publisher": <file>:<line> names a feed "publisher".
-Use "feed", "artist" or the RSS element name. A service name goes in the broadcast file list of this guard.
+Use "feed", "artist" or the RSS element name. Only the Decision 7 frame title says "Publisher". A service name goes in the broadcast file list of this guard.
 ```
 
 ## Required Changes
@@ -185,14 +192,15 @@ Use the prefix `adr_0085_feed_page_` for behavioral tests beside the owning code
 | R85-8-11 | Each new string of "The words" comes from its named constant |
 | R85-8-12 | The decode reads `album_names_rank` and `remote_episode_count` from a recorded response, and the stored 0.11.0 contract has them |
 | R85-8-13 | The guard of ADR 0085 Decision 1 passes, and a test string with the word "Publisher" in a scanned file fails it |
+| R85-8-14 | `frame_title()` gives "Artist" for the HeyCitizen and DETOX facts, and "Label" for the Sir Libre Records facts. A feed with rank 2 rows and no stated role gives "Publisher". A null rank gives "Feed", and so does a rank 2 row with a one-side `artist` role |
 
 ## Visual Acceptance Criteria
 
 These are for the operator. No test proves them.
 
-- V1: the HeyCitizen page shows "Artist" and its five roles in the header. Its releases show under "Albums and EPs" and "Singles". No text on the page says "publisher".
+- V1: the HeyCitizen page has the frame title "Artist". It shows "Artist" and its five roles in the header. Its releases show under "Albums and EPs" and "Singles". No text on the page says "publisher". The operator also finds a feed with only rank 2 links and no role, and checks that its frame title is "Publisher".
 - V2: the Official DETOX Music page shows "Unverified artist". Its releases show under "Albums and EPs" and "Singles".
-- V3: the Sir Libre Records page shows no level word. It shows "As label", "Role not confirmed" and "Listed by Sir Libre Records only". Each "Role not confirmed" row tells who stated which role.
+- V3: the Sir Libre Records page has the frame title "Label", and shows no level word. It shows "As label", "Role not confirmed" and "Listed by Sir Libre Records only". Each "Role not confirmed" row tells who stated which role.
   A release that names the feed, but that the feed does not list, shows "Not listed by this feed". This carries the "Not listed" part of §20 V4.
 - V4: the Artists list shows HeyCitizen and DETOX by feed title, when the Library holds their releases, with no level word. Sir Libre Records is not in the list. A feed row opens the feed page.
 - V5: with MusicIndex unreachable, a Library feed page shows the report first, and its Library releases stay in their sections. This carries the failure part of §20 V3 of the [overhaul plan list](../plans/design-and-cleanup-overhaul-plan.md#phase-4-publisher-and-artist-pages).
@@ -274,7 +282,7 @@ Do not touch:
 - The Stophammer checkout at `../stophammer`.
 
 Acceptance criteria:
-- Each case R85-8-01 to R85-8-13 has a passing test or guard.
+- Each case R85-8-01 to R85-8-14 has a passing test or guard.
 - Each command in "Checks" is Green, and `cargo check --all-targets` gives no warning.
 - The packet has an "Operator visual check" section for V1 to V8.
 
@@ -286,7 +294,6 @@ At the end, report:
 5. unresolved concerns
 
 Stop and report the problem, and do not guess, when:
-- The "Open Question" has no answer in this packet.
 - ADR 0082 packet 003 is not complete.
 - The decoded values do not agree with the release record of 0.11.0.
 - The Library rows and the other rows cannot join without a new query.

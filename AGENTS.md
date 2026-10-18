@@ -72,8 +72,8 @@ cannot act is absent, not disabled.
 **One page for each item.** Music is a column browser. Each release, track, artist and playlist has one
 page, whatever its origin. The Library is a state that each page and list shows, not a place. ADR 0084.
 
-**Artists, not publishers.** The interface never calls a feed a "publisher". A feed that
-albums name is an artist, confirmed or unverified, and other roles show when a feed states them. ADR 0085.
+**Artists, not publishers.** The interface calls a feed a "publisher" only in the frame title of a feed that is
+definitely not an artist. A feed that albums name is an artist, confirmed or unverified, and other roles show when a feed states them. ADR 0085.
 
 **Provenance first.** Provenance is the element in the RSS document that
 asserted a value: the channel, the item, or a person. MusicIndex is a cache of
