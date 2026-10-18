@@ -148,8 +148,8 @@ pub struct Feed {
     /// The count of distinct `release_artist` values among the albums that
     /// name this publisher and that this publisher also lists. MusicIndex
     /// derives it from Stophammer ADR 0061, and it is present only on a
-    /// publisher feed (ADR 0077 Task 007). It never selects the page type
-    /// (ADR 0078).
+    /// publisher feed (ADR 0077 Task 007). The publisher page shows no type
+    /// (ADR 0082 Decision 1), and this count never selects one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub confirmed_release_artist_count: Option<i64>,
     /// One raw `release_artist` value for each count in

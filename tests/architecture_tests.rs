@@ -18357,9 +18357,10 @@ text or `publisher_text`.";
     );
 }
 
-/// Situational — ADR 0077 packet 004 (R4-06): the durable renderer
-/// portability rule in AGENTS.md. The publisher page screen reads the page
-/// type, the role labels, the group labels and the "not listed"/"in
+/// Situational — ADR 0077 packet 004 and ADR 0082 packet 002 (R4-06,
+/// R82-2-01 to R82-2-07): the durable renderer portability rule in
+/// AGENTS.md. The publisher page screen reads the group captions, the
+/// role subgroup captions, the row role text and the "not listed"/"in
 /// library" marks from `PublisherPageVm`/`PublisherPageContext` only. It
 /// never hardcodes the words those types compute, and it composes no
 /// display string, such as a count-and-label pair or a glyph, of its own
@@ -18367,22 +18368,30 @@ text or `publisher_text`.";
 /// AGENTS.md drops the renderer portability rule.
 #[test]
 fn adr_0077_publisher_navigation_screen_reads_labels_from_view_model_only() {
-    const FIX: &str = "AGENTS.md durable renderer portability rule: a screen decides no page type, \
-no role label, no group, no composed display string and no action availability. Read \
-`PublisherPageType::label()`, `AlbumRoleDisplay::text()`, `PublisherPageContext::group_labels()`, \
+    const FIX: &str = "AGENTS.md durable renderer portability rule: a screen decides no group, no \
+role subgroup, no role text, no composed display string and no action availability. Read \
+`AlbumNameGroup::label()`, `AlbumRoleDisplay::display_text()`, \
+`PublisherPageVm::LIBRARY_SCOPE_LABEL`/`OTHER_SCOPE_LABEL`/`SHARES_ALBUMS_WITH_LABEL`, \
 `PublisherPageAlbumVm::NOT_LISTED_LABEL`, `PublisherPageAlbumVm::IN_LIBRARY_LABEL`, \
-`AlbumArtistDisplay::display_text()`, `DerivedArtistCount::display_text()` and \
+`AlbumArtistDisplay::display_text()`, `DerivedArtistCount::display_text()`, \
+`CoCreditedFeedVm::roles_and_count_text()` and \
 `PublisherPageVm::header_facts()`/`title_text()` from `src/view_models/publisher_page.rs` instead of \
 writing the word, the composed string or the glyph directly in the screen.";
     const FORBIDDEN: &[&str] = &[
-        "\"Artist\"",
-        "\"Label\"",
         "\"Not listed",
         "\"In Library\"",
         "\"Library Albums\"",
         "\"Other Albums\"",
-        "\"Owned Albums\"",
-        "\"Listed By\"",
+        "\"Publisher of\"",
+        "\"Listed, not named\"",
+        "\"Role stated by one side\"",
+        "\"Roles differ, not confirmed\"",
+        "\"Role not stated\"",
+        "\"Shares albums with\"",
+        "\"agreed by both feeds\"",
+        "\"stated by the album only\"",
+        "\"stated by the publisher only\"",
+        "\"not confirmed\"",
     ];
     /// A `\u{...}` escape is a glyph, such as an em dash, composed straight
     /// into the screen. AGENTS.md token discipline: "No raw literal and no
@@ -18422,6 +18431,28 @@ writing the word, the composed string or the glyph directly in the screen.";
     assert!(
         violations.is_empty(),
         "ADR 0077 packet 004 publisher page screen renderer portability violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational — ADR 0082 packet 002 (R82-2-08): ADR 0082 supersedes ADR
+/// 0078, and this packet rewrote or deleted each comment that cited it.
+/// ADR 0078 is in the archive since 2026-10-17. Delete this guard when ADR
+/// 0082 is superseded.
+#[test]
+fn adr_0082_role_groups_no_source_comment_cites_adr_0078() {
+    const FIX: &str = "ADR 0082 supersedes ADR 0078 (a publisher page has no type). Rewrite the \
+comment to cite ADR 0082, or delete it.";
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let source = read_source(&path);
+        if source.contains("ADR 0078") {
+            violations.push(format!("{}: cites ADR 0078. {FIX}", rel_path(&path)));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0082 packet 002 stale ADR 0078 citation violations:\n{}",
         violations.join("\n")
     );
 }

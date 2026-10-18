@@ -231,6 +231,10 @@ pub(crate) struct LocalPublisherAlbum {
     pub(crate) publisher_link_resolution: Option<crate::api::PublisherLinkResolution>,
     pub(crate) publisher_rel: Option<String>,
     pub(crate) music_rel: Option<String>,
+    /// How this album names the publisher feed (ADR 0082 Decision 2).
+    pub(crate) album_names_as: Option<crate::api::AlbumNamesAs>,
+    /// Whether the two feeds agree on `role` (ADR 0082 Decision 2).
+    pub(crate) role_agreement: Option<crate::api::RoleAgreement>,
 }
 
 /// Reads each local feed with a stored `music_to_publisher` row for the
@@ -251,7 +255,8 @@ pub(crate) fn local_albums_for_publisher(
         .prepare(
             "SELECT feeds.id, feeds.feed_guid, feeds.title, feeds.album_image_href,
                     r.publisher_feed_title, r.role, r.role_source, r.publisher_lists_music,
-                    r.publisher_link_resolution, r.publisher_rel, r.music_rel
+                    r.publisher_link_resolution, r.publisher_rel, r.music_rel,
+                    r.album_names_as, r.role_agreement
              FROM feed_publisher_relationships r
              JOIN feeds ON feeds.id = r.feed_id
              WHERE r.direction = 'music_to_publisher' AND r.publisher_feed_guid = ?1
@@ -276,6 +281,12 @@ pub(crate) fn local_albums_for_publisher(
                     .map(crate::api::PublisherLinkResolution::from),
                 publisher_rel: row.get(9)?,
                 music_rel: row.get(10)?,
+                album_names_as: row
+                    .get::<_, Option<String>>(11)?
+                    .map(crate::api::AlbumNamesAs::from),
+                role_agreement: row
+                    .get::<_, Option<String>>(12)?
+                    .map(crate::api::RoleAgreement::from),
             })
         })
         .context("Query local albums for publisher")?
@@ -801,6 +812,49 @@ mod tests {
         assert!(local_albums_for_publisher(&conn, "publisher-missing")
             .unwrap()
             .is_empty());
+    }
+
+    /// ADR 0082 packet 002: `local_albums_for_publisher` reads back the
+    /// stored `album_names_as` and `role_agreement` link facts, the same
+    /// values that `upsert_feed_publisher_relationships` wrote. The Library
+    /// publisher page groups and subgroups need these two values for a
+    /// Library album, the same as the Index page already has them for a
+    /// remote album.
+    #[test]
+    fn adr_0082_role_groups_local_albums_for_publisher_reads_link_facts() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        upgrades::create_fixture(&conn, CURRENT_VERSION).unwrap();
+        conn.execute(
+            "INSERT INTO feeds(id, feed_url, feed_guid, title)
+             VALUES (1, 'https://example.test/one.xml', 'album-guid-1', 'Album One')",
+            [],
+        )
+        .unwrap();
+        let owned = PublisherRelationship {
+            direction: Some("music_to_publisher".to_owned()),
+            publisher_feed_guid: Some("publisher-a".to_owned()),
+            remote_feed_guid: Some("publisher-a".to_owned()),
+            role: Some("artist, label".to_owned()),
+            album_names_as: Some(crate::api::AlbumNamesAs::Publisher),
+            role_agreement: Some(crate::api::RoleAgreement::Both),
+            ..PublisherRelationship::default()
+        };
+        upsert_feed_publisher_relationships(&mut conn, 1, Some("Publisher A"), Some(&[owned]), 10)
+            .unwrap();
+
+        let albums = local_albums_for_publisher(&conn, "publisher-a").unwrap();
+
+        assert_eq!(albums.len(), 1);
+        assert_eq!(
+            albums[0].album_names_as,
+            Some(crate::api::AlbumNamesAs::Publisher),
+            "the stored album_names_as value must read back"
+        );
+        assert_eq!(
+            albums[0].role_agreement,
+            Some(crate::api::RoleAgreement::Both),
+            "the stored role_agreement value must read back"
+        );
     }
 
     /// R4-01/R4-02 (ADR 0077 packet 004): `owned_publisher_feed_guid` gives

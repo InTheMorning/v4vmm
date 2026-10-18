@@ -13,7 +13,7 @@ The orchestrator divided the earlier packet 004 into packets 004 and 005 on 2026
 ## Authority
 
 - [ADR 0077](../adr/0077-publisher-feed-artist-binding.md) Decisions 1 and 2, and its accepted refinements.
-- [ADR 0078](../adr/0078-publisher-page-type-from-stated-role.md), the page type.
+- [ADR 0078](../adr/archive/0078-publisher-page-type-from-stated-role.md), the page type.
 - [ADR 0076](../adr/0076-playlist-rss-check-for-stale-musicindex-records.md): one projection in `src/application/queries/stored_values.rs` owns the stored values.
 - [ADR 0060](../adr/0060-workflow-surface-structure.md): the Music section holds Index results and the Library.
 - The durable set in [AGENTS.md](../../AGENTS.md): element hierarchy, token discipline, typed action state, renderer portability and the UI change acceptance gate.

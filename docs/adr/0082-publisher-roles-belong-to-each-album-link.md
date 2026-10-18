@@ -8,8 +8,8 @@ Amended 2026-10-08 by [ADR 0084](0084-music-column-browser.md) Decisions 6 and 7
 
 Revised on 2026-10-02 against Stophammer 0.7.0, after the operator held it for that release. The credit link of Stophammer 0.6.0 is gone from this design.
 
-It supersedes [ADR 0078](0078-publisher-page-type-from-stated-role.md), and it amends [ADR 0077](0077-publisher-feed-artist-binding.md) Decision 2.
-ADR 0078 moves to the archive in the commit of [packet 002](../tasks/adr-0082-task-002-publisher-page-role-groups.md), which deletes its page type code.
+It supersedes [ADR 0078](archive/0078-publisher-page-type-from-stated-role.md), and it amends [ADR 0077](0077-publisher-feed-artist-binding.md) Decision 2.
+ADR 0078 moved to the archive on 2026-10-17 with [packet 002](../tasks/adr-0082-task-002-publisher-page-role-groups.md), which deleted its page type code.
 
 ## Context
 

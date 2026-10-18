@@ -9,7 +9,7 @@ The page no longer shows a single "Artists" count that ignores the second group.
 
 ## Authority
 
-- [ADR 0077](../adr/0077-publisher-feed-artist-binding.md) Decisions 2 and 3, and [ADR 0078](../adr/0078-publisher-page-type-from-stated-role.md): the artist count never selects the page type.
+- [ADR 0077](../adr/0077-publisher-feed-artist-binding.md) Decisions 2 and 3, and [ADR 0078](../adr/archive/0078-publisher-page-type-from-stated-role.md): the artist count never selects the page type.
 - [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md) Decision I: MusicIndex derives these values. The page names them as derived.
 - Stophammer ADR 0061, Accepted on 2026-09-27 and deployed in release 0.2.0.
 - The durable set in [AGENTS.md](../../AGENTS.md): renderer portability and token discipline.

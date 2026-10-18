@@ -24,7 +24,7 @@ Phase 4A builds ADR 0084 in the packets of the
 for each item, three columns, the six destinations and Discover.
 Packet 016 waits for Stophammer request 6.
 Packet 008, the artist page, comes next after
-[ADR 0082 packets 002 and 003](docs/plans/adr-0082-publisher-roles-phase-plan.md). Phase 4 and 5 packets carry the
+[ADR 0082 packet 003](docs/plans/adr-0082-publisher-roles-phase-plan.md). Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
 
 Each file in `docs/tasks/` is open: it is Ready, or it waits for an operator check. Finished tasks are in
@@ -34,9 +34,9 @@ The operator resumed visual checks on 2026-10-02. [Pending human checks](docs/pe
 holds each open check. Walk a new check right after its packet. The procedures in `docs/runbooks/` stay
 regression checks.
 
-Ready packets include [ADR 0082 packets 002 and 003](docs/plans/adr-0082-publisher-roles-phase-plan.md) and
-[ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md). ADR 0082 packet 002 also moves
-ADR 0078 to the archive.
+Ready packets include [ADR 0082 packet 003](docs/plans/adr-0082-publisher-roles-phase-plan.md) and
+[ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md). ADR 0082 packet 002 is implemented.
+Its visual check is open.
 
 Known open defects:
 

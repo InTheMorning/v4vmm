@@ -1,7 +1,7 @@
 # ADR 0082 Task 002: Publisher Page Role Groups
 
-Status: Ready - 2026-10-02. It runs after [packet 001](archive/adr-0082-task-001-contract-0-7-0-and-link-facts.md). Implementation has not started.
-Its visual gate opens when the implementation is complete. Visual checks are paused, so the gate stays open.
+Status: Implemented - 2026-10-17. Cases R82-2-01 to R82-2-08 pass. Mechanical checks are Green.
+Its visual gate is open for V1 to V4 in [pending human checks](../pending-human-checks.md). ADR 0078 moved to the archive with this packet.
 
 ## Goal
 
@@ -10,7 +10,7 @@ The header lists the agreed roles, and a section shows the feeds that share albu
 
 ## Authority
 
-- [ADR 0082](../adr/0082-publisher-roles-belong-to-each-album-link.md) Decisions 1 to 5. It supersedes [ADR 0078](../adr/0078-publisher-page-type-from-stated-role.md).
+- [ADR 0082](../adr/0082-publisher-roles-belong-to-each-album-link.md) Decisions 1 to 5. It supersedes [ADR 0078](../adr/archive/0078-publisher-page-type-from-stated-role.md).
 - [ADR 0077](../adr/0077-publisher-feed-artist-binding.md) Decisions 1 and 3, and its packets 003, 004 and 007.
 - The durable set in [AGENTS.md](../../AGENTS.md): renderer portability, element hierarchy, typed action state and token discipline.
 
@@ -111,11 +111,93 @@ Revert the working tree. This packet adds no migration and no stored data.
 
 ## Operator Visual Check
 
-The implementer writes this section at completion. It gives numbered steps for V1 to V4.
-It states the needed state, what counts as wrong, and the cleanup.
-
 The check only reads pages. It needs network access to `api.musicindex.org`.
-Do not delete `/tmp/v4vmm-governance.ie6k8TQf`. Color alone is not a valid difference.
+Do not erase `/tmp/v4vmm-governance.ie6k8TQf`. Color alone is not a correct difference.
+
+### Setup
+
+1. Operate `cargo build --bin v4vmm` in a desktop session.
+2. A prior `cargo test` run can leave a GPUI test-support binary at `target/debug/v4vmm`.
+   Build again before you start the app.
+3. Start `target/debug/v4vmm`.
+4. Open Settings. Make sure the MusicIndex endpoint field holds a working endpoint.
+5. Open the Music section.
+
+### V1: the DETOX publisher page shows "Publisher of" and "Role not stated", and no type
+
+1. Open the publisher page for the "Official DETOX Music" feed
+   (`137aaa9c-75ff-4916-9f23-e02968b2d15e`), from the Index or from the Library.
+2. Check that the page shows a group titled "Publisher of".
+3. Check that its albums sit below a subgroup titled "Role not stated".
+4. Check that the page shows no "Type" row.
+5. Check that the page shows no word "Artist" or "Label" as a page type.
+6. Wrong: the page shows a "Type" row.
+7. Wrong: the "Publisher of" group is missing.
+8. Wrong: an album sits below an agreed role subgroup. It must sit below "Role not stated".
+9. Cleanup: none.
+
+### V2: a publisher with agreed roles shows each role subgroup and the header roles
+
+1. Find a publisher feed with one agreed role or more.
+2. Check the Recorded Facts of this packet and of
+   [packet 001](archive/adr-0082-task-001-contract-0-7-0-and-link-facts.md) first.
+   The DETOX feed gave only null `role_agreement` values on 2026-10-02.
+3. Check [the open Stophammer requests](../plans/v4vmm-open-requests.md) and
+   [the publisher feed research notes](../notes/2026-09-23-publisher-feed-artist-research.md)
+   for a newer candidate.
+4. When those sources name no candidate, search a few Index publisher feeds.
+   A feed with a two-way validated link and a stated role on both sides is a correct candidate.
+5. Open that publisher's page.
+6. Check that the header shows a "Roles:" row.
+7. Check that the row names each different agreed role, sorted, for example
+   "Roles: artist, distributor".
+8. Check that the page shows one subgroup for each agreed role set.
+9. Check that an album below an agreed subgroup shows its role with the text
+   "agreed by both feeds".
+10. When the feed has a one-side row, check its text.
+11. The text must read "stated by the album only" or "stated by the publisher only".
+    The named side must match the side that stated the role.
+12. When the feed has a conflict row, check its text.
+13. The text must name both stated sets, and must say the link is "not confirmed".
+14. Wrong: the header shows no "Roles:" row, although an agreed album exists.
+15. Wrong: two different agreed role sets share one subgroup.
+16. Wrong: a one-side row or a conflict row reads the same as an agreed row.
+17. Cleanup: none.
+
+### V3: "Shares albums with" shows when the list has entries, and each entry opens its publisher page
+
+1. Open a publisher page whose feed has one co-credited feed or more.
+2. Check the sources in V2, step 1, for a candidate.
+   A feed with several shared albums, under more than one publisher, is a correct candidate.
+3. Check that the page shows a "Shares albums with" section, below the album groups.
+4. Check that the section shows one row for each co-credited feed.
+5. Check that each row names its title, its roles and its shared album count.
+6. Click one row.
+7. Check that the app opens that feed's own publisher page.
+8. Open a publisher page whose feed has no co-credited feed.
+9. Check that the page shows no "Shares albums with" section at all.
+10. Wrong: the section shows with an empty list.
+11. Wrong: a row shows no title, no roles or no count.
+12. Wrong: a click opens the wrong page, or does nothing.
+13. Cleanup: use Back, or the breadcrumb, to go to the page you started from.
+
+### V4: normal and narrow widths, Light and Dark themes, and larger type sizes show every element in its place
+
+1. Open the publisher page from V1 or V2.
+2. Resize the window to its normal width, then to a narrow width.
+3. Pull the window edge until the Library sidebar collapses. Or, resize below the
+   narrow-layout width named in the sidebar and toolbar runbooks.
+4. Repeat step 2 in Light theme, then in Dark theme (Settings > Appearance).
+5. Repeat step 2 at a larger system type size.
+6. At each width, theme and type size, check that each element stays in its own place, with
+   no clipped text.
+7. Check the group captions, the role subgroup captions and the row role text.
+8. Check the header "Roles:" row and the "Shares albums with" entries.
+9. Wrong: a caption or a row role text is cut off mid-word, with no visual sign.
+10. Wrong: two elements overlap.
+11. Wrong: a role or a confirmation condition reads only through color, with no text
+    difference.
+12. Cleanup: restore the window to its earlier size and theme.
 
 ## Prompt for lower-context coding model
 

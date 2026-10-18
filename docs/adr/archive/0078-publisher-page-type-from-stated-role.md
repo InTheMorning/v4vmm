@@ -4,12 +4,12 @@
 
 Superseded by ADR 0082 - 2026-10-02. A page has no type.
 
-[ADR 0082](0082-publisher-roles-belong-to-each-album-link.md) moves this file to the archive with its packet 002.
+[ADR 0082](../0082-publisher-roles-belong-to-each-album-link.md) moved this file to the archive with its packet 002 on 2026-10-17.
 
 Accepted - 2026-09-24. The operator gave this decision on 2026-09-24, during the review of the ADR 0077 proposals.
 Implementation has not started.
 
-This ADR supersedes Decision 4 of [ADR 0077](0077-publisher-feed-artist-binding.md) only. The other ADR 0077 decisions stay in force.
+This ADR supersedes Decision 4 of [ADR 0077](../0077-publisher-feed-artist-binding.md) only. The other ADR 0077 decisions stay in force.
 
 Amended 2026-09-24: the operator added the page rule for albums with different roles. The Decision section records it.
 

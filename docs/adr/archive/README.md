@@ -37,3 +37,4 @@ research. Never read it to find a live rule.
 | 0071 | Shared Text Selection And Linux Primary Selection | Fully guarded |
 | 0072 | Pinned gpui-base Selection Corrections | Fully guarded |
 | 0073 | Show Card Overflow Scrolling | Fully guarded |
+| 0078 | Publisher Page Type From Stated Role Only | Superseded by ADR 0082 |

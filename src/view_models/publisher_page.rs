@@ -1,42 +1,36 @@
-//! Publisher page view model (ADR 0077 Task 003, ADR 0078, ADR 0077 Task 007).
+//! Publisher page view model (ADR 0077 Task 003, ADR 0082, ADR 0077 Task 007).
 //!
 //! The Index publisher page query and the Library publisher page query, in
 //! `src/application/queries`, each build one [`PublisherPageFacts`] value
-//! from their own data. This module turns that value into the page type,
-//! the album groups, the title, and the confirmed and unconfirmed artist
-//! counts that the page shows. No renderer computes these facts.
-//! [`PublisherPageVm`] computes each one, and packet 004 wires a screen to
-//! it.
+//! from their own data. This module turns that value into the album name
+//! groups and role subgroups of ADR 0082 Decision 2, the row role text of
+//! Decision 3, the header roles of Decision 4, the "Shares albums with"
+//! entries of Decision 5, the title, and the confirmed and unconfirmed
+//! artist counts. No renderer computes these facts. [`PublisherPageVm`]
+//! computes each one, and packet 004 wires a screen to it.
 
 #![warn(clippy::pedantic)]
 
-use crate::api::{PublisherLinkResolution, RoleSource};
+use std::collections::{BTreeMap, BTreeSet};
+
+use crate::api::{AlbumNamesAs, PublisherLinkResolution, RoleAgreement, RoleSource};
 
 /// The route that opened a publisher page (ADR 0077 packet 004). This value
 /// selects which `PublisherPageVm` groups the screen shows. It decides no
-/// page type, no role and no action availability: those come from
+/// group, no role and no action availability: those come from
 /// [`PublisherPageVm`] alone.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PublisherPageContext {
-    /// Reached from the Library. The screen shows `library_albums` and
-    /// `other_albums` as two groups.
+    /// Reached from the Library. The screen shows `library_groups` and
+    /// `other_groups` as two scopes, each with the ADR 0082 Decision 2
+    /// groups inside it.
     Library,
-    /// Reached from the Index. The screen shows `owned_albums` and
-    /// `listed_by_albums`, and marks each album with `in_library`.
+    /// Reached from the Index. The screen shows `index_groups`, and marks
+    /// each album with `in_library`.
     Index,
 }
 
 impl PublisherPageContext {
-    /// The section captions for this page shape (Required Change 4). The
-    /// screen decides no group label of its own.
-    #[must_use]
-    pub(crate) const fn group_labels(self) -> (&'static str, &'static str) {
-        match self {
-            Self::Library => ("Library Albums", "Other Albums"),
-            Self::Index => ("Owned Albums", "Listed By"),
-        }
-    }
-
     /// `true` when the screen marks each album row with `in_library`
     /// (Required Change 4: only the Index page shape does this).
     #[must_use]
@@ -80,6 +74,10 @@ pub(crate) struct PublisherPageAlbumFact {
     pub(crate) publisher_rel: Option<String>,
     /// The raw `rel` the album feed item stated for this publisher.
     pub(crate) music_rel: Option<String>,
+    /// How this album names the publisher feed (ADR 0082 Decision 2).
+    pub(crate) album_names_as: Option<AlbumNamesAs>,
+    /// Whether the two feeds agree on `role` (ADR 0082 Decision 2).
+    pub(crate) role_agreement: Option<RoleAgreement>,
     /// `true` when this album's own feed is in the Library.
     pub(crate) in_library: bool,
 }
@@ -96,20 +94,43 @@ pub(crate) struct PublisherPageFacts {
     /// `confirmed_release_artist_count` of the publisher feed: the distinct
     /// artists of the albums that name this publisher and that this
     /// publisher also lists (Stophammer ADR 0061, ADR 0077 Task 007).
-    /// `MusicIndex` derives it; it never selects the page type (ADR 0078).
+    /// `MusicIndex` derives it. The publisher page shows no type (ADR 0082
+    /// Decision 1), and this count never selects one.
     pub(crate) confirmed_release_artist_count: Option<i64>,
     pub(crate) confirmed_release_artists: Vec<String>,
     /// `unconfirmed_release_artist_count` of the publisher feed: the
     /// distinct artists of the albums that this publisher lists but that do
     /// not name it (Stophammer ADR 0061, ADR 0077 Task 007). `MusicIndex`
-    /// derives it; it never selects the page type (ADR 0078).
+    /// derives it.
     pub(crate) unconfirmed_release_artist_count: Option<i64>,
     pub(crate) unconfirmed_release_artists: Vec<String>,
     pub(crate) albums: Vec<PublisherPageAlbumFact>,
+    /// Each other publisher feed that shares a confirmed album with this
+    /// feed (ADR 0082 Decision 5). Empty when the response names none.
+    pub(crate) co_credited_feeds: Vec<CoCreditedFeedFact>,
     /// R3-02a: the reason the request for the albums that are not in the
     /// Library failed. `None` when that request has not failed. The Library
     /// group in `albums` stays present either way.
     pub(crate) other_albums_failure: Option<String>,
+}
+
+/// One entry of "Shares albums with" (ADR 0082 Decision 5): another
+/// publisher feed that shares a confirmed album with the feed this page
+/// describes. The owning query builds one of these from each
+/// `co_credited_feeds` item of the response.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CoCreditedFeedFact {
+    /// The co-credited feed's own GUID. An entry with no GUID has no page
+    /// to open, so [`PublisherPageVm::shares_albums_with`] drops it.
+    pub(crate) feed_guid: Option<String>,
+    /// The co-credited feed's own title, or `None` when the node holds no
+    /// feed for it.
+    pub(crate) title: Option<String>,
+    /// The different raw `rel` values the shared albums give this feed,
+    /// sorted. Empty when no album states one.
+    pub(crate) roles: Vec<String>,
+    /// The number of shared confirmed albums.
+    pub(crate) album_count: Option<i64>,
 }
 
 /// A page or album title, ready to view (ADR 0077 Accepted Refinements,
@@ -134,67 +155,97 @@ impl TitleDisplay {
     }
 }
 
-/// The stated or conflicting role of one album/publisher pair (ADR 0077
-/// Decision 3, R3-06, R3-07).
-///
-/// ADR 0082 Decision 2, Recorded Facts (2026-10-02): the Stophammer 0.7.0
-/// node never sends a stated role with `role_source` `default`. It gives
-/// no assumed default. `AlbumRoleDisplay` dropped its `Assumed` variant for
-/// this reason (ADR 0082 packet 001, Required Change 4): no 0.7.0 response
-/// can reach it. A role with no stated source still decodes, and
-/// `role_display` reads it as `Unknown`.
+/// The role and its source of one album/publisher link, ready to view (ADR
+/// 0082 Decision 3). `PublisherPageVm::role_display` builds this from the
+/// link's `role_agreement`, `role`, `role_source`, `publisher_rel` and
+/// `music_rel` facts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AlbumRoleDisplay {
-    /// A feed stated this role. `source` names which feed stated it.
-    Stated { role: String, source: RoleSource },
-    /// The two feeds stated different roles. Neither value wins.
+    /// Both feeds agree. `role` is the agreed role set.
+    Agreed { role: String },
+    /// One feed states a role; the other states none. `side` names which
+    /// feed stated it: `PublisherRel` or `MusicRel`.
+    OneSide { role: String, side: RoleSource },
+    /// The two feeds state different role sets. Neither wins (ADR 0077
+    /// Decision 3), and the row says that the link is not confirmed.
     Conflict {
         publisher_role: Option<String>,
         music_role: Option<String>,
     },
-    /// No feed stated a role, or the row names no stated source for it.
-    Unknown,
+    /// No feed states a role.
+    Unstated,
 }
 
 impl AlbumRoleDisplay {
-    /// The word this role shows, when a feed stated it (ADR 0077 packet
-    /// 004). `None` for a conflict or an unknown role: the screen reads
-    /// `Self::Conflict`'s own two stated values instead of a single word.
-    #[must_use]
-    pub(crate) fn text(&self) -> Option<&str> {
-        match self {
-            Self::Stated { role, .. } => Some(role.as_str()),
-            Self::Conflict { .. } | Self::Unknown => None,
-        }
-    }
+    /// The source text that follows an agreed role.
+    const AGREED_SOURCE: &'static str = "agreed by both feeds";
+    /// The source text that follows a role the album feed alone stated.
+    const ONE_SIDE_ALBUM_SOURCE: &'static str = "stated by the album only";
+    /// The source text that follows a role the publisher feed alone
+    /// stated.
+    const ONE_SIDE_PUBLISHER_SOURCE: &'static str = "stated by the publisher only";
+    /// The note on a conflict row: the link is not confirmed.
+    const CONFLICT_NOTE: &'static str = "not confirmed";
+    /// The word a conflict side shows when it states no role.
+    const CONFLICT_UNSTATED_SIDE: &'static str = "no stated role";
+    /// The label before the publisher feed's stated set, on a conflict row.
+    const CONFLICT_PUBLISHER_LABEL: &'static str = "Publisher feed:";
+    /// The label before the album feed's stated set, on a conflict row.
+    const CONFLICT_MUSIC_LABEL: &'static str = "Album feed:";
+    /// The text a row with no stated role shows (ADR 0082 Decision 2 and
+    /// 3: the same text names the "Role not stated" subgroup).
+    pub(crate) const UNSTATED_TEXT: &'static str = "Role not stated";
 
-    /// `true` only when a feed stated this role. `false` for a conflict or
-    /// an unknown role (R3-07: a role with no stated source never shows as
-    /// stated).
+    /// `true` for an agreed or a one-side row: a row with a feed-stated
+    /// role (ADR 0082 Decision 3).
     #[must_use]
     pub(crate) const fn is_stated(&self) -> bool {
-        matches!(self, Self::Stated { .. })
+        matches!(self, Self::Agreed { .. } | Self::OneSide { .. })
     }
 
-    /// The two stated values of a role conflict, ready to view (ADR 0077
-    /// Decision 3, R3-06). `None` when this is not a conflict.
+    /// `true` for a conflict row (ADR 0082 Decision 3).
     #[must_use]
-    pub(crate) fn conflict_text(&self) -> Option<String> {
+    pub(crate) const fn is_conflict(&self) -> bool {
+        matches!(self, Self::Conflict { .. })
+    }
+
+    /// The role text and its source, ready to view (ADR 0082 Decision 3,
+    /// Required Change 3). The screen composes no text of its own: this is
+    /// the one row-role string it shows.
+    #[must_use]
+    pub(crate) fn display_text(&self) -> String {
         match self {
+            Self::Agreed { role } => format!("{role} \u{2014} {}", Self::AGREED_SOURCE),
+            Self::OneSide {
+                role,
+                side: RoleSource::MusicRel,
+            } => format!("{role} \u{2014} {}", Self::ONE_SIDE_ALBUM_SOURCE),
+            Self::OneSide {
+                role,
+                side: RoleSource::PublisherRel,
+            } => format!("{role} \u{2014} {}", Self::ONE_SIDE_PUBLISHER_SOURCE),
+            // `role_display` builds `OneSide` only with `PublisherRel` or
+            // `MusicRel`. This arm stays only so the match is exhaustive
+            // against a future `RoleSource` variant.
+            Self::OneSide { role, .. } => role.clone(),
             Self::Conflict {
                 publisher_role,
                 music_role,
-            } => Some(format!(
-                "Publisher feed: {} / Album feed: {}",
-                publisher_role.as_deref().unwrap_or(Self::CONFLICT_UNSTATED),
-                music_role.as_deref().unwrap_or(Self::CONFLICT_UNSTATED),
-            )),
-            Self::Stated { .. } | Self::Unknown => None,
+            } => format!(
+                "{} {} / {} {} ({})",
+                Self::CONFLICT_PUBLISHER_LABEL,
+                publisher_role
+                    .as_deref()
+                    .unwrap_or(Self::CONFLICT_UNSTATED_SIDE),
+                Self::CONFLICT_MUSIC_LABEL,
+                music_role
+                    .as_deref()
+                    .unwrap_or(Self::CONFLICT_UNSTATED_SIDE),
+                Self::CONFLICT_NOTE,
+            ),
+            Self::Unstated => Self::UNSTATED_TEXT.to_owned(),
         }
     }
-
-    /// The word this display shows for a conflict side that states no role.
-    const CONFLICT_UNSTATED: &'static str = "no stated role";
 }
 
 /// The artist of one album, from `remote_release_artist` (R3-14). `None`
@@ -240,6 +291,55 @@ impl PublisherPageAlbumVm {
     /// The mark on an Index album whose own feed is in the Library
     /// (packet 004, Required Change 4).
     pub(crate) const IN_LIBRARY_LABEL: &'static str = "In Library";
+}
+
+/// One "Shares albums with" entry, ready to view (ADR 0082 Decision 5).
+/// `PublisherPageVm::shares_albums_with` builds one of these from each
+/// `co_credited_feeds` item that carries a feed GUID.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CoCreditedFeedVm {
+    pub(crate) title: TitleDisplay,
+    pub(crate) roles: Vec<String>,
+    /// The number of shared confirmed albums. `None` when the response
+    /// states no count: the view model invents no value for it.
+    pub(crate) album_count: Option<i64>,
+    /// The GUID of the publisher page this entry opens. The screen builds
+    /// no action target of its own.
+    pub(crate) publisher_feed_guid: String,
+    /// The accessibility label of the open-publisher action.
+    pub(crate) a11y_label: String,
+}
+
+impl CoCreditedFeedVm {
+    /// The word a shared album count shows when no role is stated.
+    const NO_ROLES_LABEL: &'static str = "No stated role";
+    /// The word after the count when it is exactly one.
+    const SHARED_ALBUM_LABEL: &'static str = "shared album";
+    /// The word after the count when it is zero or more than one.
+    const SHARED_ALBUMS_LABEL: &'static str = "shared albums";
+
+    /// The roles and the shared album count, ready to view (ADR 0082
+    /// Decision 5). The screen composes no text of its own. An absent
+    /// count shows the roles alone: this method invents no count.
+    #[must_use]
+    pub(crate) fn roles_and_count_text(&self) -> String {
+        let roles = if self.roles.is_empty() {
+            Self::NO_ROLES_LABEL.to_owned()
+        } else {
+            self.roles.join(", ")
+        };
+        match self.album_count {
+            Some(count) => {
+                let album_word = if count == 1 {
+                    Self::SHARED_ALBUM_LABEL
+                } else {
+                    Self::SHARED_ALBUMS_LABEL
+                };
+                format!("{roles} \u{2014} {count} {album_word}")
+            }
+            None => roles,
+        }
+    }
 }
 
 /// The state of the albums that are not in the Library (R3-02a).
@@ -321,27 +421,80 @@ impl PublisherPageLoadDisplay {
     }
 }
 
-/// The type of a publisher page (ADR 0078).
+/// The group of ADR 0082 Decision 2: how an album names this publisher
+/// feed. A publisher page shows no type (Decision 1); it groups its
+/// albums by this fact instead.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PublisherPageType {
-    Artist,
-    Label,
+pub(crate) enum AlbumNameGroup {
+    /// `album_names_as` is `publisher`.
+    PublisherOf,
+    /// `album_names_as` is null.
+    ListedNotNamed,
 }
 
-impl PublisherPageType {
-    /// The word this page type shows (ADR 0078, packet 004). This word
-    /// never selects the type: `PublisherPageVm::page_type` alone does.
+impl AlbumNameGroup {
+    /// The caption this group shows (ADR 0082 Decision 2). The screen
+    /// decides no group label of its own.
     #[must_use]
     pub(crate) const fn label(self) -> &'static str {
         match self {
-            Self::Artist => "Artist",
-            Self::Label => "Label",
+            Self::PublisherOf => "Publisher of",
+            Self::ListedNotNamed => "Listed, not named",
         }
     }
 }
 
-/// The derived artist count of a publisher feed (ADR 0077, ADR 0078). It
-/// never selects the page type.
+/// The caption of a role subgroup inside one [`AlbumNameGroup`] (ADR 0082
+/// Decision 2). An agreed subgroup's caption is its own role set text; the
+/// other three subgroups have a fixed caption.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum RoleSubgroupCaption {
+    /// `role_agreement` is `both`. One subgroup for each different role
+    /// set.
+    Agreed(String),
+    /// `role_agreement` is `one_side`.
+    OneSide,
+    /// `role_agreement` is `conflict`.
+    Conflict,
+    /// `role_agreement` is null, or an unrecognized value.
+    Unstated,
+}
+
+impl RoleSubgroupCaption {
+    /// The caption this subgroup shows.
+    const ONE_SIDE_LABEL: &'static str = "Role stated by one side";
+    const CONFLICT_LABEL: &'static str = "Roles differ, not confirmed";
+
+    #[must_use]
+    fn label(&self) -> &str {
+        match self {
+            Self::Agreed(role_set) => role_set.as_str(),
+            Self::OneSide => Self::ONE_SIDE_LABEL,
+            Self::Conflict => Self::CONFLICT_LABEL,
+            Self::Unstated => AlbumRoleDisplay::UNSTATED_TEXT,
+        }
+    }
+}
+
+/// One role subgroup, ready to view (ADR 0082 Decision 2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AlbumRoleSubgroupVm {
+    pub(crate) caption: String,
+    pub(crate) albums: Vec<PublisherPageAlbumVm>,
+}
+
+/// One album name group, with its role subgroups, ready to view (ADR 0082
+/// Decision 2). An album appears in exactly one subgroup of exactly one
+/// group. An empty group or subgroup is absent: `PublisherPageVm` never
+/// builds one with no album.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AlbumNameGroupVm {
+    pub(crate) group: AlbumNameGroup,
+    pub(crate) subgroups: Vec<AlbumRoleSubgroupVm>,
+}
+
+/// The derived artist count of a publisher feed (ADR 0077 Task 007).
+/// `MusicIndex` derives it from album credits.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DerivedArtistCount {
     pub(crate) count: i64,
@@ -385,11 +538,11 @@ pub(crate) struct PublisherPageVm {
 }
 
 impl PublisherPageVm {
-    /// Row label for the page type fact (packet 004).
-    pub(crate) const TYPE_LABEL: &'static str = "Type";
     /// Row label for the "No title" fact, shown only when the feed states
     /// no title.
     pub(crate) const TITLE_LABEL: &'static str = "Title";
+    /// Row label for the agreed roles fact (ADR 0082 Decision 4).
+    pub(crate) const ROLES_LABEL: &'static str = "Roles";
     /// Row label for the confirmed artist count fact (ADR 0077 Task 007):
     /// the artists of the albums that name this feed.
     pub(crate) const CONFIRMED_ARTISTS_LABEL: &'static str = "Artists that name this feed";
@@ -397,6 +550,14 @@ impl PublisherPageVm {
     /// the artists of the albums that this feed lists without a link back.
     pub(crate) const UNCONFIRMED_ARTISTS_LABEL: &'static str =
         "Artists this feed lists without a link back";
+    /// Caption of the Library page's own scope (ADR 0082 packet 002: the
+    /// Library page keeps its present Library/Other scope, and groups
+    /// Decision 2's album name groups inside each one).
+    pub(crate) const LIBRARY_SCOPE_LABEL: &'static str = "Library Albums";
+    /// Caption of the Library page's other scope.
+    pub(crate) const OTHER_SCOPE_LABEL: &'static str = "Other Albums";
+    /// Caption of the "Shares albums with" section (ADR 0082 Decision 5).
+    pub(crate) const SHARES_ALBUMS_WITH_LABEL: &'static str = "Shares albums with";
 
     #[must_use]
     pub(crate) const fn new(facts: PublisherPageFacts) -> Self {
@@ -423,15 +584,19 @@ impl PublisherPageVm {
         }
     }
 
-    /// The header facts of this page, ready to view (packet 004). The
-    /// screen shows each fact as a label/value pair; it decides no label
-    /// and composes no text.
+    /// The header facts of this page, ready to view (ADR 0082 Decision 4).
+    /// The screen shows each fact as a label/value pair; it decides no
+    /// label and composes no text.
     #[must_use]
     pub(crate) fn header_facts(&self) -> Vec<PublisherPageHeaderFact> {
-        let mut facts = vec![PublisherPageHeaderFact {
-            label: Self::TYPE_LABEL,
-            value: self.page_type().label().to_owned(),
-        }];
+        let mut facts = Vec::new();
+        let agreed_roles = self.agreed_role_words();
+        if !agreed_roles.is_empty() {
+            facts.push(PublisherPageHeaderFact {
+                label: Self::ROLES_LABEL,
+                value: agreed_roles.join(", "),
+            });
+        }
         if matches!(self.title(), TitleDisplay::Missing(_)) {
             facts.push(PublisherPageHeaderFact {
                 label: Self::TITLE_LABEL,
@@ -453,54 +618,61 @@ impl PublisherPageVm {
         facts
     }
 
-    /// ADR 0078: `Label` only when one owned album states the label role.
-    /// R3-03, R3-04, R3-05, R3-06.
+    /// The different roles of the agreed rows, sorted (ADR 0082 Decision
+    /// 4). Each agreed row's role set splits into its own role words, so
+    /// an agreed "label, producer" row contributes both "label" and
+    /// "producer". Empty when the page has no agreed row.
+    fn agreed_role_words(&self) -> Vec<String> {
+        let mut roles: BTreeSet<String> = BTreeSet::new();
+        for album in &self.facts.albums {
+            if album.role_agreement == Some(RoleAgreement::Both) {
+                if let Some(role) = &album.role {
+                    roles.extend(role.split(", ").map(str::to_owned));
+                }
+            }
+        }
+        roles.into_iter().collect()
+    }
+
+    /// The Index page's groups (ADR 0082 Decision 2): every album on this
+    /// page, grouped by `album_names_as`, then by role subgroup.
     #[must_use]
-    pub(crate) fn page_type(&self) -> PublisherPageType {
-        let is_label = self
+    pub(crate) fn index_groups(&self) -> Vec<AlbumNameGroupVm> {
+        Self::album_name_groups(&self.facts.albums)
+    }
+
+    /// Library page scope: the groups of the albums with a feed in the
+    /// Library (ADR 0082 packet 002: the Library scope stays, and
+    /// Decision 2's groups apply inside it; see the packet report for the
+    /// chosen shape).
+    #[must_use]
+    pub(crate) fn library_groups(&self) -> Vec<AlbumNameGroupVm> {
+        let albums: Vec<PublisherPageAlbumFact> = self
             .facts
             .albums
             .iter()
-            .filter(|album| album.music_names_publisher == Some(true))
-            .any(|album| {
-                album.role.as_deref() == Some("label")
-                    && matches!(
-                        album.role_source,
-                        Some(RoleSource::PublisherRel | RoleSource::MusicRel)
-                    )
-            });
-        if is_label {
-            PublisherPageType::Label
-        } else {
-            PublisherPageType::Artist
-        }
+            .filter(|album| album.in_library)
+            .cloned()
+            .collect();
+        Self::album_name_groups(&albums)
     }
 
-    /// R3-08: albums with `music_names_publisher = true`.
+    /// Library page scope: the groups of the albums with no feed in the
+    /// Library.
     #[must_use]
-    pub(crate) fn owned_albums(&self) -> Vec<PublisherPageAlbumVm> {
-        self.facts
+    pub(crate) fn other_groups(&self) -> Vec<AlbumNameGroupVm> {
+        let albums: Vec<PublisherPageAlbumFact> = self
+            .facts
             .albums
             .iter()
-            .filter(|album| album.music_names_publisher == Some(true))
-            .map(Self::album_vm)
-            .collect()
+            .filter(|album| !album.in_library)
+            .cloned()
+            .collect();
+        Self::album_name_groups(&albums)
     }
 
-    /// R3-08: albums with `music_names_publisher = false`, in their own
-    /// group, apart from `owned_albums`.
-    #[must_use]
-    pub(crate) fn listed_by_albums(&self) -> Vec<PublisherPageAlbumVm> {
-        self.facts
-            .albums
-            .iter()
-            .filter(|album| album.music_names_publisher != Some(true))
-            .map(Self::album_vm)
-            .collect()
-    }
-
-    /// R3-11, R7-05 (ADR 0077 Task 007): the confirmed artist count, apart
-    /// from `page_type`. `None` when the response gives no confirmed count.
+    /// R3-11, R7-05 (ADR 0077 Task 007): the confirmed artist count.
+    /// `None` when the response gives no confirmed count.
     #[must_use]
     pub(crate) fn confirmed_artist_count(&self) -> Option<DerivedArtistCount> {
         self.facts
@@ -511,8 +683,8 @@ impl PublisherPageVm {
             })
     }
 
-    /// R7-05 (ADR 0077 Task 007): the unconfirmed artist count, apart from
-    /// `page_type`. `None` when the response gives no unconfirmed count.
+    /// R7-05 (ADR 0077 Task 007): the unconfirmed artist count. `None`
+    /// when the response gives no unconfirmed count.
     #[must_use]
     pub(crate) fn unconfirmed_artist_count(&self) -> Option<DerivedArtistCount> {
         self.facts
@@ -521,28 +693,6 @@ impl PublisherPageVm {
                 count,
                 names: self.facts.unconfirmed_release_artists.clone(),
             })
-    }
-
-    /// Library page scope: the albums with a feed in the Library.
-    #[must_use]
-    pub(crate) fn library_albums(&self) -> Vec<PublisherPageAlbumVm> {
-        self.facts
-            .albums
-            .iter()
-            .filter(|album| album.in_library)
-            .map(Self::album_vm)
-            .collect()
-    }
-
-    /// Library page scope: the albums with no feed in the Library.
-    #[must_use]
-    pub(crate) fn other_albums(&self) -> Vec<PublisherPageAlbumVm> {
-        self.facts
-            .albums
-            .iter()
-            .filter(|album| !album.in_library)
-            .map(Self::album_vm)
-            .collect()
     }
 
     /// R3-02a: the state of the albums that are not in the Library.
@@ -574,6 +724,124 @@ impl PublisherPageVm {
         urls
     }
 
+    /// "Shares albums with" (ADR 0082 Decision 5): one entry for each
+    /// `co_credited_feeds` item, with its title, its roles, its album
+    /// count, and the GUID of the publisher page it opens. An entry with
+    /// no feed GUID has no page to open, so this drops it.
+    #[must_use]
+    pub(crate) fn shares_albums_with(&self) -> Vec<CoCreditedFeedVm> {
+        self.facts
+            .co_credited_feeds
+            .iter()
+            .filter_map(Self::co_credited_feed_vm)
+            .collect()
+    }
+
+    fn co_credited_feed_vm(entry: &CoCreditedFeedFact) -> Option<CoCreditedFeedVm> {
+        let guid = entry.feed_guid.clone()?;
+        let title = TitleDisplay::from_stated(entry.title.as_deref(), &guid);
+        let title_text = match &title {
+            TitleDisplay::Stated(text) => text.clone(),
+            TitleDisplay::Missing(guid) => guid.clone(),
+        };
+        Some(CoCreditedFeedVm {
+            title,
+            roles: entry.roles.clone(),
+            album_count: entry.album_count,
+            publisher_feed_guid: guid,
+            a11y_label: format!("Open the publisher page of {title_text}"),
+        })
+    }
+
+    /// Groups `albums` by `album_names_as`, then by role subgroup (ADR
+    /// 0082 Decision 2). An album appears one time. An empty group or
+    /// subgroup is absent.
+    fn album_name_groups(albums: &[PublisherPageAlbumFact]) -> Vec<AlbumNameGroupVm> {
+        [AlbumNameGroup::PublisherOf, AlbumNameGroup::ListedNotNamed]
+            .into_iter()
+            .filter_map(|group| {
+                let matching: Vec<&PublisherPageAlbumFact> = albums
+                    .iter()
+                    .filter(|&album| Self::album_name_group(album) == group)
+                    .collect();
+                if matching.is_empty() {
+                    return None;
+                }
+                Some(AlbumNameGroupVm {
+                    group,
+                    subgroups: Self::role_subgroups(&matching),
+                })
+            })
+            .collect()
+    }
+
+    /// The group one album belongs to (ADR 0082 Decision 2). Every value
+    /// other than `AlbumNamesAs::Publisher` is "Listed, not named": the
+    /// live node sends only `publisher` or null (ADR 0082 Recorded Facts,
+    /// 2026-10-02), and every album needs exactly one group.
+    const fn album_name_group(album: &PublisherPageAlbumFact) -> AlbumNameGroup {
+        match &album.album_names_as {
+            Some(AlbumNamesAs::Publisher) => AlbumNameGroup::PublisherOf,
+            _ => AlbumNameGroup::ListedNotNamed,
+        }
+    }
+
+    /// Splits `albums` into the role subgroups of ADR 0082 Decision 2: the
+    /// agreed role sets, sorted, then "Role stated by one side", "Roles
+    /// differ, not confirmed" and "Role not stated". An empty subgroup is
+    /// absent.
+    ///
+    /// The subgroup follows the same `AlbumRoleDisplay` variant that
+    /// `role_display` gives the row, through `album_vm`. One function
+    /// decides both facts, so a row's subgroup and its own role text
+    /// never disagree. For example, a `OneSide` row with no stated role
+    /// reads as `Unstated`. The same happens when its `role_source` is
+    /// not `PublisherRel` or `MusicRel`. Each such row falls into "Role
+    /// not stated", not "Role stated by one side".
+    fn role_subgroups(albums: &[&PublisherPageAlbumFact]) -> Vec<AlbumRoleSubgroupVm> {
+        let mut agreed: BTreeMap<String, Vec<PublisherPageAlbumVm>> = BTreeMap::new();
+        let mut one_side = Vec::new();
+        let mut conflict = Vec::new();
+        let mut unstated = Vec::new();
+        for &album in albums {
+            let vm = Self::album_vm(album);
+            match vm.role.clone() {
+                AlbumRoleDisplay::Agreed { role } => {
+                    agreed.entry(role).or_default().push(vm);
+                }
+                AlbumRoleDisplay::OneSide { .. } => one_side.push(vm),
+                AlbumRoleDisplay::Conflict { .. } => conflict.push(vm),
+                AlbumRoleDisplay::Unstated => unstated.push(vm),
+            }
+        }
+        let mut subgroups: Vec<AlbumRoleSubgroupVm> = agreed
+            .into_iter()
+            .map(|(role_set, albums)| AlbumRoleSubgroupVm {
+                caption: RoleSubgroupCaption::Agreed(role_set).label().to_owned(),
+                albums,
+            })
+            .collect();
+        if !one_side.is_empty() {
+            subgroups.push(AlbumRoleSubgroupVm {
+                caption: RoleSubgroupCaption::OneSide.label().to_owned(),
+                albums: one_side,
+            });
+        }
+        if !conflict.is_empty() {
+            subgroups.push(AlbumRoleSubgroupVm {
+                caption: RoleSubgroupCaption::Conflict.label().to_owned(),
+                albums: conflict,
+            });
+        }
+        if !unstated.is_empty() {
+            subgroups.push(AlbumRoleSubgroupVm {
+                caption: RoleSubgroupCaption::Unstated.label().to_owned(),
+                albums: unstated,
+            });
+        }
+        subgroups
+    }
+
     fn album_vm(album: &PublisherPageAlbumFact) -> PublisherPageAlbumVm {
         let guid = album.feed_guid.clone().unwrap_or_default();
         let title = TitleDisplay::from_stated(album.title.as_deref(), &guid);
@@ -598,24 +866,30 @@ impl PublisherPageVm {
         }
     }
 
-    /// ADR 0082 packet 001, Required Change 4: a 0.7.0 row never pairs a
-    /// stated `role` with `role_source` `default`, so this function keeps
-    /// no arm for that pairing. A row that still reaches it, for example
-    /// from the fixture era before 2026-10-02, reads as `Unknown`, the same
-    /// display that a role with no stated source already gave.
+    /// The role and its source, ready to view (ADR 0082 Decision 3).
+    /// `role_agreement` alone selects the display variant. A `Both` row
+    /// with no stated role, or an unrecognized `role_agreement` value,
+    /// reads as `Unstated`.
     fn role_display(album: &PublisherPageAlbumFact) -> AlbumRoleDisplay {
-        match (&album.role, &album.role_source) {
-            (Some(role), Some(source @ (RoleSource::PublisherRel | RoleSource::MusicRel))) => {
-                AlbumRoleDisplay::Stated {
-                    role: role.clone(),
-                    source: source.clone(),
+        match &album.role_agreement {
+            Some(RoleAgreement::Both) => match &album.role {
+                Some(role) => AlbumRoleDisplay::Agreed { role: role.clone() },
+                None => AlbumRoleDisplay::Unstated,
+            },
+            Some(RoleAgreement::OneSide) => match (&album.role, &album.role_source) {
+                (Some(role), Some(side @ (RoleSource::PublisherRel | RoleSource::MusicRel))) => {
+                    AlbumRoleDisplay::OneSide {
+                        role: role.clone(),
+                        side: side.clone(),
+                    }
                 }
-            }
-            (None, Some(RoleSource::Conflict)) => AlbumRoleDisplay::Conflict {
+                _ => AlbumRoleDisplay::Unstated,
+            },
+            Some(RoleAgreement::Conflict) => AlbumRoleDisplay::Conflict {
                 publisher_role: album.publisher_rel.clone(),
                 music_role: album.music_rel.clone(),
             },
-            _ => AlbumRoleDisplay::Unknown,
+            None | Some(RoleAgreement::Unknown(_)) => AlbumRoleDisplay::Unstated,
         }
     }
 }
@@ -624,15 +898,29 @@ impl PublisherPageVm {
 mod tests {
     use super::*;
 
-    fn owned_album(role: Option<&str>, role_source: Option<RoleSource>) -> PublisherPageAlbumFact {
+    /// A simple owned album: it names the publisher, with the given GUID,
+    /// `album_names_as` and `role_agreement`.
+    fn album_with_guid(
+        guid: &str,
+        album_names_as: Option<AlbumNamesAs>,
+        role_agreement: Option<RoleAgreement>,
+        role: Option<&str>,
+    ) -> PublisherPageAlbumFact {
         PublisherPageAlbumFact {
-            feed_guid: Some("album-guid".into()),
-            title: Some("Album Title".into()),
+            feed_guid: Some(guid.to_owned()),
+            title: Some(format!("Album {guid}")),
             music_names_publisher: Some(true),
+            album_names_as,
+            role_agreement,
             role: role.map(str::to_owned),
-            role_source,
             ..PublisherPageAlbumFact::default()
         }
+    }
+
+    /// A single owned album, GUID `album-guid`, with no stated group or
+    /// role fact. Tests that do not exercise the groups use this.
+    fn owned_album() -> PublisherPageAlbumFact {
+        album_with_guid("album-guid", None, None, None)
     }
 
     fn facts(albums: Vec<PublisherPageAlbumFact>) -> PublisherPageFacts {
@@ -644,121 +932,411 @@ mod tests {
         }
     }
 
-    /// R3-03 (ADR 0078): one owned album with a stated label role gives a
-    /// label page.
-    #[test]
-    fn adr_0077_publisher_page_stated_label_role_gives_label_page() {
-        let vm = PublisherPageVm::new(facts(vec![owned_album(
-            Some("label"),
-            Some(RoleSource::PublisherRel),
-        )]));
-        assert_eq!(vm.page_type(), PublisherPageType::Label);
+    /// Every album row in `groups`, flattened across every group and
+    /// subgroup, in the order the groups give them.
+    fn flatten(groups: &[AlbumNameGroupVm]) -> Vec<PublisherPageAlbumVm> {
+        groups
+            .iter()
+            .flat_map(|group| group.subgroups.iter())
+            .flat_map(|subgroup| subgroup.albums.iter().cloned())
+            .collect()
     }
 
-    /// R3-04 (ADR 0078): a count of five with each role `default` gives an
-    /// artist page. The count never selects the type.
+    /// R82-2-01: the view model exposes no page type. `PublisherPageType`
+    /// and `PublisherPageVm::page_type` no longer exist in this module: a
+    /// build of this file is itself proof. This test proves the other
+    /// half: the header exposes no "Type" fact.
     #[test]
-    fn adr_0077_publisher_page_default_role_with_high_artist_count_gives_artist_page() {
-        let albums = (0..5)
-            .map(|_| owned_album(Some("artist"), Some(RoleSource::Default)))
-            .collect();
-        let mut page_facts = facts(albums);
-        page_facts.confirmed_release_artist_count = Some(5);
-        page_facts.confirmed_release_artists = vec!["A".into(), "B".into(), "C".into()];
-        let vm = PublisherPageVm::new(page_facts);
-        assert_eq!(vm.page_type(), PublisherPageType::Artist);
-        assert_eq!(
-            vm.confirmed_artist_count(),
-            Some(DerivedArtistCount {
-                count: 5,
-                names: vec!["A".into(), "B".into(), "C".into()],
-            })
+    fn adr_0082_role_groups_header_exposes_no_type_fact() {
+        let vm = PublisherPageVm::new(facts(vec![album_with_guid(
+            "a1",
+            Some(AlbumNamesAs::Publisher),
+            Some(RoleAgreement::Both),
+            Some("label"),
+        )]));
+        assert!(
+            vm.header_facts().iter().all(|fact| fact.label != "Type"),
+            "the header must expose no Type fact"
         );
     }
 
-    /// R3-05: a "listed by" album with a stated label role does not give a
-    /// label page.
+    /// R82-2-02: an album with `album_names_as` `publisher` goes to
+    /// "Publisher of". An album with a null `album_names_as` goes to
+    /// "Listed, not named". The two groups keep that order.
     #[test]
-    fn adr_0077_publisher_page_listed_by_label_role_does_not_give_label_page() {
-        let mut listed_by = owned_album(Some("label"), Some(RoleSource::PublisherRel));
-        listed_by.music_names_publisher = Some(false);
-        let vm = PublisherPageVm::new(facts(vec![listed_by]));
-        assert_eq!(vm.page_type(), PublisherPageType::Artist);
+    fn adr_0082_role_groups_album_names_as_selects_the_group() {
+        let publisher_of = album_with_guid("a1", Some(AlbumNamesAs::Publisher), None, None);
+        let listed_not_named = album_with_guid("a2", None, None, None);
+        let vm = PublisherPageVm::new(facts(vec![publisher_of, listed_not_named]));
+
+        let groups = vm.index_groups();
+
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].group, AlbumNameGroup::PublisherOf);
+        assert_eq!(AlbumNameGroup::PublisherOf.label(), "Publisher of");
+        assert_eq!(groups[1].group, AlbumNameGroup::ListedNotNamed);
+        assert_eq!(AlbumNameGroup::ListedNotNamed.label(), "Listed, not named");
+        let guids_of = |group: &AlbumNameGroupVm| -> Vec<Option<String>> {
+            group
+                .subgroups
+                .iter()
+                .flat_map(|subgroup| subgroup.albums.iter())
+                .map(|album| album.feed_guid.clone())
+                .collect()
+        };
+        assert_eq!(guids_of(&groups[0]), vec![Some("a1".to_owned())]);
+        assert_eq!(guids_of(&groups[1]), vec![Some("a2".to_owned())]);
     }
 
-    /// R3-06: a conflict pair with `label` on one side does not give a
-    /// label page, and the view model exposes both stated values.
+    /// R82-2-03: rows with `role_agreement` `both` and role sets "artist"
+    /// and "distributor" give two subgroups, sorted by role set. Rows with
+    /// `one_side`, `conflict` and null give the other three subgroups, in
+    /// that order.
     #[test]
-    fn adr_0077_publisher_page_conflict_pair_does_not_give_label_page() {
-        let mut conflict = owned_album(None, Some(RoleSource::Conflict));
+    fn adr_0082_role_groups_role_agreement_selects_the_subgroup() {
+        let agreed_distributor = album_with_guid(
+            "agreed-distributor",
+            Some(AlbumNamesAs::Publisher),
+            Some(RoleAgreement::Both),
+            Some("distributor"),
+        );
+        let agreed_artist = album_with_guid(
+            "agreed-artist",
+            Some(AlbumNamesAs::Publisher),
+            Some(RoleAgreement::Both),
+            Some("artist"),
+        );
+        let mut one_side = album_with_guid(
+            "one-side",
+            Some(AlbumNamesAs::Publisher),
+            Some(RoleAgreement::OneSide),
+            Some("label"),
+        );
+        one_side.role_source = Some(RoleSource::MusicRel);
+        let mut conflict = album_with_guid(
+            "conflict",
+            Some(AlbumNamesAs::Publisher),
+            Some(RoleAgreement::Conflict),
+            None,
+        );
         conflict.publisher_rel = Some("label".into());
         conflict.music_rel = Some("artist".into());
-        let vm = PublisherPageVm::new(facts(vec![conflict]));
-        assert_eq!(vm.page_type(), PublisherPageType::Artist);
-        let albums = vm.owned_albums();
+        let unstated = album_with_guid("unstated", Some(AlbumNamesAs::Publisher), None, None);
+
+        let vm = PublisherPageVm::new(facts(vec![
+            agreed_distributor,
+            agreed_artist,
+            one_side,
+            conflict,
+            unstated,
+        ]));
+
+        let groups = vm.index_groups();
+        assert_eq!(groups.len(), 1, "every album names the publisher");
+        let subgroups = &groups[0].subgroups;
         assert_eq!(
-            albums[0].role,
-            AlbumRoleDisplay::Conflict {
-                publisher_role: Some("label".into()),
-                music_role: Some("artist".into()),
-            }
+            subgroups.len(),
+            5,
+            "two agreed subgroups, plus one-side, conflict and unstated"
+        );
+        assert_eq!(subgroups[0].caption, "artist", "agreed subgroups sort");
+        assert_eq!(subgroups[1].caption, "distributor");
+        assert_eq!(subgroups[2].caption, "Role stated by one side");
+        assert_eq!(subgroups[3].caption, "Roles differ, not confirmed");
+        assert_eq!(subgroups[4].caption, "Role not stated");
+    }
+
+    /// Orchestrator review: the subgroup must follow the same
+    /// `AlbumRoleDisplay` variant that the row text uses. A `OneSide` row
+    /// with no stated role gives `AlbumRoleDisplay::Unstated`. `role_display`
+    /// has no `OneSide` arm for a null role. The row must fall into "Role
+    /// not stated", not "Role stated by one side".
+    #[test]
+    fn adr_0082_role_groups_subgroup_follows_row_display() {
+        let one_side_no_role = album_with_guid(
+            "a1",
+            Some(AlbumNamesAs::Publisher),
+            Some(RoleAgreement::OneSide),
+            None,
+        );
+
+        let vm = PublisherPageVm::new(facts(vec![one_side_no_role]));
+
+        let groups = vm.index_groups();
+        assert_eq!(groups.len(), 1);
+        let subgroups = &groups[0].subgroups;
+        assert_eq!(
+            subgroups.len(),
+            1,
+            "the row goes to one subgroup, matching its own row text"
+        );
+        assert_eq!(subgroups[0].caption, "Role not stated");
+        assert_eq!(subgroups[0].albums[0].role, AlbumRoleDisplay::Unstated);
+    }
+
+    /// R82-2-04: each album appears one time, and an empty subgroup, or an
+    /// empty group, is absent.
+    #[test]
+    fn adr_0082_role_groups_album_appears_once_and_empty_subgroup_is_absent() {
+        let agreed = album_with_guid(
+            "a1",
+            Some(AlbumNamesAs::Publisher),
+            Some(RoleAgreement::Both),
+            Some("artist"),
+        );
+        let vm = PublisherPageVm::new(facts(vec![agreed]));
+
+        let groups = vm.index_groups();
+
+        assert_eq!(
+            groups.len(),
+            1,
+            "the empty Listed, not named group is absent"
+        );
+        assert_eq!(
+            groups[0].subgroups.len(),
+            1,
+            "each other subgroup is empty, so it is absent"
+        );
+        let rows = flatten(&groups);
+        assert_eq!(rows.len(), 1, "the album appears one time");
+    }
+
+    /// R82-2-05: each `role_agreement` value gives the role text and
+    /// source text of ADR 0082 Decision 3.
+    #[test]
+    fn adr_0082_role_groups_row_role_text_matches_decision_3() {
+        let agreed = AlbumRoleDisplay::Agreed {
+            role: "artist".into(),
+        };
+        assert_eq!(
+            agreed.display_text(),
+            "artist \u{2014} agreed by both feeds"
+        );
+
+        let one_side_album = AlbumRoleDisplay::OneSide {
+            role: "label".into(),
+            side: RoleSource::MusicRel,
+        };
+        assert_eq!(
+            one_side_album.display_text(),
+            "label \u{2014} stated by the album only"
+        );
+
+        let one_side_publisher = AlbumRoleDisplay::OneSide {
+            role: "label".into(),
+            side: RoleSource::PublisherRel,
+        };
+        assert_eq!(
+            one_side_publisher.display_text(),
+            "label \u{2014} stated by the publisher only"
+        );
+
+        let conflict = AlbumRoleDisplay::Conflict {
+            publisher_role: Some("label".into()),
+            music_role: Some("artist".into()),
+        };
+        assert_eq!(
+            conflict.display_text(),
+            "Publisher feed: label / Album feed: artist (not confirmed)"
+        );
+
+        let unstated = AlbumRoleDisplay::Unstated;
+        assert_eq!(unstated.display_text(), "Role not stated");
+    }
+
+    /// R82-2-05: the role display built from facts, through `index_groups`,
+    /// matches the direct `AlbumRoleDisplay` text for each `role_agreement`
+    /// value.
+    #[test]
+    fn adr_0082_role_groups_role_display_built_from_facts() {
+        let agreed = album_with_guid(
+            "agreed",
+            Some(AlbumNamesAs::Publisher),
+            Some(RoleAgreement::Both),
+            Some("artist"),
+        );
+        let mut one_side = album_with_guid(
+            "one-side",
+            Some(AlbumNamesAs::Publisher),
+            Some(RoleAgreement::OneSide),
+            Some("label"),
+        );
+        one_side.role_source = Some(RoleSource::PublisherRel);
+        let mut conflict = album_with_guid(
+            "conflict",
+            Some(AlbumNamesAs::Publisher),
+            Some(RoleAgreement::Conflict),
+            None,
+        );
+        conflict.publisher_rel = Some("label".into());
+        conflict.music_rel = Some("artist".into());
+        let unstated = album_with_guid("unstated", Some(AlbumNamesAs::Publisher), None, None);
+
+        let vm = PublisherPageVm::new(facts(vec![agreed, one_side, conflict, unstated]));
+        let rows = flatten(&vm.index_groups());
+        let text_for = |guid: &str| {
+            rows.iter()
+                .find(|album| album.feed_guid.as_deref() == Some(guid))
+                .expect("the album must be in some subgroup")
+                .role
+                .display_text()
+        };
+
+        assert_eq!(text_for("agreed"), "artist \u{2014} agreed by both feeds");
+        assert_eq!(
+            text_for("one-side"),
+            "label \u{2014} stated by the publisher only"
+        );
+        assert_eq!(
+            text_for("conflict"),
+            "Publisher feed: label / Album feed: artist (not confirmed)"
+        );
+        assert_eq!(text_for("unstated"), "Role not stated");
+    }
+
+    /// R82-2-06: the header exposes "Roles: artist, distributor" from two
+    /// agreed rows, split from each role set, sorted.
+    #[test]
+    fn adr_0082_role_groups_header_roles_from_agreed_rows() {
+        let agreed_artist = album_with_guid(
+            "a1",
+            Some(AlbumNamesAs::Publisher),
+            Some(RoleAgreement::Both),
+            Some("artist"),
+        );
+        let agreed_distributor = album_with_guid(
+            "a2",
+            Some(AlbumNamesAs::Publisher),
+            Some(RoleAgreement::Both),
+            Some("distributor"),
+        );
+        let vm = PublisherPageVm::new(facts(vec![agreed_artist, agreed_distributor]));
+
+        let roles_fact = vm
+            .header_facts()
+            .into_iter()
+            .find(|fact| fact.label == PublisherPageVm::ROLES_LABEL)
+            .expect("two agreed rows must add a Roles fact");
+        assert_eq!(roles_fact.value, "artist, distributor");
+    }
+
+    /// R82-2-06: a page with no agreed row exposes no Roles fact.
+    #[test]
+    fn adr_0082_role_groups_header_has_no_roles_fact_without_an_agreed_row() {
+        let one_side = album_with_guid(
+            "a1",
+            Some(AlbumNamesAs::Publisher),
+            Some(RoleAgreement::OneSide),
+            Some("label"),
+        );
+        let vm = PublisherPageVm::new(facts(vec![one_side]));
+
+        assert!(
+            vm.header_facts()
+                .iter()
+                .all(|fact| fact.label != PublisherPageVm::ROLES_LABEL),
+            "no agreed row must add no Roles fact"
         );
     }
 
-    /// ADR 0082 packet 001, Required Change 4: the recorded 0.7.0 DETOX
-    /// shape, a null `role` with `role_source` `default`, is exposed as
-    /// `Unknown`, never as stated. This replaces R3-07 (ADR 0077): the
-    /// `Assumed` variant it checked is gone, because no 0.7.0 row pairs a
-    /// stated role with a `default` source.
+    /// R82-2-07: a `co_credited_feeds` entry gives a "Shares albums with"
+    /// row with its title, its roles, its album count, and an action that
+    /// opens its publisher page.
     #[test]
-    fn adr_0082_link_facts_default_role_source_with_null_role_is_unknown() {
-        let vm = PublisherPageVm::new(facts(vec![owned_album(None, Some(RoleSource::Default))]));
-        let albums = vm.owned_albums();
-        assert_eq!(albums[0].role, AlbumRoleDisplay::Unknown);
-        assert_ne!(
-            albums[0].role,
-            AlbumRoleDisplay::Stated {
-                role: "artist".into(),
-                source: RoleSource::Default,
-            },
-            "a default role must never be exposed as stated"
+    fn adr_0082_role_groups_shares_albums_with_entry_gives_title_roles_count_and_action() {
+        let mut page_facts = facts(vec![]);
+        page_facts.co_credited_feeds = vec![CoCreditedFeedFact {
+            feed_guid: Some("other-feed".into()),
+            title: Some("Other Publisher".into()),
+            roles: vec!["artist".into(), "label".into()],
+            album_count: Some(3),
+        }];
+        let vm = PublisherPageVm::new(page_facts);
+
+        let entries = vm.shares_albums_with();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0].title,
+            TitleDisplay::Stated("Other Publisher".into())
+        );
+        assert_eq!(
+            entries[0].roles,
+            vec!["artist".to_owned(), "label".to_owned()]
+        );
+        assert_eq!(entries[0].album_count, Some(3));
+        assert_eq!(entries[0].publisher_feed_guid, "other-feed");
+        assert!(entries[0].a11y_label.contains("Other Publisher"));
+        assert_eq!(
+            entries[0].roles_and_count_text(),
+            "artist, label \u{2014} 3 shared albums"
         );
     }
 
-    /// R3-08: "listed by" albums are a group apart from owned albums.
+    /// Orchestrator review: the view model must not invent a count. When
+    /// the response states no `album_count`, the entry carries `None`, and
+    /// its text shows the roles alone, with no count.
     #[test]
-    fn adr_0077_publisher_page_owned_and_listed_by_are_separate_groups() {
-        let mut owned = owned_album(Some("artist"), Some(RoleSource::Default));
-        owned.feed_guid = Some("owned-guid".into());
-        let mut listed_by = owned_album(Some("artist"), Some(RoleSource::Default));
-        listed_by.feed_guid = Some("listed-by-guid".into());
-        listed_by.music_names_publisher = Some(false);
-        let vm = PublisherPageVm::new(facts(vec![owned, listed_by]));
+    fn adr_0082_role_groups_missing_count_shows_no_count() {
+        let mut page_facts = facts(vec![]);
+        page_facts.co_credited_feeds = vec![CoCreditedFeedFact {
+            feed_guid: Some("other-feed".into()),
+            title: Some("Other Publisher".into()),
+            roles: vec!["artist".into()],
+            album_count: None,
+        }];
+        let vm = PublisherPageVm::new(page_facts);
 
-        let owned_albums = vm.owned_albums();
-        let listed_by_albums = vm.listed_by_albums();
-        assert_eq!(owned_albums.len(), 1);
-        assert_eq!(owned_albums[0].feed_guid.as_deref(), Some("owned-guid"));
-        assert_eq!(listed_by_albums.len(), 1);
+        let entries = vm.shares_albums_with();
+
+        assert_eq!(entries.len(), 1);
         assert_eq!(
-            listed_by_albums[0].feed_guid.as_deref(),
-            Some("listed-by-guid")
+            entries[0].album_count, None,
+            "the view model invents no count"
         );
+        assert_eq!(
+            entries[0].roles_and_count_text(),
+            "artist",
+            "an absent count shows the roles alone"
+        );
+    }
+
+    /// R82-2-07: the section is absent (the view model gives an empty
+    /// list) when `co_credited_feeds` is empty.
+    #[test]
+    fn adr_0082_role_groups_shares_albums_with_is_empty_without_co_credited_feeds() {
+        let vm = PublisherPageVm::new(facts(vec![]));
+        assert!(vm.shares_albums_with().is_empty());
+    }
+
+    /// An entry with no feed GUID has no page to open, so it is dropped.
+    #[test]
+    fn adr_0082_role_groups_shares_albums_with_drops_an_entry_with_no_feed_guid() {
+        let mut page_facts = facts(vec![]);
+        page_facts.co_credited_feeds = vec![CoCreditedFeedFact {
+            feed_guid: None,
+            title: Some("No GUID".into()),
+            roles: vec![],
+            album_count: Some(1),
+        }];
+        let vm = PublisherPageVm::new(page_facts);
+        assert!(vm.shares_albums_with().is_empty());
     }
 
     /// R3-09: an owned album with `publisher_lists_music = false` or an
     /// unresolved link gets the "Not listed" mark.
     #[test]
     fn adr_0077_publisher_page_not_listed_mark_on_owned_albums() {
-        let mut not_listed = owned_album(Some("artist"), Some(RoleSource::Default));
+        let mut not_listed = owned_album();
         not_listed.publisher_lists_music = Some(false);
-        let mut unresolved = owned_album(Some("artist"), Some(RoleSource::Default));
+        let mut unresolved = album_with_guid("album-guid", None, None, None);
         unresolved.publisher_link_resolution = Some(PublisherLinkResolution::Unresolved);
-        let mut listed = owned_album(Some("artist"), Some(RoleSource::Default));
+        let mut listed = album_with_guid("album-guid", None, None, None);
         listed.publisher_lists_music = Some(true);
         let vm = PublisherPageVm::new(facts(vec![not_listed, unresolved, listed]));
 
-        let albums = vm.owned_albums();
+        let albums = flatten(&vm.index_groups());
         assert!(albums[0].not_listed);
         assert!(albums[1].not_listed);
         assert!(!albums[2].not_listed);
@@ -778,35 +1356,17 @@ mod tests {
         assert_eq!(TitleDisplay::MISSING_LABEL, "No title");
     }
 
-    /// R3-11: the artist count is exposed with a derived label, apart from
-    /// the page type.
-    #[test]
-    fn adr_0077_publisher_page_artist_count_is_derived_and_separate_from_page_type() {
-        let mut page_facts = facts(vec![owned_album(
-            Some("label"),
-            Some(RoleSource::PublisherRel),
-        )]);
-        page_facts.confirmed_release_artist_count = Some(3);
-        page_facts.confirmed_release_artists = vec!["A".into(), "B".into(), "C".into()];
-        let vm = PublisherPageVm::new(page_facts);
-
-        assert_eq!(vm.page_type(), PublisherPageType::Label);
-        let count = vm.confirmed_artist_count().expect("a count is present");
-        assert_eq!(count.count, 3);
-        assert_eq!(DerivedArtistCount::LABEL, "Derived from album credits");
-    }
-
     /// R3-14: an album entry with a null `remote_feed_title` exposes its
     /// GUID and "No title". A null `remote_release_artist` exposes no
     /// artist value.
     #[test]
     fn adr_0077_publisher_page_null_album_title_and_artist_expose_no_placeholder() {
-        let mut album = owned_album(Some("artist"), Some(RoleSource::Default));
+        let mut album = owned_album();
         album.title = None;
         album.artist = None;
         let vm = PublisherPageVm::new(facts(vec![album]));
 
-        let albums = vm.owned_albums();
+        let albums = flatten(&vm.index_groups());
         assert_eq!(albums[0].title, TitleDisplay::Missing("album-guid".into()));
         assert_eq!(albums[0].artist, None);
     }
@@ -815,14 +1375,18 @@ mod tests {
     /// group stays, and the view model reports the failure separately.
     #[test]
     fn adr_0077_publisher_page_other_albums_failure_keeps_library_group() {
-        let mut album = owned_album(Some("artist"), Some(RoleSource::Default));
+        let mut album = owned_album();
         album.in_library = true;
         let mut page_facts = facts(vec![album]);
         page_facts.other_albums_failure = Some("HTTP 503 from /v1/feeds/p".into());
         let vm = PublisherPageVm::new(page_facts);
 
-        assert_eq!(vm.library_albums().len(), 1, "the Library group stays");
-        assert!(vm.other_albums().is_empty());
+        assert_eq!(
+            flatten(&vm.library_groups()).len(),
+            1,
+            "the Library group stays"
+        );
+        assert!(vm.other_groups().is_empty());
         assert_eq!(
             vm.other_albums_status(),
             OtherAlbumsStatus::Unavailable {
@@ -834,22 +1398,22 @@ mod tests {
     }
 
     /// Library page scope: the view model, not a renderer, puts each album
-    /// in the Library group or in the other group.
+    /// in the Library scope or in the other scope.
     #[test]
     fn adr_0077_publisher_page_library_groups_come_from_the_view_model() {
-        let mut local = owned_album(Some("artist"), Some(RoleSource::Default));
-        local.feed_guid = Some("local".into());
+        let mut local = album_with_guid("local", None, None, None);
         local.in_library = true;
-        let mut remote = owned_album(Some("artist"), Some(RoleSource::Default));
-        remote.feed_guid = Some("remote".into());
+        let remote = album_with_guid("remote", None, None, None);
         let vm = PublisherPageVm::new(facts(vec![local, remote]));
 
-        let library: Vec<_> = vm
-            .library_albums()
+        let library: Vec<_> = flatten(&vm.library_groups())
             .into_iter()
-            .map(|a| a.feed_guid)
+            .map(|album| album.feed_guid)
             .collect();
-        let other: Vec<_> = vm.other_albums().into_iter().map(|a| a.feed_guid).collect();
+        let other: Vec<_> = flatten(&vm.other_groups())
+            .into_iter()
+            .map(|album| album.feed_guid)
+            .collect();
         assert_eq!(library, vec![Some("local".to_owned())]);
         assert_eq!(other, vec![Some("remote".to_owned())]);
         assert_eq!(vm.other_albums_status(), OtherAlbumsStatus::Loaded);
@@ -873,27 +1437,6 @@ mod tests {
         assert_eq!(vm.title_text(), "publisher-guid");
     }
 
-    /// Packet 004: the header facts name the page type. A stated title
-    /// adds no "Title" row.
-    #[test]
-    fn adr_0077_publisher_navigation_header_facts_name_the_page_type() {
-        let vm = PublisherPageVm::new(facts(vec![owned_album(
-            Some("label"),
-            Some(RoleSource::PublisherRel),
-        )]));
-
-        let facts = vm.header_facts();
-
-        assert_eq!(facts[0].label, PublisherPageVm::TYPE_LABEL);
-        assert_eq!(facts[0].value, "Label");
-        assert!(
-            facts
-                .iter()
-                .all(|fact| fact.label != PublisherPageVm::TITLE_LABEL),
-            "a stated title adds no Title row"
-        );
-    }
-
     /// Packet 004: a publisher feed without a title adds a "Title" row
     /// naming the missing-title label. The screen writes no such text.
     #[test]
@@ -915,7 +1458,7 @@ mod tests {
     /// as derived, and lists the artist names.
     #[test]
     fn adr_0077_publisher_navigation_header_facts_name_the_count_as_derived() {
-        let mut page_facts = facts(vec![owned_album(Some("artist"), Some(RoleSource::Default))]);
+        let mut page_facts = facts(vec![owned_album()]);
         page_facts.confirmed_release_artist_count = Some(2);
         page_facts.confirmed_release_artists = vec!["A".into(), "B".into()];
         let vm = PublisherPageVm::new(page_facts);
@@ -989,11 +1532,11 @@ mod tests {
     /// shared thumbnail path. An album with no artwork URL contributes none.
     #[test]
     fn adr_0077_publisher_navigation_album_image_urls_are_gathered_once_each() {
-        let mut with_art = owned_album(Some("artist"), Some(RoleSource::Default));
+        let mut with_art = owned_album();
         with_art.image_url = Some("https://example.test/a.png".into());
-        let mut duplicate_art = owned_album(Some("artist"), Some(RoleSource::Default));
+        let mut duplicate_art = owned_album();
         duplicate_art.image_url = Some("https://example.test/a.png".into());
-        let mut no_art = owned_album(Some("artist"), Some(RoleSource::Default));
+        let mut no_art = owned_album();
         no_art.image_url = None;
 
         let vm = PublisherPageVm::new(facts(vec![with_art, duplicate_art, no_art]));
@@ -1061,7 +1604,7 @@ mod tests {
     /// supply one.
     #[test]
     fn adr_0077_confirmed_artists_absent_fields_give_no_artist_fact() {
-        let page_facts = facts(vec![owned_album(Some("artist"), Some(RoleSource::Default))]);
+        let page_facts = facts(vec![owned_album()]);
         let vm = PublisherPageVm::new(page_facts);
 
         let header_facts = vm.header_facts();
@@ -1072,24 +1615,5 @@ mod tests {
             ),
             "an absent confirmed and unconfirmed count must add no artist fact"
         );
-    }
-
-    /// R7-05: the page type stays equal for two pages that differ only in
-    /// their confirmed and unconfirmed artist lists (ADR 0078).
-    #[test]
-    fn adr_0077_confirmed_artists_page_type_is_equal_across_different_artist_lists() {
-        let mut few_artists = facts(vec![owned_album(Some("artist"), Some(RoleSource::Default))]);
-        few_artists.confirmed_release_artist_count = Some(1);
-        few_artists.confirmed_release_artists = vec!["A".into()];
-
-        let mut many_artists = facts(vec![owned_album(Some("artist"), Some(RoleSource::Default))]);
-        many_artists.confirmed_release_artist_count = Some(33);
-        many_artists.confirmed_release_artists = (0..33).map(|n| format!("Artist {n}")).collect();
-        many_artists.unconfirmed_release_artist_count = Some(10);
-        many_artists.unconfirmed_release_artists = vec!["Other Artist".into()];
-
-        let vm_few = PublisherPageVm::new(few_artists);
-        let vm_many = PublisherPageVm::new(many_artists);
-        assert_eq!(vm_few.page_type(), vm_many.page_type());
     }
 }

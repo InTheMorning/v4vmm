@@ -12,7 +12,9 @@ use crate::application::command_bus::{ApplicationCommand, CommandOutcome, Comman
 use crate::application::command_context::CommandContext;
 use crate::application::errors::command::CommandError;
 use crate::db;
-use crate::view_models::publisher_page::{PublisherPageAlbumFact, PublisherPageFacts};
+use crate::view_models::publisher_page::{
+    CoCreditedFeedFact, PublisherPageAlbumFact, PublisherPageFacts,
+};
 use crate::view_models::recent_feeds::RecentFeedsPageBatch;
 
 use super::search::{index_feed_display, index_item_id, non_empty_str, INDEX_FEED_ID_BASE};
@@ -264,7 +266,21 @@ fn publisher_page_facts_from_feed(publisher_feed_guid: &str, feed: &Feed) -> Pub
             publisher_link_resolution: entry.publisher_link_resolution.clone(),
             publisher_rel: entry.publisher_rel.clone(),
             music_rel: entry.music_rel.clone(),
+            album_names_as: entry.album_names_as.clone(),
+            role_agreement: entry.role_agreement.clone(),
             in_library: false,
+        })
+        .collect();
+    let co_credited_feeds = feed
+        .co_credited_feeds
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .map(|entry| CoCreditedFeedFact {
+            feed_guid: entry.feed_guid.clone(),
+            title: entry.title.clone(),
+            roles: entry.roles.clone().unwrap_or_default(),
+            album_count: entry.album_count,
         })
         .collect();
     PublisherPageFacts {
@@ -275,6 +291,7 @@ fn publisher_page_facts_from_feed(publisher_feed_guid: &str, feed: &Feed) -> Pub
         unconfirmed_release_artist_count: feed.unconfirmed_release_artist_count,
         unconfirmed_release_artists: feed.unconfirmed_release_artists.clone().unwrap_or_default(),
         albums,
+        co_credited_feeds,
         other_albums_failure: None,
     }
 }

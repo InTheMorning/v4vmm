@@ -792,6 +792,7 @@ pub(crate) fn fetch_library_publisher_page(
     let mut confirmed_release_artists = Vec::new();
     let mut unconfirmed_release_artist_count = None;
     let mut unconfirmed_release_artists = Vec::new();
+    let mut co_credited_feeds = Vec::new();
     match crate::application::queries::feed::fetch_index_publisher_page_albums(
         &client,
         &provider_identity,
@@ -799,13 +800,15 @@ pub(crate) fn fetch_library_publisher_page(
     ) {
         Ok(remote) => {
             // The one request also carries the publisher feed's own
-            // confirmed and unconfirmed artist counts (ADR 0077 Task 007,
-            // ADR 0078). The Library page shows them when that request
-            // succeeds, the same as the Index page.
+            // confirmed and unconfirmed artist counts (ADR 0077 Task 007)
+            // and the feeds that share albums with it (ADR 0082 Decision
+            // 5). The Library page shows them when that request succeeds,
+            // the same as the Index page.
             confirmed_release_artist_count = remote.confirmed_release_artist_count;
             confirmed_release_artists = remote.confirmed_release_artists;
             unconfirmed_release_artist_count = remote.unconfirmed_release_artist_count;
             unconfirmed_release_artists = remote.unconfirmed_release_artists;
+            co_credited_feeds = remote.co_credited_feeds;
             for album in remote.albums {
                 let already_local = album
                     .feed_guid
@@ -827,6 +830,7 @@ pub(crate) fn fetch_library_publisher_page(
         unconfirmed_release_artist_count,
         unconfirmed_release_artists,
         albums,
+        co_credited_feeds,
         other_albums_failure,
     })
 }
@@ -872,6 +876,8 @@ fn library_publisher_album_fact(
         publisher_link_resolution: album.publisher_link_resolution,
         publisher_rel: album.publisher_rel,
         music_rel: album.music_rel,
+        album_names_as: album.album_names_as,
+        role_agreement: album.role_agreement,
         in_library: true,
     }
 }

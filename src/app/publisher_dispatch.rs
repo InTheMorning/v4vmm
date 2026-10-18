@@ -10,7 +10,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use gpui::{AnyElement, Context, Image};
+use gpui::{AnyElement, App, Context, Image, Window};
 
 use crate::application::queries::feed::FetchIndexPublisherPage;
 use crate::application::queries::library::FetchLibraryPublisherPage;
@@ -217,7 +217,19 @@ impl TopApp {
                     let image = self.index_remote_detail_hero_image(&url, cx);
                     album_thumbs.insert(url, image);
                 }
-                render_publisher_page(&vm, context, &album_thumbs, cx)
+                // ADR 0082 Decision 5: a "Shares albums with" entry opens
+                // the Index shape of its own publisher page. The data
+                // behind every entry comes from the one Index request
+                // (`fetch_index_publisher_page_albums`), on the Library
+                // page and the Index page alike.
+                let entity = cx.entity();
+                let on_open_publisher = move |guid: &str, _window: &mut Window, cx: &mut App| {
+                    let guid = guid.to_owned();
+                    entity.update(cx, |this, cx| {
+                        this.open_publisher_page(guid, PublisherPageContext::Index, cx);
+                    });
+                };
+                render_publisher_page(&vm, context, &album_thumbs, on_open_publisher, cx)
             }
             Some(PublisherPageState::Failed { message, .. }) => {
                 let display = PublisherPageLoadDisplay::failed(message);

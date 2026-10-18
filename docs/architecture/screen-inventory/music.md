@@ -536,18 +536,23 @@ Two structures hold most Music screens together:
    `src/db/publisher_relationships.rs`, `publisher_link_facts.rs`.
 3. **Layout.** One scrolling column. A `DetailHeader` whose facts sit
    inside its own data rows (no sibling grid, unlike the Artist page). An
-   optional notice when a live request for other albums fails. Two album
-   groups with section headers: "Library Albums"/"Other Albums" (Library
-   context), or "Owned Albums"/"Listed By" (Index context).
+   optional notice when a live request for other albums fails. The album
+   groups of ADR 0082 Decision 2: "Publisher of" and "Listed, not named",
+   each with its role subgroups. In Library context, the two scopes
+   "Library Albums" and "Other Albums" each hold these groups. A "Shares
+   albums with" section follows when the feed has co-credited feeds.
 4. **Elements.** Title: the publisher feed's own stated title, or its GUID
-   with a "No title" label. Header facts: Type (Artist or Label, ADR
-   0078), artist names that state or do not state this feed. No artwork
-   on the header itself. Its image slot always shows a placeholder. Album
-   rows: a 32 px thumbnail, a title, an optional artist name with its
-   source in parentheses, an optional role line, and tag badges ("Not
-   listed by the publisher," "In Library").
-5. **Actions.** This page exposes no button of its own. "Open Publisher"
-   is the action of the calling screen. No destructive action.
+   with a "No title" label. Header facts: "Roles:" with the agreed roles
+   (ADR 0082 Decision 4), and artist names that state or do not state this
+   feed. No page type. No artwork on the header itself. Its image slot
+   always shows a placeholder. Album rows: a 32 px thumbnail, a title, an
+   optional artist name with its source in parentheses, a role line with
+   its source (ADR 0082 Decision 3), and tag badges ("Not listed by the
+   publisher," "In Library"). Each "Shares albums with" row shows a title,
+   its roles and its shared album count.
+5. **Actions.** A "Shares albums with" row opens the publisher page of its
+   feed. "Open Publisher" is the action of the calling screen. No
+   destructive action.
 6. **Data.** Library albums come from a stored relationship table, an
    observation of a past MusicIndex response. Albums outside the library
    come from a live request that can fail. In Index context, every album

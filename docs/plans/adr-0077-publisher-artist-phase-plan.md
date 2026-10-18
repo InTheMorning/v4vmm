@@ -3,7 +3,7 @@
 ## Status
 
 Active - 2026-09-24. This plan is advisory. It states no rule.
-[ADR 0077](../adr/0077-publisher-feed-artist-binding.md), [ADR 0078](../adr/0078-publisher-page-type-from-stated-role.md)
+[ADR 0077](../adr/0077-publisher-feed-artist-binding.md), [ADR 0078](../adr/archive/0078-publisher-page-type-from-stated-role.md)
 and [ADR 0079](../adr/0079-remove-musicindex-artist-subject-storage.md) own the rules.
 
 ## Packet Register
