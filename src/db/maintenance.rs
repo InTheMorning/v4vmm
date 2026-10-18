@@ -597,7 +597,7 @@ mod tests {
             inspection.schema,
             Some(Ok(SchemaCompatibility::UpgradeRequired {
                 applied: 10,
-                current: 18
+                current: crate::db::MIGRATIONS.len()
             }))
         );
         assert_eq!(fs::read(&source).unwrap(), before);

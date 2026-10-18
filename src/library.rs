@@ -42,10 +42,6 @@ use crate::views::ArtistView;
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug)]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "one LibraryDetail value exists for each Library screen; the two publisher link fields of ADR 0084 Decision 7 grew AlbumNode past the lint limit"
-)]
 pub(crate) enum LibraryDetail {
     None,
     Artist(Box<LibraryArtistDetail>),

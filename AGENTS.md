@@ -24,10 +24,10 @@ Phase 4A builds ADR 0084 in the packets of the
 for each item, three columns, the six destinations and Discover.
 Packets 016, the scopes, and 017, the name level, wait for Stophammer request 8. It asks for complete list and search rows.
 
-[ADR 0082 packet 003](docs/tasks/adr-0082-task-003-release-page-named-feeds.md), the named feeds of a release, is Ready.
+[ADR 0082 packet 003](docs/tasks/adr-0082-task-003-release-page-named-feeds.md), the named feeds of a release, is implemented. Its visual gate is open.
 It builds [ADR 0085](docs/adr/0085-artists-by-confirmation.md) Decisions 5 and 6, and adds migration 19.
 [Packet 008](docs/tasks/adr-0084-task-008-feed-page-and-artists.md), the feed page and the Artists list, builds ADR 0085
-Decisions 1 to 4. It waits for packet 003. Stophammer release 0.11.0 gave its two facts. Packet 017 comes after it.
+Decisions 1 to 4. It waits for the visual check of packet 003. Stophammer release 0.11.0 gave its two facts. Packet 017 comes after it.
 
 Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
@@ -52,7 +52,7 @@ Known open defects:
 
 Stored facts that agents need:
 
-- Schema version 18 is current. The migration registry of ADR 0016 owns each schema change.
+- Schema version 19 is current. The migration registry of ADR 0016 owns each schema change.
 - `tests/fixtures/musicindex-openapi-0.7.0.json` is the stored MusicIndex contract. After each Stophammer
   release, replace it in the same change as the decode changes (ADR 0075 section 6).
 - [Open Stophammer requests](docs/plans/v4vmm-open-requests.md) has an equal copy in the Stophammer

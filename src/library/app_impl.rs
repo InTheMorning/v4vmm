@@ -2003,18 +2003,8 @@ impl LibraryApp {
         let tracks = db::feed_tracks(&conn, feed_id).ok()?;
         let first = tracks.first()?;
         let language = db::feed_language_by_id(&conn, feed_id).ok().flatten();
-        let (publisher_feed_guid, publisher_link_role, publisher_role_agreement) =
-            match db::publisher_relationships::owned_publisher_link(&conn, feed_id)
-                .ok()
-                .flatten()
-            {
-                Some(link) => (
-                    Some(link.publisher_feed_guid),
-                    link.role,
-                    link.role_agreement,
-                ),
-                None => (None, None, None),
-            };
+        let named_feeds =
+            db::publisher_relationships::named_feeds(&conn, feed_id).unwrap_or_default();
         Some(AlbumNode {
             name: first
                 .feed_title
@@ -2030,9 +2020,7 @@ impl LibraryApp {
                 .album_image_href
                 .clone()
                 .or_else(|| first.track_image_href.clone()),
-            publisher_feed_guid,
-            publisher_link_role,
-            publisher_role_agreement,
+            named_feeds,
             identity_facts: crate::local_identity::feed_facts(&conn, feed_id).unwrap_or_default(),
             metadata_facts: Box::new(
                 crate::local_metadata::feed_facts(&conn, feed_id).unwrap_or_default(),
@@ -2373,16 +2361,19 @@ impl LibraryApp {
         );
     }
 
-    /// The publisher feed GUID of the mounted track's album feed (ADR 0077
-    /// packet 004 R4-03). The already-loaded Library tree carries this
-    /// value; the screen sends no request for it.
-    pub(crate) fn mounted_track_publisher_feed_guid(&self) -> Option<String> {
+    /// The named feeds of the mounted track's album feed (ADR 0085
+    /// Decisions 5 and 6, carries ADR 0077 packet 004 R4-03). The
+    /// already-loaded Library tree carries this value; the screen sends no
+    /// request for it.
+    pub(crate) fn mounted_track_named_feeds(
+        &self,
+    ) -> Vec<crate::view_models::named_feeds::NamedFeed> {
         let LibraryDetail::Track(frame) = &self.detail else {
-            return None;
+            return Vec::new();
         };
-        self.find_album_by_feed_id(frame.track.feed_id)?
-            .publisher_feed_guid
-            .clone()
+        self.find_album_by_feed_id(frame.track.feed_id)
+            .map(|album| album.named_feeds.clone())
+            .unwrap_or_default()
     }
 
     /// The breadcrumb label of a Library page (ADR 0084 Decision 9). The
@@ -3575,7 +3566,7 @@ impl LibraryApp {
             }
         }
 
-        let track_publisher_feed_guid = self.mounted_track_publisher_feed_guid();
+        let track_named_feeds = self.mounted_track_named_feeds();
         let album_cover_color = match &self.detail {
             LibraryDetail::Album(album) => {
                 let url = album.image_href.clone();
@@ -3595,7 +3586,7 @@ impl LibraryApp {
             self.vm.renaming_playlist_id(),
             self.playlist_actor.as_ref(),
             self.playlist_rss_snapshot.as_ref(),
-            track_publisher_feed_guid.as_deref(),
+            &track_named_feeds,
             album_cover_color,
             cx,
         )
@@ -3659,9 +3650,7 @@ mod tests {
             language: None,
             description: None,
             image_href: Some("https://example.test/art.png".into()),
-            publisher_feed_guid: None,
-            publisher_link_role: None,
-            publisher_role_agreement: None,
+            named_feeds: Vec::new(),
             identity_facts: LocalIdentityFacts::default(),
             metadata_facts: Box::<crate::views::FeedMetadataFacts>::default(),
             stored_values: None,

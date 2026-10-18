@@ -126,10 +126,9 @@ fn local_feed_view(
     let values = stored_values::feed_values(conn, feed_row.id)?;
     let feed_id = feed_row.id;
     let mut view = FeedView::from_local_with_facts(feed_row, track_views, facts, values);
-    // ADR 0077 packet 004: the "open publisher" action reads the stored
-    // owned relationship of this local feed (Decision 2).
-    view.publisher_feed_guid =
-        db::publisher_relationships::owned_publisher_feed_guid(conn, feed_id).unwrap_or_default();
+    // ADR 0085 Decisions 5 and 6: the artist link and the role rows read
+    // the stored named feeds of this local feed, in their RSS sequence.
+    view.named_feeds = db::publisher_relationships::named_feeds(conn, feed_id).unwrap_or_default();
     Ok(view)
 }
 

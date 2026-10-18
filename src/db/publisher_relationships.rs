@@ -5,8 +5,9 @@
 //! field of the live `PublisherResponse` contract and the observation time.
 //! Migration 18 (`publisher_link_facts`) adds `album_names_as` and
 //! `role_agreement`, the two Stophammer 0.7.0 link facts of ADR 0082
-//! Decision 2, to the same table. This module still owns the write and the
-//! read of every column.
+//! Decision 2, to the same table. Migration 19 (`named_feed_position`) adds
+//! the RSS position of each named feed (ADR 0085 Decision 6). This module
+//! still owns the write and the read of every column.
 //!
 //! Packet 013 keeps `MusicIndex` collection replacement disabled. Thus a write
 //! inserts or updates the rows of the entries in a response, and it deletes
@@ -295,72 +296,132 @@ pub(crate) fn local_albums_for_publisher(
     Ok(rows)
 }
 
-/// The publisher feed GUID that one local feed names, when its stored
-/// `music_to_publisher` row states `music_names_publisher = true` (ADR 0077
-/// packet 004, Decision 2). `None` when the feed has no such stored row.
+/// The named feeds of one Library album, in their RSS sequence (ADR 0085
+/// Decision 6).
 ///
-/// A screen uses this value to expose the "open publisher" action of an
-/// album. No screen builds that action from name text.
+/// Each `music_to_publisher` row with `music_names_publisher = 1` becomes
+/// one [`NamedFeed`](crate::view_models::named_feeds::NamedFeed). The title
+/// of the first named feed, after the sort, is the stored
+/// `publisher_feed_title`: the title of the primary party of the last
+/// hydration. Each other named feed gets the title of its own Library
+/// feed, when the Library has a feed with that GUID. Its title is null
+/// otherwise.
 ///
-/// # Errors
-///
-/// Returns an error when the database read fails.
-pub(crate) fn owned_publisher_feed_guid(conn: &Connection, feed_id: i64) -> Result<Option<String>> {
-    use rusqlite::OptionalExtension as _;
-    conn.query_row(
-        "SELECT publisher_feed_guid FROM feed_publisher_relationships
-         WHERE feed_id = ?1 AND direction = 'music_to_publisher' AND music_names_publisher = 1
-         ORDER BY observed_at DESC LIMIT 1",
-        params![feed_id],
-        |row| row.get::<_, String>(0),
-    )
-    .optional()
-    .context("Read owned publisher feed GUID")
-}
-
-/// The owned publisher link of one local feed: the publisher feed GUID,
-/// the role set and the role agreement of the link (ADR 0084 Decision 7,
-/// ADR 0082 Decision 2).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct OwnedPublisherLink {
-    /// The publisher feed GUID that the feed names.
-    pub(crate) publisher_feed_guid: String,
-    /// The role set of the link, joined by `", "`. `None` when the row
-    /// states no role.
-    pub(crate) role: Option<String>,
-    /// `both`, `one_side`, `conflict`, or `None` when the row states no
-    /// agreement.
-    pub(crate) role_agreement: Option<String>,
-}
-
-/// The owned publisher link of one local feed (ADR 0084 Decision 7). It
-/// reads the same row as [`owned_publisher_feed_guid`], with the same
-/// `WHERE` clause and the same order. `None` when the feed has no such
-/// stored row.
+/// A screen uses this list to show the artist link and the role rows of
+/// ADR 0085 Decisions 5 and 6. No screen builds a named feed from name text.
 ///
 /// # Errors
 ///
 /// Returns an error when the database read fails.
-pub(crate) fn owned_publisher_link(
+pub(crate) fn named_feeds(
     conn: &Connection,
     feed_id: i64,
-) -> Result<Option<OwnedPublisherLink>> {
+) -> Result<Vec<crate::view_models::named_feeds::NamedFeed>> {
+    use crate::view_models::named_feeds::{sort_named_feeds, NamedFeed};
     use rusqlite::OptionalExtension as _;
-    conn.query_row(
-        "SELECT publisher_feed_guid, role, role_agreement FROM feed_publisher_relationships
-         WHERE feed_id = ?1 AND direction = 'music_to_publisher' AND music_names_publisher = 1
-         ORDER BY observed_at DESC LIMIT 1",
-        params![feed_id],
-        |row| {
-            Ok(OwnedPublisherLink {
-                publisher_feed_guid: row.get(0)?,
-                role: row.get(1)?,
-                role_agreement: row.get(2)?,
-            })
-        },
-    )
-    .optional()
-    .context("Read owned publisher link")
+
+    let mut statement = conn
+        .prepare(
+            "SELECT remote_feed_guid, named_feed_position, role, role_agreement,
+                    publisher_rel, music_rel, two_way_validated, publisher_feed_title
+             FROM feed_publisher_relationships
+             WHERE feed_id = ?1 AND direction = 'music_to_publisher' AND music_names_publisher = 1",
+        )
+        .context("Prepare named feeds read")?;
+    let rows = statement
+        .query_map(params![feed_id], |row| {
+            Ok((
+                NamedFeed {
+                    feed_guid: row.get(0)?,
+                    title: None,
+                    position: row.get(1)?,
+                    role: row.get(2)?,
+                    role_agreement: row.get(3)?,
+                    feed_rel: row.get(4)?,
+                    album_rel: row.get(5)?,
+                    confirmed: row.get::<_, Option<bool>>(6)?.unwrap_or(false),
+                },
+                row.get::<_, Option<String>>(7)?,
+            ))
+        })
+        .context("Query named feeds")?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .context("Read named feeds")?;
+
+    let mut feeds: Vec<NamedFeed> = Vec::with_capacity(rows.len());
+    let mut publisher_feed_title: Option<String> = None;
+    for (feed, title) in rows {
+        if publisher_feed_title.is_none() {
+            publisher_feed_title = title;
+        }
+        feeds.push(feed);
+    }
+    sort_named_feeds(&mut feeds);
+    if let Some(first) = feeds.first_mut() {
+        first.title = publisher_feed_title;
+    }
+    for feed in feeds.iter_mut().skip(1) {
+        feed.title = conn
+            .query_row(
+                "SELECT title FROM feeds WHERE feed_guid = ?1",
+                params![feed.feed_guid],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .context("Read named feed's Library title")?
+            .flatten();
+    }
+    Ok(feeds)
+}
+
+/// The `source` of a `remote_items` entry that names a publisher feed (ADR
+/// 0085 Decision 6, migration 19).
+const NAMED_FEED_REMOTE_ITEM_SOURCE: &str = "podcast_publisher";
+
+/// Writes the RSS position of each `music_to_publisher` row of one feed,
+/// from the `remote_items` of its `MusicIndex` response (ADR 0085 Decision
+/// 6, migration 19).
+///
+/// A row gets the `position` of the `remote_items` entry with `source`
+/// `podcast_publisher` and the same `remote_feed_guid`. A row with no match
+/// gets null.
+///
+/// # Errors
+///
+/// Returns an error when the database read or write fails.
+pub(crate) fn write_named_feed_positions(
+    conn: &Connection,
+    feed_id: i64,
+    remote_items: &[crate::api::RemoteItem],
+) -> Result<()> {
+    let positions: std::collections::HashMap<&str, i64> = remote_items
+        .iter()
+        .filter(|item| item.source.as_deref() == Some(NAMED_FEED_REMOTE_ITEM_SOURCE))
+        .filter_map(|item| Some((item.remote_feed_guid.as_deref()?, item.position?)))
+        .collect();
+    let guids = conn
+        .prepare(
+            "SELECT DISTINCT remote_feed_guid FROM feed_publisher_relationships
+             WHERE feed_id = ?1 AND direction = 'music_to_publisher'",
+        )
+        .context("Prepare named feed GUIDs")?
+        .query_map(params![feed_id], |row| row.get::<_, String>(0))
+        .context("Query named feed GUIDs")?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .context("Read named feed GUIDs")?;
+    let mut statement = conn
+        .prepare(
+            "UPDATE feed_publisher_relationships SET named_feed_position = ?1
+             WHERE feed_id = ?2 AND direction = 'music_to_publisher' AND remote_feed_guid = ?3",
+        )
+        .context("Prepare named feed position write")?;
+    for guid in guids {
+        let position = positions.get(guid.as_str()).copied();
+        statement
+            .execute(params![position, feed_id, guid])
+            .context("Write named feed position")?;
+    }
+    Ok(())
 }
 
 /// The RSS-stated remote of the first `music_to_publisher` row of a feed:
@@ -857,12 +918,12 @@ mod tests {
         );
     }
 
-    /// R4-01/R4-02 (ADR 0077 packet 004): `owned_publisher_feed_guid` gives
-    /// the publisher feed GUID only for a feed with a stored row that names
-    /// the publisher. A feed with no such row, or a "listed by" row where
-    /// `music_names_publisher` is not `true`, gives `None`.
+    /// R4-01/R4-02 (ADR 0077 packet 004), carried by ADR 0085 Decision 6:
+    /// `named_feeds` gives one entry only for a feed with a stored row that
+    /// names the publisher. A feed with no such row, or a "listed by" row
+    /// where `music_names_publisher` is not `true`, gives an empty list.
     #[test]
-    fn adr_0077_publisher_navigation_owned_publisher_feed_guid_requires_stored_ownership() {
+    fn adr_0085_named_feeds_requires_stored_ownership() {
         let mut conn = Connection::open_in_memory().unwrap();
         upgrades::create_fixture(&conn, CURRENT_VERSION).unwrap();
         conn.execute_batch(
@@ -881,67 +942,193 @@ mod tests {
         upsert_feed_publisher_relationships(&mut conn, 1, None, Some(&[owned]), 10).unwrap();
         upsert_feed_publisher_relationships(&mut conn, 2, None, Some(&[not_owned]), 10).unwrap();
 
+        let feeds = named_feeds(&conn, 1).unwrap();
         assert_eq!(
-            owned_publisher_feed_guid(&conn, 1).unwrap().as_deref(),
-            Some("publisher-a"),
-            "a feed with music_names_publisher = true exposes the publisher feed GUID"
+            feeds.len(),
+            1,
+            "a feed with music_names_publisher = true exposes one named feed"
         );
-        assert_eq!(
-            owned_publisher_feed_guid(&conn, 2).unwrap(),
-            None,
-            "a feed with music_names_publisher = false exposes no publisher feed GUID"
+        assert_eq!(feeds[0].feed_guid, "publisher-a");
+        assert!(
+            named_feeds(&conn, 2).unwrap().is_empty(),
+            "a feed with music_names_publisher = false exposes no named feed"
         );
-        assert_eq!(
-            owned_publisher_feed_guid(&conn, 99).unwrap(),
-            None,
-            "a feed with no stored relationship row exposes no publisher feed GUID"
+        assert!(
+            named_feeds(&conn, 99).unwrap().is_empty(),
+            "a feed with no stored relationship row exposes no named feed"
         );
     }
 
-    /// R15-02 (ADR 0084 task 015): `owned_publisher_link` reads `role` and
-    /// `role_agreement` of the same row that `owned_publisher_feed_guid`
-    /// reads, the newest owned row. A feed with no owned row gives `None`.
+    /// R85-3-05 (ADR 0085 Decision 6 Verification section): two named
+    /// feeds, with a newer `observed_at` on the second feed, still give the
+    /// first feed as the primary named feed. An observation time never
+    /// selects a named feed.
     #[test]
-    fn adr_0084_singles_group_r15_02_owned_publisher_link_reads_the_same_row() {
+    fn adr_0085_named_feeds_ignores_observed_at_and_keeps_rss_sequence() {
         let mut conn = Connection::open_in_memory().unwrap();
         upgrades::create_fixture(&conn, CURRENT_VERSION).unwrap();
-        conn.execute_batch(
-            "INSERT INTO feeds(id, feed_url, feed_guid) VALUES (1, 'https://example.test/one.xml', 'album-guid-1');
-             INSERT INTO feeds(id, feed_url, feed_guid) VALUES (2, 'https://example.test/two.xml', 'album-guid-2');",
+        conn.execute(
+            "INSERT INTO feeds(id, feed_url, feed_guid) VALUES (1, 'https://example.test/one.xml', 'album-guid-1')",
+            [],
         )
         .unwrap();
-        let older = PublisherRelationship {
+        let first = PublisherRelationship {
             music_names_publisher: Some(true),
-            role_agreement: Some(crate::api::RoleAgreement::OneSide),
-            ..entry("publisher-old", Some("artist"))
+            ..entry("publisher-first", Some("artist"))
         };
-        let newer = PublisherRelationship {
+        let second = PublisherRelationship {
             music_names_publisher: Some(true),
-            role_agreement: Some(crate::api::RoleAgreement::Both),
-            ..entry("publisher-new", Some("label, producer"))
+            ..entry("publisher-second", None)
         };
-        let not_owned = PublisherRelationship {
-            music_names_publisher: Some(false),
-            ..entry("publisher-b", Some("artist"))
-        };
-        upsert_feed_publisher_relationships(&mut conn, 1, None, Some(&[older]), 10).unwrap();
-        upsert_feed_publisher_relationships(&mut conn, 1, None, Some(&[newer]), 20).unwrap();
-        upsert_feed_publisher_relationships(&mut conn, 2, None, Some(&[not_owned]), 10).unwrap();
+        // The first named feed is written with an older observation. The
+        // second is written later, with a newer `observed_at`.
+        upsert_feed_publisher_relationships(&mut conn, 1, None, Some(&[first]), 10).unwrap();
+        upsert_feed_publisher_relationships(&mut conn, 1, None, Some(&[second]), 20).unwrap();
+        write_named_feed_positions(
+            &conn,
+            1,
+            &[
+                crate::api::RemoteItem {
+                    position: Some(0),
+                    remote_feed_guid: Some("publisher-first".to_owned()),
+                    source: Some("podcast_publisher".to_owned()),
+                    ..crate::api::RemoteItem::default()
+                },
+                crate::api::RemoteItem {
+                    position: Some(1),
+                    remote_feed_guid: Some("publisher-second".to_owned()),
+                    source: Some("podcast_publisher".to_owned()),
+                    ..crate::api::RemoteItem::default()
+                },
+            ],
+        )
+        .unwrap();
 
-        let link = owned_publisher_link(&conn, 1)
-            .unwrap()
-            .expect("feed 1 has an owned row");
+        let feeds = named_feeds(&conn, 1).unwrap();
+        assert_eq!(feeds.len(), 2);
         assert_eq!(
-            Some(link.publisher_feed_guid.as_str()),
-            owned_publisher_feed_guid(&conn, 1).unwrap().as_deref(),
-            "both reads must select the same row"
+            feeds[0].feed_guid, "publisher-first",
+            "the RSS position selects the primary named feed, not the newer observed_at"
         );
-        assert_eq!(link.publisher_feed_guid, "publisher-new");
-        assert_eq!(link.role.as_deref(), Some("label, producer"));
-        assert_eq!(link.role_agreement.as_deref(), Some("both"));
+        assert_eq!(feeds[1].feed_guid, "publisher-second");
+    }
 
-        assert_eq!(owned_publisher_link(&conn, 2).unwrap(), None);
-        assert_eq!(owned_publisher_link(&conn, 99).unwrap(), None);
+    /// R85-3-07: `write_named_feed_positions` stores the position of each
+    /// row from `remote_items` with `source` `podcast_publisher`. An entry
+    /// with no match stores null.
+    #[test]
+    fn adr_0085_named_feeds_write_named_feed_positions_matches_remote_items() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        upgrades::create_fixture(&conn, CURRENT_VERSION).unwrap();
+        conn.execute(
+            "INSERT INTO feeds(id, feed_url, feed_guid) VALUES (1, 'https://example.test/one.xml', 'album-guid-1')",
+            [],
+        )
+        .unwrap();
+        let matched = entry("publisher-a", None);
+        let unmatched = entry("publisher-b", None);
+        upsert_feed_publisher_relationships(&mut conn, 1, None, Some(&[matched, unmatched]), 10)
+            .unwrap();
+
+        write_named_feed_positions(
+            &conn,
+            1,
+            &[
+                crate::api::RemoteItem {
+                    position: Some(3),
+                    remote_feed_guid: Some("publisher-a".to_owned()),
+                    source: Some("podcast_publisher".to_owned()),
+                    ..crate::api::RemoteItem::default()
+                },
+                // A different source never matches, even with the same GUID.
+                crate::api::RemoteItem {
+                    position: Some(9),
+                    remote_feed_guid: Some("publisher-b".to_owned()),
+                    source: Some("remote-item".to_owned()),
+                    ..crate::api::RemoteItem::default()
+                },
+            ],
+        )
+        .unwrap();
+
+        let rows = test_support::rows(&conn, 1);
+        let matched_row = rows
+            .iter()
+            .find(|row| {
+                test_support::value(row, "remote_feed_guid")
+                    == rusqlite::types::Value::Text("publisher-a".to_owned())
+            })
+            .unwrap();
+        assert_eq!(
+            test_support::value(matched_row, "named_feed_position"),
+            rusqlite::types::Value::Integer(3)
+        );
+        let unmatched_row = rows
+            .iter()
+            .find(|row| {
+                test_support::value(row, "remote_feed_guid")
+                    == rusqlite::types::Value::Text("publisher-b".to_owned())
+            })
+            .unwrap();
+        assert_eq!(
+            test_support::value(unmatched_row, "named_feed_position"),
+            rusqlite::types::Value::Null,
+            "an entry with no source match stores null"
+        );
+    }
+
+    /// R85-3-08: the RSS check path (`set_music_to_publisher_remote`) keeps
+    /// the position of the row that it changes. A new row that it writes
+    /// gets null.
+    #[test]
+    fn adr_0085_named_feeds_rss_check_path_keeps_the_position() {
+        let conn = Connection::open_in_memory().unwrap();
+        upgrades::create_fixture(&conn, CURRENT_VERSION).unwrap();
+        conn.execute(
+            "INSERT INTO feeds(id, feed_url, feed_guid) VALUES (1, 'https://example.test/one.xml', 'album-guid-1')",
+            [],
+        )
+        .unwrap();
+
+        // A new row that the RSS check path writes gets null.
+        set_music_to_publisher_remote(&conn, 1, Some(("remote-guid", None)), 10).unwrap();
+        let rows = test_support::rows(&conn, 1);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            test_support::value(&rows[0], "named_feed_position"),
+            rusqlite::types::Value::Null,
+            "a new row gets null"
+        );
+
+        write_named_feed_positions(
+            &conn,
+            1,
+            &[crate::api::RemoteItem {
+                position: Some(5),
+                remote_feed_guid: Some("remote-guid".to_owned()),
+                source: Some("podcast_publisher".to_owned()),
+                ..crate::api::RemoteItem::default()
+            }],
+        )
+        .unwrap();
+
+        // The RSS check path changes the row's URL and keeps its GUID. The
+        // position of the row that it changes stays.
+        set_music_to_publisher_remote(
+            &conn,
+            1,
+            Some(("remote-guid", Some("https://example.test/new.xml"))),
+            20,
+        )
+        .unwrap();
+
+        let rows = test_support::rows(&conn, 1);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            test_support::value(&rows[0], "named_feed_position"),
+            rusqlite::types::Value::Integer(5),
+            "the row that the RSS check path changes keeps its position"
+        );
     }
 
     /// R82-1-05 (ADR 0082 packet 001): migration 18 adds `album_names_as`
@@ -973,7 +1160,14 @@ mod tests {
 
         crate::db::migrate_schema_to(&conn, 18).unwrap();
 
-        assert_eq!(inspect_schema(&conn).unwrap(), SchemaCompatibility::Current);
+        // Migration 19 (ADR 0085) follows, so version 18 is not current.
+        assert_eq!(
+            inspect_schema(&conn).unwrap(),
+            SchemaCompatibility::UpgradeRequired {
+                applied: 18,
+                current: MIGRATIONS.len()
+            }
+        );
         upgrades::verify_target(&conn, 18).unwrap();
         let name: String = conn
             .query_row(
@@ -994,6 +1188,53 @@ mod tests {
             test_support::value(&rows[0], "role_agreement"),
             rusqlite::types::Value::Null,
             "an existing row reads null in the new role_agreement column"
+        );
+    }
+
+    /// R85-3-06: migration 19 adds `named_feed_position`, keeps each row
+    /// and gives null. A version 18 fixture migrates to version 19.
+    #[test]
+    fn adr_0085_named_feeds_version_18_migrates_to_19_with_null_position() {
+        let conn = Connection::open_in_memory().unwrap();
+        upgrades::create_fixture(&conn, 18).unwrap();
+        conn.execute(
+            "INSERT INTO feeds(id, feed_url, feed_guid) VALUES (1, 'https://example.test/one.xml', 'f1')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO feed_publisher_relationships (
+                feed_id, direction, publisher_feed_guid, remote_feed_guid, observed_at
+            ) VALUES (1, 'music_to_publisher', 'publisher-a', 'publisher-a', 10)",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            inspect_schema(&conn).unwrap(),
+            SchemaCompatibility::UpgradeRequired {
+                applied: 18,
+                current: MIGRATIONS.len()
+            }
+        );
+
+        crate::db::migrate_schema_to(&conn, 19).unwrap();
+
+        assert_eq!(inspect_schema(&conn).unwrap(), SchemaCompatibility::Current);
+        upgrades::verify_target(&conn, 19).unwrap();
+        let name: String = conn
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 19",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(name, "named_feed_position");
+        let rows = test_support::rows(&conn, 1);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            test_support::value(&rows[0], "named_feed_position"),
+            rusqlite::types::Value::Null,
+            "an existing row reads null in the new named_feed_position column"
         );
     }
 

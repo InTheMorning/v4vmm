@@ -17377,7 +17377,7 @@ fn adr_0075_observation_writer_and_library_retention_have_one_owner() {
     let callback = source_between(
         &app,
         "fn load_track_source_context(",
-        "pub(crate) fn mounted_track_publisher_feed_guid(",
+        "pub(crate) fn mounted_track_named_feeds(",
     );
     assert!(callback.contains("retain_observation_failure(&error)"));
     let vm = read_source(&manifest_path("src/view_models/library.rs"));

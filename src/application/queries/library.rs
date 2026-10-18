@@ -395,23 +395,14 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
                         .iter()
                         .find_map(|t| t.album_image_href.clone())
                         .or_else(|| tracks.iter().find_map(|t| t.track_image_href.clone()));
-                    // ADR 0077 packet 004: the "open publisher" action of
-                    // the album needs the stored owned relationship, when
-                    // one exists (Decision 2). ADR 0084 Decision 7: the
-                    // artist identity also reads the role and the role
-                    // agreement of that link.
-                    let publisher_link = feed_id.and_then(|fid| {
-                        db::publisher_relationships::owned_publisher_link(conn, fid).ok()?
-                    });
-                    let (publisher_feed_guid, publisher_link_role, publisher_role_agreement) =
-                        match publisher_link {
-                            Some(link) => (
-                                Some(link.publisher_feed_guid),
-                                link.role,
-                                link.role_agreement,
-                            ),
-                            None => (None, None, None),
-                        };
+                    // ADR 0085 Decisions 5 and 6: the artist link and the
+                    // role rows of the album need its stored named feeds,
+                    // in their RSS sequence.
+                    let named_feeds = feed_id
+                        .map(|fid| {
+                            db::publisher_relationships::named_feeds(conn, fid).unwrap_or_default()
+                        })
+                        .unwrap_or_default();
                     AlbumNode {
                         name: album_name,
                         feed_id,
@@ -420,9 +411,7 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
                         language,
                         description,
                         image_href,
-                        publisher_feed_guid,
-                        publisher_link_role,
-                        publisher_role_agreement,
+                        named_feeds,
                         identity_facts: feed_id
                             .and_then(|fid| crate::local_identity::feed_facts(conn, fid).ok())
                             .unwrap_or_default(),
@@ -716,6 +705,13 @@ fn hydrate_album_identity_facts(
                     feed.publisher_feed_title.as_deref(),
                     Some(&entries),
                     observed_at,
+                )?;
+                // ADR 0085 Decision 6, migration 19: the position of each
+                // named feed comes from `remote_items`.
+                crate::db::publisher_relationships::write_named_feed_positions(
+                    &db,
+                    feed_id,
+                    feed.remote_items.as_deref().unwrap_or_default(),
                 )?;
             }
         }
@@ -1343,7 +1339,7 @@ mod observation_tests {
             }
             return("200 OK",json!({"data":{"track_guid":path.rsplit('/').next(),"feed_guid":"f1","feed_url":format!("{base}/feed.xml"),"title":"...","description":"original Index","source_links":[],"source_ids":null,"source_contributors":[{"entity_type":"track","entity_id":"t1","name":"Artist","role_norm":"performer","source":"rss","future":"original"}]}}).to_string());
         }
-        if matches!(mode, 23..=26) {
+        if matches!(mode, 23..=27) {
             return ("200 OK", publisher_relationship_response(base, mode));
         }
         if matches!(mode, 16..=18) {
@@ -1362,7 +1358,9 @@ mod observation_tests {
     /// Mode 23 holds the `publisher` entry that `GET /v1/feeds/1ac44a3c-e148-54db-9d12-72191222888f?include=publisher`
     /// returned on 2026-09-24, and a second entry with a role conflict.
     /// Mode 24 changes the first entry and omits the second entry. Mode 25
-    /// sends an empty array, and mode 26 sends null. Mode 0 omits the value.
+    /// sends an empty array, and mode 26 sends null. Mode 0 omits the
+    /// value. Mode 27 adds `remote_items` (ADR 0085 Decision 6), with one
+    /// entry that matches the recorded entry's `remote_feed_guid`.
     fn publisher_relationship_response(base: &str, mode: usize) -> String {
         let recorded = json!({
             "direction": "music_to_publisher",
@@ -1402,7 +1400,7 @@ mod observation_tests {
             "role_source": "conflict"
         });
         let publisher = match mode {
-            23 => json!([recorded, conflict]),
+            23 | 27 => json!([recorded, conflict]),
             24 => {
                 let mut changed = recorded;
                 changed["role"] = json!("label");
@@ -1414,6 +1412,20 @@ mod observation_tests {
             25 => json!([]),
             _ => serde_json::Value::Null,
         };
+        // ADR 0085 Decision 6: `remote_items` gives the RSS position of the
+        // recorded entry's named feed. The response names no position for
+        // the conflict entry, so its row stores null.
+        let remote_items = if mode == 27 {
+            json!([{
+                "position": 0,
+                "medium": "publisher",
+                "remote_feed_guid": "bcbe7207-9338-474e-ba18-09e6b1b69979",
+                "remote_feed_url": "https://wavlake.com/feed/artist/bcbe7207-9338-474e-ba18-09e6b1b69979",
+                "source": "podcast_publisher"
+            }])
+        } else {
+            serde_json::Value::Null
+        };
         json!({"data": {
             "feed_guid": "f1",
             "feed_url": format!("{base}/feed.xml"),
@@ -1421,7 +1433,8 @@ mod observation_tests {
             "release_artist_source": "itunes_author",
             "publisher_feed_title": if mode == 24 { "Renamed publisher" } else { "Liberthea Anadara" },
             "source_links": [], "source_ids": [], "source_contributors": [],
-            "publisher": publisher
+            "publisher": publisher,
+            "remote_items": remote_items
         }})
         .to_string()
     }
@@ -1517,6 +1530,7 @@ mod observation_tests {
             ("observed_at", observed_at.clone()),
             ("album_names_as", Value::Null),
             ("role_agreement", Value::Null),
+            ("named_feed_position", Value::Null),
         ]
         .into_iter()
         .map(|(name, value)| (name.to_owned(), value))
@@ -1547,11 +1561,49 @@ mod observation_tests {
             ("observed_at", observed_at),
             ("album_names_as", Value::Null),
             ("role_agreement", Value::Null),
+            ("named_feed_position", Value::Null),
         ]
         .into_iter()
         .map(|(name, value)| (name.to_owned(), value))
         .collect::<Vec<_>>();
         assert_eq!(rows[1], expected_conflict);
+    }
+
+    /// R85-3-07: the album hydration writes the position of each
+    /// `music_to_publisher` row from `remote_items`, matched by
+    /// `remote_feed_guid` with `source` `podcast_publisher`.
+    #[test]
+    fn adr_0085_named_feeds_hydration_writes_remote_items_position() {
+        use db::publisher_relationships::test_support::value;
+        use rusqlite::types::Value;
+        let fixture = Fixture::start();
+        fixture.set_mode(27);
+
+        fixture.hydrate().unwrap();
+
+        let rows = relationship_rows(&fixture);
+        assert_eq!(rows.len(), 2);
+        let recorded = rows
+            .iter()
+            .find(|row| {
+                value(row, "remote_feed_guid")
+                    == Value::Text("bcbe7207-9338-474e-ba18-09e6b1b69979".to_owned())
+            })
+            .unwrap();
+        assert_eq!(
+            value(recorded, "named_feed_position"),
+            Value::Integer(0),
+            "the row with a remote_items match stores its position"
+        );
+        let conflict = rows
+            .iter()
+            .find(|row| value(row, "remote_feed_guid") == Value::Text("publisher-b".to_owned()))
+            .unwrap();
+        assert_eq!(
+            value(conflict, "named_feed_position"),
+            Value::Null,
+            "a row with no remote_items match stores null"
+        );
     }
 
     /// R2-08: a second response with a changed entry updates that row. A

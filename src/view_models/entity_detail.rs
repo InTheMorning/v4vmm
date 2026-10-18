@@ -7,9 +7,13 @@
 
 use std::collections::BTreeMap;
 
-use crate::view_models::album_page::{AlbumNameLinkTarget, AlbumNameLinkVm, PUBLISHER_LINK_LABEL};
+use crate::view_models::album_page::{AlbumNameLinkTarget, AlbumNameLinkVm};
 use crate::view_models::format::{fmt_date, fmt_runtime};
+use crate::view_models::named_feeds::{select_artist_feed, ArtistFeed, NamedFeed};
 use crate::view_models::release_kind::ReleaseKind;
+use crate::view_models::role_words::{
+    capitalize_first, role_list_text, role_words, stated_sides_text,
+};
 use crate::view_models::track::fmt_dur;
 use crate::view_models::{ActionStatusMessageDisplay, ActionStatusMessageWidth};
 use crate::views::{
@@ -712,6 +716,36 @@ impl<'a> IdentityLinksVm<'a> {
     }
 }
 
+/// A named feed row under a release page's artist link, for a named feed
+/// other than the artist feed (ADR 0085 Decisions 5 and 6).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NamedFeedRowVm {
+    /// The role list text with a capital letter, "Role not confirmed", or
+    /// "Also named".
+    pub label: String,
+    /// The title of the named feed.
+    pub value: String,
+    /// The stated-sides text, only for a "Role not confirmed" row.
+    pub detail: Option<String>,
+    /// The accessibility label of the row's open action.
+    pub a11y_label: String,
+    /// The page that the row opens.
+    pub target: AlbumNameLinkTarget,
+}
+
+impl NamedFeedRowVm {
+    /// The separator between the label and the feed title of a row.
+    const LABEL_SEPARATOR: &'static str = ": ";
+
+    /// The visible text of the row, for example "Label: Sir Libre
+    /// Records". The view model owns it, so no renderer joins the label
+    /// and the value.
+    #[must_use]
+    pub fn display_text(&self) -> String {
+        format!("{}{}{}", self.label, Self::LABEL_SEPARATOR, self.value)
+    }
+}
+
 pub struct ReleaseDetailVm<'a> {
     view: &'a FeedView,
     context: EntitySurfaceContext,
@@ -881,35 +915,110 @@ impl<'a> ReleaseDetailVm<'a> {
         }
     }
 
-    /// The names under the album title that link to a page (ADR 0083
-    /// task 005). The artist name links to the artist page. An album with
-    /// a stored or received publisher relationship links to the publisher
-    /// page (ADR 0077 packet 004). The publisher link never takes its
-    /// target or its label from `publisher_text` (ADR 0077 Decision 6).
+    /// The `role_agreement` value that tells that both sides agree on the
+    /// role of a named feed link (ADR 0085 Decision 6).
+    const ROLE_AGREEMENT_BOTH: &'static str = "both";
+    /// The note of the artist link, when the release has an unverified
+    /// artist feed (ADR 0085 Decisions 5 and 6).
+    pub const UNVERIFIED_ARTIST_NOTE: &'static str = "Unverified artist";
+    /// The label of a named feed row with an agreed role, when the agreed
+    /// role is not stated (never shown: an agreed row always has a role).
+    const ROLE_NOT_CONFIRMED_LABEL: &'static str = "Role not confirmed";
+    /// The label of a named feed row with no stated agreement.
+    const ALSO_NAMED_LABEL: &'static str = "Also named";
+
+    /// The names under the album title that link to a page (ADR 0083 task
+    /// 005, ADR 0085 Decisions 5 and 6). The artist name opens the page of
+    /// the artist feed, when the release has one, with its note. Else it
+    /// opens the name level, as before ADR 0085.
     #[must_use]
     pub fn name_links(&self) -> Vec<AlbumNameLinkVm> {
         let mut links = Vec::new();
-        if let Some(artist) = self.view.artist.as_deref().and_then(hero_text) {
-            links.push(AlbumNameLinkVm {
-                label: artist.to_owned(),
-                a11y_label: format!("Open the artist {artist}"),
-                target: AlbumNameLinkTarget::Artist(artist.to_owned()),
-            });
-        }
-        if let Some(publisher_feed_guid) = self
-            .view
-            .publisher_feed_guid
-            .as_deref()
-            .map(str::trim)
-            .filter(|guid| !guid.is_empty())
-        {
-            links.push(AlbumNameLinkVm {
-                label: PUBLISHER_LINK_LABEL.to_owned(),
-                a11y_label: "Open the publisher of this album".to_owned(),
-                target: AlbumNameLinkTarget::Publisher(publisher_feed_guid.to_owned()),
-            });
-        }
+        let Some(artist) = self.view.artist.as_deref().and_then(hero_text) else {
+            return links;
+        };
+        let feeds = &self.view.named_feeds;
+        let (target, note) = match select_artist_feed(feeds) {
+            ArtistFeed::Confirmed(index) => (
+                AlbumNameLinkTarget::Publisher(feeds[index].feed_guid.clone()),
+                None,
+            ),
+            ArtistFeed::Unverified(index) => (
+                AlbumNameLinkTarget::Publisher(feeds[index].feed_guid.clone()),
+                Some(Self::UNVERIFIED_ARTIST_NOTE.to_owned()),
+            ),
+            ArtistFeed::None => (AlbumNameLinkTarget::Artist(artist.to_owned()), None),
+        };
+        let a11y_label = match &target {
+            AlbumNameLinkTarget::Publisher(_) if note.is_some() => {
+                format!("Open the artist page of {artist}, unverified artist")
+            }
+            AlbumNameLinkTarget::Publisher(_) => format!("Open the artist page of {artist}"),
+            _ => format!("Open the artist {artist}"),
+        };
+        links.push(AlbumNameLinkVm {
+            label: artist.to_owned(),
+            a11y_label,
+            note,
+            target,
+        });
         links
+    }
+
+    /// The named feed rows of the release, each other than the artist feed
+    /// (ADR 0085 Decisions 5 and 6). A release with no artist feed shows
+    /// its first named feed by the same rule.
+    #[must_use]
+    pub fn named_feed_rows(&self) -> Vec<NamedFeedRowVm> {
+        let feeds = &self.view.named_feeds;
+        let artist_index = match select_artist_feed(feeds) {
+            ArtistFeed::Confirmed(index) | ArtistFeed::Unverified(index) => Some(index),
+            ArtistFeed::None => None,
+        };
+        feeds
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| Some(*index) != artist_index)
+            .map(|(_, feed)| Self::named_feed_row(feed))
+            .collect()
+    }
+
+    fn named_feed_row(feed: &NamedFeed) -> NamedFeedRowVm {
+        let title =
+            nonempty(feed.title.as_deref()).map_or_else(|| feed.feed_guid.clone(), str::to_owned);
+        let target = AlbumNameLinkTarget::Publisher(feed.feed_guid.clone());
+        let a11y_label = format!("Open the page of {title}");
+        if feed.role_agreement.as_deref() == Some(Self::ROLE_AGREEMENT_BOTH) {
+            let label = capitalize_first(&role_list_text(&role_words(feed.role.as_deref())));
+            return NamedFeedRowVm {
+                label,
+                value: title,
+                detail: None,
+                a11y_label,
+                target,
+            };
+        }
+        if matches!(
+            feed.role_agreement.as_deref(),
+            Some("one_side" | "conflict")
+        ) {
+            let detail =
+                stated_sides_text(&title, feed.feed_rel.as_deref(), feed.album_rel.as_deref());
+            return NamedFeedRowVm {
+                label: Self::ROLE_NOT_CONFIRMED_LABEL.to_owned(),
+                value: title,
+                detail: Some(detail),
+                a11y_label,
+                target,
+            };
+        }
+        NamedFeedRowVm {
+            label: Self::ALSO_NAMED_LABEL.to_owned(),
+            value: title,
+            detail: None,
+            a11y_label,
+            target,
+        }
     }
 
     #[must_use]
@@ -2279,44 +2388,195 @@ mod tests {
         assert_eq!(action.a11y_label(), "Remove Feed");
     }
 
-    /// R83-53 (ADR 0083 task 005, ADR 0077 packet 004): the artist name
-    /// and the publisher are links. The publisher link targets the publisher
-    /// feed GUID and does not show `publisher_text`.
+    fn named_feed(feed_guid: &str, title: Option<&str>, confirmed: bool) -> NamedFeed {
+        NamedFeed {
+            feed_guid: feed_guid.to_owned(),
+            title: title.map(str::to_owned),
+            position: Some(0),
+            role: None,
+            role_agreement: None,
+            feed_rel: None,
+            album_rel: None,
+            confirmed,
+        }
+    }
+
+    /// R85-3-14 (carries R83-53, ADR 0077 packet 004): with a confirmed
+    /// artist feed, the artist link opens its page, with no note.
     #[test]
-    fn adr_0083_album_name_links_name_the_artist_and_the_publisher() {
+    fn adr_0085_named_feeds_release_artist_link_opens_a_confirmed_artist_feed() {
         let mut feed = feed_view();
-        feed.publisher_feed_guid = Some("publisher-guid".into());
+        feed.named_feeds = vec![NamedFeed {
+            role: Some("artist".to_owned()),
+            role_agreement: Some("both".to_owned()),
+            confirmed: true,
+            ..named_feed("publisher-guid", None, true)
+        }];
         feed.publisher_text = Some("Wavlake".into());
 
         let links = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).name_links();
 
         assert_eq!(
             links,
-            vec![
-                AlbumNameLinkVm {
-                    label: "Artist".into(),
-                    a11y_label: "Open the artist Artist".into(),
-                    target: AlbumNameLinkTarget::Artist("Artist".into()),
-                },
-                AlbumNameLinkVm {
-                    label: PUBLISHER_LINK_LABEL.into(),
-                    a11y_label: "Open the publisher of this album".into(),
-                    target: AlbumNameLinkTarget::Publisher("publisher-guid".into()),
-                },
-            ]
+            vec![AlbumNameLinkVm {
+                label: "Artist".into(),
+                a11y_label: "Open the artist page of Artist".into(),
+                note: None,
+                target: AlbumNameLinkTarget::Publisher("publisher-guid".into()),
+            }]
         );
     }
 
-    /// R83-53: an album without a relationship has no publisher link, and an
-    /// album without an artist name has no artist link.
+    /// R85-3-14: with an unverified artist feed, the artist link gives the
+    /// note "Unverified artist".
+    #[test]
+    fn adr_0085_named_feeds_release_artist_link_notes_an_unverified_artist_feed() {
+        let mut feed = feed_view();
+        feed.named_feeds = vec![named_feed("publisher-guid", None, true)];
+
+        let links = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).name_links();
+
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].note.as_deref(), Some("Unverified artist"));
+        assert_eq!(
+            links[0].a11y_label,
+            "Open the artist page of Artist, unverified artist"
+        );
+        assert_eq!(
+            links[0].target,
+            AlbumNameLinkTarget::Publisher("publisher-guid".into())
+        );
+    }
+
+    /// R85-3-14: a release with no artist feed opens the name level, as
+    /// before ADR 0085.
+    #[test]
+    fn adr_0085_named_feeds_release_artist_link_opens_the_name_level_with_no_artist_feed() {
+        let feed = feed_view();
+        assert!(feed.named_feeds.is_empty());
+
+        let links = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).name_links();
+
+        assert_eq!(
+            links,
+            vec![AlbumNameLinkVm {
+                label: "Artist".into(),
+                a11y_label: "Open the artist Artist".into(),
+                note: None,
+                target: AlbumNameLinkTarget::Artist("Artist".into()),
+            }]
+        );
+    }
+
+    /// R83-53: an album without an artist name has no artist link.
     #[test]
     fn adr_0083_album_name_links_skip_missing_names() {
         let mut feed = feed_view();
         feed.artist = None;
-        assert_eq!(feed.publisher_feed_guid, None);
+        assert!(feed.named_feeds.is_empty());
 
         let links = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).name_links();
 
         assert!(links.is_empty());
+    }
+
+    /// R85-3-12: an agreed `label` link gives the role row "Label: Sir
+    /// Libre Records" with an open action. An artist feed with agreed
+    /// `artist, producer` gives no role row.
+    #[test]
+    fn adr_0085_named_feeds_role_row_names_the_agreed_role() {
+        let mut feed = feed_view();
+        feed.named_feeds = vec![
+            NamedFeed {
+                role: Some("artist, producer".to_owned()),
+                role_agreement: Some("both".to_owned()),
+                confirmed: true,
+                ..named_feed("artist-guid", Some("HeyCitizen"), true)
+            },
+            NamedFeed {
+                role: Some("label".to_owned()),
+                role_agreement: Some("both".to_owned()),
+                confirmed: false,
+                ..named_feed("label-guid", Some("Sir Libre Records"), false)
+            },
+        ];
+
+        let rows = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).named_feed_rows();
+
+        assert_eq!(rows.len(), 1, "the artist feed itself gives no role row");
+        assert_eq!(rows[0].label, "Label");
+        assert_eq!(rows[0].value, "Sir Libre Records");
+        assert_eq!(rows[0].display_text(), "Label: Sir Libre Records");
+        assert_eq!(rows[0].detail, None);
+        assert_eq!(
+            rows[0].target,
+            AlbumNameLinkTarget::Publisher("label-guid".into())
+        );
+    }
+
+    /// R85-3-13: a `conflict` link gives a "Role not confirmed" row, and a
+    /// link with no stated agreement gives an "Also named" row.
+    #[test]
+    fn adr_0085_named_feeds_role_rows_for_conflict_and_also_named() {
+        let mut feed = feed_view();
+        feed.named_feeds = vec![
+            NamedFeed {
+                confirmed: true,
+                ..named_feed("artist-guid", Some("HeyCitizen"), true)
+            },
+            NamedFeed {
+                role: Some("label".to_owned()),
+                role_agreement: Some("conflict".to_owned()),
+                feed_rel: Some("label".to_owned()),
+                album_rel: Some("recordLabel".to_owned()),
+                confirmed: false,
+                ..named_feed("conflict-guid", Some("Sir Libre Records"), false)
+            },
+            NamedFeed {
+                role: None,
+                role_agreement: None,
+                confirmed: false,
+                ..named_feed("quiet-guid", Some("Quiet Feed"), false)
+            },
+        ];
+
+        let rows = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).named_feed_rows();
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].label, "Role not confirmed");
+        assert_eq!(rows[0].value, "Sir Libre Records");
+        assert_eq!(
+            rows[0].detail.as_deref(),
+            Some("Sir Libre Records: label \u{b7} the album: recordLabel")
+        );
+        assert_eq!(rows[1].label, "Also named");
+        assert_eq!(rows[1].value, "Quiet Feed");
+        assert_eq!(rows[1].detail, None);
+    }
+
+    /// R85-3-15: no release name link and no named feed row has the label
+    /// "Publisher" or an accessibility label with the word "publisher".
+    #[test]
+    fn adr_0085_named_feeds_release_rows_never_say_publisher() {
+        let mut feed = feed_view();
+        feed.named_feeds = vec![
+            named_feed("artist-guid", Some("HeyCitizen"), true),
+            NamedFeed {
+                role: Some("label".to_owned()),
+                role_agreement: Some("both".to_owned()),
+                confirmed: false,
+                ..named_feed("label-guid", Some("Sir Libre Records"), false)
+            },
+        ];
+
+        let vm = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library);
+        for link in vm.name_links() {
+            assert_ne!(link.label, "Publisher");
+            assert!(!link.a11y_label.to_lowercase().contains("publisher"));
+        }
+        for row in vm.named_feed_rows() {
+            assert_ne!(row.label, "Publisher");
+            assert!(!row.a11y_label.to_lowercase().contains("publisher"));
+        }
     }
 }

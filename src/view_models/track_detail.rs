@@ -8,11 +8,11 @@
 
 use crate::api::Feed;
 use crate::metadata::{feed_nostr, feed_website};
-use crate::view_models::album_page::PUBLISHER_LINK_LABEL;
 use crate::view_models::entity_detail::{
     EntityActionKind, EntityActionTarget, EntityActionTone, EntityActionVm,
 };
 use crate::view_models::format::fmt_date;
+use crate::view_models::named_feeds::{select_artist_feed, ArtistFeed, NamedFeed};
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::track::fmt_dur;
 use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
@@ -129,10 +129,11 @@ pub struct TrackDetailVm<'a> {
     track: &'a TrackView,
     context: TrackDetailSurfaceContext,
     override_title: Option<&'a str>,
-    /// The publisher feed GUID of this track's album feed (ADR 0077
-    /// Decision 2, packet 004 R4-03). The track stores no publisher value
-    /// of its own; the caller supplies its album feed's own value.
-    publisher_feed_guid: Option<&'a str>,
+    /// The named feeds of this track's album feed, in their RSS sequence
+    /// (ADR 0085 Decisions 5 and 6, carries ADR 0077 Decision 2, packet 004
+    /// R4-03). The track stores no named feed of its own; the caller
+    /// supplies its album feed's own value.
+    named_feeds: &'a [NamedFeed],
     /// The track's feed, supplied so [`Self::feed_identity_section`] can
     /// list the feed's own website and Nostr key apart from the track's
     /// header (ADR 0075 Decision B, packet 022). `None` when the caller's
@@ -152,7 +153,7 @@ impl<'a> TrackDetailVm<'a> {
             track,
             context,
             override_title: None,
-            publisher_feed_guid: None,
+            named_feeds: &[],
             feed: None,
             library_state: None,
             album_feed_id: None,
@@ -165,11 +166,12 @@ impl<'a> TrackDetailVm<'a> {
         self
     }
 
-    /// Sets the publisher feed GUID of this track's album feed (R4-03). The
-    /// caller reads it from the album feed, never from name text.
+    /// Sets the named feeds of this track's album feed (ADR 0085 Decisions
+    /// 5 and 6, R4-03). The caller reads them from the album feed, never
+    /// from name text.
     #[must_use]
-    pub const fn with_publisher_feed_guid(mut self, publisher_feed_guid: Option<&'a str>) -> Self {
-        self.publisher_feed_guid = publisher_feed_guid;
+    pub(crate) const fn with_named_feeds(mut self, named_feeds: &'a [NamedFeed]) -> Self {
+        self.named_feeds = named_feeds;
         self
     }
 
@@ -402,10 +404,16 @@ impl<'a> TrackDetailVm<'a> {
         actions
     }
 
+    /// The note of the artist feed link, when the release has an unverified
+    /// artist feed (ADR 0085 Decisions 5 and 6).
+    pub const UNVERIFIED_ARTIST_NOTE: &'static str = "Unverified artist";
+
     /// The name links under the title (ADR 0083 Decision 5: navigation is a
-    /// link on the text). The album name links to its album page. The
-    /// publisher name links to the publisher page of the album feed (ADR
-    /// 0077 packet 004). A name with no page target gives no link.
+    /// link on the text). The album name links to its album page. When the
+    /// release of the track has an artist feed (ADR 0085 Decision 6), one
+    /// link opens its page, with the feed title as its label. A name with
+    /// no page target gives no link. The track page shows no role row and
+    /// no "Also named" row; the release page shows them.
     #[must_use]
     pub fn name_links(&self) -> Vec<TrackNameLinkVm> {
         let mut links = Vec::new();
@@ -427,16 +435,28 @@ impl<'a> TrackDetailVm<'a> {
             links.push(TrackNameLinkVm {
                 a11y_label: format!("Open the album {label}"),
                 label,
+                note: None,
                 target,
             });
         }
-        // ADR 0077 Decision 6: `publisher_text` is the feed owner, so the
-        // publisher link does not show it.
-        if let Some(publisher_feed_guid) = self.publisher_feed_guid.and_then(nonempty) {
+        let artist_feed = select_artist_feed(self.named_feeds);
+        let index = match artist_feed {
+            ArtistFeed::Confirmed(index) | ArtistFeed::Unverified(index) => Some(index),
+            ArtistFeed::None => None,
+        };
+        if let Some(index) = index {
+            let feed = &self.named_feeds[index];
+            let title = feed
+                .title
+                .as_deref()
+                .and_then(nonempty)
+                .map_or_else(|| feed.feed_guid.clone(), str::to_owned);
+            let unverified = matches!(artist_feed, ArtistFeed::Unverified(_));
             links.push(TrackNameLinkVm {
-                a11y_label: "Open the publisher of this track".to_owned(),
-                label: PUBLISHER_LINK_LABEL.to_owned(),
-                target: TrackNameLinkTarget::Publisher(publisher_feed_guid.to_owned()),
+                a11y_label: format!("Open the artist page of {title}"),
+                label: title,
+                note: unverified.then(|| Self::UNVERIFIED_ARTIST_NOTE.to_owned()),
+                target: TrackNameLinkTarget::Publisher(feed.feed_guid.clone()),
             });
         }
         links
@@ -929,7 +949,8 @@ pub enum TrackNameLinkTarget {
         /// The feed GUID of the album.
         feed_guid: String,
     },
-    /// The publisher page of a publisher feed GUID (ADR 0077 Decision 1).
+    /// The page of a named feed, by its feed GUID (ADR 0077 Decision 1,
+    /// ADR 0085 Decision 6).
     Publisher(String),
 }
 
@@ -940,6 +961,9 @@ pub struct TrackNameLinkVm {
     pub label: String,
     /// The accessibility label.
     pub a11y_label: String,
+    /// The note under the link, for example "Unverified artist" (ADR 0085
+    /// Decision 6). `None` when the link has no note.
+    pub note: Option<String>,
     /// The page that the link opens.
     pub target: TrackNameLinkTarget,
 }
@@ -1423,18 +1447,40 @@ mod tests {
         );
     }
 
-    /// R83-44 and R4-03: the publisher name links to the publisher page of
-    /// the album feed. The track alone gives no publisher link.
+    fn named_feed(feed_guid: &str, title: Option<&str>, confirmed: bool) -> NamedFeed {
+        NamedFeed {
+            feed_guid: feed_guid.to_owned(),
+            title: title.map(str::to_owned),
+            position: Some(0),
+            role: None,
+            role_agreement: None,
+            feed_rel: None,
+            album_rel: None,
+            confirmed,
+        }
+    }
+
+    /// R85-3-16 (carries R83-44 and R4-03): the album link opens the album
+    /// page. The track view model gives one artist feed link with the feed
+    /// title, and no role row. The track alone gives no artist feed link.
     #[test]
-    fn adr_0083_r83_44_name_links_open_the_album_and_the_publisher() {
+    fn adr_0085_named_feeds_track_name_links_open_the_album_and_the_artist_feed() {
         let track = track_with_identity();
+        let named_feeds = vec![NamedFeed {
+            role: Some("artist".to_owned()),
+            role_agreement: Some("both".to_owned()),
+            ..named_feed("publisher-guid", Some("HeyCitizen"), true)
+        }];
 
         let links = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library)
             .with_album_feed_id(9)
-            .with_publisher_feed_guid(Some("publisher-guid"))
+            .with_named_feeds(&named_feeds)
             .name_links();
-        assert_eq!(links.len(), 2);
+        assert_eq!(links.len(), 2, "one album link and one artist feed link");
         assert_eq!(links[0].target, TrackNameLinkTarget::LibraryAlbum(9));
+        assert_eq!(links[1].label, "HeyCitizen");
+        assert_eq!(links[1].a11y_label, "Open the artist page of HeyCitizen");
+        assert_eq!(links[1].note, None);
         assert_eq!(
             links[1].target,
             TrackNameLinkTarget::Publisher("publisher-guid".into())
@@ -1446,6 +1492,41 @@ mod tests {
             without_targets.is_empty(),
             "a name with no page target gives no link"
         );
+    }
+
+    /// R85-3-16: an unverified artist feed gives the note "Unverified
+    /// artist" on its link.
+    #[test]
+    fn adr_0085_named_feeds_track_name_link_shows_unverified_artist_note() {
+        let track = track_with_identity();
+        // A confirmed link with no agreed role gives the unverified artist
+        // feed (ADR 0085 Decision 6).
+        let named_feeds = vec![named_feed("publisher-guid", Some("DETOX"), true)];
+
+        let links = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
+            .with_named_feeds(&named_feeds)
+            .name_links();
+
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].note.as_deref(), Some("Unverified artist"));
+    }
+
+    /// R85-3-15: no track name link has the label "Publisher" or an
+    /// accessibility label with the word "publisher".
+    #[test]
+    fn adr_0085_named_feeds_track_name_links_never_say_publisher() {
+        let track = track_with_identity();
+        let named_feeds = vec![named_feed("publisher-guid", Some("HeyCitizen"), true)];
+
+        let links = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library)
+            .with_album_feed_id(9)
+            .with_named_feeds(&named_feeds)
+            .name_links();
+
+        for link in &links {
+            assert_ne!(link.label, "Publisher");
+            assert!(!link.a11y_label.to_lowercase().contains("publisher"));
+        }
     }
 
     /// R83-44: an Index track links its album name to the Index album page.

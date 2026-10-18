@@ -312,6 +312,7 @@ pub(crate) fn singles_group_name_link(
     Some(AlbumNameLinkVm {
         label: format!("All {count} singles"),
         a11y_label: format!("Open all {count} singles by {}", group.display_artist),
+        note: None,
         target: AlbumNameLinkTarget::SinglesGroup(group.key()),
     })
 }
@@ -555,9 +556,7 @@ mod tests {
             language: None,
             description: None,
             image_href: Some(format!("{feed_id}.jpg")),
-            publisher_feed_guid: None,
-            publisher_link_role: None,
-            publisher_role_agreement: None,
+            named_feeds: Vec::new(),
             identity_facts: LocalIdentityFacts::default(),
             metadata_facts: Box::new(FeedMetadataFacts {
                 release_kind: stated_kind.map(str::to_owned),
@@ -577,8 +576,21 @@ mod tests {
         )
     }
 
+    /// Gives `album` a confirmed named feed, the same as a confirmed link
+    /// with no agreed role (ADR 0085 Decision 6): the primary named feed
+    /// becomes the unverified artist feed, so `artist_identity` still gives
+    /// `ArtistIdentity::Publisher(guid)`, the same as before ADR 0085.
     fn with_publisher(mut album: AlbumNode, guid: &str) -> AlbumNode {
-        album.publisher_feed_guid = Some(guid.to_owned());
+        album.named_feeds = vec![crate::view_models::named_feeds::NamedFeed {
+            feed_guid: guid.to_owned(),
+            title: None,
+            position: Some(0),
+            role: None,
+            role_agreement: None,
+            feed_rel: None,
+            album_rel: None,
+            confirmed: true,
+        }];
         album
     }
 
@@ -856,6 +868,7 @@ mod tests {
         let base = vec![AlbumNameLinkVm {
             label: "Haleen".to_owned(),
             a11y_label: "Open the artist Haleen".to_owned(),
+            note: None,
             target: AlbumNameLinkTarget::Artist("Haleen".to_owned()),
         }];
         let mut tree = haleen_tree(7, 5);

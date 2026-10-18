@@ -10,9 +10,6 @@ use crate::view_models::entity_detail::ReleaseMembershipState;
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::singles_group::SinglesGroupKey;
 
-/// The label of a publisher link. ADR 0077 Decision 6: `publisher_text` is
-/// the feed owner, so a publisher link does not show it.
-pub const PUBLISHER_LINK_LABEL: &str = "Publisher";
 /// The accessibility label of the "⋯" menu of an album page.
 pub const ALBUM_PAGE_MENU_A11Y_LABEL: &str = "More actions for this album";
 
@@ -174,7 +171,8 @@ pub enum AlbumNameLinkTarget {
     /// The artist page of a name. The Library opens its artist page. The
     /// Index opens the tracks that match the name.
     Artist(String),
-    /// The publisher page of a publisher feed GUID (ADR 0077 Decision 1).
+    /// The page of a named feed, by its feed GUID (ADR 0077 Decision 1,
+    /// ADR 0085 Decision 6).
     Publisher(String),
     /// The page of the Library singles group of a single (ADR 0084
     /// Decision 6).
@@ -188,6 +186,9 @@ pub struct AlbumNameLinkVm {
     pub label: String,
     /// The accessibility label.
     pub a11y_label: String,
+    /// The note under the link, for example "Unverified artist" (ADR 0085
+    /// Decision 6). `None` when the link has no note.
+    pub note: Option<String>,
     /// The page that the link opens.
     pub target: AlbumNameLinkTarget,
 }

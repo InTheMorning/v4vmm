@@ -21,14 +21,15 @@ use crate::ui::composites::{
     ReleaseSurfaceElement, ReleaseTrackSectionDisplay, Thumbnail, ThumbnailSize, TrackRow,
 };
 use crate::ui::control_styles::ControlStyle;
-use crate::ui::primitives::{Button, Label};
+use crate::ui::primitives::{Button, Label, LabelVariant};
 use crate::ui::style::{color, spacing, typography};
-use crate::ui::tokens::{FontSize, SemanticColor};
+use crate::ui::tokens::{FontSize, SemanticColor, Spacing};
 use crate::view_models::album_page::{AlbumNameLinkTarget, AlbumNameLinkVm};
 use crate::view_models::entity_detail::{
     ContributorListVm, ContributorPersonVm, ContributorRoleRowVm, ContributorRowVm,
-    EntitySurfaceKind, IdentityActionDisplay, IdentityActionDisplayKind, ReleaseDetailPageVm,
-    ReleaseHeroVm, ReleasePanelKind, ReleasePanelVm, ReleaseTextPanelDisplay, SharedTrackRowVm,
+    EntitySurfaceKind, IdentityActionDisplay, IdentityActionDisplayKind, NamedFeedRowVm,
+    ReleaseDetailPageVm, ReleaseHeroVm, ReleasePanelKind, ReleasePanelVm, ReleaseTextPanelDisplay,
+    SharedTrackRowVm,
 };
 
 type ReleaseTrackRowClick = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
@@ -68,6 +69,9 @@ pub struct ReleaseDetailBehaviorSlots {
     pub cover_color: Option<CoverColor>,
     /// The name links under the album title.
     pub name_links: Vec<AnyElement>,
+    /// The named feed rows of ADR 0085 Decisions 5 and 6, each other than
+    /// the artist feed. `None` when the release has none.
+    pub named_feed_rows: Option<ReleaseSurfaceElement>,
     pub primary_actions: Vec<ReleaseSurfaceElement>,
     pub identity_actions: Vec<ReleaseSurfaceElement>,
     pub action_overlays: Vec<ReleaseSurfaceElement>,
@@ -93,6 +97,10 @@ pub fn render_release_detail_shell(
         .details(ReleaseSurfaceElement::from_element(render_summary_facts(
             &page.summary_facts,
         )));
+
+    if let Some(named_feed_rows) = slots.named_feed_rows {
+        surface = surface.panel(named_feed_rows);
+    }
 
     if let Some(actions) = render_action_slots(slots.primary_actions, slots.identity_actions) {
         surface = surface.actions(
@@ -354,6 +362,7 @@ fn render_contract_header(
 pub fn render_album_name_links(
     links: Vec<AlbumNameLinkVm>,
     on_open: impl Fn(&AlbumNameLinkTarget, &mut Window, &mut App) + 'static,
+    cx: &App,
 ) -> Vec<AnyElement> {
     let on_open = Rc::new(on_open);
     links
@@ -364,18 +373,92 @@ pub fn render_album_name_links(
             let AlbumNameLinkVm {
                 label,
                 a11y_label,
+                note,
                 target,
             } = link;
-            Button::styled(
+            let button = Button::styled(
                 SharedString::from(format!("album-name-link-{index}")),
                 ControlStyle::Ghost,
             )
             .label(label)
             .a11y_label(a11y_label)
-            .on_click(move |_, window, cx| on_open(&target, window, cx))
-            .into_any_element()
+            .on_click(move |_, window, cx| on_open(&target, window, cx));
+            let Some(note) = note else {
+                return button.into_any_element();
+            };
+            // ADR 0085 Decision 6: "Unverified artist" reads as text, not
+            // through color alone.
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(Spacing::XS.scaled(cx))
+                .child(button)
+                .child(
+                    Label::new(note)
+                        .variant(LabelVariant::Caption)
+                        .color(SemanticColor::TertiaryLabel),
+                )
+                .into_any_element()
         })
         .collect()
+}
+
+/// Renders the named feed rows of a release page (ADR 0085 Decisions 5 and
+/// 6), each other than the artist feed. `None` when `rows` is empty: the
+/// panel is then absent.
+#[must_use]
+pub fn render_named_feed_rows(
+    rows: Vec<NamedFeedRowVm>,
+    on_open: impl Fn(&AlbumNameLinkTarget, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> Option<ReleaseSurfaceElement> {
+    if rows.is_empty() {
+        return None;
+    }
+    let on_open = Rc::new(on_open);
+    let children = rows
+        .into_iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let on_open = Rc::clone(&on_open);
+            let text = row.display_text();
+            let NamedFeedRowVm {
+                detail,
+                a11y_label,
+                target,
+                ..
+            } = row;
+            let mut text_block = div()
+                .flex()
+                .flex_col()
+                .min_w_0()
+                .gap(Spacing::XXS.scaled(cx))
+                .child(Label::new(text).variant(LabelVariant::Body));
+            if let Some(detail) = detail {
+                text_block = text_block.child(
+                    Label::new(detail)
+                        .variant(LabelVariant::Caption)
+                        .color(SemanticColor::TertiaryLabel),
+                );
+            }
+            ListRow::new(SharedString::from(format!("named-feed-row-{index}")))
+                .a11y_label(ListRowA11yLabel {
+                    label: a11y_label.into(),
+                })
+                .on_click(move |_event, window, cx| on_open(&target, window, cx))
+                .child(div().flex_1().min_w_0().child(text_block))
+                .into_any_element()
+        })
+        .collect::<Vec<_>>();
+    Some(ReleaseSurfaceElement::from_element(
+        div()
+            .flex()
+            .flex_col()
+            .gap(Spacing::XXS.scaled(cx))
+            .children(children)
+            .into_any_element(),
+    ))
 }
 
 fn render_summary_facts(facts: &[crate::view_models::entity_detail::ReleaseFactVm]) -> AnyElement {

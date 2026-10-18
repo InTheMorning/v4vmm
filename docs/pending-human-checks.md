@@ -157,3 +157,12 @@ Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 202
 - Owner: [task 015](tasks/adr-0046-task-015-forward-navigation.md#operator-visual-check).
 - Scheduling: it needs a macOS desktop session.
 - V2, macOS part: `cmd-[` and `cmd-]` outside a text box do the same as Back and Forward. Indent and outdent still work in a macOS text box.
+
+## 5. The Named Feeds Of A Release — ADR 0082 Task 003
+
+Open - implementation and mechanical checks are complete on 2026-10-18. Operator inspection is pending.
+
+- Owner: [task 003](tasks/adr-0082-task-003-release-page-named-feeds.md#operator-visual-check).
+- Precondition: migration 19 adds one column. Make the SQLite backup of step 1 before the first run of the new build. The check needs network access to `api.musicindex.org`.
+- V1 to V4: the role row of Sir Libre Records, the HeyCitizen and DETOX artist links, and the track page link.
+- V5 to V7: "Feed owner", the Library links after the migration, and the widths, themes and type sizes.

@@ -2,6 +2,7 @@ use crate::api;
 use crate::application::queries::stored_values::{self, FeedStoredValues, TrackStoredValues};
 use crate::db;
 use crate::metadata::drop_placeholder_source_text;
+use crate::view_models::named_feeds::{sort_named_feeds, NamedFeed};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArtistRef {
@@ -161,11 +162,10 @@ pub struct FeedView {
     pub payment_routes: Vec<api::PaymentRoute>,
     pub contributors: Vec<ContributorView>,
     pub tracks: Vec<TrackView>,
-    /// The publisher feed GUID that this album names, when a stored or
-    /// received relationship states `music_names_publisher = true` (ADR
-    /// 0077 Decision 2, packet 004). `None` when the album names no
-    /// publisher. Never built from name text or `publisher_text`.
-    pub publisher_feed_guid: Option<String>,
+    /// The feeds that this album names, in their RSS sequence (ADR 0085
+    /// Decision 6). Empty when the album names no feed. Never built from
+    /// name text or `publisher_text`.
+    pub(crate) named_feeds: Vec<NamedFeed>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -206,11 +206,11 @@ pub struct TrackView {
     pub mime: Option<String>,
     pub bytes: Option<i64>,
     pub publisher_text: Option<String>,
-    /// The publisher feed GUID that the track response names, when a
-    /// `music_to_publisher` relationship states `music_names_publisher =
-    /// true` (ADR 0077 Decision 2). Never built from name text. A Library
-    /// track leaves this value `None`, and its page reads the album feed.
-    pub publisher_feed_guid: Option<String>,
+    /// The feeds that the track response names, in their RSS sequence (ADR
+    /// 0085 Decision 6). Never built from name text. A Library track leaves
+    /// this value empty, and its page reads the named feeds of the album
+    /// feed.
+    pub(crate) named_feeds: Vec<NamedFeed>,
     pub contributors: Vec<ContributorView>,
     pub payment_routes: Vec<api::PaymentRoute>,
     pub transcript_url: Option<String>,
@@ -465,8 +465,7 @@ impl FeedView {
             description_from_release_claims(f.source_release_claims.as_deref());
         let identity =
             EntityIdentityLinks::from_api_facts(image_url.clone(), f.source_links, f.source_ids);
-        let publisher_feed_guid =
-            owned_publisher_feed_guid_from_relationships(f.publisher.as_deref());
+        let named_feeds = named_feeds_from_api(f.publisher.as_deref(), f.remote_items.as_deref());
         Self {
             id: f.feed_guid.clone().map(FeedRef::Musicindex),
             feed_guid: f.feed_guid,
@@ -498,7 +497,7 @@ impl FeedView {
                 .into_iter()
                 .map(TrackView::from_api)
                 .collect(),
-            publisher_feed_guid,
+            named_feeds,
         }
     }
 
@@ -567,9 +566,10 @@ impl FeedView {
             contributors: values.credits,
             tracks,
             // A local read has no request in hand. The caller sets this
-            // from its own stored relationship read when the screen needs
-            // the "open publisher" action (ADR 0077 packet 004).
-            publisher_feed_guid: None,
+            // from its own stored named feeds read when the screen needs
+            // the artist link or the role rows (ADR 0085 Decisions 5 and
+            // 6).
+            named_feeds: Vec::new(),
         }
     }
 
@@ -586,25 +586,55 @@ impl FeedView {
     }
 }
 
-/// The publisher feed GUID of the received `music_to_publisher` entry that
-/// states `music_names_publisher = true` (ADR 0077 Decision 2, packet 004).
-/// `None` when the response names no relationship entries, or when no entry
-/// names this album as owned by a publisher. Never reads `publisher_text`.
-fn owned_publisher_feed_guid_from_relationships(
+/// The `source` of a `remote_items` entry that names a feed (ADR 0085
+/// Decision 6, migration 19).
+const NAMED_FEED_REMOTE_ITEM_SOURCE: &str = "podcast_publisher";
+
+/// The named feeds of a received response, in their RSS sequence (ADR 0085
+/// Decision 6). Each `music_to_publisher` entry that states
+/// `music_names_publisher = true` becomes one named feed. The title is
+/// `remote_feed_title`. The position comes from `remote_items`, by the rule
+/// of the hydration. Never reads `publisher_text`.
+fn named_feeds_from_api(
     relationships: Option<&[api::PublisherRelationship]>,
-) -> Option<String> {
-    relationships?
+    remote_items: Option<&[api::RemoteItem]>,
+) -> Vec<NamedFeed> {
+    let positions: std::collections::HashMap<&str, i64> = remote_items
+        .unwrap_or_default()
         .iter()
-        .find(|entry| {
+        .filter(|item| item.source.as_deref() == Some(NAMED_FEED_REMOTE_ITEM_SOURCE))
+        .filter_map(|item| Some((item.remote_feed_guid.as_deref()?, item.position?)))
+        .collect();
+    let mut feeds: Vec<NamedFeed> = relationships
+        .unwrap_or_default()
+        .iter()
+        .filter(|entry| {
             entry.direction.as_deref() == Some("music_to_publisher")
                 && entry.music_names_publisher == Some(true)
         })
-        .and_then(|entry| {
-            entry
+        .filter_map(|entry| {
+            let feed_guid = entry
                 .publisher_feed_guid
                 .clone()
-                .or_else(|| entry.remote_feed_guid.clone())
+                .or_else(|| entry.remote_feed_guid.clone())?;
+            let position = positions.get(feed_guid.as_str()).copied();
+            Some(NamedFeed {
+                feed_guid,
+                title: nonempty_owned(entry.remote_feed_title.clone()),
+                position,
+                role: entry.role.clone(),
+                role_agreement: entry
+                    .role_agreement
+                    .as_ref()
+                    .map(|value| value.as_str().to_owned()),
+                feed_rel: entry.publisher_rel.clone(),
+                album_rel: entry.music_rel.clone(),
+                confirmed: entry.two_way_validated == Some(true),
+            })
         })
+        .collect();
+    sort_named_feeds(&mut feeds);
+    feeds
 }
 
 fn description_from_release_claims(claims: Option<&[api::SourceReleaseClaim]>) -> Option<String> {
@@ -657,9 +687,7 @@ impl TrackView {
             audio_url: nonempty_owned(t.enclosure_url),
             mime: nonempty_owned(t.enclosure_type),
             bytes: t.enclosure_bytes,
-            publisher_feed_guid: owned_publisher_feed_guid_from_relationships(
-                t.publisher.as_deref(),
-            ),
+            named_feeds: named_feeds_from_api(t.publisher.as_deref(), t.remote_items.as_deref()),
             publisher_text: nonempty_owned(t.publisher_text),
             contributors: t
                 .source_contributors
@@ -726,8 +754,8 @@ impl TrackView {
             audio_url: t.enclosure_url,
             mime: t.enclosure_type,
             bytes: None,
-            // A Library track page reads the publisher of its album feed.
-            publisher_feed_guid: None,
+            // A Library track page reads the named feeds of its album feed.
+            named_feeds: Vec::new(),
             publisher_text: nonempty_owned(values.publisher_text.value),
             contributors: values.credits,
             payment_routes: Vec::new(),
@@ -776,14 +804,16 @@ mod tests {
             Some("https://example.test/track")
         );
         assert_eq!(view.contributors[0].name.as_deref(), Some("Amy"));
-        assert_eq!(view.publisher_feed_guid.as_deref(), Some("publisher-guid"));
+        assert_eq!(view.named_feeds.len(), 1);
+        assert_eq!(view.named_feeds[0].feed_guid, "publisher-guid");
     }
 
-    /// ADR 0083 task 004: an Index track keeps the publisher feed GUID that
-    /// its response names, so its page can link the publisher. A
-    /// relationship that does not name the publisher gives no GUID.
+    /// ADR 0085 Decision 6 (carries ADR 0083 task 004): an Index track
+    /// keeps the feed that its response names, so its page can link the
+    /// artist feed. A relationship that does not name the feed gives no
+    /// named feed.
     #[test]
-    fn from_api_track_keeps_the_named_publisher_feed_guid() {
+    fn from_api_track_keeps_the_named_feed() {
         let relationship = |names: bool| api::PublisherRelationship {
             direction: Some("music_to_publisher".into()),
             publisher_feed_guid: Some("publisher-guid".into()),
@@ -794,13 +824,53 @@ mod tests {
             publisher: Some(vec![relationship(true)]),
             ..Default::default()
         });
-        assert_eq!(named.publisher_feed_guid.as_deref(), Some("publisher-guid"));
+        assert_eq!(named.named_feeds.len(), 1);
+        assert_eq!(named.named_feeds[0].feed_guid, "publisher-guid");
 
         let unnamed = TrackView::from_api(api::Track {
             publisher: Some(vec![relationship(false)]),
             ..Default::default()
         });
-        assert_eq!(unnamed.publisher_feed_guid, None);
+        assert!(unnamed.named_feeds.is_empty());
+    }
+
+    /// R85-3-09: the Index `FeedView` gives the named feeds in
+    /// `remote_items` position sequence, not in response sequence.
+    #[test]
+    fn adr_0085_named_feeds_from_api_follows_remote_items_position() {
+        let relationship = |guid: &str| api::PublisherRelationship {
+            direction: Some("music_to_publisher".into()),
+            publisher_feed_guid: Some(guid.to_owned()),
+            remote_feed_guid: Some(guid.to_owned()),
+            music_names_publisher: Some(true),
+            ..Default::default()
+        };
+        let view = FeedView::from_api(api::Feed {
+            // The response lists "second" before "first".
+            publisher: Some(vec![relationship("second"), relationship("first")]),
+            remote_items: Some(vec![
+                api::RemoteItem {
+                    position: Some(0),
+                    remote_feed_guid: Some("first".into()),
+                    source: Some("podcast_publisher".into()),
+                    ..Default::default()
+                },
+                api::RemoteItem {
+                    position: Some(1),
+                    remote_feed_guid: Some("second".into()),
+                    source: Some("podcast_publisher".into()),
+                    ..Default::default()
+                },
+            ]),
+            ..Default::default()
+        });
+
+        assert_eq!(view.named_feeds.len(), 2);
+        assert_eq!(
+            view.named_feeds[0].feed_guid, "first",
+            "remote_items position orders the named feeds, not response order"
+        );
+        assert_eq!(view.named_feeds[1].feed_guid, "second");
     }
 
     /// ADR 0075 packet 050, operator decision D50-1: the Index route

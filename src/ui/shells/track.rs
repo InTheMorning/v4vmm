@@ -10,14 +10,15 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{prelude::*, App, ClipboardItem, Image, SharedString, Window};
+use gpui::{div, prelude::*, App, ClipboardItem, Image, SharedString, Window};
 
 use crate::ui::composites::{
     identity_action_button, render_feed_identity_panel, IdentityActionButtonDisplay,
     IdentityActionKind, TrackDetailSurface, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
-use crate::ui::primitives::Button;
+use crate::ui::primitives::{Button, Label, LabelVariant};
+use crate::ui::tokens::{SemanticColor, Spacing};
 use crate::view_models::entity_detail::{
     EntityActionVm, IdentityActionDisplay, IdentityActionDisplayKind,
 };
@@ -74,6 +75,7 @@ pub(crate) fn render_track_feed_identity_section(
 pub(crate) fn render_track_name_links(
     page: &TrackDetailPageVm<'_>,
     on_open: impl Fn(&TrackNameLinkTarget, &mut Window, &mut App) + 'static,
+    cx: &App,
 ) -> Vec<TrackSurfaceElement> {
     let on_open = Rc::new(on_open);
     page.detail()
@@ -85,6 +87,7 @@ pub(crate) fn render_track_name_links(
             let TrackNameLinkVm {
                 label,
                 a11y_label,
+                note,
                 target,
             } = link;
             let button = Button::styled(
@@ -94,7 +97,24 @@ pub(crate) fn render_track_name_links(
             .label(label)
             .a11y_label(a11y_label)
             .on_click(move |_, window, cx| on_open(&target, window, cx));
-            TrackSurfaceElement::from_element(button.into_any_element())
+            let Some(note) = note else {
+                return TrackSurfaceElement::from_element(button.into_any_element());
+            };
+            // ADR 0085 Decision 6: "Unverified artist" reads as text, not
+            // through color alone.
+            TrackSurfaceElement::from_element(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(Spacing::XXS.scaled(cx))
+                    .child(button)
+                    .child(
+                        Label::new(note)
+                            .variant(LabelVariant::Caption)
+                            .color(SemanticColor::TertiaryLabel),
+                    )
+                    .into_any_element(),
+            )
         })
         .collect()
 }

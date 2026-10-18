@@ -230,7 +230,7 @@ fn prepare_inner(
         };
         return Err(error.downcast::<Failure>().unwrap_or_else(|_| {
             Failure::new(
-                "Apply migrations 12 to 18 and verify retained records",
+                "Apply migrations 12 to 19 and verify retained records",
                 FailureKind::Validation,
             )
         }));
@@ -381,7 +381,7 @@ mod tests {
             };
             assert_eq!(prepared.receipt.state, PreparationState::Upgraded);
             let receipt = &prepared.receipt;
-            assert_eq!(receipt.target, 18);
+            assert_eq!(receipt.target, 19);
             assert!(receipt.started_at <= receipt.preserved_at.unwrap());
             assert!(receipt.preserved_at <= receipt.snapshot_verified_at);
             assert!(receipt.snapshot_verified_at.unwrap() <= receipt.finished_at);
@@ -392,7 +392,7 @@ mod tests {
             assert!(receipt.manifest.as_ref().unwrap().is_file());
             let report = crate::view_models::startup::preparation_report(receipt);
             assert!(report.contains(&receipt.snapshot.as_ref().unwrap().display().to_string()));
-            assert!(report.contains("Target schema version: 18"));
+            assert!(report.contains("Target schema version: 19"));
         }
     }
 
@@ -502,6 +502,9 @@ mod tests {
             Boundary::Migration(18, MigrationBoundary::BeforeApply),
             Boundary::Migration(18, MigrationBoundary::AfterApply),
             Boundary::Migration(18, MigrationBoundary::AfterRecord),
+            Boundary::Migration(19, MigrationBoundary::BeforeApply),
+            Boundary::Migration(19, MigrationBoundary::AfterApply),
+            Boundary::Migration(19, MigrationBoundary::AfterRecord),
             Boundary::AfterCommit,
             Boundary::BeforeReopen,
         ] {
@@ -527,7 +530,15 @@ mod tests {
                 }
             );
             let conn = Connection::open(&path).unwrap();
-            upgrades::verify_target(&conn, if committed { 18 } else { 11 }).unwrap();
+            upgrades::verify_target(
+                &conn,
+                if committed {
+                    crate::db::CURRENT_VERSION
+                } else {
+                    11
+                },
+            )
+            .unwrap();
             assert!(error.receipt.snapshot.as_ref().unwrap().is_file());
             assert!(error.receipt.manifest.as_ref().unwrap().is_file());
             let report = crate::view_models::startup::preparation_failure_report(&error);
@@ -586,7 +597,7 @@ mod tests {
                     .query_row("SELECT count(*) FROM schema_migrations", [], |r| r
                         .get::<_, i64>(0))
                     .unwrap(),
-                18
+                i64::try_from(crate::db::MIGRATIONS.len()).unwrap()
             );
             assert_eq!(
                 prepared

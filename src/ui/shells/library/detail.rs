@@ -19,6 +19,7 @@ use crate::ui::shells::library::singles_group::render_library_singles_group_page
 use crate::ui::shells::library::track_detail::render_library_track_detail;
 use crate::ui::style::color;
 use crate::view_models::library::{LibraryChromeDisplay, LibraryViewModel, MbTrackStatus};
+use crate::view_models::named_feeds::NamedFeed;
 
 #[expect(
     clippy::too_many_arguments,
@@ -37,7 +38,7 @@ pub(crate) fn render_library_detail(
     renaming_playlist_id: Option<i64>,
     playlist_actor: Option<&PlaylistActorState>,
     playlist_rss_check: Option<&crate::runtime::PlaylistRssCheckSnapshot>,
-    track_publisher_feed_guid: Option<&str>,
+    track_named_feeds: &[NamedFeed],
     album_cover_color: Option<CoverColor>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
@@ -73,7 +74,7 @@ pub(crate) fn render_library_detail(
         ),
 
         LibraryDetail::Track(frame) => {
-            render_library_track_detail(frame, playlists, chrome, track_publisher_feed_guid, cx)
+            render_library_track_detail(frame, playlists, chrome, track_named_feeds, cx)
         }
 
         // ADR 0084 Decision 6: the group page reads the current tree at

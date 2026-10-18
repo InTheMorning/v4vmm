@@ -26,7 +26,8 @@ use crate::ui::primitives::{
 };
 use crate::ui::shells::entity::{
     render_album_name_links, render_contributor_panel, render_feed_identity_actions,
-    render_release_detail_shell, ContributorRowSlot, ReleaseDetailBehaviorSlots,
+    render_named_feed_rows, render_release_detail_shell, ContributorRowSlot,
+    ReleaseDetailBehaviorSlots,
 };
 use crate::ui::style::{color, typography};
 use crate::view_models::album_page::{
@@ -93,11 +94,9 @@ pub(crate) fn render_library_feed_detail(
             FeedView::from_local_with_identity(feed_row, track_views, album.identity_facts.clone())
         }
     };
-    // ADR 0077 packet 004: the query layer already read the stored owned
-    // relationship of this album (Decision 2). The screen adds no request.
-    feed_view
-        .publisher_feed_guid
-        .clone_from(&album.publisher_feed_guid);
+    // ADR 0085 Decisions 5 and 6: the query layer already read the stored
+    // named feeds of this album. The screen adds no request.
+    feed_view.named_feeds.clone_from(&album.named_feeds);
 
     let thumb_image = album
         .image_href
@@ -143,13 +142,16 @@ pub(crate) fn render_library_feed_detail(
     // ADR 0084 Decision 6: a single in a Library group links to its group.
     let links =
         library_vm.release_page_name_links(projection.name_links(), album.release_key().as_ref());
-    let name_links = render_album_name_links(links, move |target, _, cx| {
+    let open_name_link = move |target: &_, _window: &mut _, cx: &mut _| {
         entity.update(cx, |this, cx| this.open_album_name_link(target, cx));
-    });
+    };
+    let name_links = render_album_name_links(links, open_name_link.clone(), cx);
+    let named_feed_rows = render_named_feed_rows(projection.named_feed_rows(), open_name_link, cx);
     let mut slots = ReleaseDetailBehaviorSlots {
         hero_image: thumb_image,
         cover_color,
         name_links,
+        named_feed_rows,
         primary_actions: vec![ReleaseSurfaceElement::from_element(action_row)],
         identity_actions: render_feed_identity_actions(&page),
         track_rows: Some(track_rows),

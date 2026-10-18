@@ -31,8 +31,8 @@ use crate::ui::primitives::{
     Button as UiButton, ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope,
 };
 use crate::ui::shells::entity::{
-    render_album_name_links, render_release_track_row, ReleaseDetailBehaviorSlots,
-    ReleaseTrackRowSlot,
+    render_album_name_links, render_named_feed_rows, render_release_track_row,
+    ReleaseDetailBehaviorSlots, ReleaseTrackRowSlot,
 };
 use crate::ui::shells::search_results_inspector::{
     render_index_detail_display, render_index_feed_detail, render_index_track_detail,
@@ -1056,19 +1056,35 @@ impl TopApp {
             .feed_guid
             .as_deref()
             .map(ReleaseKey::from_index_feed_guid);
-        let links = self.library.read(cx).release_page_name_links(
-            ReleaseDetailVm::new(feed, EntitySurfaceContext::Library).name_links(),
-            release_key.as_ref(),
+        let projection = ReleaseDetailVm::new(feed, EntitySurfaceContext::Library);
+        let links = self
+            .library
+            .read(cx)
+            .release_page_name_links(projection.name_links(), release_key.as_ref());
+        let name_links = render_album_name_links(
+            links,
+            {
+                let entity = entity.clone();
+                move |target, _window, cx| {
+                    entity.update(cx, |this, cx| this.open_index_album_name_link(target, cx));
+                }
+            },
+            cx,
         );
-        let name_links = render_album_name_links(links, move |target, _window, cx| {
-            entity.update(cx, |this, cx| this.open_index_album_name_link(target, cx));
-        });
+        let named_feed_rows = render_named_feed_rows(
+            projection.named_feed_rows(),
+            move |target, _window, cx| {
+                entity.update(cx, |this, cx| this.open_index_album_name_link(target, cx));
+            },
+            cx,
+        );
         ReleaseDetailBehaviorSlots {
             hero_image: self.index_feed_hero_image(feed, cx),
             cover_color: index_feed_artwork_url(feed)
                 .map(str::to_owned)
                 .and_then(|url| self.index_cover_color(&url, cx)),
             name_links,
+            named_feed_rows,
             primary_actions: Self::index_feed_primary_actions(feed, cx),
             description_panel: self.index_feed_description_panel(feed, cx),
             track_rows: Some(self.index_feed_track_rows(feed, cx)),
@@ -1091,12 +1107,16 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) -> TrackDetailBehaviorSlots {
         let page = TrackDetailVm::new(track, TrackDetailSurfaceContext::Discover)
-            .with_publisher_feed_guid(track.publisher_feed_guid.as_deref())
+            .with_named_feeds(&track.named_feeds)
             .page();
         let entity = cx.entity();
-        let name_links = render_track_name_links(&page, move |target, _window, cx| {
-            entity.update(cx, |this, cx| this.open_index_track_name_link(target, cx));
-        });
+        let name_links = render_track_name_links(
+            &page,
+            move |target, _window, cx| {
+                entity.update(cx, |this, cx| this.open_index_track_name_link(target, cx));
+            },
+            cx,
+        );
         TrackDetailBehaviorSlots {
             hero_image: self.index_track_hero_image(track, cx),
             name_links,

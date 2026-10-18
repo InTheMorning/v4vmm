@@ -27,6 +27,7 @@ use crate::ui::style::spacing;
 use crate::view_models::library::{
     DescriptionDisclosureDisplay, DescriptionState, LibraryChromeDisplay, LibraryViewModel,
 };
+use crate::view_models::named_feeds::NamedFeed;
 use crate::view_models::track_detail::{
     LibraryTrackActionState, TrackDetailSurfaceContext, TrackDetailVm,
 };
@@ -36,7 +37,7 @@ pub(crate) fn render_library_track_detail(
     frame: &InspectorFrame,
     playlists: &[db::Playlist],
     chrome: &LibraryChromeDisplay,
-    publisher_feed_guid: Option<&str>,
+    named_feeds: &[NamedFeed],
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let context = track_row_to_track_context(&frame.track);
@@ -56,7 +57,7 @@ pub(crate) fn render_library_track_detail(
             context,
             result,
             playlists,
-            publisher_feed_guid,
+            named_feeds,
             cx,
         )));
     music_column_scrollbar(container, "track-detail-scroll-scrollbar")
@@ -67,7 +68,7 @@ fn render_library_track_window(
     track_context: &TrackContext,
     result: Option<&TagCompareResult>,
     playlists: &[db::Playlist],
-    publisher_feed_guid: Option<&str>,
+    named_feeds: &[NamedFeed],
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let pending_id3_edits = pending_id3_edits_for_track_detail(frame, track_context, result);
@@ -95,7 +96,7 @@ fn render_library_track_window(
         frame.image.clone(),
         inspector_display.description_state,
         action_row,
-        publisher_feed_guid,
+        named_feeds,
         cx,
     );
 
@@ -111,7 +112,7 @@ fn render_library_track_window(
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "publisher navigation (ADR 0077 packet 004), the feed identity section (ADR 0075 packet 022) and the album link (ADR 0083 task 004) each add one already-loaded value to an existing core renderer"
+    reason = "artist feed navigation (ADR 0085 Decisions 5 and 6), the feed identity section (ADR 0075 packet 022) and the album link (ADR 0083 task 004) each add one already-loaded value to an existing core renderer"
 )]
 pub(crate) fn render_library_track_detail_core(
     track: &Track,
@@ -121,21 +122,25 @@ pub(crate) fn render_library_track_detail_core(
     hero_image: Option<Arc<Image>>,
     description_state: DescriptionState,
     primary_action_row: AnyElement,
-    publisher_feed_guid: Option<&str>,
+    named_feeds: &[NamedFeed],
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let track_view = TrackView::from_api(track.clone());
     let detail_page = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Library)
         .with_override_title(Some(override_title))
         .with_album_feed_id(album_feed_id)
-        .with_publisher_feed_guid(publisher_feed_guid)
+        .with_named_feeds(named_feeds)
         .with_feed_identity(feed)
         .page();
 
     let entity = cx.entity();
-    let name_links = track::render_track_name_links(&detail_page, move |target, _window, cx| {
-        entity.update(cx, |this, cx| this.open_track_name_link(target, cx));
-    });
+    let name_links = track::render_track_name_links(
+        &detail_page,
+        move |target, _window, cx| {
+            entity.update(cx, |this, cx| this.open_track_name_link(target, cx));
+        },
+        cx,
+    );
 
     let mut slots = track::TrackDetailBehaviorSlots {
         hero_image,

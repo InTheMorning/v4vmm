@@ -42,6 +42,7 @@ pub(crate) use crate::view_models::library_removal::RemovalConfirmation;
 use crate::view_models::library_removal::{
     LibraryRemovalConfirmationDisplay, LibraryRemovalConfirmationState,
 };
+use crate::view_models::named_feeds::NamedFeed;
 use crate::view_models::pagination::pending_skeleton_count;
 use crate::view_models::playlist_detail::PlaylistDetailPageVm;
 use crate::view_models::recent_feeds::{
@@ -499,17 +500,10 @@ pub(crate) struct AlbumNode {
     pub(crate) language: Option<String>,
     pub(crate) description: Option<String>,
     pub(crate) image_href: Option<String>,
-    /// The publisher feed GUID that this album names, when its stored
-    /// relationship states `music_names_publisher = true` (ADR 0077
-    /// Decision 2, packet 004). `None` when the album names no publisher.
-    pub(crate) publisher_feed_guid: Option<String>,
-    /// The role set of the owned publisher link, joined by `", "` (ADR
-    /// 0082 Decision 2). `None` when the album names no publisher or the
-    /// link states no role.
-    pub(crate) publisher_link_role: Option<String>,
-    /// The role agreement of the owned publisher link: `both`,
-    /// `one_side`, `conflict`, or `None` (ADR 0082 Decision 2).
-    pub(crate) publisher_role_agreement: Option<String>,
+    /// The feeds that this album names, in their RSS sequence (ADR 0085
+    /// Decisions 5 and 6, carries ADR 0077 Decision 2, packet 004). Empty
+    /// when the album names no feed.
+    pub(crate) named_feeds: Vec<NamedFeed>,
     pub(crate) identity_facts: LocalIdentityFacts,
     pub(crate) metadata_facts: Box<FeedMetadataFacts>,
     /// The stored values of the feed from the stored value projection
@@ -4161,12 +4155,7 @@ impl AlbumNode {
     /// album.
     #[must_use]
     pub(crate) fn artist_identity(&self, artist_text: &str) -> ArtistIdentity {
-        ArtistIdentity::resolve(
-            self.publisher_feed_guid.as_deref(),
-            self.publisher_link_role.as_deref(),
-            self.publisher_role_agreement.as_deref(),
-            artist_text,
-        )
+        ArtistIdentity::resolve(&self.named_feeds, artist_text)
     }
 }
 
@@ -4243,9 +4232,7 @@ mod album_node_release_key_tests {
             language: None,
             description: None,
             image_href: None,
-            publisher_feed_guid: None,
-            publisher_link_role: None,
-            publisher_role_agreement: None,
+            named_feeds: Vec::new(),
             identity_facts: LocalIdentityFacts::default(),
             metadata_facts: Box::<FeedMetadataFacts>::default(),
             stored_values: None,
@@ -5161,9 +5148,7 @@ mod tests {
             language: None,
             description: None,
             image_href: None,
-            publisher_feed_guid: None,
-            publisher_link_role: None,
-            publisher_role_agreement: None,
+            named_feeds: Vec::new(),
             identity_facts: LocalIdentityFacts::default(),
             metadata_facts: Box::<FeedMetadataFacts>::default(),
             stored_values: None,
@@ -6457,9 +6442,7 @@ mod tests {
                             language: None,
                             description: None,
                             image_href: Some("saw.jpg".into()),
-                            publisher_feed_guid: None,
-                            publisher_link_role: None,
-                            publisher_role_agreement: None,
+                            named_feeds: Vec::new(),
                             identity_facts: LocalIdentityFacts::default(),
                             metadata_facts: Box::<FeedMetadataFacts>::default(),
                             stored_values: None,
@@ -6473,9 +6456,7 @@ mod tests {
                             language: None,
                             description: None,
                             image_href: None,
-                            publisher_feed_guid: None,
-                            publisher_link_role: None,
-                            publisher_role_agreement: None,
+                            named_feeds: Vec::new(),
                             identity_facts: LocalIdentityFacts::default(),
                             metadata_facts: Box::<FeedMetadataFacts>::default(),
                             stored_values: None,
@@ -6493,9 +6474,7 @@ mod tests {
                         language: None,
                         description: None,
                         image_href: None,
-                        publisher_feed_guid: None,
-                        publisher_link_role: None,
-                        publisher_role_agreement: None,
+                        named_feeds: Vec::new(),
                         identity_facts: LocalIdentityFacts::default(),
                         metadata_facts: Box::<FeedMetadataFacts>::default(),
                         stored_values: None,
@@ -7137,9 +7116,7 @@ mod tests {
                 language: None,
                 description: None,
                 image_href: Some(format!("{feed_id}.jpg")),
-                publisher_feed_guid: None,
-                publisher_link_role: None,
-                publisher_role_agreement: None,
+                named_feeds: Vec::new(),
                 identity_facts: LocalIdentityFacts::default(),
                 metadata_facts: Box::<FeedMetadataFacts>::default(),
                 stored_values: None,
