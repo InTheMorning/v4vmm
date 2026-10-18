@@ -51,8 +51,8 @@ The Artists list holds the confirmed artists, the unverified artists and the nam
 - Decode `album_names_rank` and `remote_episode_count` on `api::PublisherRelationship`, as optional fields.
 - Replace the stored contract with the `/openapi.json` of release 0.11.0, in the same change as the decode (ADR 0075 section 6). Name the file `musicindex-openapi-0.11.0.json`, and delete the 0.7.0 file. Change each test that reads the file name.
   Packet 016 also needs a newer contract. When packet 016 replaced it first, use that file.
-- `PublisherPageAlbumFact` gets `named_rank: Option<i64>` and `track_count: Option<i64>`.
-- An Index row takes them from `album_names_rank` and `remote_episode_count`.
+- `PublisherPageAlbumFact` gets `named_rank: Option<i64>`, `track_count: Option<i64>` and `two_way_validated: Option<bool>`.
+- An Index row takes them from `album_names_rank`, `remote_episode_count` and `two_way_validated`.
 - A Library row takes them from the Library: the rank of the feed in the named feeds of the album (packet 003), and the track count of the feed.
 - Stop and report when the decoded values do not agree with the release record. Examples: a DETOX row with a rank other than 1, or a rank on a row with a null `album_names_as`.
 
@@ -63,7 +63,7 @@ The Artists list holds the confirmed artists, the unverified artists and the nam
 | Value | Rule | Header text |
 |---|---|---|
 | `Artist` | A row has `album_names_as` `publisher`, `role_agreement` `both`, and a role set that contains `artist` | "Artist" |
-| `UnverifiedArtist` | No row has `role_agreement` `both`, and a row has `album_names_as` `publisher` with `named_rank` 1 | "Unverified artist" |
+| `UnverifiedArtist` | No row has `role_agreement` `both`. A row with `two_way_validated` true has `album_names_as` `publisher` and `named_rank` 1 | "Unverified artist" |
 | `None` | Each other page | No level fact |
 
 - A role set contains `artist` when an item of `role_words` is `artist`, read without case. This is the same test as `ArtistIdentity`.
@@ -180,7 +180,7 @@ Use the prefix `adr_0085_feed_page_` for behavioral tests beside the owning code
 | Case | Required proof |
 |---|---|
 | R85-8-01 | `level()` gives `Artist` for a row with `both` and `artist, producer`. A one-side `artist` row with rank 1 gives `UnverifiedArtist`. Only agreed `label` rows give `None` |
-| R85-8-02 | `level()` gives `None` for a feed with rank 2 and no agreed row, and for a row with a null rank |
+| R85-8-02 | `level()` gives `None` for a feed with rank 2 and no agreed row. A row with a null rank, and a rank 1 row that is not confirmed, also give `None` |
 | R85-8-03 | The Sir Libre Records facts of 2026-10-18 give "As label", "Role not confirmed" and "Listed by Sir Libre Records only", in that sequence, with 3, 3 and 1 rows. No level fact |
 | R85-8-04 | Agreed sets `label` and `label, producer` give two sections, "As label" and "As label and producer". `label` and `recordLabel` give two sections |
 | R85-8-05 | A discography with two albums and one single gives "Albums and EPs" with 2 rows, then "Singles" with 1 row. An Index row with `remote_episode_count` 1 is a Single, and a null count gives an Album |

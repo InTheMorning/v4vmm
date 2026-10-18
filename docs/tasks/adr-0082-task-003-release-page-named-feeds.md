@@ -44,11 +44,12 @@ Decision 2 says that a feed with an agreed role set without `artist` is not in A
 This packet applies the three together:
 
 1. The artist feed is the first named feed whose link has `role_agreement` `both` and a role set that contains `artist`. The release has a **confirmed** artist feed.
-2. Else, the primary named feed is the artist feed when its link does not have `role_agreement` `both`. The release has an **unverified** artist feed.
+2. Else, the primary named feed is the artist feed when its link does not have `role_agreement` `both` and is confirmed (`two_way_validated` true). The release has an **unverified** artist feed.
 3. Else, the release has no artist feed. Its artist name opens the name level.
 
 The packet adds no other rule. A count, a name match and an observation time never select the artist feed.
-The operator accepted this read on 2026-10-18.
+The operator accepted this read on 2026-10-18. The confirmed link of step 2 is the third amendment of ADR 0085 on 2026-10-18.
+With an unconfirmed primary link, step 3 applies, and the primary named feed shows as an "Also named" row.
 
 ### The position of each named feed
 
@@ -75,6 +76,8 @@ pub(crate) struct NamedFeed {
     /// The raw `rel` of the feed side, and of the album side.
     pub(crate) feed_rel: Option<String>,
     pub(crate) album_rel: Option<String>,
+    /// `two_way_validated` of the link: the two feeds name each other.
+    pub(crate) confirmed: bool,
 }
 
 /// The artist feed of an album (ADR 0085 Decision 6, read above).
@@ -159,7 +162,7 @@ Use the prefix `adr_0085_named_feeds_` for behavioral tests beside the owning co
 |---|---|
 | R85-3-01 | `sort_named_feeds` gives position sequence. A null position comes after each known position. Equal positions sort by feed GUID |
 | R85-3-02 | `select_artist_feed`: a first feed with no role and a second feed with agreed `artist` give `Confirmed(1)` |
-| R85-3-03 | `select_artist_feed`: no agreed `artist`, and a primary feed with no agreed role, give `Unverified(0)`. A primary feed with a one-side `artist` role also gives `Unverified(0)` |
+| R85-3-03 | `select_artist_feed`: no agreed `artist`, and a primary feed with no agreed role, give `Unverified(0)`. A primary feed with a one-side `artist` role also gives `Unverified(0)`. A primary feed with an unconfirmed link gives `None` |
 | R85-3-04 | `select_artist_feed`: a primary feed with agreed `label`, and no other agreed `artist`, give `None` |
 | R85-3-05 | Two named feeds, with a newer `observed_at` on the second feed, still give the first feed. This is the test of the ADR 0085 Verification section |
 | R85-3-06 | Migration 19 adds `named_feed_position`, keeps each row and gives null. A version 18 fixture migrates to version 19 |

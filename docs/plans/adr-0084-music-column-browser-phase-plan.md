@@ -58,6 +58,8 @@ The overhaul plan names eight steps. Step 2 has two packets, 002 and 003, becaus
 
 - 2026-10-18: the Library stores one `publisher_feed_title` for each album response, the title of the primary party. ADR 0085 permits no other storage change, so a second named feed has no stored title.
   [ADR 0082 packet 003](../tasks/adr-0082-task-003-release-page-named-feeds.md) records the effect. Albums with two named feeds are rare until podcast-namespace PR #793 is merged.
+- 2026-10-18: Stophammer ADR 0071 declined item 6 of request 8. The Index `name` rows follow Stophammer ADR 0070 §4, and the Library follows ADR 0085 Decision 6.
+  The two rules differ only for an album that names an agreed label first and a feed with no role second. No album did this on 2026-10-18. Packet 016 records the case and a check after each Stophammer release.
 - 2026-10-17: a track, artist, playlist, publisher or name-match page has one fixed scroll id for each page type. Two pages of one type, opened one after the other, thus share one scroll position. A release page has one scroll id for each release since task 014. No packet owns this yet (`track_detail_scroll_id` and the other scroll ids in `src/view_models/library.rs` chrome, and `src/ui/shells/`).
 
 ## Affected Modules

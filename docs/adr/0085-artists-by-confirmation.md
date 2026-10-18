@@ -9,6 +9,9 @@ Amended 2026-10-18: the operator passed ADR 0082 packet 002 V3 with Sir Libre Re
 Amended 2026-10-18 again: the operator decided the frame title of a feed page. Decision 7 gives it. It reserves "Publisher" for a feed that is definitely not an artist, which is the one exception to Decision 1.
 The operator also accepted the read of Decision 6 for a primary named feed with an agreed role without `artist`. Decision 6 now states it.
 
+Amended 2026-10-18 a third time: the operator decided that "Unverified artist" needs a confirmed link, as Stophammer ADR 0071 counts `first_named_count`. Decisions 2 and 6 now state it.
+An album can name any feed, so a link that only the album states does not make the feed an artist.
+
 It supersedes [ADR 0082](0082-publisher-roles-belong-to-each-album-link.md) Decisions 1, 2, 3 and 6.
 ADR 0082 Decisions 4 and 5 stay.
 It amends [ADR 0084](0084-music-column-browser.md) Decision 7: the publisher level becomes the feed level, and Decisions 5 and 6 of this ADR replace the "Publisher" link of the release page.
@@ -57,7 +60,7 @@ Each feed and each credit name in Artists has one level. The level comes from th
 | Level | Rule |
 |---|---|
 | Artist | One link or more of the feed has `role_agreement` `both`, and its role set contains `artist` |
-| Unverified artist | The feed is the primary named feed of one album or more (Decision 6), and no link of the feed has `role_agreement` `both` |
+| Unverified artist | A confirmed link (`two_way_validated` true) makes the feed the primary named feed of one album or more. No link of the feed has `role_agreement` `both` |
 | Name only | An artist text that names no feed. This is the name level of ADR 0084 Decision 7 |
 
 - A feed with agreed roles, none of which is `artist`, is not in Artists. Decision 4 shows it.
@@ -104,10 +107,11 @@ The page of a feed has no type. It shows the level of Decision 2 in its header, 
 
 The named feeds of an album keep the sequence of the RSS: the `position` of each item with `source` `podcast_publisher`. The first one is the primary named feed.
 
-- The artist feed of the album is the first named feed with an agreed role set that contains `artist`. When no named feed has one, it is the primary named feed, and the release page says that the artist is unverified.
+- The artist feed of the album is the first named feed with an agreed role set that contains `artist`. Else it is the primary named feed with a confirmed link. The release page then says that the artist is unverified.
 - Sometimes no named feed has an agreed `artist` role, and the primary named feed has an agreed role set without `artist`. Then the album has no artist feed. The artist name opens the name level, and the primary named feed shows as a role row.
 - Each other named feed with a stated role shows as a role row of Decision 5, for example "Label: Sir Libre Records".
 - Each other named feed with no stated role shows as an "Also named" row with its feed title. The row opens the page of that feed.
+- Sometimes no named feed has an agreed `artist` role, and the link of the primary named feed is not confirmed. Then the album has no artist feed. The artist name opens the name level. The primary named feed shows as an "Also named" row.
 - An observation time never selects a named feed.
 
 ### 7. The Frame Title Of A Feed Page Names Its Relation
@@ -128,7 +132,7 @@ The frame title of a feed page comes from the facts of its page, in this sequenc
 ## Invariants
 
 - No interface text names a feed "publisher", apart from the frame title of Decision 7.
-- A level comes from `role_agreement`, `role` and `album_names_as` only. A count, a name match or a credit text never selects it.
+- A level comes from `role_agreement`, `role`, `album_names_as`, `two_way_validated` and the rank of the named feed only. A count, a name match or a credit text never selects it.
 - Each level shows in words. Color is never the only difference.
 - A release appears one time on one page.
 - A stated role that one side gives stays visible, with its side.
@@ -143,6 +147,7 @@ The frame title of a feed page comes from the facts of its page, in this sequenc
 
 ## Consequences
 
+- A feed that albums name with no confirmed link is not in Artists. On 2026-10-02 the site counted 15 such publisher feeds, for example 9 RSS Blue feeds such as TJ Wong.
 - Almost all artist pages say "Unverified artist" until more feeds state `rel`. The Artists list shows no level, so the list does not repeat the word.
 - A feed such as HeyCitizen shows as "Artist", with its five agreed roles in the header.
 - A label feed such as Sir Libre Records is not in Artists. Its releases reach it through the role row of Decision 5.
