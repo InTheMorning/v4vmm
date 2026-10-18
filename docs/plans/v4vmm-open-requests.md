@@ -26,7 +26,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 5 | Search returns one entity one time | Search correction | Deployed in release 0.8.0 on 2026-10-08 |
 | 6 | A list of releases and of artists by name | API addition | Deployed in release 0.9.0 on 2026-10-18 |
 | 7 | The named feed rank and the release kind facts in each publisher relationship entry | API field addition | Deployed in release 0.11.0 on 2026-10-18, without `remote_release_kind` |
-| 8 | Each list row and each search row is complete | API rule and field additions | Wanted |
+| 8 | Each list row and each search row is complete | API rule and field additions | Answered on 2026-10-18. Stophammer ADR 0071 is Proposed |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -398,6 +398,21 @@ Release 0.9.0 delivers request 6 (Stophammer ADR 0070). `GET /node/info` gives `
 - `remote_release_kind` is declined. Each of the 10,424 feeds in the backup, and each of the 200 newest feeds on the live API on 2026-10-18, gives `release_kind` `unknown`. The ingest writes that value, because RSS has no element that states album, EP or single. `itunes:type` gives `episodic` or `serial`. So v4vmm ADR 0084 Decision 5 can use the track count alone.
 
 A release record gives the release.
+
+**Request 8.** The four gaps are correct. The Stophammer operator decided the scope on 2026-10-18. Stophammer [ADR 0071](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0071-a-list-row-links-what-it-names.md) is Proposed. It gives the decision. No release holds it now.
+
+- Item 1 is accepted in a form that a test can check. A field that gives the title of another feed also gives its GUID. A count has a route or a filter that lists the same items. A route declares each `include` that it accepts. The node derives no kind, as ADR 0061 §4 gives.
+- Item 2 is accepted. With `include=link_facts`, each `publisher` row of `GET /v1/artist-names` gives the four fields of ADR 0068. `first_named_count` counts only the confirmed links with `album_names_rank` 1. It is a fallback for a feed with an empty `agreed_roles`. Thus an album that states a link with no answer from the feed does not change the count.
+- Item 3 is accepted. Each row of `GET /v1/feeds/by-name` and `GET /v1/feeds/recent` gives `publisher_feed_guid` beside `publisher_feed_title`. With `include=named_feeds`, each music row gives one entry for each `music_to_publisher` row, in rank order. Each entry gives `publisher_feed_guid`, `remote_feed_title`, `album_names_rank`, `role` and `role_agreement`.
+- Item 4 is accepted. `artist_key` on `GET /v1/feeds/by-name` gives the releases that `release_count` counts. The node reads the set from the same list in memory, so the count and the list agree.
+- Item 5 is accepted. `type=publisher` on `GET /v1/search` finds the feeds with the medium `publisher`. `type=feed`, `type=track` and a search with no `type` give the same results as before. This changes ADR 0038 Decision B for search.
+- Item 6 is declined. ADR 0070 §4 stays. The node uses a one-side `rel` fact as its fallback, not the sequence of the named feeds. On 2026-10-18, 7 albums named two publisher feeds, and the two rules gave the same result for each one. Stophammer decides again if an album gives a different result.
+
+Three facts of the request are not correct:
+
+- musicindex.org sends no read for each publisher row. `confirmPublisherRows` reads only a row with no `agreed_roles` list. Since release 0.7.0, each row has the list. On 2026-10-18, 0 of the first 200 rows had no list.
+- The search hit for "Sir Libre" is related to Sir Libre. "v4vmusic.com Alternate Enclosure Test Feed" has the `release_artist` "Sir Libre" and the image of Sir Libre Records. The gap stays, because search gives no publisher feed.
+- `GET /v1/feeds/by-name?medium=publisher&include=link_facts` gives the four ADR 0068 fields today, in name order. The contract does not declare the parameter. ADR 0071 §1c corrects the contract.
 
 ## Deferred, Not Requested Now
 
