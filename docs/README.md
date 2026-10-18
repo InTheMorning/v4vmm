@@ -165,6 +165,9 @@ Current plans:
 - [Reserved event safety request](plans/reserved-event-safety-request.md):
   the publisher asks v4vmm to keep a reserved live event and its token safe
   from Attach, Replace and forget. Open
+- [Live segment request](plans/live-segment-request.md): the publisher asks
+  v4vmm to start a talk break or a live set through the `segment` commands,
+  with a split for each show, and to decide the custody of the token. Open
 - [MusicIndex Image tag request](plans/musicindex-image-tag-request.md):
   the publisher asks v4vmm to write `TXXX:MusicIndex Image`, the artwork URL
   of a track. Decided as ADR 0080 Decision 9
