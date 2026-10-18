@@ -24,7 +24,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 3 | Capabilities that match the contract for track includes | Contract correction | Small |
 | 4 | Field renames are breaking changes | Release policy | Wanted |
 | 5 | Search returns one entity one time | Search correction | Deployed in release 0.8.0 on 2026-10-08 |
-| 6 | A list of releases and of artists by name | API addition | Accepted as Stophammer ADR 0070 on 2026-10-17 |
+| 6 | A list of releases and of artists by name | API addition | Deployed in release 0.9.0 on 2026-10-18 |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -287,6 +287,15 @@ release record names the release that carries them.
 In the backup of 2026-09-26, 34 names had some releases with a publisher feed
 and some without. Such a name shows two times: one `publisher` row and one
 `name` row. 19 publisher feeds had no music feed, and each one has a row.
+
+## Release 0.9.0 - 2026-10-18
+
+Release 0.9.0 delivers request 6 (Stophammer ADR 0070). `GET /node/info` gives `git_revision` `3ec1352`.
+
+- `GET /v1/feeds/by-name` and `GET /v1/artist-names` give rows in name order, with `cursor`, `limit` and `from`. Each row gives `sort_name`. `/v1/node/capabilities` lists `name_lists`.
+- On 2026-10-18, the first artist list after a start of the node took about 7 seconds. A page from the copy in memory took less than 0.1 second.
+- The contract text of `album_names_as` gives `"publisher"` or null, as v4vmm asked at the check of release 0.7.0.
+- A feed that empties its payment routes or its remote items now signs an event. A community node then deletes the same rows.
 
 ## Deferred, Not Requested Now
 
