@@ -4007,6 +4007,24 @@ impl<'a> LibraryArtistDetailVm<'a> {
         )
     }
 
+    /// The image URL of each release row, in row order, each one time. The
+    /// Library loads these images before it draws the page, so a row shows
+    /// its cover, not the monogram (operator check of 2026-10-18).
+    #[must_use]
+    pub(crate) fn thumbnail_urls(&self) -> Vec<String> {
+        let mut urls: Vec<String> = Vec::new();
+        for url in self
+            .feed_summaries()
+            .into_iter()
+            .filter_map(|row| row.thumb_url)
+        {
+            if !urls.contains(&url) {
+                urls.push(url);
+            }
+        }
+        urls
+    }
+
     /// One [`ArtistFeedSummaryVm`] per distinct feed, ordered by
     /// `feed_id` (matches `BTreeMap` iteration of the legacy renderer).
     #[must_use]
@@ -5996,6 +6014,26 @@ mod tests {
         assert_eq!(
             vm.feed_summaries()[0].thumb_url.as_deref(),
             Some("album-img")
+        );
+    }
+
+    /// The operator found on 2026-10-18 that a release row showed "FD",
+    /// because the Library loaded only the header image of the artist page.
+    /// The page now gives the image URL of each release row.
+    #[test]
+    fn artist_detail_vm_thumbnail_urls_give_each_release_row_one_time() {
+        let mut a1 = track_for_feed(1, Some("A"));
+        a1.album_image_href = Some("cover-a".into());
+        let mut a2 = track_for_feed(1, Some("A"));
+        a2.album_image_href = Some("cover-a".into());
+        let mut b = track_for_feed(2, Some("B"));
+        b.track_image_href = Some("cover-b".into());
+        let c = track_for_feed(3, Some("C"));
+        let tracks = [a1, a2, b, c];
+        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
+        assert_eq!(
+            vm.thumbnail_urls(),
+            vec!["cover-a".to_string(), "cover-b".to_string()]
         );
     }
 

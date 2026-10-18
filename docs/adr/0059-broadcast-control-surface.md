@@ -9,7 +9,7 @@ A playlist track is not ready for a show when its file payment route differs fro
 A track with the "removed from feed" mark is not ready until the operator confirms it or removes it from the playlist.
 
 Amended 2026-10-18: the operator heard the processor fan run faster while the app was open in Music. The service watch read the services each second, also when no screen showed the result.
-The new decision "The Service Watch Reads At The Pace Of Its Viewer" gives the pace. [Task 018](../tasks/adr-0059-task-018-service-watch-pace.md) builds it.
+The new decision "The Service Watch Reads At The Pace Of Its Viewer" gives the pace. [Task 018](../tasks/archive/adr-0059-task-018-service-watch-pace.md) builds it.
 
 Tasks 001-017 are complete, including compact event controls, badges,
 diagnostics, operator acceptance, and fixture cleanup.

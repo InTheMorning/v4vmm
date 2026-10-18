@@ -69,10 +69,10 @@ use crate::view_models::library::{
     description_line_count, AlbumNode, BroadcastRouteRepairCompletion,
     BroadcastRouteRepairCompletionStatus, ContentListRowActionKind, DestinationListRowTarget,
     FeedCheckRouteRepairOutcome, FeedUpdateActionDisplay, FeedUpdateActionKind, FeedUpdateDisplay,
-    FeedUpdatePhase, InspectorPanelKind, LibraryTrackActionVm, LibraryTrackInspectorState,
-    LibraryTrackRowVm, LibraryViewModel, MbTrackStatus, PlaylistAppendIntent,
-    PlaylistAppendOutcome, PlaylistDetailActionsDisplay, ReleasesListEntryVm, RemovalConfirmation,
-    TrackSubscribeOutcome,
+    FeedUpdatePhase, InspectorPanelKind, LibraryArtistDetailVm, LibraryTrackActionVm,
+    LibraryTrackInspectorState, LibraryTrackRowVm, LibraryViewModel, MbTrackStatus,
+    PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailActionsDisplay, ReleasesListEntryVm,
+    RemovalConfirmation, TrackSubscribeOutcome,
 };
 use crate::view_models::playlist_option_displays;
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
@@ -3543,6 +3543,9 @@ impl LibraryApp {
             if let Some(url) = artist.view.image_url.clone() {
                 urls.push(url);
             }
+            // Each release row needs its cover too, not only the header
+            // image (operator check of 2026-10-18).
+            urls.extend(LibraryArtistDetailVm::new(&artist.name, &artist.tracks).thumbnail_urls());
         }
         // ADR 0084 task 015, operator decision of 2026-10-17: a group page
         // row is the Library track row of a release page. It reads its art

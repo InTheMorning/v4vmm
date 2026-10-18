@@ -1,9 +1,8 @@
 # ADR 0082 Task 003: The Named Feeds Of A Release
 
-Status: Implemented - 2026-10-18. Cases R85-3-01 to R85-3-17 pass. Mechanical checks are Green.
+Status: Complete - 2026-10-18. Cases R85-3-01 to R85-3-17 pass. Mechanical checks are Green. The operator passed V1 to V7 on 2026-10-18 with the debug build.
 
-Operator check - 2026-10-18: the operator passed V1 and V3 with the debug build. V2 and V4 to V7 stay open.
-The visual gate stays open.
+The cover fix of the Library artist page is a separate check. It is open in `docs/pending-human-checks.md`.
 
 ## Goal
 
@@ -13,13 +12,13 @@ No release page and no track page shows the word "Publisher".
 
 ## Authority
 
-- [ADR 0085](../adr/0085-artists-by-confirmation.md) Decision 5: the release page names its artist, and shows a role row only for a different role.
-- [ADR 0085](../adr/0085-artists-by-confirmation.md) Decision 6: the named feeds keep the RSS sequence. The first named feed with an agreed `artist` role is the artist feed. An observation time never selects a named feed.
-- [ADR 0085](../adr/0085-artists-by-confirmation.md) Decision 3: the role words come from the feeds, in alphabetical sequence. This packet adds their text owner, and packet 008 uses it.
-- [ADR 0085](../adr/0085-artists-by-confirmation.md) Non-Goals: the position of each named feed is the only storage change. It uses the migration registry of [ADR 0016](../adr/0016-schema-migration-registry.md).
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 7: the artist name opens the feed level of the artist feed. When the release has no artist feed, it opens the name level.
-- [ADR 0077](../adr/0077-publisher-feed-artist-binding.md) Decision 2: an album binds to the feed that it names. Decision 6: `publisher_text` is the feed owner, and no link takes its label or target from it.
-- The durable set in [AGENTS.md](../../AGENTS.md): renderer portability, element hierarchy, typed action state and token discipline.
+- [ADR 0085](../../adr/0085-artists-by-confirmation.md) Decision 5: the release page names its artist, and shows a role row only for a different role.
+- [ADR 0085](../../adr/0085-artists-by-confirmation.md) Decision 6: the named feeds keep the RSS sequence. The first named feed with an agreed `artist` role is the artist feed. An observation time never selects a named feed.
+- [ADR 0085](../../adr/0085-artists-by-confirmation.md) Decision 3: the role words come from the feeds, in alphabetical sequence. This packet adds their text owner, and packet 008 uses it.
+- [ADR 0085](../../adr/0085-artists-by-confirmation.md) Non-Goals: the position of each named feed is the only storage change. It uses the migration registry of [ADR 0016](../../adr/0016-schema-migration-registry.md).
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 7: the artist name opens the feed level of the artist feed. When the release has no artist feed, it opens the name level.
+- [ADR 0077](../../adr/0077-publisher-feed-artist-binding.md) Decision 2: an album binds to the feed that it names. Decision 6: `publisher_text` is the feed owner, and no link takes its label or target from it.
+- The durable set in [AGENTS.md](../../../AGENTS.md): renderer portability, element hierarchy, typed action state and token discipline.
 
 ## Recorded Facts - 2026-10-18
 
@@ -35,7 +34,7 @@ No release page and no track page shows the word "Publisher".
 - `set_music_to_publisher_remote` (`src/db/publisher_relationships.rs`) writes the one `podcast:publisher` remote item of a checked RSS document (ADR 0076 packet 002).
 - Schema version 18 is current.
 - Stophammer release 0.11.0, deployed on 2026-10-18, gives `album_names_rank` on each publisher entry, in the two directions. Packet 008 decodes it. This packet keeps the position of `remote_items`, as ADR 0085 states.
-- The release record of the [open requests](../plans/v4vmm-open-requests.md#release-0110---2026-10-18) says that 6 albums name two feeds. Each one names the artist first and Sir Libre Records second. These albums are the candidates for V1.
+- The release record of the [open requests](../../plans/v4vmm-open-requests.md#release-0110---2026-10-18) says that 6 albums name two feeds. Each one names the artist first and Sir Libre Records second. These albums are the candidates for V1.
 
 ## Design
 
@@ -187,7 +186,7 @@ These are for the operator. No test proves them.
 - V1: a release that names its artist first and Sir Libre Records second, with an agreed `label` link, shows "Label: Sir Libre Records". The row opens the Sir Libre Records page. The page shows no word "Publisher".
 - V2: a HeyCitizen release shows the artist name with no note. The name opens the HeyCitizen page. The page shows no role row.
 - V3: an Official DETOX Music release shows the artist name with the note "Unverified artist". The name opens the DETOX page.
-- V4: a track page of a HeyCitizen track shows one link with the feed title, and no "Publisher" link. The link opens the HeyCitizen page. This carries §20 V2 of the [overhaul plan list](../plans/design-and-cleanup-overhaul-plan.md#phase-4-publisher-and-artist-pages).
+- V4: a track page of a HeyCitizen track shows one link with the feed title, and no "Publisher" link. The link opens the HeyCitizen page. This carries §20 V2 of the [overhaul plan list](../../plans/design-and-cleanup-overhaul-plan.md#phase-4-publisher-and-artist-pages).
 - V5: a release page shows `publisher_text` as "Feed owner" text that opens nothing. This carries §21 V1 of the same list.
 - V6: after migration 19, a Library release page shows the same artist link as before the migration.
 - V7: normal and narrow widths, Light and Dark themes, and the larger type sizes show each row in its place, with no clipped text. "Unverified artist" reads as text, not through color alone.
@@ -201,7 +200,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/db/publisher_relationships.rs`, `src/db/publisher_link_facts.rs`, `src/db.rs` (the migration registry) and `src/db/upgrades.rs`.
 - `src/views.rs` (`FeedView`, the track view and `owned_publisher_feed_guid_from_relationships`), `src/sources.rs`.
 - `src/application/queries/library.rs`, `src/library/app_impl.rs`, `src/application/commands/feed.rs` (the hydration).
@@ -365,7 +364,7 @@ Implement only this task. Do not redesign the architecture.
 
 Read:
 - `AGENTS.md` and `docs/architecture/source-map.md`
-- This packet: `docs/tasks/adr-0082-task-003-release-page-named-feeds.md`
+- This packet: `docs/tasks/archive/adr-0082-task-003-release-page-named-feeds.md`
 - ADR 0085, ADR 0084 Decision 7, ADR 0077 Decisions 2 and 6, and ADR 0016
 - Each file in "Files To Inspect"
 

@@ -158,23 +158,10 @@ Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 202
 - Scheduling: it needs a macOS desktop session.
 - V2, macOS part: `cmd-[` and `cmd-]` outside a text box do the same as Back and Forward. Indent and outdent still work in a macOS text box.
 
-## 5. The Named Feeds Of A Release — ADR 0082 Task 003
+## 5. Release Covers On The Library Artist Page
 
-Open - implementation and mechanical checks are complete on 2026-10-18. Operator inspection is pending.
+Open - the orchestrator made the second fix on 2026-10-18. Operator inspection is pending.
 
-- Owner: [task 003](tasks/adr-0082-task-003-release-page-named-feeds.md#operator-visual-check).
-- Precondition: migration 19 adds one column. Make the SQLite backup of step 1 before the first run of the new build. The check needs network access to `api.musicindex.org`.
-- V1 and V3 passed on 2026-10-18.
-- V2 and V4: the HeyCitizen artist link, and the track page link.
-- V5 to V7: "Feed owner", the Library links after the migration, and the widths, themes and type sizes.
-- Fix of 2026-10-18: the Library artist page of HeyCitizen shows the cover of "The Heycitizen Experience", not "FD". `LibraryArtistDetailVm::feed_summaries` now reads the image of each track.
-
-## 6. The Service Watch Pace — ADR 0059 Task 018
-
-Open - implementation and mechanical checks are complete on 2026-10-18. Operator inspection is pending.
-
-- Owner: [task 018](tasks/adr-0059-task-018-service-watch-pace.md#operator-visual-check).
-- Precondition: the configured publisher unit, the producer unit and `butt`. Use the same binary type for each measurement of V1.
-- V1: lower processor load in Music, and at most about 6 `butt -S` starts in 60 seconds.
-- V2: Show shows the current state at once. V3: each command still shows its result, also from Settings.
-
+- The operator found on 2026-10-18 that "The Heycitizen Experience" showed "FD" on the Library artist page of HeyCitizen. The first fix did not correct it.
+- Cause: the Library loaded only the header image of the artist page. `LibraryArtistDetailVm::thumbnail_urls` now gives the cover URL of each release row, and `src/library/app_impl.rs` loads them. The test `artist_detail_vm_thumbnail_urls_give_each_release_row_one_time` guards it.
+- Check: build with `cargo build --bin v4vmm`, start `target/debug/v4vmm`, and open Music > Artists > HeyCitizen. Each release row shows its cover. Wrong: a row shows "FD".

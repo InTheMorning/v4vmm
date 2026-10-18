@@ -24,10 +24,8 @@ Phase 4A builds ADR 0084 in the packets of the
 for each item, three columns, the six destinations and Discover.
 Packets 016, the scopes, and 017, the name level, wait for Stophammer request 8. It asks for complete list and search rows.
 
-[ADR 0082 packet 003](docs/tasks/adr-0082-task-003-release-page-named-feeds.md), the named feeds of a release, is implemented. Its visual gate is open.
-It builds [ADR 0085](docs/adr/0085-artists-by-confirmation.md) Decisions 5 and 6, and adds migration 19.
-[Packet 008](docs/tasks/adr-0084-task-008-feed-page-and-artists.md), the feed page and the Artists list, builds ADR 0085
-Decisions 1 to 4. It waits for the visual check of packet 003. Stophammer release 0.11.0 gave its two facts. Packet 017 comes after it.
+[Packet 008](docs/tasks/adr-0084-task-008-feed-page-and-artists.md), the feed page and the Artists list, is Ready. It builds
+[ADR 0085](docs/adr/0085-artists-by-confirmation.md) Decisions 1 to 4. Packet 017 comes after it.
 
 Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
@@ -40,8 +38,7 @@ holds each open check. Walk a new check right after its packet. The procedures i
 regression checks.
 
 Ready packets include
-[ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md).
-[ADR 0059 task 018](docs/tasks/adr-0059-task-018-service-watch-pace.md), the service watch pace, is implemented. Its visual gate is open. ADR 0082 packet 002 is complete.
+[ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md) and ADR 0084 packet 008.
 
 Known open defects:
 

@@ -1,6 +1,6 @@
 # ADR 0084 Task 008: The Feed Page And Artists By Confirmation
 
-Status: Blocked - 2026-10-18. The packet waits for [ADR 0082 packet 003](adr-0082-task-003-release-page-named-feeds.md). Stophammer release 0.11.0 delivered [request 7](../plans/v4vmm-open-requests.md) on 2026-10-18. Implementation has not started.
+Status: Ready - 2026-10-18. [ADR 0082 packet 003](archive/adr-0082-task-003-release-page-named-feeds.md) is complete. Stophammer release 0.11.0 delivered [request 7](../plans/v4vmm-open-requests.md) on 2026-10-18. Implementation has not started.
 
 ## Goal
 

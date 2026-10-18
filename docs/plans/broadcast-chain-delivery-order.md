@@ -327,8 +327,8 @@ Update this table when a packet lands.
 | `v4vmm` | [0084 014 Music column scrollbars](../tasks/archive/adr-0084-task-014-music-column-scrollbars.md) | Complete - 2026-10-17. The mechanical checks are Green. The operator passed V1 to V7 on 2026-10-17. |
 | `v4vmm` | [0084 007 release kind](../tasks/archive/adr-0084-task-007-release-kind.md) | Complete - 2026-10-17. The mechanical checks are Green. The operator passed V1 to V6 on 2026-10-17. |
 | `v4vmm` | [0084 015 singles groups](../tasks/archive/adr-0084-task-015-singles-groups.md) | Complete - 2026-10-17. The mechanical checks are Green. The operator passed V1 to V11 on 2026-10-17. |
-| `v4vmm` | [0059 018 service watch pace](../tasks/adr-0059-task-018-service-watch-pace.md) | Implemented - 2026-10-18. The mechanical checks are Green. The visual gate V1 to V3 is open. |
-| `v4vmm` | [0082 003 named feeds of a release](../tasks/adr-0082-task-003-release-page-named-feeds.md) | Implemented - 2026-10-18. The mechanical checks are Green. Migration 19. The operator passed V1 and V3 on 2026-10-18. V2 and V4 to V7 are open. |
+| `v4vmm` | [0059 018 service watch pace](../tasks/archive/adr-0059-task-018-service-watch-pace.md) | Complete - 2026-10-18. The mechanical checks are Green. The operator passed V1 to V3 on 2026-10-18. |
+| `v4vmm` | [0082 003 named feeds of a release](../tasks/archive/adr-0082-task-003-release-page-named-feeds.md) | Complete - 2026-10-18. The mechanical checks are Green. Migration 19. The operator passed V1 to V7 on 2026-10-18. |
 | `musicindex-live-publisher` | control surface 001 | complete - 2026-09-07 (`a5b434e`) |
 | `musicindex-live-publisher` | control surface 002 | complete - 2026-09-07 (`459854c`) |
 | `musicindex-live-publisher` | show log 001 | Not started. Resolve the producer timestamp source before implementation. Drop-file v1 has no producer timestamp. Scheduler times are monotonic. |

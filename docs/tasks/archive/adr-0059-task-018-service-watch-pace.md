@@ -1,6 +1,6 @@
 # ADR 0059 Task 018: The Service Watch Reads At The Pace Of Its Viewer
 
-Status: Implemented - 2026-10-18. Cases R59-18-01 to R59-18-08 pass. Mechanical checks are Green. The visual gate is open.
+Status: Complete - 2026-10-18. Cases R59-18-01 to R59-18-08 pass. Mechanical checks are Green. The operator passed V1 to V3 on 2026-10-18 with the debug build.
 
 ## Goal
 
@@ -9,9 +9,9 @@ The app redraws the window only when a shown state changes. The processor load i
 
 ## Authority
 
-- [ADR 0059](../adr/0059-broadcast-control-surface.md), decision "The Service Watch Reads At The Pace Of Its Viewer", and its invariant. The operator decided the pace on 2026-10-18.
-- [ADR 0040](../adr/0040-async-vm-runtime.md): blocking work runs in a runtime actor, and `src/presentation/gpui_vm_bridge.rs` is the only bridge from a watch to GPUI.
-- The durable set in [AGENTS.md](../../AGENTS.md): renderer portability. The pace and the redraw decision live outside the screens.
+- [ADR 0059](../../adr/0059-broadcast-control-surface.md), decision "The Service Watch Reads At The Pace Of Its Viewer", and its invariant. The operator decided the pace on 2026-10-18.
+- [ADR 0040](../../adr/0040-async-vm-runtime.md): blocking work runs in a runtime actor, and `src/presentation/gpui_vm_bridge.rs` is the only bridge from a watch to GPUI.
+- The durable set in [AGENTS.md](../../../AGENTS.md): renderer portability. The pace and the redraw decision live outside the screens.
 
 ## Recorded Facts - 2026-10-18
 
@@ -108,7 +108,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/runtime/broadcast_service_watch.rs`, `src/broadcast/control.rs`, `src/broadcast/encoder.rs`.
 - `src/presentation/gpui_vm_bridge.rs`.
 - `src/app/show.rs` (`maybe_start_broadcast_service_watch`, `apply_publisher_service_snapshot`, `open_broadcast_readiness_in_music`), `src/app.rs` (`select_tab`), `src/app/capabilities.rs`, `src/app/bootstrap.rs`.
@@ -157,7 +157,7 @@ Files changed:
 - `src/runtime/mod.rs`: exported `BroadcastServiceWatchPace`.
 - `Cargo.toml`: added a `tokio` dev-dependency with the `test-util` feature, so a test can pause and
   read `tokio::time::Instant`. The production binary does not include this feature.
-- `docs/tasks/adr-0059-task-018-service-watch-pace.md`: this packet. The Status line, this section,
+- `docs/tasks/archive/adr-0059-task-018-service-watch-pace.md`: this packet. The Status line, this section,
   and the Operator Visual Check section below.
 
 Behavior changed:
@@ -302,7 +302,7 @@ Implement only this task. Do not redesign the architecture.
 
 Read:
 - `AGENTS.md` and `docs/architecture/source-map.md`
-- This packet: `docs/tasks/adr-0059-task-018-service-watch-pace.md`
+- This packet: `docs/tasks/archive/adr-0059-task-018-service-watch-pace.md`
 - ADR 0059, decision "The Service Watch Reads At The Pace Of Its Viewer", and ADR 0040
 - Each file in "Files To Inspect"
 

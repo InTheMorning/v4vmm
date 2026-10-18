@@ -3,7 +3,7 @@
 //!
 //! An album can name more than one feed. This module keeps their RSS
 //! sequence and gives the artist feed by the read of Decision 6 ([ADR 0082
-//! task 003](../../docs/tasks/adr-0082-task-003-release-page-named-feeds.md)).
+//! task 003](../../docs/tasks/archive/adr-0082-task-003-release-page-named-feeds.md)).
 //! It is pure and has no renderer type.
 
 #![warn(clippy::pedantic)]

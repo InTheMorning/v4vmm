@@ -1,6 +1,6 @@
 //! The role words of a named feed link (ADR 0085 Decision 3).
 //!
-//! [ADR 0082 task 003](../../docs/tasks/adr-0082-task-003-release-page-named-feeds.md)
+//! [ADR 0082 task 003](../../docs/tasks/archive/adr-0082-task-003-release-page-named-feeds.md)
 //! adds this module for the role row of a release page. The
 //! [ADR 0084 phase plan](../../docs/plans/adr-0084-music-column-browser-phase-plan.md)
 //! packet 008 uses it for the "As <roles>" headings and the "Role not
