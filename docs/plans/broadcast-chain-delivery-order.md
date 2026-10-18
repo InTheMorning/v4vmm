@@ -326,7 +326,7 @@ Update this table when a packet lands.
 | `v4vmm` | [0084 013 Index release page parity](../tasks/archive/adr-0084-task-013-index-release-page-parity.md) | Complete - 2026-10-17. The mechanical checks are Green. The operator passed V1 to V6 on 2026-10-17. |
 | `v4vmm` | [0084 014 Music column scrollbars](../tasks/archive/adr-0084-task-014-music-column-scrollbars.md) | Complete - 2026-10-17. The mechanical checks are Green. The operator passed V1 to V7 on 2026-10-17. |
 | `v4vmm` | [0084 007 release kind](../tasks/archive/adr-0084-task-007-release-kind.md) | Complete - 2026-10-17. The mechanical checks are Green. The operator passed V1 to V6 on 2026-10-17. |
-| `v4vmm` | [0084 015 singles groups](../tasks/archive/adr-0084-task-015-singles-groups.md) | Complete - 2026-10-17. The mechanical checks are Green. The operator passed V1 to V7 on 2026-10-17. |
+| `v4vmm` | [0084 015 singles groups](../tasks/archive/adr-0084-task-015-singles-groups.md) | Complete - 2026-10-17. The mechanical checks are Green. The operator passed V1 to V11 on 2026-10-17. |
 | `musicindex-live-publisher` | control surface 001 | complete - 2026-09-07 (`a5b434e`) |
 | `musicindex-live-publisher` | control surface 002 | complete - 2026-09-07 (`459854c`) |
 | `musicindex-live-publisher` | show log 001 | Not started. Resolve the producer timestamp source before implementation. Drop-file v1 has no producer timestamp. Scheduler times are monotonic. |

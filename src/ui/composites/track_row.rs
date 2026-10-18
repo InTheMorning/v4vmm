@@ -51,6 +51,8 @@ struct TrackRowDisplay {
     number: String,
     title: String,
     duration: Option<String>,
+    /// The date text under the title. `None` shows no second line.
+    date_text: Option<String>,
     a11y_label: String,
 }
 
@@ -60,6 +62,7 @@ impl TrackRowDisplay {
             number: vm.number.clone(),
             title: vm.title.clone(),
             duration: vm.duration.clone(),
+            date_text: vm.date_text.clone(),
             a11y_label: vm.a11y_label(),
         }
     }
@@ -69,6 +72,7 @@ impl TrackRowDisplay {
             number: vm.number_label(),
             title: vm.title(),
             duration: vm.duration_display(),
+            date_text: vm.date_text(),
             a11y_label: vm.a11y_label(),
         }
     }
@@ -85,6 +89,9 @@ pub struct TrackRow {
     number: String,
     title: String,
     duration: Option<String>,
+    /// The date text under the title (ADR 0084 task 015). `None` shows no
+    /// second line.
+    date_text: Option<String>,
     a11y_label: String,
     thumbnail: Option<Arc<Image>>,
     on_click: Option<ClickHandler>,
@@ -98,6 +105,7 @@ impl TrackRow {
             number: display.number,
             title: display.title,
             duration: display.duration,
+            date_text: display.date_text,
             a11y_label: display.a11y_label,
             thumbnail: None,
             on_click: None,
@@ -146,6 +154,7 @@ impl RenderOnce for TrackRow {
         let number = SharedString::from(self.number);
         let title = self.title;
         let duration = self.duration;
+        let date_text = self.date_text;
         let a11y_label = self.a11y_label;
         let on_click = self.on_click;
         let thumbnail = self.thumbnail;
@@ -191,12 +200,24 @@ impl RenderOnce for TrackRow {
             )
             // Thumbnail.
             .child(Thumbnail::new(EntityKind::Track, ThumbnailSize::Sm).image(thumbnail))
-            // Title — fills remaining space, truncates.
+            // The title fills the remaining space and truncates. The date
+            // text, when the view model gives one, shows as a second line
+            // under the title.
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
-                    .child(Label::new(title).size(FontSize::Micro).truncated()),
+                    .flex()
+                    .flex_col()
+                    .child(Label::new(title).size(FontSize::Micro).truncated())
+                    .when_some(date_text, |column, date| {
+                        column.child(
+                            Label::new(date)
+                                .size(FontSize::Micro)
+                                .color(SemanticColor::TertiaryLabel)
+                                .truncated(),
+                        )
+                    }),
             );
 
         // Optional duration label at the right of the body.
@@ -241,6 +262,7 @@ mod tests {
             title: "Song".to_string(),
             subtitle: Some("Artist".to_string()),
             duration: Some("3:00".to_string()),
+            date_text: Some("Apr 5, 2024".to_string()),
             a11y_label: "Song, 3 minutes".to_string(),
         };
         let row = TrackRow::from_vm("test", &vm);
@@ -248,6 +270,7 @@ mod tests {
         assert_eq!(row.number, "4");
         assert_eq!(row.title, "Song");
         assert_eq!(row.duration.as_deref(), Some("3:00"));
+        assert_eq!(row.date_text.as_deref(), Some("Apr 5, 2024"));
     }
 
     #[test]
@@ -258,6 +281,7 @@ mod tests {
                 number: "7".to_string(),
                 title: "My Track".to_string(),
                 duration: Some("3:45".to_string()),
+                date_text: None,
                 a11y_label: "My Track, 3 minutes 45 seconds".to_string(),
             },
         );
@@ -275,6 +299,7 @@ mod tests {
                 number: "\u{00B7}".to_string(),
                 title: "Song".to_string(),
                 duration: None,
+                date_text: None,
                 a11y_label: "Song".to_string(),
             },
         );
@@ -290,6 +315,7 @@ mod tests {
                 number: "3".to_string(),
                 title: "Song".to_string(),
                 duration: Some("2:30".to_string()),
+                date_text: None,
                 a11y_label: "Song, 2 minutes 30 seconds".to_string(),
             },
         )
@@ -345,12 +371,14 @@ mod reservation_tests {
             number: "1".to_string(),
             title: "A".to_string(),
             duration: Some("0:01".to_string()),
+            date_text: None,
             a11y_label: "A".to_string(),
         };
         let long = TrackRowDisplay {
             number: "1".to_string(),
             title: "A very long track title that would otherwise wrap this row".repeat(3),
             duration: Some("0:01".to_string()),
+            date_text: None,
             a11y_label: "long".to_string(),
         };
 

@@ -1,6 +1,6 @@
 # ADR 0084 Task 015: The Singles Groups
 
-Status: Complete - 2026-10-17. The mechanical checks are Green. The operator passed V1 to V7 on 2026-10-17.
+Status: Complete - 2026-10-17. The mechanical checks are Green. The operator passed V1 to V11 on 2026-10-17.
 
 ## Goal
 
@@ -457,3 +457,45 @@ Merge recommendation: pass. The visual gate V1 to V7 stays open. Packet 016 wait
 ## Operator Check - 2026-10-17
 
 The operator walked V1 to V4 and reported two findings: the main button showed in the center, and two "Haleen" rows looked the same. The "Review Fix" section records the fix of each one. The operator then passed V5 to V7.
+
+After the operator passed V5 to V7, the operator reported two more findings on 2026-10-17:
+
+- Each single row on the group page had no release art, unlike the release rows of the app.
+- The detail column header showed "Singles". The operator decided that this header shows the page title, for example "Singles by Haleen". Each other page keeps its type label.
+
+V8 and V9 check the fixes:
+
+1. Open the new binary: `target/debug/v4vmm`. Open Music, then Releases, then a singles group.
+2. **V8:** look at the rows of the group page.
+   - Correct: each single row shows its release art on the left, at the same size as a Releases row.
+   - Incorrect: a row has no image, or the image has a different size.
+3. **V9:** look at the header of the detail column.
+   - Correct: it says "Singles by" and the artist name, the same text as the page title.
+   - Incorrect: it says "Singles" alone.
+
+The operator made four more decisions on 2026-10-17. Each single row on the group page is the
+Library track row of a release page. `render_library_track_row` in
+`src/ui/shells/library/feed_detail.rs` draws it with the track of the single. The row shows the art,
+the title, the date, the duration and the same actions. A click on the row opens the release page of
+the single.
+
+The shared `TrackRow` composite shows an optional date text as a second line below the title. The
+view model gives this text through `fmt_date`. Thus the Library and the Index release pages also
+show a date below each track title that has one. The group page row shows the date of its single.
+It shows no state word, because the toggle action shows the state.
+
+V10 and V11 check this change:
+
+4. **V10:** open Music, then Releases, then a singles group. Look at the rows of the group page.
+   - Correct: each row looks like a track row of a release page. It shows the art, the title, the
+     date below the title, the duration and the actions. A click on the row body opens the single
+     page.
+   - Incorrect: a row looks different from a release page track row. Or a row has no date when its
+     single has one. Or a click opens a track page.
+5. **V11:** open a release page from Releases. Then open an Index release page from the toolbar
+   search.
+   - Correct: a date shows below each track title that has one. A track with no date shows only
+     its title.
+   - Incorrect: a track with a date shows no date, or an empty second line shows.
+
+The operator passed V10 and V11 on 2026-10-17.

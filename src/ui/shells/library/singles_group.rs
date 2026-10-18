@@ -5,24 +5,29 @@
 
 #![warn(clippy::pedantic)]
 
-use gpui::{div, prelude::*, AnyElement, ClickEvent, Context, FontWeight, SharedString, Styled};
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use gpui::{
+    div, prelude::*, AnyElement, ClickEvent, Context, FontWeight, Image, SharedString, Styled,
+};
 
 use crate::db;
 use crate::library::{playlist_options, LibraryApp};
 use crate::ui::composites::music_column_scroll::music_column_scrollbar;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{
-    ActionRow, ActionRowDisplay, AddToPlaylistDisplay, AddToPlaylistPopover, ListRow,
-    ListRowA11yLabel,
+    ActionRow, ActionRowDisplay, AddToPlaylistDisplay, AddToPlaylistPopover,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{Button as UiButton, Label};
+use crate::ui::shells::library::feed_detail::{render_library_track_row, LibraryTrackRowContext};
 use crate::ui::style::spacing;
 use crate::ui::tokens::{FontSize, SemanticColor};
+use crate::view_models::library::MbTrackStatus;
 use crate::view_models::singles_group::{
     SinglesGroupAction, SinglesGroupActionVm, SinglesGroupPageRowVm, SinglesGroupPageVm,
 };
-use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
 
 /// The element id of the main action of a group page.
 const MAIN_ACTION_ID: &str = "singles-group-main-action";
@@ -30,7 +35,9 @@ const MAIN_ACTION_ID: &str = "singles-group-main-action";
 /// Renders the page of one singles group (ADR 0084 Decision 6).
 pub(crate) fn render_library_singles_group_page(
     page: SinglesGroupPageVm,
+    mb_status: &BTreeMap<i64, MbTrackStatus>,
     playlists: &[db::Playlist],
+    album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let SinglesGroupPageVm {
@@ -79,11 +86,10 @@ pub(crate) fn render_library_singles_group_page(
         );
     }
     content = content.child(
-        div()
-            .flex()
-            .flex_col()
-            .gap(spacing::XXS)
-            .children(rows.into_iter().map(|row| render_single_row(row, cx))),
+        div().flex().flex_col().gap(spacing::XXS).children(
+            rows.into_iter()
+                .map(|row| render_single_row(row, mb_status, album_thumbs, playlists, cx)),
+        ),
     );
 
     let container = div()
@@ -150,56 +156,30 @@ fn render_main_action(
     }
 }
 
-/// One single row of a group page. A click opens the single page.
-fn render_single_row(row: SinglesGroupPageRowVm, cx: &mut Context<LibraryApp>) -> AnyElement {
+/// One single row of a group page (ADR 0084 task 015, operator decision of
+/// 2026-10-17): the shared Library track row of a release page, with the
+/// track of the single. A click opens the release page of the single. The
+/// row shows the date of the single from the view model.
+fn render_single_row(
+    row: SinglesGroupPageRowVm,
+    mb_status: &BTreeMap<i64, MbTrackStatus>,
+    album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
+    playlists: &[db::Playlist],
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
     let SinglesGroupPageRowVm {
-        element_id,
-        name,
+        track,
         date_text,
-        state_word,
-        a11y_label,
+        busy,
         key,
     } = row;
-    ListRow::new(SharedString::from(element_id))
-        .a11y_label(ListRowA11yLabel {
-            label: SharedString::from(a11y_label),
-        })
-        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-            this.open_page(
-                FrameNavigationEntry::Release(key.clone()),
-                NavigationPathStart::CurrentPath,
-                cx,
-            );
-        }))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .pl(spacing::MD)
-                .child(
-                    Label::new(name)
-                        .size(FontSize::Micro)
-                        .weight(FontWeight::MEDIUM)
-                        .truncated(),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .gap(spacing::SM)
-                        .when_some(date_text, |el, date| {
-                            el.child(
-                                Label::new(date)
-                                    .size(FontSize::Micro)
-                                    .color(SemanticColor::TertiaryLabel),
-                            )
-                        })
-                        .child(
-                            Label::new(state_word)
-                                .size(FontSize::Micro)
-                                .color(SemanticColor::SecondaryLabel),
-                        ),
-                ),
-        )
-        .into_any_element()
+    render_library_track_row(
+        &track,
+        mb_status,
+        busy,
+        album_thumbs,
+        playlists,
+        LibraryTrackRowContext::SinglesGroupPage { key, date_text },
+        cx,
+    )
 }

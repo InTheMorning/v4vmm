@@ -1876,6 +1876,40 @@ fn adr_0084_destinations_d5_02_sidebar_click_starts_a_path_a_row_extends_it() {
     );
 }
 
+/// ADR 0084 task 015, operator fix 2026-10-17: `set_frame_title` renames
+/// the named frame and leaves every other frame title untouched. An
+/// unknown frame id gives `FrameNotFound`.
+#[test]
+fn adr_0084_singles_group_set_frame_title_renames_one_frame() {
+    let mut layout = WorkspaceLayout::new(
+        vec![
+            frame(1, WorkspaceFrameKind::ContentList),
+            frame(2, WorkspaceFrameKind::Detail),
+        ],
+        None,
+    )
+    .expect("two distinct frame ids make a valid layout");
+
+    layout
+        .set_frame_title(WorkspaceFrameId::new(2), "Singles by Haleen")
+        .expect("frame 2 exists in this layout");
+
+    assert_eq!(layout.frames()[1].title(), "Singles by Haleen");
+    assert_eq!(
+        layout.frames()[0].title(),
+        WorkspaceFrameKind::ContentList.default_title(),
+        "set_frame_title must leave the other frame title untouched"
+    );
+
+    assert_eq!(
+        layout.set_frame_title(WorkspaceFrameId::new(99), "x"),
+        Err(WorkspaceModelError::FrameNotFound(WorkspaceFrameId::new(
+            99
+        ))),
+        "an unknown frame id must give FrameNotFound"
+    );
+}
+
 /// D5-03 (ADR 0084 Decision 3): Music opens on `Destination(Discover)`,
 /// the default navigation entry of each Music frame kind.
 #[test]

@@ -41,8 +41,8 @@ use crate::view_models::library::{
     AlbumNode, DescriptionDisclosureDisplay, LibraryAlbumDetailVm, LibraryTrackRowDisplay,
     LibraryTrackRowVm, LibraryViewModel, MbStatusKind, MbTrackStatus,
 };
-use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
-use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
+use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm, TrackRowVm};
+use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart, ReleaseKey};
 use crate::views::{FeedView, TrackView};
 
 #[expect(
@@ -122,6 +122,7 @@ pub(crate) fn render_library_feed_detail(
                 vm.track_row_busy(track, busy_track == Some(track.id), feed_busy),
                 album_thumbs,
                 playlists,
+                LibraryTrackRowContext::ReleasePage,
                 cx,
             ))
         })
@@ -403,16 +404,47 @@ fn library_contributor_identity_actions(
         .collect()
 }
 
-fn render_library_track_row(
+/// The page that shows a Library track row. It selects the page that a
+/// click opens and the date text of the row.
+pub(crate) enum LibraryTrackRowContext {
+    /// A release page row: a click opens the track page. The row shows the
+    /// date of the track.
+    ReleasePage,
+    /// A singles group page row (ADR 0084 task 015, operator decision of
+    /// 2026-10-17): a click opens the release page of the single. The row
+    /// shows `date_text`, the date of the single from the view model.
+    SinglesGroupPage {
+        key: ReleaseKey,
+        date_text: Option<String>,
+    },
+}
+
+impl LibraryTrackRowContext {
+    /// Gives the page that a click on the row of `track` opens. A group
+    /// page row also puts the date text of its single into `row_vm`.
+    fn apply(self, track: &TrackRow, row_vm: &mut TrackRowVm) -> FrameNavigationEntry {
+        match self {
+            Self::ReleasePage => FrameNavigationEntry::Track(track.track_key()),
+            Self::SinglesGroupPage { key, date_text } => {
+                row_vm.date_text = date_text;
+                FrameNavigationEntry::Release(key)
+            }
+        }
+    }
+}
+
+/// The track row of a Library release page. The singles group page shows
+/// each single with this row too.
+pub(crate) fn render_library_track_row(
     track: &TrackRow,
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     is_busy: bool,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     playlists: &[db::Playlist],
+    context: LibraryTrackRowContext,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let track_for_click = track.clone();
-    let track_key_for_select = track.track_key();
     let track_id = track.id;
     let vm = LibraryTrackRowVm::new(track, mb_status.get(&track_id));
     let EntityActionVm {
@@ -500,15 +532,12 @@ fn render_library_track_row(
     );
 
     let track_view = TrackView::from_local(track.clone());
-    let row_vm = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Library).row();
+    let mut row_vm = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Library).row();
+    let open_entry = context.apply(track, &mut row_vm);
     let mut row = TrackRowComposite::from_vm(SharedString::from(row_id), &row_vm)
         .thumbnail(thumbnail)
         .on_click(cx.listener(move |this, _, _, cx| {
-            this.open_page(
-                FrameNavigationEntry::Track(track_key_for_select.clone()),
-                NavigationPathStart::CurrentPath,
-                cx,
-            );
+            this.open_page(open_entry.clone(), NavigationPathStart::CurrentPath, cx);
         }));
 
     for action in actions {

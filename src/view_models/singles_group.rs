@@ -10,10 +10,13 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
+use crate::db::TrackRow;
 use crate::view_models::album_page::{AlbumNameLinkTarget, AlbumNameLinkVm};
 use crate::view_models::artist_identity::ArtistIdentity;
 use crate::view_models::format::{fmt_date, plural};
-use crate::view_models::library::{AlbumNode, ArtistNode, DestinationListRowVm, LibraryTree};
+use crate::view_models::library::{
+    release_track_row_busy, AlbumNode, ArtistNode, DestinationListRowVm, LibraryTree,
+};
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::workspace::ReleaseKey;
 
@@ -21,10 +24,6 @@ use crate::view_models::workspace::ReleaseKey;
 const SUMMARY_SEPARATOR: &str = " · ";
 /// The Library state of a group when each single is in the Library.
 const ALL_IN_LIBRARY_LABEL: &str = "In Library";
-/// The state word of a single in the Library.
-const IN_LIBRARY_STATE_WORD: &str = "In Library";
-/// The state word of a single that is not in the Library.
-const NOT_DOWNLOADED_STATE_WORD: &str = "Not downloaded";
 /// The accessibility label of a closed group row chevron.
 const SHOW_SINGLES_LABEL: &str = "Show singles";
 /// The accessibility label of an open group row chevron.
@@ -366,25 +365,27 @@ pub(crate) struct SinglesGroupActionVm {
     pub(crate) row_a11y_label: &'static str,
 }
 
-/// One single row of a group page.
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// One single row of a group page. The page shows it as the shared
+/// Library track row of a release page (ADR 0084 task 015, operator
+/// decision of 2026-10-17). The toggle action of that row shows the
+/// Library state, so the row has no state word.
+#[derive(Clone, Debug)]
 pub(crate) struct SinglesGroupPageRowVm {
-    /// Stable element id.
-    pub(crate) element_id: String,
-    /// The release name.
-    pub(crate) name: String,
-    /// The date text, when the single has a date.
+    /// The track of the single that the shared track row shows: the
+    /// first track of the single.
+    pub(crate) track: TrackRow,
+    /// The date text of the single: the latest `pub_date` of its tracks.
+    /// `None` when the single has no date.
     pub(crate) date_text: Option<String>,
-    /// "In Library" or "Not downloaded".
-    pub(crate) state_word: &'static str,
-    /// The accessibility label of the row.
-    pub(crate) a11y_label: String,
+    /// A download or a removal of the track or of its single is in
+    /// progress.
+    pub(crate) busy: bool,
     /// The release key that a click opens.
     pub(crate) key: ReleaseKey,
 }
 
 /// The page of one singles group (ADR 0084 Decision 6).
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) struct SinglesGroupPageVm {
     /// "Singles by Haleen". The breadcrumb label is the same text.
     pub(crate) title: String,
@@ -405,13 +406,19 @@ pub(crate) struct SinglesGroupPageVm {
 impl SinglesGroupPageVm {
     /// Builds the page of the group `key` from the current tree. When no
     /// group has the key, for example after a removal leaves one single,
-    /// the page is the empty state. `busy` is a download or a removal in
-    /// progress: the main action is then not available.
+    /// the page is the empty state. `busy_track` and `busy_feed` are the
+    /// track and the feed of a download or a removal in progress. While
+    /// one is in progress, the main action is not available.
     #[must_use]
-    pub(crate) fn from_tree(tree: &LibraryTree, key: &SinglesGroupKey, busy: bool) -> Self {
+    pub(crate) fn from_tree(
+        tree: &LibraryTree,
+        key: &SinglesGroupKey,
+        busy_track: Option<i64>,
+        busy_feed: Option<i64>,
+    ) -> Self {
         let groups = singles_groups(tree);
         match find_group(&groups, key) {
-            Some(group) => Self::new(group, busy),
+            Some(group) => Self::new(group, busy_track, busy_feed),
             None => Self {
                 title: EMPTY_GROUP_TITLE.to_owned(),
                 subtitle: None,
@@ -423,32 +430,32 @@ impl SinglesGroupPageVm {
         }
     }
 
-    /// Builds the page of one group.
+    /// Builds the page of one group. A single with no track has no row.
     #[must_use]
-    pub(crate) fn new(group: &SinglesGroup<'_>, busy: bool) -> Self {
+    pub(crate) fn new(
+        group: &SinglesGroup<'_>,
+        busy_track: Option<i64>,
+        busy_feed: Option<i64>,
+    ) -> Self {
+        let busy = busy_track.is_some() || busy_feed.is_some();
         let rows = group
             .singles
             .iter()
-            .enumerate()
-            .map(|(index, single)| {
-                let state_word = if single.in_library {
-                    IN_LIBRARY_STATE_WORD
-                } else {
-                    NOT_DOWNLOADED_STATE_WORD
-                };
-                let date_text = single.date.and_then(fmt_date);
-                let a11y_label = match &date_text {
-                    Some(date) => format!("Single: {}, {date}, {state_word}", single.album.name),
-                    None => format!("Single: {}, {state_word}", single.album.name),
-                };
-                SinglesGroupPageRowVm {
-                    element_id: format!("singles-group-page-row-{index}"),
-                    name: single.album.name.clone(),
-                    date_text,
-                    state_word,
-                    a11y_label,
+            .filter_map(|single| {
+                let track = single.album.tracks.first()?;
+                let has_library_tracks = single.album.tracks.iter().any(|t| t.is_in_library);
+                let feed_busy = busy_feed.is_some() && busy_feed == single.album.feed_id;
+                Some(SinglesGroupPageRowVm {
+                    track: track.clone(),
+                    date_text: single.date.and_then(fmt_date),
+                    busy: release_track_row_busy(
+                        has_library_tracks,
+                        track,
+                        busy_track == Some(track.id),
+                        feed_busy,
+                    ),
                     key: single.key.clone(),
-                }
+                })
             })
             .collect();
         Self {
@@ -521,7 +528,6 @@ fn main_action(group: &SinglesGroup<'_>, busy: bool) -> SinglesGroupActionVm {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::TrackRow;
     use crate::views::{FeedMetadataFacts, LocalIdentityFacts};
 
     fn track(id: i64, feed_id: i64, pub_date: Option<i64>, in_library: bool) -> TrackRow {
@@ -725,7 +731,7 @@ mod tests {
     fn adr_0084_singles_group_r15_07_page_main_action_follows_the_library_state() {
         let key = SinglesGroupKey(ArtistIdentity::Name("Haleen".to_owned()));
 
-        let page = SinglesGroupPageVm::from_tree(&haleen_tree(3, 2), &key, false);
+        let page = SinglesGroupPageVm::from_tree(&haleen_tree(3, 2), &key, None, None);
         let action = page.main_action.expect("a group has a main action");
         assert_eq!(action.label, "Download 1 single");
         assert_eq!(
@@ -735,7 +741,7 @@ mod tests {
         assert!(action.available);
         assert_eq!(action.action, SinglesGroupAction::DownloadSingles(vec![3]));
 
-        let page = SinglesGroupPageVm::from_tree(&haleen_tree(3, 1), &key, false);
+        let page = SinglesGroupPageVm::from_tree(&haleen_tree(3, 1), &key, None, None);
         let action = page.main_action.expect("a group has a main action");
         assert_eq!(action.label, "Download 2 singles");
         assert_eq!(
@@ -749,7 +755,7 @@ mod tests {
             "the downloads run newest first"
         );
 
-        let page = SinglesGroupPageVm::from_tree(&haleen_tree(7, 7), &key, false);
+        let page = SinglesGroupPageVm::from_tree(&haleen_tree(7, 7), &key, None, None);
         assert_eq!(page.title, "Singles by Haleen");
         assert_eq!(
             page.subtitle.as_deref(),
@@ -764,8 +770,7 @@ mod tests {
             SinglesGroupAction::AddToPlaylist(vec![7, 6, 5, 4, 3, 2, 1])
         );
         assert_eq!(page.rows.len(), 7);
-        assert_eq!(page.rows[0].name, "Single 7");
-        assert_eq!(page.rows[0].state_word, "In Library");
+        assert_eq!(page.rows[0].key, ReleaseKey::FeedGuid("guid-7".to_owned()));
         assert!(page.rows[0].date_text.is_some());
     }
 
@@ -774,10 +779,10 @@ mod tests {
     #[test]
     fn adr_0084_singles_group_r15_07_page_identity_note_and_empty_state() {
         let name_key = SinglesGroupKey(ArtistIdentity::Name("Haleen".to_owned()));
-        let page = SinglesGroupPageVm::from_tree(&haleen_tree(2, 1), &name_key, false);
+        let page = SinglesGroupPageVm::from_tree(&haleen_tree(2, 1), &name_key, None, None);
         assert_eq!(page.identity_note, Some(NAME_LEVEL_NOTE));
-        assert_eq!(page.rows[0].state_word, "Not downloaded");
-        assert_eq!(page.rows[1].state_word, "In Library");
+        assert!(!page.rows[0].track.is_in_library);
+        assert!(page.rows[1].track.is_in_library);
 
         let publisher_tree = LibraryTree {
             artists: vec![artist(
@@ -789,7 +794,7 @@ mod tests {
             )],
         };
         let publisher_key = SinglesGroupKey(ArtistIdentity::Publisher("pub".to_owned()));
-        let page = SinglesGroupPageVm::from_tree(&publisher_tree, &publisher_key, false);
+        let page = SinglesGroupPageVm::from_tree(&publisher_tree, &publisher_key, None, None);
         assert_eq!(page.identity_note, Some(PUBLISHER_LEVEL_NOTE));
         assert_eq!(
             page.subtitle.as_deref(),
@@ -797,10 +802,50 @@ mod tests {
         );
         assert_eq!(page.rows.len(), 2);
 
-        let page = SinglesGroupPageVm::from_tree(&haleen_tree(1, 1), &name_key, false);
+        let page = SinglesGroupPageVm::from_tree(&haleen_tree(1, 1), &name_key, None, None);
         assert_eq!(page.empty_message, Some(EMPTY_GROUP_MESSAGE));
         assert!(page.main_action.is_none());
         assert!(page.rows.is_empty());
+    }
+
+    /// ADR 0084 task 015, operator decision of 2026-10-17: a page row
+    /// gives the shared Library track row the track of its single, the
+    /// date text of the single and the release key that a click opens. A
+    /// single with no date gives no date text. A busy track or a busy feed
+    /// makes its row busy, and only that row.
+    #[test]
+    fn adr_0084_singles_group_page_row_exposes_date_text_and_track() {
+        let key = SinglesGroupKey(ArtistIdentity::Name("Haleen".to_owned()));
+        let tree = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![
+                    single("Dated", 1, Some(1_712_275_200), true),
+                    single("Undated", 2, None, false),
+                ],
+            )],
+        };
+        let page = SinglesGroupPageVm::from_tree(&tree, &key, None, None);
+        assert_eq!(page.rows.len(), 2);
+
+        let dated = &page.rows[0];
+        assert_eq!(dated.track.id, 10, "the row holds the track of its single");
+        assert_eq!(dated.track.feed_id, 1);
+        assert_eq!(dated.date_text.as_deref(), Some("Apr 5, 2024"));
+        assert_eq!(dated.key, ReleaseKey::FeedGuid("guid-1".to_owned()));
+        assert!(!dated.busy);
+
+        let undated = &page.rows[1];
+        assert_eq!(undated.track.id, 20);
+        assert_eq!(undated.date_text, None);
+        assert_eq!(undated.key, ReleaseKey::FeedGuid("guid-2".to_owned()));
+
+        let page = SinglesGroupPageVm::from_tree(&tree, &key, Some(20), None);
+        assert!(!page.rows[0].busy);
+        assert!(page.rows[1].busy, "the busy track makes its row busy");
+        let page = SinglesGroupPageVm::from_tree(&tree, &key, None, Some(1));
+        assert!(page.rows[0].busy, "the busy feed makes its row busy");
+        assert!(!page.rows[1].busy);
     }
 
     /// R15-08: the release page name links of a single in a group of 7

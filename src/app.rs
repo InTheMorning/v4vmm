@@ -1330,7 +1330,7 @@ impl TopApp {
             return self.render_workspace_screen_mount(mount, show_window_width, cx);
         }
 
-        let layout = Self::visible_workspace_layout(&self.workspace_layout, mount);
+        let mut layout = Self::visible_workspace_layout(&self.workspace_layout, mount);
         let content_frame_id = layout
             .frames()
             .iter()
@@ -1347,6 +1347,25 @@ impl TopApp {
             .workspace_layout
             .frame_nav(content_frame_id)
             .map(|nav| nav.current().clone());
+
+        // ADR 0084 task 015, operator decision 2026-10-17: the Detail
+        // frame title shows the open page's own title for a singles
+        // group, for example "Singles by Haleen", not the type label
+        // `content_list_frame_title` gives by default. Every other page
+        // keeps its type label.
+        if let Some(entry @ FrameNavigationEntry::SinglesGroup(_)) = &current_nav {
+            let detail_frame_id = layout
+                .frames()
+                .iter()
+                .find(|frame| matches!(frame.kind(), WorkspaceFrameKind::Detail))
+                .map(WorkspaceFrameState::id);
+            if let Some(detail_frame_id) = detail_frame_id {
+                let title = self.library.read(cx).navigation_label(entry);
+                layout
+                    .set_frame_title(detail_frame_id, title)
+                    .expect("the found detail frame id exists in this layout");
+            }
+        }
 
         let mut workspace_slots = match &current_nav {
             // ADR 0084 Decision 2: search results fill the list column, and

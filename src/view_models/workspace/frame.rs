@@ -136,6 +136,16 @@ impl WorkspaceFrameState {
     pub(super) fn set_focused(&mut self, focused: bool) {
         self.focused = focused;
     }
+
+    /// Updates the frame's title.
+    ///
+    /// ADR 0084 task 015, operator decision 2026-10-17: the Detail frame
+    /// title follows the open page's own title for a singles group, in
+    /// place of the type label `content_list_frame_title` gives by
+    /// default.
+    pub(super) fn set_title(&mut self, title: impl Into<String>) {
+        self.title = title.into();
+    }
 }
 
 /// `with_subtitle` and `with_status` have no caller outside their own

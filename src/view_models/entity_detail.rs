@@ -1312,6 +1312,14 @@ impl<'a> SharedTrackRowVm<'a> {
         self.track.duration_secs.map(fmt_dur)
     }
 
+    /// The date of the track, for the second line under the title. `None`
+    /// when the track has no date (ADR 0084 task 015, operator decision of
+    /// 2026-10-17).
+    #[must_use]
+    pub fn date_text(&self) -> Option<String> {
+        self.track.pub_date.and_then(fmt_date)
+    }
+
     #[must_use]
     pub fn a11y_label(&self) -> String {
         self.duration_display().map_or_else(

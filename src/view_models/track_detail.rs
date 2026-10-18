@@ -682,6 +682,10 @@ pub struct TrackRowVm {
     pub title: String,
     pub subtitle: Option<String>,
     pub duration: Option<String>,
+    /// The date of the track, for the second line under the title. `None`
+    /// when the track has no date (ADR 0084 task 015, operator decision of
+    /// 2026-10-17).
+    pub date_text: Option<String>,
     pub a11y_label: String,
 }
 
@@ -700,6 +704,7 @@ impl TrackRowVm {
             title,
             subtitle: Some(detail.display_artist()).filter(|artist| artist != UNKNOWN_ARTIST),
             duration,
+            date_text: detail.release_date_display(),
         }
     }
 
@@ -1123,6 +1128,48 @@ mod tests {
             .iter()
             .any(|row| row.label == "Feed publication date"
                 && row.value == "Jan 1, 2024 (MusicIndex)"));
+    }
+
+    /// ADR 0084 task 015, operator decision of 2026-10-17: the shared
+    /// track row display gets the date text of a track from each origin. A
+    /// Library `TrackRow` gives it through `TrackRowVm`, and an Index
+    /// `TrackView` through `SharedTrackRowVm`. A track with no date gives
+    /// `None`.
+    #[test]
+    fn adr_0084_singles_group_track_row_carries_the_date_for_each_origin() {
+        use crate::db::TrackRow as LibraryTrack;
+        use crate::view_models::entity_detail::{EntitySurfaceContext, SharedTrackRowVm};
+
+        // 1712275200 is 2024-04-05 00:00 UTC.
+        let library_date = |pub_date: Option<i64>| {
+            let track = TrackView::from_local(LibraryTrack {
+                id: 1,
+                pub_date,
+                ..LibraryTrack::default()
+            });
+            TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library)
+                .row()
+                .date_text
+        };
+        assert_eq!(
+            library_date(Some(1_712_275_200)).as_deref(),
+            Some("Apr 5, 2024")
+        );
+        assert_eq!(library_date(None), None);
+
+        let index_date = |pub_date: Option<i64>| {
+            let track = TrackView {
+                title: Some("Song".to_owned()),
+                pub_date,
+                ..TrackView::default()
+            };
+            SharedTrackRowVm::new(&track, EntitySurfaceContext::Discover, 0).date_text()
+        };
+        assert_eq!(
+            index_date(Some(1_712_275_200)).as_deref(),
+            Some("Apr 5, 2024")
+        );
+        assert_eq!(index_date(None), None);
     }
 
     #[test]

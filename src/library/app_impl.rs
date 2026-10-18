@@ -3553,6 +3553,18 @@ impl LibraryApp {
                 urls.push(url);
             }
         }
+        // ADR 0084 task 015, operator decision of 2026-10-17: a group page
+        // row is the Library track row of a release page. It reads its art
+        // by URL, the same as a release page track row.
+        if let LibraryDetail::SinglesGroup(key) = &self.detail {
+            let page = self.singles_group_page(key);
+            urls.extend(page.rows.iter().filter_map(|row| {
+                row.track
+                    .track_image_href
+                    .clone()
+                    .or_else(|| row.track.album_image_href.clone())
+            }));
+        }
         let hovered_url = self.vm.hovered_thumb_url().map(str::to_string);
         let mut album_thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
         for url in &urls {

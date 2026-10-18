@@ -332,7 +332,7 @@ fn render_destination_list_row(
 /// Wraps a release thumbnail so hovering it animates the matching image
 /// (ADR 0084 Decision 2), the same way the Library sidebar tree once did
 /// for an album row.
-fn render_hoverable_release_thumb(
+pub(crate) fn render_hoverable_release_thumb(
     element_id: String,
     thumbnail_href: Option<String>,
     thumb: Thumbnail,

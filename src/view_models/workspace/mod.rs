@@ -340,6 +340,27 @@ impl WorkspaceLayout {
         Ok(())
     }
 
+    /// Sets the title of the frame with id `id` (ADR 0084 task 015,
+    /// operator decision 2026-10-17: the Detail frame title follows the
+    /// open page for a singles group).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceModelError::FrameNotFound`] when the frame does not
+    /// exist in the layout.
+    pub(crate) fn set_frame_title(
+        &mut self,
+        id: WorkspaceFrameId,
+        title: impl Into<String>,
+    ) -> Result<(), WorkspaceModelError> {
+        self.frames
+            .iter_mut()
+            .find(|frame| frame.id() == id)
+            .ok_or(WorkspaceModelError::FrameNotFound(id))?
+            .set_title(title);
+        Ok(())
+    }
+
     /// Converts this layout to a serializable configuration DTO.
     #[must_use]
     pub(crate) fn to_config(&self) -> WorkspaceLayoutConfig {

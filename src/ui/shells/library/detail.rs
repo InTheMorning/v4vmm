@@ -78,9 +78,13 @@ pub(crate) fn render_library_detail(
 
         // ADR 0084 Decision 6: the group page reads the current tree at
         // each render, so a download or a removal updates it in place.
-        LibraryDetail::SinglesGroup(key) => {
-            render_library_singles_group_page(library_vm.singles_group_page(key), playlists, cx)
-        }
+        LibraryDetail::SinglesGroup(key) => render_library_singles_group_page(
+            library_vm.singles_group_page(key),
+            mb_status,
+            playlists,
+            album_thumbs,
+            cx,
+        ),
 
         LibraryDetail::Playlist(detail) => render_library_playlist_detail(
             detail,

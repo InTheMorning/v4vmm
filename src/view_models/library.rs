@@ -2723,8 +2723,12 @@ impl LibraryViewModel {
     /// action not available.
     #[must_use]
     pub(crate) fn singles_group_page(&self, key: &SinglesGroupKey) -> SinglesGroupPageVm {
-        let busy = self.has_busy_feed() || self.has_busy_track();
-        SinglesGroupPageVm::from_tree(&self.snapshot.tree, key, busy)
+        SinglesGroupPageVm::from_tree(
+            &self.snapshot.tree,
+            key,
+            self.busy_track(),
+            self.busy_feed(),
+        )
     }
 
     /// Rows of the Artists destination list, by name (ADR 0084 Decision
@@ -4042,6 +4046,20 @@ impl<'a> LibraryArtistDetailVm<'a> {
     }
 }
 
+/// Tells if the row of `track` on a release page shows a download or a
+/// removal in progress. `has_library_tracks` is true when one or more
+/// tracks of the release are in the Library. A busy feed makes busy each
+/// track that the feed operation changes.
+#[must_use]
+pub(crate) fn release_track_row_busy(
+    has_library_tracks: bool,
+    track: &TrackRow,
+    track_busy: bool,
+    feed_busy: bool,
+) -> bool {
+    track_busy || (feed_busy && (!has_library_tracks || track.is_in_library))
+}
+
 /// Display-ready action projection for a library album detail panel.
 ///
 /// Borrow-only — constructed fresh each render and dropped before the element
@@ -4078,7 +4096,7 @@ impl<'a> LibraryAlbumDetailVm<'a> {
         track_busy: bool,
         feed_busy: bool,
     ) -> bool {
-        track_busy || (feed_busy && (!self.has_library_tracks || track.is_in_library))
+        release_track_row_busy(self.has_library_tracks, track, track_busy, feed_busy)
     }
 
     /// The Library membership of the album. `is_busy` is a download or a
