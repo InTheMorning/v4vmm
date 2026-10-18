@@ -8,6 +8,9 @@ Amended 2026-09-24 by [ADR 0076](0076-playlist-rss-check-for-stale-musicindex-re
 A playlist track is not ready for a show when its file payment route differs from the stored route.
 A track with the "removed from feed" mark is not ready until the operator confirms it or removes it from the playlist.
 
+Amended 2026-10-18: the operator heard the processor fan run faster while the app was open in Music. The service watch read the services each second, also when no screen showed the result.
+The new decision "The Service Watch Reads At The Pace Of Its Viewer" gives the pace. [Task 018](../tasks/adr-0059-task-018-service-watch-pace.md) builds it.
+
 Tasks 001-017 are complete, including compact event controls, badges,
 diagnostics, operator acceptance, and fixture cleanup.
 Show action feedback task 001 is complete, including operator visual acceptance.
@@ -385,6 +388,21 @@ The queue keeps its name and its meaning. It shows local playback in this app.
 ADR 0060 moved it into `Show` beside these sections. The queue and the
 broadcast sections stay separate in code and in the interface.
 
+### The Service Watch Reads At The Pace Of Its Viewer
+
+Decided by the operator on 2026-10-18. Only the Show page and the Show commands use the service snapshot.
+
+| Condition | Publisher and producer units | Encoder (`butt -S`) |
+|---|---|---|
+| The Show section is open, or a Show command waits for its result | Each second | Each 5 seconds |
+| Each other condition, for example Music or Settings | Each 10 seconds | Each 10 seconds |
+
+- When the Show section opens, the watch reads all services at once. Then the Show page shows no value older than its pace.
+- A command that waits for fresh reads keeps the one-second pace until it ends, also when the operator leaves Show.
+- A request for an immediate read reads all services, the encoder too.
+- The watch sends each read to the app, so a waiting command counts each fresh read. The app redraws only when the state of a unit, the encoder or a command changes. A change of the read time alone causes no redraw.
+- The reason for the encoder pace: each `butt -S` starts the `butt` AppImage. On 2026-10-16, in a 41-second profile, those starts used 72% of the processor samples.
+
 ## Invariants
 
 - The broadcast chain operates when this app is closed, for every source except
@@ -407,6 +425,7 @@ broadcast sections stay separate in code and in the interface.
 - The app never sends a song title to the encoder.
 - Relay clients come from `src/http_client.rs`, as ADR 0058 requires.
 - A runtime actor runs all work that blocks, as ADR 0040 requires.
+- Outside Show, the service watch starts no service read more often than each 10 seconds, unless a command waits for its result.
 
 ## Alternatives Considered
 

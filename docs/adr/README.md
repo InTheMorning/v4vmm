@@ -65,7 +65,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0014](0014-playback-session-authoritative-state.md) | `PlaybackSession` is the authoritative now-playing state | Accepted |
 | [0020](0020-simulated-playlist-playback.md) | Simulated playlist transport for relay smoke tests | Accepted |
 | [0021](0021-mpv-playback-driver.md) | mpv driver behind the `PlaybackDriver` trait | Implemented |
-| [0059](0059-broadcast-control-surface.md) | External publisher control, saved event selection, configured-target readiness; tasks 001-017 complete. ADR 0076 amends its readiness rule | Accepted |
+| [0059](0059-broadcast-control-surface.md) | External publisher control, saved event selection, configured-target readiness; tasks 001-017 complete. ADR 0076 amends its readiness rule. The amendment of 2026-10-18 sets the pace of the service watch, built by task 018 | Accepted |
 | [0068](0068-show-cue-and-audition-isolation.md) | Persisted Show cue, explicit Show transport, independent audition state/audio/publication boundaries; implementation not started | Proposed |
 
 ## UI Architecture
