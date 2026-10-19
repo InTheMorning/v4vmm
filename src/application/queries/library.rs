@@ -762,7 +762,7 @@ pub(crate) fn fetch_library_publisher_page(
     endpoint: &crate::config::MusicIndexEndpoint,
     publisher_feed_guid: &str,
 ) -> Result<PublisherPageFacts, CommandError> {
-    let (feed_title, library_feed_guids, mut albums) = {
+    let (feed_title, mut feed_image_url, library_feed_guids, mut albums) = {
         let db = conn.lock().map_err(|_| poisoned_lock())?;
         let local =
             db::publisher_relationships::local_albums_for_publisher(&db, publisher_feed_guid)
@@ -770,15 +770,22 @@ pub(crate) fn fetch_library_publisher_page(
         let feed_title = local
             .iter()
             .find_map(|album| album.publisher_feed_title.clone());
+        // ADR 0085 Decision 7 design, Required Change 7: the header image
+        // of the feed itself, when the Library holds that feed. A later
+        // step falls back to the Index value when the Library does not.
+        let feed_image_url = db::find_feed_id_by_guid(&db, publisher_feed_guid)
+            .map_err(|error| query_error(&error))?
+            .and_then(|feed_id| stored_values::feed_values(&db, feed_id).ok())
+            .and_then(|values| values.artwork.value);
         let library_feed_guids: BTreeSet<String> = local
             .iter()
             .filter_map(|album| album.feed_guid.clone())
             .collect();
         let albums = local
             .into_iter()
-            .map(|album| library_publisher_album_fact(&db, album))
-            .collect::<Vec<_>>();
-        (feed_title, library_feed_guids, albums)
+            .map(|album| library_publisher_album_fact(&db, album, publisher_feed_guid))
+            .collect::<Result<Vec<_>, CommandError>>()?;
+        (feed_title, feed_image_url, library_feed_guids, albums)
     };
 
     let client = crate::api::Client::new_with_base_url(endpoint.clone());
@@ -805,6 +812,9 @@ pub(crate) fn fetch_library_publisher_page(
             unconfirmed_release_artist_count = remote.unconfirmed_release_artist_count;
             unconfirmed_release_artists = remote.unconfirmed_release_artists;
             co_credited_feeds = remote.co_credited_feeds;
+            if feed_image_url.is_none() {
+                feed_image_url = remote.feed_image_url.clone();
+            }
             for album in remote.albums {
                 let already_local = album
                     .feed_guid
@@ -821,6 +831,7 @@ pub(crate) fn fetch_library_publisher_page(
     Ok(PublisherPageFacts {
         publisher_feed_guid: publisher_feed_guid.to_owned(),
         feed_title,
+        feed_image_url,
         confirmed_release_artist_count,
         confirmed_release_artists,
         unconfirmed_release_artist_count,
@@ -831,15 +842,26 @@ pub(crate) fn fetch_library_publisher_page(
     })
 }
 
-/// One Library album row of a publisher page (ADR 0077 packet 004). The
-/// title, image and artist come from `stored_values::feed_values`, the one
+/// One Library album row of a feed page (ADR 0077 packet 004). The title,
+/// image and artist come from `stored_values::feed_values`, the one
 /// projection that owns the stored value of a field (ADR 0076 Decision 1).
 /// A Library album with no stored artist shows no artist: this function
 /// invents no placeholder.
+///
+/// `named_rank` is the 1-based position of `publisher_feed_guid` in the
+/// album's own named-feed sequence (ADR 0085 Decisions 6 and 7 design): the
+/// Library equivalent of the Index `album_names_rank` fact. `track_count` is
+/// the album's own Library track count: the Library equivalent of
+/// `remote_episode_count`.
+///
+/// # Errors
+///
+/// Returns an error when the named-feed read or the track-count read fails.
 fn library_publisher_album_fact(
     conn: &Connection,
     album: db::publisher_relationships::LocalPublisherAlbum,
-) -> PublisherPageAlbumFact {
+    publisher_feed_guid: &str,
+) -> Result<PublisherPageAlbumFact, CommandError> {
     let stored = stored_values::feed_values(conn, album.feed_id).ok();
     let (title, image_url, artist, artist_source) = match stored {
         Some(values) => {
@@ -859,14 +881,20 @@ fn library_publisher_album_fact(
         // so its title and image stay as a fallback. It carries no artist.
         None => (album.title, album.image_url, None, None),
     };
-    PublisherPageAlbumFact {
+    let named_rank = db::publisher_relationships::named_feeds(conn, album.feed_id)
+        .map_err(|error| query_error(&error))?
+        .iter()
+        .position(|feed| feed.feed_guid == publisher_feed_guid)
+        .and_then(|index| i64::try_from(index + 1).ok());
+    let track_count =
+        Some(db::feed_track_count(conn, album.feed_id).map_err(|error| query_error(&error))?);
+    Ok(PublisherPageAlbumFact {
         feed_guid: album.feed_guid,
         title,
         image_url,
         artist,
         artist_source,
         role: album.role,
-        role_source: album.role_source,
         music_names_publisher: Some(true),
         publisher_lists_music: album.publisher_lists_music,
         publisher_link_resolution: album.publisher_link_resolution,
@@ -875,7 +903,10 @@ fn library_publisher_album_fact(
         album_names_as: album.album_names_as,
         role_agreement: album.role_agreement,
         in_library: true,
-    }
+        named_rank,
+        track_count,
+        two_way_validated: album.two_way_validated,
+    })
 }
 
 /// The RSS element that stated an album's artist, as text (ADR 0075
@@ -3267,6 +3298,7 @@ mod adr_0077_publisher_page_tests {
                             let body = serde_json::json!({"data": {
                                 "feed_guid": "publisher-guid",
                                 "title": "Publisher Feed",
+                                "image_url": "https://example.test/remote-publisher.jpg",
                                 "confirmed_release_artist_count": 2,
                                 "confirmed_release_artists": ["Remote Artist", "Local Artist"],
                                 "publisher": [
@@ -3404,6 +3436,11 @@ mod adr_0077_publisher_page_tests {
             Some(2),
             "the one request also carries the confirmed artist count"
         );
+        assert_eq!(
+            facts.feed_image_url.as_deref(),
+            Some("https://example.test/remote-publisher.jpg"),
+            "R85-8-16 design: with no Library feed for publisher-guid, the header image falls back to the Index value"
+        );
     }
 
     /// R3-02a: when the request for the other albums fails, the Library
@@ -3429,6 +3466,34 @@ mod adr_0077_publisher_page_tests {
         assert_eq!(
             facts.confirmed_release_artist_count, None,
             "a failed request carries no confirmed artist count"
+        );
+    }
+
+    /// ADR 0085 Decision 7 design, Required Change 7: when the Library
+    /// holds the feed itself, its own stored image wins over the Index
+    /// value.
+    #[test]
+    fn adr_0085_feed_page_library_query_feed_image_url_prefers_the_stored_value() {
+        let fixture = Fixture::start();
+        let conn = conn_with_local_album();
+        {
+            let db = conn.lock().unwrap();
+            db.execute(
+                "INSERT INTO feeds(id, feed_url, feed_guid, title, album_image_href)
+                 VALUES (2, 'https://example.test/publisher.xml', 'publisher-guid',
+                         'Publisher Feed', 'https://example.test/stored-publisher.jpg')",
+                [],
+            )
+            .unwrap();
+        }
+
+        let facts = fetch_library_publisher_page(&conn, &fixture.endpoint, "publisher-guid")
+            .expect("the query should succeed");
+
+        assert_eq!(
+            facts.feed_image_url.as_deref(),
+            Some("https://example.test/stored-publisher.jpg"),
+            "the Library's own stored image wins over the Index value"
         );
     }
 

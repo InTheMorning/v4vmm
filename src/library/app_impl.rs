@@ -483,6 +483,12 @@ impl LibraryApp {
             DestinationListRowTarget::Artist(name) => {
                 FrameNavigationEntry::ArtistDetail(name.clone())
             }
+            // ADR 0085 Decisions 2 and 6: a feed row opens the feed page.
+            // With no recorded context for this GUID, the restore falls
+            // back to the Library query (ADR 0077 packet 004).
+            DestinationListRowTarget::Publisher(feed_guid) => {
+                FrameNavigationEntry::PublisherDetail(feed_guid.clone())
+            }
         };
         self.open_page(entry, NavigationPathStart::CurrentPath, cx);
     }

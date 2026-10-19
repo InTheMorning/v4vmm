@@ -70,7 +70,14 @@ const NEW_RELEASE_LABEL: &str = "New";
 const BROADCAST_ROUTE_REPAIR_AVAILABLE_LABEL: &str = "Fix routes";
 const BROADCAST_ROUTE_REPAIR_WORKING_LABEL: &str = "Fixing...";
 const BROADCAST_ROUTE_REPAIRING_STATE_LABEL: &str = "Repairing routes";
-const BROADCAST_ROUTE_PUBLISHER_DETAIL: &str = "Publisher must add payment routes.";
+const BROADCAST_ROUTE_PUBLISHER_DETAIL: &str = "The feed owner must add payment routes.";
+/// ADR 0085 Decision 1: the fixed phrase of
+/// `broadcast_route_repair_completion_message`'s `NoRoutesUpstream` text.
+const BROADCAST_ROUTE_NO_ROUTES_UPSTREAM_PREFIX: &str =
+    "The feed owner must add payment routes for";
+/// ADR 0085 Decision 1: the trailing phrase of the route-repair summary
+/// message, in place of "publisher routes".
+const BROADCAST_ROUTE_NEEDS_PAYMENT_ROUTES_LABEL: &str = "payment routes from the feed owner";
 /// ADR 0076 Decision 9: packet 004 owns the write of an out-of-date route.
 /// The row has no repair action, and it names that fix.
 const BROADCAST_ROUTE_OUT_OF_DATE_DETAIL: &str =
@@ -1595,7 +1602,11 @@ pub(crate) struct SidebarCollapseButtonVm {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum DestinationListRowTarget {
     Release(ReleaseKey),
+    /// The name level, by artist text (ADR 0084 Decision 7).
     Artist(String),
+    /// The feed level, by feed GUID (ADR 0085 Decisions 2, 6 and 7). The
+    /// row opens the feed page; it names no "publisher" word.
+    Publisher(String),
 }
 
 /// One row of the Releases or Artists destination list (ADR 0084 Decision
@@ -1656,6 +1667,49 @@ pub(crate) fn destination_release_row(
         thumbnail_href: album.image_href.clone(),
         open: DestinationListRowTarget::Release(key),
     })
+}
+
+/// One row of the Artists destination list, for one artist identity (ADR
+/// 0084 Decision 7, ADR 0085 Decisions 2 and 6). `members` is each
+/// `(artist, album)` pair of the Library tree that resolves to `identity`.
+/// A feed row's label is the feed title, from the named feed of one of
+/// its members; with no stored title, it is the feed GUID. The element id
+/// of a feed row comes from its feed GUID (ADR 0085 Decision 2), so a
+/// feed row and a name row with the same label stay two rows.
+fn artist_list_row(
+    identity: ArtistIdentity,
+    members: &[(&ArtistNode, &AlbumNode)],
+) -> DestinationListRowVm {
+    let secondary_text = format!("{} release{}", members.len(), plural(members.len()));
+    match identity {
+        ArtistIdentity::Name(name) => DestinationListRowVm {
+            element_id: format!("music-artist-row-name:{}", release_row_slug_text(&name)),
+            label: name.clone(),
+            secondary_text,
+            a11y_label: format!("Artist: {name}"),
+            thumbnail_href: None,
+            open: DestinationListRowTarget::Artist(name),
+        },
+        ArtistIdentity::Publisher(feed_guid) => {
+            let title = members
+                .iter()
+                .flat_map(|(_, album)| album.named_feeds.iter())
+                .find_map(|feed| {
+                    (feed.feed_guid == feed_guid)
+                        .then(|| feed.title.clone())
+                        .flatten()
+                })
+                .unwrap_or_else(|| feed_guid.clone());
+            DestinationListRowVm {
+                element_id: format!("music-artist-row-publisher:{feed_guid}"),
+                label: title.clone(),
+                secondary_text,
+                a11y_label: format!("Artist: {title}"),
+                thumbnail_href: None,
+                open: DestinationListRowTarget::Publisher(feed_guid),
+            }
+        }
+    }
 }
 
 /// One row of the Discover views list column (ADR 0084 Decision 3). "New
@@ -2676,19 +2730,20 @@ impl LibraryViewModel {
     ) -> Vec<ReleasesListEntryVm> {
         let tree = &self.snapshot.tree;
         let groups = singles_groups(tree);
-        let mut entries: Vec<ReleasesListEntryVm> = tree
-            .artists
-            .iter()
-            .flat_map(|artist| artist.albums.iter().map(move |album| (artist, album)))
-            .filter_map(|(artist, album)| destination_release_row(artist, album))
-            .filter(|row| match &row.open {
-                DestinationListRowTarget::Release(key) => {
-                    !groups.iter().any(|group| group.contains(key))
-                }
-                DestinationListRowTarget::Artist(_) => true,
-            })
-            .map(ReleasesListEntryVm::Release)
-            .collect();
+        let mut entries: Vec<ReleasesListEntryVm> =
+            tree.artists
+                .iter()
+                .flat_map(|artist| artist.albums.iter().map(move |album| (artist, album)))
+                .filter_map(|(artist, album)| destination_release_row(artist, album))
+                .filter(|row| match &row.open {
+                    DestinationListRowTarget::Release(key) => {
+                        !groups.iter().any(|group| group.contains(key))
+                    }
+                    DestinationListRowTarget::Artist(_)
+                    | DestinationListRowTarget::Publisher(_) => true,
+                })
+                .map(ReleasesListEntryVm::Release)
+                .collect();
         entries.extend(groups.iter().map(|group| {
             ReleasesListEntryVm::SinglesGroup(SinglesGroupRowVm::new(
                 group,
@@ -2725,27 +2780,33 @@ impl LibraryViewModel {
         )
     }
 
-    /// Rows of the Artists destination list, by name (ADR 0084 Decision
-    /// 2). It reuses the already-loaded tree: no new query.
+    /// Rows of the Artists destination list (ADR 0084 Decision 2, ADR 0085
+    /// Decisions 2 and 6). It reuses the already-loaded tree: no new
+    /// query.
+    ///
+    /// Each album's artist identity (ADR 0084 Decision 7) decides its
+    /// row. `ArtistIdentity::resolve` gives the feed level only for a
+    /// confirmed or an unverified artist feed (ADR 0085 Decision 2): a
+    /// feed with only an agreed role other than `artist`, for example a
+    /// label, never resolves to it, so it gets no row. An album whose
+    /// artist feed has no row falls to the name row of its artist text,
+    /// the same resolve. No row shows a level word.
     #[must_use]
     pub(crate) fn artists_list(&self) -> Vec<DestinationListRowVm> {
-        let mut rows: Vec<DestinationListRowVm> = self
-            .snapshot
-            .tree
-            .artists
-            .iter()
-            .map(|artist| DestinationListRowVm {
-                element_id: format!("music-artist-row-{}", release_row_slug_text(&artist.name)),
-                label: artist.name.clone(),
-                secondary_text: format!(
-                    "{} album{}",
-                    artist.albums.len(),
-                    plural(artist.albums.len())
-                ),
-                a11y_label: format!("Artist: {}", artist.name),
-                thumbnail_href: None,
-                open: DestinationListRowTarget::Artist(artist.name.clone()),
-            })
+        let mut by_identity: BTreeMap<ArtistIdentity, Vec<(&ArtistNode, &AlbumNode)>> =
+            BTreeMap::new();
+        for artist in &self.snapshot.tree.artists {
+            for album in &artist.albums {
+                by_identity
+                    .entry(album.artist_identity(&artist.name))
+                    .or_default()
+                    .push((artist, album));
+            }
+        }
+
+        let mut rows: Vec<DestinationListRowVm> = by_identity
+            .into_iter()
+            .map(|(identity, members)| artist_list_row(identity, &members))
             .collect();
         rows.sort_by_key(|row| row.label.to_lowercase());
         rows
@@ -3599,7 +3660,7 @@ fn feed_check_route_repair_message(outcome: FeedCheckRouteRepairOutcome) -> Stri
 
     write!(
         &mut message,
-        "; repaired {} route tag{}; {} track{} {} publisher routes; {} failed",
+        "; repaired {} route tag{}; {} track{} {} {}; {} failed",
         outcome.route_tags_repaired,
         plural(outcome.route_tags_repaired),
         outcome.route_tags_no_routes_upstream,
@@ -3609,6 +3670,7 @@ fn feed_check_route_repair_message(outcome: FeedCheckRouteRepairOutcome) -> Stri
         } else {
             "need"
         },
+        BROADCAST_ROUTE_NEEDS_PAYMENT_ROUTES_LABEL,
         outcome.route_tag_failures
     )
     .expect("writing to a String cannot fail");
@@ -3632,7 +3694,7 @@ fn broadcast_route_repair_completion_message(
             format!("Repaired payment routes for {title}")
         }
         BroadcastRouteRepairCompletionStatus::NoRoutesUpstream => {
-            format!("Publisher must add payment routes for {title}")
+            format!("{BROADCAST_ROUTE_NO_ROUTES_UPSTREAM_PREFIX} {title}")
         }
         BroadcastRouteRepairCompletionStatus::Skipped => {
             format!("Payment routes already ready for {title}")
@@ -6846,11 +6908,11 @@ mod tests {
     }
 
     #[test]
-    fn broadcast_readiness_no_routes_upstream_row_names_publisher_without_action() {
+    fn broadcast_readiness_no_routes_upstream_row_names_the_feed_owner_without_action() {
         let row = ContentListRowDisplay::from_broadcast_readiness_track(
             &broadcast_readiness_track(
                 8,
-                "Publisher Work",
+                "Feed Owner Work",
                 crate::application::queries::broadcast::BroadcastReadinessState::NoRoutesUpstream,
                 "MusicIndex has no payment routes.",
             ),
@@ -6861,8 +6923,8 @@ mod tests {
         assert!(row.actions.is_empty());
         assert!(
             row.secondary_text()
-                .contains("Publisher must add payment routes."),
-            "NoRoutesUpstream rows must name the publisher action"
+                .contains("The feed owner must add payment routes."),
+            "NoRoutesUpstream rows must name the feed owner action"
         );
         assert!(!row.accepts_row_click());
     }
@@ -6917,7 +6979,7 @@ mod tests {
         assert_eq!(
             vm.feed_update_state().status_message.as_deref(),
             Some(
-                "Checked 3 feeds; 1 feed changed; repaired 2 route tags; 1 track needs publisher routes; 0 failed"
+                "Checked 3 feeds; 1 feed changed; repaired 2 route tags; 1 track needs payment routes from the feed owner; 0 failed"
             )
         );
 
@@ -7357,8 +7419,147 @@ mod tests {
             rows[0].open,
             DestinationListRowTarget::Artist("Aphex Twin".to_string())
         );
-        assert_eq!(rows[0].secondary_text, "2 albums");
-        assert_eq!(rows[1].secondary_text, "1 album");
+        assert_eq!(rows[0].secondary_text, "2 releases");
+        assert_eq!(rows[1].secondary_text, "1 release");
+    }
+
+    /// One minimal `AlbumNode`, with no named feed. Tests that add a named
+    /// feed call `with_named_feed` on the result.
+    fn minimal_album(name: &str, feed_id: i64) -> AlbumNode {
+        AlbumNode {
+            name: name.to_owned(),
+            feed_id: Some(feed_id),
+            feed_guid: Some(format!("album-guid-{feed_id}")),
+            feed_url: None,
+            language: None,
+            description: None,
+            image_href: None,
+            named_feeds: Vec::new(),
+            identity_facts: LocalIdentityFacts::default(),
+            metadata_facts: Box::new(FeedMetadataFacts::default()),
+            stored_values: None,
+            tracks: Vec::new(),
+        }
+    }
+
+    /// Gives `album` one named feed with the given GUID, role and
+    /// agreement, confirmed (`two_way_validated`), at position 0 (the
+    /// primary named feed).
+    fn with_named_feed(
+        mut album: AlbumNode,
+        feed_guid: &str,
+        title: &str,
+        role: Option<&str>,
+        role_agreement: Option<&str>,
+    ) -> AlbumNode {
+        album.named_feeds = vec![NamedFeed {
+            feed_guid: feed_guid.to_owned(),
+            title: Some(title.to_owned()),
+            position: Some(0),
+            role: role.map(str::to_owned),
+            role_agreement: role_agreement.map(str::to_owned),
+            feed_rel: None,
+            album_rel: None,
+            confirmed: true,
+        }];
+        album
+    }
+
+    /// R85-8-10: `artists_list` gives a feed row for an `Artist` feed and
+    /// for an `UnverifiedArtist` feed, and a name row for a name identity.
+    /// An agreed `label` feed has no row. No row text contains a level
+    /// word.
+    #[test]
+    fn adr_0085_feed_page_artists_list_feed_and_name_rows_r85_8_10() {
+        let artist_feed_album = with_named_feed(
+            minimal_album("Artist Release", 1),
+            "artist-guid",
+            "Echo Chamber",
+            Some("artist"),
+            Some("both"),
+        );
+        let unverified_album = with_named_feed(
+            minimal_album("Unverified Release", 2),
+            "unverified-guid",
+            "Night Owl",
+            None,
+            None,
+        );
+        let agreed_label_album = with_named_feed(
+            minimal_album("Label Release", 3),
+            "label-guid",
+            "Sir Libre Records",
+            Some("label"),
+            Some("both"),
+        );
+        let name_only_album = minimal_album("Name Release", 4);
+
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(LibraryTree {
+            artists: vec![
+                ArtistNode {
+                    name: "Echo Chamber Act".to_owned(),
+                    albums: vec![artist_feed_album],
+                },
+                ArtistNode {
+                    name: "Night Owl Act".to_owned(),
+                    albums: vec![unverified_album],
+                },
+                ArtistNode {
+                    name: "Label Act".to_owned(),
+                    albums: vec![agreed_label_album],
+                },
+                ArtistNode {
+                    name: "Name Act".to_owned(),
+                    albums: vec![name_only_album],
+                },
+            ],
+        });
+
+        let rows = vm.artists_list();
+        let labels: Vec<&str> = rows.iter().map(|row| row.label.as_str()).collect();
+
+        assert!(labels.contains(&"Echo Chamber"), "{labels:?}");
+        assert!(labels.contains(&"Night Owl"), "{labels:?}");
+        assert!(labels.contains(&"Name Act"), "{labels:?}");
+        assert!(
+            !labels.contains(&"Sir Libre Records"),
+            "an agreed label feed has no row: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Label Act"),
+            "the agreed-label album falls to its name row: {labels:?}"
+        );
+
+        let artist_row = rows
+            .iter()
+            .find(|row| row.label == "Echo Chamber")
+            .expect("the confirmed artist feed has a row");
+        assert_eq!(
+            artist_row.open,
+            DestinationListRowTarget::Publisher("artist-guid".to_owned())
+        );
+        let unverified_row = rows
+            .iter()
+            .find(|row| row.label == "Night Owl")
+            .expect("the unverified artist feed has a row");
+        assert_eq!(
+            unverified_row.open,
+            DestinationListRowTarget::Publisher("unverified-guid".to_owned())
+        );
+
+        for row in &rows {
+            assert!(
+                !row.secondary_text.to_lowercase().contains("unverified")
+                    && !row.secondary_text.to_lowercase().contains("confirm"),
+                "no row text names a level: {row:?}"
+            );
+            assert!(
+                !row.a11y_label.to_lowercase().contains("unverified")
+                    && !row.a11y_label.to_lowercase().contains("confirm"),
+                "no row text names a level: {row:?}"
+            );
+        }
     }
 
     /// R6-01 (ADR 0084 Decision 3): the Discover views view model gives

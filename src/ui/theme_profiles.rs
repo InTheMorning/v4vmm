@@ -137,7 +137,6 @@ fn high_contrast_dark(token: SemanticColor) -> Rgba {
         SemanticColor::EntityTrack => hex(0x00_c2d4),
         SemanticColor::EntityPlaylist => hex(0x6e_f0a0),
         SemanticColor::EntityArtist => hex(0xff_9fe0),
-        SemanticColor::EntityPublisher => hex(0xb3_9ddb),
     }
 }
 
@@ -203,7 +202,6 @@ fn high_contrast_light(token: SemanticColor) -> Rgba {
         SemanticColor::EntityTrack => hex(0x00_6b76),
         SemanticColor::EntityPlaylist => hex(0x00_4d2c),
         SemanticColor::EntityArtist => hex(0x5c_2c4f),
-        SemanticColor::EntityPublisher => hex(0x5b_3fc4),
     }
 }
 

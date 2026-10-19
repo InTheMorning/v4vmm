@@ -29,7 +29,6 @@ pub enum EntityKind {
     Artist,
     Feed,
     Track,
-    Publisher,
     Release,
     Recording,
     Playlist,
@@ -47,7 +46,6 @@ impl EntityKind {
             "artist" => Self::Artist,
             "feed" => Self::Feed,
             "track" => Self::Track,
-            "publisher" => Self::Publisher,
             "release" => Self::Release,
             "recording" => Self::Recording,
             "playlist" => Self::Playlist,
@@ -61,7 +59,6 @@ impl EntityKind {
             Self::Artist => "artist",
             Self::Feed => "feed",
             Self::Track => "track",
-            Self::Publisher => "publisher",
             Self::Release => "release",
             Self::Recording => "recording",
             Self::Playlist => "playlist",
@@ -81,7 +78,6 @@ impl EntityKind {
             Self::Artist => "AR",
             Self::Feed => "FD",
             Self::Track => "TR",
-            Self::Publisher => "PB",
             Self::Release => "AL",
             Self::Recording => "RC",
             Self::Playlist => "PL",
@@ -103,7 +99,6 @@ impl EntityKind {
             Self::Feed | Self::Release => SemanticColor::EntityFeed,
             Self::Track | Self::Recording => SemanticColor::EntityTrack,
             Self::Playlist => SemanticColor::EntityPlaylist,
-            Self::Publisher => SemanticColor::EntityPublisher,
             Self::Generic => SemanticColor::SystemFill,
         }
     }
@@ -313,7 +308,6 @@ mod tests {
             EntityKind::Artist,
             EntityKind::Feed,
             EntityKind::Track,
-            EntityKind::Publisher,
             EntityKind::Playlist,
         ];
         let mut seen_tokens = HashSet::new();
@@ -359,7 +353,6 @@ mod tests {
             EntityKind::Artist,
             EntityKind::Feed,
             EntityKind::Track,
-            EntityKind::Publisher,
             EntityKind::Release,
             EntityKind::Recording,
             EntityKind::Playlist,
@@ -380,7 +373,6 @@ mod tests {
             EntityKind::Artist,
             EntityKind::Feed,
             EntityKind::Track,
-            EntityKind::Publisher,
             EntityKind::Release,
             EntityKind::Recording,
             EntityKind::Playlist,

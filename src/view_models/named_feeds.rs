@@ -8,13 +8,11 @@
 
 #![warn(clippy::pedantic)]
 
-use crate::view_models::role_words::role_words;
+use crate::view_models::role_words::role_contains_artist;
 
 /// The `role_agreement` value that tells that both sides agree on the role
 /// of a named feed link (ADR 0085 Decision 6).
 const ROLE_AGREEMENT_BOTH: &str = "both";
-/// The role word that confirms an artist feed (ADR 0085 Decision 6).
-const ARTIST_ROLE: &str = "artist";
 
 /// One feed that an album names, in its RSS sequence (ADR 0085 Decision 6).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -51,13 +49,6 @@ pub(crate) fn sort_named_feeds(feeds: &mut [NamedFeed]) {
             .cmp(&(b.position.is_none(), b.position))
             .then_with(|| a.feed_guid.cmp(&b.feed_guid))
     });
-}
-
-/// Tells if a named feed's role set contains `artist`, without case.
-fn role_contains_artist(role: Option<&str>) -> bool {
-    role_words(role)
-        .iter()
-        .any(|word| word.eq_ignore_ascii_case(ARTIST_ROLE))
 }
 
 /// The artist feed of `feeds`, already in the sequence of

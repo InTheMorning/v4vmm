@@ -1,10 +1,12 @@
-//! Publisher page screen (ADR 0077 packet 004, ADR 0082 packet 002).
+//! Feed page screen (ADR 0077 packet 004, ADR 0082 packet 002, ADR 0085
+//! Decisions 2 to 4 and 6 to 7).
 //!
-//! This screen composes [`PublisherPageVm`]. It decides no group, no role
-//! label and no action availability: the view model decides each one.
-//! `PublisherPageContext` (Library or Index) tells the screen which view
-//! model methods build which scope; the screen invents no scope of its
-//! own.
+//! This screen composes [`PublisherPageVm`]. It decides no section, no
+//! level text and no action availability: the view model decides each
+//! one. `PublisherPageContext` (Library or Index) tells the screen which
+//! loading message to show and whether to show the "other releases"
+//! failure notice; the sections come from the view model alone, the same
+//! for each context (ADR 0084 Decision 4).
 
 #![warn(clippy::pedantic)]
 
@@ -23,44 +25,48 @@ use crate::ui::composites::{
     DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay, EntityKind, ListRow, ListRowA11yLabel,
     TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize,
 };
-use crate::ui::primitives::{Label, LabelVariant, SectionHeader, SectionHeaderLevel};
+use crate::ui::primitives::{Label, LabelVariant, SectionHeader};
 use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Spacing};
 use crate::view_models::publisher_page::{
-    AlbumNameGroupVm, AlbumRoleDisplay, AlbumRoleSubgroupVm, CoCreditedFeedVm, OtherAlbumsStatus,
-    PublisherPageAlbumVm, PublisherPageContext, PublisherPageLoadDisplay, PublisherPageVm,
-    TitleDisplay,
+    CoCreditedFeedVm, FeedLevel, OtherAlbumsStatus, PublisherPageAlbumVm, PublisherPageContext,
+    PublisherPageLoadDisplay, PublisherPageSectionVm, PublisherPageVm, TitleDisplay,
 };
+use crate::view_models::workspace::ReleaseKey;
 
-/// Opens the publisher page of a feed GUID (ADR 0082 Decision 5). The app
-/// layer supplies one; the screen builds no navigation of its own.
+/// Opens the feed page of a feed GUID (ADR 0082 Decision 5). The app layer
+/// supplies one; the screen builds no navigation of its own.
 type OpenPublisherCallback = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
-/// Renders a publisher page from `PublisherPageVm`.
-///
-/// On a Library page (`PublisherPageContext::Library`) the screen shows
-/// `library_groups` and `other_groups` as two scopes, each with the ADR
-/// 0082 Decision 2 groups inside it, and shows the report of
-/// `other_albums_status` first, with its detail after it, when that
-/// status is `Unavailable`. On an Index page (`PublisherPageContext::Index`)
-/// the screen shows `index_groups`, and marks each album with
-/// `in_library`.
+/// Opens a release page by its key (ADR 0085 Decision 7 design, Required
+/// Change 7). `label` is the release's own display title; the app layer
+/// uses it for the frame and the breadcrumb. The app layer supplies the
+/// callback; the screen builds no navigation of its own.
+type OpenReleaseCallback = Rc<dyn Fn(&ReleaseKey, String, &mut Window, &mut App)>;
+
+/// Renders a feed page from `PublisherPageVm`.
 ///
 /// `album_thumbs` holds each album artwork image the app layer already
 /// resolved, keyed by its `image_url` (ADR 0077 packet 004, orchestrator
-/// fix 5). The screen fetches no image of its own.
+/// fix 5). `header_image` is the feed's own channel image (ADR 0085
+/// Decision 7 design, Required Change 7). The screen fetches no image of
+/// its own.
 ///
-/// `on_open_publisher` opens the publisher page of a "Shares albums with"
-/// entry's feed GUID (ADR 0082 Decision 5). The app layer supplies it; the
+/// `on_open_publisher` opens the feed page of a "Shares albums with"
+/// entry's feed GUID (ADR 0082 Decision 5). `on_open_release` opens a
+/// release row (Required Change 7). The app layer supplies both; the
 /// screen builds no navigation of its own.
 #[must_use]
 pub(crate) fn render_publisher_page(
     vm: &PublisherPageVm,
     context: PublisherPageContext,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
+    header_image: Option<Arc<Image>>,
     on_open_publisher: impl Fn(&str, &mut Window, &mut App) + 'static,
+    on_open_release: impl Fn(&ReleaseKey, String, &mut Window, &mut App) + 'static,
     cx: &App,
 ) -> AnyElement {
     let on_open_publisher: OpenPublisherCallback = Rc::new(on_open_publisher);
+    let on_open_release: OpenReleaseCallback = Rc::new(on_open_release);
     let container = div()
         .id("publisher-page")
         .flex()
@@ -72,8 +78,14 @@ pub(crate) fn render_publisher_page(
         .child(
             page_scroll_content(cx)
                 .gap(Spacing::LG.scaled(cx))
-                .child(render_header(vm))
-                .child(render_groups(vm, context, album_thumbs, cx))
+                .child(render_header(vm, header_image))
+                .child(render_sections(
+                    vm,
+                    context,
+                    album_thumbs,
+                    &on_open_release,
+                    cx,
+                ))
                 .when_some(
                     render_shares_albums_with(vm.shares_albums_with(), &on_open_publisher, cx),
                     ParentElement::child,
@@ -82,7 +94,18 @@ pub(crate) fn render_publisher_page(
     music_column_scrollbar(container, "publisher-page-scrollbar")
 }
 
-fn render_header(vm: &PublisherPageVm) -> AnyElement {
+/// The header entity icon for a feed's confirmation level (ADR 0085
+/// Decision 7 design, Required Change 7): `Artist` for the `Artist` and
+/// `UnverifiedArtist` levels, `Feed` for `None`. The view model carries no
+/// renderer type, so this screen makes the one choice it needs.
+const fn entity_kind_for_level(level: FeedLevel) -> EntityKind {
+    match level {
+        FeedLevel::Artist | FeedLevel::UnverifiedArtist => EntityKind::Artist,
+        FeedLevel::None => EntityKind::Feed,
+    }
+}
+
+fn render_header(vm: &PublisherPageVm, header_image: Option<Arc<Image>>) -> AnyElement {
     let data_rows = vm
         .header_facts()
         .into_iter()
@@ -93,59 +116,39 @@ fn render_header(vm: &PublisherPageVm) -> AnyElement {
         })
         .collect();
     DetailHeader::new(DetailHeaderDisplay {
-        kind: EntityKind::Publisher,
+        kind: entity_kind_for_level(vm.level()),
         title: vm.title_text().into(),
         subtitle: None,
         data_rows,
     })
-    // ADR 0083 Decision 3: the publisher page title uses Display.
+    .image(header_image)
+    // ADR 0083 Decision 3: the feed page title uses Display.
     .title_size(FontSize::Display)
     .into_any_element()
 }
 
-fn render_groups(
+fn render_sections(
     vm: &PublisherPageVm,
     context: PublisherPageContext,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
+    on_open_release: &OpenReleaseCallback,
     cx: &App,
 ) -> AnyElement {
-    let mark_in_library = context.marks_in_library();
-    let mut sections = div().flex().flex_col().gap(Spacing::LG.scaled(cx));
+    let mut body = div().flex().flex_col().gap(Spacing::LG.scaled(cx));
 
-    match context {
-        PublisherPageContext::Library => {
-            if let OtherAlbumsStatus::Unavailable { report, detail } = vm.other_albums_status() {
-                sections = sections.child(unavailable_notice(report, &detail, cx));
-            }
-            // ADR 0082 packet 002 correction: `library_scopes` already
-            // drops an empty scope. This loop decides no emptiness of its
-            // own.
-            for scope in vm.library_scopes() {
-                sections = sections.child(scope_section(
-                    scope.label,
-                    &scope.groups,
-                    mark_in_library,
-                    album_thumbs,
-                    cx,
-                ));
-            }
-        }
-        PublisherPageContext::Index => {
-            for group in &vm.index_groups() {
-                sections = sections.child(album_name_group_section(
-                    group,
-                    mark_in_library,
-                    album_thumbs,
-                    cx,
-                ));
-            }
+    if matches!(context, PublisherPageContext::Library) {
+        if let OtherAlbumsStatus::Unavailable { report, detail } = vm.other_albums_status() {
+            body = body.child(unavailable_notice(report, &detail, cx));
         }
     }
+    for section in vm.sections() {
+        body = body.child(render_section(&section, album_thumbs, on_open_release, cx));
+    }
 
-    sections.into_any_element()
+    body.into_any_element()
 }
 
-/// The report of a failed request for the albums that are not in the
+/// The report of a failed request for the releases that are not in the
 /// Library, with its technical detail shown after it (R3-02a).
 fn unavailable_notice(report: &'static str, detail: &str, cx: &App) -> AnyElement {
     div()
@@ -169,101 +172,46 @@ fn unavailable_notice(report: &'static str, detail: &str, cx: &App) -> AnyElemen
         .into_any_element()
 }
 
-/// One Library page scope (ADR 0082 packet 002): the Library scope or the
-/// other scope, each with the ADR 0082 Decision 2 groups inside it.
-fn scope_section(
-    label: &'static str,
-    groups: &[AlbumNameGroupVm],
-    mark_in_library: bool,
+/// One section, with its heading and its release rows (ADR 0085 Decision
+/// 3).
+fn render_section(
+    section: &PublisherPageSectionVm,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
+    on_open_release: &OpenReleaseCallback,
     cx: &App,
 ) -> AnyElement {
-    let mut body = div().flex().flex_col().gap(Spacing::LG.scaled(cx));
-    for group in groups {
-        body = body.child(album_name_group_section(
-            group,
-            mark_in_library,
-            album_thumbs,
-            cx,
-        ));
-    }
-    div()
-        .flex()
-        .flex_col()
-        .gap(Spacing::SM.scaled(cx))
-        .child(SectionHeader::new(label).level(SectionHeaderLevel::Container))
-        .child(body)
-        .into_any_element()
-}
-
-/// One album name group, with its role subgroups (ADR 0082 Decision 2).
-fn album_name_group_section(
-    group: &AlbumNameGroupVm,
-    mark_in_library: bool,
-    album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
-    cx: &App,
-) -> AnyElement {
-    let mut body = div().flex().flex_col().gap(Spacing::SM.scaled(cx));
-    for subgroup in &group.subgroups {
-        body = body.child(role_subgroup_block(
-            subgroup,
-            mark_in_library,
-            album_thumbs,
-            cx,
-        ));
-    }
     div()
         .flex()
         .flex_col()
         .gap(Spacing::XS.scaled(cx))
-        .child(SectionHeader::new(group.group.label()))
-        .child(body)
-        .into_any_element()
-}
-
-/// One role subgroup's caption and its album rows (ADR 0082 Decision 2).
-fn role_subgroup_block(
-    subgroup: &AlbumRoleSubgroupVm,
-    mark_in_library: bool,
-    album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
-    cx: &App,
-) -> AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap(Spacing::XXS.scaled(cx))
-        .child(
-            Label::new(subgroup.caption.clone())
-                .variant(LabelVariant::Caption)
-                .color(SemanticColor::SecondaryLabel),
-        )
+        .child(SectionHeader::new(section.heading.clone()))
         .child(
             div()
                 .flex()
                 .flex_col()
                 .gap(Spacing::XXS.scaled(cx))
                 .children(
-                    subgroup
-                        .albums
+                    section
+                        .rows
                         .iter()
-                        .map(|album| render_album_row(album, mark_in_library, album_thumbs, cx)),
+                        .map(|row| render_album_row(row, album_thumbs, on_open_release, cx)),
                 ),
         )
         .into_any_element()
 }
 
 fn render_album_row(
-    album: &PublisherPageAlbumVm,
-    mark_in_library: bool,
+    row: &PublisherPageAlbumVm,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
+    on_open_release: &OpenReleaseCallback,
     cx: &App,
 ) -> AnyElement {
-    let (title, missing_note) = title_display_text(&album.title);
-    let row_id = album
+    let (title, missing_note) = title_display_text(&row.title);
+    let row_id = row
         .feed_guid
         .clone()
         .unwrap_or_else(|| format!("no-guid:{title}"));
-    let thumb_image = album
+    let thumb_image = row
         .image_url
         .as_deref()
         .and_then(|url| album_thumbs.get(url))
@@ -278,7 +226,7 @@ fn render_album_row(
         .min_w_0()
         .overflow_hidden()
         .gap(Spacing::XXS.scaled(cx))
-        .child(Label::new(title).variant(LabelVariant::Headline));
+        .child(Label::new(title.clone()).variant(LabelVariant::Headline));
     if let Some(missing_note) = missing_note {
         text_block = text_block.child(
             Label::new(missing_note)
@@ -286,21 +234,44 @@ fn render_album_row(
                 .color(SemanticColor::TertiaryLabel),
         );
     }
-    if let Some(artist) = &album.artist {
+    if let Some(artist) = &row.artist {
         text_block =
             text_block.child(Label::new(artist.display_text()).variant(LabelVariant::Caption));
     }
-    text_block = text_block.child(render_role(&album.role));
+    // ADR 0085 Decision 3: a "Role not confirmed" row names who stated
+    // which role. A row in each other section shows no role line: its
+    // section already tells the relation.
+    if let Some(role_line) = &row.role_line {
+        text_block = text_block.child(
+            Label::new(role_line.clone())
+                .variant(LabelVariant::Micro)
+                .color(SemanticColor::WarningLabel),
+        );
+    }
 
-    let mut row = ListRow::new(SharedString::from(format!("publisher-album:{row_id}")))
+    let mut list_row = ListRow::new(SharedString::from(format!("publisher-album:{row_id}")))
         .child(Thumbnail::new(EntityKind::Release, ThumbnailSize::Sm).image(thumb_image))
         .child(div().flex_1().min_w_0().child(text_block));
 
+    // Required Change 7: the view model decides the open action's
+    // availability. A row with no feed GUID gets no click handler, so it
+    // stays inert.
+    if let Some(open) = &row.open {
+        let on_open_release = Rc::clone(on_open_release);
+        let key = open.key.clone();
+        let label = title.clone();
+        list_row = list_row
+            .a11y_label(ListRowA11yLabel {
+                label: open.a11y_label.clone().into(),
+            })
+            .on_click(move |_event, window, cx| on_open_release(&key, label.clone(), window, cx));
+    }
+
     let mut marks = Vec::new();
-    if album.not_listed {
+    if row.not_listed {
         marks.push(PublisherPageAlbumVm::NOT_LISTED_LABEL);
     }
-    if mark_in_library && album.in_library {
+    if row.in_library {
         marks.push(PublisherPageAlbumVm::IN_LIBRARY_LABEL);
     }
     if !marks.is_empty() {
@@ -315,10 +286,10 @@ fn render_album_row(
                 label: Some(SharedString::from(mark)),
             }));
         }
-        row = row.child(trailing);
+        list_row = list_row.child(trailing);
     }
 
-    row.into_any_element()
+    list_row.into_any_element()
 }
 
 fn title_display_text(title: &TitleDisplay) -> (String, Option<&'static str>) {
@@ -328,30 +299,10 @@ fn title_display_text(title: &TitleDisplay) -> (String, Option<&'static str>) {
     }
 }
 
-/// A row's role text and source, ready to view (ADR 0082 Decision 3). A
-/// conflict shows in a warning tone. A stated role (agreed or one-side)
-/// shows in a plain secondary tone, never the accent tone of a clickable
-/// item: this text opens nothing. An unstated role shows in a quiet tone.
-/// Color alone is not the only difference: the text itself names the
-/// state.
-fn render_role(role: &AlbumRoleDisplay) -> AnyElement {
-    let tone = if role.is_conflict() {
-        SemanticColor::WarningLabel
-    } else if role.is_stated() {
-        SemanticColor::SecondaryLabel
-    } else {
-        SemanticColor::TertiaryLabel
-    };
-    Label::new(role.display_text())
-        .variant(LabelVariant::Micro)
-        .color(tone)
-        .into_any_element()
-}
-
 /// "Shares albums with" (ADR 0082 Decision 5): one row for each entry,
 /// with its title, its roles and its album count. A click opens the
-/// entry's publisher page through `on_open_publisher`. `None` when
-/// `entries` is empty: the section is then absent.
+/// entry's feed page through `on_open_publisher`. `None` when `entries`
+/// is empty: the section is then absent.
 fn render_shares_albums_with(
     entries: Vec<CoCreditedFeedVm>,
     on_open_publisher: &OpenPublisherCallback,
@@ -411,9 +362,9 @@ fn render_shares_albums_with(
     )
 }
 
-/// Renders the publisher page's loading lifecycle (ADR 0077 packet 004).
-/// The app layer selects `display`; this function only lays out its text.
-/// A `Failed` display shows its report first, and its detail after it,
+/// Renders the feed page's loading lifecycle (ADR 0077 packet 004). The
+/// app layer selects `display`; this function only lays out its text. A
+/// `Failed` display shows its report first, and its detail after it,
 /// apart from the report (R3-02a).
 #[must_use]
 pub(crate) fn render_publisher_page_status(

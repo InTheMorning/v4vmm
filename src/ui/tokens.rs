@@ -153,7 +153,6 @@ pub enum SemanticColor {
     EntityTrack,
     EntityPlaylist,
     EntityArtist,
-    EntityPublisher,
 }
 
 impl SemanticColor {
@@ -262,7 +261,6 @@ impl SemanticColor {
             Self::EntityTrack => hex(0x00_8b99),
             Self::EntityPlaylist => hex(0x8e_dfad),
             Self::EntityArtist => hex(0xfa_b5e5),
-            Self::EntityPublisher => hex(0x7c_60d4),
         }
     }
 
@@ -351,7 +349,6 @@ impl SemanticColor {
             Self::EntityTrack => hex(0x00_8e9c),
             Self::EntityPlaylist => hex(0x00_6238),
             Self::EntityArtist => hex(0x72_3763),
-            Self::EntityPublisher => hex(0x82_67db),
         }
     }
 }

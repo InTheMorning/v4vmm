@@ -71,6 +71,15 @@ impl ReleaseKind {
             Self::Single => "single",
         }
     }
+
+    /// `true` for a Single (ADR 0085 Decision 3 design: the "Albums and
+    /// EPs" and "Singles" sections of a feed page split on this one
+    /// predicate, the same test `singles_groups` uses, without writing
+    /// `ReleaseKind::Single` outside this file (R15-09 guard)).
+    #[must_use]
+    pub(crate) const fn is_single(self) -> bool {
+        matches!(self, Self::Single)
+    }
 }
 
 #[cfg(test)]

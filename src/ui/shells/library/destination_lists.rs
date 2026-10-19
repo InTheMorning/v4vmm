@@ -288,7 +288,9 @@ fn render_destination_list_row(
 ) -> AnyElement {
     let entity_kind = match &row.open {
         DestinationListRowTarget::Release(_) => EntityKind::Release,
-        DestinationListRowTarget::Artist(_) => EntityKind::Artist,
+        DestinationListRowTarget::Artist(_) | DestinationListRowTarget::Publisher(_) => {
+            EntityKind::Artist
+        }
     };
     let target = row.open.clone();
     let thumbnail_href = row.thumbnail_href.clone();

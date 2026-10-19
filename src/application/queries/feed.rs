@@ -260,7 +260,6 @@ fn publisher_page_facts_from_feed(publisher_feed_guid: &str, feed: &Feed) -> Pub
             artist: entry.remote_release_artist.clone(),
             artist_source: entry.remote_release_artist_source.clone(),
             role: entry.role.clone(),
-            role_source: entry.role_source.clone(),
             music_names_publisher: entry.music_names_publisher,
             publisher_lists_music: entry.publisher_lists_music,
             publisher_link_resolution: entry.publisher_link_resolution.clone(),
@@ -269,6 +268,9 @@ fn publisher_page_facts_from_feed(publisher_feed_guid: &str, feed: &Feed) -> Pub
             album_names_as: entry.album_names_as.clone(),
             role_agreement: entry.role_agreement.clone(),
             in_library: false,
+            named_rank: entry.album_names_rank,
+            track_count: entry.remote_episode_count,
+            two_way_validated: entry.two_way_validated,
         })
         .collect();
     let co_credited_feeds = feed
@@ -286,6 +288,7 @@ fn publisher_page_facts_from_feed(publisher_feed_guid: &str, feed: &Feed) -> Pub
     PublisherPageFacts {
         publisher_feed_guid: publisher_feed_guid.to_owned(),
         feed_title: feed.title.clone(),
+        feed_image_url: feed.image_url.clone(),
         confirmed_release_artist_count: feed.confirmed_release_artist_count,
         confirmed_release_artists: feed.confirmed_release_artists.clone().unwrap_or_default(),
         unconfirmed_release_artist_count: feed.unconfirmed_release_artist_count,
@@ -451,6 +454,7 @@ mod adr_0075_request_profile_tests {
             return serde_json::json!({"data": {
                 "feed_guid": "publisher-guid",
                 "title": "Publisher Feed",
+                "image_url": "https://example.test/publisher-guid.jpg",
                 "publisher": [{
                     "direction": "publisher_to_music",
                     "remote_feed_guid": "album-guid",
@@ -538,6 +542,11 @@ mod adr_0075_request_profile_tests {
         assert_eq!(facts.albums.len(), 1, "the fixture names one album entry");
         assert_eq!(facts.albums[0].feed_guid.as_deref(), Some("album-guid"));
         assert_eq!(facts.albums[0].title.as_deref(), Some("Album Title"));
+        assert_eq!(
+            facts.feed_image_url.as_deref(),
+            Some("https://example.test/publisher-guid.jpg"),
+            "R85-8-16: the feed's own image_url carries into feed_image_url"
+        );
         let requests = fixture.requests.lock().unwrap().clone();
         assert_eq!(
             requests,

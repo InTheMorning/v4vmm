@@ -158,10 +158,12 @@ Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 202
 - Scheduling: it needs a macOS desktop session.
 - V2, macOS part: `cmd-[` and `cmd-]` outside a text box do the same as Back and Forward. Indent and outdent still work in a macOS text box.
 
-## 5. Release Covers On The Library Artist Page
+## 5. The Feed Page And Artists By Confirmation — ADR 0084 Task 008
 
-Open - the orchestrator made the second fix on 2026-10-18. Operator inspection is pending.
+Open - implementation and mechanical checks are complete on 2026-10-18. Operator inspection is pending.
 
-- The operator found on 2026-10-18 that "The Heycitizen Experience" showed "FD" on the Library artist page of HeyCitizen. The first fix did not correct it.
-- Cause: the Library loaded only the header image of the artist page. `LibraryArtistDetailVm::thumbnail_urls` now gives the cover URL of each release row, and `src/library/app_impl.rs` loads them. The test `artist_detail_vm_thumbnail_urls_give_each_release_row_one_time` guards it.
-- Check: build with `cargo build --bin v4vmm`, start `target/debug/v4vmm`, and open Music > Artists > HeyCitizen. Each release row shows its cover. Wrong: a row shows "FD".
+- Owner: [task 008](tasks/adr-0084-task-008-feed-page-and-artists.md#operator-visual-check).
+- Precondition: network access to `api.musicindex.org`. V5 changes the MusicIndex endpoint in Settings, and its cleanup restores it.
+- V1 to V4: the levels, the frame titles, the sections and the Artists list. V5: the MusicIndex failure report.
+- V6 to V9: the artist count facts, the changed words, the widths and themes, and the release row action with the header image.
+

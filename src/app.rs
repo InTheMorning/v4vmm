@@ -1021,7 +1021,10 @@ impl TopApp {
             // ADR 0077 packet 006: this frame title is fixed text, never
             // "Artist". The entry names no artist.
             FrameNavigationEntry::IndexNameMatches(_) => "Tracks matching".to_string(),
-            FrameNavigationEntry::PublisherDetail(_) => "Publisher".to_string(),
+            // ADR 0085 Decision 7: the default title, before the page's
+            // own facts load. `render_workspace_screen_mount` overrides
+            // this with the loaded frame title.
+            FrameNavigationEntry::PublisherDetail(_) => "Feed".to_string(),
             FrameNavigationEntry::SinglesGroup(_) => "Singles".to_string(),
             FrameNavigationEntry::QueueNowPlaying => "Queue".to_string(),
         }
@@ -1368,6 +1371,25 @@ impl TopApp {
                 layout
                     .set_frame_title(detail_frame_id, title)
                     .expect("the found detail frame id exists in this layout");
+            }
+        }
+
+        // ADR 0085 Decision 7: the Detail frame title of a feed page comes
+        // from its own loaded facts, once they load. Before that, and on
+        // a failed fetch, `content_list_frame_title`'s default "Feed"
+        // stays. This mirrors the singles-group title override above.
+        if matches!(&current_nav, Some(FrameNavigationEntry::PublisherDetail(_))) {
+            if let Some(title) = self.publisher_page_frame_title() {
+                let detail_frame_id = layout
+                    .frames()
+                    .iter()
+                    .find(|frame| matches!(frame.kind(), WorkspaceFrameKind::Detail))
+                    .map(WorkspaceFrameState::id);
+                if let Some(detail_frame_id) = detail_frame_id {
+                    layout
+                        .set_frame_title(detail_frame_id, title)
+                        .expect("the found detail frame id exists in this layout");
+                }
             }
         }
 

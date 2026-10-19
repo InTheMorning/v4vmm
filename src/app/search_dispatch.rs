@@ -562,8 +562,10 @@ impl TopApp {
     /// Opens a release page by its key, from any origin (ADR 0084
     /// Decision 4). Replaces `open_library_album_in_frame` and
     /// `push_index_feed_detail`: one function pushes the entry, resolves
-    /// its data source, and restores the page.
-    fn open_release_in_frame(
+    /// its data source, and restores the page. `pub(super)`: a feed page
+    /// release row also opens a release through this one function (ADR
+    /// 0085 Decision 7 design, Required Change 7).
+    pub(super) fn open_release_in_frame(
         &mut self,
         content_frame_id: WorkspaceFrameId,
         key: &ReleaseKey,

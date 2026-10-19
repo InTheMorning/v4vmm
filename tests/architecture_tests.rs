@@ -18357,41 +18357,37 @@ text or `publisher_text`.";
     );
 }
 
-/// Situational — ADR 0077 packet 004 and ADR 0082 packet 002 (R4-06,
-/// R82-2-01 to R82-2-07): the durable renderer portability rule in
-/// AGENTS.md. The publisher page screen reads the group captions, the
-/// role subgroup captions, the row role text and the "not listed"/"in
-/// library" marks from `PublisherPageVm`/`PublisherPageContext` only. It
-/// never hardcodes the words those types compute, and it composes no
-/// display string, such as a count-and-label pair or a glyph, of its own
-/// (orchestrator review, packet 004 fix 2). Delete this guard only when
-/// AGENTS.md drops the renderer portability rule.
+/// Situational — ADR 0085 Decisions 2 to 4 and 7 (R85-8-01 to R85-8-16): the
+/// durable renderer portability rule in AGENTS.md. The feed page screen
+/// reads the section headings, the level text, the frame title, the row
+/// role line and the "not listed"/"in library" marks from
+/// `PublisherPageVm`/`PublisherPageContext` only. It never hardcodes the
+/// words those types compute, and it composes no display string, such as a
+/// count-and-label pair or a glyph, of its own (orchestrator review, packet
+/// 004 fix 2, carried into ADR 0085 packet 008). Replaces the ADR 0082
+/// packet 002 guard this packet's redesign supersedes. Delete this guard
+/// only when AGENTS.md drops the renderer portability rule.
 #[test]
-fn adr_0077_publisher_navigation_screen_reads_labels_from_view_model_only() {
-    const FIX: &str = "AGENTS.md durable renderer portability rule: a screen decides no group, no \
-role subgroup, no role text, no composed display string and no action availability. Read \
-`AlbumNameGroup::label()`, `AlbumRoleDisplay::display_text()`, \
-`PublisherPageVm::LIBRARY_SCOPE_LABEL`/`OTHER_SCOPE_LABEL`/`SHARES_ALBUMS_WITH_LABEL`, \
-`PublisherPageAlbumVm::NOT_LISTED_LABEL`, `PublisherPageAlbumVm::IN_LIBRARY_LABEL`, \
-`AlbumArtistDisplay::display_text()`, `DerivedArtistCount::display_text()`, \
-`CoCreditedFeedVm::roles_and_count_text()` and \
-`PublisherPageVm::header_facts()`/`title_text()` from `src/view_models/publisher_page.rs` instead of \
+fn adr_0085_feed_page_screen_reads_labels_from_view_model_only() {
+    const FIX: &str = "AGENTS.md durable renderer portability rule: a screen decides no section \
+heading, no level text, no frame title, no role line and no action availability. Read \
+`PublisherPageVm::sections()`/`level()`/`frame_title()`/`header_facts()`/`title_text()`, \
+`PublisherPageAlbumVm::NOT_LISTED_LABEL`/`IN_LIBRARY_LABEL`/`role_line`, \
+`AlbumArtistDisplay::display_text()`, `DerivedArtistCount::display_text()` and \
+`CoCreditedFeedVm::roles_and_count_text()` from `src/view_models/publisher_page.rs` instead of \
 writing the word, the composed string or the glyph directly in the screen.";
     const FORBIDDEN: &[&str] = &[
-        "\"Not listed",
+        "\"Not listed by this feed\"",
         "\"In Library\"",
-        "\"Library Albums\"",
-        "\"Other Albums\"",
-        "\"Publisher of\"",
-        "\"Listed, not named\"",
-        "\"Role stated by one side\"",
-        "\"Roles differ, not confirmed\"",
-        "\"Role not stated\"",
+        "\"Albums and EPs\"",
+        "\"Singles\"",
+        "\"Role not confirmed\"",
         "\"Shares albums with\"",
-        "\"agreed by both feeds\"",
-        "\"stated by the album only\"",
-        "\"stated by the publisher only\"",
-        "\"not confirmed\"",
+        "\"As \"",
+        "\"Listed by \"",
+        "\"Artist\"",
+        "\"Unverified artist\"",
+        "\"Confirmation\"",
     ];
     /// A `\u{...}` escape is a glyph, such as an em dash, composed straight
     /// into the screen. AGENTS.md token discipline: "No raw literal and no
@@ -18408,20 +18404,20 @@ writing the word, the composed string or the glyph directly in the screen.";
         for forbidden in FORBIDDEN {
             if line.contains(forbidden) {
                 violations.push(format!(
-                    "{}:{line_number}: publisher page screen hardcodes {forbidden}: `{line}`\n  {FIX}",
+                    "{}:{line_number}: feed page screen hardcodes {forbidden}: `{line}`\n  {FIX}",
                     rel_path(&path)
                 ));
             }
         }
         if line.contains(GLYPH_ESCAPE) {
             violations.push(format!(
-                "{}:{line_number}: publisher page screen embeds a glyph escape: `{line}`\n  {FIX}",
+                "{}:{line_number}: feed page screen embeds a glyph escape: `{line}`\n  {FIX}",
                 rel_path(&path)
             ));
         }
         if line.contains(LITERAL_LABEL) {
             violations.push(format!(
-                "{}:{line_number}: publisher page screen passes a quoted display label to \
+                "{}:{line_number}: feed page screen passes a quoted display label to \
 `Label::new`: `{line}`\n  {FIX}",
                 rel_path(&path)
             ));
@@ -18430,9 +18426,192 @@ writing the word, the composed string or the glyph directly in the screen.";
 
     assert!(
         violations.is_empty(),
-        "ADR 0077 packet 004 publisher page screen renderer portability violations:\n{}",
+        "ADR 0085 feed page screen renderer portability violations:\n{}",
         violations.join("\n")
     );
+}
+
+/// The files that use the word "publisher" for the `musicindex-live-publisher`
+/// broadcast service (ADR 0085 Decision 1 names this one exception: the
+/// word then names a service, not a feed). Each entry gives its reason.
+const BROADCAST_PUBLISHER_SERVICE_FILES: &[(&str, &str)] = &[
+    (
+        "src/view_models/show.rs",
+        "the Show view model names and controls the musicindex-live-publisher service",
+    ),
+    (
+        "src/view_models/show/event_report.rs",
+        "the Show event report names the musicindex-live-publisher service in its text",
+    ),
+    (
+        "src/view_models/startup/capabilities.rs",
+        "the startup capabilities view model names the musicindex-live-publisher dependency",
+    ),
+    (
+        "src/view_models/startup/session.rs",
+        "the session report names the musicindex-live-publisher service that keeps running",
+    ),
+    (
+        "src/app/show.rs",
+        "the Show screen dispatch reports musicindex-live-publisher command and log errors",
+    ),
+];
+
+/// The one constant ADR 0085 Decision 7 permits to hold the word
+/// "publisher" as interface text: the frame title of a feed that is
+/// definitely not an artist. A line that declares it is exempt, by name.
+const FEED_PAGE_FRAME_TITLE_PUBLISHER_CONSTANT: &str = "FRAME_TITLE_PUBLISHER";
+
+/// The length of the word "publisher", in bytes (ASCII, so this is also
+/// its length in `char`s).
+const PUBLISHER_WORD_LEN: usize = "publisher".len();
+
+/// Returns `true` when the "publisher" match at byte offset `start` of
+/// `literal` is the RSS element name `podcast:publisher`, or part of a
+/// snake_case or kebab-case identifier such as `music_to_publisher` or
+/// `publisher-page` (ADR 0085 Decision 1 design). `literal` is the exact
+/// text between one pair of quotes; `start` and the match both stay in
+/// ASCII, so byte offsets double as `char` offsets.
+fn feed_publisher_word_match_is_exempt(literal: &str, start: usize) -> bool {
+    let before = literal[..start].chars().next_back();
+    let after = literal[(start + PUBLISHER_WORD_LEN).min(literal.len())..]
+        .chars()
+        .next();
+    let identifier_adjacent = matches!(before, Some('_' | '-')) || matches!(after, Some('_' | '-'));
+    let element_name = literal[..start].to_lowercase().ends_with("podcast:");
+    identifier_adjacent || element_name
+}
+
+/// Returns `true` when `literal` names a feed "publisher" (ADR 0085
+/// Decision 1): it holds the word "publisher", in any case, outside every
+/// exemption of [`feed_publisher_word_match_is_exempt`].
+fn literal_names_a_feed_publisher(literal: &str) -> bool {
+    let lower = literal.to_lowercase();
+    let mut search_from = 0;
+    while let Some(found) = lower[search_from..].find("publisher") {
+        let start = search_from + found;
+        if !feed_publisher_word_match_is_exempt(literal, start) {
+            return true;
+        }
+        search_from = start + PUBLISHER_WORD_LEN;
+    }
+    false
+}
+
+/// Returns the text of `source` before its own `#[cfg(test)] mod tests`
+/// block, or the whole text when `source` declares no such module.
+///
+/// `production_source` truncates at the FIRST `#[cfg(test)]` text in the
+/// file, which also matches a single inline item such as
+/// `#[cfg(test)] use ...` or `#[cfg(test)] const ... ;` that this codebase
+/// sometimes places ahead of its own test module. This function instead
+/// finds `mod tests {` and checks that the line right before it is
+/// `#[cfg(test)]`, the one shape of this codebase's own test-module
+/// convention (confirmed in `src/view_models/library.rs`,
+/// `src/view_models/show.rs`, `src/app.rs`, and elsewhere).
+fn source_before_own_test_module(source: &str) -> &str {
+    let marker = "mod tests {";
+    let mut search_from = 0;
+    while let Some(relative) = source[search_from..].find(marker) {
+        let at = search_from + relative;
+        if source[..at].trim_end().ends_with("#[cfg(test)]") {
+            return &source[..at];
+        }
+        search_from = at + marker.len();
+    }
+    source
+}
+
+/// The files the ADR 0085 Decision 1 guard scans: `src/view_models/`,
+/// `src/ui/`, `src/views.rs`, `src/app.rs` and `src/app/`, outside a
+/// dedicated test file (one whose own path ends in `tests.rs`, gated by
+/// `#[cfg(test)]` in its parent `mod.rs` instead of in its own text) and
+/// outside the broadcast publisher service files.
+fn feed_publisher_word_scan_files() -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = Vec::new();
+    for dir in ["src/view_models", "src/ui", "src/app"] {
+        files.extend(rust_files_under(dir));
+    }
+    files.push(manifest_path("src/views.rs"));
+    files.push(manifest_path("src/app.rs"));
+    files.sort();
+    files.dedup();
+    files
+        .into_iter()
+        .filter(|path| {
+            let rel = rel_path(path);
+            !rel.ends_with("tests.rs")
+                && !BROADCAST_PUBLISHER_SERVICE_FILES
+                    .iter()
+                    .any(|(file, _)| *file == rel)
+        })
+        .collect()
+}
+
+/// Situational — ADR 0085 Decision 1 ("The Interface Does Not Name A Feed
+/// 'Publisher'"). No label, heading, mark or accessibility text calls a
+/// feed "publisher". Delete this guard when ADR 0085 Decision 1 is
+/// superseded.
+#[test]
+fn adr_0085_feed_page_guard_no_interface_text_names_a_feed_publisher() {
+    let mut violations = Vec::new();
+    for path in feed_publisher_word_scan_files() {
+        let rel = rel_path(&path);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(source_before_own_test_module(&source)) {
+            if line.contains(FEED_PAGE_FRAME_TITLE_PUBLISHER_CONSTANT) {
+                continue;
+            }
+            for literal in string_literals(&line) {
+                if literal_names_a_feed_publisher(&literal) {
+                    violations.push(format!(
+                        "ADR 0085 §1 The Interface Does Not Name A Feed \"Publisher\": {rel}:{line_number} names a feed \"publisher\".\n\
+Use \"feed\", \"artist\" or the RSS element name. Only the Decision 7 frame title says \"Publisher\". A service name goes in the broadcast file list of this guard."
+                    ));
+                    break;
+                }
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0085 Decision 1 \"no feed publisher\" violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// `source_before_own_test_module` keeps production code after an inline
+/// `#[cfg(test)]` item, and still finds the file's own test module.
+#[test]
+fn adr_0085_feed_page_guard_source_before_own_test_module_skips_inline_cfg_test() {
+    let source = "fn a() {}\n#[cfg(test)]\nuse x;\nfn b() { \"keep this\" }\n#[cfg(test)]\nmod tests {\n    fn c() { \"drop this\" }\n}\n";
+    let kept = source_before_own_test_module(source);
+    assert!(kept.contains("keep this"));
+    assert!(!kept.contains("drop this"));
+
+    let no_module = "fn a() {}\n#[cfg(test)]\nuse x;\nfn b() {}\n";
+    assert_eq!(source_before_own_test_module(no_module), no_module);
+}
+
+/// R85-8-13: the detection the guard above uses flags a plain "Publisher"
+/// string, and keeps each exemption clear: the RSS element name, a
+/// snake_case or kebab-case identifier, and the one frame title constant
+/// (checked by its name, at the call site above, not by this function).
+#[test]
+fn adr_0085_feed_page_guard_flags_a_literal_publisher_string() {
+    assert!(literal_names_a_feed_publisher("Publisher"));
+    assert!(literal_names_a_feed_publisher(
+        "Open the publisher page of {title}"
+    ));
+    assert!(!literal_names_a_feed_publisher("podcast:publisher"));
+    assert!(!literal_names_a_feed_publisher(
+        "podcast:publisher feed {} at {url}"
+    ));
+    assert!(!literal_names_a_feed_publisher("music_to_publisher"));
+    assert!(!literal_names_a_feed_publisher("publisher-page"));
+    assert!(!literal_names_a_feed_publisher(
+        "music-singles-group-publisher:{guid}"
+    ));
 }
 
 /// Situational — ADR 0082 packet 002 (R82-2-08): ADR 0082 supersedes ADR
@@ -18719,17 +18898,19 @@ fn adr_0075_projection_views_combine_no_fact_and_column() {
 //
 // Situational — ADR 0075 section 6. `src/api.rs` must decode only fields
 // that the deployed MusicIndex contract declares. The guard below reads the
-// stored contract copy at `tests/fixtures/musicindex-openapi-0.7.0.json` and
+// stored contract copy at `tests/fixtures/musicindex-openapi-0.11.0.json` and
 // each mapped struct body in `src/api.rs`, and fails when a decoded field is
 // not a declared property. Delete this guard when ADR 0075 is superseded.
 //
 // ADR 0082 packet 001 replaced the stored copy with the Stophammer 0.7.0
-// contract on 2026-10-02, and extended the type map for its new fields.
+// contract on 2026-10-02, and extended the type map for its new fields. ADR
+// 0085 packet 008 replaced it again with the Stophammer 0.11.0 contract on
+// 2026-10-18, for `album_names_rank` and `remote_episode_count`.
 
 /// The stored MusicIndex contract (ADR 0075 section 6). The file name holds
 /// the contract version. A person or an agent replaces this file after each
 /// Stophammer release, in the same change as the decode changes.
-const MUSICINDEX_CONTRACT_FIXTURE: &str = "tests/fixtures/musicindex-openapi-0.7.0.json";
+const MUSICINDEX_CONTRACT_FIXTURE: &str = "tests/fixtures/musicindex-openapi-0.11.0.json";
 
 /// Where a decoded type's declared fields live in the stored contract: a
 /// named schema under `components.schemas`, or the inline response schema
@@ -19126,7 +19307,7 @@ fn undeclared_fields(decoded: &[String], declared: &BTreeSet<String>) -> Vec<Str
 /// 0075 task 051 specifies.
 fn contract_field_violation(rust_type: &str, field: &str, schema_description: &str) -> String {
     format!(
-        "ADR 0075 section 6: api::{rust_type} decodes `{field}`, and MusicIndex contract 0.7.0 \
+        "ADR 0075 section 6: api::{rust_type} decodes `{field}`, and MusicIndex contract 0.11.0 \
 does not declare it in {schema_description}.\n\
 Remove the field, or replace {MUSICINDEX_CONTRACT_FIXTURE} with the contract that declares it."
     )
@@ -19224,11 +19405,11 @@ fn adr_0075_task_051_contract_field_guard_passes_on_present_code() {
     );
 }
 
-/// R82-1-01: the stored contract copy gives `info.version` `0.7.0`.
+/// R85-8-12: the stored contract copy gives `info.version` `0.11.0`.
 #[test]
-fn adr_0082_link_facts_contract_fixture_is_0_7_0() {
+fn adr_0085_feed_page_contract_fixture_is_0_11_0() {
     let contract = load_musicindex_contract();
-    assert_eq!(contract["info"]["version"], "0.7.0");
+    assert_eq!(contract["info"]["version"], "0.11.0");
 }
 
 /// R51-02: a sample struct with a field the schema does not declare gives

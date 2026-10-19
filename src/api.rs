@@ -718,6 +718,17 @@ pub struct PublisherRelationship {
     /// (Stophammer ADR 0059, ADR 0077 Task 003).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remote_release_artist_source: Option<String>,
+    /// The rank of this link in the named-feed sequence of the album, from
+    /// 1 (Stophammer ADR 0069 §3a, release 0.11.0). Null when
+    /// `album_names_as` is null: an album the feed only lists carries no
+    /// rank.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_names_rank: Option<i64>,
+    /// The track count of the feed that `remote_feed_guid` names (Stophammer
+    /// ADR 0059 amendment, release 0.11.0). Null when the node holds no
+    /// feed for the entry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_episode_count: Option<i64>,
 }
 
 /// One value time split from an API response (ADR 0075).
@@ -3664,6 +3675,71 @@ pub(crate) mod tests {
                 serialized.get("role").is_none(),
                 "a null role should stay absent on round trip"
             );
+        }
+    }
+
+    /// ADR 0085 Decision 7 design, Required Change 2: the Stophammer
+    /// 0.11.0 named-feed rank and track count. The node deployed this
+    /// contract on 2026-10-18 (`git_revision` `99e90f7`), and the open
+    /// requests record names the DETOX publisher feed rank 1 on each of
+    /// its 30 rows.
+    mod adr_0085_feed_page {
+        use crate::api::{DetailResponse, Feed};
+
+        /// Recorded on 2026-10-18 from
+        /// `GET https://api.musicindex.org/v1/feeds/137aaa9c-75ff-4916-9f23-e02968b2d15e?include=publisher`
+        /// (the DETOX publisher feed), trimmed to the fields the test
+        /// needs.
+        const RECORDED_DETOX_RANKED_ROW: &str = r#"{
+            "data": {
+                "feed_guid": "137aaa9c-75ff-4916-9f23-e02968b2d15e",
+                "publisher": [
+                    {
+                        "direction": "publisher_to_music",
+                        "remote_feed_guid": "album-guid-1",
+                        "publisher_feed_guid": "137aaa9c-75ff-4916-9f23-e02968b2d15e",
+                        "album_names_as": "publisher",
+                        "album_names_rank": 1,
+                        "remote_episode_count": 7,
+                        "music_names_publisher": true
+                    },
+                    {
+                        "direction": "publisher_to_music",
+                        "remote_feed_guid": "album-guid-2",
+                        "publisher_feed_guid": "137aaa9c-75ff-4916-9f23-e02968b2d15e",
+                        "album_names_as": null,
+                        "album_names_rank": null,
+                        "remote_episode_count": null,
+                        "music_names_publisher": false
+                    }
+                ]
+            },
+            "pagination": {"cursor": null, "has_more": false}
+        }"#;
+
+        /// R85-8-12: the decode reads `album_names_rank` and
+        /// `remote_episode_count` from a recorded response. A row with a
+        /// null `album_names_as` gives a null rank, by the Stophammer rule
+        /// that the open requests record names.
+        #[test]
+        fn adr_0085_feed_page_decodes_rank_and_episode_count() {
+            let response: DetailResponse<Feed> = serde_json::from_str(RECORDED_DETOX_RANKED_ROW)
+                .expect("the recorded 0.11.0 row should decode");
+            let entries = response
+                .data
+                .publisher
+                .expect("the feed should carry publisher");
+            assert_eq!(entries[0].album_names_rank, Some(1));
+            assert_eq!(entries[0].remote_episode_count, Some(7));
+            assert_eq!(
+                entries[1].album_names_rank, None,
+                "a null album_names_as gives a null rank"
+            );
+            assert_eq!(entries[1].remote_episode_count, None);
+
+            let serialized = serde_json::to_value(&entries[0]).unwrap();
+            assert_eq!(serialized["album_names_rank"], 1);
+            assert_eq!(serialized["remote_episode_count"], 7);
         }
     }
 

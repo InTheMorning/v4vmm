@@ -236,6 +236,10 @@ pub(crate) struct LocalPublisherAlbum {
     pub(crate) album_names_as: Option<crate::api::AlbumNamesAs>,
     /// Whether the two feeds agree on `role` (ADR 0082 Decision 2).
     pub(crate) role_agreement: Option<crate::api::RoleAgreement>,
+    /// Whether the two feeds name each other (ADR 0085 Decision 2: the
+    /// Unverified artist level needs this fact for a Library row, the
+    /// same as an Index row reads it from `two_way_validated`).
+    pub(crate) two_way_validated: Option<bool>,
 }
 
 /// Reads each local feed with a stored `music_to_publisher` row for the
@@ -257,7 +261,7 @@ pub(crate) fn local_albums_for_publisher(
             "SELECT feeds.id, feeds.feed_guid, feeds.title, feeds.album_image_href,
                     r.publisher_feed_title, r.role, r.role_source, r.publisher_lists_music,
                     r.publisher_link_resolution, r.publisher_rel, r.music_rel,
-                    r.album_names_as, r.role_agreement
+                    r.album_names_as, r.role_agreement, r.two_way_validated
              FROM feed_publisher_relationships r
              JOIN feeds ON feeds.id = r.feed_id
              WHERE r.direction = 'music_to_publisher' AND r.publisher_feed_guid = ?1
@@ -288,6 +292,7 @@ pub(crate) fn local_albums_for_publisher(
                 role_agreement: row
                     .get::<_, Option<String>>(12)?
                     .map(crate::api::RoleAgreement::from),
+                two_way_validated: row.get(13)?,
             })
         })
         .context("Query local albums for publisher")?

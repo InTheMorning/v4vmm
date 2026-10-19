@@ -88,9 +88,11 @@ impl TrackDetailLabels {
         "Feed publication date"
     }
 
+    /// ADR 0085 Decision 1: the release page names the same value "Feed
+    /// owner". No interface text calls the row "Publisher".
     #[must_use]
     pub const fn publisher_label(self) -> &'static str {
-        "Publisher"
+        "Feed owner"
     }
 
     #[must_use]
@@ -1070,7 +1072,7 @@ mod tests {
                 ("Duration", "2:05"),
                 ("Release Date", "Apr 5, 2024"),
                 ("Explicit", "Yes"),
-                ("Publisher", "Publisher"),
+                ("Feed owner", "Publisher"),
             ]
         );
     }

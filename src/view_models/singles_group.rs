@@ -30,13 +30,14 @@ const SHOW_SINGLES_LABEL: &str = "Show singles";
 const HIDE_SINGLES_LABEL: &str = "Hide singles";
 /// The note of a group at the name level (ADR 0084 Decision 7).
 const NAME_LEVEL_NOTE: &str = "Grouped by the artist name. A name is not an identity.";
-/// The note of a group at the publisher level (ADR 0084 Decision 7).
-const PUBLISHER_LEVEL_NOTE: &str = "Grouped by the publisher feed that each single names.";
+/// The note of a group at the feed level (ADR 0084 Decision 7, ADR 0085
+/// Decision 1).
+const PUBLISHER_LEVEL_NOTE: &str = "Grouped by the artist feed of each single.";
 /// The identity level of a group at the name level, in its summary text.
 const NAME_LEVEL_LABEL: &str = "By name";
-/// The identity level of a group at the publisher level, in its summary
-/// text.
-const PUBLISHER_LEVEL_LABEL: &str = "Publisher feed";
+/// The identity level of a group at the feed level, in its summary text
+/// (ADR 0085 Decision 1).
+const PUBLISHER_LEVEL_LABEL: &str = "Artist feed";
 /// The empty state of a group page with fewer than two singles.
 const EMPTY_GROUP_MESSAGE: &str = "This artist has fewer than two singles in the Library.";
 /// The title of a group page with no group.
@@ -98,7 +99,7 @@ impl SinglesGroup<'_> {
 
     /// The count, the Library state and the identity level, for example
     /// "7 singles · 5 in Library · By name" or "7 singles · In Library ·
-    /// Publisher feed". One name can have a group at each level (ADR 0084
+    /// Artist feed". One name can have a group at each level (ADR 0084
     /// Decision 7), so the level tells the two rows apart.
     #[must_use]
     pub(crate) fn summary_text(&self) -> String {
@@ -121,7 +122,7 @@ impl SinglesGroup<'_> {
         }
     }
 
-    /// The identity level of the group: "By name" or "Publisher feed".
+    /// The identity level of the group: "By name" or "Artist feed".
     #[must_use]
     pub(crate) const fn level_label(&self) -> &'static str {
         match self.identity {
@@ -810,7 +811,7 @@ mod tests {
         assert_eq!(page.identity_note, Some(PUBLISHER_LEVEL_NOTE));
         assert_eq!(
             page.subtitle.as_deref(),
-            Some("2 singles · In Library · Publisher feed")
+            Some("2 singles · In Library · Artist feed")
         );
         assert_eq!(page.rows.len(), 2);
 

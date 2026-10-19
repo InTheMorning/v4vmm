@@ -497,7 +497,8 @@ fn field_label(field: RssField) -> &'static str {
         RssField::Persons => "Persons",
         RssField::Nostr => "Nostr identity",
         RssField::PaymentRoutes => "Payment routes",
-        RssField::Publisher => "Publisher",
+        // ADR 0085 Decision 1 permits the RSS element name.
+        RssField::Publisher => "podcast:publisher",
         RssField::Track => "Track",
     }
 }
@@ -586,13 +587,14 @@ fn value_text(field: RssField, value: Option<&Value>) -> String {
                 }
             )
         }
+        // ADR 0085 Decision 1 permits the RSS element name.
         (RssField::Publisher, value) => match value["feed_url"].as_str() {
             Some(url) => format!(
-                "Publisher feed {} at {url}",
+                "podcast:publisher feed {} at {url}",
                 value["feed_guid"].as_str().unwrap_or("with no GUID")
             ),
             None => format!(
-                "Publisher feed {}",
+                "podcast:publisher feed {}",
                 value["feed_guid"].as_str().unwrap_or("with no GUID")
             ),
         },
@@ -901,6 +903,56 @@ mod tests {
             removed_from_feed_row(Some(&snapshot), 3, 12, 1, "Song"),
             None
         );
+    }
+
+    /// ADR 0085 Decision 1: the report names the `podcast:publisher`
+    /// element, never the word "Publisher" alone.
+    #[test]
+    fn adr_0085_feed_page_rss_check_report_names_the_podcast_publisher_element() {
+        use crate::runtime::playlist_rss_check::test_support::snapshot_with_differences;
+        let old = serde_json::json!({
+            "feed_guid": "old-guid",
+            "feed_url": "https://old.test/feed.xml"
+        });
+        let new = serde_json::json!({
+            "feed_guid": "new-guid",
+            "feed_url": "https://new.test/feed.xml"
+        });
+        let difference = StoredDifference {
+            id: 1,
+            run_id: 1,
+            feed_id: 7,
+            feed_title: Some("Album".into()),
+            feed_url: Some("https://feed.test/album.xml".into()),
+            track_id: None,
+            track_title: None,
+            field: RssField::Publisher,
+            kind: DifferenceKind::Changed,
+            old_value: Some(old),
+            new_value: Some(new),
+            recorded_at_us: 1_790_000_000_000_000,
+        };
+        let snapshot = snapshot_with_differences(3, vec![difference], &[]);
+
+        let report = report(3, Some(&snapshot)).unwrap();
+
+        let row = &report.differences[0];
+        assert_eq!(row.field, "podcast:publisher");
+        assert_eq!(
+            row.old_value,
+            "podcast:publisher feed old-guid at https://old.test/feed.xml"
+        );
+        assert_eq!(
+            row.new_value,
+            "podcast:publisher feed new-guid at https://new.test/feed.xml"
+        );
+        for text in [row.field, row.old_value.as_str(), row.new_value.as_str()] {
+            assert!(
+                !text.to_lowercase().contains("publisher")
+                    || text.to_lowercase().contains("podcast:publisher"),
+                "the word \"publisher\" must appear only as the RSS element name: {text}"
+            );
+        }
     }
 
     #[test]

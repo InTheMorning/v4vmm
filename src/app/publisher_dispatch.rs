@@ -20,7 +20,7 @@ use crate::ui::shells::publisher::{render_publisher_page, render_publisher_page_
 use crate::view_models::publisher_page::{
     PublisherPageContext, PublisherPageFacts, PublisherPageLoadDisplay, PublisherPageVm,
 };
-use crate::view_models::workspace::FrameNavigationEntry;
+use crate::view_models::workspace::{FrameNavigationEntry, ReleaseKey};
 
 use super::TopApp;
 
@@ -33,7 +33,10 @@ pub(super) enum PublisherPageState {
     },
     Loaded {
         publisher_feed_guid: String,
-        facts: PublisherPageFacts,
+        // `Box`ed: `PublisherPageFacts` grew past clippy's large-enum-variant
+        // threshold once it gained `feed_image_url` and each album's named
+        // rank and track count (ADR 0085 Decision 7 design).
+        facts: Box<PublisherPageFacts>,
         context: PublisherPageContext,
     },
     Failed {
@@ -84,7 +87,7 @@ impl TopApp {
             content_frame_id,
             FrameNavigationEntry::PublisherDetail(publisher_feed_guid.clone()),
         ) {
-            self.settings_status = format!("Failed to navigate to publisher: {error}");
+            self.settings_status = format!("The app could not open the feed page: {error}");
         }
         self.fetch_publisher_page(publisher_feed_guid, context, cx);
     }
@@ -176,7 +179,7 @@ impl TopApp {
                 }
                 this.publisher_page = Some(PublisherPageState::Loaded {
                     publisher_feed_guid: success_guid,
-                    facts,
+                    facts: Box::new(facts),
                     context,
                 });
                 cx.notify();
@@ -207,7 +210,7 @@ impl TopApp {
                 render_publisher_page_status(&display, cx)
             }
             Some(PublisherPageState::Loaded { facts, context, .. }) => {
-                let vm = PublisherPageVm::new(facts);
+                let vm = PublisherPageVm::new(*facts);
                 // ADR 0077 packet 004, orchestrator fix 5: `image_url` on
                 // each album already comes from packet 003 (Index) and this
                 // packet's own Library query. Resolve it through the same
@@ -217,9 +220,14 @@ impl TopApp {
                     let image = self.index_remote_detail_hero_image(&url, cx);
                     album_thumbs.insert(url, image);
                 }
+                // ADR 0085 Decision 7 design, Required Change 7: the
+                // feed's own header image, through the same thumbnail path.
+                let header_image = vm
+                    .header_image_url()
+                    .and_then(|url| self.index_remote_detail_hero_image(&url, cx));
                 // ADR 0082 Decision 5: a "Shares albums with" entry opens
-                // the Index shape of its own publisher page. The data
-                // behind every entry comes from the one Index request
+                // the Index shape of its own feed page. The data behind
+                // every entry comes from the one Index request
                 // (`fetch_index_publisher_page_albums`), on the Library
                 // page and the Index page alike.
                 let entity = cx.entity();
@@ -229,7 +237,30 @@ impl TopApp {
                         this.open_publisher_page(guid, PublisherPageContext::Index, cx);
                     });
                 };
-                render_publisher_page(&vm, context, &album_thumbs, on_open_publisher, cx)
+                // Required Change 7: a release row opens the one release
+                // route, in the current frame, the same as a release row
+                // of a list does.
+                let content_frame_id = self.content_list_frame_id();
+                let entity = cx.entity();
+                let on_open_release =
+                    move |key: &ReleaseKey, label: String, _window: &mut Window, cx: &mut App| {
+                        let Some(content_frame_id) = content_frame_id else {
+                            return;
+                        };
+                        let key = key.clone();
+                        entity.update(cx, |this, cx| {
+                            this.open_release_in_frame(content_frame_id, &key, label, cx);
+                        });
+                    };
+                render_publisher_page(
+                    &vm,
+                    context,
+                    &album_thumbs,
+                    header_image,
+                    on_open_publisher,
+                    on_open_release,
+                    cx,
+                )
             }
             Some(PublisherPageState::Failed { message, .. }) => {
                 let display = PublisherPageLoadDisplay::failed(message);
@@ -245,7 +276,19 @@ impl TopApp {
     pub(super) fn publisher_page_breadcrumb_text(&self) -> Option<String> {
         match self.publisher_page.as_ref()? {
             PublisherPageState::Loaded { facts, .. } => {
-                Some(PublisherPageVm::new(facts.clone()).title_text())
+                Some(PublisherPageVm::new(facts.as_ref().clone()).title_text())
+            }
+            PublisherPageState::Loading { .. } | PublisherPageState::Failed { .. } => None,
+        }
+    }
+
+    /// The frame title of the mounted feed page, from its loaded facts
+    /// (ADR 0085 Decision 7). `None` while the page is loading or failed:
+    /// `content_list_frame_title`'s default title "Feed" then applies.
+    pub(super) fn publisher_page_frame_title(&self) -> Option<String> {
+        match self.publisher_page.as_ref()? {
+            PublisherPageState::Loaded { facts, .. } => {
+                Some(PublisherPageVm::new(facts.as_ref().clone()).frame_title())
             }
             PublisherPageState::Loading { .. } | PublisherPageState::Failed { .. } => None,
         }
@@ -307,7 +350,7 @@ mod tests {
     fn adr_0077_publisher_navigation_result_is_current_for_any_lifecycle_step() {
         let loaded = Some(PublisherPageState::Loaded {
             publisher_feed_guid: "guid-a".into(),
-            facts: PublisherPageFacts::default(),
+            facts: Box::new(PublisherPageFacts::default()),
             context: PublisherPageContext::Index,
         });
         assert!(publisher_page_result_is_current(loaded.as_ref(), "guid-a"));
@@ -327,7 +370,7 @@ mod tests {
     fn adr_0077_publisher_navigation_restore_skips_fetch_for_the_mounted_guid() {
         let current = Some(PublisherPageState::Loaded {
             publisher_feed_guid: "guid-a".into(),
-            facts: PublisherPageFacts::default(),
+            facts: Box::new(PublisherPageFacts::default()),
             context: PublisherPageContext::Index,
         });
 
@@ -348,7 +391,7 @@ mod tests {
     fn adr_0077_publisher_navigation_restore_uses_the_recorded_context_for_a_different_guid() {
         let current = Some(PublisherPageState::Loaded {
             publisher_feed_guid: "guid-b".into(),
-            facts: PublisherPageFacts::default(),
+            facts: Box::new(PublisherPageFacts::default()),
             context: PublisherPageContext::Library,
         });
 

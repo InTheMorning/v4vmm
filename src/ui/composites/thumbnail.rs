@@ -186,7 +186,6 @@ mod tests {
             EntityKind::Artist,
             EntityKind::Feed,
             EntityKind::Track,
-            EntityKind::Publisher,
             EntityKind::Release,
             EntityKind::Recording,
             EntityKind::Playlist,

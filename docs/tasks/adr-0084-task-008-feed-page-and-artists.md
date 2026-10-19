@@ -1,6 +1,6 @@
 # ADR 0084 Task 008: The Feed Page And Artists By Confirmation
 
-Status: Ready - 2026-10-18. [ADR 0082 packet 003](archive/adr-0082-task-003-release-page-named-feeds.md) is complete. Stophammer release 0.11.0 delivered [request 7](../plans/v4vmm-open-requests.md) on 2026-10-18. Implementation has not started.
+Status: Implemented - 2026-10-18. Cases R85-8-01 to R85-8-16 pass. Mechanical checks are Green. The visual gate is open. No operator walked V1 to V9 yet.
 
 ## Goal
 
@@ -264,9 +264,175 @@ Revert the commit. This packet adds no migration and no stored data.
 
 ## Operator Visual Check
 
-The implementer writes this section at completion. It gives numbered steps for V1 to V9.
-It states the needed state, what counts as wrong, and the cleanup. V5 changes the MusicIndex endpoint in Settings, and its cleanup restores it.
-Do not delete `/tmp/v4vmm-governance.ie6k8TQf`. Color alone is not a valid difference.
+Walk V1 to V9 in a desktop session. GPUI needs a real display, so an agent
+cannot run this app. Do not delete `/tmp/v4vmm-governance.ie6k8TQf`. Its
+cleanup is still unconfirmed. Color alone is not a valid difference.
+
+### Step 1: build and start the app
+
+1. A prior `cargo test` run can leave a GPUI test-support binary at
+   `target/debug/v4vmm`. Run `cargo build --bin v4vmm` again before you
+   start the app.
+2. Start `target/debug/v4vmm`.
+3. Open Settings. Check that the MusicIndex endpoint field holds a working
+   endpoint. Note its value. V5 needs it for its cleanup.
+4. Open the Music section.
+
+### V1: HeyCitizen shows "Artist", five roles, and two discography sections
+
+1. Open a HeyCitizen release, from Music > Releases or from a search for a
+   HeyCitizen release. Click its artist name "HeyCitizen". Search does not
+   find a feed page itself (packet 010 owns that entry).
+2. Check the frame title of the page. It must read "Artist".
+3. Check the header. It must show a "Confirmation" fact with the value
+   "Artist". It must also show a "Roles" fact with five role words.
+4. Check the releases. They must show under "Albums and EPs", then under
+   "Singles". Each section shows only when it has a release.
+5. Read every label and row on the page. No text must name "publisher", in
+   any case.
+6. Optional: when you know a feed that albums name only second, with no
+   stated role on either side, open its page. Its frame title must read
+   "Publisher". No recorded feed fits on 2026-10-18. The test R85-8-14
+   proves the rule.
+7. Wrong: the frame title of step 2, or of step 6 when you did it, does not
+   match.
+8. Wrong: a label or a row on the HeyCitizen page names "publisher".
+9. Cleanup: use Back, or the breadcrumb, to return to the release.
+
+### V2: Official DETOX Music shows "Unverified artist"
+
+1. Open the page for the feed GUID
+   `137aaa9c-75ff-4916-9f23-e02968b2d15e` (Official DETOX Music), from the
+   Index or the Library.
+2. Check the header. It must show the "Confirmation" fact with the value
+   "Unverified artist".
+3. Check the releases. They must show under "Albums and EPs", then under
+   "Singles". Each section shows only when it has a release.
+4. Wrong: the header shows "Artist", or shows no "Confirmation" fact.
+5. Wrong: the releases show under another heading.
+6. Cleanup: use Back, or the breadcrumb, to return to the page you opened
+   in step 1.
+
+### V3: Sir Libre Records shows "Label", its three sections, and the "Not listed" mark
+
+1. Open the Sir Libre Records page (feed GUID
+   `34bf795f-f551-4db1-8877-ad19aa5f89c8`).
+2. Check the frame title of the page. It must read "Label".
+3. Check the header. It must show no "Confirmation" fact.
+4. Check the sections, in this order: "As label", "Role not confirmed",
+   then "Listed by Sir Libre Records only". On 2026-10-18 they held 3, 3
+   and 1 rows.
+5. Open each row of "Role not confirmed". Check that each one shows a
+   detail line. The line must name which feed stated which role, for
+   example "Sir Libre Records: label · the album: recordLabel".
+6. Find a release that names Sir Libre Records, in "Role not confirmed" or
+   "As label". Check that Sir Libre Records does not list that release
+   back. Check that row carries the mark "Not listed by this feed".
+7. Wrong: the frame title is not "Label".
+8. Wrong: the header shows a "Confirmation" fact.
+9. Wrong: a "Role not confirmed" row shows no detail line.
+10. Wrong: the mark of step 6 reads other than "Not listed by this feed".
+11. Cleanup: use Back, or the breadcrumb, to return to the page you opened
+    in step 1.
+
+### V4: the Artists list shows feed rows with no level word
+
+1. In Music, open the Artists destination.
+2. Find the rows for HeyCitizen and for Official DETOX Music, if the
+   Library holds their releases. Check each row shows the feed title,
+   with no level word ("Artist", "Unverified artist" or "Confirmation")
+   in its text.
+3. Check that Sir Libre Records has no row in this list.
+4. Click the HeyCitizen row.
+5. Check that the app opens the HeyCitizen feed page.
+6. Wrong: a row shows a level word.
+7. Wrong: Sir Libre Records has a row.
+8. Wrong: the click opens the wrong page, or opens no page.
+9. Cleanup: use Back, or the breadcrumb, to return to the Artists
+   destination.
+
+### V5: a MusicIndex failure keeps the Library rows, with the report
+
+1. Open Settings. Change the MusicIndex endpoint field to an address that
+   gives no answer, for example `http://127.0.0.1:1`. Save Settings.
+2. Open a feed page of a feed whose releases the Library holds.
+3. Check the page shows this report, before its sections: "The app could
+   not load the other releases of this feed from MusicIndex. The releases
+   in the Library stay on this page."
+4. Check the Library releases still show in their sections, below the
+   report.
+5. Wrong: the page shows no report.
+6. Wrong: the Library releases do not show.
+7. Cleanup: open Settings. Set the MusicIndex endpoint field back to the
+   value from step 3 of the setup. Save Settings.
+
+### V6: the artist-count facts read clearly
+
+1. Open the Official DETOX Music page (V2).
+2. Check the header shows a fact. Its label must read "Artists that name
+   this feed". Its value must read "1 — Derived from album credits", with
+   the artist's name in parentheses.
+3. Check the header shows a second fact. Its label must read "Artists
+   this feed lists without a link back". Its value must read "0 —
+   Derived from album credits".
+4. Check that the two labels read clearly. Check that each one is easy to
+   tell apart from the other.
+5. Find a feed whose listed releases do not name it back. Open its page.
+   Check its first fact reads "0 — Derived from album credits", and its
+   second fact names the unconfirmed artists.
+6. Wrong: either label is unclear, or the two facts are hard to tell
+   apart.
+7. Cleanup: use Back, or the breadcrumb, to return to the page you opened
+   in step 1.
+
+### V7: "Feed owner", "podcast:publisher", and the payment-routes message
+
+1. Open a track whose feed states an `itunes:owner` name.
+2. Check the track page labels that row "Feed owner", not "Publisher".
+3. Open a playlist whose RSS check report shows a difference on the
+   `podcast:publisher` remote item. Check the report names the field
+   "podcast:publisher". When no report has such a difference, skip this
+   step.
+4. Open a readiness row for a track with no upstream payment routes.
+   Check it reads "The feed owner must add payment routes."
+5. Wrong: any of the three labels of this check still says "Publisher"
+   alone.
+6. Cleanup: none.
+
+### V8: normal and narrow widths, Light and Dark themes, and larger type
+
+1. Open the HeyCitizen page (V1) and the Sir Libre Records page (V3).
+2. Resize the window to its normal width, then to a narrow width.
+3. Repeat step 2 in Light theme, then in Dark theme (Settings >
+   Appearance).
+4. Repeat step 2 at a larger system type size.
+5. At each width, theme and type size, check the "Confirmation" fact, the
+   "Roles" fact, each section heading and each row. Each one must stay in
+   its own place, with no clipped text.
+6. Check that each section heading reads stronger, bolder or larger, than
+   its row text.
+7. Wrong: a label or a heading is cut off mid-word.
+8. Wrong: two elements overlap.
+9. Wrong: a heading does not read stronger than its rows.
+10. Cleanup: restore the window to its earlier size and theme.
+
+### V9: a release row opens its release, and the header shows the feed image
+
+1. Open a feed page from the Library context, for example from the
+   Artists list of Music.
+2. Open a feed page from the Index context, for example from a Discover
+   search.
+3. On each page, click a release row under "Albums and EPs" or under
+   "Singles".
+4. Check that the app opens that release's page.
+5. Use Back, or the breadcrumb, to return.
+6. Check that the app returns to the feed page you opened.
+7. Open the HeyCitizen page. Check that its header shows the feed's own
+   image, not a two-letter monogram.
+8. Wrong: a release row click opens the wrong page, or opens no page.
+9. Wrong: Back does not return to the feed page.
+10. Wrong: the header still shows a monogram.
+11. Cleanup: none.
 
 ## Prompt for lower-context coding model
 
@@ -314,3 +480,152 @@ Stop and report the problem, and do not guess, when:
 - The decoded values do not agree with the release record of 0.11.0.
 - The Library rows and the other rows cannot join without a new query.
 - A change needs a file in "Do not touch".
+
+## Implementation Result - 2026-10-18
+
+### Files Changed
+
+New file:
+
+- `tests/fixtures/musicindex-openapi-0.11.0.json` — the stored MusicIndex contract, read
+  from the live `/openapi.json` of `https://api.musicindex.org` on 2026-10-18
+  (`info.version` `0.11.0`). Deleted `tests/fixtures/musicindex-openapi-0.7.0.json`.
+
+Changed files:
+
+- `src/api.rs` — `PublisherRelationship` decodes `album_names_rank` and
+  `remote_episode_count`. New test module `adr_0085_feed_page` proves the decode from a
+  recorded DETOX row.
+- `src/view_models/publisher_page.rs` — rewritten. `PublisherPageVm` gives `level()`,
+  `frame_title()`, `header_facts()` (with the new "Confirmation" fact) and `sections()`
+  in place of the former groups, subgroups and scopes. `PublisherPageAlbumFact` carries
+  `named_rank`, `track_count` and `two_way_validated`. `PublisherPageFacts` carries
+  `feed_image_url`. `PublisherPageAlbumVm` carries an `open: Option<ReleaseRowOpenAction>`.
+  Deleted `AlbumNameGroup`, `RoleSubgroupCaption`, `AlbumRoleSubgroupVm`,
+  `AlbumNameGroupVm`, `PublisherPageScopeVm`, `library_scopes()` and the row role text of
+  `AlbumRoleDisplay`.
+- `src/ui/shells/publisher.rs` — rewritten. `render_sections` and `render_section`
+  compose the new sections, with the present `SectionHeader` composite. `render_header`
+  shows the feed image and picks `EntityKind::Artist` or `EntityKind::Feed` from
+  `vm.level()`. `render_album_row` wires the release row's open action and its role
+  line.
+- `src/app/publisher_dispatch.rs` — `PublisherPageState::Loaded` carries
+  `facts: Box<PublisherPageFacts>` (clippy's `large_enum_variant` lint, once the struct
+  grew). Builds the header image and the open-release callback, and passes them to
+  `render_publisher_page`. Added `publisher_page_frame_title()`. Changed the failure
+  text to "The app could not open the feed page: …".
+- `src/app.rs` — `content_list_frame_title` gives "Feed" for a `PublisherDetail` frame
+  before its facts load. `render_workspace_content` sets the loaded title from
+  `publisher_page_frame_title()`, the same pattern it already uses for the SinglesGroup
+  title.
+- `src/app/search_dispatch.rs` — `open_release_in_frame` is `pub(super)`, so
+  `publisher_dispatch.rs` can call the one release route.
+- `src/application/queries/feed.rs` — the Index query reads `album_names_rank`,
+  `remote_episode_count` and the feed's own `image_url` into the new facts.
+- `src/application/queries/library.rs` — the Library query reads the named-feed rank
+  and the track count from the Library. It reads the feed's own stored image, and
+  falls back to the remote value.
+- `src/db/publisher_relationships.rs` — `LocalPublisherAlbum` carries
+  `two_way_validated`, read from the stored `feed_publisher_relationships` row.
+- `src/view_models/role_words.rs` — added `role_contains_artist`, moved here from
+  `named_feeds.rs` so `publisher_page.rs` and `library.rs` can both call it.
+- `src/view_models/named_feeds.rs` — calls the moved `role_contains_artist`.
+- `src/view_models/release_kind.rs` — added `ReleaseKind::is_single()`.
+- `src/view_models/library.rs` — `artists_list()` gives a feed row for each confirmed or
+  unverified artist feed, by the rule of "The Artists list". It gives a name row for
+  each name identity. Three "publisher" strings changed to "the feed owner" text.
+- `src/view_models/singles_group.rs`, `src/view_models/track_detail.rs`,
+  `src/view_models/playlist_rss_check.rs` — the word changes of "The words".
+- `src/ui/composites/tag_badge.rs`, `src/ui/composites/thumbnail.rs`,
+  `src/ui/contrast.rs`, `src/ui/tokens.rs`, `src/ui/theme_profiles.rs` — deleted
+  `EntityKind::Publisher` and `SemanticColor::EntityPublisher`, with no caller left.
+- `src/ui/shells/library/destination_lists.rs`, `src/library/app_impl.rs` — route a
+  `DestinationListRowTarget::Publisher` row to `EntityKind::Artist` and to the feed page.
+- `tests/architecture_tests.rs` — the stored-contract filename constant now names
+  `0.11.0`. Added the ADR 0085 Decision 1 guard
+  (`adr_0085_feed_page_guard_no_interface_text_names_a_feed_publisher`) and its two
+  companion tests. Rewrote the ADR 0077 screen-labels guard for the new view model API.
+
+### Behavior Changed
+
+- A feed page header shows a "Confirmation" fact, "Artist" or "Unverified artist", by
+  ADR 0085 Decision 2. A page with neither level shows no such fact.
+- A feed page's releases show under five sections at most, in the Decision 3 order.
+  Each section shows only when it holds a row.
+- The frame title of a feed page is "Artist", the agreed role words, "Publisher", or
+  "Feed", by the Decision 7 rule. `src/app.rs` draws it.
+- A release row on a feed page opens that release. It was dead before this packet.
+- A feed page header shows the feed's own image, when either side states one. It showed
+  only a monogram before this packet.
+- The Artists list gives one row for each confirmed or unverified artist feed, by feed
+  title, and one row for each name identity. Neither row names its level.
+- "Publisher" text is gone from the track page's feed-owner label, the singles group
+  note, the RSS check report, and the readiness list. It is gone from the feed page
+  too, apart from the one named "Publisher" frame title.
+- `EntityKind::Publisher` and its color token are gone.
+- The stored MusicIndex contract is release 0.11.0. The decode reads its two new
+  fields.
+
+### Checks Run
+
+| Check | Result |
+|---|---|
+| `cargo test --lib adr_0085_feed_page_` | Green. 17 passed. |
+| `cargo test` | Green. 1942 lib tests, 320 architecture tests, 10 ignored doc tests. |
+| `cargo test --test architecture_tests` | Green. 320 passed. |
+| `cargo fmt -- --check` | Green. |
+| `cargo clippy -- -D warnings` | Green. |
+| `cargo check --all-targets` | Green, no warning. |
+| `cargo build --bin v4vmm` | Green. |
+
+### Deviations From The Task
+
+- I added `ReleaseKind::is_single()` to `release_kind.rs`. The packet did not name it.
+  `sections()` first wrote the literal text `ReleaseKind::Single`. The existing ADR
+  0084 guard R15-09 forbids that text outside `release_kind.rs` and `singles_group.rs`,
+  "so two groupings cannot disagree." The new method is the fix the guard asks for.
+- I boxed `PublisherPageState::Loaded.facts` as `Box<PublisherPageFacts>`. The struct
+  grew past clippy's `large_enum_variant` threshold once it carried the new per-album
+  fields and `feed_image_url`.
+- I added `two_way_validated` to `LocalPublisherAlbum`. The Design section named this
+  field only for the Index row. The Library row needs it too, so `level()` and
+  `frame_title()` give the same result from either context, as ADR 0084 Decision 4
+  asks.
+- I changed `open_release_in_frame` in `search_dispatch.rs` from private to
+  `pub(super)`. This lets `publisher_dispatch.rs`, a sibling module, call the one
+  release route for a feed page's release rows.
+- The packet left open which screen draws the frame title. `src/app.rs` draws it, in
+  `render_workspace_content`, the same way it already draws the SinglesGroup title.
+  `PublisherPageVm::frame_title()` gives the text. The screen composes no text of its
+  own.
+- I wrote the Operator Visual Check steps in the numbered, "Wrong:" and "Cleanup:"
+  format. The archived ADR 0082 packet 003 already uses that same format.
+
+### Unresolved Concerns
+
+- V1 asks the operator to find a feed with only rank 2 links and no stated role, to
+  check its frame title reads "Publisher". The recorded facts name no such feed by
+  GUID. The operator must find one, as the packet's own acceptance text asks.
+- The accessibility label and the exact layout of the role line, the "Not listed by
+  this feed" mark, and the open-release action are my own choice. The packet named the
+  label, the value and the detail text, not the accessibility string or the layout. V3,
+  V8 and V9 should confirm this choice reads well.
+- I did not update `docs/pending-human-checks.md` or
+  `docs/plans/broadcast-chain-delivery-order.md`. My task instructions name only this
+  packet file as an allowed document edit. The orchestrator should add this packet's
+  open gate to both files.
+- `AGENTS.md` still names `tests/fixtures/musicindex-openapi-0.7.0.json` as the stored
+  contract. My task instructions name only this packet file as an allowed document
+  edit. The orchestrator should change that line to `musicindex-openapi-0.11.0.json`.
+
+## Orchestrator Review - 2026-10-18
+
+Pass. The code needs no fix. The orchestrator corrected the visual check and the records.
+
+- `cargo fmt -- --check`, `cargo clippy -- -D warnings` and `cargo check --all-targets` are Green. `cargo test` gives 1942 library tests and 320 guards, all passing.
+- `level()`, `frame_title()` and `sections()` follow ADR 0085 Decisions 2, 3 and 7. The guard of Decision 1 skips only the named broadcast service files and the one frame title constant.
+- V1 opened the feed page from search, but search does not find a feed page (packet 010). V1 and V2 required "Singles" for feeds that can have no single. V1 required a "Publisher" feed that no recorded fact names, so that step is optional now. V7 step 3 named the owner field, not the `podcast:publisher` remote item.
+- The orchestrator changed the stored contract fact of `AGENTS.md` to `musicindex-openapi-0.11.0.json`.
+
+Recorded concern, not a defect: `artists_list` keys each row on the artist identity of each album (ADR 0085 Decision 6). In one rare case this differs from Decision 2. Example: a feed is the confirmed first feed of one album. It also has an agreed role without `artist` on a second album. It then gets a feed row. Decision 2 gives it no level.
+

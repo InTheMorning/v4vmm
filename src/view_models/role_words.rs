@@ -45,6 +45,20 @@ pub(crate) fn role_words(role_set: Option<&str>) -> Vec<String> {
     words
 }
 
+/// The role word that confirms an artist link (ADR 0085 Decisions 2 and
+/// 6).
+const ARTIST_ROLE: &str = "artist";
+
+/// Tells if `role_set`'s role words contain `artist`, without case (ADR
+/// 0085 Decisions 2 and 6). `named_feeds::select_artist_feed` and the feed
+/// page level and frame title share this one test.
+#[must_use]
+pub(crate) fn role_contains_artist(role_set: Option<&str>) -> bool {
+    role_words(role_set)
+        .iter()
+        .any(|word| word.eq_ignore_ascii_case(ARTIST_ROLE))
+}
+
 /// Joins `words`: "label", "label and producer", "distributor, label and
 /// producer".
 #[must_use]
@@ -105,6 +119,17 @@ pub(crate) fn stated_sides_text(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R85-8-01: `role_contains_artist` finds "artist" without case, and
+    /// keeps "label" and "recordLabel" (not "artist") out.
+    #[test]
+    fn adr_0085_feed_page_role_contains_artist_reads_without_case() {
+        assert!(role_contains_artist(Some("artist, producer")));
+        assert!(role_contains_artist(Some("Producer, ARTIST")));
+        assert!(!role_contains_artist(Some("label")));
+        assert!(!role_contains_artist(Some("label, recordLabel")));
+        assert!(!role_contains_artist(None));
+    }
 
     /// R85-3-10: `role_words` keeps the feed case, removes an exact
     /// duplicate and sorts. "label" and "recordLabel" stay two words.

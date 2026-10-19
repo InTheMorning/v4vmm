@@ -395,30 +395,6 @@ pub const REQUIRED_PAIRS: &[ContrastPair] = &[
         level: ContrastLevel::LargeOrGraphic,
         note: "artist entity dot on sidebar surface",
     },
-    ContrastPair {
-        fg: SemanticColor::EntityPublisher,
-        bg: SemanticColor::SystemBackground,
-        level: ContrastLevel::LargeOrGraphic,
-        note: "publisher entity dot on canvas",
-    },
-    ContrastPair {
-        fg: SemanticColor::EntityPublisher,
-        bg: SemanticColor::SecondarySystemBackground,
-        level: ContrastLevel::LargeOrGraphic,
-        note: "publisher entity dot on surface",
-    },
-    ContrastPair {
-        fg: SemanticColor::EntityPublisher,
-        bg: SemanticColor::TertiarySystemBackground,
-        level: ContrastLevel::LargeOrGraphic,
-        note: "publisher entity dot on raised surface",
-    },
-    ContrastPair {
-        fg: SemanticColor::EntityPublisher,
-        bg: SemanticColor::SidebarBackground,
-        level: ContrastLevel::LargeOrGraphic,
-        note: "publisher entity dot on sidebar surface",
-    },
 ];
 
 // -----------------------------------------------------------------------------
