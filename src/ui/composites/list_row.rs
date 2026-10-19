@@ -203,8 +203,12 @@ impl RenderOnce for ListRow {
             .rounded(radius)
             .border_1()
             .border_color(gpui::transparent_black())
-            .when(selected, |el| el.bg(selected_bg).border_color(accent))
-            .when(selected && focused, |el| el.border_2().border_color(focus))
+            .when(selected, |el| el.bg(selected_bg))
+            .map(|el| match row_outline(selected, focused) {
+                RowOutline::None => el,
+                RowOutline::Selected => el.border_color(accent),
+                RowOutline::Focus => el.border_2().border_color(focus),
+            })
             .child(
                 stack.children(
                     // ADR 0084 Decision 10: the checkbox leads the row.
@@ -231,9 +235,36 @@ impl RenderOnce for ListRow {
     }
 }
 
+/// The outline of a list row (ADR 0084 Decision 10).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RowOutline {
+    None,
+    Selected,
+    Focus,
+}
+
+/// The keyboard focus outline wins, so each focused row shows it, selected
+/// or not. The operator found on 2026-10-19 that the focus showed only on a
+/// selected row.
+const fn row_outline(selected: bool, focused: bool) -> RowOutline {
+    match (selected, focused) {
+        (_, true) => RowOutline::Focus,
+        (true, false) => RowOutline::Selected,
+        (false, false) => RowOutline::None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adr_0084_selection_focus_outline_shows_on_each_focused_row() {
+        assert_eq!(row_outline(false, true), RowOutline::Focus);
+        assert_eq!(row_outline(true, true), RowOutline::Focus);
+        assert_eq!(row_outline(true, false), RowOutline::Selected);
+        assert_eq!(row_outline(false, false), RowOutline::None);
+    }
 
     #[test]
     fn clickable_row_carries_accessibility_label() {

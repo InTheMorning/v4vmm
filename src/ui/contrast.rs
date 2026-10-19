@@ -103,6 +103,32 @@ pub struct ContrastPair {
 /// Every text-on-surface or graphic-on-surface combination v4vmm uses.
 /// Add a new entry whenever a primitive renders a new token pairing.
 pub const REQUIRED_PAIRS: &[ContrastPair] = &[
+    // ADR 0084 Decision 10: the selection checkbox and the keyboard focus
+    // of a list row (operator check of 2026-10-19).
+    ContrastPair {
+        fg: SemanticColor::OpaqueSeparator,
+        bg: SemanticColor::SystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "clear selection checkbox border on canvas",
+    },
+    ContrastPair {
+        fg: SemanticColor::OpaqueSeparator,
+        bg: SemanticColor::SecondarySystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "clear selection checkbox border on raised surface",
+    },
+    ContrastPair {
+        fg: SemanticColor::Focus,
+        bg: SemanticColor::SystemBackground,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "keyboard focus ring of a list row on canvas",
+    },
+    ContrastPair {
+        fg: SemanticColor::Focus,
+        bg: SemanticColor::SelectedContent,
+        level: ContrastLevel::LargeOrGraphic,
+        note: "keyboard focus ring of a selected list row",
+    },
     // Body text on the three background tiers.
     ContrastPair {
         fg: SemanticColor::Label,

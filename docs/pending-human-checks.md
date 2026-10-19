@@ -158,17 +158,17 @@ Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 202
 - Scheduling: it needs a macOS desktop session.
 - V2, macOS part: `cmd-[` and `cmd-]` outside a text box do the same as Back and Forward. Indent and outdent still work in a macOS text box.
 
-## 5. Right And Left Open And Close A Singles Group — ADR 0084 Decisions 6 And 10
+## 5. Checkbox And Keyboard Focus Contrast — ADR 0084 Decision 10
 
-Open - the orchestrator added the keys on 2026-10-19. Operator inspection is pending.
+Open - the orchestrator made the fix on 2026-10-19. Operator inspection is pending.
 
-- The operator found on 2026-10-19 that a singles group opened only with a click on its chevron.
+- The operator found on 2026-10-19 that the clear checkbox was almost invisible, and that the keyboard focus was too subtle.
+- Fix: the clear checkbox border uses `OpaqueSeparator`, not the translucent `Separator`. The keyboard focus outline shows on each focused row, not only on a selected row (`row_outline` in `src/ui/composites/list_row.rs`).
+  The contrast table of `src/ui/contrast.rs` now requires 3:1 for the checkbox border and the focus ring, in Light and Dark.
 - Check:
   1. Run `cargo build --bin v4vmm`, and start `target/debug/v4vmm`.
-  2. Open Music > Releases, and give the list column the keyboard focus.
-     Move the focus to a closed singles group row with Up or Down.
-  3. Press Right. Check that the group opens and shows its singles.
-  4. Press Down. Check that the focus moves to the first single. Press Left. Check that the focus moves back to the group row.
-  5. Press Left again. Check that the group closes.
-  6. Click the search field, and type a word. Press Left and Right. Check that the caret moves in the text, and no group opens or closes.
-  7. Wrong: Right or Left does nothing on a group row, or the keys take the caret keys from a text field.
+  2. Open Music > Releases. Move the pointer on a row, and check that its clear checkbox is easy to see. Do this in Dark and in Light.
+  3. Give the list column the keyboard focus, and press Down three times. Check that the focused row shows a clear outline, also when it is not selected.
+  4. Press Space. Check that the outline also shows on the selected row, apart from its selected fill.
+  5. Wrong: the clear checkbox or the focus outline is hard to see in one theme.
+
