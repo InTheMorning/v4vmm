@@ -638,3 +638,4 @@ The operator walked part of the check and found two defects. The orchestrator fi
 - The Artists list showed two rows "Haleen" with the same text. Three releases name the Haleen feed `64569161-a8f7-52e5-8aae-9e0385043149`, and the other releases name no feed. The two identities are correct (ADR 0084 Decision 7).
   The operator decided on 2026-10-18 that only a name row carries the mark "by name", for example "3 releases · by name". It names the source of the group, not a level. The R85-8-10 and D5-04 tests assert it.
 
+The operator passed both fixes on 2026-10-18. The Artists rows show no image until packet 011, and the old name page shows each release with the artist text until packet 017. The operator decided both on 2026-10-18.

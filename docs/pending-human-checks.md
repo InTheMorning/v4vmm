@@ -166,5 +166,5 @@ Open - implementation and mechanical checks are complete on 2026-10-18. Operator
 - Precondition: network access to `api.musicindex.org`. V5 changes the MusicIndex endpoint in Settings, and its cleanup restores it.
 - V1 to V4: the levels, the frame titles, the sections and the Artists list. V5: the MusicIndex failure report.
 - V6 to V9: the artist count facts, the changed words, the widths and themes, and the release row action with the header image.
-- Fixes of 2026-10-18: each DETOX release row opens its release, with no 404. A name row of the Artists list reads "n releases · by name", so the two "Haleen" rows differ.
+- The operator passed the two fixes of 2026-10-18: the DETOX release rows and the "by name" mark.
 
