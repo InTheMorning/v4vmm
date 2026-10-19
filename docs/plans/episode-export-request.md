@@ -57,7 +57,15 @@ The research note cites publisher ADR 0003. ADR 0017 superseded it on
 
 This is the shape of a `track` entry and a `display` entry. The titles, the
 times and the event come from a check on 2026-10-19. The other values are
-not shown. A check of each field in a real file is still open:
+not shown.
+
+A check of each field in a real file on 2026-10-19 found the fields of
+publisher ADR 0017. A V4V track has `feed_guid`, `track_guid`, `image_url`,
+`play_id` and its recipients. A non-V4V track has `play_id` and
+`payable: false`. Its `display` entry had no `play_id`, so its embedded art
+could not join its track. The publisher repository corrected this on
+2026-10-19. A log written before that correction has the defect.
+
 
 ```json
 {"schema":"musicindex.showlog/1","kind":"track","observed_at":"2026-10-19T16:47:56.569Z","target":"default","event_guid":"DFnUwDM1mzcljaF4pI9Q6w","block_guid":"…","payable":true,"play_id":"…","artist":"…","title":"Nothing Is Easy","feed_guid":"…","track_guid":"…","value":{…},"listener_delay_secs":…,"publish_result":"accepted","seq":…}
