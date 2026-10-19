@@ -165,5 +165,6 @@ Open - implementation and mechanical checks are complete on 2026-10-18. Operator
 - Owner: [task 009](tasks/adr-0084-task-009-list-selection-and-action-bar.md#operator-visual-check).
 - Precondition: a Library with a singles group, six or more tracks, and a feed with tracks that are not downloaded. V5 removes tracks. Pick tracks that you can download again.
 - V1 and V2: the checkbox, the action bar, and Ctrl+click, Shift+click and Ctrl+A. V3: the keyboard focus, the scroll, Space, Enter and Escape.
-- V4 and V5: "Download", "Add to playlist", "Clear" and "Remove". V6: the singles group checkbox. V7: the widths, themes and type sizes.
+- The operator passed V1 to V5 and V7 on 2026-10-18.
+- V6 is open again after its correction of 2026-10-18: each single row has its own checkbox, Space on a group row selects each single, and the group checkbox shows checked, mixed or clear. The steps are in the packet, under "Operator Visual Check, V6 Again".
 

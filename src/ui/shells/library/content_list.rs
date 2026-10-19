@@ -240,7 +240,7 @@ fn render_content_list_row(
         .a11y_label(ListRowA11yLabel {
             label: SharedString::from(row.a11y_label().to_string()),
         })
-        .selected(row.selection.checked)
+        .selected(row.selection.is_marked())
         .focused(row.selection.focused);
 
     // ADR 0084 Decision 10 Design: "The row" — the checkbox shows while
@@ -254,7 +254,7 @@ fn render_content_list_row(
         list_row = list_row.checkbox(
             Checkbox::new(
                 SharedString::from(format!("{}-checkbox", row.element_id())),
-                CheckboxState::from_checked(row.selection.checked),
+                CheckboxState::from_checked(row.selection.check_state.is_checked()),
             )
             .a11y_label(checkbox_a11y_label)
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {

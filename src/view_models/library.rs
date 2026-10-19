@@ -43,6 +43,8 @@ use crate::view_models::library_removal::{
     LibraryRemovalConfirmationDisplay, LibraryRemovalConfirmationState,
 };
 use crate::view_models::list_selection::{ListSelection, RowSelectionVm};
+#[cfg(test)]
+use crate::view_models::list_selection::{RowCheckState, SelectionRow};
 use crate::view_models::named_feeds::NamedFeed;
 use crate::view_models::pagination::pending_skeleton_count;
 use crate::view_models::playlist_detail::PlaylistDetailPageVm;
@@ -1661,6 +1663,21 @@ impl ReleasesListEntryVm {
     }
 }
 
+/// The row identity of the Releases list (Required correction item 2,
+/// 2026-10-18): a release row, or a singles group row. Each is its own
+/// keyboard focus row and its own Shift+click range endpoint. The
+/// selected set holds [`ReleaseKey`] members, not this type: a release
+/// row has one member, and a group row has each single of its group
+/// (ADR 0084 Decision 6).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ReleasesRowId {
+    /// A release row. An open group also gives this row for each of its
+    /// singles, after the group row (Required correction item 1).
+    Release(ReleaseKey),
+    /// A singles group row, closed or open.
+    Group(SinglesGroupKey),
+}
+
 /// The release row of one Library album in the Releases list (ADR 0084
 /// Decisions 2 and 5). `None` when the album has no release key.
 #[must_use]
@@ -2781,21 +2798,26 @@ impl LibraryViewModel {
     }
 
     /// [`Self::releases_list`], with the Decision 10 checkbox facts of
-    /// `selection` applied to each row. A singles group row is checked
-    /// when each of its singles is selected.
+    /// `selection` applied to each row (Required correction item 1, 2, 4
+    /// and 5, 2026-10-18). A singles group row's own checkbox reads
+    /// checked, mixed, or clear, from each of its singles. An open
+    /// group's own single row gets its own checkbox and its own
+    /// keyboard-focus fact, the same as a release row.
     #[must_use]
     pub(crate) fn releases_list_with_selection(
         &self,
         expanded: &BTreeSet<SinglesGroupKey>,
-        selection: &ListSelection<ReleaseKey>,
+        selection: &ListSelection<ReleaseKey, ReleasesRowId>,
     ) -> Vec<ReleasesListEntryVm> {
         let shows_checkboxes = selection.shows_checkboxes();
+        let focused_row = selection.focused().cloned();
         self.releases_list(expanded)
             .into_iter()
             .map(|entry| match entry {
                 ReleasesListEntryVm::Release(mut row) => {
                     if let DestinationListRowTarget::Release(key) = &row.open {
-                        let focused = selection.focused() == Some(key);
+                        let focused =
+                            focused_row.as_ref() == Some(&ReleasesRowId::Release(key.clone()));
                         row.selection = RowSelectionVm::for_row(
                             &row.label,
                             selection.is_selected(key),
@@ -2806,17 +2828,30 @@ impl LibraryViewModel {
                     ReleasesListEntryVm::Release(row)
                 }
                 ReleasesListEntryVm::SinglesGroup(mut group) => {
-                    let checked = !group.single_keys.is_empty()
-                        && group
-                            .single_keys
-                            .iter()
-                            .all(|key| selection.is_selected(key));
-                    let focused = group
-                        .single_keys
-                        .iter()
-                        .any(|key| selection.focused() == Some(key));
-                    group.selection =
-                        RowSelectionVm::for_row(&group.label, checked, focused, shows_checkboxes);
+                    let check_state = selection.row_check_state(&group.single_keys);
+                    let group_focused =
+                        focused_row.as_ref() == Some(&ReleasesRowId::Group(group.open.clone()));
+                    group.selection = RowSelectionVm::for_group_row(
+                        &group.label,
+                        check_state,
+                        group_focused,
+                        shows_checkboxes,
+                    );
+                    // Required correction item 4: each single row of an
+                    // open group shows its own checkbox, under the same
+                    // visibility rule as each other row.
+                    for single_row in &mut group.singles {
+                        if let DestinationListRowTarget::Release(key) = &single_row.open {
+                            let single_focused =
+                                focused_row.as_ref() == Some(&ReleasesRowId::Release(key.clone()));
+                            single_row.selection = RowSelectionVm::for_row(
+                                &single_row.label,
+                                selection.is_selected(key),
+                                single_focused,
+                                shows_checkboxes,
+                            );
+                        }
+                    }
                     ReleasesListEntryVm::SinglesGroup(group)
                 }
             })
@@ -2849,7 +2884,7 @@ impl LibraryViewModel {
     #[must_use]
     pub(crate) fn releases_selection_action_bar(
         &self,
-        selection: &ListSelection<ReleaseKey>,
+        selection: &ListSelection<ReleaseKey, ReleasesRowId>,
     ) -> Option<SelectionActionBarVm> {
         let mut not_in_library_count = 0;
         let mut in_library_count = 0;
@@ -2875,7 +2910,7 @@ impl LibraryViewModel {
     #[must_use]
     pub(crate) fn releases_selected_feed_ids(
         &self,
-        selection: &ListSelection<ReleaseKey>,
+        selection: &ListSelection<ReleaseKey, ReleasesRowId>,
     ) -> Vec<i64> {
         selection
             .selected_keys()
@@ -2892,7 +2927,7 @@ impl LibraryViewModel {
     #[must_use]
     pub(crate) fn releases_removable_feed_ids(
         &self,
-        selection: &ListSelection<ReleaseKey>,
+        selection: &ListSelection<ReleaseKey, ReleasesRowId>,
     ) -> Vec<(i64, String)> {
         selection
             .selected_keys()
@@ -2910,7 +2945,7 @@ impl LibraryViewModel {
     #[must_use]
     pub(crate) fn releases_downloadable_feed_ids(
         &self,
-        selection: &ListSelection<ReleaseKey>,
+        selection: &ListSelection<ReleaseKey, ReleasesRowId>,
     ) -> Vec<i64> {
         let mut dated: Vec<(Option<i64>, i64)> = selection
             .selected_keys()
@@ -7588,6 +7623,54 @@ mod tests {
         assert!(!group.expanded);
         assert_eq!(group.disclosure_a11y_label, "Show singles");
         assert!(group.singles.is_empty());
+    }
+
+    /// R9-13, R9-14 (Required correction, 2026-10-18): with the Haleen
+    /// group open, `releases_list_with_selection` gives each single its
+    /// own checkbox. Toggling one single checks only that single's row,
+    /// and the group's own checkbox reads mixed.
+    #[test]
+    fn adr_0084_selection_r9_13_r9_14_single_row_checkbox_and_group_mixed_state() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(singles_tree());
+        let group_key = SinglesGroupKey(ArtistIdentity::Name("Haleen".into()));
+        let expanded = BTreeSet::from([group_key]);
+        let newest_key = ReleaseKey::FeedGuid("guid-2".into());
+
+        let mut selection: ListSelection<ReleaseKey, ReleasesRowId> = ListSelection::new();
+        selection.toggle(&SelectionRow::new(
+            ReleasesRowId::Release(newest_key.clone()),
+            vec![newest_key.clone()],
+        ));
+
+        let entries = vm.releases_list_with_selection(&expanded, &selection);
+        let ReleasesListEntryVm::SinglesGroup(group) = &entries[0] else {
+            panic!("the first entry must be the Haleen group");
+        };
+        assert_eq!(
+            group.selection.check_state,
+            RowCheckState::Mixed,
+            "one selected single out of three gives the group a mixed checkbox"
+        );
+
+        let newest_row = group
+            .singles
+            .iter()
+            .find(|row| row.open == DestinationListRowTarget::Release(newest_key.clone()))
+            .expect("the Newest single has its own row");
+        assert!(newest_row.selection.check_state.is_checked());
+        assert!(!newest_row.selection.checkbox_a11y_label.is_empty());
+
+        let other_row = group
+            .singles
+            .iter()
+            .find(|row| row.open != DestinationListRowTarget::Release(newest_key.clone()))
+            .expect("a second single's row exists");
+        assert_eq!(other_row.selection.check_state, RowCheckState::Clear);
+        assert!(
+            !other_row.selection.checkbox_a11y_label.is_empty(),
+            "every single row of an open group shows its own checkbox"
+        );
     }
 
     /// D5-04: the Releases destination list gives one row for each Library

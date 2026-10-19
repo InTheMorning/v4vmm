@@ -77,12 +77,12 @@ use crate::view_models::library::{
     FeedUpdatePhase, InspectorPanelKind, LibraryArtistDetailVm, LibraryTrackActionVm,
     LibraryTrackInspectorState, LibraryTrackRowVm, LibraryViewModel, MbTrackStatus,
     PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailActionsDisplay, ReleasesListEntryVm,
-    RemovalConfirmation, TrackSubscribeOutcome,
+    ReleasesRowId, RemovalConfirmation, TrackSubscribeOutcome,
 };
 use crate::view_models::library_removal::{
     SelectionRemovalConfirmationState, SelectionRemovalPendingItem, SelectionRemovalReport,
 };
-use crate::view_models::list_selection::{FocusStep, ListSelection};
+use crate::view_models::list_selection::{FocusStep, ListSelection, SelectionRow};
 use crate::view_models::playlist_option_displays;
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::selection_action_bar::{SelectionActionBarVm, SelectionActionKind};
@@ -1243,7 +1243,7 @@ impl LibraryApp {
                 // items from both selections through `retain_visible`.
                 // Every reload re-syncs them, so a stale selected key
                 // never outlives the row it named.
-                let releases_visible = this.releases_visible_keys();
+                let releases_visible = this.releases_visible_members();
                 this.releases_selection.retain_visible(&releases_visible);
                 let tracks_visible = this.content_list_visible_track_keys();
                 this.track_selection.retain_visible(&tracks_visible);
@@ -3195,26 +3195,65 @@ fn album_has_feed_identity_actions(facts: &LocalIdentityFacts) -> bool {
 // ---------------------------------------------------------------------------
 
 impl LibraryApp {
-    /// The Releases list's visible row keys, in their render sequence.
-    /// A singles group row stands for its first single's key, since one
-    /// visual row needs one key for the keyboard focus and the
-    /// Shift+click range.
-    fn releases_visible_keys(&self) -> Vec<ReleaseKey> {
+    /// The Releases list's visible rows, in their render sequence
+    /// (Required correction item 1, 2026-10-18): a release row, or a
+    /// singles group row, and, for an open group, one row for each of
+    /// its singles, after the group row.
+    fn releases_visible_rows(&self) -> Vec<SelectionRow<ReleasesRowId, ReleaseKey>> {
         self.vm
             .releases_list(&self.expanded_singles_groups)
             .into_iter()
-            .filter_map(|entry| match entry {
+            .flat_map(|entry| match entry {
                 ReleasesListEntryVm::Release(row) => match row.open {
-                    DestinationListRowTarget::Release(key) => Some(key),
+                    DestinationListRowTarget::Release(key) => vec![SelectionRow::new(
+                        ReleasesRowId::Release(key.clone()),
+                        vec![key],
+                    )],
                     DestinationListRowTarget::Artist(_)
-                    | DestinationListRowTarget::Publisher(_) => None,
+                    | DestinationListRowTarget::Publisher(_) => Vec::new(),
                 },
-                ReleasesListEntryVm::SinglesGroup(group) => group.single_keys.first().cloned(),
+                ReleasesListEntryVm::SinglesGroup(group) => {
+                    let mut group_rows = vec![SelectionRow::new(
+                        ReleasesRowId::Group(group.open.clone()),
+                        group.single_keys.clone(),
+                    )];
+                    group_rows.extend(group.singles.iter().filter_map(|single_row| {
+                        match &single_row.open {
+                            DestinationListRowTarget::Release(key) => Some(SelectionRow::new(
+                                ReleasesRowId::Release(key.clone()),
+                                vec![key.clone()],
+                            )),
+                            DestinationListRowTarget::Artist(_)
+                            | DestinationListRowTarget::Publisher(_) => None,
+                        }
+                    }));
+                    group_rows
+                }
             })
             .collect()
     }
 
-    /// The Tracks or Needs attention list's visible row keys, in their
+    /// Every release key the Releases list currently shows, flattened
+    /// from [`Self::releases_visible_rows`], for [`ListSelection::retain_visible`].
+    fn releases_visible_members(&self) -> Vec<ReleaseKey> {
+        self.releases_visible_rows()
+            .into_iter()
+            .flat_map(|row| row.members)
+            .collect()
+    }
+
+    /// The Tracks or Needs attention list's visible rows, in their
+    /// render sequence. Each row has one member: its own track key
+    /// (Required correction item 2: "The Tracks lists keep one member
+    /// for each row").
+    fn content_list_visible_rows(&self) -> Vec<SelectionRow<TrackKey, TrackKey>> {
+        self.content_list_visible_track_keys()
+            .into_iter()
+            .map(SelectionRow::of_one)
+            .collect()
+    }
+
+    /// The Tracks or Needs attention list's visible track keys, in their
     /// render sequence.
     fn content_list_visible_track_keys(&self) -> Vec<TrackKey> {
         self.vm
@@ -3240,33 +3279,36 @@ impl LibraryApp {
             self.open_destination_row(target, cx);
             return;
         };
+        let row = SelectionRow::new(ReleasesRowId::Release(key.clone()), vec![key.clone()]);
         if primary_modifier_held(modifiers) {
-            self.releases_selection.toggle(key.clone());
+            self.releases_selection.toggle(&row);
             cx.notify();
             return;
         }
         if modifiers.shift {
-            let visible = self.releases_visible_keys();
-            self.releases_selection.extend_to(key.clone(), &visible);
+            let visible = self.releases_visible_rows();
+            self.releases_selection.extend_to(&row, &visible);
             cx.notify();
             return;
         }
-        self.releases_selection.click(key.clone());
+        self.releases_selection.click(row.id);
         self.open_destination_row(target, cx);
     }
 
-    /// A click on a Releases row's own checkbox (ADR 0084 Decision 10).
-    /// It never opens a page.
+    /// A click on a release row's own checkbox (ADR 0084 Decision 10):
+    /// a Releases row, or a single row of an open group (Required
+    /// correction item 4). It never opens a page.
     pub(crate) fn toggle_release_row_selection(&mut self, key: ReleaseKey, cx: &mut Context<Self>) {
-        self.releases_selection.toggle(key);
+        let row = SelectionRow::new(ReleasesRowId::Release(key.clone()), vec![key]);
+        self.releases_selection.toggle(&row);
         cx.notify();
     }
 
     /// A click on a singles group row's body (ADR 0084 Decisions 6 and
     /// 10). Ctrl+click adds or removes every single of the group, the
     /// same as its checkbox; Shift+click extends the selection to the
-    /// group's first single, in the Releases list's visible sequence.
-    /// Neither opens a page. A plain click opens the group page.
+    /// group row, in the Releases list's visible sequence. Neither
+    /// opens a page. A plain click opens the group page.
     pub(crate) fn click_singles_group_row(
         &mut self,
         key: &SinglesGroupKey,
@@ -3274,33 +3316,33 @@ impl LibraryApp {
         modifiers: Modifiers,
         cx: &mut Context<Self>,
     ) {
+        let row = SelectionRow::new(ReleasesRowId::Group(key.clone()), single_keys.to_vec());
         if primary_modifier_held(modifiers) {
-            self.releases_selection.toggle_group(single_keys);
+            self.releases_selection.toggle(&row);
             cx.notify();
             return;
         }
         if modifiers.shift {
-            if let Some(proxy) = single_keys.first().cloned() {
-                let visible = self.releases_visible_keys();
-                self.releases_selection.extend_to(proxy, &visible);
-                cx.notify();
-            }
+            let visible = self.releases_visible_rows();
+            self.releases_selection.extend_to(&row, &visible);
+            cx.notify();
             return;
         }
-        if let Some(proxy) = single_keys.first().cloned() {
-            self.releases_selection.click(proxy);
-        }
+        self.releases_selection.click(row.id);
         self.open_singles_group(key, cx);
     }
 
     /// A click on a singles group row's checkbox (ADR 0084 Decision 6):
-    /// it adds or removes every single of the group.
+    /// it adds or removes every single of the group (Required
+    /// correction item 3).
     pub(crate) fn toggle_release_group_selection(
         &mut self,
+        key: &SinglesGroupKey,
         keys: &[ReleaseKey],
         cx: &mut Context<Self>,
     ) {
-        self.releases_selection.toggle_group(keys);
+        let row = SelectionRow::new(ReleasesRowId::Group(key.clone()), keys.to_vec());
+        self.releases_selection.toggle(&row);
         cx.notify();
     }
 
@@ -3319,14 +3361,15 @@ impl LibraryApp {
             self.open_content_list_row(row_id, cx);
             return;
         };
+        let row = SelectionRow::of_one(key.clone());
         if primary_modifier_held(modifiers) {
-            self.track_selection.toggle(key);
+            self.track_selection.toggle(&row);
             cx.notify();
             return;
         }
         if modifiers.shift {
-            let visible = self.content_list_visible_track_keys();
-            self.track_selection.extend_to(key, &visible);
+            let visible = self.content_list_visible_rows();
+            self.track_selection.extend_to(&row, &visible);
             cx.notify();
             return;
         }
@@ -3342,14 +3385,17 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) {
         if let Some(key) = self.vm.content_list_track_row_key(row_id) {
-            self.track_selection.toggle(key);
+            self.track_selection.toggle(&SelectionRow::of_one(key));
             cx.notify();
         }
     }
 
     /// Up, Down, Page Up, Page Down, Home and End (ADR 0084 Decision
     /// 10). They act only while the Music list column carries the
-    /// keyboard focus, and keep the newly focused row in view.
+    /// keyboard focus, and keep the newly focused row in view. Required
+    /// correction item 6: the Releases list gives the group row and
+    /// each single row of an open group its own focus stop, the same as
+    /// a release row.
     pub(crate) fn move_selection_focus(
         &mut self,
         step: FocusStep,
@@ -3361,18 +3407,18 @@ impl LibraryApp {
         }
         match self.vm.active_destination() {
             MusicDestination::Releases => {
-                let visible = self.releases_visible_keys();
+                let visible = self.releases_visible_rows();
                 if let Some(focused) = self.releases_selection.move_focus(step, &visible) {
-                    if let Some(index) = visible.iter().position(|key| *key == focused) {
+                    if let Some(index) = visible.iter().position(|row| row.id == focused) {
                         self.releases_list_scroll.scroll_to_item(index);
                     }
                 }
                 cx.notify();
             }
             MusicDestination::Tracks | MusicDestination::NeedsAttention => {
-                let visible = self.content_list_visible_track_keys();
+                let visible = self.content_list_visible_rows();
                 if let Some(focused) = self.track_selection.move_focus(step, &visible) {
-                    if let Some(index) = visible.iter().position(|key| *key == focused) {
+                    if let Some(index) = visible.iter().position(|row| row.id == focused) {
                         self.recent_music_scroll.scroll_to_item(index);
                     }
                 }
@@ -3385,18 +3431,21 @@ impl LibraryApp {
     }
 
     /// Space (ADR 0084 Decision 10): toggles the row with the keyboard
-    /// focus.
+    /// focus. Required correction item 3: on a group row, this adds or
+    /// removes every single of the group.
     pub(crate) fn toggle_focused_selection(&mut self, window: &Window, cx: &mut Context<Self>) {
         if !self.list_column_focus.contains_focused(window, cx) {
             return;
         }
         match self.vm.active_destination() {
             MusicDestination::Releases => {
-                self.releases_selection.toggle_focused();
+                let visible = self.releases_visible_rows();
+                self.releases_selection.toggle_focused(&visible);
                 cx.notify();
             }
             MusicDestination::Tracks | MusicDestination::NeedsAttention => {
-                self.track_selection.toggle_focused();
+                let visible = self.content_list_visible_rows();
+                self.track_selection.toggle_focused(&visible);
                 cx.notify();
             }
             MusicDestination::Discover
@@ -3405,19 +3454,20 @@ impl LibraryApp {
         }
     }
 
-    /// Ctrl+A (ADR 0084 Decision 10): selects every visible row.
+    /// Ctrl+A (ADR 0084 Decision 10): selects every member of every
+    /// visible row.
     pub(crate) fn select_all_visible(&mut self, window: &Window, cx: &mut Context<Self>) {
         if !self.list_column_focus.contains_focused(window, cx) {
             return;
         }
         match self.vm.active_destination() {
             MusicDestination::Releases => {
-                let visible = self.releases_visible_keys();
+                let visible = self.releases_visible_rows();
                 self.releases_selection.select_all(&visible);
                 cx.notify();
             }
             MusicDestination::Tracks | MusicDestination::NeedsAttention => {
-                let visible = self.content_list_visible_track_keys();
+                let visible = self.content_list_visible_rows();
                 self.track_selection.select_all(&visible);
                 cx.notify();
             }
@@ -3429,7 +3479,9 @@ impl LibraryApp {
 
     /// Enter (ADR 0084 Decision 10): opens the page of the row with the
     /// keyboard focus. Gives `false` with no focused row, so the caller
-    /// keeps the present Enter behavior for every other case.
+    /// keeps the present Enter behavior for every other case. Required
+    /// correction item 1: a focused group row opens the group page, not
+    /// the release page of one of its singles.
     pub(crate) fn open_focused_selection_row(
         &mut self,
         window: &Window,
@@ -3439,17 +3491,21 @@ impl LibraryApp {
             return false;
         }
         match self.vm.active_destination() {
-            MusicDestination::Releases => {
-                let Some(focused) = self.releases_selection.focused().cloned() else {
-                    return false;
-                };
-                self.open_page(
-                    FrameNavigationEntry::Release(focused),
-                    NavigationPathStart::ListRow,
-                    cx,
-                );
-                true
-            }
+            MusicDestination::Releases => match self.releases_selection.focused().cloned() {
+                Some(ReleasesRowId::Release(key)) => {
+                    self.open_page(
+                        FrameNavigationEntry::Release(key),
+                        NavigationPathStart::ListRow,
+                        cx,
+                    );
+                    true
+                }
+                Some(ReleasesRowId::Group(key)) => {
+                    self.open_singles_group(&key, cx);
+                    true
+                }
+                None => false,
+            },
             MusicDestination::Tracks | MusicDestination::NeedsAttention => {
                 let Some(focused) = self.track_selection.focused().cloned() else {
                     return false;

@@ -28,7 +28,7 @@ use crate::runtime::actor::ActorHandle;
 use crate::runtime::musicbrainz_feed_saga::MusicBrainzFeedSagaHandle;
 use crate::view_models::library::{
     description_line_count, AlbumNode, InspectorPanelKind, LibraryTrackInspectorDisplay,
-    LibraryTrackInspectorState, LibraryViewModel,
+    LibraryTrackInspectorState, LibraryViewModel, ReleasesRowId,
 };
 use crate::view_models::library_removal::{
     SelectionRemovalConfirmationState, SelectionRemovalReport,
@@ -245,8 +245,11 @@ pub struct LibraryApp {
     /// ends.
     queued_feed_downloads: VecDeque<i64>,
     /// The Releases list selection (ADR 0084 Decision 10). A change of
-    /// destination clears it.
-    releases_selection: ListSelection<ReleaseKey>,
+    /// destination clears it. Required correction item 2, 2026-10-18:
+    /// the focus and the anchor hold a [`ReleasesRowId`], a release row
+    /// or a group row, distinct from the [`ReleaseKey`] members that the
+    /// selected set holds.
+    releases_selection: ListSelection<ReleaseKey, ReleasesRowId>,
     /// The Tracks and Needs attention lists' shared selection (ADR 0084
     /// Decision 10). A change of destination clears it.
     track_selection: ListSelection<TrackKey>,

@@ -32,6 +32,10 @@ pub enum IconName {
     ChevronRight,
     ChevronDown,
     Check,
+    /// The mixed mark of a checkbox whose row has some, but not every,
+    /// member selected (ADR 0084 Decision 10, Operator Correction,
+    /// 2026-10-18).
+    Dash,
     Close,
     Info,
     Search,
@@ -70,6 +74,7 @@ impl IconName {
             | Self::ChevronRight
             | Self::ChevronDown
             | Self::Check
+            | Self::Dash
             | Self::Close
             | Self::Info
             | Self::Search
@@ -119,7 +124,8 @@ impl IconName {
             | Self::Release
             | Self::Artist
             | Self::Track
-            | Self::Playlist => None,
+            | Self::Playlist
+            | Self::Dash => None,
         }
     }
 
@@ -140,6 +146,9 @@ impl IconName {
             Self::Artist => Some(LucideIconName::Users),
             Self::Track => Some(LucideIconName::Music),
             Self::Playlist => Some(LucideIconName::ListMusic),
+            // ADR 0084 Decision 10, Operator Correction, 2026-10-18: the
+            // mixed mark of a group row checkbox.
+            Self::Dash => Some(LucideIconName::Minus),
             Self::Add
             | Self::Back
             | Self::ChevronLeft
@@ -170,6 +179,7 @@ impl IconName {
             | Self::ChevronRight
             | Self::ChevronDown
             | Self::Check
+            | Self::Dash
             | Self::Close
             | Self::Info
             | Self::Search
@@ -367,7 +377,8 @@ gpui_kit_assets::icon_assets!(
         Disc,
         Users,
         Music,
-        ListMusic
+        ListMusic,
+        Minus
     ]
 );
 
@@ -416,6 +427,7 @@ mod tests {
         IconName::ChevronRight,
         IconName::ChevronDown,
         IconName::Check,
+        IconName::Dash,
         IconName::Close,
         IconName::Info,
         IconName::Search,
@@ -502,6 +514,7 @@ mod tests {
             IconName::Playlist.extra_icon(),
             Some(LucideIconName::ListMusic)
         );
+        assert_eq!(IconName::Dash.extra_icon(), Some(LucideIconName::Minus));
     }
 
     /// Confirms the asset source `bootstrap.rs` registers at app start

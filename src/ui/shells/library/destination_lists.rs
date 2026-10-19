@@ -39,8 +39,20 @@ use crate::view_models::library::{
     DestinationListRowTarget, DestinationListRowVm, DiscoverViewRowVm, PlaylistSidebarRowVm,
     PlaylistSidebarVm, ReleasesListEntryVm,
 };
+use crate::view_models::list_selection::RowCheckState;
 use crate::view_models::singles_group::SinglesGroupRowVm;
 use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
+
+/// Maps the view model's typed check state to the checkbox primitive's own
+/// state (Required correction item 5, 2026-10-18). Only a singles group
+/// row's checkbox can read mixed.
+fn checkbox_state_for(check_state: RowCheckState) -> CheckboxState {
+    match check_state {
+        RowCheckState::Checked => CheckboxState::Checked,
+        RowCheckState::Mixed => CheckboxState::Mixed,
+        RowCheckState::Clear => CheckboxState::NotChecked,
+    }
+}
 
 /// Renders the Discover views list column (ADR 0084 Decision 3). "New
 /// releases" is the only view today.
@@ -199,25 +211,28 @@ fn render_singles_group_rows(
         .a11y_label(ListRowA11yLabel {
             label: SharedString::from(a11y_label),
         })
-        .selected(selection.checked)
+        .selected(selection.is_marked())
         .focused(selection.focused);
 
     // ADR 0084 Decision 6: the group row's checkbox selects each single
     // of the group. ADR 0084 Decision 10 Design: "The row" — `ListRow`
     // shows it while a selection exists or the row has the keyboard
     // focus (`checkbox_visible`), and reveals it on hover otherwise.
+    // Required correction item 5: the checkbox reads checked, mixed, or
+    // clear, from the group's own singles.
     {
         let checkbox_a11y_label = selection.checkbox_a11y_label.clone();
+        let checkbox_group_key = open_key.clone();
         let checkbox_keys = single_keys.clone();
         group_row = group_row.checkbox(
             Checkbox::new(
                 SharedString::from(format!("{element_id}-checkbox")),
-                CheckboxState::from_checked(selection.checked),
+                checkbox_state_for(selection.check_state),
             )
             .a11y_label(checkbox_a11y_label)
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                 cx.stop_propagation();
-                this.toggle_release_group_selection(&checkbox_keys, cx);
+                this.toggle_release_group_selection(&checkbox_group_key, &checkbox_keys, cx);
             }))
             .into_any_element(),
             selection.checkbox_visible,
@@ -287,19 +302,21 @@ fn render_destination_list_row(
         .a11y_label(ListRowA11yLabel {
             label: SharedString::from(row.a11y_label),
         })
-        .selected(selection.checked)
+        .selected(selection.is_marked())
         .focused(selection.focused);
 
-    // ADR 0084 Decision 10: a Releases row's checkbox. The Artists list,
-    // and an expanded single row inside a group, give every row
-    // `RowSelectionVm::none`, so an empty `checkbox_a11y_label` means
-    // this row never shows one, even on hover.
+    // ADR 0084 Decision 10: a Releases row's checkbox. Required
+    // correction item 4: a single row of an open group gets this same
+    // checkbox, under the same visibility rule as any other row. The
+    // Artists list gives every row `RowSelectionVm::none`, so an empty
+    // `checkbox_a11y_label` means this row never shows one, even on
+    // hover.
     if !selection.checkbox_a11y_label.is_empty() {
         let checkbox_target = target.clone();
         list_row = list_row.checkbox(
             Checkbox::new(
                 SharedString::from(format!("{}-checkbox", row.element_id)),
-                CheckboxState::from_checked(selection.checked),
+                checkbox_state_for(selection.check_state),
             )
             .a11y_label(selection.checkbox_a11y_label.clone())
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {

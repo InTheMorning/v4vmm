@@ -1,6 +1,6 @@
 # ADR 0084 Task 009: Selection And The Action Bar In The List Column
 
-Status: Implemented - 2026-10-18. Cases R9-01 to R9-10 pass. Mechanical checks are Green. The visual gate is open: an operator has not walked V1 to V7.
+Status: Implemented - 2026-10-18. Cases R9-01 to R9-15 pass. Mechanical checks are Green. The operator passed V1 to V5 and V7 on 2026-10-18. V6 is open again after its correction.
 
 ## Goal
 
@@ -390,4 +390,123 @@ Pass, after one fix. The orchestrator made the fix in the same change.
 - The other deviations agree with the packet or with the data. A Tracks row is always a downloaded Library track, so "Download" does not show on the track lists. An expanded single has no checkbox of its own, and the group checkbox selects each single (R9-04).
 - `cargo fmt -- --check`, `cargo clippy -- -D warnings` and `cargo check --all-targets` are Green. `cargo test` gives 1962 library tests and 323 guards, all passing.
 - Not part of this packet: `cargo clippy --all-targets -- -D warnings` reports errors in files that this packet does not touch, for example `src/startup.rs`. The project gate of `AGENTS.md` is `cargo clippy -- -D warnings`.
+
+## Operator Correction - 2026-10-18
+
+The operator passed V1 to V5 and V7 on 2026-10-18. V6 fails:
+
+- The single rows of an open group show no checkbox.
+- Space on a group row selects only its first single, and the group checkbox shows nothing.
+- A pointer click on the group checkbox selects each single and shows it. That part is correct.
+
+Cause: `releases_visible_keys` in `src/library/app_impl.rs` gives a group row the key of its first single, and gives the single rows of an open group no key. The orchestrator review accepted "an expanded single has no checkbox" as a deviation. That was wrong.
+
+### Required correction
+
+1. A row is the unit of focus and of range. A row has members. A release row has one member. A group row has each single of its group. An open group also gives one row for each of its singles, after the group row.
+2. Add a typed row identity for the Releases list, for example `ReleasesRowId::{Release(ReleaseKey), Group(SinglesGroupKey)}`. The focus and the anchor hold a row identity. The selected set holds `ReleaseKey` members.
+   Change `ListSelection`, or add a grouped variant beside it, so that each operation takes the visible rows with their members. The Tracks lists keep one member for each row.
+3. `toggle(row)`, Space and Ctrl+click on a row: when each member is selected, remove each member. Else add each member.
+   `extend_to(row)` selects each member of each row from the anchor row to `row`. `select_all` selects each member of each visible row.
+4. Each single row of an open group shows its own checkbox, under the same visibility rule as each other row. Its checkbox and Ctrl+click act only on that single. It is a keyboard focus row.
+5. The group checkbox has three states: checked when each single is selected, mixed when some singles are selected, and clear when none is. The mixed state uses a named icon, for example a dash, and the accessibility label tells "some singles selected". It never reads through color alone.
+   Add the mixed state to the checkbox primitive as a typed value, not a second boolean.
+6. The keyboard focus shows on the group row and on each single row, as on a release row.
+7. Delete `releases_visible_keys` when no caller remains. Rewrite each comment that names the first single as a proxy.
+
+### Mechanical criteria of the correction
+
+| Case | Required proof |
+|---|---|
+| R9-11 | Space on a focused group row adds each single, and Space again removes each single |
+| R9-12 | An open group gives one focus row for the group and one for each single. Down from the group row focuses its first single |
+| R9-13 | The checkbox of a single row toggles only that single. The group checkbox then reads mixed |
+| R9-14 | The group checkbox reads checked when each single is selected, mixed when some are, and clear when none is |
+| R9-15 | Shift+click from a release row to a group row selects each member of each row between them |
+
+### Visual criterion of the correction
+
+- V6, again: in Releases, open a singles group. Each single row shows its checkbox. Space on the group row, and its checkbox, select each single, and the group checkbox shows the check. A checkbox click on one single selects only that single, and the group checkbox shows the mixed state.
+
+## Correction Result - 2026-10-19
+
+### Files Changed
+
+- `src/view_models/list_selection.rs`: `ListSelection<K, R>` takes a second type, `R`, the row's own identity. `K` stays the member key, held in the selected set.
+  - New types: `SelectionRow<R, K>` and `RowCheckState`.
+  - `toggle`, `extend_to`, `select_all`, `toggle_focused`, and `move_focus` take rows with their members, not plain keys.
+  - The method `toggle_group` is gone. One `toggle` method covers a row of one member and a row of many members.
+  - `RowSelectionVm` gains the field `check_state`, instead of `checked`, and the method `is_marked`.
+  - New method `RowSelectionVm::for_group_row` builds the mixed state and its own accessibility text.
+  - Updated call shapes for the R9-01 to R9-05 tests. New tests for R9-11 to R9-15.
+- `src/ui/primitives/checkbox.rs`: `CheckboxState` gains the value `Mixed`. The checkbox fills for `Checked` and for `Mixed`, with a different named icon for each.
+- `src/ui/icons.rs`: new named icon `IconName::Dash`, drawn from the Lucide `Minus` icon, through the complete Lucide catalog. It is the mixed mark of a checkbox.
+- `src/view_models/library.rs`: new type `ReleasesRowId`, a release row or a group row.
+  - `releases_list_with_selection` gives each single row of an open group its own checkbox and its own keyboard-focus fact.
+  - It gives the group row's checkbox the mixed state.
+  - The four functions that read a `ListSelection<ReleaseKey>` read `ListSelection<ReleaseKey, ReleasesRowId>` instead.
+  - New test proves a single row's own checkbox and the group's mixed state together.
+- `src/library.rs`: the field `releases_selection` is `ListSelection<ReleaseKey, ReleasesRowId>` instead of `ListSelection<ReleaseKey>`.
+- `src/library/app_impl.rs`: `releases_visible_keys` is gone.
+  - New `releases_visible_rows` gives one row for a release, one row for a group, and one row for each single of an open group.
+  - New `releases_visible_members` flattens it for `retain_visible`.
+  - New `content_list_visible_rows` wraps each track key in a row of one member, through `SelectionRow::of_one`.
+  - The click, checkbox, and keyboard functions make a row, not a plain key, and give it to the selection.
+  - `toggle_release_group_selection` takes the group's own key too, so its anchor and its focus can hold that key.
+  - Enter on a focused group row opens the group page instead of a single's release page.
+- `src/ui/shells/library/destination_lists.rs`: a single row of an open group gets the checkbox of another row, through the same shared code. The group row's checkbox reads its typed state through a new `checkbox_state_for` function. The group row's checkbox click passes the group's own key too.
+- `src/ui/shells/library/content_list.rs`: reads `check_state` instead of `checked`.
+
+### Behavior Changed
+
+- Each single row of an open singles group shows its own checkbox. A click on it selects or clears only that single.
+- Space on a focused group row adds each single of the group. Space again removes each single.
+- The group row's checkbox reads three states: checked when each single is selected, mixed when some are, and clear when none is. The mixed state shows a dash mark, not only a changed color. Its accessibility text states "some singles selected" in words.
+- Up, Down, Page Up, Page Down, Home, and End work on the group row too. Each single row of an open group gets its own stop, the same as a release row.
+- Shift+click from a release row to a group row selects each member of each row between them.
+- Enter on a focused group row opens the group page. The earlier row model gave a group row no identity of its own. Enter could then open the release page of the group's first single by mistake. The new `ReleasesRowId` type removes that mistake.
+
+### Checks - 2026-10-19
+
+| Check | Result |
+|---|---|
+| `cargo test --lib adr_0084_selection_` | Green, 22 tests |
+| `cargo test` | Green, 1970 unit tests and 323 guards. Ten documentation examples stay ignored |
+| `cargo test --test architecture_tests` | Green, 323 guards |
+| `cargo clippy -- -D warnings` | Green |
+| `cargo check --all-targets` | Green |
+| `cargo fmt -- --check` | Green |
+| `cargo build --bin v4vmm` | Green |
+
+No application launch and no production-data change occurred.
+
+### Deviations From The Task
+
+1. The task offered two paths for the row-aware model: change `ListSelection` itself, or add a grouped variant beside it. This correction changes `ListSelection` itself, with a second type for the row's own identity. The Tracks and Needs attention lists keep one member for each row, through the new `SelectionRow::of_one` constructor. Their own behavior does not change.
+2. The R9-01 to R9-10 tests needed a new call shape: the row model takes a row's identity and its members, not a plain key. Each test's own assertions, and the fact it proves, stay the same. The deleted `toggle_group` method is one case: its own test, R9-04, builds a row of many members and calls the one `toggle` method, and still proves the same two facts.
+3. `open_focused_selection_row` (Enter) opens the group page for a focused group row. The R9-01 to R9-10 cases did not name this case: the earlier row model gave a group row no identity of its own. The fix follows from the new `ReleasesRowId` type.
+
+### Unresolved Concerns
+
+1. V6 still needs the operator. No test proves a rendered icon, a rendered color, or a rendered checkbox fill. The steps below give the V6 walk again, for the corrected behavior.
+2. The unresolved concerns of the Implementation Result above stay open. This correction changes none of them.
+
+### Operator Visual Check, V6 Again
+
+This check needs a Linux desktop session, this checkout, and a Library with one Releases singles group of two or more singles.
+
+1. Build and start the app: `cargo build --bin v4vmm` then run the built `target/debug/v4vmm` binary from a desktop session.
+2. Open Music, then Releases, in the sidebar.
+3. Find a singles group row, for example "Artist name · n singles". Click its chevron to open it. Look for each single row under the group, each with its own checkbox at the left.
+4. Click one single's own checkbox. Look for that row becoming checked, and no other single row becoming checked.
+5. Look at the group row's own checkbox. Look for a dash mark, not a check mark, since the group has one checked single and one or more that are not checked.
+6. Click the same single's checkbox again, to clear it. Then click the group row's own checkbox. Look for each single row becoming checked, and the group row's checkbox showing a check mark, not a dash.
+7. Click the group row's own checkbox again, to clear each single. The keyboard focus is now on the group row.
+   Space or Down can do nothing in the next steps. Then give the list column the keyboard focus as in V3 step 11. Move the focus to the group row with Up or Down.
+8. Press Space. Look for each single row becoming checked, and the group row's checkbox showing a check mark. Press Space again. Look for each single row, and the group row's checkbox, going back to clear.
+9. Press Down. Look for the keyboard focus moving from the group row to its first single row. Press Space. Look for only that single becoming checked, and the group row's checkbox showing the dash mark.
+
+**Wrong if:** a single row shows no checkbox of its own. Also wrong: the group row's checkbox shows the same mark for "some singles selected" as for "each single selected". Also wrong: Down from the group row does not move the keyboard focus to its first single.
+
+**Cleanup:** press Escape to clear any selection the check leaves checked. This check removes no file and changes no stored record.
 

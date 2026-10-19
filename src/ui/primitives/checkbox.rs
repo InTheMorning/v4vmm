@@ -4,6 +4,11 @@
 //! The check mark is a named icon ([`IconName::Check`]), never a glyph
 //! string (AGENTS.md: token discipline). The checked state also changes
 //! the fill and the border color, so it never relies on color alone.
+//!
+//! Operator Correction, 2026-10-18: a row of two or more members, for
+//! example a singles group row, can read [`CheckboxState::Mixed`]. Its
+//! mark is a different named icon ([`IconName::Dash`]), not only a color
+//! change, so the mixed state never reads through color alone.
 
 #![warn(clippy::pedantic)]
 
@@ -19,17 +24,20 @@ use crate::ui::tokens::{color, Radius, SemanticColor, Size};
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
-/// The checked state of a [`Checkbox`] (ADR 0084 Decision 10). A row's
-/// checkbox has no third, indeterminate value.
+/// The checked state of a [`Checkbox`] (ADR 0084 Decision 10). A group row
+/// of two or more members reads [`Self::Mixed`] when some, but not every,
+/// member is selected (Operator Correction, 2026-10-18).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CheckboxState {
     Checked,
+    /// Some, but not every, member of the row is selected.
+    Mixed,
     NotChecked,
 }
 
 impl CheckboxState {
     /// Builds the state from a plain `bool`, for a caller that already
-    /// holds one.
+    /// holds one. A `bool` cannot give [`Self::Mixed`].
     #[must_use]
     pub const fn from_checked(checked: bool) -> Self {
         if checked {
@@ -40,8 +48,15 @@ impl CheckboxState {
     }
 
     #[must_use]
-    const fn is_checked(self) -> bool {
-        matches!(self, Self::Checked)
+    const fn is_mixed(self) -> bool {
+        matches!(self, Self::Mixed)
+    }
+
+    /// Tells if the checkbox shows a fill and a mark: [`Self::Checked`]
+    /// or [`Self::Mixed`].
+    #[must_use]
+    const fn is_filled(self) -> bool {
+        matches!(self, Self::Checked | Self::Mixed)
     }
 }
 
@@ -86,7 +101,13 @@ impl Checkbox {
 
 impl RenderOnce for Checkbox {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let checked = self.state.is_checked();
+        let filled = self.state.is_filled();
+        let mixed = self.state.is_mixed();
+        let mark = if mixed {
+            IconName::Dash
+        } else {
+            IconName::Check
+        };
         let box_size = Size::CheckboxIndicator.scaled(cx);
         let hit_target = Size::MinHitTarget.scaled(cx);
         let radius = Radius::SM.scaled(cx);
@@ -102,14 +123,10 @@ impl RenderOnce for Checkbox {
             .justify_center()
             .rounded(radius)
             .border_1()
-            .border_color(if checked { accent } else { border })
-            .when(checked, |el| el.bg(accent))
-            .when(checked, |el| {
-                el.child(
-                    Icon::new(IconName::Check)
-                        .size(IconSize::Action)
-                        .color(on_accent),
-                )
+            .border_color(if filled { accent } else { border })
+            .when(filled, |el| el.bg(accent))
+            .when(filled, |el| {
+                el.child(Icon::new(mark).size(IconSize::Action).color(on_accent))
             });
 
         let mut hit_area = div()
@@ -142,8 +159,20 @@ mod tests {
             CheckboxState::from_checked(false),
             CheckboxState::NotChecked
         );
-        assert!(CheckboxState::Checked.is_checked());
-        assert!(!CheckboxState::NotChecked.is_checked());
+        assert!(CheckboxState::Checked.is_filled());
+        assert!(!CheckboxState::NotChecked.is_filled());
+    }
+
+    /// Required correction item 5, 2026-10-18: the mixed state fills the
+    /// checkbox, the same as the checked state, but its mark is the
+    /// dash, not the check.
+    #[test]
+    fn adr_0084_selection_mixed_checkbox_state_fills_with_its_own_mark() {
+        assert!(CheckboxState::Mixed.is_filled());
+        assert!(CheckboxState::Mixed.is_mixed());
+        assert!(!CheckboxState::Checked.is_mixed());
+        assert!(!CheckboxState::NotChecked.is_mixed());
+        assert_ne!(CheckboxState::Mixed, CheckboxState::Checked);
     }
 
     #[test]
