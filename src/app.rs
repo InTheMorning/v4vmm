@@ -738,6 +738,9 @@ impl TopApp {
             NavigationPathStart::CurrentPath => self
                 .workspace_layout
                 .push_nav(content_list_id, entry.clone()),
+            NavigationPathStart::ListRow => self
+                .workspace_layout
+                .open_nav_list_row(content_list_id, entry.clone()),
         };
         if let Err(error) = changed {
             self.settings_status = format!("Error opening page: {error}");

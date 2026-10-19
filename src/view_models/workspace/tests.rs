@@ -1354,6 +1354,41 @@ fn adr_0084_nav_push_of_path_page_cuts_path_and_back_restores() {
     );
 }
 
+/// ADR 0084 Decision 9, operator check of 2026-10-18: a second row of the
+/// Artists list replaced no page. The path read "Artists > HeyCitizen >
+/// Haleen". A list row now opens directly under the destination, and Back
+/// returns to the first row's page.
+#[test]
+fn adr_0084_nav_list_row_opens_under_the_destination() {
+    let artists = FrameNavigationEntry::Destination(MusicDestination::Artists);
+    let heycitizen = FrameNavigationEntry::PublisherDetail("heycitizen-guid".to_string());
+    let haleen = FrameNavigationEntry::ArtistDetail("Haleen".to_string());
+    let mut nav = FrameNavigationState::new(artists.clone());
+
+    nav.open_list_row(heycitizen.clone());
+    nav.open_list_row(haleen.clone());
+    assert_eq!(nav.path_entries(), vec![artists.clone(), haleen.clone()]);
+
+    nav.push(track(7));
+    nav.open_list_row(heycitizen.clone());
+    assert_eq!(
+        nav.path_entries(),
+        vec![artists.clone(), heycitizen],
+        "a list row replaces each open page under the destination"
+    );
+
+    nav.go_back().expect("Back must be available");
+    assert_eq!(nav.path_entries(), vec![artists.clone(), haleen, track(7)]);
+
+    let mut root_only = FrameNavigationState::new(artists.clone());
+    root_only.open_list_row(artists.clone());
+    assert_eq!(
+        root_only.path_entries(),
+        vec![artists],
+        "the destination itself stays one entry"
+    );
+}
+
 /// N1-03 (ADR 0084 Decision 9): a new path holds the destination and the
 /// page only, and Back returns to the earlier location.
 #[test]

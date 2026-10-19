@@ -466,13 +466,13 @@ impl LibraryApp {
         if let Some(key) = self.vm.content_list_track_row_key(row_id) {
             cx.emit(super::LibraryAppEvent::OpenPage {
                 entry: FrameNavigationEntry::Track(key),
-                start: NavigationPathStart::CurrentPath,
+                start: NavigationPathStart::ListRow,
             });
         }
     }
 
     /// Opens the page a Releases or Artists destination-list row names
-    /// (ADR 0084 Decision 2), in the current path.
+    /// (ADR 0084 Decision 2), directly under its destination (Decision 9).
     pub(crate) fn open_destination_row(
         &mut self,
         target: &DestinationListRowTarget,
@@ -490,16 +490,16 @@ impl LibraryApp {
                 FrameNavigationEntry::PublisherDetail(feed_guid.clone())
             }
         };
-        self.open_page(entry, NavigationPathStart::CurrentPath, cx);
+        self.open_page(entry, NavigationPathStart::ListRow, cx);
     }
 
-    /// Opens a Discover view row in the current path (ADR 0084 Decision
-    /// 3). The row the operator clicked already names the view the list
+    /// Opens a Discover view row directly under Discover (ADR 0084
+    /// Decisions 3 and 9). The row the operator clicked already names the view the list
     /// shows, so this always lands in the Discover location.
     pub(crate) fn open_discover_view(&mut self, view: DiscoverView, cx: &mut Context<Self>) {
         self.open_page(
             FrameNavigationEntry::DiscoverView(view),
-            NavigationPathStart::CurrentPath,
+            NavigationPathStart::ListRow,
             cx,
         );
     }

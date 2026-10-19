@@ -24,21 +24,21 @@ Phase 4A builds ADR 0084 in the packets of the
 for each item, three columns, the six destinations and Discover.
 Packets 016, the scopes, and 017, the name level, wait for Stophammer request 8. It asks for complete list and search rows.
 
-Packets 001 to 008 and 013 to 015 are complete. Packets 009 to 012 are not written. Packet 009, multiple selection, is next in
-register order.
+Packets 001 to 008 and 013 to 015 are complete. [Packet 009](docs/tasks/adr-0084-task-009-list-selection-and-action-bar.md), selection and the action bar in the list column, is
+Ready. Packets 010 to 012 and 018 are not written.
 
 Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
 
 Each file in `docs/tasks/` is open: it is Ready, or it waits for an operator check. Finished tasks are in
-`docs/tasks/archive/`. Each file in `docs/plans/` is an active plan.
+`docs/tasks/archive/`. Each file in `docs/plans/` is an active plan. Finished plans are in `docs/plans/archive/`.
 
 The operator resumed visual checks on 2026-10-02. [Pending human checks](docs/pending-human-checks.md)
 holds each open check. Walk a new check right after its packet. The procedures in `docs/runbooks/` stay
 regression checks.
 
 Ready packets include
-[ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md).
+[ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md) and ADR 0084 packet 009.
 
 Known open defects:
 

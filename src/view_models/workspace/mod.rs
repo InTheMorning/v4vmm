@@ -232,6 +232,24 @@ impl WorkspaceLayout {
         Ok(())
     }
 
+    /// Opens a list column row under the destination of a frame's current
+    /// location (ADR 0084 Decision 9).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceModelError::FrameNotFound`] when the frame does not
+    /// exist in the layout.
+    pub(crate) fn open_nav_list_row(
+        &mut self,
+        id: WorkspaceFrameId,
+        entry: FrameNavigationEntry,
+    ) -> Result<(), WorkspaceModelError> {
+        self.frame_nav_mut(id)
+            .ok_or(WorkspaceModelError::FrameNotFound(id))?
+            .open_list_row(entry);
+        Ok(())
+    }
+
     /// Starts a new location path on a frame (ADR 0084 Decision 9).
     ///
     /// # Errors

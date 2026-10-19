@@ -157,3 +157,19 @@ Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 202
 - Owner: [task 015](tasks/adr-0046-task-015-forward-navigation.md#operator-visual-check).
 - Scheduling: it needs a macOS desktop session.
 - V2, macOS part: `cmd-[` and `cmd-]` outside a text box do the same as Back and Forward. Indent and outdent still work in a macOS text box.
+
+## 5. A List Row Opens Under Its Destination — ADR 0084 Decision 9
+
+Open - the orchestrator made the fix on 2026-10-18. Operator inspection is pending.
+
+- The operator saw "Artists > HeyCitizen > Haleen > HeyCitizen" on 2026-10-18. Each click on a row of the list column added a page to the path.
+- Fix: `NavigationPathStart::ListRow` opens the page directly under the destination of the current path (`FrameNavigationState::open_list_row`). The Releases and Artists rows, the Discover view rows and the Library track rows use it. The test `adr_0084_nav_list_row_opens_under_the_destination` guards it.
+- Check:
+  1. Run `cargo build --bin v4vmm`, and start `target/debug/v4vmm`.
+  2. Open Music > Artists. Click HeyCitizen, then Haleen, then Elijah Lied.
+  3. Check that the breadcrumb reads "Artists > Elijah Lied".
+  4. Press Back. Check that the page and the breadcrumb return to Haleen.
+  5. Do steps 2 to 4 in Releases and in Tracks.
+  6. In a release page, click the artist name. Check that the page goes after the release, for example "Releases > Face Pale > Faces Pale". A link inside a page still goes deeper.
+  7. Wrong: a list row adds a page to the old path, or Back does not return to the page before.
+

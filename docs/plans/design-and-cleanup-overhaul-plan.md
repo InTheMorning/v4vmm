@@ -135,6 +135,7 @@ Steps:
       The operator split it on 2026-10-18. [ADR 0084 packet 008](../tasks/archive/adr-0084-task-008-feed-page-and-artists.md) builds the feed level and the Artists list. Packet 017 builds the name level, and replaces the two old pages.
       Packet 010 fixes finding 6, and packet 016 adds the scope.
    6. Multiple selection and the action bar, with the reserved audition place in the row composite (Decisions 10 and 11). It fixes finding 3.
+      The operator split it on 2026-10-18: [ADR 0084 packet 009](../tasks/adr-0084-task-009-list-selection-and-action-bar.md) builds the list column, and packet 018 the detail column.
    7. Search results in the list column (Decision 2). Saved searches need storage first. The [ADR 0084 phase plan](adr-0084-music-column-browser-phase-plan.md) registers them as packet 012, by operator decision of 2026-10-16.
    8. The logo frame for collections (Decision 12).
 

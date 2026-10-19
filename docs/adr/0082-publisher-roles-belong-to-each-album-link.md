@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted - 2026-10-02. The operator approved the design and accepted the revised text on 2026-10-02.
+Implemented - 2026-10-18. Tasks 001 to 003 are complete, and the operator passed each visual gate. Decisions 4 and 5 are the decisions in force. The operator approved the design and accepted the revised text on 2026-10-02.
 
 Decisions 1, 2, 3 and 6 are superseded by [ADR 0085](0085-artists-by-confirmation.md) on 2026-10-18. Decisions 4 and 5 stay in force.
 

@@ -3,6 +3,7 @@
 ## Status
 
 Accepted - 2026-10-18. The operator asked for this decision, answered its open questions and accepted it on 2026-10-18.
+Implementation partial: ADR 0082 task 003 and ADR 0084 task 008 built Decisions 1 to 7. The operator passed their checks on 2026-10-18. The name level of Decision 2 waits for ADR 0084 packet 017.
 
 Amended 2026-10-18: the operator passed ADR 0082 packet 002 V3 with Sir Libre Records and found "Publisher of" over a role caption unclear. Decision 3 now gives one section for each relation, with "As <roles>" for a role other than artist, and one "Role not confirmed" section.
 

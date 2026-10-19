@@ -193,6 +193,12 @@ pub(crate) enum NavigationPathStart {
     NewPath,
     /// A row or a link: the page goes into the current path.
     CurrentPath,
+    /// A row of the list column: the page goes directly under the
+    /// destination of the current path, in place of the open pages. The
+    /// list shows the children of its destination, so its row is a new
+    /// location, not a step deeper (ADR 0084 Decision 9, operator check
+    /// of 2026-10-18).
+    ListRow,
 }
 
 /// The identity of one release, whatever its origin (ADR 0084 Decision 4).
@@ -549,6 +555,25 @@ impl FrameNavigationState {
             return;
         }
         let location = self.current.with_page(entry);
+        self.move_to(location);
+    }
+
+    /// Opens `entry` directly under the destination of the current
+    /// location (ADR 0084 Decision 9). A list column row uses it, so a
+    /// second row replaces the first row's page in the path. The move goes
+    /// into the history, so Back returns to the first row's page.
+    pub(crate) fn open_list_row(&mut self, entry: FrameNavigationEntry) {
+        let destination = self
+            .current
+            .ancestors
+            .first()
+            .unwrap_or(&self.current.page)
+            .clone();
+        let location = if destination == entry {
+            FrameLocation::new(entry)
+        } else {
+            FrameLocation::new(destination).with_page(entry)
+        };
         self.move_to(location);
     }
 
