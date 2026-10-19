@@ -168,6 +168,9 @@ Current plans:
 - [Live segment request](plans/live-segment-request.md): the publisher asks
   v4vmm to start a talk break or a live set through the `segment` commands,
   with a split for each show, and to decide the custody of the token. Open
+- [Episode export request](plans/episode-export-request.md): the publisher
+  asks v4vmm to record an ADR that exports an episode from the show log of
+  publisher ADR 0017, with chapters, value time splits and art. Open
 - [MusicIndex Image tag request](plans/musicindex-image-tag-request.md):
   the publisher asks v4vmm to write `TXXX:MusicIndex Image`, the artwork URL
   of a track. Decided as ADR 0080 Decision 9
