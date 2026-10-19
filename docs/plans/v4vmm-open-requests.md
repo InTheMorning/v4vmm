@@ -26,7 +26,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 5 | Search returns one entity one time | Search correction | Deployed in release 0.8.0 on 2026-10-08 |
 | 6 | A list of releases and of artists by name | API addition | Deployed in release 0.9.0 on 2026-10-18 |
 | 7 | The named feed rank and the release kind facts in each publisher relationship entry | API field addition | Deployed in release 0.11.0 on 2026-10-18, without `remote_release_kind` |
-| 8 | Each list row and each search row is complete | API rule and field additions | Accepted on 2026-10-18 as Stophammer ADR 0071. Not built |
+| 8 | Each list row and each search row is complete | API rule and field additions | Deployed in release 0.12.0 on 2026-10-18 |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -371,6 +371,17 @@ In the backup of 2026-09-26, 34 names had some releases with a publisher feed
 and some without. Such a name shows two times: one `publisher` row and one
 `name` row. 19 publisher feeds had no music feed, and each one has a row.
 
+## Release 0.12.0 - 2026-10-18
+
+Release 0.12.0 delivers request 8 (Stophammer ADR 0071). `GET /node/info` gives `git_revision` `056199b`. The checks on the live API on 2026-10-18:
+
+- Each row with a `publisher_feed_title` gives `publisher_feed_guid`. In the 200 newest feeds, 155 rows give both.
+- With `include=named_feeds`, each music row of `GET /v1/feeds/recent` and `GET /v1/feeds/by-name` gives its named feeds in rank order. "Motive to Kill" gives Motive to Kill at rank 1 (`artist`, `both`) and Sir Libre Records at rank 2 (`label`, `both`).
+- With `include=link_facts`, Sir Libre Records gives the same values on `GET /v1/artist-names` and on `GET /v1/feeds/by-name`: `two_way_link_count` 3, `agreed_roles` `["label"]` and `first_named_count` 0. In the first 200 artist rows, 174 publisher rows have an empty `agreed_roles`, and 169 of them have a `first_named_count` above 0.
+- `GET /v1/feeds/by-name?artist_key=sir%20seat%20sitter` gives the 4 releases that the `name` row counts. With `medium=publisher`, it gives `400`.
+- `GET /v1/search?q=Libre&type=publisher` gives Sir Libre Records and "Kolomona Myer - AKA Sir Libre". `type=feed` and a search with no `type` give no publisher feed.
+- `GET /v1/node/capabilities` lists `publisher` in `entity_types`, `named_feeds` in `include_params.feed_list`, and `include_params.artist_list`.
+
 ## Release 0.11.0 - 2026-10-18
 
 Release 0.11.0 delivers request 7 (Stophammer ADR 0069 §3a and ADR 0059 §1). `GET /node/info` gives `git_revision` `99e90f7`.
@@ -399,7 +410,7 @@ Release 0.9.0 delivers request 6 (Stophammer ADR 0070). `GET /node/info` gives `
 
 A release record gives the release.
 
-**Request 8.** The four gaps are correct. The Stophammer operator decided the scope on 2026-10-18. Stophammer [ADR 0071](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0071-a-list-row-links-what-it-names.md) is Accepted on 2026-10-18. Its tasks 001 to 005 give the build. No release holds it now.
+**Request 8.** The four gaps are correct. The Stophammer operator decided the scope on 2026-10-18. Stophammer [ADR 0071](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0071-a-list-row-links-what-it-names.md) is Accepted on 2026-10-18. Release 0.12.0 delivers it.
 
 - Item 1 is accepted in a form that a test can check. A field that gives the title of another feed also gives its GUID. A count has a route or a filter that lists the same items. A route declares each `include` that it accepts. The node derives no kind, as ADR 0061 §4 gives.
 - Item 2 is accepted. With `include=link_facts`, each `publisher` row of `GET /v1/artist-names` gives the four fields of ADR 0068. `first_named_count` counts only the confirmed links with `album_names_rank` 1. It is a fallback for a feed with an empty `agreed_roles`. Thus an album that states a link with no answer from the feed does not change the count.
