@@ -1,6 +1,6 @@
 # ADR 0084 Task 009: Selection And The Action Bar In The List Column
 
-Status: Implemented - 2026-10-18. Cases R9-01 to R9-15 pass. Mechanical checks are Green. The operator passed V1 to V5 and V7 on 2026-10-18. V6 is open again after its correction.
+Status: Complete - 2026-10-19. Cases R9-01 to R9-15 pass. Mechanical checks are Green. The operator passed V1 to V5 and V7 on 2026-10-18, and V6 after its correction on 2026-10-19.
 
 ## Goal
 
@@ -9,14 +9,14 @@ The keyboard moves through the rows, keeps the focused row in view, and selects 
 
 ## Authority
 
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 10: one shared selection model, the checkbox, the click and key rules, and the action bar with "Clear".
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 11: each track row keeps a place for audition. No control shows in it until [ADR 0068](../adr/0068-show-cue-and-audition-isolation.md), which is Proposed.
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 6: the checkbox of a singles group row selects each single of the group.
-- The platform modifier: "Ctrl" in Decision 10 is Ctrl on Linux and Cmd on macOS. [ADR 0067](../adr/archive/0067-platform-shortcut-modifiers.md) decided it, and the guard `adr_0067_keyboard_and_menu_share_platform_modifier_resolution` enforces it. Each new binding goes through the shared platform adapter.
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 10: one shared selection model, the checkbox, the click and key rules, and the action bar with "Clear".
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 11: each track row keeps a place for audition. No control shows in it until [ADR 0068](../../adr/0068-show-cue-and-audition-isolation.md), which is Proposed.
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 6: the checkbox of a singles group row selects each single of the group.
+- The platform modifier: "Ctrl" in Decision 10 is Ctrl on Linux and Cmd on macOS. [ADR 0067](../../adr/archive/0067-platform-shortcut-modifiers.md) decided it, and the guard `adr_0067_keyboard_and_menu_share_platform_modifier_resolution` enforces it. Each new binding goes through the shared platform adapter.
 - Operator decisions of 2026-10-18:
   - Packet 009 covers the list column. Packet 018 covers the lists of the detail column.
   - The action bar offers "Download", "Add to playlist", "Remove" and "Clear". "Remove" opens one confirmation that lists each item.
-- The durable set in [AGENTS.md](../../AGENTS.md): typed action state, renderer portability, token discipline, accessibility, and cautious destructive actions.
+- The durable set in [AGENTS.md](../../../AGENTS.md): typed action state, renderer portability, token discipline, accessibility, and cautious destructive actions.
 
 ## Recorded Facts - 2026-10-18
 
@@ -166,7 +166,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/view_models/library.rs` (`releases_list`, `ContentListPageVm`, the row view models), `src/library/app_impl.rs` (the row open functions, `move_up`, `move_down`, the download, playlist and removal paths, `render_list_column`).
 - `src/ui/shells/library/destination_lists.rs`, `src/ui/shells/library/content_list.rs`, `src/ui/composites/list_row.rs`, `src/ui/composites/music_column_scroll.rs`, `src/ui/shells/library/content_list_scroll.rs`.
 - `src/app/keyboard.rs`, `src/app.rs` (the key context).
@@ -509,4 +509,12 @@ This check needs a Linux desktop session, this checkout, and a Library with one 
 **Wrong if:** a single row shows no checkbox of its own. Also wrong: the group row's checkbox shows the same mark for "some singles selected" as for "each single selected". Also wrong: Down from the group row does not move the keyboard focus to its first single.
 
 **Cleanup:** press Escape to clear any selection the check leaves checked. This check removes no file and changes no stored record.
+
+## Operator Check - 2026-10-19
+
+The operator passed V6 after the correction. The operator also found that a singles group opened only with a click on its chevron.
+The orchestrator added Right and Left in the same change. Right opens the focused group, and Left closes it. Left on a single moves the focus to its group row.
+
+`releases_disclosure_step` in `src/view_models/library.rs` decides each step, and the test `adr_0084_selection_right_and_left_open_and_close_a_group` guards it.
+The keys use the `ActivePane && !Input` context, so a text field keeps its caret keys. The check of the two keys is open in `docs/pending-human-checks.md`.
 

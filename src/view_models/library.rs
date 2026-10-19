@@ -1678,6 +1678,55 @@ pub(crate) enum ReleasesRowId {
     Group(SinglesGroupKey),
 }
 
+/// What Right or Left does on the focused Releases row (ADR 0084
+/// Decisions 6 and 10, operator check of 2026-10-19: a group opened only
+/// with a click on its chevron).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ReleasesDisclosureStep {
+    /// Right on a closed group row opens the group.
+    Open(SinglesGroupKey),
+    /// Left on an open group row closes the group.
+    Close(SinglesGroupKey),
+    /// Left on a single row of an open group moves the focus to the group
+    /// row.
+    FocusGroup(SinglesGroupKey),
+    /// Each other case changes nothing.
+    None,
+}
+
+/// The disclosure step of Right (`open` true) or Left (`open` false) on
+/// the `focused` row. `entries` is the present Releases list.
+#[must_use]
+pub(crate) fn releases_disclosure_step(
+    focused: Option<&ReleasesRowId>,
+    open: bool,
+    entries: &[ReleasesListEntryVm],
+) -> ReleasesDisclosureStep {
+    let groups = entries.iter().filter_map(|entry| match entry {
+        ReleasesListEntryVm::SinglesGroup(group) => Some(group),
+        ReleasesListEntryVm::Release(_) => None,
+    });
+    match focused {
+        Some(ReleasesRowId::Group(key)) => {
+            let Some(group) = groups.into_iter().find(|group| &group.open == key) else {
+                return ReleasesDisclosureStep::None;
+            };
+            match (open, group.expanded) {
+                (true, false) => ReleasesDisclosureStep::Open(key.clone()),
+                (false, true) => ReleasesDisclosureStep::Close(key.clone()),
+                _ => ReleasesDisclosureStep::None,
+            }
+        }
+        Some(ReleasesRowId::Release(release)) if !open => groups
+            .into_iter()
+            .find(|group| group.expanded && group.single_keys.contains(release))
+            .map_or(ReleasesDisclosureStep::None, |group| {
+                ReleasesDisclosureStep::FocusGroup(group.open.clone())
+            }),
+        _ => ReleasesDisclosureStep::None,
+    }
+}
+
 /// The release row of one Library album in the Releases list (ADR 0084
 /// Decisions 2 and 5). `None` when the album has no release key.
 #[must_use]
@@ -7629,6 +7678,46 @@ mod tests {
     /// group open, `releases_list_with_selection` gives each single its
     /// own checkbox. Toggling one single checks only that single's row,
     /// and the group's own checkbox reads mixed.
+    /// Operator check of 2026-10-19: a singles group opened only with a
+    /// click on its chevron. Right opens a closed group, Left closes an
+    /// open group, and Left on a single moves the focus to its group row.
+    #[test]
+    fn adr_0084_selection_right_and_left_open_and_close_a_group() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(singles_tree());
+        let group_key = SinglesGroupKey(ArtistIdentity::Name("Haleen".into()));
+        let group_row = ReleasesRowId::Group(group_key.clone());
+        let single_row = ReleasesRowId::Release(ReleaseKey::FeedGuid("guid-2".into()));
+
+        let closed = vm.releases_list(&BTreeSet::new());
+        assert_eq!(
+            releases_disclosure_step(Some(&group_row), true, &closed),
+            ReleasesDisclosureStep::Open(group_key.clone())
+        );
+        assert_eq!(
+            releases_disclosure_step(Some(&group_row), false, &closed),
+            ReleasesDisclosureStep::None
+        );
+
+        let open = vm.releases_list(&BTreeSet::from([group_key.clone()]));
+        assert_eq!(
+            releases_disclosure_step(Some(&group_row), false, &open),
+            ReleasesDisclosureStep::Close(group_key.clone())
+        );
+        assert_eq!(
+            releases_disclosure_step(Some(&single_row), false, &open),
+            ReleasesDisclosureStep::FocusGroup(group_key)
+        );
+        assert_eq!(
+            releases_disclosure_step(Some(&single_row), true, &open),
+            ReleasesDisclosureStep::None
+        );
+        assert_eq!(
+            releases_disclosure_step(None, true, &open),
+            ReleasesDisclosureStep::None
+        );
+    }
+
     #[test]
     fn adr_0084_selection_r9_13_r9_14_single_row_checkbox_and_group_mixed_state() {
         let mut vm = LibraryViewModel::new();

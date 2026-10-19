@@ -37,6 +37,10 @@ actions!(
         MoveSelectionEnd,
         ToggleFocusedSelection,
         SelectAllVisible,
+        // ADR 0084 Decisions 6 and 10: Right and Left open and close the
+        // focused singles group.
+        OpenFocusedGroup,
+        CloseFocusedGroup,
     ]
 );
 
@@ -74,6 +78,8 @@ pub(super) enum AppKeyCommand {
     MoveSelectionEnd,
     ToggleFocusedSelection,
     SelectAllVisible,
+    OpenFocusedGroup,
+    CloseFocusedGroup,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -211,6 +217,18 @@ pub(super) const APP_KEY_BINDING_SPECS: &[AppKeyBindingSpec] = &[
         label: "Select All Rows",
         scope: AppKeyScope::ActivePane,
     },
+    AppKeyBindingSpec {
+        command: AppKeyCommand::OpenFocusedGroup,
+        keystroke: "right",
+        label: "Open Group",
+        scope: AppKeyScope::ActivePane,
+    },
+    AppKeyBindingSpec {
+        command: AppKeyCommand::CloseFocusedGroup,
+        keystroke: "left",
+        label: "Close Group",
+        scope: AppKeyScope::ActivePane,
+    },
 ];
 
 pub(super) fn install_key_bindings(cx: &mut App) {
@@ -287,6 +305,12 @@ impl AppKeyBindingSpec {
             }
             AppKeyCommand::SelectAllVisible => {
                 KeyBinding::new(keystroke, SelectAllVisible, context)
+            }
+            AppKeyCommand::OpenFocusedGroup => {
+                KeyBinding::new(keystroke, OpenFocusedGroup, context)
+            }
+            AppKeyCommand::CloseFocusedGroup => {
+                KeyBinding::new(keystroke, CloseFocusedGroup, context)
             }
         }
     }
@@ -473,6 +497,34 @@ impl TopApp {
         match self.tab {
             AppTab::Music => self.library.update(cx, |library, cx| {
                 library.move_selection_focus(step, window, cx);
+            }),
+            AppTab::Show | AppTab::Settings => {}
+        }
+    }
+
+    pub(super) fn handle_open_focused_group(
+        &mut self,
+        _: &OpenFocusedGroup,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.tab {
+            AppTab::Music => self.library.update(cx, |library, cx| {
+                library.disclose_focused_group(true, window, cx);
+            }),
+            AppTab::Show | AppTab::Settings => {}
+        }
+    }
+
+    pub(super) fn handle_close_focused_group(
+        &mut self,
+        _: &CloseFocusedGroup,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.tab {
+            AppTab::Music => self.library.update(cx, |library, cx| {
+                library.disclose_focused_group(false, window, cx);
             }),
             AppTab::Show | AppTab::Settings => {}
         }
@@ -913,6 +965,8 @@ mod tests {
             AppKeyCommand::MoveSelectionEnd,
             AppKeyCommand::ToggleFocusedSelection,
             AppKeyCommand::SelectAllVisible,
+            AppKeyCommand::OpenFocusedGroup,
+            AppKeyCommand::CloseFocusedGroup,
         ] {
             assert!(
                 commands.contains(&command),

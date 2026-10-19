@@ -293,6 +293,12 @@ impl<K: Clone + Eq + Ord, R: Clone + Eq> ListSelection<K, R> {
         self.focus.as_ref()
     }
 
+    /// Moves the keyboard focus to `row`, with no change to the selection
+    /// (ADR 0084 Decision 10: Left on a single moves to its group row).
+    pub(crate) fn focus_row(&mut self, row: R) {
+        self.focus = Some(row);
+    }
+
     /// Tells if a checkbox shows on each row (ADR 0084 Decision 10): true
     /// once a selection exists.
     #[must_use]

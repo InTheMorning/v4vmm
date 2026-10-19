@@ -71,13 +71,14 @@ use crate::ui::style::color;
 use crate::ui::style::spacing;
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::library::{
-    description_line_count, AlbumNode, BroadcastRouteRepairCompletion,
+    description_line_count, releases_disclosure_step, AlbumNode, BroadcastRouteRepairCompletion,
     BroadcastRouteRepairCompletionStatus, ContentListRowActionKind, DestinationListRowTarget,
     FeedCheckRouteRepairOutcome, FeedUpdateActionDisplay, FeedUpdateActionKind, FeedUpdateDisplay,
     FeedUpdatePhase, InspectorPanelKind, LibraryArtistDetailVm, LibraryTrackActionVm,
     LibraryTrackInspectorState, LibraryTrackRowVm, LibraryViewModel, MbTrackStatus,
-    PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailActionsDisplay, ReleasesListEntryVm,
-    ReleasesRowId, RemovalConfirmation, TrackSubscribeOutcome,
+    PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailActionsDisplay,
+    ReleasesDisclosureStep, ReleasesListEntryVm, ReleasesRowId, RemovalConfirmation,
+    TrackSubscribeOutcome,
 };
 use crate::view_models::library_removal::{
     SelectionRemovalConfirmationState, SelectionRemovalPendingItem, SelectionRemovalReport,
@@ -3428,6 +3429,36 @@ impl LibraryApp {
             | MusicDestination::Artists
             | MusicDestination::Playlists => {}
         }
+    }
+
+    /// Right (`open` true) or Left on the focused Releases row (ADR 0084
+    /// Decisions 6 and 10): opens or closes a singles group, or moves the
+    /// focus from a single to its group row.
+    pub(crate) fn disclose_focused_group(
+        &mut self,
+        open: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.list_column_focus.contains_focused(window, cx)
+            || self.vm.active_destination() != MusicDestination::Releases
+        {
+            return;
+        }
+        let entries = self.vm.releases_list(&self.expanded_singles_groups);
+        match releases_disclosure_step(self.releases_selection.focused(), open, &entries) {
+            ReleasesDisclosureStep::Open(key) => {
+                self.expanded_singles_groups.insert(key);
+            }
+            ReleasesDisclosureStep::Close(key) => {
+                self.expanded_singles_groups.remove(&key);
+            }
+            ReleasesDisclosureStep::FocusGroup(key) => {
+                self.releases_selection.focus_row(ReleasesRowId::Group(key));
+            }
+            ReleasesDisclosureStep::None => return,
+        }
+        cx.notify();
     }
 
     /// Space (ADR 0084 Decision 10): toggles the row with the keyboard

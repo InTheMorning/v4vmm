@@ -1717,6 +1717,8 @@ impl Render for TopApp {
             .on_action(cx.listener(TopApp::handle_move_selection_page_up))
             .on_action(cx.listener(TopApp::handle_move_selection_page_down))
             .on_action(cx.listener(TopApp::handle_move_selection_home))
+            .on_action(cx.listener(TopApp::handle_open_focused_group))
+            .on_action(cx.listener(TopApp::handle_close_focused_group))
             .on_action(cx.listener(TopApp::handle_move_selection_end))
             .on_action(cx.listener(TopApp::handle_toggle_focused_selection))
             .on_action(cx.listener(TopApp::handle_select_all_visible))

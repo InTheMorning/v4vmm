@@ -158,13 +158,17 @@ Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 202
 - Scheduling: it needs a macOS desktop session.
 - V2, macOS part: `cmd-[` and `cmd-]` outside a text box do the same as Back and Forward. Indent and outdent still work in a macOS text box.
 
-## 5. Selection And The Action Bar — ADR 0084 Task 009
+## 5. Right And Left Open And Close A Singles Group — ADR 0084 Decisions 6 And 10
 
-Open - implementation and mechanical checks are complete on 2026-10-18. Operator inspection is pending.
+Open - the orchestrator added the keys on 2026-10-19. Operator inspection is pending.
 
-- Owner: [task 009](tasks/adr-0084-task-009-list-selection-and-action-bar.md#operator-visual-check).
-- Precondition: a Library with a singles group, six or more tracks, and a feed with tracks that are not downloaded. V5 removes tracks. Pick tracks that you can download again.
-- V1 and V2: the checkbox, the action bar, and Ctrl+click, Shift+click and Ctrl+A. V3: the keyboard focus, the scroll, Space, Enter and Escape.
-- The operator passed V1 to V5 and V7 on 2026-10-18.
-- V6 is open again after its correction of 2026-10-18: each single row has its own checkbox, Space on a group row selects each single, and the group checkbox shows checked, mixed or clear. The steps are in the packet, under "Operator Visual Check, V6 Again".
-
+- The operator found on 2026-10-19 that a singles group opened only with a click on its chevron.
+- Check:
+  1. Run `cargo build --bin v4vmm`, and start `target/debug/v4vmm`.
+  2. Open Music > Releases, and give the list column the keyboard focus.
+     Move the focus to a closed singles group row with Up or Down.
+  3. Press Right. Check that the group opens and shows its singles.
+  4. Press Down. Check that the focus moves to the first single. Press Left. Check that the focus moves back to the group row.
+  5. Press Left again. Check that the group closes.
+  6. Click the search field, and type a word. Press Left and Right. Check that the caret moves in the text, and no group opens or closes.
+  7. Wrong: Right or Left does nothing on a group row, or the keys take the caret keys from a text field.
