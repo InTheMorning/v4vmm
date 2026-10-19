@@ -215,12 +215,12 @@ fn render_singles_group_rows(
         .focused(selection.focused);
 
     // ADR 0084 Decision 6: the group row's checkbox selects each single
-    // of the group. ADR 0084 Decision 10 Design: "The row" — `ListRow`
-    // shows it while a selection exists or the row has the keyboard
-    // focus (`checkbox_visible`), and reveals it on hover otherwise.
-    // Required correction item 5: the checkbox reads checked, mixed, or
-    // clear, from the group's own singles.
-    {
+    // of the group. ADR 0084 Decision 10 Amendment, 2026-10-19:
+    // `checkbox_visible` is true only in selection mode, so this row
+    // keeps no checkbox space in `Normal` mode. Required correction item
+    // 5: the checkbox reads checked, mixed, or clear, from the group's
+    // own singles.
+    if selection.checkbox_visible {
         let checkbox_a11y_label = selection.checkbox_a11y_label.clone();
         let checkbox_group_key = open_key.clone();
         let checkbox_keys = single_keys.clone();
@@ -235,7 +235,6 @@ fn render_singles_group_rows(
                 this.toggle_release_group_selection(&checkbox_group_key, &checkbox_keys, cx);
             }))
             .into_any_element(),
-            selection.checkbox_visible,
         );
     }
 
@@ -305,13 +304,13 @@ fn render_destination_list_row(
         .selected(selection.is_marked())
         .focused(selection.focused);
 
-    // ADR 0084 Decision 10: a Releases row's checkbox. Required
-    // correction item 4: a single row of an open group gets this same
-    // checkbox, under the same visibility rule as any other row. The
-    // Artists list gives every row `RowSelectionVm::none`, so an empty
-    // `checkbox_a11y_label` means this row never shows one, even on
-    // hover.
-    if !selection.checkbox_a11y_label.is_empty() {
+    // ADR 0084 Decision 10 Amendment, 2026-10-19: a Releases row's
+    // checkbox shows only in selection mode (`checkbox_visible`).
+    // Required correction item 4: a single row of an open group gets
+    // this same checkbox, under the same rule as any other row. The
+    // Artists list gives every row `RowSelectionVm::none`, so
+    // `checkbox_visible` is always false there.
+    if selection.checkbox_visible {
         let checkbox_target = target.clone();
         list_row = list_row.checkbox(
             Checkbox::new(
@@ -326,7 +325,6 @@ fn render_destination_list_row(
                 }
             }))
             .into_any_element(),
-            selection.checkbox_visible,
         );
     }
 

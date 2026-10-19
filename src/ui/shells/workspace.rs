@@ -24,13 +24,14 @@ use crate::ui::layouts::{
 use crate::ui::tokens::{resolve_color, FontSize, SemanticColor, Spacing};
 use crate::view_models::workspace::{
     BreadcrumbDisplay, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
-    FilterChipStripDisplay, FrameNavigationEntry, FrameNavigationState, FrameShellDisplay,
-    MusicColumns, MusicDestination, MusicSidebarPreference, MusicSidebarState, TrackKey,
-    WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+    FilterChipStripDisplay, FrameHeaderActionDisplay, FrameNavigationEntry, FrameNavigationState,
+    FrameShellDisplay, MusicColumns, MusicDestination, MusicSidebarPreference, MusicSidebarState,
+    TrackKey, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
 };
 
 type WorkspaceFilterSelectHandler = Rc<dyn Fn(ContentFilter, &mut Window, &mut App) + 'static>;
 type WorkspaceViewModeSelectHandler = Rc<dyn Fn(ContentViewMode, &mut Window, &mut App) + 'static>;
+type WorkspaceHeaderActionHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 type WorkspaceBreadcrumbSelectHandler =
     Rc<dyn Fn(FrameNavigationEntry, &mut Window, &mut App) + 'static>;
 type WorkspaceBreadcrumbLabeler = Rc<dyn Fn(&FrameNavigationEntry) -> String + 'static>;
@@ -49,9 +50,11 @@ pub(crate) struct WorkspaceSlots {
     content_list: Option<AnyElement>,
     detail: Option<AnyElement>,
     content_list_view_mode_control: Option<ContentViewModeControlDisplay>,
+    content_list_header_action: Option<FrameHeaderActionDisplay>,
     content_list_filter_chip_strip: Option<FilterChipStripDisplay>,
     on_content_list_filter_select: Option<WorkspaceFilterSelectHandler>,
     on_content_list_view_mode_select: Option<WorkspaceViewModeSelectHandler>,
+    on_content_list_header_action: Option<WorkspaceHeaderActionHandler>,
     on_content_list_breadcrumb_select: Option<WorkspaceBreadcrumbSelectHandler>,
     content_list_breadcrumb_labeler: Option<WorkspaceBreadcrumbLabeler>,
     on_content_list_back_select: Option<WorkspaceBackSelectHandler>,
@@ -111,6 +114,23 @@ impl WorkspaceSlots {
         display: ContentViewModeControlDisplay,
     ) -> Self {
         self.content_list_view_mode_control = Some(display);
+        self
+    }
+
+    /// Supplies the content-list frame's trailing header action (ADR
+    /// 0084 Decision 10 Amendment, 2026-10-19): the Music list column's
+    /// "Select" and "Done" button.
+    pub(crate) fn content_list_header_action(mut self, display: FrameHeaderActionDisplay) -> Self {
+        self.content_list_header_action = Some(display);
+        self
+    }
+
+    /// Supplies the content-list header action's click callback.
+    pub(crate) fn on_content_list_header_action(
+        mut self,
+        handler: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_content_list_header_action = Some(Rc::new(handler));
         self
     }
 
@@ -287,6 +307,27 @@ impl WorkspaceSlots {
         }
     }
 
+    fn header_action_for(&self, kind: WorkspaceFrameKind) -> Option<FrameHeaderActionDisplay> {
+        match kind {
+            WorkspaceFrameKind::ContentList => self.content_list_header_action.clone(),
+            WorkspaceFrameKind::SourceList
+            | WorkspaceFrameKind::Detail
+            | WorkspaceFrameKind::QueueNowPlaying => None,
+        }
+    }
+
+    fn header_action_handler_for(
+        &self,
+        kind: WorkspaceFrameKind,
+    ) -> Option<WorkspaceHeaderActionHandler> {
+        match kind {
+            WorkspaceFrameKind::ContentList => self.on_content_list_header_action.clone(),
+            WorkspaceFrameKind::SourceList
+            | WorkspaceFrameKind::Detail
+            | WorkspaceFrameKind::QueueNowPlaying => None,
+        }
+    }
+
     fn filter_select_handler_for(
         &self,
         kind: WorkspaceFrameKind,
@@ -443,8 +484,10 @@ impl RenderOnce for WorkspaceShell {
 
             let filter_chip_strip = self.slots.filter_chip_strip_for(frame_kind);
             let view_mode_control = self.slots.view_mode_control_for(frame_kind);
+            let header_action = self.slots.header_action_for(frame_kind);
             let on_filter_select = self.slots.filter_select_handler_for(frame_kind);
             let on_view_mode_select = self.slots.view_mode_select_handler_for(frame_kind);
+            let on_header_action = self.slots.header_action_handler_for(frame_kind);
             let content = self.slots.take(frame.kind(), frame, cx);
             let fallback_navigation = FrameNavigationState::new(navigation_entry_for(frame_kind));
             // ADR 0084 Decision 9: in the Music three-column layout, the
@@ -480,6 +523,9 @@ impl RenderOnce for WorkspaceShell {
             if let Some(view_mode_control) = view_mode_control {
                 display = display.with_view_mode_control(view_mode_control);
             }
+            if let Some(header_action) = header_action {
+                display = display.with_header_action(header_action);
+            }
             if should_render_breadcrumb(frame_kind, navigation, is_music_three_column_layout) {
                 let breadcrumb_id = format!("workspace-frame-{}-breadcrumb", frame.id().value());
                 let breadcrumb = if let Some(labeler) =
@@ -504,6 +550,11 @@ impl RenderOnce for WorkspaceShell {
             if let Some(handler) = on_view_mode_select {
                 shell_slots = shell_slots.on_view_mode_select(move |view_mode, window, cx| {
                     handler(view_mode, window, cx);
+                });
+            }
+            if let Some(handler) = on_header_action {
+                shell_slots = shell_slots.on_header_action(move |window, cx| {
+                    handler(window, cx);
                 });
             }
             if let Some(handler) = self.slots.breadcrumb_select_handler_for(frame_kind) {

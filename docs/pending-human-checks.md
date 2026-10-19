@@ -158,17 +158,11 @@ Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 202
 - Scheduling: it needs a macOS desktop session.
 - V2, macOS part: `cmd-[` and `cmd-]` outside a text box do the same as Back and Forward. Indent and outdent still work in a macOS text box.
 
-## 5. Checkbox And Keyboard Focus Contrast — ADR 0084 Decision 10
+## 5. Selection Mode With A Select Button — ADR 0084 Task 019
 
-Open - the orchestrator made the fix on 2026-10-19. Operator inspection is pending.
+Open - implementation and mechanical checks are complete on 2026-10-19. Operator inspection is pending.
 
-- The operator found on 2026-10-19 that the clear checkbox was almost invisible, and that the keyboard focus was too subtle.
-- Fix: the clear checkbox border uses `OpaqueSeparator`, not the translucent `Separator`. The keyboard focus outline shows on each focused row, not only on a selected row (`row_outline` in `src/ui/composites/list_row.rs`).
-  The contrast table of `src/ui/contrast.rs` now requires 3:1 for the checkbox border and the focus ring, in Light and Dark.
-- Check:
-  1. Run `cargo build --bin v4vmm`, and start `target/debug/v4vmm`.
-  2. Open Music > Releases. Move the pointer on a row, and check that its clear checkbox is easy to see. Do this in Dark and in Light.
-  3. Give the list column the keyboard focus, and press Down three times. Check that the focused row shows a clear outline, also when it is not selected.
-  4. Press Space. Check that the outline also shows on the selected row, apart from its selected fill.
-  5. Wrong: the clear checkbox or the focus outline is hard to see in one theme.
-
+- Owner: [task 019](tasks/adr-0084-task-019-selection-mode.md#operator-visual-check).
+- It includes the contrast fix of 2026-10-19: V1 step 5 checks the focus outline, and V2 step 8 checks the checkbox border, in Dark and in Light.
+- V1: normal mode shows no checkbox and a "Select" button. V2: "Select" shows each checkbox and "Select items", and a click selects. V3: "Done" and Escape end the mode.
+- V4: Ctrl+click starts the mode. V5: Tracks and Needs attention, and no button in Artists. V6: the widths, themes and type sizes.

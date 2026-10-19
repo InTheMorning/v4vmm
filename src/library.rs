@@ -33,7 +33,7 @@ use crate::view_models::library::{
 use crate::view_models::library_removal::{
     SelectionRemovalConfirmationState, SelectionRemovalReport,
 };
-use crate::view_models::list_selection::ListSelection;
+use crate::view_models::list_selection::{ListSelection, SelectionMode};
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::singles_group::SinglesGroupKey;
 use crate::view_models::workspace::{
@@ -250,9 +250,17 @@ pub struct LibraryApp {
     /// or a group row, distinct from the [`ReleaseKey`] members that the
     /// selected set holds.
     releases_selection: ListSelection<ReleaseKey, ReleasesRowId>,
+    /// The Releases list's mode (ADR 0084 Decision 10 Amendment,
+    /// 2026-10-19): `Normal` or `Selecting`, beside `releases_selection`.
+    /// A change of destination resets it to `Normal`.
+    releases_selection_mode: SelectionMode,
     /// The Tracks and Needs attention lists' shared selection (ADR 0084
     /// Decision 10). A change of destination clears it.
     track_selection: ListSelection<TrackKey>,
+    /// The Tracks and Needs attention lists' shared mode (ADR 0084
+    /// Decision 10 Amendment, 2026-10-19), beside `track_selection`. A
+    /// change of destination resets it to `Normal`.
+    track_selection_mode: SelectionMode,
     /// The Releases list's held scroll handle (ADR 0084 Decision 10), so
     /// a keyboard focus move keeps the focused row in view.
     releases_list_scroll: ScrollHandle,

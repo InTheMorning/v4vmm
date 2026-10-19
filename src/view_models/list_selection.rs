@@ -41,6 +41,32 @@ pub(crate) enum FocusStep {
 /// The number of rows a Page Up or a Page Down step moves.
 pub(crate) const SELECTION_PAGE_STEP: usize = 10;
 
+/// The mode of one list (ADR 0084 Decision 10, amended 2026-10-19 for
+/// the "Select" and "Done" button). `LibraryApp` holds one mode for the
+/// Releases list and one for the track lists, beside each list's own
+/// [`ListSelection`].
+///
+/// In [`Self::Normal`], no row shows a checkbox, and no row keeps space
+/// for one. A plain click opens the row's page. In [`Self::Selecting`],
+/// each row shows its checkbox, and a plain click changes the row's
+/// selection instead.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum SelectionMode {
+    /// No checkbox shows. A plain click opens the row's page.
+    #[default]
+    Normal,
+    /// Each row shows its checkbox. A plain click changes the selection.
+    Selecting,
+}
+
+impl SelectionMode {
+    /// Tells if the mode is [`Self::Selecting`].
+    #[must_use]
+    pub(crate) const fn is_selecting(self) -> bool {
+        matches!(self, Self::Selecting)
+    }
+}
+
 /// One visible row, given to a row-aware [`ListSelection`] operation
 /// (Required correction item 1, 2026-10-18): the row's own identity, for
 /// the focus and the anchor, and the member keys that the row's
@@ -299,13 +325,6 @@ impl<K: Clone + Eq + Ord, R: Clone + Eq> ListSelection<K, R> {
         self.focus = Some(row);
     }
 
-    /// Tells if a checkbox shows on each row (ADR 0084 Decision 10): true
-    /// once a selection exists.
-    #[must_use]
-    pub(crate) fn shows_checkboxes(&self) -> bool {
-        !self.selected.is_empty()
-    }
-
     /// Every selected key, for building the action bar and the removal
     /// confirmation.
     pub(crate) fn selected_keys(&self) -> impl Iterator<Item = &K> {
@@ -367,19 +386,14 @@ impl RowSelectionVm {
 
     /// Builds the selection facts of a row of one member, named `title`
     /// (a release row, a Tracks row, or a Needs attention row).
-    /// `checkbox_visible` is true when a selection exists or the row has
-    /// the keyboard focus (ADR 0084 Decision 10 Design: "The row"). The
-    /// pointer-hover case is the screen's own state and is applied there,
-    /// not here.
+    /// `checkbox_visible` is true only in [`SelectionMode::Selecting`]
+    /// (ADR 0084 Decision 10 Amendment, 2026-10-19). The row's own
+    /// keyboard focus no longer forces it, and the pointer-hover reveal
+    /// of packet 009 is gone: a normal-mode row keeps no checkbox space.
     #[must_use]
-    pub(crate) fn for_row(
-        title: &str,
-        checked: bool,
-        focused: bool,
-        shows_checkboxes: bool,
-    ) -> Self {
+    pub(crate) fn for_row(title: &str, checked: bool, focused: bool, selecting: bool) -> Self {
         Self {
-            checkbox_visible: shows_checkboxes || focused,
+            checkbox_visible: selecting,
             check_state: RowCheckState::from_checked(checked),
             focused,
             checkbox_a11y_label: format!("Select {title}"),
@@ -390,20 +404,21 @@ impl RowSelectionVm {
     /// correction item 5, 2026-10-18). `check_state` can read mixed: some,
     /// but not every, single of the group is selected. The accessibility
     /// label states the mixed fact in words, so the state never reads
-    /// through color alone.
+    /// through color alone. `checkbox_visible` follows [`Self::for_row`]'s
+    /// mode rule.
     #[must_use]
     pub(crate) fn for_group_row(
         title: &str,
         check_state: RowCheckState,
         focused: bool,
-        shows_checkboxes: bool,
+        selecting: bool,
     ) -> Self {
         let checkbox_a11y_label = match check_state {
             RowCheckState::Mixed => format!("{title}, some singles selected"),
             RowCheckState::Checked | RowCheckState::Clear => format!("Select {title}"),
         };
         Self {
-            checkbox_visible: shows_checkboxes || focused,
+            checkbox_visible: selecting,
             check_state,
             focused,
             checkbox_a11y_label,
@@ -460,7 +475,6 @@ mod tests {
         // clear: "Clear" and Escape empty the selection.
         selection.clear();
         assert_eq!(selection.selected_count(), 0);
-        assert!(!selection.shows_checkboxes());
 
         // toggle_focused: Space toggles the row with the keyboard focus.
         // `clear()` keeps the keyboard focus, so Home gives a known
@@ -560,22 +574,49 @@ mod tests {
         assert_eq!(selection.selected_count(), 0);
     }
 
-    /// R9-05: `RowSelectionVm` shows the checkbox for a row with the
-    /// focus, and for each row while a selection exists. It carries the
-    /// "Select <title>" label.
+    /// R9-05, amended by ADR 0084 Decision 10 Amendment (2026-10-19): the
+    /// checkbox visibility rule of packet 009 is replaced by the mode
+    /// rule of [`RowSelectionVm::for_row`]'s last argument. The row's own
+    /// keyboard focus no longer shows the checkbox by itself. The label
+    /// still reads "Select <title>".
     #[test]
     fn adr_0084_selection_r9_05_row_selection_vm_shows_the_checkbox() {
         let none = RowSelectionVm::for_row("Face Pale", false, false, false);
         assert!(!none.checkbox_visible);
 
+        // Amendment: the keyboard focus alone no longer shows the
+        // checkbox outside selection mode.
         let focused_only = RowSelectionVm::for_row("Face Pale", false, true, false);
-        assert!(focused_only.checkbox_visible);
+        assert!(!focused_only.checkbox_visible);
         assert_eq!(focused_only.check_state, RowCheckState::Clear);
 
         let during_selection = RowSelectionVm::for_row("Face Pale", true, false, true);
         assert!(during_selection.checkbox_visible);
         assert_eq!(during_selection.check_state, RowCheckState::Checked);
         assert_eq!(during_selection.checkbox_a11y_label, "Select Face Pale");
+    }
+
+    /// R19-03, ADR 0084 Decision 10 Amendment: in [`SelectionMode::Normal`],
+    /// no row view model shows a checkbox, whatever its checked or
+    /// focused fact. In [`SelectionMode::Selecting`], each row view model
+    /// shows one.
+    #[test]
+    fn adr_0084_selection_mode_r19_03_checkbox_visible_follows_the_mode() {
+        for checked in [false, true] {
+            for focused in [false, true] {
+                let normal = RowSelectionVm::for_row("Face Pale", checked, focused, false);
+                assert!(!normal.checkbox_visible);
+                let selecting = RowSelectionVm::for_row("Face Pale", checked, focused, true);
+                assert!(selecting.checkbox_visible);
+            }
+        }
+
+        let group_normal =
+            RowSelectionVm::for_group_row("Haleen", RowCheckState::Mixed, true, false);
+        assert!(!group_normal.checkbox_visible);
+        let group_selecting =
+            RowSelectionVm::for_group_row("Haleen", RowCheckState::Mixed, false, true);
+        assert!(group_selecting.checkbox_visible);
     }
 
     /// R9-11: Space on a focused group row adds each single, and Space

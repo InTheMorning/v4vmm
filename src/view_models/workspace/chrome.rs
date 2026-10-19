@@ -256,6 +256,36 @@ impl FrameChromeButtonDisplay {
     }
 }
 
+/// Display contract for the frame shell's trailing header action (ADR
+/// 0084 Decision 10 Amendment, 2026-10-19). The Music list column uses
+/// it for "Select" and "Done". The shell renders the given label and
+/// accessibility label; it decides neither.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FrameHeaderActionDisplay {
+    /// Stable element identifier for the action.
+    pub(crate) id: String,
+    /// Visible button label, for example "Select" or "Done".
+    pub(crate) label: &'static str,
+    /// Accessibility label for assistive technologies and tooltips.
+    pub(crate) a11y_label: String,
+}
+
+impl FrameHeaderActionDisplay {
+    /// Creates a display contract for a frame-shell header action.
+    #[must_use]
+    pub(crate) fn new(
+        id: impl Into<String>,
+        label: &'static str,
+        a11y_label: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            label,
+            a11y_label: a11y_label.into(),
+        }
+    }
+}
+
 /// Display contract for one frame-chrome menu item.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FrameChromeMenuItemDisplay {
@@ -303,6 +333,10 @@ pub(crate) struct FrameShellDisplay {
     pub(crate) close: Option<FrameChromeButtonDisplay>,
     /// Additional frame action menu items.
     pub(crate) action_menu_items: Vec<FrameChromeMenuItemDisplay>,
+    /// Optional trailing header action (ADR 0084 Decision 10 Amendment).
+    /// The Music list column's "Select" and "Done" button is the first
+    /// caller.
+    pub(crate) header_action: Option<FrameHeaderActionDisplay>,
     /// Optional frame-local content filter strip.
     pub(crate) filter_chip_strip: Option<FilterChipStripDisplay>,
     /// Optional frame-local content view-mode control.
@@ -351,12 +385,21 @@ impl FrameShellDisplay {
                 )
             }),
             action_menu_items: Vec::new(),
+            header_action: None,
             filter_chip_strip: None,
             view_mode_control: None,
             breadcrumb: None,
             history_controls: FrameHistoryControls::WhenAvailable,
             content_slot_id: format!("workspace-frame-{}-content", frame_id.value()),
         }
+    }
+
+    /// Returns this shell display with a trailing header action attached
+    /// (ADR 0084 Decision 10 Amendment).
+    #[must_use]
+    pub(crate) fn with_header_action(mut self, display: FrameHeaderActionDisplay) -> Self {
+        self.header_action = Some(display);
+        self
     }
 
     /// Returns this shell display with frame-local filter chips attached.
@@ -426,5 +469,6 @@ impl FrameShellDisplay {
             || self.forward_shown()
             || self.close.is_some()
             || !self.action_menu_items.is_empty()
+            || self.header_action.is_some()
     }
 }

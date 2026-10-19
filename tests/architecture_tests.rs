@@ -4549,6 +4549,196 @@ fn adr_0084_selection_r9_09_no_dead_move_focus_functions_in_library() {
     assert!(violations.is_empty(), "{}", violations.join("\n"));
 }
 
+/// R19-01, ADR 0084 Decision 10 Amendment (2026-10-19): "Select" gives
+/// `Selecting`. "Done", Escape and a change of destination give
+/// `Normal` and clear the selection.
+#[test]
+fn adr_0084_selection_mode_r19_01_select_and_done_set_the_mode() {
+    let source = read_source(&manifest_path("src/library/app_impl.rs"));
+
+    // "Select" and "Done" share one handler: it toggles between the two
+    // modes, and clears the selection only on the way back to `Normal`.
+    let toggle_body = source_between(
+        &source,
+        "pub(crate) fn toggle_list_column_selection_mode(",
+        "pub(crate) fn releases_selection_action_bar(",
+    );
+    for required in [
+        "SelectionMode::Normal => SelectionMode::Selecting",
+        "self.releases_selection.clear();",
+        "self.track_selection.clear();",
+    ] {
+        assert!(
+            toggle_body.contains(required),
+            "ADR 0084 Decision 10 Amendment: `toggle_list_column_selection_mode` must contain \
+`{required}`, so \"Select\" starts `Selecting` and \"Done\" clears the selection on the way \
+back to `Normal`."
+        );
+    }
+
+    // Escape ends `Selecting` and clears the selection; it does nothing
+    // outside that mode.
+    let escape_body = source_between(
+        &source,
+        "pub(crate) fn clear_focused_selection(",
+        "pub(crate) fn header_action_for_list_column(",
+    );
+    for required in [
+        "self.releases_selection_mode.is_selecting()",
+        "self.releases_selection_mode = SelectionMode::Normal;",
+        "self.track_selection_mode.is_selecting()",
+        "self.track_selection_mode = SelectionMode::Normal;",
+    ] {
+        assert!(
+            escape_body.contains(required),
+            "ADR 0084 Decision 10 Amendment: `clear_focused_selection` (Escape) must contain \
+`{required}`, so Escape ends `Selecting` and clears the selection."
+        );
+    }
+
+    // A change of destination resets both modes to `Normal`.
+    let destination_body = source_between(
+        &source,
+        "fn show_destination_list(",
+        "fn show_discover_view(",
+    );
+    for required in [
+        "self.releases_selection_mode = SelectionMode::Normal;",
+        "self.track_selection_mode = SelectionMode::Normal;",
+    ] {
+        assert!(
+            destination_body.contains(required),
+            "ADR 0084 Decision 10 Amendment: `show_destination_list` must contain `{required}`, \
+so a change of destination ends selection mode."
+        );
+    }
+}
+
+/// R19-02, ADR 0084 Decision 10 Amendment (2026-10-19): Ctrl+click,
+/// Shift+click, Ctrl+A and Space give `Selecting`.
+#[test]
+fn adr_0084_selection_mode_r19_02_modifiers_and_space_start_selecting() {
+    let source = read_source(&manifest_path("src/library/app_impl.rs"));
+
+    let checks: &[(&str, &str)] = &[
+        (
+            "pub(crate) fn click_release_row(",
+            "pub(crate) fn toggle_release_row_selection(",
+        ),
+        (
+            "pub(crate) fn click_singles_group_row(",
+            "pub(crate) fn toggle_release_group_selection(",
+        ),
+        (
+            "pub(crate) fn click_content_list_row(",
+            "pub(crate) fn toggle_content_list_row_selection(",
+        ),
+        (
+            "pub(crate) fn toggle_focused_selection(",
+            "pub(crate) fn select_all_visible(",
+        ),
+        (
+            "pub(crate) fn select_all_visible(",
+            "pub(crate) fn open_focused_selection_row(",
+        ),
+    ];
+    for (start, end) in checks {
+        let body = source_between(&source, start, end);
+        assert!(
+            body.contains("SelectionMode::Selecting"),
+            "ADR 0084 Decision 10 Amendment: `{start}` must set `SelectionMode::Selecting`, so \
+Ctrl+click, Shift+click, Ctrl+A or Space starts selection mode."
+        );
+    }
+}
+
+/// R19-04, ADR 0084 Decision 10 Amendment (2026-10-19): in `Selecting`,
+/// a plain click toggles the row and opens no page. In `Normal`, it
+/// opens the page. Each click handler checks `is_selecting()` before it
+/// reaches its fallback open call.
+#[test]
+fn adr_0084_selection_mode_r19_04_plain_click_follows_the_mode() {
+    let source = read_source(&manifest_path("src/library/app_impl.rs"));
+
+    let checks: &[(&str, &str, &str, &str)] = &[
+        (
+            "pub(crate) fn click_release_row(",
+            "pub(crate) fn toggle_release_row_selection(",
+            "self.releases_selection_mode.is_selecting()",
+            "self.open_destination_row(target, cx);",
+        ),
+        (
+            "pub(crate) fn click_singles_group_row(",
+            "pub(crate) fn toggle_release_group_selection(",
+            "self.releases_selection_mode.is_selecting()",
+            "self.open_singles_group(key, cx);",
+        ),
+        (
+            "pub(crate) fn click_content_list_row(",
+            "pub(crate) fn toggle_content_list_row_selection(",
+            "self.track_selection_mode.is_selecting()",
+            "self.open_content_list_row(row_id, cx);",
+        ),
+    ];
+    for (start, end, mode_check, open_call) in checks {
+        let body = source_between(&source, start, end);
+        let mode_index = body.find(mode_check).unwrap_or_else(|| {
+            panic!(
+                "ADR 0084 Decision 10 Amendment: `{start}` must contain `{mode_check}`, so a \
+plain click toggles the row in `Selecting` mode."
+            )
+        });
+        // The handler's final line opens a page only after the mode
+        // check. `rfind` finds that trailing fallback call, not an
+        // earlier early-return branch that also opens a page.
+        let open_index = body.rfind(open_call).unwrap_or_else(|| {
+            panic!(
+                "ADR 0084 Decision 10 Amendment: `{start}` must contain `{open_call}`, so a \
+plain click opens the page in `Normal` mode."
+            )
+        });
+        assert!(
+            mode_index < open_index,
+            "ADR 0084 Decision 10 Amendment: `{start}` must check `{mode_check}` before its \
+fallback `{open_call}`, so `Selecting` mode toggles instead of opening a page."
+        );
+    }
+}
+
+/// R19-07, ADR 0084 Decision 10 Amendment (2026-10-19): "Clear" with
+/// rows selected clears them and keeps `Selecting`. Neither Clear arm
+/// touches the mode field.
+#[test]
+fn adr_0084_selection_mode_r19_07_clear_keeps_selecting_mode() {
+    let source = read_source(&manifest_path("src/library/app_impl.rs"));
+
+    let checks: &[(&str, &str, &str)] = &[
+        (
+            "pub(crate) fn run_releases_selection_action(",
+            "pub(crate) fn add_selected_releases_to_playlist(",
+            "self.releases_selection.clear();",
+        ),
+        (
+            "pub(crate) fn run_content_list_selection_action(",
+            "pub(crate) fn add_selected_tracks_to_playlist(",
+            "self.track_selection.clear();",
+        ),
+    ];
+    for (start, end, clear_line) in checks {
+        let body = source_between(&source, start, end);
+        assert!(
+            body.contains(clear_line),
+            "ADR 0084 Decision 10 Amendment: `{start}` must contain `{clear_line}`, so \"Clear\" \
+still clears the selection."
+        );
+        assert!(
+            !body.contains("SelectionMode::Normal"),
+            "ADR 0084 Decision 10 Amendment: `{start}` must not set `SelectionMode::Normal`. \
+\"Clear\" with rows selected keeps `Selecting` (R19-07)."
+        );
+    }
+}
+
 #[test]
 fn adr_0067_keyboard_and_menu_share_platform_modifier_resolution() {
     let keyboard_source = read_source(&manifest_path("src/app/keyboard.rs"));

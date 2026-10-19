@@ -4,6 +4,8 @@
 
 Accepted - 2026-10-08. The operator accepted this text on 2026-10-08. The operator made each choice below on 2026-10-08, in Phase 4A of the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#phase-4a-flow-and-information-architecture). The choices come from the [Music flow map](../architecture/music-flow-map.md) and a private prototype canvas.
 
+Amended 2026-10-19: the operator found the hidden checkboxes unclear and asked for the selection mode of Apple Photos, Files and Mail. Decision 10 now gives a "Select" button and a selection mode.
+
 The first draft left three points open. The operator decided them on the same day:
 
 - the rule for each release kind (Decision 5)
@@ -149,12 +151,14 @@ No screen keeps a second navigation stack or a breadcrumb of its own. This compl
 
 ### 10. Multiple Selection Is One Shared Behavior
 
-Each list of releases and tracks has the same selection model:
+Each list of releases and tracks has the same selection model. It has two modes. The operator decided the selection mode on 2026-10-19.
 
-- A row shows a checkbox when the pointer is on it, when it has keyboard focus, or when a selection exists.
-- Ctrl+click adds a row. Shift+click adds a range. Ctrl+A selects the list. Space changes the row with keyboard focus.
-- A plain click opens the page of the row.
-- With a selection, an action bar at the bottom of the list shows the count, the actions for the whole selection and "Clear". An example is "Download 7 tracks".
+- **Normal mode.** No row shows a checkbox, and no row keeps space for one. A plain click opens the page of the row. The list column header shows a "Select" button.
+- **Selection mode.** "Select" starts it. Each row shows its checkbox. A plain click changes the selection of the row, and opens no page. The header button reads "Done". The action bar shows at the bottom of the list.
+- Ctrl+click adds a row, Shift+click adds a range, Ctrl+A selects the list, and Space changes the row with keyboard focus. Each of them also starts selection mode.
+- "Done" and Escape end selection mode and clear the selection.
+- The action bar shows the count, the actions for the whole selection and "Clear". An example is "Download 7 tracks". With no selected row, it shows "Select items" and no action.
+- The keyboard focus shows in both modes.
 
 No step needs a drag or a scroll wheel. The selection and the availability of each bar action are view-model state.
 

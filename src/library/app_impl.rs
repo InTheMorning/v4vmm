@@ -71,19 +71,19 @@ use crate::ui::style::color;
 use crate::ui::style::spacing;
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::library::{
-    description_line_count, releases_disclosure_step, AlbumNode, BroadcastRouteRepairCompletion,
-    BroadcastRouteRepairCompletionStatus, ContentListRowActionKind, DestinationListRowTarget,
-    FeedCheckRouteRepairOutcome, FeedUpdateActionDisplay, FeedUpdateActionKind, FeedUpdateDisplay,
-    FeedUpdatePhase, InspectorPanelKind, LibraryArtistDetailVm, LibraryTrackActionVm,
-    LibraryTrackInspectorState, LibraryTrackRowVm, LibraryViewModel, MbTrackStatus,
-    PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailActionsDisplay,
-    ReleasesDisclosureStep, ReleasesListEntryVm, ReleasesRowId, RemovalConfirmation,
-    TrackSubscribeOutcome,
+    description_line_count, list_column_header_action, releases_disclosure_step, AlbumNode,
+    BroadcastRouteRepairCompletion, BroadcastRouteRepairCompletionStatus, ContentListRowActionKind,
+    DestinationListRowTarget, FeedCheckRouteRepairOutcome, FeedUpdateActionDisplay,
+    FeedUpdateActionKind, FeedUpdateDisplay, FeedUpdatePhase, InspectorPanelKind,
+    LibraryArtistDetailVm, LibraryTrackActionVm, LibraryTrackInspectorState, LibraryTrackRowVm,
+    LibraryViewModel, MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome,
+    PlaylistDetailActionsDisplay, ReleasesDisclosureStep, ReleasesListEntryVm, ReleasesRowId,
+    RemovalConfirmation, TrackSubscribeOutcome,
 };
 use crate::view_models::library_removal::{
     SelectionRemovalConfirmationState, SelectionRemovalPendingItem, SelectionRemovalReport,
 };
-use crate::view_models::list_selection::{FocusStep, ListSelection, SelectionRow};
+use crate::view_models::list_selection::{FocusStep, ListSelection, SelectionMode, SelectionRow};
 use crate::view_models::playlist_option_displays;
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::selection_action_bar::{SelectionActionBarVm, SelectionActionKind};
@@ -91,8 +91,9 @@ use crate::view_models::singles_group::{SinglesGroupKey, SinglesGroupPageVm};
 use crate::view_models::track_detail::TrackNameLinkTarget;
 use crate::view_models::workspace::{
     resolve_music_sidebar_state, toggle_music_sidebar_preference, ContentViewMode,
-    ContentViewModeControlDisplay, DiscoverView, FrameNavigationEntry, MusicDestination,
-    MusicSidebarPreference, MusicSidebarState, NavigationPathStart, ReleaseKey, TrackKey,
+    ContentViewModeControlDisplay, DiscoverView, FrameHeaderActionDisplay, FrameNavigationEntry,
+    MusicDestination, MusicSidebarPreference, MusicSidebarState, NavigationPathStart, ReleaseKey,
+    TrackKey,
 };
 use crate::views::{EntityIdentityLinks, LocalIdentityFacts};
 use gpui::{
@@ -882,7 +883,9 @@ impl LibraryApp {
             expanded_singles_groups: BTreeSet::new(),
             queued_feed_downloads: std::collections::VecDeque::new(),
             releases_selection: ListSelection::new(),
+            releases_selection_mode: SelectionMode::Normal,
             track_selection: ListSelection::new(),
+            track_selection_mode: SelectionMode::Normal,
             releases_list_scroll: gpui::ScrollHandle::new(),
             list_column_focus: cx.focus_handle(),
             selection_removal: SelectionRemovalConfirmationState::new(),
@@ -2118,9 +2121,12 @@ impl LibraryApp {
         self.vm.set_active_destination(destination);
         // ADR 0084 Decision 10: a change of destination clears both
         // selections, including the keyboard focus: the new
-        // destination's rows are a different list.
+        // destination's rows are a different list. Amendment,
+        // 2026-10-19: it also ends selection mode for both lists.
         self.releases_selection = ListSelection::new();
         self.track_selection = ListSelection::new();
+        self.releases_selection_mode = SelectionMode::Normal;
+        self.track_selection_mode = SelectionMode::Normal;
         match destination {
             // ADR 0084 Decision 3: Discover's list column shows its views,
             // not the content list. `show_discover_view` fills the
@@ -3265,11 +3271,13 @@ impl LibraryApp {
             .collect()
     }
 
-    /// A click on a Releases destination-list row. Ctrl+click toggles
-    /// its selection; Shift+click extends the selection to it; neither
-    /// opens a page. A plain click opens the row's page, as before. An
-    /// Artist or a Publisher row has no selection model, so it always
-    /// opens its page.
+    /// A click on a Releases destination-list row. Ctrl+click and
+    /// Shift+click start selection mode and act on the row, as before;
+    /// neither opens a page. In `Selecting` mode, a plain click also
+    /// toggles the row and opens no page (ADR 0084 Decision 10
+    /// Amendment, 2026-10-19). In `Normal` mode, a plain click opens the
+    /// row's page. An Artist or a Publisher row has no selection model,
+    /// so it always opens its page.
     pub(crate) fn click_release_row(
         &mut self,
         target: &DestinationListRowTarget,
@@ -3282,13 +3290,20 @@ impl LibraryApp {
         };
         let row = SelectionRow::new(ReleasesRowId::Release(key.clone()), vec![key.clone()]);
         if primary_modifier_held(modifiers) {
+            self.releases_selection_mode = SelectionMode::Selecting;
             self.releases_selection.toggle(&row);
             cx.notify();
             return;
         }
         if modifiers.shift {
+            self.releases_selection_mode = SelectionMode::Selecting;
             let visible = self.releases_visible_rows();
             self.releases_selection.extend_to(&row, &visible);
+            cx.notify();
+            return;
+        }
+        if self.releases_selection_mode.is_selecting() {
+            self.releases_selection.toggle(&row);
             cx.notify();
             return;
         }
@@ -3301,15 +3316,19 @@ impl LibraryApp {
     /// correction item 4). It never opens a page.
     pub(crate) fn toggle_release_row_selection(&mut self, key: ReleaseKey, cx: &mut Context<Self>) {
         let row = SelectionRow::new(ReleasesRowId::Release(key.clone()), vec![key]);
+        self.releases_selection_mode = SelectionMode::Selecting;
         self.releases_selection.toggle(&row);
         cx.notify();
     }
 
     /// A click on a singles group row's body (ADR 0084 Decisions 6 and
-    /// 10). Ctrl+click adds or removes every single of the group, the
-    /// same as its checkbox; Shift+click extends the selection to the
-    /// group row, in the Releases list's visible sequence. Neither
-    /// opens a page. A plain click opens the group page.
+    /// 10). Ctrl+click starts selection mode and adds or removes every
+    /// single of the group, the same as its checkbox; Shift+click starts
+    /// selection mode and extends the selection to the group row, in the
+    /// Releases list's visible sequence. Neither opens a page. In
+    /// `Selecting` mode, a plain click on the row body also toggles the
+    /// group (Amendment, 2026-10-19). In `Normal` mode, a plain click
+    /// opens the group page.
     pub(crate) fn click_singles_group_row(
         &mut self,
         key: &SinglesGroupKey,
@@ -3319,13 +3338,20 @@ impl LibraryApp {
     ) {
         let row = SelectionRow::new(ReleasesRowId::Group(key.clone()), single_keys.to_vec());
         if primary_modifier_held(modifiers) {
+            self.releases_selection_mode = SelectionMode::Selecting;
             self.releases_selection.toggle(&row);
             cx.notify();
             return;
         }
         if modifiers.shift {
+            self.releases_selection_mode = SelectionMode::Selecting;
             let visible = self.releases_visible_rows();
             self.releases_selection.extend_to(&row, &visible);
+            cx.notify();
+            return;
+        }
+        if self.releases_selection_mode.is_selecting() {
+            self.releases_selection.toggle(&row);
             cx.notify();
             return;
         }
@@ -3343,15 +3369,18 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) {
         let row = SelectionRow::new(ReleasesRowId::Group(key.clone()), keys.to_vec());
+        self.releases_selection_mode = SelectionMode::Selecting;
         self.releases_selection.toggle(&row);
         cx.notify();
     }
 
-    /// A click on a Tracks or Needs attention row. Ctrl+click toggles
-    /// its selection; Shift+click extends the selection to it; neither
-    /// opens a page. A plain click opens the row's page, as before. A
-    /// row with no track key, for example an Index row, has no
-    /// selection model, so it always opens its page.
+    /// A click on a Tracks or Needs attention row. Ctrl+click and
+    /// Shift+click start selection mode and act on the row, as before;
+    /// neither opens a page. In `Selecting` mode, a plain click also
+    /// toggles the row and opens no page (Amendment, 2026-10-19). In
+    /// `Normal` mode, a plain click opens the row's page. A row with no
+    /// track key, for example an Index row, has no selection model, so
+    /// it always opens its page.
     pub(crate) fn click_content_list_row(
         &mut self,
         row_id: &str,
@@ -3364,13 +3393,20 @@ impl LibraryApp {
         };
         let row = SelectionRow::of_one(key.clone());
         if primary_modifier_held(modifiers) {
+            self.track_selection_mode = SelectionMode::Selecting;
             self.track_selection.toggle(&row);
             cx.notify();
             return;
         }
         if modifiers.shift {
+            self.track_selection_mode = SelectionMode::Selecting;
             let visible = self.content_list_visible_rows();
             self.track_selection.extend_to(&row, &visible);
+            cx.notify();
+            return;
+        }
+        if self.track_selection_mode.is_selecting() {
+            self.track_selection.toggle(&row);
             cx.notify();
             return;
         }
@@ -3386,6 +3422,7 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) {
         if let Some(key) = self.vm.content_list_track_row_key(row_id) {
+            self.track_selection_mode = SelectionMode::Selecting;
             self.track_selection.toggle(&SelectionRow::of_one(key));
             cx.notify();
         }
@@ -3461,20 +3498,23 @@ impl LibraryApp {
         cx.notify();
     }
 
-    /// Space (ADR 0084 Decision 10): toggles the row with the keyboard
-    /// focus. Required correction item 3: on a group row, this adds or
-    /// removes every single of the group.
+    /// Space (ADR 0084 Decision 10): starts selection mode and toggles
+    /// the row with the keyboard focus (Amendment, 2026-10-19). Required
+    /// correction item 3: on a group row, this adds or removes every
+    /// single of the group.
     pub(crate) fn toggle_focused_selection(&mut self, window: &Window, cx: &mut Context<Self>) {
         if !self.list_column_focus.contains_focused(window, cx) {
             return;
         }
         match self.vm.active_destination() {
             MusicDestination::Releases => {
+                self.releases_selection_mode = SelectionMode::Selecting;
                 let visible = self.releases_visible_rows();
                 self.releases_selection.toggle_focused(&visible);
                 cx.notify();
             }
             MusicDestination::Tracks | MusicDestination::NeedsAttention => {
+                self.track_selection_mode = SelectionMode::Selecting;
                 let visible = self.content_list_visible_rows();
                 self.track_selection.toggle_focused(&visible);
                 cx.notify();
@@ -3485,19 +3525,21 @@ impl LibraryApp {
         }
     }
 
-    /// Ctrl+A (ADR 0084 Decision 10): selects every member of every
-    /// visible row.
+    /// Ctrl+A (ADR 0084 Decision 10): starts selection mode and selects
+    /// every member of every visible row (Amendment, 2026-10-19).
     pub(crate) fn select_all_visible(&mut self, window: &Window, cx: &mut Context<Self>) {
         if !self.list_column_focus.contains_focused(window, cx) {
             return;
         }
         match self.vm.active_destination() {
             MusicDestination::Releases => {
+                self.releases_selection_mode = SelectionMode::Selecting;
                 let visible = self.releases_visible_rows();
                 self.releases_selection.select_all(&visible);
                 cx.notify();
             }
             MusicDestination::Tracks | MusicDestination::NeedsAttention => {
+                self.track_selection_mode = SelectionMode::Selecting;
                 let visible = self.content_list_visible_rows();
                 self.track_selection.select_all(&visible);
                 cx.notify();
@@ -3554,8 +3596,9 @@ impl LibraryApp {
         }
     }
 
-    /// Escape (ADR 0084 Decision 10): clears the selection when one
-    /// exists. Gives `false` with no selection to clear, so the caller
+    /// Escape (ADR 0084 Decision 10 Amendment, 2026-10-19): ends
+    /// selection mode and clears the selection, when the list is in
+    /// `Selecting` mode. Gives `false` outside that mode, so the caller
     /// keeps the present Escape behavior.
     pub(crate) fn clear_focused_selection(
         &mut self,
@@ -3566,14 +3609,16 @@ impl LibraryApp {
             return false;
         }
         match self.vm.active_destination() {
-            MusicDestination::Releases if self.releases_selection.shows_checkboxes() => {
+            MusicDestination::Releases if self.releases_selection_mode.is_selecting() => {
+                self.releases_selection_mode = SelectionMode::Normal;
                 self.releases_selection.clear();
                 cx.notify();
                 true
             }
             MusicDestination::Tracks | MusicDestination::NeedsAttention
-                if self.track_selection.shows_checkboxes() =>
+                if self.track_selection_mode.is_selecting() =>
             {
+                self.track_selection_mode = SelectionMode::Normal;
                 self.track_selection.clear();
                 cx.notify();
                 true
@@ -3582,17 +3627,78 @@ impl LibraryApp {
         }
     }
 
+    /// The Music list column's header action (ADR 0084 Decision 10
+    /// Amendment, 2026-10-19): "Select" in `Normal`, "Done" in
+    /// `Selecting`. Absent for Discover, Artists, Playlists, and an
+    /// empty list.
+    pub(crate) fn header_action_for_list_column(&self) -> Option<FrameHeaderActionDisplay> {
+        let destination = self.vm.active_destination();
+        let list_has_rows = match destination {
+            MusicDestination::Releases => !self.releases_visible_rows().is_empty(),
+            MusicDestination::Tracks | MusicDestination::NeedsAttention => {
+                !self.content_list_visible_rows().is_empty()
+            }
+            MusicDestination::Discover
+            | MusicDestination::Artists
+            | MusicDestination::Playlists => false,
+        };
+        let mode = match destination {
+            MusicDestination::Releases => self.releases_selection_mode,
+            MusicDestination::Tracks | MusicDestination::NeedsAttention => {
+                self.track_selection_mode
+            }
+            MusicDestination::Discover
+            | MusicDestination::Artists
+            | MusicDestination::Playlists => SelectionMode::Normal,
+        };
+        list_column_header_action(destination, mode, list_has_rows)
+    }
+
+    /// The header action's click (ADR 0084 Decision 10 Amendment,
+    /// 2026-10-19): "Select" starts selection mode, with no change to
+    /// the selection. "Done" ends it and clears the selection.
+    pub(crate) fn toggle_list_column_selection_mode(&mut self, cx: &mut Context<Self>) {
+        match self.vm.active_destination() {
+            MusicDestination::Releases => {
+                self.releases_selection_mode = match self.releases_selection_mode {
+                    SelectionMode::Normal => SelectionMode::Selecting,
+                    SelectionMode::Selecting => {
+                        self.releases_selection.clear();
+                        SelectionMode::Normal
+                    }
+                };
+            }
+            MusicDestination::Tracks | MusicDestination::NeedsAttention => {
+                self.track_selection_mode = match self.track_selection_mode {
+                    SelectionMode::Normal => SelectionMode::Selecting,
+                    SelectionMode::Selecting => {
+                        self.track_selection.clear();
+                        SelectionMode::Normal
+                    }
+                };
+            }
+            MusicDestination::Discover
+            | MusicDestination::Artists
+            | MusicDestination::Playlists => {}
+        }
+        cx.notify();
+    }
+
     /// The Releases list's action bar (ADR 0084 Decision 10), or `None`
-    /// with no selection.
+    /// outside `Selecting` mode (Amendment, 2026-10-19).
     pub(crate) fn releases_selection_action_bar(&self) -> Option<SelectionActionBarVm> {
         self.vm
-            .releases_selection_action_bar(&self.releases_selection)
+            .releases_selection_action_bar(&self.releases_selection, self.releases_selection_mode)
     }
 
     /// The Tracks or Needs attention list's action bar (ADR 0084
-    /// Decision 10), or `None` with no selection.
+    /// Decision 10), or `None` outside `Selecting` mode (Amendment,
+    /// 2026-10-19).
     pub(crate) fn content_list_selection_action_bar(&self) -> Option<SelectionActionBarVm> {
-        LibraryViewModel::content_list_selection_action_bar(&self.track_selection)
+        LibraryViewModel::content_list_selection_action_bar(
+            &self.track_selection,
+            self.track_selection_mode,
+        )
     }
 
     /// Runs a Download, Remove or Clear action of the Releases list's
@@ -4077,9 +4183,10 @@ impl LibraryApp {
                 }
                 // ADR 0084 Decision 10: the rows carry the Tracks or
                 // Needs attention selection's checkbox facts.
-                let rows = self
-                    .vm
-                    .content_list_rows_with_selection(&self.track_selection);
+                let rows = self.vm.content_list_rows_with_selection(
+                    &self.track_selection,
+                    self.track_selection_mode,
+                );
                 let pane = render_library_content_list(
                     self.vm.content_list_page(),
                     rows,
@@ -4104,6 +4211,7 @@ impl LibraryApp {
                 let entries = self.vm.releases_list_with_selection(
                     &self.expanded_singles_groups,
                     &self.releases_selection,
+                    self.releases_selection_mode,
                 );
                 let hovered_url = self.vm.hovered_thumb_url().map(str::to_string);
                 let mut sources: Vec<(String, String)> = Vec::new();

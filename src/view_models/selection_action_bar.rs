@@ -1,15 +1,17 @@
 //! The action bar of a Releases or Tracks list selection (ADR 0084
-//! Decision 10).
+//! Decision 10, amended 2026-10-19 for the selection mode).
 //!
-//! The bar shows only while a selection exists. [`SelectionActionBarVm::new`]
-//! gives `None` for an empty selection, so a caller renders nothing instead
-//! of an empty bar. Each action is typed: an action that cannot act is
-//! absent from [`SelectionActionBarVm::actions`], never present and
-//! disabled.
+//! The bar shows only in [`SelectionMode::Selecting`].
+//! [`SelectionActionBarVm::new`] gives `None` outside that mode, so a
+//! caller renders nothing. In `Selecting`, with no selected row, the bar
+//! gives "Select items" and no action. Each action is typed: an action
+//! that cannot act is absent from [`SelectionActionBarVm::actions`],
+//! never present and disabled.
 
 #![warn(clippy::pedantic)]
 
 use crate::view_models::format::plural;
+use crate::view_models::list_selection::SelectionMode;
 
 /// The ellipsis that marks an action that opens a further dialog (HIG
 /// convention, also used by the Library's single-item removal actions).
@@ -63,12 +65,20 @@ pub(crate) struct SelectionActionBarVm {
 }
 
 impl SelectionActionBarVm {
-    /// Builds the bar, or gives `None` for an empty selection, so the bar
-    /// shows only while a selection exists.
+    /// Builds the bar, or gives `None` outside [`SelectionMode::Selecting`]
+    /// (ADR 0084 Decision 10 Amendment, 2026-10-19). In `Selecting`, with
+    /// no selected row, the bar reads "Select items" and carries no
+    /// action.
     #[must_use]
-    pub(crate) fn new(input: SelectionActionBarInput) -> Option<Self> {
-        if input.selected_count == 0 {
+    pub(crate) fn new(mode: SelectionMode, input: SelectionActionBarInput) -> Option<Self> {
+        if !mode.is_selecting() {
             return None;
+        }
+        if input.selected_count == 0 {
+            return Some(Self {
+                count_label: "Select items".to_owned(),
+                actions: Vec::new(),
+            });
         }
         let noun = format!("{}{}", input.item_noun, plural(input.selected_count));
         let mut actions = Vec::new();
@@ -132,12 +142,15 @@ mod tests {
     /// in the Library.
     #[test]
     fn adr_0084_selection_r9_06_action_bar_gives_count_and_labels() {
-        let bar = SelectionActionBarVm::new(SelectionActionBarInput {
-            selected_count: 7,
-            item_noun: "track",
-            not_in_library_count: 5,
-            in_library_count: 2,
-        })
+        let bar = SelectionActionBarVm::new(
+            SelectionMode::Selecting,
+            SelectionActionBarInput {
+                selected_count: 7,
+                item_noun: "track",
+                not_in_library_count: 5,
+                in_library_count: 2,
+            },
+        )
         .expect("a selection of 7 gives a bar");
 
         assert_eq!(bar.count_label, "7 tracks selected");
@@ -171,12 +184,15 @@ mod tests {
     /// "Download" is absent when each selected item is in the Library.
     #[test]
     fn adr_0084_selection_r9_06_download_absent_when_all_in_library() {
-        let bar = SelectionActionBarVm::new(SelectionActionBarInput {
-            selected_count: 1,
-            item_noun: "release",
-            not_in_library_count: 0,
-            in_library_count: 1,
-        })
+        let bar = SelectionActionBarVm::new(
+            SelectionMode::Selecting,
+            SelectionActionBarInput {
+                selected_count: 1,
+                item_noun: "release",
+                not_in_library_count: 0,
+                in_library_count: 1,
+            },
+        )
         .expect("a selection of 1 gives a bar");
 
         assert_eq!(bar.count_label, "1 release selected");
@@ -188,27 +204,54 @@ mod tests {
     /// Library.
     #[test]
     fn adr_0084_selection_r9_07_remove_absent_when_none_in_library() {
-        let bar = SelectionActionBarVm::new(SelectionActionBarInput {
-            selected_count: 3,
-            item_noun: "track",
-            not_in_library_count: 3,
-            in_library_count: 0,
-        })
+        let bar = SelectionActionBarVm::new(
+            SelectionMode::Selecting,
+            SelectionActionBarInput {
+                selected_count: 3,
+                item_noun: "track",
+                not_in_library_count: 3,
+                in_library_count: 0,
+            },
+        )
         .expect("a selection of 3 gives a bar");
 
         assert!(bar.action(SelectionActionKind::Remove).is_none());
         assert!(bar.action(SelectionActionKind::Download).is_some());
     }
 
-    /// The bar shows only while a selection exists.
+    /// ADR 0084 Decision 10 Amendment, 2026-10-19: the bar is absent
+    /// outside `Selecting`, whatever the selected count. This replaces
+    /// packet 009's "the bar shows only while a selection exists".
     #[test]
-    fn adr_0084_selection_r9_06_no_bar_with_an_empty_selection() {
-        let bar = SelectionActionBarVm::new(SelectionActionBarInput {
-            selected_count: 0,
-            item_noun: "track",
-            not_in_library_count: 0,
-            in_library_count: 0,
-        });
+    fn adr_0084_selection_mode_r19_01_no_bar_outside_selecting_mode() {
+        let bar = SelectionActionBarVm::new(
+            SelectionMode::Normal,
+            SelectionActionBarInput {
+                selected_count: 0,
+                item_noun: "track",
+                not_in_library_count: 0,
+                in_library_count: 0,
+            },
+        );
         assert!(bar.is_none());
+    }
+
+    /// R19-06: in `Selecting` with no selected row, the bar gives "Select
+    /// items" and no action.
+    #[test]
+    fn adr_0084_selection_mode_r19_06_select_items_with_no_selected_row() {
+        let bar = SelectionActionBarVm::new(
+            SelectionMode::Selecting,
+            SelectionActionBarInput {
+                selected_count: 0,
+                item_noun: "track",
+                not_in_library_count: 0,
+                in_library_count: 0,
+            },
+        )
+        .expect("Selecting shows a bar even with no selected row");
+
+        assert_eq!(bar.count_label, "Select items");
+        assert!(bar.actions.is_empty());
     }
 }

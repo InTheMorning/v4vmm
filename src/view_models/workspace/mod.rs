@@ -27,7 +27,7 @@ pub(crate) use breadcrumb::{BreadcrumbDisplay, BreadcrumbSegment};
 pub(crate) use chrome::{
     ContentFilter, ContentViewMode, ContentViewModeControlDisplay, FilterChipOption,
     FilterChipStripDisplay, FilterChipStripWidthClass, FrameChromeButtonDisplay,
-    FrameChromeMenuItemDisplay, FrameShellDisplay,
+    FrameChromeMenuItemDisplay, FrameHeaderActionDisplay, FrameShellDisplay,
 };
 pub(crate) use columns::{
     resolve_music_sidebar_state, toggle_music_sidebar_preference, MusicColumns,

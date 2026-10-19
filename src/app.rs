@@ -650,6 +650,15 @@ impl TopApp {
         cx.notify();
     }
 
+    /// The Music list column's "Select" or "Done" button (ADR 0084
+    /// Decision 10 Amendment, 2026-10-19).
+    fn toggle_list_column_selection_mode(&mut self, cx: &mut Context<Self>) {
+        self.library.update(cx, |library, cx| {
+            library.toggle_list_column_selection_mode(cx);
+        });
+        cx.notify();
+    }
+
     fn set_search_results_filter(
         &mut self,
         _frame_id: WorkspaceFrameId,
@@ -1544,6 +1553,20 @@ impl TopApp {
                     .on_content_list_view_mode_select(move |view_mode, _window, cx| {
                         content_view_mode_entity.update(cx, |this, cx| {
                             this.set_content_list_view_mode(view_mode, cx);
+                        });
+                    });
+            }
+            // ADR 0084 Decision 10 Amendment, 2026-10-19: the list
+            // column's "Select" and "Done" button, for Releases, Tracks
+            // and Needs attention. The view model gives `None` for every
+            // other destination and for an empty list.
+            if let Some(header_action) = self.library.read(cx).header_action_for_list_column() {
+                let header_action_entity = entity.clone();
+                workspace_slots = workspace_slots
+                    .content_list_header_action(header_action)
+                    .on_content_list_header_action(move |_window, cx| {
+                        header_action_entity.update(cx, |this, cx| {
+                            this.toggle_list_column_selection_mode(cx);
                         });
                     });
             }

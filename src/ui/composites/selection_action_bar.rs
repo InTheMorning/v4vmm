@@ -1,10 +1,12 @@
 //! The action bar of a Releases or Tracks list selection (ADR 0084
-//! Decision 10).
+//! Decision 10, amended 2026-10-19 for the selection mode).
 //!
-//! The bar shows only while a selection exists: the screen calls
+//! The bar shows only in selection mode: the screen calls
 //! [`SelectionActionBar::new`] only when [`SelectionActionBarVm::new`]
-//! gave `Some`. Each button renders from the typed action the view model
-//! already decided; this composite invents no availability of its own.
+//! gave `Some`. With no selected row, the bar carries only its count
+//! label text, "Select items", and no action button. Each button
+//! renders from the typed action the view model already decided; this
+//! composite invents no availability of its own.
 
 #![warn(clippy::pedantic)]
 

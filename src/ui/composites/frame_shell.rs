@@ -31,7 +31,8 @@ use crate::ui::primitives::{
 use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor, Spacing};
 use crate::view_models::workspace::{
     ContentFilter, ContentViewMode, ContentViewModeControlDisplay, FilterChipStripDisplay,
-    FrameChromeButtonDisplay, FrameChromeMenuItemDisplay, FrameNavigationEntry, FrameShellDisplay,
+    FrameChromeButtonDisplay, FrameChromeMenuItemDisplay, FrameHeaderActionDisplay,
+    FrameNavigationEntry, FrameShellDisplay,
 };
 
 type FrameButtonHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
@@ -50,6 +51,7 @@ pub(crate) struct FrameShellSlots {
     on_forward: Option<FrameButtonHandler>,
     on_close: Option<FrameButtonHandler>,
     on_menu_select: Option<FrameMenuSelectHandler>,
+    on_header_action: Option<FrameButtonHandler>,
     on_filter_select: Option<FrameFilterSelectHandler>,
     on_view_mode_select: Option<FrameViewModeSelectHandler>,
     on_breadcrumb_select: Option<FrameBreadcrumbSelectHandler>,
@@ -77,6 +79,16 @@ impl FrameShellSlots {
     /// Supplies the forward-navigation callback.
     pub(crate) fn on_forward(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_forward = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the trailing header action's click callback (ADR 0084
+    /// Decision 10 Amendment, 2026-10-19).
+    pub(crate) fn on_header_action(
+        mut self,
+        handler: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_header_action = Some(Rc::new(handler));
         self
     }
 
@@ -281,6 +293,10 @@ fn render_chrome(
         ));
     }
 
+    if let Some(header_action) = display.header_action {
+        trailing = trailing.child(header_action_button(header_action, slots.on_header_action));
+    }
+
     let header = div()
         .flex()
         .flex_row()
@@ -397,6 +413,29 @@ fn chrome_button(
     button
 }
 
+/// Renders the frame shell's trailing header action (ADR 0084 Decision
+/// 10 Amendment, 2026-10-19): "Select" or "Done" for the Music list
+/// column today. The shell renders the given label; it decides none of
+/// its own.
+fn header_action_button(
+    display: FrameHeaderActionDisplay,
+    handler: Option<FrameButtonHandler>,
+) -> Button {
+    let a11y_label = display.a11y_label.clone();
+    let mut button = Button::styled(SharedString::from(display.id), ControlStyle::Ghost)
+        .label(display.label)
+        .a11y_label(a11y_label.clone())
+        .tooltip(a11y_label);
+
+    if let Some(handler) = handler {
+        button = button.on_click(move |_, window, cx| {
+            handler(window, cx);
+        });
+    }
+
+    button
+}
+
 fn action_menu(
     id_seed: &str,
     items: Vec<FrameChromeMenuItemDisplay>,
@@ -464,6 +503,15 @@ mod tests {
         assert!(slots.on_view_mode_select.is_some());
         assert!(slots.on_breadcrumb_select.is_some());
         assert!(slots.on_filter_select.is_none());
+    }
+
+    /// ADR 0084 Decision 10 Amendment: the frame shell accepts the
+    /// trailing header action's click callback.
+    #[test]
+    fn slots_accept_header_action_callback() {
+        let slots = FrameShellSlots::new().on_header_action(|_, _| {});
+
+        assert!(slots.on_header_action.is_some());
     }
 
     #[test]

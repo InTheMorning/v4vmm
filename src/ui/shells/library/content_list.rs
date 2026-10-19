@@ -243,13 +243,11 @@ fn render_content_list_row(
         .selected(row.selection.is_marked())
         .focused(row.selection.focused);
 
-    // ADR 0084 Decision 10 Design: "The row" — the checkbox shows while
-    // a selection exists or the row has the keyboard focus
-    // (`checkbox_visible`), and while the pointer is on the row. `ListRow`
-    // reveals it on hover when `checkbox_visible` is false. An empty
-    // `checkbox_a11y_label` means the row has no selection model at
-    // all, for example an Index row: it never gets a checkbox.
-    if !row.selection.checkbox_a11y_label.is_empty() {
+    // ADR 0084 Decision 10 Amendment, 2026-10-19: the checkbox shows
+    // only in selection mode (`checkbox_visible`). A row with no
+    // selection model at all, for example an Index row, keeps
+    // `checkbox_visible` false in every mode.
+    if row.selection.checkbox_visible {
         let checkbox_a11y_label = row.selection.checkbox_a11y_label.clone();
         list_row = list_row.checkbox(
             Checkbox::new(
@@ -265,7 +263,6 @@ fn render_content_list_row(
                 this.toggle_content_list_row_selection(&checkbox_row_id, cx);
             }))
             .into_any_element(),
-            row.selection.checkbox_visible,
         );
     }
 

@@ -42,7 +42,7 @@ pub(crate) use crate::view_models::library_removal::RemovalConfirmation;
 use crate::view_models::library_removal::{
     LibraryRemovalConfirmationDisplay, LibraryRemovalConfirmationState,
 };
-use crate::view_models::list_selection::{ListSelection, RowSelectionVm};
+use crate::view_models::list_selection::{ListSelection, RowSelectionVm, SelectionMode};
 #[cfg(test)]
 use crate::view_models::list_selection::{RowCheckState, SelectionRow};
 use crate::view_models::named_feeds::NamedFeed;
@@ -63,8 +63,8 @@ use crate::view_models::text_filter::contains_normalized;
 #[cfg(test)]
 use crate::view_models::text_filter::normalize;
 use crate::view_models::workspace::{
-    ContentViewMode, ContentViewModeControlDisplay, DiscoverView, MusicDestination,
-    MusicSidebarPreference, MusicSidebarState, ReleaseKey, TrackKey,
+    ContentViewMode, ContentViewModeControlDisplay, DiscoverView, FrameHeaderActionDisplay,
+    MusicDestination, MusicSidebarPreference, MusicSidebarState, ReleaseKey, TrackKey,
 };
 use crate::view_models::ActionStatusMessageDisplay;
 use crate::views::{FeedMetadataFacts, LocalIdentityFacts, TrackRef};
@@ -1727,6 +1727,37 @@ pub(crate) fn releases_disclosure_step(
     }
 }
 
+/// The Music list column's trailing header action (ADR 0084 Decision 10
+/// Amendment, 2026-10-19): "Select" in [`SelectionMode::Normal`], "Done"
+/// in [`SelectionMode::Selecting`]. Gives `None` for a destination with
+/// no selection model, and for an empty list.
+#[must_use]
+pub(crate) fn list_column_header_action(
+    destination: MusicDestination,
+    mode: SelectionMode,
+    list_has_rows: bool,
+) -> Option<FrameHeaderActionDisplay> {
+    let (element_id, noun) = match destination {
+        MusicDestination::Releases => ("music-list-column-select-releases", "releases"),
+        MusicDestination::Tracks => ("music-list-column-select-tracks", "tracks"),
+        MusicDestination::NeedsAttention => ("music-list-column-select-needs-attention", "tracks"),
+        MusicDestination::Discover | MusicDestination::Artists | MusicDestination::Playlists => {
+            return None;
+        }
+    };
+    if !list_has_rows {
+        return None;
+    }
+    Some(match mode {
+        SelectionMode::Normal => {
+            FrameHeaderActionDisplay::new(element_id, "Select", format!("Select {noun}"))
+        }
+        SelectionMode::Selecting => {
+            FrameHeaderActionDisplay::new(element_id, "Done", format!("Done selecting {noun}"))
+        }
+    })
+}
+
 /// The release row of one Library album in the Releases list (ADR 0084
 /// Decisions 2 and 5). `None` when the album has no release key.
 #[must_use]
@@ -2851,14 +2882,17 @@ impl LibraryViewModel {
     /// and 5, 2026-10-18). A singles group row's own checkbox reads
     /// checked, mixed, or clear, from each of its singles. An open
     /// group's own single row gets its own checkbox and its own
-    /// keyboard-focus fact, the same as a release row.
+    /// keyboard-focus fact, the same as a release row. `mode` decides
+    /// whether a checkbox shows at all (ADR 0084 Decision 10 Amendment,
+    /// 2026-10-19).
     #[must_use]
     pub(crate) fn releases_list_with_selection(
         &self,
         expanded: &BTreeSet<SinglesGroupKey>,
         selection: &ListSelection<ReleaseKey, ReleasesRowId>,
+        mode: SelectionMode,
     ) -> Vec<ReleasesListEntryVm> {
-        let shows_checkboxes = selection.shows_checkboxes();
+        let selecting = mode.is_selecting();
         let focused_row = selection.focused().cloned();
         self.releases_list(expanded)
             .into_iter()
@@ -2871,7 +2905,7 @@ impl LibraryViewModel {
                             &row.label,
                             selection.is_selected(key),
                             focused,
-                            shows_checkboxes,
+                            selecting,
                         );
                     }
                     ReleasesListEntryVm::Release(row)
@@ -2884,7 +2918,7 @@ impl LibraryViewModel {
                         &group.label,
                         check_state,
                         group_focused,
-                        shows_checkboxes,
+                        selecting,
                     );
                     // Required correction item 4: each single row of an
                     // open group shows its own checkbox, under the same
@@ -2897,7 +2931,7 @@ impl LibraryViewModel {
                                 &single_row.label,
                                 selection.is_selected(key),
                                 single_focused,
-                                shows_checkboxes,
+                                selecting,
                             );
                         }
                     }
@@ -2929,11 +2963,13 @@ impl LibraryViewModel {
     }
 
     /// The action bar of the Releases list selection (ADR 0084 Decision
-    /// 10), or `None` with no selection.
+    /// 10), or `None` outside [`SelectionMode::Selecting`] (Amendment,
+    /// 2026-10-19).
     #[must_use]
     pub(crate) fn releases_selection_action_bar(
         &self,
         selection: &ListSelection<ReleaseKey, ReleasesRowId>,
+        mode: SelectionMode,
     ) -> Option<SelectionActionBarVm> {
         let mut not_in_library_count = 0;
         let mut in_library_count = 0;
@@ -2944,12 +2980,15 @@ impl LibraryViewModel {
                 not_in_library_count += 1;
             }
         }
-        SelectionActionBarVm::new(SelectionActionBarInput {
-            selected_count: selection.selected_count(),
-            item_noun: "release",
-            not_in_library_count,
-            in_library_count,
-        })
+        SelectionActionBarVm::new(
+            mode,
+            SelectionActionBarInput {
+                selected_count: selection.selected_count(),
+                item_noun: "release",
+                not_in_library_count,
+                in_library_count,
+            },
+        )
     }
 
     /// The Library feed id of each selected release, for "Add to
@@ -3019,13 +3058,15 @@ impl LibraryViewModel {
     /// [`ContentListPageVm::visible_rows`], with the Decision 10
     /// checkbox facts of `selection` applied to each Library track row.
     /// A row with no track key, for example an Index row, keeps
-    /// [`RowSelectionVm::none`].
+    /// [`RowSelectionVm::none`]. `mode` decides whether a checkbox shows
+    /// at all (Amendment, 2026-10-19).
     #[must_use]
     pub(crate) fn content_list_rows_with_selection(
         &self,
         selection: &ListSelection<TrackKey>,
+        mode: SelectionMode,
     ) -> Vec<ContentListRowDisplay> {
-        let shows_checkboxes = selection.shows_checkboxes();
+        let selecting = mode.is_selecting();
         self.content_list_page
             .visible_rows()
             .into_iter()
@@ -3037,7 +3078,7 @@ impl LibraryViewModel {
                         row.title(),
                         selection.is_selected(&key),
                         focused,
-                        shows_checkboxes,
+                        selecting,
                     );
                 }
                 row
@@ -3046,20 +3087,24 @@ impl LibraryViewModel {
     }
 
     /// The action bar of the Tracks or Needs attention list selection
-    /// (ADR 0084 Decision 10), or `None` with no selection. Only a
-    /// Library track row resolves a track key (`content_list_track_row_key`),
-    /// so a selected track is always already in the Library, and
-    /// "Download" is always absent.
+    /// (ADR 0084 Decision 10), or `None` outside [`SelectionMode::Selecting`]
+    /// (Amendment, 2026-10-19). Only a Library track row resolves a track
+    /// key (`content_list_track_row_key`), so a selected track is always
+    /// already in the Library, and "Download" is always absent.
     #[must_use]
     pub(crate) fn content_list_selection_action_bar(
         selection: &ListSelection<TrackKey>,
+        mode: SelectionMode,
     ) -> Option<SelectionActionBarVm> {
-        SelectionActionBarVm::new(SelectionActionBarInput {
-            selected_count: selection.selected_count(),
-            item_noun: "track",
-            not_in_library_count: 0,
-            in_library_count: selection.selected_count(),
-        })
+        SelectionActionBarVm::new(
+            mode,
+            SelectionActionBarInput {
+                selected_count: selection.selected_count(),
+                item_noun: "track",
+                not_in_library_count: 0,
+                in_library_count: selection.selected_count(),
+            },
+        )
     }
 
     /// The Library track id and the title of each selected row, in their
@@ -7732,7 +7777,8 @@ mod tests {
             vec![newest_key.clone()],
         ));
 
-        let entries = vm.releases_list_with_selection(&expanded, &selection);
+        let entries =
+            vm.releases_list_with_selection(&expanded, &selection, SelectionMode::Selecting);
         let ReleasesListEntryVm::SinglesGroup(group) = &entries[0] else {
             panic!("the first entry must be the Haleen group");
         };
@@ -7760,6 +7806,49 @@ mod tests {
             !other_row.selection.checkbox_a11y_label.is_empty(),
             "every single row of an open group shows its own checkbox"
         );
+    }
+
+    /// R19-05: the header action reads "Select" in `Normal` and "Done"
+    /// in `Selecting`, with an accessibility label. It is absent for an
+    /// empty list and for Artists.
+    #[test]
+    fn adr_0084_selection_mode_r19_05_header_action_reads_select_and_done() {
+        let normal =
+            list_column_header_action(MusicDestination::Releases, SelectionMode::Normal, true)
+                .expect("Releases with rows gives a header action");
+        assert_eq!(normal.label, "Select");
+        assert_eq!(normal.a11y_label, "Select releases");
+
+        let selecting =
+            list_column_header_action(MusicDestination::Releases, SelectionMode::Selecting, true)
+                .expect("Releases with rows gives a header action");
+        assert_eq!(selecting.label, "Done");
+        assert_eq!(selecting.a11y_label, "Done selecting releases");
+
+        assert!(list_column_header_action(
+            MusicDestination::Releases,
+            SelectionMode::Normal,
+            false
+        )
+        .is_none());
+
+        assert!(
+            list_column_header_action(MusicDestination::Artists, SelectionMode::Normal, true)
+                .is_none()
+        );
+
+        let tracks =
+            list_column_header_action(MusicDestination::Tracks, SelectionMode::Normal, true)
+                .expect("Tracks with rows gives a header action");
+        assert_eq!(tracks.a11y_label, "Select tracks");
+
+        let needs_attention = list_column_header_action(
+            MusicDestination::NeedsAttention,
+            SelectionMode::Normal,
+            true,
+        )
+        .expect("Needs attention with rows gives a header action");
+        assert_eq!(needs_attention.a11y_label, "Select tracks");
     }
 
     /// D5-04: the Releases destination list gives one row for each Library

@@ -20,12 +20,6 @@ use crate::ui::tokens::{color, Radius, SemanticColor, Size, Spacing};
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
-/// The hover group tag of a [`ListRow`] (ADR 0084 Decision 10). Every row
-/// opens its own scope with `.group(...)`, so one literal tag is safe:
-/// a `.group_hover(...)` lookup finds the nearest ancestor with the tag,
-/// never a sibling row's.
-const ROW_HOVER_GROUP: &str = "list-row-hover";
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ListRowA11yLabel {
     pub label: gpui::SharedString,
@@ -67,14 +61,11 @@ pub struct ListRow {
     focused: bool,
     a11y_label: Option<gpui::SharedString>,
     on_click: Option<ClickHandler>,
-    /// The leading selection checkbox (ADR 0084 Decision 10). `None` hides
-    /// it: a list with no selection model never reserves its space.
+    /// The leading selection checkbox (ADR 0084 Decision 10, amended
+    /// 2026-10-19 for selection mode). `None` hides it and reserves no
+    /// space: a `Normal`-mode row, and a row with no selection model,
+    /// both give `None`.
     checkbox: Option<gpui::AnyElement>,
-    /// The checkbox shows even with the pointer away from the row (ADR
-    /// 0084 Decision 10 Design: "The row" — a selection exists, or the
-    /// row carries the keyboard focus). `false` shows the checkbox only
-    /// while the pointer is on the row, the screen's own hover state.
-    checkbox_force_visible: bool,
     /// The audition control position of a track row (ADR 0084 Decision
     /// 11). `None` shows no control and reserves no space, until
     /// [ADR 0068](../../../docs/adr/0068-show-cue-and-audition-isolation.md)
@@ -93,7 +84,6 @@ impl ListRow {
             a11y_label: None,
             on_click: None,
             checkbox: None,
-            checkbox_force_visible: false,
             audition: None,
             children: Vec::new(),
         }
@@ -123,14 +113,12 @@ impl ListRow {
         self
     }
 
-    /// The leading selection checkbox (ADR 0084 Decision 10). A caller
-    /// with no selection model for this row never calls this, so the row
-    /// reserves no checkbox space. `force_visible` keeps the checkbox
-    /// showing with the pointer away from the row; otherwise the row
-    /// shows it only on hover.
-    pub fn checkbox(mut self, checkbox: gpui::AnyElement, force_visible: bool) -> Self {
+    /// The leading selection checkbox (ADR 0084 Decision 10, amended
+    /// 2026-10-19). A caller shows this only in selection mode: a caller
+    /// with no selection model, or a `Normal`-mode row, never calls
+    /// this, so the row reserves no checkbox space.
+    pub fn checkbox(mut self, checkbox: gpui::AnyElement) -> Self {
         self.checkbox = Some(checkbox);
-        self.checkbox_force_visible = force_visible;
         self
     }
 
@@ -171,29 +159,16 @@ impl RenderOnce for ListRow {
         let hover_bg = color(cx, SemanticColor::SecondarySystemBackground);
         let has_click_action = on_click.is_some();
 
-        // ADR 0084 Decision 10 Design: "The row" — the checkbox shows
-        // while a selection exists or the row has the keyboard focus
-        // (`checkbox_force_visible`), and also while the pointer is on
-        // the row. `group_hover` reveals it for that last case; it finds
-        // this row's own `.group(ROW_HOVER_GROUP)`, never a sibling's.
-        let checkbox = self.checkbox.map(|checkbox| {
-            if self.checkbox_force_visible {
-                checkbox
-            } else {
-                div()
-                    .invisible()
-                    .group_hover(ROW_HOVER_GROUP, gpui::Styled::visible)
-                    .child(checkbox)
-                    .into_any_element()
-            }
-        });
+        // ADR 0084 Decision 10 Amendment, 2026-10-19: the checkbox shows
+        // only in selection mode. The caller gives one only then, so it
+        // always renders, with no hover reveal.
+        let checkbox = self.checkbox;
 
         // ADR 0084 Decision 1: a row in a scrolling list keeps its content
         // height. A list column has a fixed height, and a flex child shrinks
         // by default, so a row without this overlaps the next row.
         let mut row = div()
             .id(self.id)
-            .group(ROW_HOVER_GROUP)
             .flex_shrink_0()
             .px(pad_x)
             .py(pad_y)
