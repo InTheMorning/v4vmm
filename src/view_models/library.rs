@@ -42,6 +42,7 @@ pub(crate) use crate::view_models::library_removal::RemovalConfirmation;
 use crate::view_models::library_removal::{
     LibraryRemovalConfirmationDisplay, LibraryRemovalConfirmationState,
 };
+use crate::view_models::list_selection::{ListSelection, RowSelectionVm};
 use crate::view_models::named_feeds::NamedFeed;
 use crate::view_models::pagination::pending_skeleton_count;
 use crate::view_models::playlist_detail::PlaylistDetailPageVm;
@@ -52,6 +53,7 @@ use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::search_results::{
     FeedResultDisplay, IndexDetailDisplay, SearchResultOrigin, TrackResultDisplay,
 };
+use crate::view_models::selection_action_bar::{SelectionActionBarInput, SelectionActionBarVm};
 use crate::view_models::singles_group::{
     release_page_name_links, singles_groups, SinglesGroupKey, SinglesGroupPageVm, SinglesGroupRowVm,
 };
@@ -1177,6 +1179,10 @@ pub(crate) struct ContentListRowDisplay {
     /// Explicit row actions, in display order. A row can have no action.
     /// ADR 0076 Decision 7 gives a removed track two actions.
     pub(crate) actions: Vec<ContentListRowActionDisplay>,
+    /// The checkbox facts of the row (ADR 0084 Decision 10). Every row
+    /// constructs with no selection; [`LibraryViewModel::content_list_rows_with_selection`]
+    /// fills it for the Tracks and Needs attention lists.
+    pub(crate) selection: RowSelectionVm,
 }
 
 impl ContentListRowDisplay {
@@ -1334,6 +1340,7 @@ impl ContentListRowDisplay {
             activation: ContentListRowActivation::OpenContentRow,
             kind,
             actions: Vec::new(),
+            selection: RowSelectionVm::none(),
         }
     }
 
@@ -1626,6 +1633,11 @@ pub(crate) struct DestinationListRowVm {
     pub(crate) thumbnail_href: Option<String>,
     /// The entry the row opens.
     pub(crate) open: DestinationListRowTarget,
+    /// The checkbox facts of the row (ADR 0084 Decision 10). The
+    /// Artists list, which has no selection model, keeps this at
+    /// [`RowSelectionVm::none`]. [`LibraryViewModel::releases_list_with_selection`]
+    /// fills it for the Releases list.
+    pub(crate) selection: RowSelectionVm,
 }
 
 /// One entry of the Releases destination list (ADR 0084 Decisions 2 and
@@ -1666,6 +1678,7 @@ pub(crate) fn destination_release_row(
         a11y_label: format!("Release: {}", album.name),
         thumbnail_href: album.image_href.clone(),
         open: DestinationListRowTarget::Release(key),
+        selection: RowSelectionVm::none(),
     })
 }
 
@@ -1697,6 +1710,9 @@ fn artist_list_row(
             a11y_label: format!("Artist: {name}, {ARTIST_NAME_ROW_MARK}"),
             thumbnail_href: None,
             open: DestinationListRowTarget::Artist(name),
+            // ADR 0084 Decision 10 Exclusions: the Artists list has no
+            // selection model, so its row never shows a checkbox.
+            selection: RowSelectionVm::none(),
         },
         ArtistIdentity::Publisher(feed_guid) => {
             let title = members
@@ -1715,6 +1731,7 @@ fn artist_list_row(
                 a11y_label: format!("Artist: {title}"),
                 thumbnail_href: None,
                 open: DestinationListRowTarget::Publisher(feed_guid),
+                selection: RowSelectionVm::none(),
             }
         }
     }
@@ -2763,6 +2780,226 @@ impl LibraryViewModel {
         entries
     }
 
+    /// [`Self::releases_list`], with the Decision 10 checkbox facts of
+    /// `selection` applied to each row. A singles group row is checked
+    /// when each of its singles is selected.
+    #[must_use]
+    pub(crate) fn releases_list_with_selection(
+        &self,
+        expanded: &BTreeSet<SinglesGroupKey>,
+        selection: &ListSelection<ReleaseKey>,
+    ) -> Vec<ReleasesListEntryVm> {
+        let shows_checkboxes = selection.shows_checkboxes();
+        self.releases_list(expanded)
+            .into_iter()
+            .map(|entry| match entry {
+                ReleasesListEntryVm::Release(mut row) => {
+                    if let DestinationListRowTarget::Release(key) = &row.open {
+                        let focused = selection.focused() == Some(key);
+                        row.selection = RowSelectionVm::for_row(
+                            &row.label,
+                            selection.is_selected(key),
+                            focused,
+                            shows_checkboxes,
+                        );
+                    }
+                    ReleasesListEntryVm::Release(row)
+                }
+                ReleasesListEntryVm::SinglesGroup(mut group) => {
+                    let checked = !group.single_keys.is_empty()
+                        && group
+                            .single_keys
+                            .iter()
+                            .all(|key| selection.is_selected(key));
+                    let focused = group
+                        .single_keys
+                        .iter()
+                        .any(|key| selection.focused() == Some(key));
+                    group.selection =
+                        RowSelectionVm::for_row(&group.label, checked, focused, shows_checkboxes);
+                    ReleasesListEntryVm::SinglesGroup(group)
+                }
+            })
+            .collect()
+    }
+
+    /// The release of `key`, when the tree still holds it.
+    fn album_for_release_key(&self, key: &ReleaseKey) -> Option<&AlbumNode> {
+        self.snapshot
+            .tree
+            .artists
+            .iter()
+            .flat_map(|artist| artist.albums.iter())
+            .find(|album| album.release_key().as_ref() == Some(key))
+    }
+
+    /// Tells if every track of the release `key` is downloaded (ADR 0084
+    /// Decision 4's "Not downloaded" state names the rest). Gives `true`
+    /// for a key the tree no longer holds, so a stale selected key never
+    /// blocks "Add to playlist" or "Clear".
+    #[must_use]
+    fn release_is_fully_downloaded(&self, key: &ReleaseKey) -> bool {
+        self.album_for_release_key(key).is_none_or(|album| {
+            !album.tracks.is_empty() && album.tracks.iter().all(|track| track.is_in_library)
+        })
+    }
+
+    /// The action bar of the Releases list selection (ADR 0084 Decision
+    /// 10), or `None` with no selection.
+    #[must_use]
+    pub(crate) fn releases_selection_action_bar(
+        &self,
+        selection: &ListSelection<ReleaseKey>,
+    ) -> Option<SelectionActionBarVm> {
+        let mut not_in_library_count = 0;
+        let mut in_library_count = 0;
+        for key in selection.selected_keys() {
+            if self.release_is_fully_downloaded(key) {
+                in_library_count += 1;
+            } else {
+                not_in_library_count += 1;
+            }
+        }
+        SelectionActionBarVm::new(SelectionActionBarInput {
+            selected_count: selection.selected_count(),
+            item_noun: "release",
+            not_in_library_count,
+            in_library_count,
+        })
+    }
+
+    /// The Library feed id of each selected release, for "Add to
+    /// playlist" (ADR 0084 Decision 10), which adds every selected
+    /// release whatever its download state. Skips a key the tree no
+    /// longer holds.
+    #[must_use]
+    pub(crate) fn releases_selected_feed_ids(
+        &self,
+        selection: &ListSelection<ReleaseKey>,
+    ) -> Vec<i64> {
+        selection
+            .selected_keys()
+            .filter_map(|key| {
+                self.album_for_release_key(key)
+                    .and_then(|album| album.feed_id)
+            })
+            .collect()
+    }
+
+    /// The feed id and the release name of each selected release that is
+    /// fully downloaded, for "Remove…" (ADR 0084 Decision 10: "Remove"
+    /// removes only an item that is in the Library).
+    #[must_use]
+    pub(crate) fn releases_removable_feed_ids(
+        &self,
+        selection: &ListSelection<ReleaseKey>,
+    ) -> Vec<(i64, String)> {
+        selection
+            .selected_keys()
+            .filter(|key| self.release_is_fully_downloaded(key))
+            .filter_map(|key| {
+                let album = self.album_for_release_key(key)?;
+                Some((album.feed_id?, album.name.clone()))
+            })
+            .collect()
+    }
+
+    /// The feed id of each selected release that is not fully
+    /// downloaded, newest first, for "Download n releases" (ADR 0084
+    /// Decision 10).
+    #[must_use]
+    pub(crate) fn releases_downloadable_feed_ids(
+        &self,
+        selection: &ListSelection<ReleaseKey>,
+    ) -> Vec<i64> {
+        let mut dated: Vec<(Option<i64>, i64)> = selection
+            .selected_keys()
+            .filter(|key| !self.release_is_fully_downloaded(key))
+            .filter_map(|key| {
+                let album = self.album_for_release_key(key)?;
+                let feed_id = album.feed_id?;
+                let newest = album.tracks.iter().filter_map(|track| track.pub_date).max();
+                Some((newest, feed_id))
+            })
+            .collect();
+        // Newest first; a release with no dated track sorts last.
+        dated.sort_by(|left, right| match (left.0, right.0) {
+            (Some(left), Some(right)) => right.cmp(&left),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        });
+        dated.into_iter().map(|(_, feed_id)| feed_id).collect()
+    }
+
+    /// [`ContentListPageVm::visible_rows`], with the Decision 10
+    /// checkbox facts of `selection` applied to each Library track row.
+    /// A row with no track key, for example an Index row, keeps
+    /// [`RowSelectionVm::none`].
+    #[must_use]
+    pub(crate) fn content_list_rows_with_selection(
+        &self,
+        selection: &ListSelection<TrackKey>,
+    ) -> Vec<ContentListRowDisplay> {
+        let shows_checkboxes = selection.shows_checkboxes();
+        self.content_list_page
+            .visible_rows()
+            .into_iter()
+            .cloned()
+            .map(|mut row| {
+                if let Some(key) = self.content_list_track_row_key(&row.id) {
+                    let focused = selection.focused() == Some(&key);
+                    row.selection = RowSelectionVm::for_row(
+                        row.title(),
+                        selection.is_selected(&key),
+                        focused,
+                        shows_checkboxes,
+                    );
+                }
+                row
+            })
+            .collect()
+    }
+
+    /// The action bar of the Tracks or Needs attention list selection
+    /// (ADR 0084 Decision 10), or `None` with no selection. Only a
+    /// Library track row resolves a track key (`content_list_track_row_key`),
+    /// so a selected track is always already in the Library, and
+    /// "Download" is always absent.
+    #[must_use]
+    pub(crate) fn content_list_selection_action_bar(
+        selection: &ListSelection<TrackKey>,
+    ) -> Option<SelectionActionBarVm> {
+        SelectionActionBarVm::new(SelectionActionBarInput {
+            selected_count: selection.selected_count(),
+            item_noun: "track",
+            not_in_library_count: 0,
+            in_library_count: selection.selected_count(),
+        })
+    }
+
+    /// The Library track id and the title of each selected row, in their
+    /// visible sequence, for "Add to playlist" and "Remove…" (ADR 0084
+    /// Decision 10).
+    #[must_use]
+    pub(crate) fn content_list_selected_tracks(
+        &self,
+        selection: &ListSelection<TrackKey>,
+    ) -> Vec<(i64, String)> {
+        self.content_list_page
+            .visible_rows()
+            .into_iter()
+            .filter_map(|row| {
+                let key = self.content_list_track_row_key(&row.id)?;
+                if !selection.is_selected(&key) {
+                    return None;
+                }
+                let track_id = row.id.parse::<i64>().ok()?;
+                Some((track_id, row.title().to_owned()))
+            })
+            .collect()
+    }
+
     /// The name links of a release page with the link to the Library
     /// singles group of the release, when its `key` is in one (ADR 0084
     /// Decision 6).
@@ -3123,11 +3360,6 @@ impl LibraryViewModel {
 
     pub(crate) fn fail_playlist_append(&mut self, error: impl std::fmt::Display) {
         self.status = format!("Error adding to playlist: {error:#}");
-    }
-
-    #[must_use]
-    pub(crate) fn selected_id(&self) -> Option<i64> {
-        self.selected_id
     }
 
     /// Only this type's own tests read the selection back; the live screen
@@ -8158,16 +8390,16 @@ mod tests {
     fn library_view_model_selection_methods_keep_sidebar_and_tree_exclusive() {
         let mut vm = LibraryViewModel::new();
         vm.select_playlist(7);
-        assert_eq!(vm.selected_id(), None);
+        assert_eq!(vm.selected_id, None);
         assert_eq!(vm.selected_playlist_id(), Some(7));
         assert!(vm.is_playlist_selected(7));
 
         vm.select_library_item(42);
-        assert_eq!(vm.selected_id(), Some(42));
+        assert_eq!(vm.selected_id, Some(42));
         assert_eq!(vm.selected_playlist_id(), None);
 
         vm.clear_library_selection();
-        assert_eq!(vm.selected_id(), None);
+        assert_eq!(vm.selected_id, None);
     }
 
     #[test]

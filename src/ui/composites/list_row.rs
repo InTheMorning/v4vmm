@@ -20,6 +20,12 @@ use crate::ui::tokens::{color, Radius, SemanticColor, Size, Spacing};
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
+/// The hover group tag of a [`ListRow`] (ADR 0084 Decision 10). Every row
+/// opens its own scope with `.group(...)`, so one literal tag is safe:
+/// a `.group_hover(...)` lookup finds the nearest ancestor with the tag,
+/// never a sibling row's.
+const ROW_HOVER_GROUP: &str = "list-row-hover";
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ListRowA11yLabel {
     pub label: gpui::SharedString,
@@ -61,6 +67,19 @@ pub struct ListRow {
     focused: bool,
     a11y_label: Option<gpui::SharedString>,
     on_click: Option<ClickHandler>,
+    /// The leading selection checkbox (ADR 0084 Decision 10). `None` hides
+    /// it: a list with no selection model never reserves its space.
+    checkbox: Option<gpui::AnyElement>,
+    /// The checkbox shows even with the pointer away from the row (ADR
+    /// 0084 Decision 10 Design: "The row" — a selection exists, or the
+    /// row carries the keyboard focus). `false` shows the checkbox only
+    /// while the pointer is on the row, the screen's own hover state.
+    checkbox_force_visible: bool,
+    /// The audition control position of a track row (ADR 0084 Decision
+    /// 11). `None` shows no control and reserves no space, until
+    /// [ADR 0068](../../../docs/adr/0068-show-cue-and-audition-isolation.md)
+    /// fills it.
+    audition: Option<gpui::AnyElement>,
     children: Vec<gpui::AnyElement>,
 }
 
@@ -73,6 +92,9 @@ impl ListRow {
             focused: false,
             a11y_label: None,
             on_click: None,
+            checkbox: None,
+            checkbox_force_visible: false,
+            audition: None,
             children: Vec::new(),
         }
     }
@@ -98,6 +120,24 @@ impl ListRow {
 
     pub fn a11y_label(mut self, label: ListRowA11yLabel) -> Self {
         self.a11y_label = Some(label.label);
+        self
+    }
+
+    /// The leading selection checkbox (ADR 0084 Decision 10). A caller
+    /// with no selection model for this row never calls this, so the row
+    /// reserves no checkbox space. `force_visible` keeps the checkbox
+    /// showing with the pointer away from the row; otherwise the row
+    /// shows it only on hover.
+    pub fn checkbox(mut self, checkbox: gpui::AnyElement, force_visible: bool) -> Self {
+        self.checkbox = Some(checkbox);
+        self.checkbox_force_visible = force_visible;
+        self
+    }
+
+    /// The audition control position of a track row (ADR 0084 Decision
+    /// 11). No packet fills this yet, so no caller passes one.
+    pub fn audition(mut self, audition: gpui::AnyElement) -> Self {
+        self.audition = Some(audition);
         self
     }
 
@@ -131,11 +171,29 @@ impl RenderOnce for ListRow {
         let hover_bg = color(cx, SemanticColor::SecondarySystemBackground);
         let has_click_action = on_click.is_some();
 
+        // ADR 0084 Decision 10 Design: "The row" — the checkbox shows
+        // while a selection exists or the row has the keyboard focus
+        // (`checkbox_force_visible`), and also while the pointer is on
+        // the row. `group_hover` reveals it for that last case; it finds
+        // this row's own `.group(ROW_HOVER_GROUP)`, never a sibling's.
+        let checkbox = self.checkbox.map(|checkbox| {
+            if self.checkbox_force_visible {
+                checkbox
+            } else {
+                div()
+                    .invisible()
+                    .group_hover(ROW_HOVER_GROUP, gpui::Styled::visible)
+                    .child(checkbox)
+                    .into_any_element()
+            }
+        });
+
         // ADR 0084 Decision 1: a row in a scrolling list keeps its content
         // height. A list column has a fixed height, and a flex child shrinks
         // by default, so a row without this overlaps the next row.
         let mut row = div()
             .id(self.id)
+            .group(ROW_HOVER_GROUP)
             .flex_shrink_0()
             .px(pad_x)
             .py(pad_y)
@@ -147,7 +205,18 @@ impl RenderOnce for ListRow {
             .border_color(gpui::transparent_black())
             .when(selected, |el| el.bg(selected_bg).border_color(accent))
             .when(selected && focused, |el| el.border_2().border_color(focus))
-            .child(stack.children(self.children));
+            .child(
+                stack.children(
+                    // ADR 0084 Decision 10: the checkbox leads the row.
+                    // Decision 11: the audition slot trails it. Each is
+                    // `None` until its owning decision fills it, so neither
+                    // reserves space here.
+                    checkbox
+                        .into_iter()
+                        .chain(self.children)
+                        .chain(self.audition),
+                ),
+            );
 
         if let Some(handler) = on_click {
             row = row

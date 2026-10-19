@@ -17,6 +17,7 @@ use crate::view_models::format::{fmt_date, plural};
 use crate::view_models::library::{
     release_track_row_busy, AlbumNode, ArtistNode, DestinationListRowVm, LibraryTree,
 };
+use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::workspace::ReleaseKey;
 
@@ -246,6 +247,13 @@ pub(crate) struct SinglesGroupRowVm {
     /// The release row of each single, newest first, when `expanded` is
     /// true. Empty when it is false.
     pub(crate) singles: Vec<DestinationListRowVm>,
+    /// The release key of each single of the group, in the same order,
+    /// whatever `expanded` is (ADR 0084 Decision 6). The group row's
+    /// checkbox toggles every one of these.
+    pub(crate) single_keys: Vec<ReleaseKey>,
+    /// The checkbox facts of the group row (ADR 0084 Decision 10). The
+    /// group's own checkbox, not one for each single.
+    pub(crate) selection: RowSelectionVm,
 }
 
 impl SinglesGroupRowVm {
@@ -287,6 +295,12 @@ impl SinglesGroupRowVm {
             } else {
                 Vec::new()
             },
+            single_keys: group
+                .singles
+                .iter()
+                .map(|single| single.key.clone())
+                .collect(),
+            selection: RowSelectionVm::none(),
         }
     }
 }

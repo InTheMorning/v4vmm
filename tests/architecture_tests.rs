@@ -4438,6 +4438,14 @@ fn top_level_keyboard_shortcuts_route_through_key_binding_taxonomy() {
         "MoveSelectionUp",
         "MoveSelectionDown",
         "ConfirmSelection",
+        // ADR 0084 Decision 10, R9-10: the list column's selection
+        // keyboard actions.
+        "MoveSelectionPageUp",
+        "MoveSelectionPageDown",
+        "MoveSelectionHome",
+        "MoveSelectionEnd",
+        "ToggleFocusedSelection",
+        "SelectAllVisible",
     ] {
         if !keyboard_source.contains(required) {
             violations.push(format!(
@@ -4465,6 +4473,80 @@ fn top_level_keyboard_shortcuts_route_through_key_binding_taxonomy() {
         "top-level keyboard shortcut taxonomy violations:\n{}",
         violations.join("\n")
     );
+}
+
+/// R9-10, ADR 0084 Decision 10: the keyboard guard above still finds
+/// each action name, and each new action is a binding of
+/// `APP_KEY_BINDING_SPECS`, not a bare literal in a comment.
+#[test]
+fn adr_0084_selection_r9_10_new_selection_actions_are_key_binding_specs() {
+    let keyboard_source = read_source(&manifest_path("src/app/keyboard.rs"));
+    let mut violations = Vec::new();
+
+    for action in [
+        "MoveSelectionPageUp",
+        "MoveSelectionPageDown",
+        "MoveSelectionHome",
+        "MoveSelectionEnd",
+        "ToggleFocusedSelection",
+        "SelectAllVisible",
+    ] {
+        if !keyboard_source.contains(&format!("AppKeyCommand::{action} =>")) {
+            violations.push(format!(
+                "src/app/keyboard.rs: `{action}` is not a resolved `AppKeyBindingSpec` command"
+            ));
+        }
+    }
+
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// R9-08, ADR 0084 Decision 10: a change of destination clears both
+/// selections. `show_destination_list` runs on every sidebar click, and
+/// resets each `ListSelection` before it fills the new destination's
+/// list.
+#[test]
+fn adr_0084_selection_r9_08_destination_change_clears_both_selections() {
+    let source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let body = source_between(
+        &source,
+        "fn show_destination_list(",
+        "fn show_discover_view(",
+    );
+
+    for required in [
+        "self.releases_selection = ListSelection::new();",
+        "self.track_selection = ListSelection::new();",
+    ] {
+        assert!(
+            body.contains(required),
+            "ADR 0084 Decision 10: `show_destination_list` must reset the selection with `{required}`, \
+so a change of destination clears both selections."
+        );
+    }
+}
+
+/// R9-09, ADR 0084 Decision 10: the shared selection model's keyboard
+/// actions replace the Library screen's own row-focus walk. `move_up`,
+/// `move_down` and `focusable_items` are deleted, with no caller left
+/// to replace.
+#[test]
+fn adr_0084_selection_r9_09_no_dead_move_focus_functions_in_library() {
+    let mut violations = Vec::new();
+    for path in rust_files_under("src/library") {
+        let source = read_source(&path);
+        let code = code_only(&source);
+        for forbidden in ["fn move_up(", "fn move_down(", "fn focusable_items("] {
+            if code.contains(forbidden) {
+                violations.push(format!(
+                    "{}: ADR 0084 Decision 10 deletes `{forbidden}`. The shared selection model's \
+`move_selection_focus` and the visible-keys helpers replace it.",
+                    rel_path(&path)
+                ));
+            }
+        }
+    }
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
 }
 
 #[test]
@@ -20347,7 +20429,10 @@ fn adr_0084_scrollbars_r14_01_music_columns_use_the_shared_helper() {
     // the ADR 0038 Task 007 line ceiling, so the two are checked together.
     const MUSIC_SCROLL_CONTAINER_FILE_GROUPS: &[&[&str]] = &[
         &["src/library/app_impl.rs"],
-        &["src/ui/shells/library/destination_lists.rs"],
+        &[
+            "src/ui/shells/library/destination_lists.rs",
+            "src/ui/shells/library/destination_list_scroll.rs",
+        ],
         &[
             "src/ui/shells/library/content_list.rs",
             "src/ui/shells/library/content_list_scroll.rs",

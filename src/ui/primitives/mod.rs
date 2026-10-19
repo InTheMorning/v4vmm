@@ -21,6 +21,7 @@
 #![warn(clippy::pedantic)]
 
 pub mod button;
+pub(crate) mod checkbox;
 pub mod context_menu;
 pub mod divider;
 pub mod image;
@@ -36,6 +37,7 @@ pub mod surface;
 pub mod tooltip;
 
 pub use button::{Button, ButtonLabelTreatment, ButtonSize, ButtonVariant};
+pub(crate) use checkbox::{Checkbox, CheckboxState};
 pub use context_menu::{
     ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope, PointerContextMenu,
 };

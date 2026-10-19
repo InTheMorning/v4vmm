@@ -2,9 +2,10 @@
 
 use std::borrow::Cow;
 
-use gpui::{actions, App, Context, KeyBinding, Window};
+use gpui::{actions, App, Context, KeyBinding, Modifiers, Window};
 
 use crate::library::LibraryApp;
+use crate::view_models::list_selection::FocusStep;
 
 use super::{AppTab, TopApp};
 
@@ -28,8 +29,29 @@ actions!(
         MoveSelectionUp,
         MoveSelectionDown,
         ConfirmSelection,
+        // ADR 0084 Decision 10: the list column's selection keyboard
+        // actions.
+        MoveSelectionPageUp,
+        MoveSelectionPageDown,
+        MoveSelectionHome,
+        MoveSelectionEnd,
+        ToggleFocusedSelection,
+        SelectAllVisible,
     ]
 );
+
+/// Tells if the platform's primary modifier is held (ADR 0067: Ctrl on
+/// Linux, Cmd on macOS). ADR 0084 Decision 10's Ctrl+click and Ctrl+A read
+/// this, so a click and a key binding resolve the platform modifier
+/// through the one shared adapter.
+#[must_use]
+pub(crate) fn primary_modifier_held(modifiers: Modifiers) -> bool {
+    if cfg!(target_os = "macos") {
+        modifiers.platform
+    } else {
+        modifiers.control
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum AppKeyCommand {
@@ -46,6 +68,12 @@ pub(super) enum AppKeyCommand {
     MoveSelectionUp,
     MoveSelectionDown,
     ConfirmSelection,
+    MoveSelectionPageUp,
+    MoveSelectionPageDown,
+    MoveSelectionHome,
+    MoveSelectionEnd,
+    ToggleFocusedSelection,
+    SelectAllVisible,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,6 +175,42 @@ pub(super) const APP_KEY_BINDING_SPECS: &[AppKeyBindingSpec] = &[
         label: "Open",
         scope: AppKeyScope::ActivePane,
     },
+    AppKeyBindingSpec {
+        command: AppKeyCommand::MoveSelectionPageUp,
+        keystroke: "pageup",
+        label: "Move Up a Page",
+        scope: AppKeyScope::ActivePane,
+    },
+    AppKeyBindingSpec {
+        command: AppKeyCommand::MoveSelectionPageDown,
+        keystroke: "pagedown",
+        label: "Move Down a Page",
+        scope: AppKeyScope::ActivePane,
+    },
+    AppKeyBindingSpec {
+        command: AppKeyCommand::MoveSelectionHome,
+        keystroke: "home",
+        label: "Move to First Row",
+        scope: AppKeyScope::ActivePane,
+    },
+    AppKeyBindingSpec {
+        command: AppKeyCommand::MoveSelectionEnd,
+        keystroke: "end",
+        label: "Move to Last Row",
+        scope: AppKeyScope::ActivePane,
+    },
+    AppKeyBindingSpec {
+        command: AppKeyCommand::ToggleFocusedSelection,
+        keystroke: "space",
+        label: "Select Focused Row",
+        scope: AppKeyScope::ActivePane,
+    },
+    AppKeyBindingSpec {
+        command: AppKeyCommand::SelectAllVisible,
+        keystroke: "cmd-a",
+        label: "Select All Rows",
+        scope: AppKeyScope::ActivePane,
+    },
 ];
 
 pub(super) fn install_key_bindings(cx: &mut App) {
@@ -205,6 +269,24 @@ impl AppKeyBindingSpec {
             }
             AppKeyCommand::ConfirmSelection => {
                 KeyBinding::new(keystroke, ConfirmSelection, context)
+            }
+            AppKeyCommand::MoveSelectionPageUp => {
+                KeyBinding::new(keystroke, MoveSelectionPageUp, context)
+            }
+            AppKeyCommand::MoveSelectionPageDown => {
+                KeyBinding::new(keystroke, MoveSelectionPageDown, context)
+            }
+            AppKeyCommand::MoveSelectionHome => {
+                KeyBinding::new(keystroke, MoveSelectionHome, context)
+            }
+            AppKeyCommand::MoveSelectionEnd => {
+                KeyBinding::new(keystroke, MoveSelectionEnd, context)
+            }
+            AppKeyCommand::ToggleFocusedSelection => {
+                KeyBinding::new(keystroke, ToggleFocusedSelection, context)
+            }
+            AppKeyCommand::SelectAllVisible => {
+                KeyBinding::new(keystroke, SelectAllVisible, context)
             }
         }
     }
@@ -309,12 +391,20 @@ impl TopApp {
     pub(super) fn handle_cancel_active_pane(
         &mut self,
         _: &CancelActivePane,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match self.tab {
+            // ADR 0084 Decision 10: Escape clears a Music list selection
+            // first, and keeps the present Back behavior only when no
+            // selection exists to clear.
             AppTab::Music => {
-                self.library.update(cx, LibraryApp::pop_inspector);
+                let cleared = self.library.update(cx, |library, cx| {
+                    library.clear_focused_selection(window, cx)
+                });
+                if !cleared {
+                    self.library.update(cx, LibraryApp::pop_inspector);
+                }
             }
             AppTab::Show | AppTab::Settings => {}
         }
@@ -323,23 +413,95 @@ impl TopApp {
     pub(super) fn handle_move_selection_up(
         &mut self,
         _: &MoveSelectionUp,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.tab {
-            AppTab::Music => self.library.update(cx, LibraryApp::move_up),
-            AppTab::Show | AppTab::Settings => {}
-        }
+        self.move_music_selection_focus(FocusStep::Up, window, cx);
     }
 
     pub(super) fn handle_move_selection_down(
         &mut self,
         _: &MoveSelectionDown,
-        _: &mut Window,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_music_selection_focus(FocusStep::Down, window, cx);
+    }
+
+    pub(super) fn handle_move_selection_page_up(
+        &mut self,
+        _: &MoveSelectionPageUp,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_music_selection_focus(FocusStep::PageUp, window, cx);
+    }
+
+    pub(super) fn handle_move_selection_page_down(
+        &mut self,
+        _: &MoveSelectionPageDown,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_music_selection_focus(FocusStep::PageDown, window, cx);
+    }
+
+    pub(super) fn handle_move_selection_home(
+        &mut self,
+        _: &MoveSelectionHome,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_music_selection_focus(FocusStep::Home, window, cx);
+    }
+
+    pub(super) fn handle_move_selection_end(
+        &mut self,
+        _: &MoveSelectionEnd,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_music_selection_focus(FocusStep::End, window, cx);
+    }
+
+    fn move_music_selection_focus(
+        &mut self,
+        step: FocusStep,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match self.tab {
-            AppTab::Music => self.library.update(cx, LibraryApp::move_down),
+            AppTab::Music => self.library.update(cx, |library, cx| {
+                library.move_selection_focus(step, window, cx);
+            }),
+            AppTab::Show | AppTab::Settings => {}
+        }
+    }
+
+    pub(super) fn handle_toggle_focused_selection(
+        &mut self,
+        _: &ToggleFocusedSelection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.tab {
+            AppTab::Music => self.library.update(cx, |library, cx| {
+                library.toggle_focused_selection(window, cx);
+            }),
+            AppTab::Show | AppTab::Settings => {}
+        }
+    }
+
+    pub(super) fn handle_select_all_visible(
+        &mut self,
+        _: &SelectAllVisible,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.tab {
+            AppTab::Music => self
+                .library
+                .update(cx, |library, cx| library.select_all_visible(window, cx)),
             AppTab::Show | AppTab::Settings => {}
         }
     }
@@ -347,11 +509,17 @@ impl TopApp {
     pub(super) fn handle_confirm_selection(
         &mut self,
         _: &ConfirmSelection,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match self.tab {
-            AppTab::Music => self.library.update(cx, LibraryApp::confirm),
+            // ADR 0084 Decision 10: Enter opens the page of the row with
+            // the keyboard focus, in the Music list column.
+            AppTab::Music => {
+                self.library.update(cx, |library, cx| {
+                    library.open_focused_selection_row(window, cx);
+                });
+            }
             AppTab::Show | AppTab::Settings => {}
         }
     }
@@ -739,6 +907,12 @@ mod tests {
             AppKeyCommand::MoveSelectionUp,
             AppKeyCommand::MoveSelectionDown,
             AppKeyCommand::ConfirmSelection,
+            AppKeyCommand::MoveSelectionPageUp,
+            AppKeyCommand::MoveSelectionPageDown,
+            AppKeyCommand::MoveSelectionHome,
+            AppKeyCommand::MoveSelectionEnd,
+            AppKeyCommand::ToggleFocusedSelection,
+            AppKeyCommand::SelectAllVisible,
         ] {
             assert!(
                 commands.contains(&command),

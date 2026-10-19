@@ -205,7 +205,10 @@ pub(crate) enum NavigationPathStart {
 ///
 /// A release opened from the Library and the same release opened from the
 /// Index build this same key, so they push the same navigation entry.
-#[derive(Clone, Debug, Eq, PartialEq)]
+///
+/// ADR 0084 Decision 10: `Ord` lets this key sit in the `BTreeSet` of a
+/// [`crate::view_models::list_selection::ListSelection`].
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum ReleaseKey {
     /// The feed GUID. Each release with a feed GUID uses it, whatever its
     /// origin.
@@ -286,7 +289,10 @@ pub(crate) fn release_download_updates_open_page(
 ///
 /// A track opened from the Library and the same track opened from the
 /// Index build this same key, so they push the same navigation entry.
-#[derive(Clone, Debug, Eq, PartialEq)]
+///
+/// ADR 0084 Decision 10: `Ord` lets this key sit in the `BTreeSet` of a
+/// [`crate::view_models::list_selection::ListSelection`].
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) struct TrackKey {
     /// The release of the track. `None` only for an Index result with no
     /// feed GUID.

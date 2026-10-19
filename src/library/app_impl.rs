@@ -8,6 +8,7 @@ use super::{
     InspectorFrame, LazyPanel, LibraryApp, LibraryArtistDetail, LibraryDetail, PlaylistDetail,
     ThumbnailState,
 };
+use crate::app::keyboard::primary_modifier_held;
 use crate::application::commands::download::{SubscribeThenAppendToPlaylist, SubscribeTrack};
 use crate::application::commands::feed::{
     ApplyFeedUpdates, ApplyFeedUpdatesResult, CheckFeedStaleness, CheckFeedStalenessResult,
@@ -23,7 +24,9 @@ use crate::application::commands::playlist::{
     RemoveTrackFromAllPlaylists, RenamePlaylist, ReorderPlaylistTrack,
 };
 use crate::application::errors::command::CommandError;
-use crate::application::library_removal::{LibraryRemovalIntent, LibraryRemovalTarget};
+use crate::application::library_removal::{
+    removal_referring_playlist_names, LibraryRemovalIntent, LibraryRemovalTarget,
+};
 use crate::application::queries::broadcast::BroadcastReadinessReport;
 use crate::application::queries::feed::FetchRecentFeedsPage;
 use crate::application::queries::images::{FetchCoverColor, FetchThumbnail};
@@ -58,7 +61,9 @@ use crate::ui::shells::library::destination_lists::{
 use crate::ui::shells::library::detail::render_library_detail;
 use crate::ui::shells::library::sidebar::{render_destination_row, render_sidebar_collapse_button};
 use crate::ui::shells::library::track_detail_metadata::track_metadata_rows_for_frame;
-use crate::ui::shells::library_removal_confirmation::open_library_removal_confirmation_dialog;
+use crate::ui::shells::library_removal_confirmation::{
+    open_library_removal_confirmation_dialog, open_selection_removal_confirmation_dialog,
+};
 use crate::ui::shells::tag_update_confirmation::{
     open_tag_update_confirmation_dialog, render_tag_update_button, render_tag_update_report,
 };
@@ -74,8 +79,13 @@ use crate::view_models::library::{
     PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailActionsDisplay, ReleasesListEntryVm,
     RemovalConfirmation, TrackSubscribeOutcome,
 };
+use crate::view_models::library_removal::{
+    SelectionRemovalConfirmationState, SelectionRemovalPendingItem, SelectionRemovalReport,
+};
+use crate::view_models::list_selection::{FocusStep, ListSelection};
 use crate::view_models::playlist_option_displays;
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
+use crate::view_models::selection_action_bar::{SelectionActionBarVm, SelectionActionKind};
 use crate::view_models::singles_group::{SinglesGroupKey, SinglesGroupPageVm};
 use crate::view_models::track_detail::TrackNameLinkTarget;
 use crate::view_models::workspace::{
@@ -86,7 +96,7 @@ use crate::view_models::workspace::{
 use crate::views::{EntityIdentityLinks, LocalIdentityFacts};
 use gpui::{
     div, prelude::*, AnyElement, Context, Entity, FontWeight, Image, InteractiveElement,
-    IntoElement, SharedString, Styled, Window,
+    IntoElement, Modifiers, SharedString, Styled, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
 use rusqlite::Connection;
@@ -870,6 +880,12 @@ impl LibraryApp {
             recent_music_scroll: gpui::ScrollHandle::new(),
             expanded_singles_groups: BTreeSet::new(),
             queued_feed_downloads: std::collections::VecDeque::new(),
+            releases_selection: ListSelection::new(),
+            track_selection: ListSelection::new(),
+            releases_list_scroll: gpui::ScrollHandle::new(),
+            list_column_focus: cx.focus_handle(),
+            selection_removal: SelectionRemovalConfirmationState::new(),
+            selection_removal_report: None,
         };
         app.maybe_start_musicbrainz_feed_saga(cx);
         app.maybe_start_playlist_rss_check(cx);
@@ -1164,60 +1180,6 @@ impl LibraryApp {
         }
     }
 
-    pub fn move_up(&mut self, cx: &mut Context<Self>) {
-        let items = self.focusable_items();
-        if items.is_empty() {
-            return;
-        }
-        let current_idx = items
-            .iter()
-            .position(|&id| Some(id) == self.vm.selected_id());
-        let next_idx = match current_idx {
-            Some(idx) if idx > 0 => idx - 1,
-            _ => 0,
-        };
-        if let Some(&id) = items.get(next_idx) {
-            self.select_id(id, cx);
-        }
-    }
-
-    pub fn move_down(&mut self, cx: &mut Context<Self>) {
-        let items = self.focusable_items();
-        if items.is_empty() {
-            return;
-        }
-        let current_idx = items
-            .iter()
-            .position(|&id| Some(id) == self.vm.selected_id());
-        let next_idx = match current_idx {
-            Some(idx) if idx + 1 < items.len() => idx + 1,
-            Some(idx) => idx,
-            None => 0,
-        };
-        if let Some(&id) = items.get(next_idx) {
-            self.select_id(id, cx);
-        }
-    }
-
-    pub fn confirm(&mut self, _cx: &mut Context<Self>) {
-        // Already selected and opened in select_id
-    }
-
-    fn select_id(&mut self, id: i64, _cx: &mut Context<Self>) {
-        // Need to find if it's an album or track to call appropriate method
-        // This is a bit complex with current structure.
-        // I'll simplify: just update selected_id and reload detail.
-        self.vm.select_library_item(id);
-        // ... need to find the item to know what detail to show ...
-    }
-
-    fn focusable_items(&self) -> Vec<i64> {
-        // Traverse filtered_tree based on expanded states
-        // This is tricky because filtered_tree is computed in render.
-        // I should probably compute it in a separate method.
-        Vec::new()
-    }
-
     pub fn set_musicindex_endpoint(
         &mut self,
         endpoint: crate::config::MusicIndexEndpoint,
@@ -1277,6 +1239,14 @@ impl LibraryApp {
                 // ADR 0084 Decision 2: the Needs attention count stays
                 // current on each Library load.
                 this.refresh_current_broadcast_readiness_report();
+                // ADR 0084 Decision 10: a removal drops the removed
+                // items from both selections through `retain_visible`.
+                // Every reload re-syncs them, so a stale selected key
+                // never outlives the row it named.
+                let releases_visible = this.releases_visible_keys();
+                this.releases_selection.retain_visible(&releases_visible);
+                let tracks_visible = this.content_list_visible_track_keys();
+                this.track_selection.retain_visible(&tracks_visible);
             },
             |this, err, _cx| this.vm.set_error_status(err),
         );
@@ -2145,6 +2115,11 @@ impl LibraryApp {
     /// already loads: no new query runs on the render path.
     fn show_destination_list(&mut self, destination: MusicDestination) {
         self.vm.set_active_destination(destination);
+        // ADR 0084 Decision 10: a change of destination clears both
+        // selections, including the keyboard focus: the new
+        // destination's rows are a different list.
+        self.releases_selection = ListSelection::new();
+        self.track_selection = ListSelection::new();
         match destination {
             // ADR 0084 Decision 3: Discover's list column shows its views,
             // not the content list. `show_discover_view` fills the
@@ -2582,8 +2557,9 @@ impl LibraryApp {
             command,
             CommandContext::next(),
             cx,
-            |this, result, cx| {
+            move |this, result, cx| {
                 this.vm.clear_busy_feed();
+                this.record_selection_removal_result(target, None);
                 // ADR 0084 Decision 6: a queued singles download waits for
                 // each busy feed or track. The end of this work starts it.
                 this.start_next_queued_download(cx);
@@ -2593,10 +2569,12 @@ impl LibraryApp {
                 this.refresh_origin_playlist_actor();
                 this.start_async_reload_preserving_detail(cx);
             },
-            |this, err, cx| {
+            move |this, err, cx| {
                 this.vm.clear_busy_feed();
                 this.start_next_queued_download(cx);
-                this.vm.set_error_status(err);
+                if !this.record_selection_removal_result(target, Some(format!("{err:#}"))) {
+                    this.vm.set_error_status(err);
+                }
             },
         );
     }
@@ -3212,6 +3190,600 @@ fn album_has_feed_identity_actions(facts: &LocalIdentityFacts) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// ADR 0084 Decision 10: the shared selection model, the checkbox, the
+// clicks, the keys and the action bar of the Releases and Tracks lists.
+// ---------------------------------------------------------------------------
+
+impl LibraryApp {
+    /// The Releases list's visible row keys, in their render sequence.
+    /// A singles group row stands for its first single's key, since one
+    /// visual row needs one key for the keyboard focus and the
+    /// Shift+click range.
+    fn releases_visible_keys(&self) -> Vec<ReleaseKey> {
+        self.vm
+            .releases_list(&self.expanded_singles_groups)
+            .into_iter()
+            .filter_map(|entry| match entry {
+                ReleasesListEntryVm::Release(row) => match row.open {
+                    DestinationListRowTarget::Release(key) => Some(key),
+                    DestinationListRowTarget::Artist(_)
+                    | DestinationListRowTarget::Publisher(_) => None,
+                },
+                ReleasesListEntryVm::SinglesGroup(group) => group.single_keys.first().cloned(),
+            })
+            .collect()
+    }
+
+    /// The Tracks or Needs attention list's visible row keys, in their
+    /// render sequence.
+    fn content_list_visible_track_keys(&self) -> Vec<TrackKey> {
+        self.vm
+            .content_list_page()
+            .visible_rows()
+            .into_iter()
+            .filter_map(|row| self.vm.content_list_track_row_key(&row.id))
+            .collect()
+    }
+
+    /// A click on a Releases destination-list row. Ctrl+click toggles
+    /// its selection; Shift+click extends the selection to it; neither
+    /// opens a page. A plain click opens the row's page, as before. An
+    /// Artist or a Publisher row has no selection model, so it always
+    /// opens its page.
+    pub(crate) fn click_release_row(
+        &mut self,
+        target: &DestinationListRowTarget,
+        modifiers: Modifiers,
+        cx: &mut Context<Self>,
+    ) {
+        let DestinationListRowTarget::Release(key) = target else {
+            self.open_destination_row(target, cx);
+            return;
+        };
+        if primary_modifier_held(modifiers) {
+            self.releases_selection.toggle(key.clone());
+            cx.notify();
+            return;
+        }
+        if modifiers.shift {
+            let visible = self.releases_visible_keys();
+            self.releases_selection.extend_to(key.clone(), &visible);
+            cx.notify();
+            return;
+        }
+        self.releases_selection.click(key.clone());
+        self.open_destination_row(target, cx);
+    }
+
+    /// A click on a Releases row's own checkbox (ADR 0084 Decision 10).
+    /// It never opens a page.
+    pub(crate) fn toggle_release_row_selection(&mut self, key: ReleaseKey, cx: &mut Context<Self>) {
+        self.releases_selection.toggle(key);
+        cx.notify();
+    }
+
+    /// A click on a singles group row's body (ADR 0084 Decisions 6 and
+    /// 10). Ctrl+click adds or removes every single of the group, the
+    /// same as its checkbox; Shift+click extends the selection to the
+    /// group's first single, in the Releases list's visible sequence.
+    /// Neither opens a page. A plain click opens the group page.
+    pub(crate) fn click_singles_group_row(
+        &mut self,
+        key: &SinglesGroupKey,
+        single_keys: &[ReleaseKey],
+        modifiers: Modifiers,
+        cx: &mut Context<Self>,
+    ) {
+        if primary_modifier_held(modifiers) {
+            self.releases_selection.toggle_group(single_keys);
+            cx.notify();
+            return;
+        }
+        if modifiers.shift {
+            if let Some(proxy) = single_keys.first().cloned() {
+                let visible = self.releases_visible_keys();
+                self.releases_selection.extend_to(proxy, &visible);
+                cx.notify();
+            }
+            return;
+        }
+        if let Some(proxy) = single_keys.first().cloned() {
+            self.releases_selection.click(proxy);
+        }
+        self.open_singles_group(key, cx);
+    }
+
+    /// A click on a singles group row's checkbox (ADR 0084 Decision 6):
+    /// it adds or removes every single of the group.
+    pub(crate) fn toggle_release_group_selection(
+        &mut self,
+        keys: &[ReleaseKey],
+        cx: &mut Context<Self>,
+    ) {
+        self.releases_selection.toggle_group(keys);
+        cx.notify();
+    }
+
+    /// A click on a Tracks or Needs attention row. Ctrl+click toggles
+    /// its selection; Shift+click extends the selection to it; neither
+    /// opens a page. A plain click opens the row's page, as before. A
+    /// row with no track key, for example an Index row, has no
+    /// selection model, so it always opens its page.
+    pub(crate) fn click_content_list_row(
+        &mut self,
+        row_id: &str,
+        modifiers: Modifiers,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(key) = self.vm.content_list_track_row_key(row_id) else {
+            self.open_content_list_row(row_id, cx);
+            return;
+        };
+        if primary_modifier_held(modifiers) {
+            self.track_selection.toggle(key);
+            cx.notify();
+            return;
+        }
+        if modifiers.shift {
+            let visible = self.content_list_visible_track_keys();
+            self.track_selection.extend_to(key, &visible);
+            cx.notify();
+            return;
+        }
+        self.track_selection.click(key);
+        self.open_content_list_row(row_id, cx);
+    }
+
+    /// A click on a Tracks or Needs attention row's own checkbox (ADR
+    /// 0084 Decision 10). It never opens a page.
+    pub(crate) fn toggle_content_list_row_selection(
+        &mut self,
+        row_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(key) = self.vm.content_list_track_row_key(row_id) {
+            self.track_selection.toggle(key);
+            cx.notify();
+        }
+    }
+
+    /// Up, Down, Page Up, Page Down, Home and End (ADR 0084 Decision
+    /// 10). They act only while the Music list column carries the
+    /// keyboard focus, and keep the newly focused row in view.
+    pub(crate) fn move_selection_focus(
+        &mut self,
+        step: FocusStep,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.list_column_focus.contains_focused(window, cx) {
+            return;
+        }
+        match self.vm.active_destination() {
+            MusicDestination::Releases => {
+                let visible = self.releases_visible_keys();
+                if let Some(focused) = self.releases_selection.move_focus(step, &visible) {
+                    if let Some(index) = visible.iter().position(|key| *key == focused) {
+                        self.releases_list_scroll.scroll_to_item(index);
+                    }
+                }
+                cx.notify();
+            }
+            MusicDestination::Tracks | MusicDestination::NeedsAttention => {
+                let visible = self.content_list_visible_track_keys();
+                if let Some(focused) = self.track_selection.move_focus(step, &visible) {
+                    if let Some(index) = visible.iter().position(|key| *key == focused) {
+                        self.recent_music_scroll.scroll_to_item(index);
+                    }
+                }
+                cx.notify();
+            }
+            MusicDestination::Discover
+            | MusicDestination::Artists
+            | MusicDestination::Playlists => {}
+        }
+    }
+
+    /// Space (ADR 0084 Decision 10): toggles the row with the keyboard
+    /// focus.
+    pub(crate) fn toggle_focused_selection(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if !self.list_column_focus.contains_focused(window, cx) {
+            return;
+        }
+        match self.vm.active_destination() {
+            MusicDestination::Releases => {
+                self.releases_selection.toggle_focused();
+                cx.notify();
+            }
+            MusicDestination::Tracks | MusicDestination::NeedsAttention => {
+                self.track_selection.toggle_focused();
+                cx.notify();
+            }
+            MusicDestination::Discover
+            | MusicDestination::Artists
+            | MusicDestination::Playlists => {}
+        }
+    }
+
+    /// Ctrl+A (ADR 0084 Decision 10): selects every visible row.
+    pub(crate) fn select_all_visible(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if !self.list_column_focus.contains_focused(window, cx) {
+            return;
+        }
+        match self.vm.active_destination() {
+            MusicDestination::Releases => {
+                let visible = self.releases_visible_keys();
+                self.releases_selection.select_all(&visible);
+                cx.notify();
+            }
+            MusicDestination::Tracks | MusicDestination::NeedsAttention => {
+                let visible = self.content_list_visible_track_keys();
+                self.track_selection.select_all(&visible);
+                cx.notify();
+            }
+            MusicDestination::Discover
+            | MusicDestination::Artists
+            | MusicDestination::Playlists => {}
+        }
+    }
+
+    /// Enter (ADR 0084 Decision 10): opens the page of the row with the
+    /// keyboard focus. Gives `false` with no focused row, so the caller
+    /// keeps the present Enter behavior for every other case.
+    pub(crate) fn open_focused_selection_row(
+        &mut self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.list_column_focus.contains_focused(window, cx) {
+            return false;
+        }
+        match self.vm.active_destination() {
+            MusicDestination::Releases => {
+                let Some(focused) = self.releases_selection.focused().cloned() else {
+                    return false;
+                };
+                self.open_page(
+                    FrameNavigationEntry::Release(focused),
+                    NavigationPathStart::ListRow,
+                    cx,
+                );
+                true
+            }
+            MusicDestination::Tracks | MusicDestination::NeedsAttention => {
+                let Some(focused) = self.track_selection.focused().cloned() else {
+                    return false;
+                };
+                self.open_page(
+                    FrameNavigationEntry::Track(focused),
+                    NavigationPathStart::ListRow,
+                    cx,
+                );
+                true
+            }
+            MusicDestination::Discover
+            | MusicDestination::Artists
+            | MusicDestination::Playlists => false,
+        }
+    }
+
+    /// Escape (ADR 0084 Decision 10): clears the selection when one
+    /// exists. Gives `false` with no selection to clear, so the caller
+    /// keeps the present Escape behavior.
+    pub(crate) fn clear_focused_selection(
+        &mut self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.list_column_focus.contains_focused(window, cx) {
+            return false;
+        }
+        match self.vm.active_destination() {
+            MusicDestination::Releases if self.releases_selection.shows_checkboxes() => {
+                self.releases_selection.clear();
+                cx.notify();
+                true
+            }
+            MusicDestination::Tracks | MusicDestination::NeedsAttention
+                if self.track_selection.shows_checkboxes() =>
+            {
+                self.track_selection.clear();
+                cx.notify();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The Releases list's action bar (ADR 0084 Decision 10), or `None`
+    /// with no selection.
+    pub(crate) fn releases_selection_action_bar(&self) -> Option<SelectionActionBarVm> {
+        self.vm
+            .releases_selection_action_bar(&self.releases_selection)
+    }
+
+    /// The Tracks or Needs attention list's action bar (ADR 0084
+    /// Decision 10), or `None` with no selection.
+    pub(crate) fn content_list_selection_action_bar(&self) -> Option<SelectionActionBarVm> {
+        LibraryViewModel::content_list_selection_action_bar(&self.track_selection)
+    }
+
+    /// Runs a Download, Remove or Clear action of the Releases list's
+    /// action bar (ADR 0084 Decision 10). "Add to playlist" opens its
+    /// own popover, through [`Self::add_selected_releases_to_playlist`].
+    pub(crate) fn run_releases_selection_action(
+        &mut self,
+        kind: SelectionActionKind,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match kind {
+            SelectionActionKind::Download => {
+                let feed_ids = self
+                    .vm
+                    .releases_downloadable_feed_ids(&self.releases_selection);
+                self.download_singles(&feed_ids, cx);
+            }
+            SelectionActionKind::Remove => self.request_releases_selection_removal(window, cx),
+            SelectionActionKind::Clear => {
+                self.releases_selection.clear();
+                cx.notify();
+            }
+            SelectionActionKind::AddToPlaylist => {}
+        }
+    }
+
+    /// "Add n releases to playlist" of the action bar: adds every
+    /// selected release, whatever its download state.
+    pub(crate) fn add_selected_releases_to_playlist(
+        &mut self,
+        playlist_id: i64,
+        cx: &mut Context<Self>,
+    ) {
+        let feed_ids = self.vm.releases_selected_feed_ids(&self.releases_selection);
+        self.add_albums_to_playlist(&feed_ids, playlist_id, cx);
+    }
+
+    /// The "New Playlist" create flow of the Releases action bar's "Add
+    /// to playlist" popover.
+    pub(crate) fn create_playlist_and_add_selected_releases(
+        &mut self,
+        name: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let feed_ids = self.vm.releases_selected_feed_ids(&self.releases_selection);
+        self.create_playlist_and_add_albums(name, feed_ids, cx);
+    }
+
+    /// Runs a Remove or Clear action of the Tracks or Needs attention
+    /// list's action bar (ADR 0084 Decision 10). "Download" never shows
+    /// there, since every selectable row is already in the Library.
+    /// "Add to playlist" opens its own popover, through
+    /// [`Self::add_selected_tracks_to_playlist`].
+    pub(crate) fn run_content_list_selection_action(
+        &mut self,
+        kind: SelectionActionKind,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match kind {
+            // ADR 0084 Decision 10 Design: "Download" never shows here,
+            // since every selectable row is already in the Library.
+            // "Add to playlist" opens its own popover and dispatches no
+            // bar action.
+            SelectionActionKind::Download | SelectionActionKind::AddToPlaylist => {}
+            SelectionActionKind::Remove => self.request_content_list_selection_removal(window, cx),
+            SelectionActionKind::Clear => {
+                self.track_selection.clear();
+                cx.notify();
+            }
+        }
+    }
+
+    /// "Add n tracks to playlist" of the action bar.
+    pub(crate) fn add_selected_tracks_to_playlist(
+        &mut self,
+        playlist_id: i64,
+        cx: &mut Context<Self>,
+    ) {
+        let track_ids = self.content_list_selected_track_ids();
+        self.add_tracks_to_playlist(track_ids, playlist_id, cx);
+    }
+
+    /// The "New Playlist" create flow of the Tracks action bar's "Add to
+    /// playlist" popover.
+    pub(crate) fn create_playlist_and_add_selected_tracks(
+        &mut self,
+        name: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let track_ids = self.content_list_selected_track_ids();
+        self.create_playlist_and_add_tracks(name, track_ids, cx);
+    }
+
+    fn content_list_selected_track_ids(&self) -> Vec<i64> {
+        self.vm
+            .content_list_selected_tracks(&self.track_selection)
+            .into_iter()
+            .map(|(track_id, _title)| track_id)
+            .collect()
+    }
+
+    /// Adds each track of `track_ids` to a playlist, through one append
+    /// (ADR 0084 Decision 10). An empty `track_ids` adds nothing.
+    fn add_tracks_to_playlist(
+        &mut self,
+        track_ids: Vec<i64>,
+        playlist_id: i64,
+        cx: &mut Context<Self>,
+    ) {
+        if track_ids.is_empty() {
+            return;
+        }
+        if let Some(intent) = self.vm.begin_playlist_append(playlist_id, track_ids) {
+            self.spawn_subscribe_then_append(intent, cx);
+        }
+    }
+
+    /// Creates a playlist, then adds each track of `track_ids` to it
+    /// (ADR 0084 Decision 10).
+    fn create_playlist_and_add_tracks(
+        &mut self,
+        name: &str,
+        track_ids: Vec<i64>,
+        cx: &mut Context<Self>,
+    ) {
+        if track_ids.is_empty() {
+            return;
+        }
+        let command = CreatePlaylist::new(Arc::clone(&self.conn), name.to_string());
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, result, cx| {
+                this.reload_playlists();
+                this.add_tracks_to_playlist(track_ids.clone(), result.playlist_id(), cx);
+            },
+            |this, err, _cx| this.vm.fail_playlist_create(err),
+        );
+    }
+
+    /// "Remove n releases…" of the Releases action bar (ADR 0084
+    /// Decision 10): opens one confirmation that lists each selected
+    /// release that is fully downloaded.
+    fn request_releases_selection_removal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let feed_ids = self
+            .vm
+            .releases_removable_feed_ids(&self.releases_selection);
+        let items = self.plan_selection_removal(
+            feed_ids
+                .into_iter()
+                .map(|(feed_id, title)| (LibraryRemovalIntent::FeedId(feed_id), title)),
+        );
+        if items.is_empty() {
+            return;
+        }
+        self.selection_removal.open("release", items);
+        self.open_selection_removal_dialog(window, cx);
+    }
+
+    /// "Remove n tracks…" of the Tracks action bar (ADR 0084 Decision
+    /// 10): opens one confirmation that lists each selected track.
+    fn request_content_list_selection_removal(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let tracks = self.vm.content_list_selected_tracks(&self.track_selection);
+        let items = self.plan_selection_removal(
+            tracks
+                .into_iter()
+                .map(|(track_id, title)| (LibraryRemovalIntent::TrackId(track_id), title)),
+        );
+        if items.is_empty() {
+            return;
+        }
+        self.selection_removal.open("track", items);
+        self.open_selection_removal_dialog(window, cx);
+    }
+
+    /// Plans one removal for each `(intent, title)` pair (ADR 0084
+    /// Decision 10 Design: "The removal confirmation" reuses the present
+    /// `LibraryRemovalPlan` for each item). A planning error drops that
+    /// one item and reports it; the rest continue.
+    fn plan_selection_removal(
+        &mut self,
+        items: impl Iterator<Item = (LibraryRemovalIntent, String)>,
+    ) -> Vec<SelectionRemovalPendingItem> {
+        let conn = self.conn.lock().expect("lock db");
+        let mut pending = Vec::new();
+        for (intent, title) in items {
+            let plan = match self
+                .application_services
+                .query_service()
+                .library_removal_plan(&conn, &intent)
+            {
+                Ok(plan) => plan,
+                Err(err) => {
+                    self.vm.set_error_status(err);
+                    continue;
+                }
+            };
+            let referring_playlists =
+                removal_referring_playlist_names(&conn, plan.target()).unwrap_or_default();
+            pending.push(SelectionRemovalPendingItem::new(
+                plan,
+                title,
+                referring_playlists,
+            ));
+        }
+        pending
+    }
+
+    /// Opens the pending whole-selection removal confirmation (ADR 0084
+    /// Decision 10).
+    fn open_selection_removal_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(display) = self.selection_removal.pending_display() else {
+            return;
+        };
+        open_selection_removal_confirmation_dialog(
+            window,
+            cx,
+            display,
+            |this, cx| {
+                this.selection_removal.cancel();
+                cx.notify();
+            },
+            |this, cx| {
+                this.execute_selection_removal(cx);
+            },
+        );
+        cx.notify();
+    }
+
+    /// "Remove" of the selection removal confirmation. When one removal
+    /// fails, the others continue (ADR 0084 Decision 10 Design: "The
+    /// removal confirmation").
+    fn execute_selection_removal(&mut self, cx: &mut Context<Self>) {
+        let (items, item_noun) = self.selection_removal.take_pending_items();
+        let targets: Vec<LibraryRemovalTarget> = items.iter().map(|(target, _)| *target).collect();
+        self.selection_removal_report = Some(SelectionRemovalReport::start(items, item_noun));
+        for target in targets {
+            self.execute_library_removal_target(target, cx);
+        }
+    }
+
+    /// Records one removal result in the open selection report, when one
+    /// waits for `target`. Returns `true` when the report owns the result,
+    /// so the caller sets no status of its own (ADR 0084 Decision 10).
+    fn record_selection_removal_result(
+        &mut self,
+        target: LibraryRemovalTarget,
+        error: Option<String>,
+    ) -> bool {
+        let Some(report) = self.selection_removal_report.as_mut() else {
+            return false;
+        };
+        if !report.waits_for(target) {
+            return false;
+        }
+        match error {
+            Some(error) => report.record_failure(target, error),
+            None => report.record_done(target),
+        }
+        if report.finished() {
+            if let Some(text) = report.failure_text() {
+                self.vm.set_error_status(text);
+            }
+            self.selection_removal_report = None;
+        }
+        true
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Render
 // ---------------------------------------------------------------------------
 
@@ -3404,6 +3976,7 @@ impl LibraryApp {
         // ADR 0084 Decision 2: the list column shows the items of the
         // current root destination. ADR 0084 Decision 3: Discover shows
         // its views, not the content list.
+        let mut action_bar: Option<AnyElement> = None;
         let content_list_pane = match self.vm.active_destination() {
             MusicDestination::Discover => {
                 let rows = self.vm.discover_view_rows();
@@ -3415,15 +3988,36 @@ impl LibraryApp {
                     let img = self.thumbnail_for_url(Some(&url), false, cx);
                     content_row_thumbs.insert(row_id, img);
                 }
-                render_library_content_list(
+                // ADR 0084 Decision 10: the rows carry the Tracks or
+                // Needs attention selection's checkbox facts.
+                let rows = self
+                    .vm
+                    .content_list_rows_with_selection(&self.track_selection);
+                let pane = render_library_content_list(
                     self.vm.content_list_page(),
+                    rows,
                     &content_row_thumbs,
                     &self.recent_music_scroll,
                     cx,
-                )
+                );
+                if let Some(bar) = self.content_list_selection_action_bar() {
+                    action_bar = Some(self.render_selection_action_bar(
+                        bar,
+                        Self::run_content_list_selection_action,
+                        Self::add_selected_tracks_to_playlist,
+                        Self::create_playlist_and_add_selected_tracks,
+                        cx,
+                    ));
+                }
+                pane
             }
             MusicDestination::Releases => {
-                let entries = self.vm.releases_list(&self.expanded_singles_groups);
+                // ADR 0084 Decision 10: the entries carry the Releases
+                // selection's checkbox facts.
+                let entries = self.vm.releases_list_with_selection(
+                    &self.expanded_singles_groups,
+                    &self.releases_selection,
+                );
                 let hovered_url = self.vm.hovered_thumb_url().map(str::to_string);
                 let mut sources: Vec<(String, String)> = Vec::new();
                 for entry in &entries {
@@ -3451,7 +4045,18 @@ impl LibraryApp {
                     let img = self.thumbnail_for_url(Some(&href), animated, cx);
                     thumbs.insert(element_id, img);
                 }
-                render_library_releases_list(entries, &thumbs, cx)
+                let pane =
+                    render_library_releases_list(entries, &thumbs, &self.releases_list_scroll, cx);
+                if let Some(bar) = self.releases_selection_action_bar() {
+                    action_bar = Some(self.render_selection_action_bar(
+                        bar,
+                        Self::run_releases_selection_action,
+                        Self::add_selected_releases_to_playlist,
+                        Self::create_playlist_and_add_selected_releases,
+                        cx,
+                    ));
+                }
+                pane
             }
             MusicDestination::Artists => {
                 let rows = self.vm.artists_list();
@@ -3474,7 +4079,61 @@ impl LibraryApp {
             .min_h_0()
             .min_w_0()
             .overflow_hidden()
-            .child(content_list_pane)
+            .track_focus(&self.list_column_focus)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h_0()
+                    .min_w_0()
+                    .child(content_list_pane),
+            )
+            .children(action_bar)
+            .into_any_element()
+    }
+
+    /// Builds the action bar composite of a selection (ADR 0084 Decision
+    /// 10). `run` dispatches a Download, Remove or Clear action; `add`
+    /// and `create` wire the "Add to playlist" popover.
+    fn render_selection_action_bar(
+        &mut self,
+        bar: SelectionActionBarVm,
+        run: fn(&mut Self, SelectionActionKind, &mut Window, &mut Context<Self>),
+        add: fn(&mut Self, i64, &mut Context<Self>),
+        create: fn(&mut Self, &str, &mut Context<Self>),
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        use crate::ui::composites::{SelectionActionBar, SelectionActionBarPlaylists};
+
+        let playlists = SelectionActionBarPlaylists {
+            playlists: playlist_options(self.vm.playlists()),
+            new_playlist_a11y_label: SharedString::from("Create a new playlist"),
+            back_a11y_label: SharedString::from("Back to playlist choices"),
+            create_a11y_label: SharedString::from("Create playlist and add the selection"),
+        };
+        // `cx.listener` always gives a handler that reads an event by
+        // reference. Download, Remove and Clear act on no event, so
+        // each wraps the listener with a throwaway `&()`.
+        let download = cx.listener(move |this, (): &(), window, cx| {
+            run(this, SelectionActionKind::Download, window, cx);
+        });
+        let remove = cx.listener(move |this, (): &(), window, cx| {
+            run(this, SelectionActionKind::Remove, window, cx);
+        });
+        let clear = cx.listener(move |this, (): &(), window, cx| {
+            run(this, SelectionActionKind::Clear, window, cx);
+        });
+        SelectionActionBar::new(bar, playlists)
+            .on_download(move |window, cx| download(&(), window, cx))
+            .on_remove(move |window, cx| remove(&(), window, cx))
+            .on_clear(move |window, cx| clear(&(), window, cx))
+            .on_add_to_playlist(cx.listener(move |this, playlist_id: &i64, _window, cx| {
+                add(this, *playlist_id, cx);
+            }))
+            .on_create_playlist(cx.listener(move |this, name: &String, _window, cx| {
+                create(this, name.as_str(), cx);
+            }))
             .into_any_element()
     }
 

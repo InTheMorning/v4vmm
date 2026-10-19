@@ -40,6 +40,7 @@ pub mod playlist_popover;
 pub mod release_detail_surface;
 pub mod segmented_control;
 pub mod selectable_text;
+pub(crate) mod selection_action_bar;
 pub mod show_card;
 pub mod show_detail_panel;
 pub mod show_log_pane;
@@ -97,6 +98,7 @@ pub use release_detail_surface::{
 };
 pub use segmented_control::{Segment, SegmentDisplay, SegmentedControl, SegmentedControlStyle};
 pub(crate) use selectable_text::SelectableText;
+pub(crate) use selection_action_bar::{SelectionActionBar, SelectionActionBarPlaylists};
 pub(crate) use show_card::ShowCard;
 pub(crate) use show_detail_panel::{ShowDetailPanel, ShowDetailPanelDisplay, ShowDetailPanelSlots};
 pub(crate) use show_log_pane::{ShowLogPane, ShowLogPaneSlots};

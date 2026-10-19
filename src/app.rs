@@ -55,7 +55,7 @@ mod startup;
 mod bootstrap;
 mod breadcrumb;
 mod events;
-mod keyboard;
+pub(crate) mod keyboard;
 mod menu;
 mod name_match_dispatch;
 mod playback_bar;
@@ -1714,6 +1714,12 @@ impl Render for TopApp {
             .on_action(cx.listener(TopApp::handle_move_selection_up))
             .on_action(cx.listener(TopApp::handle_move_selection_down))
             .on_action(cx.listener(TopApp::handle_confirm_selection))
+            .on_action(cx.listener(TopApp::handle_move_selection_page_up))
+            .on_action(cx.listener(TopApp::handle_move_selection_page_down))
+            .on_action(cx.listener(TopApp::handle_move_selection_home))
+            .on_action(cx.listener(TopApp::handle_move_selection_end))
+            .on_action(cx.listener(TopApp::handle_toggle_focused_selection))
+            .on_action(cx.listener(TopApp::handle_select_all_visible))
             .child(render_tab_bar(self, window, cx))
             .when_some(capability_notice, gpui::ParentElement::child)
             .child(

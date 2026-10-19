@@ -24,7 +24,8 @@ use crate::ui::composites::{
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
-    Button as UiButton, Image as ImagePrimitive, ImageSize, Label, Skeleton,
+    Button as UiButton, Checkbox, CheckboxState, Image as ImagePrimitive, ImageSize, Label,
+    Skeleton,
 };
 use crate::ui::shells::library::content_list_scroll::attach_content_list_scroll;
 use crate::ui::tokens::{color, ArtworkShadow, FontSize, Radius, SemanticColor, Size, Spacing};
@@ -35,22 +36,26 @@ use crate::view_models::library::{
 };
 use crate::view_models::workspace::{ContentViewMode, ContentViewModeControlDisplay};
 
-struct ContentListRenderState<'a> {
-    visible_rows: Vec<&'a ContentListRowDisplay>,
+struct ContentListRenderState {
+    visible_rows: Vec<ContentListRowDisplay>,
     loading_display: Option<ContentListLoadingStateDisplay>,
     state_display: Option<ContentListPageStateDisplay>,
     load_more_display: Option<ContentListLoadMoreDisplay>,
 }
 
-/// Renders the Music content-list page.
+/// Renders the Music content-list page. `rows` is the page's visible
+/// rows, already carrying the Decision 10 checkbox facts of the Tracks
+/// or Needs attention list's selection — the Discover "New releases"
+/// view passes rows with no selection, so it shows no checkbox.
 pub(crate) fn render_library_content_list(
     page: &ContentListPageVm,
+    rows: Vec<ContentListRowDisplay>,
     thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
     scroll_handle: &ScrollHandle,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let render_state = ContentListRenderState {
-        visible_rows: page.visible_rows(),
+        visible_rows: rows,
         loading_display: page.loading_display(),
         state_display: page.page_state_display(),
         load_more_display: page.load_more_display(),
@@ -96,7 +101,10 @@ pub(crate) fn render_discover_new_releases_detail(
             this.request_content_view_mode(mode, cx);
         });
     });
-    let body = render_library_content_list(page, thumbnails, scroll_handle, cx);
+    // ADR 0084 Decision 10 Exclusions: Discover has no selection model,
+    // so its rows carry no checkbox facts.
+    let rows: Vec<ContentListRowDisplay> = page.visible_rows().into_iter().cloned().collect();
+    let body = render_library_content_list(page, rows, thumbnails, scroll_handle, cx);
 
     div()
         .flex()
@@ -120,7 +128,7 @@ pub(crate) fn render_discover_new_releases_detail(
 
 fn render_content_list_rows(
     page: &ContentListPageVm,
-    render_state: ContentListRenderState<'_>,
+    render_state: ContentListRenderState,
     thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
     scroll_handle: &ScrollHandle,
     cx: &mut Context<LibraryApp>,
@@ -130,10 +138,19 @@ fn render_content_list_rows(
         .as_ref()
         .map_or(0, |display| display.skeleton_count);
 
+    // ADR 0084 Decision 10: `track_scroll` (inside `attach_content_list_scroll`)
+    // reads the bounds of its direct children to find a row by index, so
+    // this div's rows are its direct children. An outer wrapper here
+    // would give the tracked handle one child — the wrapper — and no
+    // way to scroll to one row.
     let mut content = page_scroll_content(cx)
+        .id(ContentListPageVm::rows_id())
         .gap(Spacing::XXS.scaled(cx))
+        .px(Spacing::MD.scaled(cx))
+        .pb(Spacing::MD.scaled(cx))
         .children(render_state.visible_rows.into_iter().map(|row| {
-            render_content_list_row(row, thumbnails.get(&row.id).cloned().flatten(), cx)
+            let thumbnail = thumbnails.get(&row.id).cloned().flatten();
+            render_content_list_row(&row, thumbnail, cx)
         }))
         .children((0..pending_rows).map(|index| {
             SkeletonTrackRow::new(ContentListPageVm::skeleton_row_id(index))
@@ -147,19 +164,8 @@ fn render_content_list_rows(
         content = content.child(render_content_list_load_more(display, cx));
     }
 
-    let container = div()
-        .id(ContentListPageVm::rows_id())
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h_0()
-        .min_w_0()
-        .px(Spacing::MD.scaled(cx))
-        .pb(Spacing::MD.scaled(cx))
-        .child(content);
-
     attach_content_list_scroll(
-        container,
+        content,
         page.has_more(),
         page.is_loading(),
         scroll_handle,
@@ -169,7 +175,7 @@ fn render_content_list_rows(
 
 fn render_content_list_tiles(
     page: &ContentListPageVm,
-    render_state: ContentListRenderState<'_>,
+    render_state: ContentListRenderState,
     thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
     scroll_handle: &ScrollHandle,
     cx: &mut Context<LibraryApp>,
@@ -190,7 +196,8 @@ fn render_content_list_tiles(
             .flex_wrap()
             .gap(Spacing::MD.scaled(cx))
             .children(render_state.visible_rows.into_iter().map(|row| {
-                render_content_list_tile(row, thumbnails.get(&row.id).cloned().flatten(), cx)
+                let thumbnail = thumbnails.get(&row.id).cloned().flatten();
+                render_content_list_tile(&row, thumbnail, cx)
             }))
             .children((0..pending_tiles).map(|index| render_pending_content_tile(index, cx))),
     );
@@ -227,11 +234,42 @@ fn render_content_list_row(
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let row_id = row.id.clone();
+    let checkbox_row_id = row.id.clone();
     let entity_kind = entity_kind_for_content(row.entity_kind());
     let mut list_row = ListRow::new(SharedString::from(row.element_id()))
         .a11y_label(ListRowA11yLabel {
             label: SharedString::from(row.a11y_label().to_string()),
         })
+        .selected(row.selection.checked)
+        .focused(row.selection.focused);
+
+    // ADR 0084 Decision 10 Design: "The row" — the checkbox shows while
+    // a selection exists or the row has the keyboard focus
+    // (`checkbox_visible`), and while the pointer is on the row. `ListRow`
+    // reveals it on hover when `checkbox_visible` is false. An empty
+    // `checkbox_a11y_label` means the row has no selection model at
+    // all, for example an Index row: it never gets a checkbox.
+    if !row.selection.checkbox_a11y_label.is_empty() {
+        let checkbox_a11y_label = row.selection.checkbox_a11y_label.clone();
+        list_row = list_row.checkbox(
+            Checkbox::new(
+                SharedString::from(format!("{}-checkbox", row.element_id())),
+                CheckboxState::from_checked(row.selection.checked),
+            )
+            .a11y_label(checkbox_a11y_label)
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                // The checkbox toggles the row and never opens its
+                // page: stop the click from also reaching the row's
+                // own handler.
+                cx.stop_propagation();
+                this.toggle_content_list_row_selection(&checkbox_row_id, cx);
+            }))
+            .into_any_element(),
+            row.selection.checkbox_visible,
+        );
+    }
+
+    list_row = list_row
         .child(Thumbnail::new(entity_kind, ThumbnailSize::Sm).image(thumbnail))
         .child(render_content_list_row_text(row, entity_kind, cx));
 
@@ -241,8 +279,8 @@ fn render_content_list_row(
 
     list_row
         .when(row.accepts_row_click(), |el| {
-            el.on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                this.open_content_list_row(&row_id, cx);
+            el.on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
+                this.click_content_list_row(&row_id, event.modifiers(), cx);
             }))
         })
         .into_any_element()

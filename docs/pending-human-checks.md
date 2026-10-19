@@ -158,18 +158,12 @@ Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 202
 - Scheduling: it needs a macOS desktop session.
 - V2, macOS part: `cmd-[` and `cmd-]` outside a text box do the same as Back and Forward. Indent and outdent still work in a macOS text box.
 
-## 5. A List Row Opens Under Its Destination — ADR 0084 Decision 9
+## 5. Selection And The Action Bar — ADR 0084 Task 009
 
-Open - the orchestrator made the fix on 2026-10-18. Operator inspection is pending.
+Open - implementation and mechanical checks are complete on 2026-10-18. Operator inspection is pending.
 
-- The operator saw "Artists > HeyCitizen > Haleen > HeyCitizen" on 2026-10-18. Each click on a row of the list column added a page to the path.
-- Fix: `NavigationPathStart::ListRow` opens the page directly under the destination of the current path (`FrameNavigationState::open_list_row`). The Releases and Artists rows, the Discover view rows and the Library track rows use it. The test `adr_0084_nav_list_row_opens_under_the_destination` guards it.
-- Check:
-  1. Run `cargo build --bin v4vmm`, and start `target/debug/v4vmm`.
-  2. Open Music > Artists. Click HeyCitizen, then Haleen, then Elijah Lied.
-  3. Check that the breadcrumb reads "Artists > Elijah Lied".
-  4. Press Back. Check that the page and the breadcrumb return to Haleen.
-  5. Do steps 2 to 4 in Releases and in Tracks.
-  6. In a release page, click the artist name. Check that the page goes after the release, for example "Releases > Face Pale > Faces Pale". A link inside a page still goes deeper.
-  7. Wrong: a list row adds a page to the old path, or Back does not return to the page before.
+- Owner: [task 009](tasks/adr-0084-task-009-list-selection-and-action-bar.md#operator-visual-check).
+- Precondition: a Library with a singles group, six or more tracks, and a feed with tracks that are not downloaded. V5 removes tracks. Pick tracks that you can download again.
+- V1 and V2: the checkbox, the action bar, and Ctrl+click, Shift+click and Ctrl+A. V3: the keyboard focus, the scroll, Space, Enter and Escape.
+- V4 and V5: "Download", "Add to playlist", "Clear" and "Remove". V6: the singles group checkbox. V7: the widths, themes and type sizes.
 

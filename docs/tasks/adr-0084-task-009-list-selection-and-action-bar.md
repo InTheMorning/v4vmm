@@ -1,6 +1,6 @@
 # ADR 0084 Task 009: Selection And The Action Bar In The List Column
 
-Status: Ready - 2026-10-18. Implementation has not started.
+Status: Implemented - 2026-10-18. Cases R9-01 to R9-10 pass. Mechanical checks are Green. The visual gate is open: an operator has not walked V1 to V7.
 
 ## Goal
 
@@ -190,10 +190,144 @@ cargo build --bin v4vmm
 
 Revert the commit. This packet adds no migration and no stored data. A removal in V5 deletes audio files. Use tracks that you can download again.
 
+## Implementation Result - 2026-10-18
+
+### Files Changed
+
+- `src/view_models/list_selection.rs` (new): `ListSelection<K>`, `FocusStep`, `RowSelectionVm`, and the R9-01 to R9-05 tests.
+- `src/view_models/selection_action_bar.rs` (new): `SelectionActionBarVm`, `SelectionActionKind`, and the R9-06 and R9-07 tests.
+- `src/ui/primitives/checkbox.rs` (new): the `Checkbox` primitive.
+- `src/ui/composites/selection_action_bar.rs` (new): the `SelectionActionBar` composite.
+- `src/ui/shells/library/destination_list_scroll.rs` (new): the Releases list's two scroll containers, split out of `destination_lists.rs` for the ADR 0038 line ceiling.
+- `src/view_models/workspace/nav.rs`: `ReleaseKey` and `TrackKey` gain `Ord` and `PartialOrd`, for the `BTreeSet` of a `ListSelection`.
+- `src/view_models/singles_group.rs`: `SinglesGroupRowVm` gains `single_keys` and `selection`.
+- `src/view_models/library.rs`: `DestinationListRowVm` and `ContentListRowDisplay` gain `selection`. New methods: `releases_list_with_selection`, `content_list_rows_with_selection`, `releases_selection_action_bar`, `content_list_selection_action_bar`, `releases_selected_feed_ids`, `releases_removable_feed_ids`, `releases_downloadable_feed_ids`, `content_list_selected_tracks`. Deleted the dead accessor `selected_id()`.
+- `src/view_models/library_removal.rs`: the shared function `removal_impact_message`, and the new `SelectionRemovalConfirmationState`, `SelectionRemovalPendingItem` and `SelectionRemovalItemDisplay` for a whole-selection removal.
+- `src/application/library_removal.rs`: the new function `removal_referring_playlist_names`.
+- `src/db.rs` and `src/library_service.rs`: the new read-only queries `playlist_names_referencing_track` and `playlist_names_referencing_feed`.
+- `src/ui/shells/library_removal_confirmation.rs`: `open_selection_removal_confirmation_dialog`, built on the existing shared `confirmation_dialog` composite.
+- `src/library.rs`: new `LibraryApp` fields `releases_selection`, `track_selection`, `releases_list_scroll`, `list_column_focus`, `selection_removal`.
+- `src/library/app_impl.rs`: the click, checkbox, keyboard and action bar methods of ADR 0084 Decision 10. Deleted the dead `move_up`, `move_down`, `confirm`, `select_id` and `focusable_items`.
+- `src/ui/shells/library/destination_lists.rs` and `src/ui/shells/library/content_list.rs`: the checkbox slot, the pointer-hover reveal, and the Ctrl and Shift click handling of each row.
+- `src/ui/composites/list_row.rs`: the `checkbox` and `audition` slots, and the pointer-hover reveal of a checkbox that is not forced visible.
+- `src/app/keyboard.rs` and `src/app.rs`: the six new selection actions, and `primary_modifier_held`, the shared Ctrl or Cmd click reader.
+- `src/ui/tokens.rs`: the new size token `CheckboxIndicator`.
+- `tests/architecture_tests.rs`: the R9-08, R9-09 and R9-10 guards. It also updates the keyboard taxonomy guard and the r14-01 file group for the new scroll file.
+
+### Behavior Changed
+
+- The Releases list, the Tracks list and the Needs attention list share one selection model (ADR 0084 Decision 10).
+- A row's checkbox shows when a selection exists, when the row has the keyboard focus, or when the pointer is on the row.
+- Ctrl+click (Cmd+click on macOS) toggles a row. Shift+click extends the selection. A plain click still opens the row's page.
+- Up, Down, Page Up, Page Down, Home and End move the keyboard focus and keep the focused row in view. Space toggles the focused row. Ctrl+A (Cmd+A) selects every visible row. Escape clears the selection first, then falls back to the present Back action.
+- A singles group row's checkbox selects or clears every single of the group.
+- An action bar shows at the bottom of the list with a selection: "Download", "Add to playlist", "Remove" and "Clear", each shown only when it can act.
+- "Remove" opens one confirmation that lists each item, its impact text, and each playlist that refers to it. "Remove" removes each item. One failure does not stop the rest.
+- A change of destination clears both selections. A removal or a reload drops a removed item from the selection it was in.
+
+### Checks - 2026-10-18
+
+| Check | Result |
+|---|---|
+| `cargo test --lib adr_0084_selection_` | Green, 13 tests |
+| `cargo test` | Green, 1961 unit tests and 323 guards. Ten documentation examples stay ignored |
+| `cargo test --test architecture_tests` | Green, 323 guards |
+| `cargo fmt -- --check` | Green |
+| `cargo clippy -- -D warnings` | Green |
+| `cargo check --all-targets` | Green |
+| `cargo build --bin v4vmm` | Green |
+
+No application launch and no production-data change occurred.
+
+### Deviations From The Task
+
+1. An expanded single row under an open group keeps `RowSelectionVm::none()`. Only the group row's own checkbox selects or clears the group. This matches R9-04's wording, which names only the group row's checkbox.
+2. The Needs attention list's row body still accepts no click, the same as before this packet. Ctrl+click and Shift+click act only on a row that already opens a page. The checkbox still toggles a Needs attention row, with no row click needed.
+3. "Download" is never present on the Tracks or the Needs attention action bar. Only a Library track row resolves a key for `content_list_track_row_key`, so a track in either list is always already in the Library.
+4. "Download n releases" reuses the existing queued download path, `download_singles`, which the singles group page's main action already used. The queue runs one download at a time, as before.
+5. A removal that fails during a batch of several does not stop the rest, but the status line shows only the most recent error. Each item's own earlier state, for example a busy feed mark, still clears correctly. A combined report of each failed item and its own error text is not built. See "Unresolved Concerns".
+6. `scroll_to_item` finds a row by its index in the scrolled element's direct children. `render_content_list_rows` and the new tracked Releases container now give the scrolled element its id and padding directly. Neither one uses a wrapping div, so each visible row is a direct child.
+
+### Unresolved Concerns
+
+1. V3's keyboard scroll-to-item behavior, and V1, V2, V6 and V7's visual checks, need the operator. No test proves a GPUI scroll position or a rendered color.
+2. The removal of several items in one batch reports only the last error when more than one fails. A future packet could give `SelectionRemovalConfirmationState` a named error per item, if the operator meets this case in practice.
+3. The sort order of "Download n releases" uses each release's newest track `pub_date`. A release with no dated track sorts last, the same rule as the existing singles group order.
+
 ## Operator Visual Check
 
-The implementer writes this section at completion. It gives numbered steps for V1 to V7.
-V5 removes files from the Library. It names test tracks that the operator can download again, and gives the steps to download them again as its cleanup.
+This check needs a Linux desktop session and this checkout. It also needs a Library with one Releases singles group, six or more Library tracks, and one feed with more than one track. In that feed, not every track is downloaded.
+
+**V5 removes files from the Library.** Pick a small, low-value track or release for V5, one you do not mind removing. The cleanup step tells you how to download it again.
+
+1. Build and start the app: `cargo build --bin v4vmm` then run the built `target/debug/v4vmm` binary from a desktop session.
+2. Open Music, then Releases, in the sidebar.
+
+### V1: Releases checkbox and the action bar
+
+3. Move the pointer over a release row with no selection active. Look for its checkbox at the left of the row. Move the pointer off the row. The checkbox goes away.
+4. Click the checkbox of one release row. Look for the checkbox filled with a check mark, and for no page opening. An action bar must appear at the bottom of the list, with the text "1 release selected".
+5. Look at every other row in the list. Each one now shows its own checkbox, filled only for the one you picked.
+
+**Wrong if:** a click on the checkbox opens the release page, or no action bar appears, or another row's checkbox looks filled.
+
+### V2: Ctrl+click, Shift+click, Ctrl+A, and a plain click
+
+6. With the one release still selected, hold Ctrl (Cmd on macOS) and click a second row. Look for two checked rows and the count text "2 releases selected".
+7. Hold Shift and click a row several rows below the last one you clicked. Look for every row between the two clicks becoming checked.
+8. Press Ctrl+A (Cmd+A on macOS). Look for every row in the list becoming checked.
+9. Click "Clear" in the action bar. Look for every checkbox going back to unchecked and the action bar going away.
+10. Click a release row with no modifier key held. Look for the release page opening, with no checkbox involved.
+
+**Wrong if:** Ctrl+click opens a page, or Shift+click selects the wrong range. Also wrong: Ctrl+A misses a row. Also wrong: a plain click selects a row and does not open its page.
+
+### V3: Tracks keyboard focus, scroll, and Escape
+
+11. Open the Tracks destination in the sidebar. Click once on a track row, then press Escape, so the list column itself holds the keyboard focus.
+12. Press Down several times. Look for the keyboard focus moving one row down each time, and the list scrolling so the focused row stays in view.
+13. Press Page Down. Look for the focus jumping about ten rows down. Press Home. Look for the focus jumping to the first row, with the list scrolled to the top.
+14. Press End. Look for the focus jumping to the last row, with the list scrolled to the bottom.
+15. Press Space. Look for the focused row's checkbox becoming checked and an action bar appearing.
+16. Press Enter. Look for the focused row's page opening.
+17. Return to the Tracks list, select two or more rows, then press Escape. Look for the selection clearing, with no change to the open page.
+
+**Wrong if:** Down or Page Down does nothing, or the list does not scroll to the focused row. Also wrong: Space does not check the row, or Enter opens the wrong row. Also wrong: Escape, with no selection, does not give its present Back action.
+
+### V4: Download, Add to playlist, and Clear update the list in place
+
+18. In Releases, select one release that is not fully downloaded. Look for a "Download 1 release" button in the action bar.
+19. Click "Download 1 release". Look for the download starting, with no navigation away from the Releases list.
+20. Open the "Add to playlist" popover of the action bar and choose a playlist. Look for the tracks of the selection appending to that playlist, with the Releases list staying in place and the selection staying checked.
+21. Click "Clear". Look for the selection clearing with no other change.
+
+**Wrong if:** the list column changes to a different page during an action, or the selection clears after Download or Add to playlist.
+
+### V5: Remove opens a confirmation, and removes each item
+
+22. In Tracks, select two or three tracks that you can download again later. Note their titles.
+23. Click "Remove n tracks…" in the action bar. Look for one dialog that lists each track's title, and names each playlist that refers to a track, when one does.
+24. Click "Cancel". Look for no track removed and the selection unchanged.
+25. Click "Remove n tracks…" again, then click "Remove". Look for each track leaving the Tracks list, and the list updating in place with no navigation.
+
+**Cleanup:** download the removed tracks again. Open the release page of each removed track (through Releases or a search), and use its existing download action.
+
+### V6: A singles group row's checkbox selects every single
+
+26. In Releases, find a singles group row, for example "Artist name · n singles". Click its checkbox. Look for the action bar showing "n releases selected".
+27. Click the chevron to open the group. Look for each single of the group, with no checkbox of its own on an individual single row.
+28. Click the group's checkbox again. Look for "n releases selected" going back to no selection.
+
+**Wrong if:** the group's checkbox selects only the group row's own key, and not every single of the group.
+
+### V7: Widths, themes, and type sizes
+
+29. Resize the window to a narrow width, then back to normal width. Look for the checkbox, the row text and the action bar staying in their place, with no clipped text.
+30. Switch between Light and Dark themes, in Settings. Look for the checked state staying visible and clear in both themes.
+31. Raise the system or app type size to a larger setting, if available. Look for the checkbox and the row text still fitting, with no overlap.
+32. Confirm the checked state reads from the check mark and the fill, not from color alone. Try this with a color-blindness simulation, if one is available.
+
+**Wrong if:** a column narrower or wider than normal clips the checkbox or the row text. Also wrong: the checked state is visible only through its color.
+
 Do not delete `/tmp/v4vmm-governance.ie6k8TQf`. Color alone is not a valid difference.
 
 ## Prompt for lower-context coding model
@@ -244,3 +378,16 @@ Stop and report the problem, and do not guess, when:
 - The present removal path cannot remove one item of many without a change to its plan type.
 - A held scroll handle breaks the r14 guards in a way that their rule does not permit.
 - A change needs a file in "Do not touch".
+
+## Orchestrator Review - 2026-10-18
+
+Pass, after one fix. The orchestrator made the fix in the same change.
+
+- The packet asks that a removal report names each failed item and its error. The implementation showed only the last error, because each failure replaced the status text of the one before.
+  `SelectionRemovalReport` in `src/view_models/library_removal.rs` now records each result. When the last item returns, the status reads, for example, "The app removed 1 of 3 tracks. It could not remove: Face Pale (file is locked), Motive to Kill (database is busy)." A batch with no failure stays silent, as a single removal does. The test `adr_0084_selection_removal_report_names_each_failed_item` guards it.
+  The orchestrator deleted `take_pending_targets`, because `take_pending_items` replaced it.
+- `primary_modifier_held` in `src/app/keyboard.rs` uses the same platform test as the key registry (`cfg!(target_os = "macos")`), in the same module. The click and the key binding thus agree, as the archived ADR 0067 requires.
+- The other deviations agree with the packet or with the data. A Tracks row is always a downloaded Library track, so "Download" does not show on the track lists. An expanded single has no checkbox of its own, and the group checkbox selects each single (R9-04).
+- `cargo fmt -- --check`, `cargo clippy -- -D warnings` and `cargo check --all-targets` are Green. `cargo test` gives 1962 library tests and 323 guards, all passing.
+- Not part of this packet: `cargo clippy --all-targets -- -D warnings` reports errors in files that this packet does not touch, for example `src/startup.rs`. The project gate of `AGENTS.md` is `cargo clippy -- -D warnings`.
+

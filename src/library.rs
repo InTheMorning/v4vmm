@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 
-use gpui::{Entity, Image, ScrollHandle};
+use gpui::{Entity, FocusHandle, Image, ScrollHandle};
 use gpui_component::input::InputState;
 
 use crate::application::paged_track_list::{PagedTrackListMsg, PagedTrackListSnapshot};
@@ -30,10 +30,14 @@ use crate::view_models::library::{
     description_line_count, AlbumNode, InspectorPanelKind, LibraryTrackInspectorDisplay,
     LibraryTrackInspectorState, LibraryViewModel,
 };
+use crate::view_models::library_removal::{
+    SelectionRemovalConfirmationState, SelectionRemovalReport,
+};
+use crate::view_models::list_selection::ListSelection;
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::singles_group::SinglesGroupKey;
 use crate::view_models::workspace::{
-    ContentViewMode, DiscoverView, FrameNavigationEntry, NavigationPathStart,
+    ContentViewMode, DiscoverView, FrameNavigationEntry, NavigationPathStart, ReleaseKey, TrackKey,
 };
 use crate::views::ArtistView;
 
@@ -240,6 +244,25 @@ pub struct LibraryApp {
     /// download at a time, so the next one starts when the current one
     /// ends.
     queued_feed_downloads: VecDeque<i64>,
+    /// The Releases list selection (ADR 0084 Decision 10). A change of
+    /// destination clears it.
+    releases_selection: ListSelection<ReleaseKey>,
+    /// The Tracks and Needs attention lists' shared selection (ADR 0084
+    /// Decision 10). A change of destination clears it.
+    track_selection: ListSelection<TrackKey>,
+    /// The Releases list's held scroll handle (ADR 0084 Decision 10), so
+    /// a keyboard focus move keeps the focused row in view.
+    releases_list_scroll: ScrollHandle,
+    /// The Music list column's own focus handle (ADR 0084 Decision 10).
+    /// The selection keyboard actions act only while it, or a row inside
+    /// it, carries the keyboard focus.
+    list_column_focus: FocusHandle,
+    /// The pending whole-selection removal confirmation (ADR 0084
+    /// Decision 10).
+    selection_removal: SelectionRemovalConfirmationState,
+    /// The result of the whole-selection removal that runs, when one runs
+    /// (ADR 0084 Decision 10).
+    selection_removal_report: Option<SelectionRemovalReport>,
 }
 
 pub(crate) struct PlaylistActorState {

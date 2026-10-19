@@ -667,6 +667,48 @@ pub fn playlist_referenced_library_track_count_for_feed(
     .context("playlist_referenced_library_track_count_for_feed")
 }
 
+/// Names each playlist that holds `track_id`, A to Z (ADR 0084 Decision
+/// 10): the selection removal confirmation names each referring playlist.
+pub fn playlist_names_referencing_track(conn: &Connection, track_id: i64) -> Result<Vec<String>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT DISTINCT p.name
+             FROM playlists p
+             JOIN playlist_tracks pt ON pt.playlist_id = p.id
+             WHERE pt.track_id = ?1
+             ORDER BY p.name COLLATE NOCASE",
+        )
+        .context("prepare playlist_names_referencing_track")?;
+    let names = stmt
+        .query_map([track_id], |row| row.get::<_, String>(0))
+        .context("query playlist_names_referencing_track")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect playlist_names_referencing_track");
+    names
+}
+
+/// Names each playlist that holds a Library track of `feed_id`, A to Z
+/// (ADR 0084 Decision 10): the selection removal confirmation names each
+/// referring playlist.
+pub fn playlist_names_referencing_feed(conn: &Connection, feed_id: i64) -> Result<Vec<String>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT DISTINCT p.name
+             FROM playlists p
+             JOIN playlist_tracks pt ON pt.playlist_id = p.id
+             JOIN tracks t ON t.id = pt.track_id
+             WHERE t.feed_id = ?1 AND t.is_in_library = 1
+             ORDER BY p.name COLLATE NOCASE",
+        )
+        .context("prepare playlist_names_referencing_feed")?;
+    let names = stmt
+        .query_map([feed_id], |row| row.get::<_, String>(0))
+        .context("query playlist_names_referencing_feed")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect playlist_names_referencing_feed");
+    names
+}
+
 pub fn set_track_in_library_by_match(
     conn: &Connection,
     feed_url: Option<&str>,

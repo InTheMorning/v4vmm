@@ -68,6 +68,17 @@ pub fn playlist_referenced_library_track_count_for_feed(
     db::playlist_referenced_library_track_count_for_feed(conn, feed_id)
 }
 
+/// Names each playlist that holds `track_id` (ADR 0084 Decision 10).
+pub fn playlist_names_referencing_track(conn: &Connection, track_id: i64) -> Result<Vec<String>> {
+    db::playlist_names_referencing_track(conn, track_id)
+}
+
+/// Names each playlist that holds a Library track of `feed_id` (ADR 0084
+/// Decision 10).
+pub fn playlist_names_referencing_feed(conn: &Connection, feed_id: i64) -> Result<Vec<String>> {
+    db::playlist_names_referencing_feed(conn, feed_id)
+}
+
 pub fn set_track_in_library_by_match(
     conn: &Connection,
     feed_url: Option<&str>,

@@ -164,6 +164,26 @@ fn plan_feed_removal(conn: &Connection, feed_id: i64) -> Result<LibraryRemovalPl
     ))
 }
 
+/// Names each playlist that refers to `target` (ADR 0084 Decision 10):
+/// the selection removal confirmation names each one.
+///
+/// # Errors
+///
+/// Returns an error when the playlist names cannot be queried.
+pub fn removal_referring_playlist_names(
+    conn: &Connection,
+    target: LibraryRemovalTarget,
+) -> Result<Vec<String>> {
+    match target {
+        LibraryRemovalTarget::Track(track_id) => {
+            library_service::playlist_names_referencing_track(conn, track_id)
+        }
+        LibraryRemovalTarget::Feed(feed_id) => {
+            library_service::playlist_names_referencing_feed(conn, feed_id)
+        }
+    }
+}
+
 /// Execute a planned local-library removal target.
 ///
 /// # Errors

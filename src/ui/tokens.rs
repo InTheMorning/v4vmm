@@ -807,6 +807,10 @@ pub enum Size {
     ContentTileArtwork,
     /// 600 px — readable measure for empty-state explanations and reports.
     NoticeWidth,
+    /// 18 px — the visible square of a row-selection checkbox (ADR 0084
+    /// Decision 10). The primitive wraps it in the 44 px minimum hit
+    /// target.
+    CheckboxIndicator,
 }
 
 impl Size {
@@ -827,6 +831,7 @@ impl Size {
             Self::ContentTileWidth => px(176.0),
             Self::ContentTileArtwork => px(152.0),
             Self::NoticeWidth => px(600.0),
+            Self::CheckboxIndicator => px(18.0),
         }
     }
 

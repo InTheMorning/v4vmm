@@ -13,7 +13,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use gpui::{
-    div, prelude::*, AnyElement, ClickEvent, Context, FontWeight, Image, SharedString, Styled,
+    div, prelude::*, AnyElement, ClickEvent, Context, FontWeight, Image, ScrollHandle,
+    SharedString, Styled,
 };
 use gpui_component::input::Input;
 use gpui_component::Size;
@@ -27,7 +28,10 @@ use crate::ui::composites::{
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
-use crate::ui::primitives::{Button as UiButton, Label};
+use crate::ui::primitives::{Button as UiButton, Checkbox, CheckboxState, Label};
+use crate::ui::shells::library::destination_list_scroll::{
+    render_destination_list_container, render_destination_list_container_tracked,
+};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::style::spacing;
 use crate::ui::tokens::{FontSize, SemanticColor};
@@ -116,13 +120,16 @@ pub(crate) fn render_library_destination_rows(
     render_destination_list_container(children, empty_label, cx)
 }
 
-/// Renders the Releases destination list (ADR 0084 Decisions 2 and 6): a
-/// release row for each release that is not in a group, and a group row
-/// for each Library singles group. An open group row shows each of its
-/// singles below it, indented.
+/// Renders the Releases destination list (ADR 0084 Decisions 2, 6 and
+/// 10): a release row for each release that is not in a group, and a
+/// group row for each Library singles group. An open group row shows
+/// each of its singles below it, indented. `scroll_handle` is the held
+/// handle of ADR 0084 Decision 10, so a keyboard focus move keeps the
+/// focused row in view.
 pub(crate) fn render_library_releases_list(
     entries: Vec<ReleasesListEntryVm>,
     thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
+    scroll_handle: &ScrollHandle,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let mut children: Vec<AnyElement> = Vec::new();
@@ -137,7 +144,7 @@ pub(crate) fn render_library_releases_list(
             }
         }
     }
-    render_destination_list_container(children, "releases", cx)
+    render_destination_list_container_tracked(children, "releases", scroll_handle, cx)
 }
 
 /// Renders one singles group row and, when it is open, the indented row of
@@ -160,6 +167,8 @@ fn render_singles_group_rows(
         disclosure_element_id,
         disclosure_a11y_label,
         singles,
+        single_keys,
+        selection,
     } = group;
     let thumbnail = thumbnails.get(&element_id).cloned().flatten();
     let thumb_element_id = format!("{element_id}-thumb");
@@ -186,13 +195,39 @@ fn render_singles_group_rows(
             expanded,
         }));
 
-    children.push(
-        ListRow::new(SharedString::from(element_id))
-            .a11y_label(ListRowA11yLabel {
-                label: SharedString::from(a11y_label),
-            })
+    let mut group_row = ListRow::new(SharedString::from(element_id.clone()))
+        .a11y_label(ListRowA11yLabel {
+            label: SharedString::from(a11y_label),
+        })
+        .selected(selection.checked)
+        .focused(selection.focused);
+
+    // ADR 0084 Decision 6: the group row's checkbox selects each single
+    // of the group. ADR 0084 Decision 10 Design: "The row" — `ListRow`
+    // shows it while a selection exists or the row has the keyboard
+    // focus (`checkbox_visible`), and reveals it on hover otherwise.
+    {
+        let checkbox_a11y_label = selection.checkbox_a11y_label.clone();
+        let checkbox_keys = single_keys.clone();
+        group_row = group_row.checkbox(
+            Checkbox::new(
+                SharedString::from(format!("{element_id}-checkbox")),
+                CheckboxState::from_checked(selection.checked),
+            )
+            .a11y_label(checkbox_a11y_label)
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                this.open_singles_group(&open_key, cx);
+                cx.stop_propagation();
+                this.toggle_release_group_selection(&checkbox_keys, cx);
+            }))
+            .into_any_element(),
+            selection.checkbox_visible,
+        );
+    }
+
+    children.push(
+        group_row
+            .on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
+                this.click_singles_group_row(&open_key, &single_keys, event.modifiers(), cx);
             }))
             .child(disclosure)
             .child(render_hoverable_release_thumb(
@@ -232,55 +267,6 @@ fn render_singles_group_rows(
     }
 }
 
-/// The scroll container of a Releases or Artists destination list.
-/// `empty_label` names the row kind for the empty-list message and the
-/// scrollbar id.
-fn render_destination_list_container(
-    children: Vec<AnyElement>,
-    empty_label: &'static str,
-    cx: &mut Context<LibraryApp>,
-) -> AnyElement {
-    let mut content = page_scroll_content(cx).gap(spacing::XXS);
-
-    if children.is_empty() {
-        content = content.child(
-            div()
-                .text_center()
-                .p(spacing::XXL)
-                .text_color(crate::ui::tokens::resolve_color(
-                    cx,
-                    SemanticColor::TertiaryLabel,
-                    None,
-                ))
-                .child(format!("No {empty_label} yet")),
-        );
-    } else {
-        content = content.children(children);
-    }
-
-    let container = div()
-        .id("music-destination-list-rows")
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h_0()
-        .min_w_0()
-        .px(spacing::MD)
-        .pb(spacing::MD)
-        .child(content);
-
-    // ADR 0084 task 014 Recorded Facts: the Releases list and the Artists
-    // list call this function from the same line, so the scrollbar id
-    // must name the row kind. Without it, the two lists would share one
-    // scroll position.
-    music_column_scrollbar(
-        container,
-        SharedString::from(format!(
-            "music-destination-list-rows-{empty_label}-scrollbar"
-        )),
-    )
-}
-
 fn render_destination_list_row(
     row: DestinationListRowVm,
     thumbnail: Option<Arc<Image>>,
@@ -295,13 +281,41 @@ fn render_destination_list_row(
     let target = row.open.clone();
     let thumbnail_href = row.thumbnail_href.clone();
     let thumb_element_id = format!("{}-thumb", row.element_id);
+    let selection = row.selection.clone();
 
-    ListRow::new(SharedString::from(row.element_id))
+    let mut list_row = ListRow::new(SharedString::from(row.element_id.clone()))
         .a11y_label(ListRowA11yLabel {
             label: SharedString::from(row.a11y_label),
         })
-        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-            this.open_destination_row(&target, cx);
+        .selected(selection.checked)
+        .focused(selection.focused);
+
+    // ADR 0084 Decision 10: a Releases row's checkbox. The Artists list,
+    // and an expanded single row inside a group, give every row
+    // `RowSelectionVm::none`, so an empty `checkbox_a11y_label` means
+    // this row never shows one, even on hover.
+    if !selection.checkbox_a11y_label.is_empty() {
+        let checkbox_target = target.clone();
+        list_row = list_row.checkbox(
+            Checkbox::new(
+                SharedString::from(format!("{}-checkbox", row.element_id)),
+                CheckboxState::from_checked(selection.checked),
+            )
+            .a11y_label(selection.checkbox_a11y_label.clone())
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                cx.stop_propagation();
+                if let DestinationListRowTarget::Release(key) = &checkbox_target {
+                    this.toggle_release_row_selection(key.clone(), cx);
+                }
+            }))
+            .into_any_element(),
+            selection.checkbox_visible,
+        );
+    }
+
+    list_row
+        .on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
+            this.click_release_row(&target, event.modifiers(), cx);
         }))
         .child(render_hoverable_release_thumb(
             thumb_element_id,
