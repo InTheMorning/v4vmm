@@ -1,6 +1,6 @@
 # ADR 0084 Task 008: The Feed Page And Artists By Confirmation
 
-Status: Implemented - 2026-10-18. Cases R85-8-01 to R85-8-16 pass. Mechanical checks are Green. The visual gate is open. No operator walked V1 to V9 yet.
+Status: Complete - 2026-10-18. Cases R85-8-01 to R85-8-16 pass. Mechanical checks are Green. The operator passed V1 to V9 and the two fixes on 2026-10-18 with the debug build.
 
 ## Goal
 
@@ -9,13 +9,13 @@ The Artists list holds the confirmed artists, the unverified artists and the nam
 
 ## Authority
 
-- [ADR 0085](../adr/0085-artists-by-confirmation.md) Decision 1: no interface text names a feed "publisher".
-- [ADR 0085](../adr/0085-artists-by-confirmation.md) Decision 2: the three levels. The Artists list shows no level word. Only the artist page shows the level.
-- [ADR 0085](../adr/0085-artists-by-confirmation.md) Decision 3: the sections, their sequence and their row text.
-- [ADR 0085](../adr/0085-artists-by-confirmation.md) Decision 7: the frame title, and the one use of "Publisher".
-- [ADR 0085](../adr/0085-artists-by-confirmation.md) Decision 4, and [ADR 0082](../adr/0082-publisher-roles-belong-to-each-album-link.md) Decisions 4 and 5: the header roles and "Shares albums with" stay.
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 7: the feed level of the artist page. Decision 4: one page for each item, and the Library is a state. Decision 6: "Albums and EPs" before "Singles". Decision 5: the kind of a release.
-- [ADR 0075](../adr/0075-metadata-contract.md) section 6: the stored contract changes in the same change as its decode.
+- [ADR 0085](../../adr/0085-artists-by-confirmation.md) Decision 1: no interface text names a feed "publisher".
+- [ADR 0085](../../adr/0085-artists-by-confirmation.md) Decision 2: the three levels. The Artists list shows no level word. Only the artist page shows the level.
+- [ADR 0085](../../adr/0085-artists-by-confirmation.md) Decision 3: the sections, their sequence and their row text.
+- [ADR 0085](../../adr/0085-artists-by-confirmation.md) Decision 7: the frame title, and the one use of "Publisher".
+- [ADR 0085](../../adr/0085-artists-by-confirmation.md) Decision 4, and [ADR 0082](../../adr/0082-publisher-roles-belong-to-each-album-link.md) Decisions 4 and 5: the header roles and "Shares albums with" stay.
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 7: the feed level of the artist page. Decision 4: one page for each item, and the Library is a state. Decision 6: "Albums and EPs" before "Singles". Decision 5: the kind of a release.
+- [ADR 0075](../../adr/0075-metadata-contract.md) section 6: the stored contract changes in the same change as its decode.
 - Operator decisions of 2026-10-18:
   - The old packet 008 is two packets. This packet builds the feed level and the Artists list. Packet 017 builds the name level, and replaces the Library artist page by name and the Index name match page.
   - Packet 010 owns flow map finding 6, the search entry of a feed page.
@@ -31,7 +31,7 @@ The Artists list holds the confirmed artists, the unverified artists and the nam
   Each `PublisherResponse` gives `album_names_rank` (integer or null, from 1) and `remote_episode_count` (integer or null).
 - `album_names_rank` is null when `album_names_as` is null (Stophammer ADR 0069 §3a). `remote_episode_count` is null when the node holds no feed for the entry (ADR 0059 §1).
 - Stophammer declined `remote_release_kind`. Each feed stores `release_kind` `unknown`, because RSS states no album, EP or single kind.
-- The release record of the [open requests](../plans/v4vmm-open-requests.md#release-0110---2026-10-18) gives two examples. The DETOX feed `137aaa9c-75ff-4916-9f23-e02968b2d15e` gives rank 1 on each of its 30 rows.
+- The release record of the [open requests](../../plans/v4vmm-open-requests.md#release-0110---2026-10-18) gives two examples. The DETOX feed `137aaa9c-75ff-4916-9f23-e02968b2d15e` gives rank 1 on each of its 30 rows.
   6 albums name two feeds. Each one gives rank 1 to the artist and rank 2 to Sir Libre Records.
 - `LibraryViewModel::artists_list` (`src/view_models/library.rs:2737`) gives one row for each `ArtistNode` of the tree, by artist text. Its secondary text is "n albums". Each row opens `DestinationListRowTarget::Artist(name)`.
 - The screen is `src/ui/shells/publisher.rs`. Its header uses `EntityKind::Publisher` (label "publisher", monogram "PB"). `src/ui/composites/thumbnail.rs:189` and `src/ui/contrast.rs` also use the publisher entity kind.
@@ -127,7 +127,7 @@ Change each string below. Each new string is a named constant in its view model.
 
 ### The frame title
 
-[ADR 0085](../adr/0085-artists-by-confirmation.md) Decision 7, decided by the operator on 2026-10-18, gives the frame title of a feed page.
+[ADR 0085](../../adr/0085-artists-by-confirmation.md) Decision 7, decided by the operator on 2026-10-18, gives the frame title of a feed page.
 
 - `PublisherPageVm::frame_title()` gives it, from the facts of the page, in the sequence of the Decision 7 table:
   - "Artist" for the levels `Artist` and `UnverifiedArtist`.
@@ -218,7 +218,7 @@ These are for the operator. No test proves them.
 - V3: the Sir Libre Records page has the frame title "Label", and shows no level word. It shows "As label", "Role not confirmed" and "Listed by Sir Libre Records only". Each "Role not confirmed" row tells who stated which role.
   A release that names the feed, but that the feed does not list, shows "Not listed by this feed". This carries the "Not listed" part of §20 V4.
 - V4: the Artists list shows HeyCitizen and DETOX by feed title, when the Library holds their releases, with no level word. Sir Libre Records is not in the list. A feed row opens the feed page.
-- V5: with MusicIndex unreachable, a Library feed page shows the report first, and its Library releases stay in their sections. This carries the failure part of §20 V3 of the [overhaul plan list](../plans/design-and-cleanup-overhaul-plan.md#phase-4-publisher-and-artist-pages).
+- V5: with MusicIndex unreachable, a Library feed page shows the report first, and its Library releases stay in their sections. This carries the failure part of §20 V3 of the [overhaul plan list](../../plans/design-and-cleanup-overhaul-plan.md#phase-4-publisher-and-artist-pages).
 - V6: the DETOX page shows "Artists that name this feed: 1" with the name, and the unconfirmed fact with 0. A feed whose listed releases do not name it shows 0 and the unconfirmed names. The two labels read clearly. This carries §28 V1 to V3.
 - V7: the track page labels the feed owner "Feed owner". The RSS check report names the field "podcast:publisher". The readiness list says "The feed owner must add payment routes."
 - V8: normal and narrow widths, Light and Dark themes, and the larger type sizes show each element in its place, with no clipped text. The section headers are stronger than the row text. This carries §20 V5 and §28 V4.
@@ -237,7 +237,7 @@ ADR 0085 Decision 3 retires the stated and assumed role text of §20 V4. ADR 008
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/view_models/publisher_page.rs`, `src/ui/shells/publisher.rs`, `src/app/publisher_dispatch.rs`, `src/app.rs`.
 - `src/application/queries/feed.rs` and `src/application/queries/library.rs`: the page facts.
 - `src/api.rs` (`PublisherRelationship`) and `tests/fixtures/`.

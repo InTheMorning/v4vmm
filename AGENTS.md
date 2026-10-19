@@ -24,8 +24,8 @@ Phase 4A builds ADR 0084 in the packets of the
 for each item, three columns, the six destinations and Discover.
 Packets 016, the scopes, and 017, the name level, wait for Stophammer request 8. It asks for complete list and search rows.
 
-[Packet 008](docs/tasks/adr-0084-task-008-feed-page-and-artists.md), the feed page and the Artists list, is implemented. Its visual gate is open. It builds
-[ADR 0085](docs/adr/0085-artists-by-confirmation.md) Decisions 1 to 4. Packet 017 comes after it.
+Packets 001 to 008 and 013 to 015 are complete. Packets 009 to 012 are not written. Packet 009, multiple selection, is next in
+register order.
 
 Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
