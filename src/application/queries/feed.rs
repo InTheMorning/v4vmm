@@ -254,7 +254,16 @@ fn publisher_page_facts_from_feed(publisher_feed_guid: &str, feed: &Feed) -> Pub
         .iter()
         .filter(|entry| entry.direction.as_deref() == Some("publisher_to_music"))
         .map(|entry| PublisherPageAlbumFact {
-            feed_guid: entry.remote_feed_guid.clone(),
+            // A feed can list an album under a GUID that is not the GUID
+            // of the album. Stophammer then resolves the link by the feed
+            // URL, and `music_feed_guid` gives the album that it found. The
+            // release route and the Library mark need that GUID (operator
+            // check of 2026-10-18: each DETOX row opened a 404).
+            feed_guid: entry
+                .music_feed_guid
+                .clone()
+                .filter(|guid| !guid.trim().is_empty())
+                .or_else(|| entry.remote_feed_guid.clone()),
             title: entry.remote_feed_title.clone(),
             image_url: entry.remote_feed_image_url.clone(),
             artist: entry.remote_release_artist.clone(),
@@ -344,6 +353,43 @@ mod tests {
         assert_eq!(rows[0].feed_guid, "feed-guid");
 
         Ok(())
+    }
+
+    /// The live DETOX feed of 2026-10-18 lists "Through The Looking Glass"
+    /// as `16921a59-…`, a GUID that MusicIndex does not hold. Stophammer
+    /// resolved the link by the feed URL and gives the album as
+    /// `music_feed_guid` `7247715a-…`. The row opens and marks that album.
+    #[test]
+    fn adr_0085_feed_page_row_uses_the_resolved_album_guid() {
+        let feed: Feed = serde_json::from_value(serde_json::json!({
+            "feed_guid": "137aaa9c-75ff-4916-9f23-e02968b2d15e",
+            "publisher": [
+                {
+                    "direction": "publisher_to_music",
+                    "publisher_feed_guid": "137aaa9c-75ff-4916-9f23-e02968b2d15e",
+                    "remote_feed_guid": "16921a59-19cc-4270-a0a6-4c829a0c583e",
+                    "music_feed_guid": "7247715a-3073-56dd-ba2e-c0a7030eca51",
+                    "remote_feed_title": "Through The Looking Glass",
+                    "publisher_link_resolution": "feed_url"
+                },
+                {
+                    "direction": "publisher_to_music",
+                    "remote_feed_guid": "only-remote-guid"
+                }
+            ]
+        }))
+        .expect("the recorded rows decode");
+
+        let facts = publisher_page_facts_from_feed("137aaa9c-75ff-4916-9f23-e02968b2d15e", &feed);
+
+        assert_eq!(
+            facts.albums[0].feed_guid.as_deref(),
+            Some("7247715a-3073-56dd-ba2e-c0a7030eca51")
+        );
+        assert_eq!(
+            facts.albums[1].feed_guid.as_deref(),
+            Some("only-remote-guid")
+        );
     }
 }
 

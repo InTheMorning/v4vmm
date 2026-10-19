@@ -1676,6 +1676,14 @@ pub(crate) fn destination_release_row(
 /// its members; with no stored title, it is the feed GUID. The element id
 /// of a feed row comes from its feed GUID (ADR 0085 Decision 2), so a
 /// feed row and a name row with the same label stay two rows.
+/// The mark of an Artists list row that groups releases by their artist
+/// text (operator decision of 2026-10-18). It tells a name row from a feed
+/// row with the same label. It names the source of the group, not a
+/// confirmation level (ADR 0085 Decision 2).
+const ARTIST_NAME_ROW_MARK: &str = "by name";
+/// The separator between the parts of an Artists list row text.
+const ARTIST_ROW_SEPARATOR: &str = " \u{b7} ";
+
 fn artist_list_row(
     identity: ArtistIdentity,
     members: &[(&ArtistNode, &AlbumNode)],
@@ -1685,8 +1693,8 @@ fn artist_list_row(
         ArtistIdentity::Name(name) => DestinationListRowVm {
             element_id: format!("music-artist-row-name:{}", release_row_slug_text(&name)),
             label: name.clone(),
-            secondary_text,
-            a11y_label: format!("Artist: {name}"),
+            secondary_text: format!("{secondary_text}{ARTIST_ROW_SEPARATOR}{ARTIST_NAME_ROW_MARK}"),
+            a11y_label: format!("Artist: {name}, {ARTIST_NAME_ROW_MARK}"),
             thumbnail_href: None,
             open: DestinationListRowTarget::Artist(name),
         },
@@ -7419,8 +7427,9 @@ mod tests {
             rows[0].open,
             DestinationListRowTarget::Artist("Aphex Twin".to_string())
         );
-        assert_eq!(rows[0].secondary_text, "2 releases");
-        assert_eq!(rows[1].secondary_text, "1 release");
+        assert_eq!(rows[0].secondary_text, "2 releases \u{b7} by name");
+        assert_eq!(rows[1].secondary_text, "1 release \u{b7} by name");
+        assert_eq!(rows[0].a11y_label, "Artist: Aphex Twin, by name");
     }
 
     /// One minimal `AlbumNode`, with no named feed. Tests that add a named
@@ -7535,6 +7544,20 @@ mod tests {
             .iter()
             .find(|row| row.label == "Echo Chamber")
             .expect("the confirmed artist feed has a row");
+        // Operator decision of 2026-10-18: only a name row carries "by
+        // name", so a feed row and a name row with one label differ.
+        assert!(
+            !artist_row.secondary_text.contains("by name"),
+            "{artist_row:?}"
+        );
+        let name_row = rows
+            .iter()
+            .find(|row| row.label == "Name Act")
+            .expect("the name identity has a row");
+        assert!(
+            name_row.secondary_text.ends_with("\u{b7} by name"),
+            "{name_row:?}"
+        );
         assert_eq!(
             artist_row.open,
             DestinationListRowTarget::Publisher("artist-guid".to_owned())

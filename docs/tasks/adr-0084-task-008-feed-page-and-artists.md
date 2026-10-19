@@ -629,3 +629,12 @@ Pass. The code needs no fix. The orchestrator corrected the visual check and the
 
 Recorded concern, not a defect: `artists_list` keys each row on the artist identity of each album (ADR 0085 Decision 6). In one rare case this differs from Decision 2. Example: a feed is the confirmed first feed of one album. It also has an agreed role without `artist` on a second album. It then gets a feed row. Decision 2 gives it no level.
 
+## Operator Correction - 2026-10-18
+
+The operator walked part of the check and found two defects. The orchestrator fixed each one. V4 and V9 stay open for a new walk.
+
+- A release row of the DETOX page opened "Through The Looking Glass" with "GET failed with HTTP 404". The DETOX feed lists each of its 30 albums under a GUID that MusicIndex does not hold. Stophammer resolved each link by its feed URL (`publisher_link_resolution` `feed_url`) and gives the album in `music_feed_guid`.
+  `publisher_page_facts_from_feed` in `src/application/queries/feed.rs` now takes `music_feed_guid` first, then `remote_feed_guid`. The "In Library" mark uses the same GUID. The test `adr_0085_feed_page_row_uses_the_resolved_album_guid` holds the recorded DETOX values.
+- The Artists list showed two rows "Haleen" with the same text. Three releases name the Haleen feed `64569161-a8f7-52e5-8aae-9e0385043149`, and the other releases name no feed. The two identities are correct (ADR 0084 Decision 7).
+  The operator decided on 2026-10-18 that only a name row carries the mark "by name", for example "3 releases · by name". It names the source of the group, not a level. The R85-8-10 and D5-04 tests assert it.
+
