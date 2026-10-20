@@ -2,7 +2,7 @@
 
 ## Status
 
-Active - 2026-10-20. This record is advisory. It states no rule. Each rule stays in its ADR.
+Implementation complete - 2026-10-20. The final walk is open. This record is advisory. It states no rule. Each rule stays in its ADR.
 The operator walks the final walk at the end of the run. Until then, each visual gate of the run is open.
 
 ## Operator Decisions - 2026-10-20
@@ -79,11 +79,51 @@ Each entry names the step, the decision and the reason.
 | Packet 020: Discover tiles | Implemented. V1 to V6 open | `4cc4540` |
 | Packet 025: playlist page | Implemented. V1 to V7 open | `421eb53` |
 | Packet 011: the logo frame | Implemented. V1 to V7 open | `a08ec7a` |
-| Packet 024: the image of an artist feed (migration 20) | Implemented. V1 to V3 open | This commit |
+| Packet 024: the image of an artist feed (migration 20) | Implemented. V1 to V3 open | `fc0dbcb` |
+
+## Questions For The Operator
+
+The run did not decide these points. Each one needs the operator.
+
+1. Packet 022 has no cancel. A "Stop queued" action could remove the queued jobs and keep the running jobs. Is it wanted?
+2. Flow map finding 16: no view lists the Index artists without search. Is an Index artist browse a goal, for example through the "Everything" scope of packet 016?
+3. Flow map findings 13 and 14 name dead code: `ArtistVm` with `render_artist_view`, and the Play action of `TrackActionState`. AGENTS.md says to delete dead code. May the next session delete it?
+4. Packet 023 (one track page assembly) is registered. It also gives the Index track page the feed identity section that the triage found missing. Is it next?
+5. The Artists list shows the image of an artist feed only after a view of one album of that artist. Is a fill for each artist wanted?
+6. `cargo clippy --all-targets -- -D warnings` fails in test code that no packet of the run changed. The overhaul plan wants it in the gate. Is it a packet now?
 
 ## Final Walk
 
-The orchestrator adds the checks of packet 021, packet 022, packet 020 and packet 011 at the end of the run.
+Walk Part A first, then Part B. Each packet file holds the full steps of its checks, its "Wrong if" lines and its cleanup. Part A gives the order and the shared setup.
+
+### Part A: The Packets Of The Run
+
+#### Setup
+
+1. Close the app.
+2. Copy the Library database as the backup, because packet 024 adds migration 20. The path is `db_path` in your `config.toml`. The default path is `~/.local/share/v4vmm/v4vmm.sqlite`.
+   `cp ~/.local/share/v4vmm/v4vmm.sqlite ~/v4vmm-before-schema-20.sqlite`
+3. Build the binary: `cargo build --bin v4vmm`. Then start `target/debug/v4vmm` from a desktop session.
+4. Prepare a test playlist, for example "Packet 025 test", for packet 025. Use tracks that you can download again.
+
+#### Order
+
+The order puts the checks that only read pages first, and the checks that download, remove or move items last.
+
+1. [Packet 021](../tasks/adr-0084-task-021-one-release-page-assembly.md), V1 to V3: one release page for the Library and the Index. These steps read pages only.
+2. [Packet 011](../tasks/adr-0084-task-011-logo-frame.md), V1 to V7: the logo frame. V6 turns the network off for a short time. Its cleanup turns it on again.
+3. [Packet 024](../tasks/adr-0084-task-024-artist-feed-image.md), V1 to V3: the image of an artist feed. Open one album page of the artist first, so the app stores the image.
+4. [Packet 020](../tasks/adr-0084-task-020-discover-selection.md), V1 to V6: selection on Discover. V4 downloads three releases.
+5. [Packet 022](../tasks/adr-0084-task-022-download-queue.md), V1 to V6: the download queue and its progress item. V3 sets an unreachable MusicIndex endpoint. Its cleanup restores the endpoint.
+6. [Packet 025](../tasks/adr-0084-task-025-playlist-selection.md), V1 to V7: selection on the playlist page. Use the test playlist.
+
+#### Record
+
+For each packet, tell the orchestrator which checks passed and which failed, with what you saw. The orchestrator then closes each gate, or writes a correction.
+
+#### Rollback
+
+To return to schema 19, close the app, revert the commits of the run, and copy `~/v4vmm-before-schema-20.sqlite` back to the database path.
 
 ### Part B: Deferred Requirements
 

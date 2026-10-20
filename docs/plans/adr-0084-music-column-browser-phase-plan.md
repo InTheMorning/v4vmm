@@ -67,7 +67,7 @@ The overhaul plan names eight steps. Step 2 has two packets, 002 and 003, becaus
 
 - 2026-10-18: the Library stores one `publisher_feed_title` for each album response, the title of the primary party. ADR 0085 permits no other storage change, so a second named feed has no stored title.
   [ADR 0082 packet 003](../tasks/archive/adr-0082-task-003-release-page-named-feeds.md) records the effect. Albums with two named feeds are rare until podcast-namespace PR #793 is merged.
-- 2026-10-20: the Artists list shows the image of an artist feed only after a view of one album of that artist, because the album hydration stores it (packet 024). No packet owns a fill for each artist.
+- 2026-10-20: the Artists list shows the image of an artist feed only after a view of one album of that artist. The album hydration stores the image (packet 024). No packet owns a fill for each artist.
 - 2026-10-20: a move or a removal of playlist rows does not change the playlist position that a playback session keeps (`src/playback.rs`). A one-row move has the same gap. No packet owns it.
 - 2026-10-20: the Library release page shows the contributors panel, and the Index release page does not. Packet 021 keeps this difference as the view model fact `contributors_panel`. No packet owns the Index panel.
 - 2026-10-18: Stophammer ADR 0071 declined item 6 of request 8. The Index `name` rows follow Stophammer ADR 0070 §4, and the Library follows ADR 0085 Decision 6.

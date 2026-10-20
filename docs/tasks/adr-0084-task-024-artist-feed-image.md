@@ -1,6 +1,6 @@
 # ADR 0084 Task 024: The Image Of An Artist Feed
 
-Status: Implemented - 2026-10-20. Migration 20. Make the SQLite backup of the Rollback section before the first start. Cases R24-01 to R24-05 pass. Mechanical checks are Green. V1 to V3 are open, in the final walk of the run.
+Status: Implemented - 2026-10-20. Migration 20: make the backup of the Rollback section first. Cases R24-01 to R24-05 pass. Mechanical checks are Green. V1 to V3 are open, in the final walk of the run.
 
 ## Goal
 
