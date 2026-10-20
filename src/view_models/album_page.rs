@@ -137,7 +137,7 @@ pub fn album_page_actions(origin: AlbumPageOrigin, feed_url: Option<&str>) -> Al
         ReleaseMembershipState::RemoteOnly => {
             AlbumPageActionDisplay::new(AlbumPageAction::DownloadAlbum, true)
         }
-        ReleaseMembershipState::Downloading => {
+        ReleaseMembershipState::Queued | ReleaseMembershipState::Downloading => {
             AlbumPageActionDisplay::new(AlbumPageAction::DownloadAlbum, false)
         }
         ReleaseMembershipState::InLibrary => {
@@ -156,7 +156,9 @@ pub fn album_page_actions(origin: AlbumPageOrigin, feed_url: Option<&str>) -> Al
             AlbumPageAction::RemoveAlbum,
             false,
         )),
-        ReleaseMembershipState::RemoteOnly | ReleaseMembershipState::Downloading => {}
+        ReleaseMembershipState::RemoteOnly
+        | ReleaseMembershipState::Queued
+        | ReleaseMembershipState::Downloading => {}
     }
     AlbumPageActions {
         filled,

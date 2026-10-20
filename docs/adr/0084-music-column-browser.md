@@ -24,7 +24,7 @@ It amends these decisions:
 
 Amended 2026-10-18 by [ADR 0085](0085-artists-by-confirmation.md): in Decision 7, the publisher level is the feed level, and ADR 0085 Decisions 5 and 6 replace the "Publisher" link and the label rule. ADR 0085 Decision 3 groups the releases of an artist page by kind.
 
-Amended 2026-10-20: the operator decided the download rules of the action bar. Decision 10 now gives one download queue and a progress item.
+Amended 2026-10-20: the operator decided the download rules of the action bar. Decision 10 now gives one download queue and a progress item. The operator also decided that an image that an artist feed gives replaces the logo mosaic (Decision 12).
 
 Amended 2026-10-17 by operator decision: Decision 1 adds a visible scrollbar to each Music column that scrolls. [Task 014](../tasks/archive/adr-0084-task-014-music-column-scrollbars.md) builds it.
 
@@ -183,6 +183,8 @@ As on `../musicindex/search.html`, the MusicIndex logo shape frames the art of a
 - The frame holds a mosaic of up to four covers. Two or three covers repeat to fill four cells, as `search.html` does.
 - With no cover, the frame shows the entity color.
 - A collection with one cover shows that cover as a square. A release always shows its cover as a square.
+- An artist feed can give its own image in its RSS channel. That image replaces the mosaic and shows as a square, as one cover does. The mosaic is the fallback for each collection that gives no image. A playlist and the name level give no image. The operator decided this on 2026-10-20.
+- When the given image does not load, the frame shows the mosaic, or the entity color.
 
 The logo shape is a named token. The technique is a packet's choice, for example a mosaic image that the image cache composes and masks off the UI thread. The view model carries no renderer type.
 

@@ -157,7 +157,7 @@ fn render_main_action(
                 .a11y_label(a11y_label)
                 .disabled(!available)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                    this.download_singles(&feed_ids, cx);
+                    this.download_library_feeds(&feed_ids, cx);
                 }))
                 .into_any_element()
         }

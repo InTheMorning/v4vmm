@@ -10,7 +10,7 @@ The operator walks the final walk at the end of the run. Until then, each visual
 - One orchestrator session runs the steps below. The orchestrator commits each reviewed, Green step as HeyCitizen, and never pushes.
 - The visual checks of the run come last, in one final walk. Mockups can replace an early design review.
 - When a stop needs a decision, the orchestrator decides, records it below, and continues.
-- Steps: the plan edits, the triage and the flow check, then packet 021 (one release page), packet 022 (the download queue), packet 020 and packet 011.
+- Steps: the plan edits, the triage and the flow check, then packet 021 (one release page), packet 022 (the download queue), packet 020 and packet 011. The orchestrator split two of them into packets 025 and 024.
 - Packet 022: at most three downloads run at the same time. A status strip item shows the progress of a bulk download, for example "Downloading 3 of 9".
 - Packet 020: in selection mode, the playlist page hides its drag handle and its row menu.
   Its bar offers "Remove n from playlist", "Download n tracks", "Add n to playlist", "Move to top", "Move to bottom" and "Remove from Library…".
@@ -44,24 +44,33 @@ Each entry names the step, the decision and the reason.
 - Triage: the procedures of §8 (task 038), §9 (task 039) and the pending check of ADR 0075 task 012 (schemas 11 and 12) cannot run as written. They stay in the plan with the reason, and they are not in the final walk.
 - Triage: the tasks ADR 0077 task 004 and task 007 have no open requirement, so they move to the archive.
 
-- Packet 020: split into 020a, the Discover tiles, and 020b, the playlist page, after packet 022. The playlist key is the entry position and the track id, because a playlist can hold one track two times. The tile focus moves in a line, because the number of tiles in a row is a layout fact. Up and Left go back, and Down and Right go forward.
+- Packet 020: split into packet 020, the Discover tiles, and packet 025, the playlist page, after packet 022. Earlier splits used new numbers. The playlist key is the entry position and the track id, because a playlist can hold one track two times. The tile focus moves in a line, because the number of tiles in a row is a layout fact. Up and Left go back, and Down and Right go forward.
 - Packet 020: a move or a removal in a playlist does not change the stored playlist position of a playback session. A single-row move has the same gap today. The packet records it.
-- Packet 011: split into 011a, the logo frame with no schema change, and 011b, schema 20 for the image of an artist feed. The Library does not store that image today, and the operator decision of 2026-10-20 needs it on the Artists rows. Migration 20 goes through the ADR 0016 registry, and its packet names the backup step.
+- Packet 011: split into packet 011, the logo frame with no schema change, and packet 024, schema 20 for the image of an artist feed. The Library does not store that image today, and the operator decision of 2026-10-20 needs it on the Artists rows. Migration 20 goes through the ADR 0016 registry, and its packet names the backup step.
 - Packet 011: the mosaic is composed off the UI thread and masked in the image cache. GPUI 0.3.1 has no clip path and no mask for an image, so a layered element cannot clip four covers to the logo shape.
 - Packet 011: the provided image shows as a square. `search.html` shows one image as a square cover, and ADR 0084 Decision 12 gives the same rule for one cover.
 - Flow check: the counts of the four jobs fell from 2, about 12, 6 and 6 steps to 1, 3, 5 and 5 steps. The run order stays, because packet 020 covers findings 3 and 9.
 - Flow check: findings 13 and 14 name dead code (`ArtistVm` with `render_artist_view`, and the Play action of `TrackActionState`). AGENTS.md says to delete dead code. No packet of this run owns it, so the final summary names it.
 - Flow check: finding 16, no browse of the Index artists by name without search, is a question of direction for the operator. The final summary names it.
 
+- Packet 022 review: a queued job shows "Queued", and only a running job shows "Downloading". Nine queued releases that all read "Downloading" give a false state.
+- Packet 022 review: an Index track with no track GUID uses its enclosure URL as its job identity. Before the correction, the queue dropped the second such track of one release.
+- Packet 022 review: "Remove" is absent while its release is queued or downloading, so no confirmation opens for an action that cannot act. The refusal in the command path stays as a second guard.
+- Packet 022 correction: a queued track row shows a disabled "Queued" button, the same as the present "Downloading..." button. The release page shows no state word for a release, so "Download album" is unavailable while its release is queued or running.
+- Packet 022 review: a refused job counts as a failure of the batch, so the progress item names it. The orchestrator accepts this deviation.
+- Packet 022 review: adding an Index track to a playlist (`SubscribeThenAppendToPlaylist`) stays outside the queue. The packet names no job for it, and its download is one track.
+
 ## Steps
 
 | Step | State | Commit |
 |---|---|---|
 | Plan edits, triage, flow check | Done | `143a9ff` |
-| Packet 021: one release page | Implemented. V1 to V3 open | This commit |
-| Packet 022: the download queue | Open | |
-| Packet 020: playlist page and Discover tiles | Open | |
+| Packet 021: one release page | Implemented. V1 to V3 open | `6439c00` |
+| Packet 022: the download queue | Implemented. V1 to V6 open | This commit |
+| Packet 020: Discover tiles | Open | |
+| Packet 025: playlist page | Open | |
 | Packet 011: the logo frame | Open | |
+| Packet 024: the image of an artist feed (migration 20) | Open | |
 
 ## Final Walk
 

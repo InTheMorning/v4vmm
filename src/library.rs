@@ -9,7 +9,7 @@
     reason = "legacy screen module is being migrated incrementally under ADR 0023"
 )]
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -42,6 +42,7 @@ use crate::view_models::workspace::{
     ContentViewMode, DiscoverView, FrameNavigationEntry, NavigationPathStart, ReleaseKey, TrackKey,
 };
 use crate::views::ArtistView;
+use download_queue::DownloadQueue;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -113,6 +114,13 @@ pub(crate) enum LibraryAppEvent {
     OpenPage {
         entry: FrameNavigationEntry,
         start: NavigationPathStart,
+    },
+    /// An Index job of the download queue completed (ADR 0084 Decision
+    /// 10, packet 022). The top app updates its open pages in place and
+    /// starts the tag scan of a successful download.
+    IndexDownloadFinished {
+        job: DownloadJob,
+        outcome: DownloadOutcome,
     },
 }
 
@@ -241,11 +249,10 @@ pub struct LibraryApp {
     /// The singles groups whose Releases list rows show their singles
     /// (ADR 0084 Decision 6). This is view state. It is not stored.
     expanded_singles_groups: BTreeSet<SinglesGroupKey>,
-    /// The downloads that wait: the Library feeds of a singles group page,
-    /// newest first (ADR 0084 Decision 6), and the Library tracks of the
-    /// detail column bar (packet 018). One download runs at a time, so
-    /// the next one starts when the current one ends.
-    queued_downloads: VecDeque<QueuedDownload>,
+    /// The one download queue of the Library and the Index (ADR 0084
+    /// Decision 10, packet 022). At most three downloads run at the same
+    /// time, and never two of one release.
+    download_queue: DownloadQueue,
     /// The Releases list selection (ADR 0084 Decision 10). A change of
     /// destination clears it. Required correction item 2, 2026-10-18:
     /// the focus and the anchor hold a [`ReleasesRowId`], a release row
@@ -289,17 +296,6 @@ pub struct LibraryApp {
     detail_scroll_reveal: ScrollReveal,
 }
 
-/// One download that waits in `LibraryApp::queued_downloads`. A singles
-/// group page queues Library feeds. The detail column bar (ADR 0084
-/// packet 018) also queues Library tracks.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum QueuedDownload {
-    /// A Library feed id, for `download_feed`.
-    Feed(i64),
-    /// A Library track id, for `download_rss_added_track`.
-    Track(i64),
-}
-
 pub(crate) struct PlaylistActorState {
     pub(crate) playlist_id: i64,
     pub(crate) snapshot: PagedTrackListSnapshot,
@@ -309,7 +305,13 @@ pub(crate) struct PlaylistActorState {
 mod app_impl;
 mod column_view;
 mod detail_selection;
+mod download_queue;
+mod downloads;
 mod release_page;
 
 pub(crate) use app_impl::playlist_options;
-pub(crate) use column_view::{LibraryColumn, LibraryColumnView};
+pub(crate) use column_view::{DownloadStatusView, LibraryColumn, LibraryColumnView};
+pub(crate) use download_queue::{DownloadJob, DownloadOutcome};
+pub(crate) use downloads::{
+    api_track_from_view, index_release_job, index_release_job_by_guid, index_track_job,
+};

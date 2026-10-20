@@ -38,7 +38,6 @@ pub(crate) struct DetailRowSlot {
 )]
 pub(crate) fn render_library_detail(
     detail: &LibraryDetail,
-    busy_track: Option<i64>,
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     library_vm: &LibraryViewModel,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
@@ -78,7 +77,6 @@ pub(crate) fn render_library_detail(
 
         LibraryDetail::Album(album) => render_library_feed_detail(
             album,
-            busy_track,
             mb_status,
             library_vm,
             album_thumbs,
@@ -89,7 +87,18 @@ pub(crate) fn render_library_detail(
         ),
 
         LibraryDetail::Track(frame) => {
-            render_library_track_detail(frame, playlists, chrome, track_named_feeds, scroll, cx)
+            // The orchestrator correction of 2026-10-20: the view model
+            // tells if a download of the release of the track is active.
+            let release_download_active = library_vm.track_release_download_active(frame.track.id);
+            render_library_track_detail(
+                frame,
+                playlists,
+                chrome,
+                track_named_feeds,
+                release_download_active,
+                scroll,
+                cx,
+            )
         }
 
         // ADR 0084 Decision 6: the group page reads the current tree at

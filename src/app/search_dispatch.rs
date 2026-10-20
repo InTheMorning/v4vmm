@@ -7,8 +7,7 @@ use gpui::{prelude::*, AnyElement, Context, Image, SharedString, Window};
 
 use crate::application::capability::Dependency;
 use crate::application::capability_recovery::{RecoveryAction, RecoveryIntent};
-use crate::application::commands::download::{SubscribeThenAppendToPlaylist, SubscribeTrack};
-use crate::application::commands::feed::SubscribeFeed;
+use crate::application::commands::download::SubscribeThenAppendToPlaylist;
 use crate::application::commands::playlist::CreatePlaylist;
 use crate::application::queries::images::{FetchCoverColor, FetchThumbnail};
 use crate::application::queries::search::{
@@ -17,12 +16,13 @@ use crate::application::queries::search::{
 use crate::application::{ApplicationCommand, CommandContext};
 use crate::db;
 use crate::feed_service;
-use crate::library::LibraryApp;
+use crate::library::{
+    api_track_from_view, index_release_job, index_release_job_by_guid, index_track_job,
+    DownloadJob, DownloadOutcome, LibraryApp,
+};
 use crate::library_service;
 use crate::media::cover_color::CoverColor;
-use crate::metadata::TrackContext;
 use crate::presentation::present_command;
-use crate::subscribe_service::{SubscribeFeedRequest, SubscribeTrackRequest};
 use crate::ui::composites::{DisclosureTextPanel, DisclosureTextPanelDisplay, TrackSurfaceElement};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -1236,6 +1236,7 @@ impl TopApp {
         let filled = actions.filled;
         let action = filled.action;
         let feed_guid = track.feed_guid.clone();
+        let album_label = track.feed_title.clone();
         let button = UiButton::styled(
             SharedString::from(format!("index-track-page-action:{action:?}")),
             ControlStyle::Primary,
@@ -1246,7 +1247,7 @@ impl TopApp {
         let button = match (action, feed_guid.clone()) {
             (TrackPageAction::DownloadAlbum, Some(feed_guid)) if filled.available => button
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    this.download_index_album_of_track(feed_guid.clone(), cx);
+                    this.download_index_album_of_track(feed_guid.clone(), album_label.clone(), cx);
                 })),
             _ => button,
         };
@@ -1333,26 +1334,19 @@ impl TopApp {
         }
     }
 
-    /// "Download album" of an Index track: reads the album feed from
-    /// `MusicIndex`, then downloads it like the Index album page does.
+    /// "Download album" of an Index track: queues an Index release job
+    /// with no feed (ADR 0084 Decision 10). The job reads the album feed
+    /// from `MusicIndex` in its own slot, then downloads it. `label` names
+    /// the release until the read gives its title.
     pub(super) fn download_index_album_of_track(
         &mut self,
         feed_guid: String,
+        label: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        let command = FetchIndexFeedDetail::new(self.musicindex_endpoint.clone(), feed_guid);
-        present_command(
-            &self.command_runner,
-            command,
-            CommandContext::next(),
-            cx,
-            |this, feed, cx| this.download_index_feed(&feed, cx),
-            |this, error, _cx| {
-                this.settings_status = format!(
-                    "App could not read the album of this track from MusicIndex: {error:#}"
-                );
-            },
-        );
+        let job = index_release_job_by_guid(feed_guid, label);
+        self.library
+            .update(cx, |library, cx| library.queue_downloads(vec![job], cx));
     }
 
     fn index_track_hero_image(
@@ -1465,38 +1459,58 @@ impl TopApp {
         None
     }
 
+    /// "Download" of an Index release: queues an Index release job (ADR
+    /// 0084 Decision 10). `finish_index_release_download` runs when it
+    /// completes.
     fn download_index_feed(&mut self, feed: &FeedView, cx: &mut Context<Self>) {
-        let feed_guid = feed_guid_from_view(feed);
-        let feed_url = feed.feed_url.clone();
-        let command = SubscribeFeed::new(
-            Arc::clone(&self.conn),
-            self.application_services.download_manager(),
-            SubscribeFeedRequest {
-                feed: api_feed_from_view(feed),
-                musicindex_endpoint: self.musicindex_endpoint.clone(),
-            },
-        );
-        present_command(
-            &self.command_runner,
-            command,
-            CommandContext::next(),
-            cx,
-            move |this, result, cx| {
-                this.settings_status = result.message().to_string();
-                this.reload_cached(cx);
-                this.scan_tags_after_search_download(cx);
-                if let Some(feed_id) =
-                    this.downloaded_index_feed_id(feed_guid.as_deref(), feed_url.as_deref())
-                {
-                    this.show_downloaded_index_feed(feed_id, feed_guid.as_deref(), cx);
-                } else {
-                    this.library.update(cx, LibraryApp::refresh);
-                }
-            },
-            |this, error, _cx| {
-                this.settings_status = format!("Error downloading feed: {error:#}");
-            },
-        );
+        let job = index_release_job(feed);
+        self.library
+            .update(cx, |library, cx| library.queue_downloads(vec![job], cx));
+    }
+
+    /// The completion of an Index download job of the download queue (ADR
+    /// 0084 Decision 10). A failure is in the progress item, so only a
+    /// success changes the open pages.
+    pub(super) fn finish_index_download(
+        &mut self,
+        job: &DownloadJob,
+        outcome: &DownloadOutcome,
+        cx: &mut Context<Self>,
+    ) {
+        if *outcome != DownloadOutcome::Succeeded {
+            return;
+        }
+        match job {
+            DownloadJob::IndexRelease {
+                feed_guid,
+                feed_url,
+                ..
+            } => self.finish_index_release_download(feed_guid.as_deref(), feed_url.as_deref(), cx),
+            DownloadJob::IndexTrack {
+                feed_guid,
+                track_guid,
+                ..
+            } => self.finish_index_track_download(feed_guid.as_deref(), track_guid, cx),
+            DownloadJob::LibraryFeed { .. } | DownloadJob::LibraryTrack { .. } => {}
+        }
+    }
+
+    /// The success of an Index release download: the open release page
+    /// and the open track page of the release change to the Library in
+    /// place (ADR 0084 Decision 4).
+    fn finish_index_release_download(
+        &mut self,
+        feed_guid: Option<&str>,
+        feed_url: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
+        self.reload_cached(cx);
+        self.scan_tags_after_search_download(cx);
+        if let Some(feed_id) = self.downloaded_index_feed_id(feed_guid, feed_url) {
+            self.show_downloaded_index_feed(feed_id, feed_guid, cx);
+        } else {
+            self.library.update(cx, LibraryApp::refresh);
+        }
     }
 
     fn downloaded_index_feed_id(
@@ -1558,65 +1572,49 @@ impl TopApp {
         cx.notify();
     }
 
+    /// "Download" of an Index track: queues an Index track job (ADR 0084
+    /// Decision 10). `finish_index_track_download` runs when it completes.
     pub(super) fn download_index_track(
         &mut self,
         feed: &FeedView,
         track: &TrackView,
         cx: &mut Context<Self>,
     ) {
-        let downloaded_feed_guid = feed_guid_from_view(feed);
-        let downloaded_key = TrackKey::from_index_track_target(
-            downloaded_feed_guid.as_deref(),
-            track_guid_from_view(track).unwrap_or_default(),
-        );
-        let command = SubscribeTrack::new(
-            Arc::clone(&self.conn),
-            self.application_services.download_manager(),
-            SubscribeTrackRequest::SearchTrack {
-                track_context: Box::new(TrackContext::new(
-                    api_track_from_view(feed, track),
-                    Some(api_feed_from_view(feed)),
-                )),
-                musicindex_endpoint: self.musicindex_endpoint.clone(),
-                mark_feed_subscribed: false,
-                return_tag_compare: true,
-            },
-            "Downloaded track".to_string(),
-        );
-        present_command(
-            &self.command_runner,
-            command,
-            CommandContext::next(),
-            cx,
-            move |this, result, cx| {
-                this.settings_status = result.message().to_string();
-                this.reload_cached(cx);
-                this.library.update(cx, LibraryApp::refresh);
-                this.scan_tags_after_search_download(cx);
-                // ADR 0084 Decision 4: the open track page of this exact
-                // track resolves its source again, in place.
-                let current = this
-                    .content_list_frame_id()
-                    .and_then(|id| this.workspace_layout.frame_nav(id))
-                    .map(|nav| nav.current().clone());
-                if track_download_updates_open_page(current.as_ref(), Some(&downloaded_key)) {
-                    this.apply_track_page_source(&downloaded_key, cx);
-                }
-                // ADR 0084 Decision 4: the open release page of this
-                // track's feed also resolves its source again, in place.
-                if release_download_updates_open_page(
-                    current.as_ref(),
-                    downloaded_feed_guid.as_deref(),
-                ) {
-                    if let Some(FrameNavigationEntry::Release(key)) = current {
-                        this.apply_release_page_source(&key, cx);
-                    }
-                }
-            },
-            |this, error, _cx| {
-                this.settings_status = format!("Error downloading track: {error:#}");
-            },
-        );
+        let job = index_track_job(feed, track);
+        self.library
+            .update(cx, |library, cx| library.queue_downloads(vec![job], cx));
+    }
+
+    /// The success of an Index track download: the open track page of
+    /// this track and the open release page of its feed change to the
+    /// Library in place (ADR 0084 Decision 4).
+    fn finish_index_track_download(
+        &mut self,
+        downloaded_feed_guid: Option<&str>,
+        track_guid: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let downloaded_key =
+            TrackKey::from_index_track_target(downloaded_feed_guid, track_guid.to_owned());
+        self.reload_cached(cx);
+        self.library.update(cx, LibraryApp::refresh);
+        self.scan_tags_after_search_download(cx);
+        // ADR 0084 Decision 4: the open track page of this exact track
+        // resolves its source again, in place.
+        let current = self
+            .content_list_frame_id()
+            .and_then(|id| self.workspace_layout.frame_nav(id))
+            .map(|nav| nav.current().clone());
+        if track_download_updates_open_page(current.as_ref(), Some(&downloaded_key)) {
+            self.apply_track_page_source(&downloaded_key, cx);
+        }
+        // ADR 0084 Decision 4: the open release page of this track's feed
+        // also resolves its source again, in place.
+        if release_download_updates_open_page(current.as_ref(), downloaded_feed_guid) {
+            if let Some(FrameNavigationEntry::Release(key)) = current {
+                self.apply_release_page_source(&key, cx);
+            }
+        }
     }
 
     fn add_index_track_to_playlist(
@@ -1829,61 +1827,6 @@ fn index_track_artwork_url(track: &TrackView) -> Option<&str> {
     track.display_artwork_url()
 }
 
-fn api_feed_from_view(feed: &FeedView) -> crate::api::Feed {
-    crate::api::Feed {
-        feed_guid: feed_guid_from_view(feed),
-        title: feed.title.clone(),
-        feed_url: feed.feed_url.clone(),
-        release_artist: feed.artist.clone(),
-        release_kind: feed.release_kind.clone(),
-        release_date: feed.release_date,
-        publisher_text: feed.publisher_text.clone(),
-        language: feed.language.clone(),
-        explicit: feed.explicit,
-        episode_count: feed.episode_count,
-        description: feed.description.clone(),
-        image_url: feed.image_url.clone(),
-        tracks: Some(
-            feed.tracks
-                .iter()
-                .map(|track| api_track_from_view(feed, track))
-                .collect(),
-        ),
-        payment_routes: Some(feed.payment_routes.clone()),
-        ..crate::api::Feed::default()
-    }
-}
-
-fn api_track_from_view(feed: &FeedView, track: &TrackView) -> crate::api::Track {
-    crate::api::Track {
-        track_guid: track_guid_from_view(track),
-        feed_guid: track
-            .feed_guid
-            .clone()
-            .or_else(|| feed_guid_from_view(feed)),
-        feed_title: track.feed_title.clone().or_else(|| feed.title.clone()),
-        title: track.title.clone(),
-        duration_secs: track.duration_secs,
-        pub_date: track.pub_date,
-        track_number: track.track_number,
-        explicit: track.explicit,
-        description: track.description.clone(),
-        enclosure_url: track.audio_url.clone(),
-        enclosure_type: track.mime.clone(),
-        enclosure_bytes: track.bytes,
-        image_url: track.image_url.clone().or_else(|| feed.image_url.clone()),
-        // ADR 0075 packet 048: carry the track's own claimed image
-        // forward. Never set it from the feed's image (Decision C).
-        track_image_url: track.track_image_url.clone(),
-        feed_image_url: track.feed_image_url.clone(),
-        track_artist: track.artist.clone(),
-        release_artist: feed.artist.clone(),
-        publisher_text: track.publisher_text.clone(),
-        payment_routes: Some(track.payment_routes.clone()),
-        ..crate::api::Track::default()
-    }
-}
-
 pub(super) fn feed_guid_from_view(feed: &FeedView) -> Option<String> {
     index_feed_guid(feed)
 }
@@ -2057,8 +2000,10 @@ mod remote_detail_thumbnail_tests {
 #[cfg(test)]
 mod tests {
     /// R5-05: each completed search download requests one tag update scan.
-    /// No GPUI test drives `TopApp`, so the test reads the success handler
-    /// of each search download command.
+    /// No GPUI test drives `TopApp`, so the test reads the success code of
+    /// each search download. Packet 022 (ADR 0084 Decision 10) moved the
+    /// success code of the Index downloads to the completion handlers of
+    /// the download queue.
     #[test]
     fn adr_0076_follow_up_search_download_starts_one_tag_scan() {
         let source = std::fs::read_to_string(
@@ -2066,14 +2011,35 @@ mod tests {
         )
         .unwrap();
         let production = source.split("#[cfg(test)]").next().unwrap();
-        for (function, error_handler) in [
-            ("fn download_index_feed(", "|this, error, _cx|"),
-            ("fn download_index_track(", "|this, error, _cx|"),
-            (
-                "fn subscribe_then_append_to_playlist(",
-                "|this, error, _cx|",
-            ),
+        for function in [
+            "fn finish_index_release_download(",
+            "fn finish_index_track_download(",
         ] {
+            let body = production
+                .split(function)
+                .nth(1)
+                .and_then(|rest| rest.split("\n    fn ").next())
+                .unwrap_or_else(|| panic!("{function} exists"));
+            assert_eq!(
+                body.matches("self.scan_tags_after_search_download(cx);")
+                    .count(),
+                1,
+                "{function}"
+            );
+        }
+        let completion = production
+            .split("pub(super) fn finish_index_download(")
+            .nth(1)
+            .and_then(|rest| rest.split("\n    fn ").next())
+            .expect("finish_index_download exists");
+        assert!(
+            completion.contains("if *outcome != DownloadOutcome::Succeeded {"),
+            "only a successful download starts the tag scan"
+        );
+        for (function, error_handler) in [(
+            "fn subscribe_then_append_to_playlist(",
+            "|this, error, _cx|",
+        )] {
             let body = production
                 .split(function)
                 .nth(1)

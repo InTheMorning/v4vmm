@@ -107,6 +107,17 @@ pub(crate) struct LibraryReleaseFacts {
     pub(crate) feed_id: i64,
     /// Each track of the release is downloaded.
     pub(crate) fully_downloaded: bool,
+    /// A download job of the release key is queued or in flight. "Remove"
+    /// is then absent (orchestrator correction of 2026-10-20).
+    pub(crate) download_active: bool,
+}
+
+impl LibraryReleaseFacts {
+    /// Tells if "Remove" can act on the release.
+    #[must_use]
+    pub(crate) const fn removable(self) -> bool {
+        self.fully_downloaded && !self.download_active
+    }
 }
 
 /// One track row of a release page.
@@ -122,6 +133,18 @@ pub(crate) struct DetailTrackRow {
     pub(crate) library_track_id: Option<i64>,
     /// The audio file of the track is downloaded.
     pub(crate) downloaded: bool,
+    /// A download job of the release key of the track is queued or in
+    /// flight. "Remove" is then absent (orchestrator correction of
+    /// 2026-10-20).
+    pub(crate) download_active: bool,
+}
+
+impl DetailTrackRow {
+    /// Tells if "Remove" can act on the track.
+    #[must_use]
+    pub(crate) const fn removable(&self) -> bool {
+        self.downloaded && !self.download_active
+    }
 }
 
 /// One release row of a singles group page or a feed page.
@@ -260,7 +283,7 @@ impl DetailPageRows {
                         .iter()
                         .filter(|row| row.library_track_id.is_some())
                         .count(),
-                    remove_count: selected.iter().filter(|row| row.downloaded).count(),
+                    remove_count: selected.iter().filter(|row| row.removable()).count(),
                 }
             }
             Self::Releases(_) => {
@@ -275,7 +298,7 @@ impl DetailPageRows {
                     add_count: selected.iter().filter(|row| row.library.is_some()).count(),
                     remove_count: selected
                         .iter()
-                        .filter(|row| row.library.is_some_and(|facts| facts.fully_downloaded))
+                        .filter(|row| row.library.is_some_and(LibraryReleaseFacts::removable))
                         .count(),
                 }
             }
@@ -522,8 +545,13 @@ pub(crate) fn index_track_guid(track: &TrackView) -> Option<String> {
 }
 
 /// The rows of a Library release page, from its tracks.
+/// `download_active` is true while a download job of the release key is
+/// queued or in flight.
 #[must_use]
-pub(crate) fn library_release_track_rows(tracks: &[TrackRow]) -> Vec<DetailTrackRow> {
+pub(crate) fn library_release_track_rows(
+    tracks: &[TrackRow],
+    download_active: bool,
+) -> Vec<DetailTrackRow> {
     tracks
         .iter()
         .map(|track| DetailTrackRow {
@@ -531,6 +559,7 @@ pub(crate) fn library_release_track_rows(tracks: &[TrackRow]) -> Vec<DetailTrack
             title: track_row_title(track.track_title.as_deref(), Some(&track.item_guid)),
             library_track_id: Some(track.id),
             downloaded: track.is_in_library,
+            download_active,
         })
         .collect()
 }
@@ -553,6 +582,7 @@ pub(crate) fn index_release_track_rows(
                 title: track_row_title(track.title.as_deref(), guid.as_deref()),
                 library_track_id: None,
                 downloaded: false,
+                download_active: false,
             }
         })
         .collect()
@@ -647,6 +677,7 @@ mod tests {
         Some(LibraryReleaseFacts {
             feed_id,
             fully_downloaded,
+            download_active: false,
         })
     }
 
@@ -704,10 +735,13 @@ mod tests {
     /// for each track. A track with no key has no checkbox.
     #[test]
     fn adr_0084_detail_selection_r18_02_library_and_index_rows_agree() {
-        let library = DetailPageRows::Tracks(library_release_track_rows(&[
-            library_track(1, "t1", "Face Pale", true),
-            library_track(2, "t2", "Haleen", false),
-        ]));
+        let library = DetailPageRows::Tracks(library_release_track_rows(
+            &[
+                library_track(1, "t1", "Face Pale", true),
+                library_track(2, "t2", "Haleen", false),
+            ],
+            false,
+        ));
         let index = DetailPageRows::Tracks(index_release_track_rows(
             Some(FEED_GUID),
             &[
@@ -779,11 +813,14 @@ mod tests {
     /// `Selecting`.
     #[test]
     fn adr_0084_detail_selection_r18_03_clicks_follow_the_mode() {
-        let rows = DetailPageRows::Tracks(library_release_track_rows(&[
-            library_track(1, "t1", "Face Pale", true),
-            library_track(2, "t2", "Haleen", true),
-            library_track(3, "t3", "Rain", true),
-        ]));
+        let rows = DetailPageRows::Tracks(library_release_track_rows(
+            &[
+                library_track(1, "t1", "Face Pale", true),
+                library_track(2, "t2", "Haleen", true),
+                library_track(3, "t3", "Rain", true),
+            ],
+            false,
+        ));
         let visible = rows.selection_rows();
         let mut selection = DetailSelection::new();
         selection.bind(&release_entry());
@@ -818,12 +855,10 @@ mod tests {
     /// page and on a release with no track.
     #[test]
     fn adr_0084_detail_selection_r18_04_header_action_reads_select_and_done() {
-        let tracks = DetailPageRows::Tracks(library_release_track_rows(&[library_track(
-            1,
-            "t1",
-            "Face Pale",
-            true,
-        )]));
+        let tracks = DetailPageRows::Tracks(library_release_track_rows(
+            &[library_track(1, "t1", "Face Pale", true)],
+            false,
+        ));
         let select = detail_header_action(Some(&tracks), SelectionMode::Normal)
             .expect("a release page with a track has the action");
         assert_eq!(select.label, "Select");
@@ -836,7 +871,7 @@ mod tests {
         let group_rows = vec![SinglesGroupPageRowVm {
             track: library_track(5, "s1", "Single", true),
             date_text: None,
-            busy: false,
+            work: crate::view_models::library::TrackRowWork::Idle,
             key: release_key("single-1"),
         }];
         let group = DetailPageRows::Releases(singles_group_release_rows(&group_rows, |_| None));
@@ -882,10 +917,13 @@ mod tests {
     /// 0.
     #[test]
     fn adr_0084_detail_selection_r18_05_track_bar_counts() {
-        let mut library_rows = library_release_track_rows(&[
-            library_track(1, "t1", "Face Pale", true),
-            library_track(2, "t2", "Haleen", false),
-        ]);
+        let mut library_rows = library_release_track_rows(
+            &[
+                library_track(1, "t1", "Face Pale", true),
+                library_track(2, "t2", "Haleen", false),
+            ],
+            false,
+        );
         library_rows.extend(index_release_track_rows(
             Some(FEED_GUID),
             &[index_track(Some("t3"), "Rain")],

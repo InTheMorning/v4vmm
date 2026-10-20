@@ -13,7 +13,7 @@ use super::{LibraryApp, LibraryDetail};
 use crate::db::TrackRow;
 use crate::ui::shells::release_page::click_modifiers;
 use crate::view_models::entity_detail::EntityActionKind;
-use crate::view_models::library::LibraryTrackRowVm;
+use crate::view_models::library::{LibraryTrackRowVm, TrackRowWork};
 use crate::view_models::release_page::ReleasePageCommand;
 use crate::view_models::workspace::FrameNavigationEntry;
 
@@ -32,13 +32,13 @@ impl LibraryApp {
                     return;
                 };
                 let in_library = LibraryTrackRowVm::new(&track, None)
-                    .primary_action_vm(false)
+                    .primary_action_vm(TrackRowWork::Idle)
                     .kind
                     == EntityActionKind::Remove;
                 if in_library {
                     self.remove_track(track.id, window, cx);
                 } else {
-                    self.subscribe_track(track, cx);
+                    self.download_library_tracks(&[track.id], cx);
                 }
                 cx.notify();
             }
@@ -82,7 +82,7 @@ impl LibraryApp {
         };
         let album = album.clone();
         match command {
-            ReleasePageCommand::DownloadRelease => self.download_feed(feed_id, cx),
+            ReleasePageCommand::DownloadRelease => self.download_library_feeds(&[feed_id], cx),
             ReleasePageCommand::CopyFeedUrl => {
                 if let Some(url) = album.feed_url {
                     cx.write_to_clipboard(ClipboardItem::new_string(url));

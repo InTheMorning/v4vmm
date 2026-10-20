@@ -623,10 +623,12 @@ impl<'a> TrackDetailVm<'a> {
             TrackPageAction::MusicBrainzLookup,
             state.musicbrainz_available,
         ));
-        menu.push(TrackPageActionDisplay::new(
-            TrackPageAction::RemoveTrack,
-            !state.subscription_busy,
-        ));
+        if !state.release_download_active {
+            menu.push(TrackPageActionDisplay::new(
+                TrackPageAction::RemoveTrack,
+                !state.subscription_busy,
+            ));
+        }
         TrackPageActions {
             filled: TrackPageActionDisplay::new(TrackPageAction::AddToPlaylist, true),
             plain: Vec::new(),
@@ -834,6 +836,10 @@ fn nonempty(value: &str) -> Option<&str> {
 /// The Library state of a track that selects its page actions (ADR 0083
 /// Decision 5).
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is an independent fact of the Library state that selects one page action"
+)]
 pub struct LibraryTrackActionState {
     /// The track has a local subscription and a downloaded file.
     pub downloaded: bool,
@@ -841,6 +847,10 @@ pub struct LibraryTrackActionState {
     pub subscription_busy: bool,
     /// A `MusicBrainz` lookup can run for the downloaded file.
     pub musicbrainz_available: bool,
+    /// A download job of the release of the track is queued or in flight.
+    /// "Remove track…" is then absent (orchestrator correction of
+    /// 2026-10-20).
+    pub release_download_active: bool,
 }
 
 /// One action of a track page. The renderer maps each variant to its
@@ -1659,6 +1669,7 @@ mod tests {
             downloaded: true,
             subscription_busy: false,
             musicbrainz_available: false,
+            release_download_active: false,
         };
         let actions = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library)
             .with_feed_identity(Some(&feed))
@@ -1681,6 +1692,33 @@ mod tests {
         let last = actions.menu.last().expect("menu has items");
         assert!(last.action.is_destructive());
         assert!(last.action.label(None).ends_with('…'));
+    }
+
+    /// Orchestrator correction of 2026-10-20 (C3): while a download job of
+    /// the release of a downloaded track is queued or in flight, the track
+    /// page has no "Remove track…". The other menu items stay.
+    #[test]
+    fn adr_0084_download_queue_track_page_has_no_remove_while_release_downloads() {
+        let track = track();
+        let feed = feed_with_url();
+        let state = LibraryTrackActionState {
+            downloaded: true,
+            subscription_busy: false,
+            musicbrainz_available: true,
+            release_download_active: true,
+        };
+        let actions = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library)
+            .with_feed_identity(Some(&feed))
+            .with_library_state(state)
+            .page_actions();
+        assert_eq!(actions.filled.action, TrackPageAction::AddToPlaylist);
+        assert_eq!(
+            actions_of(&actions.menu),
+            vec![
+                TrackPageAction::CopyFeedUrl,
+                TrackPageAction::MusicBrainzLookup,
+            ]
+        );
     }
 
     /// R7-06 (ADR 0084 Decision 5): the download label of a track page

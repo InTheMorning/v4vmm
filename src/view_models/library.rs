@@ -34,6 +34,7 @@ use crate::view_models::album_page::AlbumNameLinkVm;
 use crate::view_models::artist_detail::{ArtistDetailFactVm, ArtistDetailPageVm};
 use crate::view_models::artist_identity::ArtistIdentity;
 use crate::view_models::detail_selection::LibraryReleaseFacts;
+use crate::view_models::download_progress::{DownloadActivity, DownloadPhase, FeedKey};
 use crate::view_models::entity_detail::{
     EntityActionTarget, EntityActionVm, PlaylistActionState, ReleaseMembershipState,
     TrackActionState, TrackMembershipState,
@@ -2312,11 +2313,6 @@ impl<'a> LibraryTrackActionVm<'a> {
     }
 
     #[must_use]
-    pub(crate) const fn track_subscribe_begin_status() -> &'static str {
-        "Downloading track..."
-    }
-
-    #[must_use]
     pub(crate) const fn track_subscribe_success_message() -> &'static str {
         "Downloaded track"
     }
@@ -2467,8 +2463,7 @@ pub(crate) struct LibraryViewModel {
     selected_playlist_id: Option<i64>,
     hovered_thumb_url: Option<String>,
     // Operation state.
-    busy_track: Option<i64>,
-    busy_feed: Option<i64>,
+    busy: BusyItems,
     in_flight_broadcast_route_repairs: BTreeSet<i64>,
     library_removal: LibraryRemovalConfirmationState,
     status: String,
@@ -2499,8 +2494,7 @@ impl LibraryViewModel {
             selected_id: None,
             selected_playlist_id: None,
             hovered_thumb_url: None,
-            busy_track: None,
-            busy_feed: None,
+            busy: BusyItems::default(),
             in_flight_broadcast_route_repairs: BTreeSet::new(),
             library_removal: LibraryRemovalConfirmationState::new(),
             status: String::new(),
@@ -2973,7 +2967,39 @@ impl LibraryViewModel {
             feed_id: album.feed_id?,
             fully_downloaded: !album.tracks.is_empty()
                 && album.tracks.iter().all(|track| track.is_in_library),
+            download_active: self.busy.release_downloading(album),
         })
+    }
+
+    /// Tells if "Remove" can act on the release `key`: the release is
+    /// fully downloaded, and no download job of its key is queued or in
+    /// flight (orchestrator correction of 2026-10-20).
+    #[must_use]
+    fn release_is_removable(&self, key: &ReleaseKey) -> bool {
+        self.release_is_fully_downloaded(key)
+            && !self
+                .album_for_release_key(key)
+                .is_some_and(|album| self.busy.release_downloading(album))
+    }
+
+    /// The release that holds the Library track `track_id`, when the tree
+    /// holds it.
+    fn album_for_track_id(&self, track_id: i64) -> Option<&AlbumNode> {
+        self.snapshot
+            .tree
+            .artists
+            .iter()
+            .flat_map(|artist| artist.albums.iter())
+            .find(|album| album.tracks.iter().any(|track| track.id == track_id))
+    }
+
+    /// `true` while a download job of the release of the Library track
+    /// `track_id` is queued or in flight. "Remove" of the track is then
+    /// absent (orchestrator correction of 2026-10-20).
+    #[must_use]
+    pub(crate) fn track_release_download_active(&self, track_id: i64) -> bool {
+        self.album_for_track_id(track_id)
+            .is_some_and(|album| self.busy.release_downloading(album))
     }
 
     /// The action bar of the Releases list selection (ADR 0084 Decision
@@ -2988,10 +3014,10 @@ impl LibraryViewModel {
         let mut not_in_library_count = 0;
         let mut in_library_count = 0;
         for key in selection.selected_keys() {
-            if self.release_is_fully_downloaded(key) {
-                in_library_count += 1;
-            } else {
+            if !self.release_is_fully_downloaded(key) {
                 not_in_library_count += 1;
+            } else if self.release_is_removable(key) {
+                in_library_count += 1;
             }
         }
         SelectionActionBarVm::new(
@@ -3025,7 +3051,8 @@ impl LibraryViewModel {
 
     /// The feed id and the release name of each selected release that is
     /// fully downloaded, for "Remove…" (ADR 0084 Decision 10: "Remove"
-    /// removes only an item that is in the Library).
+    /// removes only an item that is in the Library). A release with a
+    /// queued or running download is not in the list.
     #[must_use]
     pub(crate) fn releases_removable_feed_ids(
         &self,
@@ -3033,7 +3060,7 @@ impl LibraryViewModel {
     ) -> Vec<(i64, String)> {
         selection
             .selected_keys()
-            .filter(|key| self.release_is_fully_downloaded(key))
+            .filter(|key| self.release_is_removable(key))
             .filter_map(|key| {
                 let album = self.album_for_release_key(key)?;
                 Some((album.feed_id?, album.name.clone()))
@@ -3104,9 +3131,12 @@ impl LibraryViewModel {
     /// (ADR 0084 Decision 10), or `None` outside [`SelectionMode::Selecting`]
     /// (Amendment, 2026-10-19). Only a Library track row resolves a track
     /// key (`content_list_track_row_key`), so a selected track is always
-    /// already in the Library, and "Download" is always absent.
+    /// already in the Library, and "Download" is always absent. "Remove"
+    /// counts only the tracks with no queued or running download of their
+    /// release.
     #[must_use]
     pub(crate) fn content_list_selection_action_bar(
+        &self,
         selection: &ListSelection<TrackKey>,
         mode: SelectionMode,
     ) -> Option<SelectionActionBarVm> {
@@ -3116,9 +3146,23 @@ impl LibraryViewModel {
                 selected_count: selection.selected_count(),
                 item_noun: "track",
                 not_in_library_count: 0,
-                in_library_count: selection.selected_count(),
+                in_library_count: self.content_list_removable_tracks(selection).len(),
             },
         )
+    }
+
+    /// The selected tracks of [`Self::content_list_selected_tracks`] that
+    /// "Remove…" can act on: each track with no queued or running download
+    /// of its release (orchestrator correction of 2026-10-20).
+    #[must_use]
+    pub(crate) fn content_list_removable_tracks(
+        &self,
+        selection: &ListSelection<TrackKey>,
+    ) -> Vec<(i64, String)> {
+        self.content_list_selected_tracks(selection)
+            .into_iter()
+            .filter(|(track_id, _)| !self.track_release_download_active(*track_id))
+            .collect()
     }
 
     /// The Library track id and the title of each selected row, in their
@@ -3160,12 +3204,7 @@ impl LibraryViewModel {
     /// action not available.
     #[must_use]
     pub(crate) fn singles_group_page(&self, key: &SinglesGroupKey) -> SinglesGroupPageVm {
-        SinglesGroupPageVm::from_tree(
-            &self.snapshot.tree,
-            key,
-            self.busy_track(),
-            self.busy_feed(),
-        )
+        SinglesGroupPageVm::from_tree(&self.snapshot.tree, key, &self.busy)
     }
 
     /// Rows of the Artists destination list (ADR 0084 Decision 2, ADR 0085
@@ -3526,87 +3565,43 @@ impl LibraryViewModel {
         true
     }
 
+    /// The downloads and the removals that are in progress (ADR 0084
+    /// Decision 10).
     #[must_use]
-    pub(crate) fn busy_track(&self) -> Option<i64> {
-        self.busy_track
+    pub(crate) fn busy_items(&self) -> &BusyItems {
+        &self.busy
     }
 
-    #[must_use]
-    pub(crate) fn has_busy_track(&self) -> bool {
-        self.busy_track.is_some()
+    /// Replaces the download part of the busy state with the queue state
+    /// (ADR 0084 Decision 10, packet 022).
+    pub(crate) fn set_download_activity(&mut self, activity: DownloadActivity) {
+        self.busy.downloads = activity;
     }
 
-    #[must_use]
-    pub(crate) fn busy_feed(&self) -> Option<i64> {
-        self.busy_feed
-    }
-
-    #[must_use]
-    pub(crate) fn has_busy_feed(&self) -> bool {
-        self.busy_feed.is_some()
-    }
-
-    pub(crate) fn begin_busy_track(&mut self, track_id: i64, status: impl Into<String>) {
-        self.busy_track = Some(track_id);
+    /// Marks the Library feed `feed_id` as being removed.
+    pub(crate) fn begin_feed_removal(&mut self, feed_id: i64) {
+        self.busy.removing_feeds.insert(feed_id);
         self.library_removal.cancel();
-        self.status = status.into();
+        self.status = "Removing feed...".into();
     }
 
-    pub(crate) fn begin_busy_feed(&mut self, feed_id: i64, status: impl Into<String>) {
-        self.busy_feed = Some(feed_id);
-        self.library_removal.cancel();
-        self.status = status.into();
+    /// Clears the removal mark of the Library feed `feed_id`.
+    pub(crate) fn finish_feed_removal(&mut self, feed_id: i64) {
+        self.busy.removing_feeds.remove(&feed_id);
     }
 
-    /// Only this type's own tests call this directly today; production code
-    /// clears `busy_track` as part of a finish/fail transition instead.
-    #[cfg(test)]
-    pub(crate) fn clear_busy_track(&mut self) {
-        self.busy_track = None;
-    }
-
-    pub(crate) fn clear_busy_feed(&mut self) {
-        self.busy_feed = None;
+    /// Sets a report text in the status line.
+    pub(crate) fn set_status(&mut self, text: impl Into<String>) {
+        self.status = text.into();
     }
 
     pub(crate) fn finish_track_subscribe(&mut self, outcome: TrackSubscribeOutcome) {
-        self.busy_track = None;
         let mut message = format!("Downloaded track: {}", outcome.path_label);
         if let Some(warning) = outcome.format_warning {
             message.push_str(" — ");
             message.push_str(&warning);
         }
         self.status = message;
-    }
-
-    pub(crate) fn fail_track_subscribe(&mut self, error: impl std::fmt::Display) {
-        self.busy_track = None;
-        self.status = format!("Error downloading track: {error:#}");
-    }
-
-    pub(crate) fn finish_feed_download(
-        &mut self,
-        downloaded: usize,
-        applied_edits: usize,
-        skipped: usize,
-    ) {
-        self.busy_feed = None;
-        let mut message = format!(
-            "Downloaded feed: {} track{}, applied {} ID3 edit{}",
-            downloaded,
-            plural(downloaded),
-            applied_edits,
-            plural(applied_edits)
-        );
-        if skipped > 0 {
-            write!(&mut message, ", skipped {skipped}").expect("writing to a String cannot fail");
-        }
-        self.status = message;
-    }
-
-    pub(crate) fn fail_feed_download(&mut self, error: impl std::fmt::Display) {
-        self.busy_feed = None;
-        self.status = format!("Error downloading feed: {error:#}");
     }
 
     /// Only this type's own tests read status text back directly; the
@@ -4266,8 +4261,8 @@ impl<'a> LibraryTrackRowVm<'a> {
     }
 
     #[must_use]
-    pub(crate) fn primary_action_vm(&self, is_busy: bool) -> EntityActionVm {
-        self.track_action_state(is_busy)
+    pub(crate) fn primary_action_vm(&self, work: TrackRowWork) -> EntityActionVm {
+        self.track_action_state(work)
             .primary_action(EntityActionTarget::Track(self.track_ref()))
     }
 
@@ -4289,13 +4284,17 @@ impl<'a> LibraryTrackRowVm<'a> {
         }
     }
 
+    /// The action state of the row. A download of the row, or of its
+    /// release, gives `Queued` or `Downloading` and no "Remove" (orchestrator
+    /// correction of 2026-10-20).
     #[must_use]
-    pub(crate) fn track_action_state(&self, is_busy: bool) -> TrackActionState {
-        let membership = match (self.track.is_in_library, is_busy) {
-            (true, true) => TrackMembershipState::Removing,
-            (true, false) => TrackMembershipState::InLibrary,
-            (false, true) => TrackMembershipState::Downloading,
-            (false, false) => TrackMembershipState::RemoteOnly,
+    pub(crate) fn track_action_state(&self, work: TrackRowWork) -> TrackActionState {
+        let membership = match (self.track.is_in_library, work) {
+            (_, TrackRowWork::Removing) => TrackMembershipState::Removing,
+            (_, TrackRowWork::Queued) => TrackMembershipState::Queued,
+            (_, TrackRowWork::Downloading) => TrackMembershipState::Downloading,
+            (true, TrackRowWork::Idle) => TrackMembershipState::InLibrary,
+            (false, TrackRowWork::Idle) => TrackMembershipState::RemoteOnly,
         };
         TrackActionState::new(membership, PlaylistActionState::Closed)
     }
@@ -4505,18 +4504,105 @@ impl<'a> LibraryArtistDetailVm<'a> {
     }
 }
 
-/// Tells if the row of `track` on a release page shows a download or a
-/// removal in progress. `has_library_tracks` is true when one or more
-/// tracks of the release are in the Library. A busy feed makes busy each
-/// track that the feed operation changes.
-#[must_use]
-pub(crate) fn release_track_row_busy(
-    has_library_tracks: bool,
-    track: &TrackRow,
-    track_busy: bool,
-    feed_busy: bool,
-) -> bool {
-    track_busy || (feed_busy && (!has_library_tracks || track.is_in_library))
+/// The downloads and the removals in progress (ADR 0084 Decision 10,
+/// packet 022). The download queue gives the download part. The removal
+/// part holds each Library feed whose removal runs.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct BusyItems {
+    downloads: DownloadActivity,
+    removing_feeds: BTreeSet<i64>,
+}
+
+impl BusyItems {
+    /// The busy state of `downloads` and `removing_feeds`. Only tests
+    /// build it directly. The view model changes each part in place.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn new(downloads: DownloadActivity, removing_feeds: BTreeSet<i64>) -> Self {
+        Self {
+            downloads,
+            removing_feeds,
+        }
+    }
+
+    /// `true` while any job of the album key is queued or in flight. The
+    /// singles group page and the removal availability read it.
+    #[must_use]
+    pub(crate) fn release_downloading(&self, album: &AlbumNode) -> bool {
+        self.release_download_phase(album).is_some()
+    }
+
+    /// The phase of the jobs of the album key. `InFlight` when a job of the
+    /// key runs, `Queued` when a job of the key only waits. The membership
+    /// of the album reads it.
+    #[must_use]
+    pub(crate) fn release_download_phase(&self, album: &AlbumNode) -> Option<DownloadPhase> {
+        album
+            .feed_key()
+            .and_then(|key| self.downloads.key_phase(&key))
+    }
+
+    /// `true` while the removal of the album runs.
+    #[must_use]
+    pub(crate) fn removing(&self, album: &AlbumNode) -> bool {
+        album
+            .feed_id
+            .is_some_and(|feed_id| self.removing_feeds.contains(&feed_id))
+    }
+
+    /// The work in progress on the row of `track` in `album` (ADR 0084
+    /// Decision 10, orchestrator correction of 2026-10-20).
+    ///
+    /// - A removal of the album gives `Removing` to each track that the
+    ///   removal changes.
+    /// - A job of the track gives its own phase.
+    /// - A track that is not in the Library gives the phase of a release
+    ///   job of the album key.
+    /// - A track in the Library gives the phase of each job of the album
+    ///   key, so the row has no "Remove" while the key is active.
+    #[must_use]
+    pub(crate) fn track_row_work(&self, album: &AlbumNode, track: &TrackRow) -> TrackRowWork {
+        let has_library_tracks = album.tracks.iter().any(|t| t.is_in_library);
+        if self.removing(album) && (!has_library_tracks || track.is_in_library) {
+            return TrackRowWork::Removing;
+        }
+        let phase = self.downloads.track_phase(track.id).or_else(|| {
+            let key = album.feed_key()?;
+            if track.is_in_library {
+                self.downloads.key_phase(&key)
+            } else {
+                self.downloads.release_phase(&key)
+            }
+        });
+        TrackRowWork::from_phase(phase)
+    }
+}
+
+/// The work in progress on one Library track row (ADR 0084 Decision 10).
+/// It selects the state word and the primary action of the row.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum TrackRowWork {
+    /// No work.
+    #[default]
+    Idle,
+    /// A download job waits in the queue.
+    Queued,
+    /// A download job runs.
+    Downloading,
+    /// A removal runs.
+    Removing,
+}
+
+impl TrackRowWork {
+    /// The work of a download phase. `None` gives `Idle`.
+    #[must_use]
+    pub(crate) const fn from_phase(phase: Option<DownloadPhase>) -> Self {
+        match phase {
+            None => Self::Idle,
+            Some(DownloadPhase::Queued) => Self::Queued,
+            Some(DownloadPhase::InFlight) => Self::Downloading,
+        }
+    }
 }
 
 /// Display-ready action projection for a library album detail panel.
@@ -4548,25 +4634,22 @@ impl<'a> LibraryAlbumDetailVm<'a> {
             .any(|s| matches!(s, MbTrackStatus::Pending | MbTrackStatus::Processing))
     }
 
+    /// The Library membership of the album. `download` is the phase of a
+    /// download of the album key (ADR 0084 Decision 10): a job that only
+    /// waits gives `Queued`, and a job that runs gives `Downloading`.
+    /// `removing` is a removal of the album in progress.
     #[must_use]
-    pub(crate) fn track_row_busy(
+    pub(crate) fn membership(
         &self,
-        track: &TrackRow,
-        track_busy: bool,
-        feed_busy: bool,
-    ) -> bool {
-        release_track_row_busy(self.has_library_tracks, track, track_busy, feed_busy)
-    }
-
-    /// The Library membership of the album. `is_busy` is a download or a
-    /// removal of the album in progress.
-    #[must_use]
-    pub(crate) fn membership(&self, is_busy: bool) -> ReleaseMembershipState {
-        if is_busy {
-            if self.has_library_tracks {
-                ReleaseMembershipState::Removing
-            } else {
-                ReleaseMembershipState::Downloading
+        download: Option<DownloadPhase>,
+        removing: bool,
+    ) -> ReleaseMembershipState {
+        if removing {
+            ReleaseMembershipState::Removing
+        } else if let Some(phase) = download {
+            match phase {
+                DownloadPhase::Queued => ReleaseMembershipState::Queued,
+                DownloadPhase::InFlight => ReleaseMembershipState::Downloading,
             }
         } else if self.has_library_tracks {
             ReleaseMembershipState::InLibrary
@@ -4577,6 +4660,17 @@ impl<'a> LibraryAlbumDetailVm<'a> {
 }
 
 impl AlbumNode {
+    /// The download queue key of this album (ADR 0084 Decision 10): the
+    /// feed GUID, then the feed URL, then the Library feed id.
+    #[must_use]
+    pub(crate) fn feed_key(&self) -> Option<FeedKey> {
+        FeedKey::new(
+            self.feed_guid.as_deref(),
+            self.feed_url.as_deref(),
+            self.feed_id,
+        )
+    }
+
     /// Feed URL string required by the shared release-detail projection.
     /// Absence is centralized here so screens do not call `unwrap_or_default`
     /// on `feed_url`.
@@ -6115,7 +6209,7 @@ mod tests {
     fn library_track_row_vm_primary_action_follows_membership_and_busy_state() {
         let mut r = row();
         let vm = LibraryTrackRowVm::new(&r, None);
-        let action = vm.primary_action_vm(false);
+        let action = vm.primary_action_vm(TrackRowWork::Idle);
         assert_eq!(
             action.kind,
             crate::view_models::entity_detail::EntityActionKind::Download
@@ -6123,13 +6217,13 @@ mod tests {
         assert_eq!(action.label, "Download");
         assert!(action.enabled);
 
-        let action = vm.primary_action_vm(true);
+        let action = vm.primary_action_vm(TrackRowWork::Downloading);
         assert_eq!(action.label, "Downloading...");
         assert!(!action.enabled);
 
         r.is_in_library = true;
         let vm = LibraryTrackRowVm::new(&r, None);
-        let action = vm.primary_action_vm(false);
+        let action = vm.primary_action_vm(TrackRowWork::Idle);
         assert_eq!(
             action.kind,
             crate::view_models::entity_detail::EntityActionKind::Remove
@@ -6137,7 +6231,7 @@ mod tests {
         assert_eq!(action.label, "Remove");
         assert!(action.enabled);
 
-        let action = vm.primary_action_vm(true);
+        let action = vm.primary_action_vm(TrackRowWork::Removing);
         assert_eq!(action.label, "Removing...");
         assert!(!action.enabled);
     }
@@ -6182,7 +6276,7 @@ mod tests {
         let mut r = row();
         r.id = 42;
         let vm = LibraryTrackRowVm::new(&r, None);
-        let action = vm.primary_action_vm(false);
+        let action = vm.primary_action_vm(TrackRowWork::Idle);
         assert_eq!(
             action.target,
             EntityActionTarget::Track(TrackRef::LocalTrackId(42))
@@ -6198,7 +6292,7 @@ mod tests {
 
         r.is_in_library = true;
         let vm = LibraryTrackRowVm::new(&r, None);
-        let action = vm.primary_action_vm(false);
+        let action = vm.primary_action_vm(TrackRowWork::Idle);
         assert_eq!(
             action.kind,
             crate::view_models::entity_detail::EntityActionKind::Remove
@@ -6209,7 +6303,7 @@ mod tests {
         );
         assert!(action.enabled);
 
-        let action = vm.primary_action_vm(true);
+        let action = vm.primary_action_vm(TrackRowWork::Removing);
         assert_eq!(action.label, "Removing...");
         assert!(!action.enabled);
     }
@@ -6221,7 +6315,7 @@ mod tests {
             "music/track.mp3",
         ));
         let vm = LibraryTrackRowVm::new(&r, None);
-        assert_eq!(vm.primary_action_vm(false).label, "Download");
+        assert_eq!(vm.primary_action_vm(TrackRowWork::Idle).label, "Download");
     }
 
     #[test]
@@ -7133,7 +7227,7 @@ mod tests {
         assert_eq!(vm.selected_id, None);
         assert_eq!(vm.selected_playlist_id, None);
         assert_eq!(vm.hovered_thumb_url, None);
-        assert_eq!(vm.busy_track, None);
+        assert_eq!(vm.busy, BusyItems::default());
         assert!(vm.status.is_empty());
         assert!(!vm.creating_playlist);
     }
@@ -8198,8 +8292,7 @@ mod tests {
         use std::sync::Arc;
         let mut vm = LibraryViewModel::new();
         vm.selected_id = Some(42);
-        vm.busy_track = Some(99);
-        vm.busy_feed = Some(88);
+        vm.busy = sample_busy_items();
         vm.library_loading = true;
         let plan = LibraryRemovalPlan::new(
             LibraryRemovalTarget::Track(42),
@@ -8275,8 +8368,7 @@ mod tests {
                 vm.observation_failures.len(),
                 usize::try_from(generation).unwrap()
             );
-            assert_eq!(vm.busy_track, Some(99));
-            assert_eq!(vm.busy_feed, Some(88));
+            assert_eq!(vm.busy, sample_busy_items());
             assert!(vm.library_loading);
             assert_eq!(vm.pending_library_removal_confirmation(), before);
             assert!(vm.status_snapshot().is_error);
@@ -8415,8 +8507,7 @@ mod tests {
         };
         let mut vm = LibraryViewModel::new();
         vm.selected_id = Some(42);
-        vm.busy_track = Some(99);
-        vm.busy_feed = Some(88);
+        vm.busy = sample_busy_items();
         vm.library_loading = true;
         let plan = LibraryRemovalPlan::new(
             LibraryRemovalTarget::Track(42),
@@ -8455,8 +8546,7 @@ mod tests {
         assert_eq!(vm.observation_receipts[&1], receipt);
         assert_eq!(vm.observation_receipts[&2], later);
         assert_eq!(vm.selected_id, Some(42));
-        assert_eq!(vm.busy_track, Some(99));
-        assert_eq!(vm.busy_feed, Some(88));
+        assert_eq!(vm.busy, sample_busy_items());
         assert!(vm.library_loading);
         assert_eq!(vm.pending_library_removal_confirmation(), confirmation);
         assert_eq!(vm.status, status);
@@ -8699,36 +8789,187 @@ mod tests {
         assert_eq!(vm.hovered_thumb_url(), None);
     }
 
-    #[test]
-    fn library_view_model_busy_track_and_status_transition_together() {
-        let mut vm = LibraryViewModel::new();
-        assert!(!vm.has_busy_track());
-        assert_eq!(vm.busy_track(), None);
-
-        vm.begin_busy_track(42, "Downloading track...");
-
-        assert!(vm.has_busy_track());
-        assert_eq!(vm.busy_track(), Some(42));
-        assert_eq!(vm.status(), "Downloading track...");
-
-        vm.clear_busy_track();
-        assert_eq!(vm.busy_track(), None);
+    fn sample_busy_items() -> BusyItems {
+        BusyItems::new(
+            DownloadActivity {
+                tracks: BTreeSet::from([99]),
+                ..DownloadActivity::default()
+            },
+            BTreeSet::from([88]),
+        )
     }
 
+    fn track_of(id: i64, feed_id: i64, in_library: bool) -> TrackRow {
+        TrackRow {
+            id,
+            feed_id,
+            is_in_library: in_library,
+            ..TrackRow::default()
+        }
+    }
+
+    /// R22-09 with the orchestrator correction of 2026-10-20: a release
+    /// shows `Queued` while a job of its key only waits, and `Downloading`
+    /// while a job of its key runs. A track row follows its own job, or a
+    /// release job of its key. A removal shows `Removing`.
     #[test]
-    fn library_view_model_busy_feed_and_status_transition_together() {
+    fn adr_0084_download_queue_r22_09_release_and_track_busy_follow_the_queue() {
+        let mut album = minimal_album("Face Pale", 7);
+        album.tracks = vec![track_of(70, 7, false), track_of(71, 7, false)];
+        let key = album.feed_key().expect("a key");
+        assert_eq!(key, FeedKey::Guid("album-guid-7".to_owned()));
         let mut vm = LibraryViewModel::new();
-        assert!(!vm.has_busy_feed());
-        assert_eq!(vm.busy_feed(), None);
+        assert!(!vm.busy_items().release_downloading(&album));
 
-        vm.begin_busy_feed(7, "Downloading feed...");
+        vm.set_download_activity(DownloadActivity {
+            tracks: BTreeSet::from([70]),
+            keys: BTreeSet::from([key.clone()]),
+            ..DownloadActivity::default()
+        });
+        let busy = vm.busy_items();
+        assert!(busy.release_downloading(&album), "a queued track job");
+        assert_eq!(
+            busy.track_row_work(&album, &album.tracks[0]),
+            TrackRowWork::Queued
+        );
+        assert_eq!(
+            busy.track_row_work(&album, &album.tracks[1]),
+            TrackRowWork::Idle,
+            "no release job of the key"
+        );
+        let mb = BTreeMap::new();
+        let album_vm = LibraryAlbumDetailVm::new(&album.tracks, &mb);
+        assert_eq!(
+            album_vm.membership(busy.release_download_phase(&album), busy.removing(&album)),
+            ReleaseMembershipState::Queued
+        );
 
-        assert!(vm.has_busy_feed());
-        assert_eq!(vm.busy_feed(), Some(7));
-        assert_eq!(vm.status(), "Downloading feed...");
+        vm.set_download_activity(DownloadActivity {
+            keys: BTreeSet::from([key.clone()]),
+            release_keys: BTreeSet::from([key.clone()]),
+            in_flight_keys: BTreeSet::from([key.clone()]),
+            in_flight_release_keys: BTreeSet::from([key]),
+            ..DownloadActivity::default()
+        });
+        let busy = vm.busy_items();
+        assert_eq!(
+            busy.track_row_work(&album, &album.tracks[1]),
+            TrackRowWork::Downloading,
+            "a running release job"
+        );
+        assert_eq!(
+            album_vm.membership(busy.release_download_phase(&album), busy.removing(&album)),
+            ReleaseMembershipState::Downloading
+        );
 
-        vm.clear_busy_feed();
-        assert_eq!(vm.busy_feed(), None);
+        vm.set_download_activity(DownloadActivity::default());
+        assert!(!vm.busy_items().release_downloading(&album));
+        vm.begin_feed_removal(7);
+        assert!(vm.busy_items().removing(&album));
+        vm.finish_feed_removal(7);
+        assert!(!vm.busy_items().removing(&album));
+    }
+
+    /// Orchestrator correction of 2026-10-20 (C1): of nine queued releases,
+    /// three run and show `Downloading`. The six that wait show `Queued`.
+    #[test]
+    fn adr_0084_download_queue_nine_releases_three_downloading_six_queued() {
+        let albums: Vec<AlbumNode> = (1..=9)
+            .map(|feed_id| minimal_album(&format!("Release {feed_id}"), feed_id))
+            .collect();
+        let keys: BTreeSet<FeedKey> = albums
+            .iter()
+            .map(|album| album.feed_key().expect("a key"))
+            .collect();
+        let running: BTreeSet<FeedKey> = albums[..3]
+            .iter()
+            .map(|album| album.feed_key().expect("a key"))
+            .collect();
+        let mut vm = LibraryViewModel::new();
+        vm.set_download_activity(DownloadActivity {
+            keys: keys.clone(),
+            release_keys: keys,
+            in_flight_keys: running.clone(),
+            in_flight_release_keys: running,
+            ..DownloadActivity::default()
+        });
+        let busy = vm.busy_items();
+        let states: Vec<ReleaseMembershipState> = albums
+            .iter()
+            .map(|album| {
+                LibraryAlbumDetailVm::new(&album.tracks, vm.mb_status())
+                    .membership(busy.release_download_phase(album), busy.removing(album))
+            })
+            .collect();
+        let count = |state| states.iter().filter(|s| **s == state).count();
+        assert_eq!(count(ReleaseMembershipState::Downloading), 3);
+        assert_eq!(count(ReleaseMembershipState::Queued), 6);
+    }
+
+    /// Orchestrator correction of 2026-10-20 (C3): while a download job of
+    /// a release key is queued or in flight, "Remove" of the release and
+    /// of its tracks is absent. The Releases bar has no "Remove", the
+    /// removal list is empty, and a Library track row has no "Remove".
+    #[test]
+    fn adr_0084_download_queue_remove_is_absent_while_the_key_is_active() {
+        let mut album = minimal_album("Face Pale", 7);
+        album.tracks = vec![track_of(70, 7, true), track_of(71, 7, true)];
+        let release_key = album.release_key().expect("a release key");
+        let feed_key = album.feed_key().expect("a key");
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(LibraryTree {
+            artists: vec![ArtistNode {
+                name: "Haleen".to_owned(),
+                albums: vec![album.clone()],
+            }],
+        });
+        let mut selection: ListSelection<ReleaseKey, ReleasesRowId> = ListSelection::new();
+        selection.toggle(&SelectionRow::new(
+            ReleasesRowId::Release(release_key.clone()),
+            vec![release_key.clone()],
+        ));
+        let remove_of = |vm: &LibraryViewModel| {
+            vm.releases_selection_action_bar(&selection, SelectionMode::Selecting)
+                .expect("a bar")
+                .action(crate::view_models::selection_action_bar::SelectionActionKind::Remove)
+                .map(|action| action.label.clone())
+        };
+        assert_eq!(remove_of(&vm).as_deref(), Some("Remove 1 release\u{2026}"));
+        assert_eq!(vm.releases_removable_feed_ids(&selection).len(), 1);
+        assert!(!vm.track_release_download_active(70));
+        assert!(
+            !vm.library_release_facts(&release_key)
+                .expect("facts")
+                .download_active
+        );
+
+        // A queued job of one track of the release.
+        vm.set_download_activity(DownloadActivity {
+            tracks: BTreeSet::from([71]),
+            keys: BTreeSet::from([feed_key]),
+            ..DownloadActivity::default()
+        });
+        assert_eq!(remove_of(&vm), None, "no Remove in the Releases bar");
+        assert!(vm.releases_removable_feed_ids(&selection).is_empty());
+        assert!(vm.track_release_download_active(70));
+        let facts = vm.library_release_facts(&release_key).expect("facts");
+        assert!(facts.download_active);
+        assert!(!facts.removable());
+        let busy = vm.busy_items();
+        let work = busy.track_row_work(&album, &album.tracks[0]);
+        assert_eq!(work, TrackRowWork::Queued);
+        let action = LibraryTrackRowVm::new(&album.tracks[0], None).primary_action_vm(work);
+        assert_ne!(
+            action.kind,
+            crate::view_models::entity_detail::EntityActionKind::Remove
+        );
+        assert_eq!(action.label, "Queued");
+        assert!(!action.enabled);
+        let album_vm = LibraryAlbumDetailVm::new(&album.tracks, vm.mb_status());
+        assert_eq!(
+            album_vm.membership(busy.release_download_phase(&album), busy.removing(&album)),
+            ReleaseMembershipState::Queued
+        );
     }
 
     #[test]
@@ -8766,10 +9007,6 @@ mod tests {
         assert_eq!(
             LibraryTrackActionVm::subscription_error_message(false, "offline"),
             "Remove error: offline"
-        );
-        assert_eq!(
-            LibraryTrackActionVm::track_subscribe_begin_status(),
-            "Downloading track..."
         );
         assert_eq!(
             LibraryTrackActionVm::track_subscribe_success_message(),
@@ -8811,31 +9048,18 @@ mod tests {
     }
 
     #[test]
-    fn library_view_model_track_subscribe_finish_clears_busy_and_formats_warning() {
+    fn library_view_model_track_subscribe_finish_formats_warning() {
         let mut vm = LibraryViewModel::new();
-        vm.begin_busy_track(42, "Downloading track...");
 
         vm.finish_track_subscribe(TrackSubscribeOutcome::new(
             "/tmp/song.mp3",
             Some("converted from WAV".into()),
         ));
 
-        assert_eq!(vm.busy_track(), None);
         assert_eq!(
             vm.status(),
             "Downloaded track: /tmp/song.mp3 — converted from WAV"
         );
-    }
-
-    #[test]
-    fn library_view_model_track_subscribe_failure_clears_busy_and_sets_error() {
-        let mut vm = LibraryViewModel::new();
-        vm.begin_busy_track(42, "Downloading track...");
-
-        vm.fail_track_subscribe("offline");
-
-        assert_eq!(vm.busy_track(), None);
-        assert_eq!(vm.status(), "Error downloading track: offline");
     }
 
     #[test]
@@ -9032,8 +9256,9 @@ mod tests {
     }
 
     /// ADR 0083 task 005: the album membership selects the album page
-    /// actions. A busy album is downloading when it has no Library track,
-    /// and removing when it has one.
+    /// actions. A download job that waits shows `Queued`, a download job
+    /// that runs shows `Downloading`, and a removal in progress shows
+    /// `Removing` (ADR 0084 Decision 10).
     #[test]
     fn album_detail_vm_membership_follows_library_tracks_and_busy_state() {
         let mb = BTreeMap::new();
@@ -9046,42 +9271,76 @@ mod tests {
             ..TrackRow::default()
         }];
         let vm = LibraryAlbumDetailVm::new(&in_library, &mb);
-        assert_eq!(vm.membership(false), ReleaseMembershipState::InLibrary);
-        assert_eq!(vm.membership(true), ReleaseMembershipState::Removing);
+        assert_eq!(
+            vm.membership(None, false),
+            ReleaseMembershipState::InLibrary
+        );
+        assert_eq!(vm.membership(None, true), ReleaseMembershipState::Removing);
+        assert_eq!(
+            vm.membership(Some(DownloadPhase::InFlight), false),
+            ReleaseMembershipState::Downloading,
+            "a partly downloaded release with a running download"
+        );
         let vm = LibraryAlbumDetailVm::new(&remote, &mb);
-        assert_eq!(vm.membership(false), ReleaseMembershipState::RemoteOnly);
-        assert_eq!(vm.membership(true), ReleaseMembershipState::Downloading);
+        assert_eq!(
+            vm.membership(None, false),
+            ReleaseMembershipState::RemoteOnly
+        );
+        assert_eq!(
+            vm.membership(Some(DownloadPhase::InFlight), false),
+            ReleaseMembershipState::Downloading
+        );
+        assert_eq!(
+            vm.membership(Some(DownloadPhase::Queued), false),
+            ReleaseMembershipState::Queued
+        );
     }
 
     #[test]
     fn album_detail_vm_feed_download_marks_remote_rows_busy() {
-        let mb = BTreeMap::new();
-        let track = TrackRow {
-            is_in_library: false,
-            ..TrackRow::default()
-        };
-        let tracks = vec![track.clone()];
-        let vm = LibraryAlbumDetailVm::new(&tracks, &mb);
+        let mut album = minimal_album("Face Pale", 7);
+        album.tracks = vec![track_of(70, 7, false)];
+        let key = album.feed_key().expect("a key");
+        let busy = BusyItems::new(
+            DownloadActivity {
+                keys: BTreeSet::from([key.clone()]),
+                release_keys: BTreeSet::from([key]),
+                ..DownloadActivity::default()
+            },
+            BTreeSet::new(),
+        );
 
-        assert!(vm.track_row_busy(&track, false, true));
+        assert_eq!(
+            busy.track_row_work(&album, &album.tracks[0]),
+            TrackRowWork::Queued
+        );
     }
 
     #[test]
     fn album_detail_vm_feed_removal_marks_only_library_rows_busy() {
-        let mb = BTreeMap::new();
-        let library_track = TrackRow {
-            is_in_library: true,
-            ..TrackRow::default()
-        };
-        let remote_track = TrackRow {
-            is_in_library: false,
-            ..TrackRow::default()
-        };
-        let tracks = vec![library_track.clone(), remote_track.clone()];
-        let vm = LibraryAlbumDetailVm::new(&tracks, &mb);
+        let mut album = minimal_album("Face Pale", 7);
+        album.tracks = vec![track_of(70, 7, true), track_of(71, 7, false)];
+        let removing = BusyItems::new(DownloadActivity::default(), BTreeSet::from([7]));
 
-        assert!(vm.track_row_busy(&library_track, false, true));
-        assert!(!vm.track_row_busy(&remote_track, false, true));
-        assert!(vm.track_row_busy(&remote_track, true, false));
+        assert_eq!(
+            removing.track_row_work(&album, &album.tracks[0]),
+            TrackRowWork::Removing
+        );
+        assert_eq!(
+            removing.track_row_work(&album, &album.tracks[1]),
+            TrackRowWork::Idle
+        );
+        let track_job = BusyItems::new(
+            DownloadActivity {
+                tracks: BTreeSet::from([71]),
+                in_flight_tracks: BTreeSet::from([71]),
+                ..DownloadActivity::default()
+            },
+            BTreeSet::new(),
+        );
+        assert_eq!(
+            track_job.track_row_work(&album, &album.tracks[1]),
+            TrackRowWork::Downloading
+        );
     }
 }

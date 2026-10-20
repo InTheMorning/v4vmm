@@ -23,7 +23,7 @@ use crate::view_models::entity_detail::{
 use crate::view_models::library::{
     description_line_count, display_description_text, AlbumNode, DescriptionDisclosureDisplay,
     DescriptionState, LibraryAlbumDetailVm, LibraryTrackRowVm, LibraryViewModel, MbStatusKind,
-    MbTrackStatus,
+    MbTrackStatus, TrackRowWork,
 };
 use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::release_kind::ReleaseKind;
@@ -66,7 +66,7 @@ pub(crate) enum ReleasePageOrigin {
 pub(crate) struct LibraryTrackFacts {
     track: TrackRow,
     mb: Option<MbTrackStatus>,
-    busy: bool,
+    work: TrackRowWork,
 }
 
 /// The origin-neutral input of a release page.
@@ -94,14 +94,13 @@ impl ReleasePageFacts {
     pub(crate) fn from_library_album(
         album: &AlbumNode,
         mb_status: &BTreeMap<i64, MbTrackStatus>,
-        busy_track: Option<i64>,
         library_vm: &LibraryViewModel,
     ) -> Self {
         let feed = library_album_feed_view(album);
         let album_vm = LibraryAlbumDetailVm::new(&album.tracks, mb_status);
-        let feed_busy = album
-            .feed_id
-            .is_some_and(|feed_id| library_vm.busy_feed() == Some(feed_id));
+        // ADR 0084 Decision 10: the busy state comes from the download
+        // queue and the removals in progress.
+        let busy = library_vm.busy_items();
         // ADR 0084 Decisions 4 and 8 (operator decision of 2026-10-16): the
         // release page reads no list filter. It always shows each track of
         // the release, each with its own state word.
@@ -111,7 +110,7 @@ impl ReleasePageFacts {
             .map(|track| LibraryTrackFacts {
                 track: track.clone(),
                 mb: mb_status.get(&track.id).cloned(),
-                busy: album_vm.track_row_busy(track, busy_track == Some(track.id), feed_busy),
+                work: busy.track_row_work(album, track),
             })
             .collect();
         let release_key = album.release_key();
@@ -134,7 +133,8 @@ impl ReleasePageFacts {
         Self {
             origin: ReleasePageOrigin::Library {
                 feed_id: album.feed_id,
-                membership: album_vm.membership(feed_busy),
+                membership: album_vm
+                    .membership(busy.release_download_phase(album), busy.removing(album)),
                 musicbrainz_available: !album_vm.has_active_musicbrainz(),
             },
             kind: album.release_kind(),
@@ -410,11 +410,11 @@ impl ReleaseTrackRowVm {
     pub(crate) fn library(
         track: &TrackRow,
         mb: Option<&MbTrackStatus>,
-        busy: bool,
+        work: TrackRowWork,
         selection: RowSelectionVm,
     ) -> Self {
         let open_entry = FrameNavigationEntry::Track(track.track_key());
-        Self::library_with_entry(track, mb, busy, selection, open_entry)
+        Self::library_with_entry(track, mb, work, selection, open_entry)
     }
 
     /// The row of a single on a singles group page (ADR 0084 task 015,
@@ -428,7 +428,7 @@ impl ReleaseTrackRowVm {
     ) -> Self {
         let open_entry = FrameNavigationEntry::Release(single.key.clone());
         let mut row =
-            Self::library_with_entry(&single.track, mb, single.busy, selection, open_entry);
+            Self::library_with_entry(&single.track, mb, single.work, selection, open_entry);
         row.row.date_text.clone_from(&single.date_text);
         row
     }
@@ -436,12 +436,12 @@ impl ReleaseTrackRowVm {
     fn library_with_entry(
         track: &TrackRow,
         mb: Option<&MbTrackStatus>,
-        busy: bool,
+        work: TrackRowWork,
         selection: RowSelectionVm,
         open_entry: FrameNavigationEntry,
     ) -> Self {
         let vm = LibraryTrackRowVm::new(track, mb);
-        let action = vm.primary_action_vm(busy);
+        let action = vm.primary_action_vm(work);
         let display = vm.row_display();
         let track_view = TrackView::from_local(track.clone());
         let row = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Library).row();
@@ -547,7 +547,7 @@ pub(crate) fn release_page_vm(input: &ReleasePageFacts) -> ReleasePageVm<'_> {
                 ReleaseTrackRowVm::library(
                     &track.track,
                     track.mb.as_ref(),
-                    track.busy,
+                    track.work,
                     input.selection(index),
                 )
             })
@@ -766,12 +766,7 @@ mod tests {
     }
 
     fn library_facts(album: &AlbumNode) -> ReleasePageFacts {
-        ReleasePageFacts::from_library_album(
-            album,
-            &BTreeMap::new(),
-            None,
-            &LibraryViewModel::default(),
-        )
+        ReleasePageFacts::from_library_album(album, &BTreeMap::new(), &LibraryViewModel::default())
     }
 
     fn index_track(title: Option<&str>, guid: Option<&str>) -> TrackView {
@@ -897,15 +892,23 @@ mod tests {
             Some(MbTrackStatus::Done(3)),
             Some(MbTrackStatus::Skipped),
         ];
-        // (in the Library, busy) gives InLibrary, Removing, RemoteOnly and
-        // Downloading.
-        for (in_library, busy) in [(true, false), (true, true), (false, false), (false, true)] {
+        // (in the Library, work) gives InLibrary, Removing, Queued,
+        // RemoteOnly and Downloading.
+        let cases = [
+            (true, TrackRowWork::Idle),
+            (true, TrackRowWork::Removing),
+            (true, TrackRowWork::Queued),
+            (false, TrackRowWork::Idle),
+            (false, TrackRowWork::Queued),
+            (false, TrackRowWork::Downloading),
+        ];
+        for (in_library, work) in cases {
             for mb in &statuses {
                 let track = library_track(4, "guid-4", "Song", in_library);
                 let expected = LibraryTrackRowVm::new(&track, mb.as_ref());
-                let action = expected.primary_action_vm(busy);
+                let action = expected.primary_action_vm(work);
                 let row =
-                    ReleaseTrackRowVm::library(&track, mb.as_ref(), busy, RowSelectionVm::none());
+                    ReleaseTrackRowVm::library(&track, mb.as_ref(), work, RowSelectionVm::none());
 
                 assert_eq!(row.primary.label, action.label);
                 assert_eq!(row.primary.enabled, action.enabled);
@@ -991,7 +994,7 @@ mod tests {
         let single = SinglesGroupPageRowVm {
             track: library_track(9, "guid-9", "Single", true),
             date_text: Some("May 1, 2025".to_owned()),
-            busy: false,
+            work: TrackRowWork::Idle,
             key: key.clone(),
         };
 

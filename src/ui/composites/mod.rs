@@ -27,6 +27,7 @@ pub mod cover_backdrop;
 pub mod detail_grid;
 pub mod detail_header;
 pub mod disclosure_group;
+pub mod download_status_item;
 pub mod file_header;
 pub mod filter_chip_strip;
 pub mod frame_shell;
@@ -72,6 +73,7 @@ pub use disclosure_group::{
     DisclosureIndicatorDisplay, DisclosureSupplementDisplay, DisclosureSupplementLabel,
     DisclosureTextPanel, DisclosureTextPanelDisplay,
 };
+pub(crate) use download_status_item::download_status_item;
 pub use file_header::FileHeader;
 #[expect(
     unused_imports,

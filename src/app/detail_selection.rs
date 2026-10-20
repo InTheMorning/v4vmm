@@ -324,9 +324,9 @@ impl TopApp {
         cx.notify();
     }
 
-    /// "Download n tracks" and "Download n releases" of the detail bar. A
-    /// Library item downloads through `LibraryApp`. An Index item
-    /// downloads here.
+    /// "Download n tracks" and "Download n releases" of the detail bar.
+    /// Each item queues one job in the download queue of `LibraryApp`
+    /// (ADR 0084 Decision 10).
     fn download_detail_selection(&mut self, rows: &DetailPageRows, cx: &mut Context<Self>) {
         let selection = self.library.read(cx).detail_selection().clone();
         match rows {
@@ -367,19 +367,21 @@ impl TopApp {
                     .filter(|facts| !facts.fully_downloaded)
                     .map(|facts| facts.feed_id)
                     .collect();
-                let index_feed_guids: Vec<String> = selected
+                let index_releases: Vec<(String, String)> = selected
                     .iter()
                     .filter(|row| row.library.is_none())
                     .filter_map(|row| match &row.key {
-                        ReleaseKey::FeedGuid(feed_guid) => Some(feed_guid.clone()),
+                        ReleaseKey::FeedGuid(feed_guid) => {
+                            Some((feed_guid.clone(), row.title.clone()))
+                        }
                         ReleaseKey::LibraryFeed(_) => None,
                     })
                     .collect();
                 self.library.update(cx, |library, cx| {
-                    library.download_singles(&library_feed_ids, cx);
+                    library.download_library_feeds(&library_feed_ids, cx);
                 });
-                for feed_guid in index_feed_guids {
-                    self.download_index_album_of_track(feed_guid, cx);
+                for (feed_guid, title) in index_releases {
+                    self.download_index_album_of_track(feed_guid, Some(title), cx);
                 }
             }
         }
@@ -453,7 +455,7 @@ fn detail_removal_items(
         DetailPageRows::Tracks(_) => (
             rows.selected_tracks(selection)
                 .iter()
-                .filter(|row| row.downloaded)
+                .filter(|row| row.removable())
                 .filter_map(|row| {
                     row.library_track_id
                         .map(|id| (LibraryRemovalIntent::TrackId(id), row.title.clone()))
@@ -465,7 +467,7 @@ fn detail_removal_items(
             rows.selected_releases(selection)
                 .iter()
                 .filter_map(|row| row.library.map(|facts| (facts, row.title.clone())))
-                .filter(|(facts, _)| facts.fully_downloaded)
+                .filter(|(facts, _)| facts.removable())
                 .map(|(facts, title)| (LibraryRemovalIntent::FeedId(facts.feed_id), title))
                 .collect(),
             "release",

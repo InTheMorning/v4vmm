@@ -55,3 +55,29 @@ impl Render for LibraryColumnView {
         })
     }
 }
+
+/// Renders the download progress item from the shared Library entity (ADR
+/// 0084 Decision 10, packet 022). It observes the Library entity, so a
+/// queue change renders the item again. `TopApp::render` mounts it on each
+/// section.
+pub(crate) struct DownloadStatusView {
+    library: Entity<LibraryApp>,
+    _library_sub: Subscription,
+}
+
+impl DownloadStatusView {
+    /// Creates the progress item view over `library`.
+    pub(crate) fn new(library: Entity<LibraryApp>, cx: &mut Context<Self>) -> Self {
+        let library_sub = cx.observe(&library, |_, _, cx| cx.notify());
+        Self {
+            library,
+            _library_sub: library_sub,
+        }
+    }
+}
+
+impl Render for DownloadStatusView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.library.update(cx, LibraryApp::render_download_status)
+    }
+}

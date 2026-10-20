@@ -106,6 +106,10 @@ impl IdentityActionDisplayKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TrackMembershipState {
     RemoteOnly,
+    /// A download job of the track waits in the queue (orchestrator
+    /// correction of 2026-10-20).
+    Queued,
+    /// A download job of the track runs.
     Downloading,
     InLibrary,
     Removing,
@@ -114,6 +118,10 @@ pub enum TrackMembershipState {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReleaseMembershipState {
     RemoteOnly,
+    /// A download job of the release waits in the queue, and no job of
+    /// the release runs (orchestrator correction of 2026-10-20).
+    Queued,
+    /// A download job of the release runs.
     Downloading,
     InLibrary,
     Removing,
@@ -178,6 +186,13 @@ impl TrackActionState {
                 "Download",
                 EntityActionTone::Secondary,
             ),
+            TrackMembershipState::Queued => EntityActionVm::new(
+                EntityActionKind::Download,
+                target,
+                "Queued",
+                EntityActionTone::Secondary,
+            )
+            .disabled(),
             TrackMembershipState::Downloading => EntityActionVm::new(
                 EntityActionKind::Download,
                 target,
@@ -2104,6 +2119,13 @@ mod tests {
         assert_eq!(downloading.kind, EntityActionKind::Download);
         assert_eq!(downloading.label, "Downloading...");
         assert!(!downloading.enabled);
+
+        let queued =
+            TrackActionState::new(TrackMembershipState::Queued, PlaylistActionState::Hidden)
+                .primary_action(target.clone());
+        assert_eq!(queued.kind, EntityActionKind::Download);
+        assert_eq!(queued.label, "Queued");
+        assert!(!queued.enabled);
 
         let removing =
             TrackActionState::new(TrackMembershipState::Removing, PlaylistActionState::Hidden)

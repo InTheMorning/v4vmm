@@ -29,7 +29,6 @@ use crate::view_models::release_page::{release_page_vm, ReleasePageFacts};
 )]
 pub(crate) fn render_library_feed_detail(
     album: &AlbumNode,
-    busy_track: Option<i64>,
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     library_vm: &LibraryViewModel,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
@@ -42,7 +41,7 @@ pub(crate) fn render_library_feed_detail(
         .into_iter()
         .map(|slot| (slot.selection, slot.probe))
         .unzip();
-    let facts = ReleasePageFacts::from_library_album(album, mb_status, busy_track, library_vm)
+    let facts = ReleasePageFacts::from_library_album(album, mb_status, library_vm)
         .with_row_selections(selections);
     let vm = release_page_vm(&facts);
     let thumbnail = |url: Option<&str>| {

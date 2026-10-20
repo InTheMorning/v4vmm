@@ -2962,12 +2962,23 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         "fn render_index_release_page(",
         "fn render_index_feed_or_fallback_detail(",
         "DisclosureTextPanel::new(",
-        "SubscribeFeedRequest {",
-        "SubscribeTrackRequest::SearchTrack",
     ] {
         if !app_source.contains(required) && !search_dispatch_source.contains(required) {
             violations.push(format!(
                 "src/app.rs or src/app/search_dispatch.rs: ADR 0049 ContentList dispatch/Index activation missing `{required}`"
+            ));
+        }
+    }
+    // ADR 0084 packet 022: the download queue of `LibraryApp` runs each
+    // Index download, so the Index download requests live there.
+    let downloads_source = read_source(&manifest_path("src/library/downloads.rs"));
+    for required in [
+        "SubscribeFeedRequest {",
+        "SubscribeTrackRequest::SearchTrack",
+    ] {
+        if !downloads_source.contains(required) {
+            violations.push(format!(
+                "src/library/downloads.rs: ADR 0049 Index activation download missing `{required}`"
             ));
         }
     }
@@ -4955,16 +4966,65 @@ and sets `Normal`. Keep the reset and the bind of the detail selection.\n{}",
 /// Index track download also updates the open release page of the
 /// track's feed in place. Before this fix, only an open track page
 /// resolved its source again, so the release page kept its Index source.
+/// Packet 022 moved the success code to the completion handler of the
+/// download queue, `finish_index_track_download`.
 #[test]
 fn adr_0084_detail_selection_index_track_download_updates_the_open_release_page() {
     let source = read_source(&manifest_path("src/app/search_dispatch.rs"));
-    let body = adr_0084_detail_selection_fn_body(&source, "pub(super) fn download_index_track(");
+    let body = adr_0084_detail_selection_fn_body(&source, "fn finish_index_track_download(");
     assert!(
         body.contains("release_download_updates_open_page(")
-            && body.contains("this.apply_release_page_source(&key, cx);"),
-        "ADR 0084 Decision 4: the success handler of `download_index_track` in \
+            && body.contains("self.apply_release_page_source(&key, cx);"),
+        "ADR 0084 Decision 4: the completion handler `finish_index_track_download` in \
 src/app/search_dispatch.rs must call `release_download_updates_open_page` and then \
-`this.apply_release_page_source(&key, cx)`, so the open release page updates in place."
+`self.apply_release_page_source(&key, cx)`, so the open release page updates in place."
+    );
+}
+
+/// Situational ADR 0084 Decision 10 (packet 022, R22-11): each download
+/// goes through the one download queue of `LibraryApp`. No function in
+/// `src/app/` builds a download command, and each Index download queues a
+/// job. Before packet 022, `TopApp` started each Index download at once,
+/// so more than three downloads, and two of one release, could run.
+#[test]
+fn adr_0084_download_queue_each_index_download_queues_a_job() {
+    let mut violations = Vec::new();
+    let app_files = rust_files_under("src/app")
+        .into_iter()
+        .chain([manifest_path("src/app.rs")]);
+    for file in app_files {
+        let full_source = read_source(&file);
+        let source = production_source(&full_source);
+        for forbidden in ["SubscribeFeed::new", "SubscribeTrack::new"] {
+            if source.contains(forbidden) {
+                violations.push(format!("{}: `{forbidden}`", file.display()));
+            }
+        }
+    }
+    let source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    for (function, job) in [
+        ("fn download_index_feed(", "index_release_job("),
+        ("pub(super) fn download_index_track(", "index_track_job("),
+        (
+            "pub(super) fn download_index_album_of_track(",
+            "index_release_job_by_guid(",
+        ),
+    ] {
+        let body = adr_0084_detail_selection_fn_body(&source, function);
+        if !(body.contains(job) && body.contains("library.queue_downloads(")) {
+            violations.push(format!(
+                "src/app/search_dispatch.rs: `{function}` must build `{job}` and call \
+`library.queue_downloads(`"
+            ));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 Decision 10 (packet 022): each download goes through the download queue of \
+`LibraryApp`. Build the job with `index_release_job`, `index_track_job` or \
+`index_release_job_by_guid` and pass it to `LibraryApp::queue_downloads`. The queue runs the \
+command in `src/library/downloads.rs`.\n{}",
+        violations.join("\n")
     );
 }
 
@@ -20824,29 +20884,43 @@ fn adr_0084_track_one_route_replaces_the_two_entries() {
     let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
     let search_dispatch_body = production_source(&search_dispatch_source);
 
+    // Packet 022: an Index track download completes in the completion
+    // handler of the download queue, `finish_index_track_download`.
     let download_track_fn = search_dispatch_body
-        .split("fn download_index_track(")
+        .split("fn finish_index_track_download(")
         .nth(1)
         .and_then(|rest| rest.split("\n    fn ").next())
-        .expect("src/app/search_dispatch.rs must define download_index_track");
+        .expect("src/app/search_dispatch.rs must define finish_index_track_download");
     if download_track_fn.contains("replace_current(") {
         violations.push(
-            "src/app/search_dispatch.rs: download_index_track must not replace the navigation entry"
+            "src/app/search_dispatch.rs: finish_index_track_download must not replace the navigation entry"
                 .to_string(),
         );
     }
     if !download_track_fn.contains("track_download_updates_open_page(") {
         violations.push(
-            "src/app/search_dispatch.rs: download_index_track must change only the open track page, through `track_download_updates_open_page`"
+            "src/app/search_dispatch.rs: finish_index_track_download must change only the open track page, through `track_download_updates_open_page`"
                 .to_string(),
         );
     }
 
-    // `download_index_album_of_track` has no completion closure of its
-    // own: it fetches the album, then calls `download_index_feed`, whose
-    // completion is `show_downloaded_index_feed`. That shared function is
-    // this download's actual "download completed" moment, the same way
-    // task 002 guards it for the release page.
+    // Packet 022: each Index release job, also the job of
+    // `download_index_album_of_track`, completes in
+    // `finish_index_release_download`, which calls the shared
+    // `show_downloaded_index_feed`. That shared function is the actual
+    // "download completed" moment, the same way task 002 guards it for
+    // the release page.
+    let release_completion_fn = search_dispatch_body
+        .split("fn finish_index_release_download(")
+        .nth(1)
+        .and_then(|rest| rest.split("\n    fn ").next())
+        .expect("src/app/search_dispatch.rs must define finish_index_release_download");
+    if !release_completion_fn.contains("self.show_downloaded_index_feed(") {
+        violations.push(
+            "src/app/search_dispatch.rs: finish_index_release_download must call `show_downloaded_index_feed`"
+                .to_string(),
+        );
+    }
     let downloaded_feed_fn = search_dispatch_body
         .split("fn show_downloaded_index_feed(")
         .nth(1)
@@ -20854,7 +20928,7 @@ fn adr_0084_track_one_route_replaces_the_two_entries() {
         .expect("src/app/search_dispatch.rs must define show_downloaded_index_feed");
     if !downloaded_feed_fn.contains("track_release_download_updates_open_page(") {
         violations.push(
-            "src/app/search_dispatch.rs: show_downloaded_index_feed must change only the open track page of the downloaded release, through `track_release_download_updates_open_page` (the shared completion for `download_index_album_of_track`)"
+            "src/app/search_dispatch.rs: show_downloaded_index_feed must change only the open track page of the downloaded release, through `track_release_download_updates_open_page` (the shared completion of each Index release job)"
                 .to_string(),
         );
     }

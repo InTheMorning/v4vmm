@@ -80,9 +80,12 @@ impl LibraryApp {
     /// other page.
     pub(crate) fn library_detail_page_rows(&self) -> Option<DetailPageRows> {
         match &self.detail {
-            LibraryDetail::Album(album) => Some(DetailPageRows::Tracks(
-                library_release_track_rows(album.release_track_rows()),
-            )),
+            LibraryDetail::Album(album) => {
+                Some(DetailPageRows::Tracks(library_release_track_rows(
+                    album.release_track_rows(),
+                    self.vm.busy_items().release_downloading(album),
+                )))
+            }
             LibraryDetail::SinglesGroup(key) => {
                 let page = self.vm.singles_group_page(key);
                 Some(DetailPageRows::Releases(singles_group_release_rows(

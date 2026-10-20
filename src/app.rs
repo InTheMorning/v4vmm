@@ -15,7 +15,9 @@ use crate::application::{
     ApplicationEventSubscriber, ApplicationServices, AsyncCommandRunner, CommandContext,
 };
 use crate::config;
-use crate::library::{LibraryApp, LibraryAppEvent, LibraryColumn, LibraryColumnView};
+use crate::library::{
+    DownloadStatusView, LibraryApp, LibraryAppEvent, LibraryColumn, LibraryColumnView,
+};
 use crate::media::ImageCache;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::PlaybackOwner;
@@ -132,6 +134,9 @@ pub struct TopApp {
     /// empty state, when the open page is not an Index, publisher, name
     /// match, or search page.
     library_detail_view: Entity<LibraryColumnView>,
+    /// The download progress item (ADR 0084 Decision 10, packet 022). It
+    /// shows on each section, beside the live status strip.
+    download_status_view: Entity<DownloadStatusView>,
     global_search_input: Entity<InputState>,
     endpoint_input: Entity<InputState>,
     music_dir_input: Entity<InputState>,
@@ -340,6 +345,7 @@ impl TopApp {
             cx.new(|cx| LibraryColumnView::new(library.clone(), LibraryColumn::List, cx));
         let library_detail_view =
             cx.new(|cx| LibraryColumnView::new(library.clone(), LibraryColumn::Detail, cx));
+        let download_status_view = cx.new(|cx| DownloadStatusView::new(library.clone(), cx));
         let library_sub = cx.subscribe_in(
             &library,
             window,
@@ -389,6 +395,11 @@ impl TopApp {
                 LibraryAppEvent::OpenPage { entry, start } => {
                     this.open_music_page(entry, *start, cx);
                 }
+                // ADR 0084 Decision 10: an Index job of the download queue
+                // completed. The open pages change in place.
+                LibraryAppEvent::IndexDownloadFinished { job, outcome } => {
+                    this.finish_index_download(job, outcome, cx);
+                }
             },
         );
         let appearance_sub = cx.observe_window_appearance(window, |this, window, cx| {
@@ -434,6 +445,7 @@ impl TopApp {
             library_sidebar_view,
             library_list_view,
             library_detail_view,
+            download_status_view,
             global_search_input,
             endpoint_input,
             music_dir_input,
@@ -1768,6 +1780,9 @@ impl Render for TopApp {
                     .min_w_0()
                     .overflow_hidden()
                     .when_some(live_status_strip, gpui::ParentElement::child)
+                    // ADR 0084 Decision 10: the download progress item
+                    // shows on each section, beside the live status strip.
+                    .child(self.download_status_view.clone())
                     // ADR 0060: workspace render delegates to the active app-section mount.
                     .child(self.render_workspace_content(
                         mount,

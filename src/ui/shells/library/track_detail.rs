@@ -38,6 +38,7 @@ pub(crate) fn render_library_track_detail(
     playlists: &[db::Playlist],
     chrome: &LibraryChromeDisplay,
     named_feeds: &[NamedFeed],
+    release_download_active: bool,
     scroll: &ScrollHandle,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
@@ -59,6 +60,7 @@ pub(crate) fn render_library_track_detail(
             result,
             playlists,
             named_feeds,
+            release_download_active,
             cx,
         )));
     // ADR 0084 packet 018: the keys of the detail column scroll the page
@@ -72,6 +74,7 @@ fn render_library_track_window(
     result: Option<&TagCompareResult>,
     playlists: &[db::Playlist],
     named_feeds: &[NamedFeed],
+    release_download_active: bool,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let pending_id3_edits = pending_id3_edits_for_track_detail(frame, track_context, result);
@@ -83,6 +86,7 @@ fn render_library_track_window(
             downloaded: frame.local_subscription,
             subscription_busy: frame.subscription_busy,
             musicbrainz_available: inspector_display.musicbrainz_enabled,
+            release_download_active,
         });
     let action_row = render_library_track_detail_actions(
         frame,

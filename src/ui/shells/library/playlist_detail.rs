@@ -91,7 +91,7 @@ fn download_added_track_slot(
     let entity = cx.entity().downgrade();
     std::rc::Rc::new(move |track_id, _window, cx| {
         if let Some(entity) = entity.upgrade() {
-            entity.update(cx, |this, cx| this.download_rss_added_track(track_id, cx));
+            entity.update(cx, |this, cx| this.download_library_tracks(&[track_id], cx));
         }
     })
 }

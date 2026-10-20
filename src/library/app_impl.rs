@@ -3,10 +3,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use super::download_queue::{DownloadOutcome, JobIdentity};
 use super::PlaylistActorState;
 use super::{
     InspectorFrame, LazyPanel, LibraryApp, LibraryArtistDetail, LibraryDetail, PlaylistDetail,
-    QueuedDownload, ThumbnailState,
+    ThumbnailState,
 };
 use crate::app::keyboard::primary_modifier_held;
 use crate::application::commands::download::{SubscribeThenAppendToPlaylist, SubscribeTrack};
@@ -656,40 +657,6 @@ impl LibraryApp {
         self.vm.singles_group_page(key)
     }
 
-    /// Downloads each single of a group page that is not in the Library,
-    /// newest first (ADR 0084 Decision 6). `download_feed` runs one
-    /// download at a time, so this queues the feed ids and starts the
-    /// first one.
-    pub(crate) fn download_singles(&mut self, feed_ids: &[i64], cx: &mut Context<Self>) {
-        self.queued_downloads
-            .extend(feed_ids.iter().copied().map(QueuedDownload::Feed));
-        self.start_next_queued_download(cx);
-    }
-
-    /// Queues each Library track of `track_ids` for a download, and starts
-    /// the first one (ADR 0084 packet 018: "Download n tracks" of the
-    /// detail column bar). One download runs at a time.
-    pub(crate) fn download_library_tracks(&mut self, track_ids: &[i64], cx: &mut Context<Self>) {
-        self.queued_downloads
-            .extend(track_ids.iter().copied().map(QueuedDownload::Track));
-        self.start_next_queued_download(cx);
-    }
-
-    /// Starts the next queued download, when no download runs. A feed
-    /// that starts no download, for example a feed with no tracks, does
-    /// not stop the queue.
-    fn start_next_queued_download(&mut self, cx: &mut Context<Self>) {
-        while !(self.vm.has_busy_track() || self.vm.has_busy_feed()) {
-            match self.queued_downloads.pop_front() {
-                Some(QueuedDownload::Feed(feed_id)) => self.download_feed(feed_id, cx),
-                Some(QueuedDownload::Track(track_id)) => {
-                    self.download_rss_added_track(track_id, cx);
-                }
-                None => return,
-            }
-        }
-    }
-
     pub(crate) fn open_publisher_page(
         &mut self,
         publisher_feed_guid: &str,
@@ -896,7 +863,7 @@ impl LibraryApp {
             recent_music_page: RecentFeedsPageVm::loading(),
             recent_music_scroll: gpui::ScrollHandle::new(),
             expanded_singles_groups: BTreeSet::new(),
-            queued_downloads: std::collections::VecDeque::new(),
+            download_queue: super::DownloadQueue::default(),
             releases_selection: ListSelection::new(),
             releases_selection_mode: SelectionMode::Normal,
             track_selection: ListSelection::new(),
@@ -1134,32 +1101,6 @@ impl LibraryApp {
             |_this, (), _cx| {},
             |this, err, _cx| this.vm.fail_playlist_rss_check(err),
         );
-    }
-
-    /// The download action of a track that the RSS check added (ADR 0076
-    /// Decision 6). It uses the existing Library track download.
-    pub(crate) fn download_rss_added_track(&mut self, track_id: i64, cx: &mut Context<Self>) {
-        let track = match self.conn.lock() {
-            Ok(conn) => db::track_row_by_id(&conn, track_id),
-            Err(_) => Err(anyhow::anyhow!("The database connection is not available.")),
-        };
-        match track {
-            Ok(Some(track)) => self.subscribe_track(track, cx),
-            Ok(None) => {
-                self.vm.fail_track_subscribe(
-                    "The added track is no longer stored, so the app cannot download it.",
-                );
-                self.start_next_queued_download(cx);
-                cx.notify();
-            }
-            Err(error) => {
-                self.vm.fail_track_subscribe(format!(
-                    "The app could not read the added track from the database. {error:#}"
-                ));
-                self.start_next_queued_download(cx);
-                cx.notify();
-            }
-        }
     }
 
     fn on_rename_playlist_event(
@@ -2461,17 +2402,23 @@ impl LibraryApp {
         );
     }
 
-    pub(crate) fn download_feed(&mut self, feed_id: i64, cx: &mut Context<Self>) {
-        if self.vm.has_busy_track() || self.vm.has_busy_feed() {
-            return;
-        }
+    /// Runs one Library release job of the download queue (ADR 0084
+    /// Decision 10). Each completion reports to the queue, and the queue
+    /// starts the next job.
+    pub(super) fn run_library_feed_job(
+        &mut self,
+        identity: JobIdentity,
+        feed_id: i64,
+        cx: &mut Context<Self>,
+    ) {
         let Some(feed) = self.api_feed_for_album(feed_id) else {
-            self.vm.set_album_has_no_tracks();
-            cx.notify();
+            let outcome = DownloadOutcome::Failed {
+                error: "the release has no tracks.".to_owned(),
+            };
+            self.finish_download(&identity, outcome, cx);
             return;
         };
-        self.vm.begin_busy_feed(feed_id, "Downloading feed...");
-        cx.notify();
+        let failed_identity = identity.clone();
         let command = SubscribeFeed::new(
             Arc::clone(&self.conn),
             self.application_services.download_manager(),
@@ -2485,19 +2432,16 @@ impl LibraryApp {
             command,
             CommandContext::next(),
             cx,
-            |this, result, cx| {
-                this.vm.finish_feed_download(
-                    result.downloaded(),
-                    result.applied_edits(),
-                    result.skipped(),
-                );
+            move |this, _result, cx| {
                 this.refresh_origin_playlist_actor();
                 this.start_async_reload_preserving_detail(cx);
-                this.start_next_queued_download(cx);
+                this.finish_download(&identity, DownloadOutcome::Succeeded, cx);
             },
-            |this, error, cx| {
-                this.vm.fail_feed_download(error);
-                this.start_next_queued_download(cx);
+            move |this, error, cx| {
+                let outcome = DownloadOutcome::Failed {
+                    error: error.to_string(),
+                };
+                this.finish_download(&failed_identity, outcome, cx);
             },
         );
     }
@@ -2583,7 +2527,16 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) {
         if let LibraryRemovalTarget::Feed(feed_id) = target {
-            self.vm.begin_busy_feed(feed_id, "Removing feed...");
+            // ADR 0084 Decision 10: a removal of a release waits until no
+            // download of that release is queued or running.
+            if let Some(refusal) = self.release_removal_refusal(feed_id) {
+                if !self.record_selection_removal_result(target, Some(refusal.clone())) {
+                    self.vm.set_status(refusal);
+                }
+                cx.notify();
+                return;
+            }
+            self.vm.begin_feed_removal(feed_id);
             cx.notify();
         }
         let command = RemoveFromLibrary::new(Arc::clone(&self.conn), target);
@@ -2593,25 +2546,27 @@ impl LibraryApp {
             CommandContext::next(),
             cx,
             move |this, result, cx| {
-                this.vm.clear_busy_feed();
+                this.finish_feed_removal(target);
                 this.record_selection_removal_result(target, None);
-                // ADR 0084 Decision 6: a queued singles download waits for
-                // each busy feed or track. The end of this work starts it.
-                this.start_next_queued_download(cx);
                 this.apply_library_removal_result_to_selected_detail(result.target());
                 // A mounted readiness list drops the removed track in place.
                 this.refresh_current_broadcast_readiness_report();
                 this.refresh_origin_playlist_actor();
                 this.start_async_reload_preserving_detail(cx);
             },
-            move |this, err, cx| {
-                this.vm.clear_busy_feed();
-                this.start_next_queued_download(cx);
+            move |this, err, _cx| {
+                this.finish_feed_removal(target);
                 if !this.record_selection_removal_result(target, Some(format!("{err:#}"))) {
                     this.vm.set_error_status(err);
                 }
             },
         );
+    }
+
+    fn finish_feed_removal(&mut self, target: LibraryRemovalTarget) {
+        if let LibraryRemovalTarget::Feed(feed_id) = target {
+            self.vm.finish_feed_removal(feed_id);
+        }
     }
 
     fn apply_library_removal_result_to_selected_detail(&mut self, target: LibraryRemovalTarget) {
@@ -2635,17 +2590,34 @@ impl LibraryApp {
         Some(api_feed_from_album(&album))
     }
 
-    pub(crate) fn subscribe_track(&mut self, track: TrackRow, cx: &mut Context<Self>) {
-        if self.vm.has_busy_track() {
-            return;
-        }
-        let track_id = track.id;
-        self.vm.begin_busy_track(
-            track_id,
-            LibraryTrackActionVm::track_subscribe_begin_status(),
-        );
-        cx.notify();
-
+    /// Runs one Library track job of the download queue (ADR 0084
+    /// Decision 10). The completion updates the open release page and the
+    /// open track page of the track in place.
+    pub(super) fn run_library_track_job(
+        &mut self,
+        identity: JobIdentity,
+        track_id: i64,
+        cx: &mut Context<Self>,
+    ) {
+        let track = match self.conn.lock() {
+            Ok(conn) => db::track_row_by_id(&conn, track_id),
+            Err(_) => Err(anyhow::anyhow!("The database connection is not available.")),
+        };
+        let track = match track {
+            Ok(Some(track)) => track,
+            Ok(None) => {
+                let error = "the track is no longer stored.".to_owned();
+                self.fail_library_track_job(&identity, track_id, error, cx);
+                return;
+            }
+            Err(error) => {
+                let error =
+                    format!("the app could not read the track from the database. {error:#}");
+                self.fail_library_track_job(&identity, track_id, error, cx);
+                return;
+            }
+        };
+        let failed_identity = identity.clone();
         let command = SubscribeTrack::new(
             Arc::clone(&self.conn),
             self.application_services.download_manager(),
@@ -2659,28 +2631,66 @@ impl LibraryApp {
             command,
             CommandContext::next(),
             cx,
-            move |this, outcome, cx| {
-                let path = outcome.path().to_string();
+            move |this, result, cx| {
                 apply_track_subscription_to_album_detail(
                     &mut this.detail,
                     track_id,
-                    outcome.relative_path().cloned(),
-                    outcome.marked_downloaded(),
+                    result.relative_path().cloned(),
+                    result.marked_downloaded(),
                 );
-                this.vm.finish_track_subscribe(TrackSubscribeOutcome::new(
-                    path,
-                    outcome.format_warning().map(str::to_string),
-                ));
-                this.start_next_queued_download(cx);
+                // ADR 0084 Decision 10: the progress item reports each
+                // job. Only a format warning also goes to the status line.
+                if let Some(warning) = result.format_warning() {
+                    this.vm.finish_track_subscribe(TrackSubscribeOutcome::new(
+                        result.path().to_string(),
+                        Some(warning.to_string()),
+                    ));
+                }
+                if let Some(frame) = this.selected_track_frame_mut() {
+                    if frame.entity_id == track_id {
+                        frame.subscription_busy = false;
+                        frame.local_subscription = result.marked_downloaded();
+                        frame.track.is_in_library = result.marked_downloaded();
+                        if result.marked_downloaded() {
+                            frame.track.local_path = result.relative_path().cloned();
+                        }
+                        frame.source_context = None;
+                        frame.tag_compare = LazyPanel::Hidden;
+                        frame.pending_id3_edits.clear();
+                        frame.suppressed_auto_id3_edits.clear();
+                        frame.id3_apply_error = None;
+                        frame.subscription_message = Some(result.message().into());
+                    }
+                }
                 this.refresh_origin_playlist_actor();
                 this.start_async_reload_preserving_detail(cx);
                 this.scan_tag_updates();
+                this.finish_download(&identity, DownloadOutcome::Succeeded, cx);
             },
-            |this, error, cx| {
-                this.vm.fail_track_subscribe(error);
-                this.start_next_queued_download(cx);
+            move |this, error, cx| {
+                this.fail_library_track_job(&failed_identity, track_id, error.to_string(), cx);
             },
         );
+    }
+
+    /// Records a failed Library track job, and shows the error on the open
+    /// track page of the track.
+    fn fail_library_track_job(
+        &mut self,
+        identity: &JobIdentity,
+        track_id: i64,
+        error: String,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(frame) = self.selected_track_frame_mut() {
+            if frame.entity_id == track_id {
+                frame.subscription_busy = false;
+                frame.subscription_message = Some(
+                    LibraryTrackActionVm::subscription_error_message(true, &error),
+                );
+            }
+        }
+        self.finish_download(identity, DownloadOutcome::Failed { error }, cx);
     }
 
     fn selected_track_frame_mut(&mut self) -> Option<&mut InspectorFrame> {
@@ -2848,69 +2858,21 @@ impl LibraryApp {
             }
             TrackSubscriptionAction::Download(track) => track,
         };
-
+        // ADR 0084 Decision 10: the track page queues one job. The page
+        // stays busy only while a job of this track is queued or in
+        // flight, because the queue drops the track when a download of its
+        // release is queued or running.
         let track_id = track.id;
-        self.vm.begin_busy_track(
-            track_id,
-            LibraryTrackActionVm::track_subscribe_begin_status(),
-        );
+        self.download_library_tracks(&[track_id], cx);
+        if !self.library_track_download_active(track_id) {
+            if let Some(frame) = self.selected_track_frame_mut() {
+                if frame.entity_id == track_id {
+                    frame.subscription_busy = false;
+                    frame.subscription_message = None;
+                }
+            }
+        }
         cx.notify();
-
-        let command = SubscribeTrack::new(
-            Arc::clone(&self.conn),
-            self.application_services.download_manager(),
-            SubscribeTrackRequest::LibraryTrack { track },
-            LibraryTrackActionVm::track_subscribe_success_message(),
-        );
-        present_command(
-            &self.command_runner,
-            command,
-            CommandContext::next(),
-            cx,
-            move |this, result, cx| {
-                let path = result.path().to_string();
-                apply_track_subscription_to_album_detail(
-                    &mut this.detail,
-                    track_id,
-                    result.relative_path().cloned(),
-                    result.marked_downloaded(),
-                );
-                this.vm.finish_track_subscribe(TrackSubscribeOutcome::new(
-                    path.clone(),
-                    result.format_warning().map(str::to_string),
-                ));
-                this.start_next_queued_download(cx);
-                if let Some(frame) = this.selected_track_frame_mut() {
-                    if frame.entity_id == track_id {
-                        frame.subscription_busy = false;
-                        frame.local_subscription = result.marked_downloaded();
-                        frame.track.is_in_library = result.marked_downloaded();
-                        if result.marked_downloaded() {
-                            frame.track.local_path = result.relative_path().cloned();
-                        }
-                        frame.source_context = None;
-                        frame.tag_compare = LazyPanel::Hidden;
-                        frame.pending_id3_edits.clear();
-                        frame.suppressed_auto_id3_edits.clear();
-                        frame.id3_apply_error = None;
-                        frame.subscription_message = Some(result.message().into());
-                    }
-                }
-                this.refresh_origin_playlist_actor();
-                this.start_async_reload_preserving_detail(cx);
-            },
-            move |this, err, cx| {
-                this.vm.fail_track_subscribe(&err);
-                this.start_next_queued_download(cx);
-                if let Some(frame) = this.selected_track_frame_mut() {
-                    if frame.entity_id == track_id {
-                        frame.subscription_busy = false;
-                        frame.subscription_message =
-                            Some(LibraryTrackActionVm::subscription_error_message(true, err));
-                    }
-                }
-            },
-        );
     }
 
     pub(crate) fn toggle_tag_compare(&mut self, cx: &mut Context<Self>) {
@@ -3723,10 +3685,8 @@ impl LibraryApp {
     /// Decision 10), or `None` outside `Selecting` mode (Amendment,
     /// 2026-10-19).
     pub(crate) fn content_list_selection_action_bar(&self) -> Option<SelectionActionBarVm> {
-        LibraryViewModel::content_list_selection_action_bar(
-            &self.track_selection,
-            self.track_selection_mode,
-        )
+        self.vm
+            .content_list_selection_action_bar(&self.track_selection, self.track_selection_mode)
     }
 
     /// Runs a Download, Remove or Clear action of the Releases list's
@@ -3743,7 +3703,7 @@ impl LibraryApp {
                 let feed_ids = self
                     .vm
                     .releases_downloadable_feed_ids(&self.releases_selection);
-                self.download_singles(&feed_ids, cx);
+                self.download_library_feeds(&feed_ids, cx);
             }
             SelectionActionKind::Remove => self.request_releases_selection_removal(window, cx),
             SelectionActionKind::Clear => {
@@ -3892,7 +3852,7 @@ impl LibraryApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let tracks = self.vm.content_list_selected_tracks(&self.track_selection);
+        let tracks = self.vm.content_list_removable_tracks(&self.track_selection);
         let items = tracks
             .into_iter()
             .map(|(track_id, title)| (LibraryRemovalIntent::TrackId(track_id), title))
@@ -4479,7 +4439,6 @@ impl LibraryApp {
         let scroll = self.detail_scroll_handle();
         render_library_detail(
             &self.detail,
-            self.vm.busy_track(),
             self.vm.mb_status(),
             &self.vm,
             &album_thumbs,
