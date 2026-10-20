@@ -1,6 +1,10 @@
 # ADR 0077 Task 004: Publisher Page And Navigation
 
-Status: Open - implementation and mechanical checks are complete on 2026-09-26. On 2026-10-07 the operator moved its visual check to the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07). The packet that rebuilds the surface carries it.
+Status: Complete - 2026-10-20. Each visual requirement was carried by a later packet or retired by a later ADR (triage of 2026-10-20).
+
+ADR 0082 packet 003 V2 and V7 carry V1, apart from its type. V4 carries V2. ADR 0084 packet 008 V5 carries the failure part of V3. Packet 008 V3 carries the "Not listed" mark of V4, V6 carries its derived count, and V8 carries V5.
+
+ADR 0085 Decision 3 retires the type in V1 and the role text of V4. ADR 0084 Decision 4 retires the two groups of V3. See the [overhaul plan](../../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
 
 ## Goal
 
@@ -12,11 +16,11 @@ The orchestrator divided the earlier packet 004 into packets 004 and 005 on 2026
 
 ## Authority
 
-- [ADR 0077](../adr/0077-publisher-feed-artist-binding.md) Decisions 1 and 2, and its accepted refinements.
-- [ADR 0078](../adr/archive/0078-publisher-page-type-from-stated-role.md), the page type.
-- [ADR 0076](../adr/0076-playlist-rss-check-for-stale-musicindex-records.md): one projection in `src/application/queries/stored_values.rs` owns the stored values.
-- [ADR 0060](../adr/0060-workflow-surface-structure.md): the Music section holds Index results and the Library.
-- The durable set in [AGENTS.md](../../AGENTS.md): element hierarchy, token discipline, typed action state, renderer portability and the UI change acceptance gate.
+- [ADR 0077](../../adr/0077-publisher-feed-artist-binding.md) Decisions 1 and 2, and its accepted refinements.
+- [ADR 0078](../../adr/archive/0078-publisher-page-type-from-stated-role.md), the page type.
+- [ADR 0076](../../adr/0076-playlist-rss-check-for-stale-musicindex-records.md): one projection in `src/application/queries/stored_values.rs` owns the stored values.
+- [ADR 0060](../../adr/0060-workflow-surface-structure.md): the Music section holds Index results and the Library.
+- The durable set in [AGENTS.md](../../../AGENTS.md): element hierarchy, token discipline, typed action state, renderer portability and the UI change acceptance gate.
 
 ## Packet 003 Result That This Packet Uses
 
@@ -24,7 +28,7 @@ The orchestrator divided the earlier packet 004 into packets 004 and 005 on 2026
 - `fetch_index_publisher_page` in `src/application/queries/feed.rs` and `fetch_library_publisher_page` in `src/application/queries/library.rs`.
 - `PublisherPageVm` in `src/view_models/publisher_page.rs`: `title`, `page_type`, `owned_albums`, `listed_by_albums`, `library_albums`, `other_albums`, `other_albums_status`, and `derived_artist_count`.
 - Each packet 003 item carries `#[cfg_attr(not(test), expect(dead_code, reason = ...))]`. When this packet calls an item, the expectation becomes unfulfilled and the build fails. Remove each expectation that the build names.
-- The [packet 003 review](archive/adr-0077-task-003-publisher-page-view-model.md#orchestrator-review---2026-09-26) records a follow-up: a Library album has no artist text.
+- The [packet 003 review](adr-0077-task-003-publisher-page-view-model.md#orchestrator-review---2026-09-26) records a follow-up: a Library album has no artist text.
 
 ## Required Changes
 
@@ -54,7 +58,7 @@ A Library album with no stored artist shows no artist. The view model invents no
 - On a Library page, the screen shows `library_albums` and `other_albums` as two groups. When `other_albums_status` is `Unavailable`, the screen shows its report first and its detail after it.
 - On an Index page, the screen shows `owned_albums` and `listed_by_albums`, and marks each album with `in_library`.
 - New repeated elements use a shared primitive or composite. Size, spacing, color, type and icons come from named tokens.
-- Read [column text truncation](../troubleshooting/column-text-truncation.md) before you style stacked text.
+- Read [column text truncation](../../troubleshooting/column-text-truncation.md) before you style stacked text.
 - The page loads through the ADR 0040 runtime. A screen does not call `cx.spawn`.
 - The mounted page updates in place when its data changes.
 
@@ -91,7 +95,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/view_models/publisher_page.rs`, `src/application/queries/feed.rs`, `src/application/queries/library.rs` and `src/db/publisher_relationships.rs`.
 - `src/application/queries/stored_values.rs`: `feed_values` and `FeedStoredValues`.
 - `src/view_models/workspace/nav.rs` and `src/view_models/workspace/breadcrumb.rs`.

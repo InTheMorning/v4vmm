@@ -1,6 +1,8 @@
 # ADR 0077 Task 007: Confirmed And Unconfirmed Artists
 
-Status: Open - implementation and mechanical checks are complete on 2026-09-30. On 2026-10-07 the operator moved its visual check to the [overhaul plan](../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07). The packet that rebuilds the surface carries it.
+Status: Complete - 2026-10-20. Each visual requirement was carried by a later packet or retired by a later ADR (triage of 2026-10-20).
+
+ADR 0084 packet 008 V6 carries V1 to V3, and V8 carries V4. See the [overhaul plan](../../plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
 
 ## Goal
 
@@ -9,10 +11,10 @@ The page no longer shows a single "Artists" count that ignores the second group.
 
 ## Authority
 
-- [ADR 0077](../adr/0077-publisher-feed-artist-binding.md) Decisions 2 and 3, and [ADR 0078](../adr/archive/0078-publisher-page-type-from-stated-role.md): the artist count never selects the page type.
-- [ADR 0075](../adr/0075-metadata-ownership-and-completeness.md) Decision I: MusicIndex derives these values. The page names them as derived.
+- [ADR 0077](../../adr/0077-publisher-feed-artist-binding.md) Decisions 2 and 3, and [ADR 0078](../../adr/archive/0078-publisher-page-type-from-stated-role.md): the artist count never selects the page type.
+- [ADR 0075](../../adr/0075-metadata-ownership-and-completeness.md) Decision I: MusicIndex derives these values. The page names them as derived.
 - Stophammer ADR 0061, Accepted on 2026-09-27 and deployed in release 0.2.0.
-- The durable set in [AGENTS.md](../../AGENTS.md): renderer portability and token discipline.
+- The durable set in [AGENTS.md](../../../AGENTS.md): renderer portability and token discipline.
 
 ## Recorded Facts - 2026-09-29
 
@@ -80,7 +82,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/api.rs`: `Feed`, the publisher decode tests.
 - `src/application/queries/feed.rs`: `fetch_index_publisher_page_albums` and its facts.
 - `src/application/queries/library.rs`: `fetch_library_publisher_page`.

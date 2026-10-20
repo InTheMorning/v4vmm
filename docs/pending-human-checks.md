@@ -140,6 +140,7 @@ Open and paused - implementation, technical review, and mechanical checks are co
 - Run the packet's temporary-fixture procedure only after mechanical review and the operator resumes visual checks.
 - Preserve configuration, audio files, secret files, playlists, source records, and the selected event during the fixture check.
 - Retain a failing fixture. Confirm successful preservation and fixture cleanup before closing this gate.
+- This check has no runnable procedure and no owner (triage of 2026-10-20). The fixture checks a migration-11 ledger and migration-12 rows, and expects a separate version-12 candidate. Schema version 19 is current. The fixture needs revision for schema 19 before anyone can walk this check.
 
 ## 3. MusicBrainz URL Relations By Type — ADR 0080 Task 002
 

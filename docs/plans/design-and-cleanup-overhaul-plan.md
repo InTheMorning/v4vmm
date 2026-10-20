@@ -57,7 +57,7 @@ Each binding change in it needs its own ADR or ADR amendment before code changes
 The operator chose this direction on 2026-10-03, from the [mockup canvas](https://claude.ai/artifact/CaY8T2NUdDosRV9uoFy9bk) (private to the operator). [ADR 0083](../adr/0083-design-language.md) records it.
 
 - Version 2 of the mockups is the target: real covers, and each album page tinted by a blurred copy of its cover, as on `search.html`.
-- Browsing follows Apple Music: a Music home, an album grid, album pages with one main Play action.
+- Browsing follows Apple Music: album pages with one main Play action. ADR 0084 replaced the Music home and the album grid: Music is a column browser that opens on Discover (Decisions 1 and 3).
 - Value for value is visible: the payment split as a bar, and the show readiness of an album.
 - Inspection stays one step away: an "Inspect sources" view with RSS, MusicIndex and file tags side by side.
 - From Raycast, the app takes a cohesive status bar and simple icons. The app is not a keyboard-driven power tool: each action works with the mouse, and a "⋯" menu holds the secondary actions.
@@ -72,13 +72,14 @@ Three packets implement ADR 0083 Decisions 1 to 4 and 10. The operator walks the
 
 ### Phase 4: Library
 
-Packets for each surface: the album grid with artwork first, the album page with its track list and a play action, and the "Inspect" disclosure. Each packet has its visual check, walked right after it.
+Packets for each surface: the album page with its track list and a play action, and the "Inspect" disclosure. ADR 0084 replaced the album grid with the column browser of Phase 4A. Each packet has its visual check, walked right after it.
 
 The first Phase 4 packet builds the track page once, for a Library track and an Index track. The operator decided this on 2026-10-07.
 
 1. [ADR 0083 task 004](../tasks/archive/adr-0083-task-004-one-track-page.md): one track page, the action hierarchy, name links, credits and "Inspect sources". Done on 2026-10-07.
 2. [ADR 0083 task 005](../tasks/archive/adr-0083-task-005-album-page-header-and-actions.md): one album page header and action row for the Library and the Index, the 200 pixel cover and the cover color backdrop. Done on 2026-10-08.
-3. Later packets: the inspection view of RSS, MusicIndex and file tags, the payment split bar for the track page and the album page, and row hover actions.
+3. Later packets, not started on 2026-10-20: the inspection view of RSS, MusicIndex and file tags (ADR 0083 Decision 8), and the row hover actions (ADR 0083 Decision 6).
+   Also the payment split bar for the track page and the album page.
 
 ### Phase 4A: Flow And Information Architecture
 
@@ -90,7 +91,7 @@ The operator decided on 2026-10-08 to add this phase. Phases 2 and 3 set the loo
 - The sidebar has three jobs: navigation, a tree of artists, albums and tracks, and feed status.
 - Search is the only way to reach the Index. No view lets the operator browse new music.
 
-The "Inspect sources" view and the payment split bar are inside pages, so they can continue during this phase. The album grid and the row hover actions wait for the structure decision.
+The "Inspect sources" view and the payment split bar are inside pages, so they can continue during this phase. The row hover actions wait for the structure work.
 
 Curator jobs, decided by the operator on 2026-10-08. Each job becomes a scripted flow check:
 
@@ -112,13 +113,13 @@ Steps:
    - Artist, decided by the operator on 2026-10-08: one artist page type with two levels. When an album names a publisher feed, the artist page is that publisher, with its identity, its albums from the Library and the Index, and its links. With no publisher feed, the same layout shows a labeled name grouping, for example "Albums that name Ledbetter". The page says which identity it has. Names never merge into one identity (ADR 0077 Decision 1). A publisher feed can be a label and not the artist, so the page shows the feed title.
    - Library membership, decided by the operator on 2026-10-08: a state, not a place. Each album, track and artist has one page, whatever its origin. The page shows its Library state, for example "In Library", "3 of 7 tracks" or "Not downloaded", and the actions for that state. Each list has one scope control, "Library" or "Everything". The sidebar destinations show the Library by default. Search shows everything, with a badge on each Library item. This deletes the separate Index page routes.
    - Navigation, decided by the operator on 2026-10-08: one history stack for the content area. Each page change goes into it: a sidebar click, a row, a link or search. Back and Forward always show. A breadcrumb shows the location, not the history: the destination and the path inside it, for example "Playlists > 000 > Tiddies In My Face". A breadcrumb shows each page one time only.
-   - Multiple selection, decided by the operator on 2026-10-08: each track and album list has the same model. A row shows a checkbox when the pointer is on it, or when a selection exists. Ctrl+click adds a row, Shift+click adds a range, and Ctrl+A selects the list. A plain click opens the page of the row. With a selection, an action bar at the bottom of the list shows the count, the actions for the whole selection and "Clear". No step needs a drag.
+   - Multiple selection: [ADR 0084](../adr/0084-music-column-browser.md) Decision 10, amended on 2026-10-19, owns the model, the two modes and the action bar.
 3. Structure options. Two or three clickable HTML prototypes of the Music section, scored against the four jobs and the two constraints.
    Built on 2026-10-08: [structure options canvas](https://claude.ai/artifact/Uy8HeawDJGpuyVWvutNme6) (private to the operator), with option A (destinations sidebar), option B (column browser) and option C (home first).
    - Structure, chosen by the operator on 2026-10-08: option B, the column browser. The sidebar holds the destinations, a list column shows the items of the destination, and a detail column shows the selected item. At a narrow width, the sidebar collapses to icons only.
    - The first destination is Discover, a browser of new releases as tiles or rows. Later views go in the Discover column: shared musicL playlists and genre tags, scope to be decided.
    - The operator renamed "Albums" to "Releases" on 2026-10-08, because many releases are singles. A release shows its kind: Album, EP or Single.
-   - Singles: in the Releases list, two or more singles of one artist show as one group row, for example "Haleen · 7 singles · 5 in Library". The row opens to show each single, and its checkbox selects them all. The group page lists the singles newest first and offers "Download n singles". An artist page shows "Albums and EPs" apart from "Singles". The group uses the artist identity of the object model, so names never merge across publisher feeds. The refined option B on the canvas shows this design. The operator's review is open.
+   - Singles: in the Releases list, two or more singles of one artist show as one group row, for example "Haleen · 7 singles · 5 in Library". The row opens to show each single, and its checkbox selects them all. The group page lists the singles newest first and offers "Download n singles". An artist page shows "Albums and EPs" apart from "Singles". The group uses the artist identity of the object model, so names never merge across publisher feeds. The refined option B on the canvas shows this design. ADR 0084 Decision 6 owns it, and packet 015 built it.
    - Scope controls, decided by the operator on 2026-10-08: Releases and Artists each have the control "Library" or "Everything". Tracks has no scope control and shows the Library only.
    - Collection art, requested by the operator on 2026-10-08: as on `../musicindex/search.html`, the MusicIndex logo shape frames the art of a collection. A collection is a singles group, an artist page or a playlist. The frame holds a mosaic of up to four covers, or the entity color when no cover exists. A collection with one cover shows that cover as a square. One release always shows its cover as a square.
 4. A decision record for the chosen structure. It amends ADR 0060 and the decisions on frames, the content list and the Library control that the structure changes.
@@ -129,14 +130,15 @@ Steps:
       Complete on 2026-10-08 as [ADR 0084 task 001](../tasks/archive/adr-0084-task-001-one-navigation-stack.md). The operator passed its visual check on 2026-10-08.
    2. One page for each item (Decision 4). Library and Index rows open the same release and track pages. It fixes finding 2.
       Written on 2026-10-08 as two packets: [task 002](../tasks/archive/adr-0084-task-002-one-release-route.md) for releases, complete on 2026-10-11, and [task 003](../tasks/archive/adr-0084-task-003-one-track-route.md) for tracks, complete on 2026-10-11. The [ADR 0084 phase plan](adr-0084-music-column-browser-phase-plan.md) holds the packet register.
-   3. The three-column shell: the destinations, the collapsible sidebar, Discover with "New releases", Needs attention and Playlists (Decisions 1 to 3). It deletes the sidebar tree and fixes finding 5.
-   4. Releases: the kind of each release, the two scopes and the singles groups with their group page (Decisions 5, 6 and 8).
+   3. The three-column shell: the destinations, the collapsible sidebar, Discover with "New releases", Needs attention and Playlists (Decisions 1 to 3). It deletes the sidebar tree and fixes finding 5. Complete as packets 004 to 006, 013 and 014.
+   4. Releases: the kind of each release, the two scopes and the singles groups with their group page (Decisions 5, 6 and 8). Packets 007 and 015 are complete. Packet 016, the scopes, waits for Stophammer request 8.
    5. The artist page with two levels and its scope (Decisions 7 and 8). It replaces the Library artist page by name and the name match page, and fixes finding 6.
       The operator split it on 2026-10-18. [ADR 0084 packet 008](../tasks/archive/adr-0084-task-008-feed-page-and-artists.md) builds the feed level and the Artists list. Packet 017 builds the name level, and replaces the two old pages.
       Packet 010 fixes finding 6, and packet 016 adds the scope.
    6. Multiple selection and the action bar, with the reserved audition place in the row composite (Decisions 10 and 11). It fixes finding 3.
       The operator split it on 2026-10-18: [ADR 0084 packet 009](../tasks/archive/adr-0084-task-009-list-selection-and-action-bar.md) builds the list column, and [packet 018](../tasks/archive/adr-0084-task-018-detail-column-selection.md) the detail column.
-      The operator split packet 020 from packet 018 on 2026-10-20: the playlist page and the Discover tiles. Packet 010 adds the selection of the search results.
+      The operator split packet 020 from packet 018 on 2026-10-20: the playlist page and the Discover tiles. Packet 010 adds the selection of the search results. Packets 009, 018 and 019 are complete.
+      The audit of 2026-10-20 added packet 021, one release page assembly for both origins, and packet 022, the download queue ([run record](../reviews/orchestrated-run-2026-10-20.md)).
    7. Search results in the list column (Decision 2). Saved searches need storage first. The [ADR 0084 phase plan](adr-0084-music-column-browser-phase-plan.md) registers them as packet 012, by operator decision of 2026-10-16.
    8. The logo frame for collections (Decision 12).
 
@@ -188,16 +190,19 @@ The operator walked §2 and §19 on the one track page on 2026-10-07. They left 
 
 
 - **§22 Track Header Identities — ADR 0075 Task 022.** Owner: [task 022](../tasks/adr-0075-task-022-track-header-identities.md).
+  - In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
   - V1: an Index track without its own identities shows no website or Nostr action in its header. The feed section shows them, with the feed named as owner, in Light and Dark themes.
   - V2: a track with its own identities shows them in its header, apart from the feed section.
   - V3: a track without its own description shows no description.
   - V4: normal and narrow widths show each element in its place, with no clipped text.
 - **§26 No Derived Release Date — ADR 0075 Task 049.** Owner: [task 049](../tasks/adr-0075-task-049-no-derived-release-date.md).
+  - In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
   - Precondition: the check only reads pages.
   - V1: a track page of a track without its own date shows no release date.
   - V2: a track with its own date shows that date.
   - V3: normal and narrow widths show each row in its place, in Light and Dark themes.
 - **§27 Separate Track Artwork — ADR 0075 Task 048.** Owner: [task 048](../tasks/adr-0075-task-048-separate-track-artwork.md).
+  - In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
   - Precondition: the check only reads pages.
   - V1: an Index track with its own image shows that image. An Index track without one shows the album image.
   - V2: normal and narrow widths show the artwork in its place, in Light and Dark themes.
@@ -205,14 +210,17 @@ The operator walked §2 and §19 on the one track page on 2026-10-07. They left 
 ### Phase 4: Album Page
 
 - **§3 Stored Metadata In Details — ADR 0054 Tasks 004 And 005.** Owners: [task 004](../tasks/adr-0054-task-004-feed-read-model-hydration.md) and [task 005](../tasks/adr-0054-task-005-track-read-model-hydration.md).
+  - In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk). The operator's pass of 2026-10-08 on ADR 0083 task 005 did not name this rule. A second walk now confirms it (orchestrator decision of 2026-10-20).
   - Precondition: needs known persisted feed/track metadata, reachable Index for comparison, and an unavailable endpoint for local fallback. Use the disposable config.
   - Check: [Metadata Hydration](../runbooks/inherited-ui-checks.md#metadata-hydration--adr-0054-tasks-004-and-005).
   - Record feed and track results separately in the [checklist](../reviews/adr-0054-review-checklist.md), in both themes.
 - **§15 Stored Value Projection — ADR 0075 Task 020.** Owner: [task 020](../tasks/adr-0075-task-020-stored-value-projection.md).
-  - Precondition: needs schema version 16 from packet 002. The check sends real HTTP requests to the feed hosts of the playlist, and it writes RSS values into the stored values.
+  - In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk). The check is walkable at schema version 19, which is current (triage of 2026-10-20). The packet text that names schema version 16 is stale.
+  - Precondition: the check sends real HTTP requests to the feed hosts of the playlist, and it writes RSS values into the stored values.
   - V1: after a check applied a title change, the album page and the track page show the new title without navigation. Check in Light and Dark themes.
   - The track page shows the channel title as the album name. A title with "(old)" after the check is wrong.
 - **§30 Feed Dates By Owner — ADR 0075 Task 050.** Owner: [task 050](../tasks/adr-0075-task-050-feed-dates-by-owner.md).
+  - In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
   - Precondition: the check only reads pages.
   - V1: an album page shows "Published" and "First track published" as two facts, each with its source.
   - V2: a track without its own date shows "Feed publication date" apart from its other facts.
@@ -221,26 +229,29 @@ The operator walked §2 and §19 on the one track page on 2026-10-07. They left 
 ### Phase 4: Library Lists, Playlists And Readiness
 
 - **§1 Music And Settings Scrolling — ADR 0030 Task 006 (Music scrolling).** Owner: [task 006](../tasks/adr-0030-task-006-scroll-containers.md).
-  - Precondition: needs overflowing artist, release, playlist, track and Index detail content.
-  - Check: [Scroll Containers](../runbooks/inherited-ui-checks.md#scroll-containers--adr-0030-task-006).
-  - Needs overflowing artist, release, playlist, track, Index detail, and Settings content. Verify wheel, scrollbar, and supported keyboard scrolling in Light and Dark. Missing overflowing content leaves that subcheck open.
+  - Carried from 2026-10-17: ADR 0084 packet 014 V1, V2 and V7 carry the wheel part and the scrollbar part, in Light and Dark.
+  - The keyboard part goes into the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk). ADR 0084 packet 018 V6 already carries the keyboard part on the track page.
   - The Settings portion of this check also moved. See "Phase 5: Settings" below.
 - **§9 Feed Check And Feed Update Storage Failure — ADR 0075 Task 039.** Owner: [task 039](../tasks/adr-0075-task-039-feed-check-and-update-observation-retention.md).
+  - The procedure cannot run as written. The packet names no concrete terminal step. An agent must write the steps first, from the packet 014 fixture (triage of 2026-10-20). This item is not in the final walk of the run.
   - Precondition: the packet supplies prospective isolated setup, failure injection, desktop inspection, and cleanup commands. Use disposable data and scripted local services.
   - Check: an ordinary feed error keeps its existing per-feed message and placement.
   - Verify that a storage failure ends only the current feed operation and claims no successful persistence.
   - Verify that **Check all feeds** keeps its existing results, controls, and placement.
 - **§13 Playlist RSS Check Button And Report — ADR 0076 Task 001.** Owner: [task 001](../tasks/adr-0076-task-001-playlist-rss-document-check.md).
+  - In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
   - Precondition: migration 15 adds two tables. Make the SQLite backup before the first run of the new build. Each check sends real HTTP requests to the feed hosts of the playlist.
   - V1: the playlist page shows the "Check RSS" button with its state, in Light and Dark themes.
   - V2: during a check, the page shows the progress in place, without navigation. Playback from the playlist does not wait for the check.
   - V3: after the check, the page shows each feed outcome and each stopped host in readable text.
 - **§14 RSS Comparison, Apply And Report — ADR 0076 Task 002.** Owner: [task 002](../tasks/adr-0076-task-002-rss-comparison-apply-and-report.md).
+  - In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
   - Precondition: migration 16 drops three tables. Make the SQLite backup before the first run of the new build. Each check sends real HTTP requests to the feed hosts of the playlist, and it writes RSS values into the stored values.
   - V1: after a check with differences, the playlist page shows the report in place. Each row gives the feed, the field, the old value, the new value and the time. Each stale feed has a podping.me button. Check in Light and Dark themes.
   - V2: a new track shows with its download action. A removed track shows its mark on the playlist row.
   - V3: the report is readable at normal and narrow widths. Stacked text follows the column text rule.
 - **§16 Stored Payment Route And Readiness — ADR 0076 Task 003.** Owner: [task 003](../tasks/adr-0076-task-003-stored-payment-route-and-readiness.md).
+  - In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
   - Precondition: migration 17 adds and fills two columns. Make the SQLite backup before the first run of the new build.
   - V1: the Music readiness list shows a "Route out of date" row with no button and a "Removed from feed" row with a **Confirm** button. Check in Light and Dark themes.
   - V2: the Show Source card counts both states as not ready and names them in its detail.
@@ -248,6 +259,7 @@ The operator walked §2 and §19 on the one track page on 2026-10-07. They left 
   - The readiness row of a removed track also has **Remove from library**. The procedure opens its ADR 0044 confirmation and cancels it, because a removal deletes the audio file.
   - V4: a playlist row of a removed track shows a row error with **Remove from playlist** and **Remove from all playlists**. The second action lists each playlist in its confirmation. Each action changes the playlist in place.
 - **§18 Check And Scan Follow-Ups — ADR 0076 Task 005.** Owner: [task 005](../tasks/adr-0076-task-005-check-and-scan-follow-ups.md).
+  - In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
   - Precondition: needs schema version 17 and the readiness list from packet 003. This packet adds no migration.
   - V1: the check report shows **Copy feed URL** adjacent to the **Open podping.me** button. The pasted text is the feed URL. Check in Light and Dark themes.
   - V2: after a **Confirm** in the readiness list, the playlist page shows no error on that row. No check and no restart occur between the two steps.
@@ -256,45 +268,38 @@ The operator walked §2 and §19 on the one track page on 2026-10-07. They left 
 ### Phase 4: Publisher And Artist Pages
 
 - **§12 Library Artist View Without Artist Storage — ADR 0077 Task 001.** Owner: [task 001](../tasks/adr-0077-task-001-remove-dead-artist-storage.md).
-  - Carried by ADR 0084 packet 017, the name level page, from 2026-10-18.
+  - Waits for ADR 0084 packet 017, the name level page. Packet 017 waits for Stophammer request 8 item 4, and is not yet written.
   - Precondition: migration 13 deletes the stored artist rows. Make the SQLite backup before the first run of the new build.
   - V1: a Library artist view shows its tracks and albums, with no aliases, area, active years or source subjects.
   - A missing track, an empty view, or an error report is wrong.
-- **§20 Publisher Page And Navigation — ADR 0077 Task 004.** Owner: [task 004](../tasks/adr-0077-task-004-publisher-navigation-and-presentation.md).
-  - Carried from 2026-10-18: [ADR 0082 packet 003](../tasks/archive/adr-0082-task-003-release-page-named-feeds.md) V2 carries the rest of V1, and V4 carries V2. [ADR 0084 packet 008](../tasks/archive/adr-0084-task-008-feed-page-and-artists.md) V5 carries the failure part of V3.
+- **§20 Publisher Page And Navigation — ADR 0077 Task 004.** Owner: [task 004](../tasks/archive/adr-0077-task-004-publisher-navigation-and-presentation.md).
+  - Carried from 2026-10-18: [ADR 0082 packet 003](../tasks/archive/adr-0082-task-003-release-page-named-feeds.md) V2 and V7 carry V1, apart from its type, and V4 carries V2. [ADR 0084 packet 008](../tasks/archive/adr-0084-task-008-feed-page-and-artists.md) V5 carries the failure part of V3.
     Packet 008 V3 carries the "Not listed" mark of V4, V6 carries its derived count, and V8 carries V5.
-  - Retired: the type in V1 (ADR 0082 Decision 1), the two groups of V3 (ADR 0084 Decision 4), and the stated and assumed role text of V4 (ADR 0085 Decision 3).
-  - Precondition: needs a Library album whose album hydration stored a `music_to_publisher` row. V3 changes the MusicIndex endpoint in Settings. Restore it after the check.
-  - V1: an album page opens its publisher page, with its title, its type and its albums, in Light and Dark themes.
-  - V2: a track page opens the publisher page of its album.
-  - V3: a Library publisher page shows the Library albums and the other albums as two groups. With MusicIndex unreachable, the Library group stays and the report comes first.
-  - V4: a stated role and an assumed role show different text. A "Not listed" album and a derived artist count are marked.
-  - V5: normal and narrow widths show each element in its place, with no clipped text.
-  - The Index track page shows no "Open publisher" action. The packet records this as a deviation.
+  - Retired on 2026-10-20: the type in V1 (ADR 0085 Decision 3, which supersedes ADR 0082 Decision 1).
+  - Retired on 2026-10-20: the two groups of V3 (ADR 0084 Decision 4).
+  - Retired on 2026-10-20: the stated and assumed role text of V4 (ADR 0085 Decision 3).
 - **§21 Feed Owner Text And Name Grouping — ADR 0077 Task 005.** Owner: [task 005](../tasks/adr-0077-task-005-feed-owner-text-and-name-search.md).
-  - Carried from 2026-10-18: ADR 0082 packet 003 V5 carries V1. ADR 0084 packet 017 carries V3 and V4.
-  - V1: an album page shows `publisher_text` as "Feed owner" text that opens nothing, in Light and Dark themes.
+  - Carried from 2026-10-18: ADR 0082 packet 003 V5 carries V1.
+  - Retired on 2026-10-20: V2, the name search (ADR 0084 Decision 7, which replaces the Library artist page by name and the Index name match page). The deleted surface was removed in commit a32636e.
+  - V3 and V4 wait for ADR 0084 packet 017, the name level page, which is not yet written.
   - V3: a Library artist page without a publisher relationship shows "Grouped by name".
   - V4: normal and narrow widths show each element in its place, with no clipped text.
-  - V2 cannot be walked. The name search of this packet reached only parked code. Section 23 (packet 006) replaces it. Its own rule moved to "Phase 4: Search" below.
-- **§28 Confirmed And Unconfirmed Artists — ADR 0077 Task 007.** Owner: [task 007](../tasks/adr-0077-task-007-confirmed-and-unconfirmed-artists.md).
+- **§28 Confirmed And Unconfirmed Artists — ADR 0077 Task 007.** Owner: [task 007](../tasks/archive/adr-0077-task-007-confirmed-and-unconfirmed-artists.md).
   - Carried from 2026-10-18: ADR 0084 packet 008 V6 carries V1 to V3, and V8 carries V4.
-  - Precondition: the check only reads pages. It needs network access to `api.musicindex.org`.
-  - V1: the DETOX publisher page shows "Artists that name this feed: 1" with the name, and the unconfirmed fact with 0.
-  - V2: a publisher whose listed albums do not name it shows 0 confirmed artists and its unconfirmed artists with their names.
-  - V3: the two labels read clearly. The operator accepts them or gives new labels.
-  - V4: normal and narrow widths show each fact in its place, in Light and Dark themes, with no clipped text.
 
 ### Phase 4: Inspect Sources
 
 - **§8 Library Comparison And Hydration Storage Failure — ADR 0075 Task 038.** Owner: [task 038](../tasks/adr-0075-task-038-library-reader-observation-retention.md).
+  - The procedure cannot run as written. Its fixture matches an include list that packet 052 replaced on 2026-10-07. Update the match first (triage of 2026-10-20). This item is not in the final walk of the run.
   - Precondition: the packet supplies prospective isolated setup, failure injection, desktop inspection, and cleanup commands.
   - Check: ordinary comparison errors stay in their panel. Ordinary hydration errors remain silent.
   - Verify that storage failures remain reported after navigation without changing selection or unrelated Library state.
 - **§24 Tag Frames By Owner — ADR 0080 Task 001 (V4 only).** Owner: [task 001](../tasks/adr-0080-task-001-rss-frames-and-idempotent-writes.md).
+  - In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
   - Precondition: uses an isolated database copy and never writes to the Library.
   - V4: the compare grid shows the album description row with its owner, in Light and Dark themes, with no clipped text.
 - **§25 MusicBrainz URL Relations By Type — ADR 0080 Task 002 (V1, V2 and V4 only).** Owner: [task 002](../tasks/adr-0080-task-002-musicbrainz-url-relations-by-type.md).
+  - In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
   - Precondition: uses an isolated database copy and never writes to the Library. Needs network access to `musicbrainz.org`.
   - V1: a MusicBrainz lookup shows the release-group homepage in the channel website row, and a "License" row when the release states a license.
   - V2: each other relation shows as a read-only row with its relation type, and it offers no write.
@@ -303,29 +308,34 @@ The operator walked §2 and §19 on the one track page on 2026-10-07. They left 
 ### Phase 4: Status Bar And Reports
 
 - **§7 Metadata Observation Storage Failure — ADR 0075 Task 014.** Owner: [task 014](../tasks/adr-0075-task-014-provider-observation-retention.md).
+  - In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
   - Precondition: use disposable data and scripted local services.
   - Check: the existing Library status identifies a metadata storage failure without claiming MusicIndex unavailability or successful persistence.
   - Verify delayed failure reporting after navigation without changing the selected track's metadata or unrelated Library state.
 - **§17 Tag Update Confirmation — ADR 0076 Task 004.** Owner: [task 004](../tasks/adr-0076-task-004-tag-update-confirmation.md).
+  - In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
   - Precondition: this packet writes audio tags. Copy the fixture audio files before the first confirm.
   - V1: the Music section shows the "Update n file(s)" button with the count. The popup lists each file with its title, album and frames. Check in Light and Dark themes.
   - V2: a file in use by the show shows the mark "In use by the show". **Write Tags** does not write it. After the write, the button count equals the files in use.
   - V3: the popup is readable at normal and narrow window widths. Stacked text clips and does not show only an ellipsis.
 - **§34 Download Failures And Dismissal — ADR 0066 Task 014 (V2 only).** Owner: [task 014](../tasks/adr-0066-task-014-download-failures-and-dismissal.md).
+  - In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
   - Precondition: V2 needs network access and the `flac` binary.
   - V2: after a failed conversion and a successful retry of the same feed, the notice shows no row for those tracks.
 
 ### Phase 4: Search
 
 - **§23 Name Matches Are Search Results — ADR 0077 Task 006.** Owner: [task 006](../tasks/adr-0077-task-006-name-matches-are-search-results.md).
-  - V1: a search for "Survival Guide" shows a row `Tracks matching "Survival Guide"`. The row does not look like an artist identity.
+  - V1: a search for "Survival Guide" shows a row `Tracks matching "Survival Guide"`. The row does not look like an artist identity. In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
+  - V2 and V3 wait for ADR 0084 packet 017, which replaces the name match page (run decision of 2026-10-20).
   - V2: the row opens a page titled "Tracks matching" that lists the tracks of that name. A track opens its detail, and the album opens its publisher page.
   - V3: a name with no exact match shows the empty state text.
-  - V4: normal and narrow widths show each element in its place, in Light and Dark themes, with no clipped text.
+  - V4 (row only): normal and narrow widths show each element in its place, in Light and Dark themes, with no clipped text. In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
 
 ### Phase 5: Settings
 
 - **§1 Music And Settings Scrolling — ADR 0030 Task 006 (Settings scrolling).** Owner: [task 006](../tasks/adr-0030-task-006-scroll-containers.md).
+  - In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
   - Precondition: needs overflowing Settings content.
   - Check: [Scroll Containers](../runbooks/inherited-ui-checks.md#scroll-containers--adr-0030-task-006).
   - Needs overflowing artist, release, playlist, track, Index detail, and Settings content. Verify wheel, scrollbar, and supported keyboard scrolling in Light and Dark. Missing overflowing content leaves that subcheck open.

@@ -24,6 +24,8 @@ It amends these decisions:
 
 Amended 2026-10-18 by [ADR 0085](0085-artists-by-confirmation.md): in Decision 7, the publisher level is the feed level, and ADR 0085 Decisions 5 and 6 replace the "Publisher" link and the label rule. ADR 0085 Decision 3 groups the releases of an artist page by kind.
 
+Amended 2026-10-20: the operator decided the download rules of the action bar. Decision 10 now gives one download queue and a progress item.
+
 Amended 2026-10-17 by operator decision: Decision 1 adds a visible scrollbar to each Music column that scrolls. [Task 014](../tasks/archive/adr-0084-task-014-music-column-scrollbars.md) builds it.
 
 ## Context
@@ -161,6 +163,14 @@ Each list of releases and tracks has the same selection model. It has two modes.
 - The keyboard focus shows in both modes.
 
 No step needs a drag or a scroll wheel. The selection and the availability of each bar action are view-model state.
+
+Each download goes through one queue, from the action bar or from a page. The operator decided these rules on 2026-10-20:
+
+- At most three downloads run at the same time. Two downloads of one release never run at the same time.
+- A Library release and the Index copy of that release have the same queue key.
+- The queue starts the jobs in their order. A job of a busy release waits, and the jobs after it can start.
+- One failure does not stop the queue. A removal of a release waits until no download of that release is queued or running.
+- One progress item shows the batch on each page, for example "Downloading 3 of 9". It names the item and the failure count. A finished batch shows its recorded finish time until the operator dismisses it.
 
 ### 11. Each Track Row Keeps A Place For Audition
 
