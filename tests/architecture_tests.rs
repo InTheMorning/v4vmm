@@ -315,6 +315,7 @@ const SCREEN_CONTRIBUTOR_PANEL_FORBIDDEN_PATTERNS: &[&str] = &[
 const SCREEN_FILES: &[&str] = &[
     "src/app.rs",
     "src/app/breadcrumb.rs",
+    "src/app/detail_selection.rs",
     "src/app/startup.rs",
     "src/app/session.rs",
     "src/app/capabilities.rs",
@@ -4737,6 +4738,178 @@ still clears the selection."
 \"Clear\" with rows selected keeps `Selecting` (R19-07)."
         );
     }
+}
+
+/// The body of the function that starts at `signature`, up to the next
+/// function of the same `impl` block (ADR 0084 packet 018 guards).
+fn adr_0084_detail_selection_fn_body<'a>(source: &'a str, signature: &str) -> &'a str {
+    let start = source
+        .find(signature)
+        .unwrap_or_else(|| panic!("source is missing `{signature}`"));
+    let rest = &source[start + signature.len()..];
+    let end = ["\n    pub(crate) fn ", "\n    pub(super) fn ", "\n    fn "]
+        .iter()
+        .filter_map(|marker| rest.find(marker))
+        .min()
+        .unwrap_or(rest.len());
+    &rest[..end]
+}
+
+/// R18-07, situational ADR 0084 Decision 10 (packet 018): each selection
+/// key handler checks the focus handle of its own column. The detail
+/// column handlers check `detail_column_focus`, and the list column
+/// handlers keep their check of `list_column_focus`. The top app sends
+/// each key to both columns, so only the column with the focus acts.
+#[test]
+fn adr_0084_detail_selection_r18_07_each_key_handler_checks_its_own_column() {
+    let mut violations = Vec::new();
+    let detail = read_source(&manifest_path("src/library/detail_selection.rs"));
+    for handler in [
+        "pub(crate) fn move_detail_focus(",
+        "pub(crate) fn toggle_focused_detail_row(",
+        "pub(crate) fn select_all_detail_rows(",
+        "pub(crate) fn focused_detail_row(",
+        "pub(crate) fn end_detail_selecting(",
+    ] {
+        let body = adr_0084_detail_selection_fn_body(&detail, handler);
+        if !body.contains("self.detail_column_focus.contains_focused(") {
+            violations.push(format!(
+                "src/library/detail_selection.rs: `{handler}` must check \
+`self.detail_column_focus.contains_focused(..)`."
+            ));
+        }
+        if body.contains("list_column_focus") {
+            violations.push(format!(
+                "src/library/detail_selection.rs: `{handler}` must not read the list column focus."
+            ));
+        }
+    }
+    let list = read_source(&manifest_path("src/library/app_impl.rs"));
+    for handler in [
+        "pub(crate) fn move_selection_focus(",
+        "pub(crate) fn disclose_focused_group(",
+        "pub(crate) fn toggle_focused_selection(",
+        "pub(crate) fn select_all_visible(",
+        "pub(crate) fn open_focused_selection_row(",
+        "pub(crate) fn clear_focused_selection(",
+    ] {
+        let body = adr_0084_detail_selection_fn_body(&list, handler);
+        if !body.contains("self.list_column_focus.contains_focused(") {
+            violations.push(format!(
+                "src/library/app_impl.rs: `{handler}` must keep its check of \
+`self.list_column_focus.contains_focused(..)`."
+            ));
+        }
+    }
+    let keyboard = read_source(&manifest_path("src/app/keyboard.rs"));
+    for (handler, detail_call) in [
+        (
+            "fn move_music_selection_focus(",
+            "self.move_detail_selection_focus(",
+        ),
+        (
+            "pub(super) fn handle_toggle_focused_selection(",
+            "self.toggle_focused_detail_row(",
+        ),
+        (
+            "pub(super) fn handle_select_all_visible(",
+            "self.select_all_detail_rows(",
+        ),
+        (
+            "pub(super) fn handle_confirm_selection(",
+            "self.open_focused_detail_row(",
+        ),
+        (
+            "pub(super) fn handle_cancel_active_pane(",
+            "self.end_detail_selecting(",
+        ),
+    ] {
+        let body = adr_0084_detail_selection_fn_body(&keyboard, handler);
+        if !body.contains(detail_call) {
+            violations.push(format!(
+                "src/app/keyboard.rs: `{handler}` must also call `{detail_call}..)` for the \
+detail column."
+            ));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 Decision 10 (packet 018): each selection key handler acts only on the column \
+that carries the keyboard focus. Check the focus handle of the handler's own column, and send each \
+key to both columns from `src/app/keyboard.rs`.\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R18-08, situational ADR 0084 Decision 10 (packet 018): a page change in
+/// `TopApp` or `LibraryApp` clears the detail selection and sets `Normal`.
+/// `LibraryApp::hydrate_detail_from_nav` resets it, Back, Forward, a
+/// breadcrumb and an opened page reach that reset through
+/// `restore_content_list_nav_entry`, and each render of the top app binds
+/// the selection to the open page. The test
+/// `adr_0084_detail_selection_r18_01_a_page_change_clears_the_selection`
+/// proves that a reset and a bind to another page give an empty selection
+/// in `Normal`.
+#[test]
+fn adr_0084_detail_selection_r18_08_a_page_change_clears_the_detail_selection() {
+    let mut violations = Vec::new();
+    let library = read_source(&manifest_path("src/library/app_impl.rs"));
+    let hydrate =
+        adr_0084_detail_selection_fn_body(&library, "pub(crate) fn hydrate_detail_from_nav(");
+    if !hydrate.contains("self.reset_detail_selection(entry);") {
+        violations.push(
+            "src/library/app_impl.rs: `hydrate_detail_from_nav` must call \
+`self.reset_detail_selection(entry);`."
+                .to_owned(),
+        );
+    }
+    let detail = read_source(&manifest_path("src/library/detail_selection.rs"));
+    let reset = adr_0084_detail_selection_fn_body(&detail, "pub(crate) fn reset_detail_selection(");
+    if !reset.contains("self.detail_selection.reset(Some(entry.clone()));") {
+        violations.push(
+            "src/library/detail_selection.rs: `reset_detail_selection` must call \
+`self.detail_selection.reset(..)`."
+                .to_owned(),
+        );
+    }
+    let app = read_source(&manifest_path("src/app.rs"));
+    let restore = adr_0084_detail_selection_fn_body(&app, "fn restore_content_list_nav_entry(");
+    if !restore.contains("library.hydrate_detail_from_nav(entry, cx);") {
+        violations.push(
+            "src/app.rs: `restore_content_list_nav_entry` must call \
+`library.hydrate_detail_from_nav(entry, cx);` for each page."
+                .to_owned(),
+        );
+    }
+    if !app.contains("library.bind_detail_selection(entry)") {
+        violations.push(
+            "src/app.rs: the top app render must call `library.bind_detail_selection(entry)`."
+                .to_owned(),
+        );
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 Decision 10 (packet 018): a move to another page clears the detail selection \
+and sets `Normal`. Keep the reset and the bind of the detail selection.\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0084 Decision 4 (packet 018 review, 2026-10-20): an
+/// Index track download also updates the open release page of the
+/// track's feed in place. Before this fix, only an open track page
+/// resolved its source again, so the release page kept its Index source.
+#[test]
+fn adr_0084_detail_selection_index_track_download_updates_the_open_release_page() {
+    let source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let body = adr_0084_detail_selection_fn_body(&source, "pub(super) fn download_index_track(");
+    assert!(
+        body.contains("release_download_updates_open_page(")
+            && body.contains("this.apply_release_page_source(&key, cx);"),
+        "ADR 0084 Decision 4: the success handler of `download_index_track` in \
+src/app/search_dispatch.rs must call `release_download_updates_open_page` and then \
+`this.apply_release_page_source(&key, cx)`, so the open release page updates in place."
+    );
 }
 
 #[test]
@@ -20631,6 +20804,7 @@ fn adr_0084_scrollbars_r14_01_music_columns_use_the_shared_helper() {
         &["src/ui/composites/release_detail_surface.rs"],
         &["src/ui/shells/library/track_detail.rs"],
         &["src/ui/shells/library/feed_list.rs"],
+        &["src/ui/shells/library/singles_group.rs"],
         &["src/ui/shells/playlist.rs"],
         &["src/ui/shells/publisher.rs"],
         &["src/ui/shells/name_match_page.rs"],

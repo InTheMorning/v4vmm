@@ -15,18 +15,19 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    div, prelude::*, AnyElement, App, Image, IntoElement, ParentElement, SharedString, Styled,
-    Window,
+    div, prelude::*, AnyElement, App, ClickEvent, Image, IntoElement, Modifiers, ParentElement,
+    ScrollHandle, SharedString, Styled, Window,
 };
 
-use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::music_column_scroll::{music_column_tracked_scrollbar, ScrollReveal};
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{
     DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay, EntityKind, ListRow, ListRowA11yLabel,
     TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize,
 };
-use crate::ui::primitives::{Label, LabelVariant, SectionHeader};
+use crate::ui::primitives::{Checkbox, CheckboxState, Label, LabelVariant, SectionHeader};
 use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Spacing};
+use crate::view_models::list_selection::RowCheckState;
 use crate::view_models::publisher_page::{
     CoCreditedFeedVm, FeedLevel, OtherAlbumsStatus, PublisherPageAlbumVm, PublisherPageContext,
     PublisherPageLoadDisplay, PublisherPageSectionVm, PublisherPageVm, TitleDisplay,
@@ -37,11 +38,32 @@ use crate::view_models::workspace::ReleaseKey;
 /// supplies one; the screen builds no navigation of its own.
 type OpenPublisherCallback = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
-/// Opens a release page by its key (ADR 0085 Decision 7 design, Required
-/// Change 7). `label` is the release's own display title; the app layer
-/// uses it for the frame and the breadcrumb. The app layer supplies the
-/// callback; the screen builds no navigation of its own.
-type OpenReleaseCallback = Rc<dyn Fn(&ReleaseKey, String, &mut Window, &mut App)>;
+/// A click on a release row (ADR 0085 Decision 7 design, Required Change
+/// 7, and ADR 0084 packet 018). `label` is the release's own display
+/// title; the app layer uses it for the frame and the breadcrumb. The app
+/// layer opens the release page, or changes the selection in selection
+/// mode. The screen builds no navigation of its own.
+pub(crate) type ClickReleaseCallback =
+    Rc<dyn Fn(&ReleaseKey, String, Modifiers, &mut Window, &mut App)>;
+
+/// A click on the checkbox of a release row (ADR 0084 packet 018).
+pub(crate) type ToggleReleaseCallback = Rc<dyn Fn(&ReleaseKey, &mut Window, &mut App)>;
+
+/// The release rows of a feed page in the Music detail column, with their
+/// selection facts (ADR 0084 Decision 10, packet 018). The app layer sets
+/// `PublisherPageAlbumVm::selection` on each row of `sections`.
+pub(crate) struct PublisherPageRows {
+    /// The sections of the page, in their visible order.
+    pub(crate) sections: Vec<PublisherPageSectionVm>,
+    /// The held scroll handle of the detail column.
+    pub(crate) scroll: ScrollHandle,
+    /// The request to keep the focused row in view.
+    pub(crate) reveal: ScrollReveal,
+    /// A click on the body of a release row.
+    pub(crate) on_click_release: ClickReleaseCallback,
+    /// A click on the checkbox of a release row.
+    pub(crate) on_toggle_release: ToggleReleaseCallback,
+}
 
 /// Renders a feed page from `PublisherPageVm`.
 ///
@@ -52,9 +74,10 @@ type OpenReleaseCallback = Rc<dyn Fn(&ReleaseKey, String, &mut Window, &mut App)
 /// its own.
 ///
 /// `on_open_publisher` opens the feed page of a "Shares albums with"
-/// entry's feed GUID (ADR 0082 Decision 5). `on_open_release` opens a
-/// release row (Required Change 7). The app layer supplies both; the
-/// screen builds no navigation of its own.
+/// entry's feed GUID (ADR 0082 Decision 5). `rows` gives the release rows
+/// with their selection facts and their clicks (Required Change 7, ADR
+/// 0084 packet 018). The app layer supplies each callback; the screen
+/// builds no navigation of its own.
 #[must_use]
 pub(crate) fn render_publisher_page(
     vm: &PublisherPageVm,
@@ -62,11 +85,10 @@ pub(crate) fn render_publisher_page(
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     header_image: Option<Arc<Image>>,
     on_open_publisher: impl Fn(&str, &mut Window, &mut App) + 'static,
-    on_open_release: impl Fn(&ReleaseKey, String, &mut Window, &mut App) + 'static,
+    rows: &PublisherPageRows,
     cx: &App,
 ) -> AnyElement {
     let on_open_publisher: OpenPublisherCallback = Rc::new(on_open_publisher);
-    let on_open_release: OpenReleaseCallback = Rc::new(on_open_release);
     let container = div()
         .id("publisher-page")
         .flex()
@@ -79,19 +101,15 @@ pub(crate) fn render_publisher_page(
             page_scroll_content(cx)
                 .gap(Spacing::LG.scaled(cx))
                 .child(render_header(vm, header_image))
-                .child(render_sections(
-                    vm,
-                    context,
-                    album_thumbs,
-                    &on_open_release,
-                    cx,
-                ))
+                .child(render_sections(vm, context, album_thumbs, rows, cx))
                 .when_some(
                     render_shares_albums_with(vm.shares_albums_with(), &on_open_publisher, cx),
                     ParentElement::child,
                 ),
         );
-    music_column_scrollbar(container, "publisher-page-scrollbar")
+    // ADR 0084 packet 018: the page holds the scroll handle of the detail
+    // column, so a key can keep the focused row in view.
+    music_column_tracked_scrollbar(container, &rows.scroll, None)
 }
 
 /// The header entity icon for a feed's confirmation level (ADR 0085
@@ -131,7 +149,7 @@ fn render_sections(
     vm: &PublisherPageVm,
     context: PublisherPageContext,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
-    on_open_release: &OpenReleaseCallback,
+    rows: &PublisherPageRows,
     cx: &App,
 ) -> AnyElement {
     let mut body = div().flex().flex_col().gap(Spacing::LG.scaled(cx));
@@ -141,8 +159,8 @@ fn render_sections(
             body = body.child(unavailable_notice(report, &detail, cx));
         }
     }
-    for section in vm.sections() {
-        body = body.child(render_section(&section, album_thumbs, on_open_release, cx));
+    for section in &rows.sections {
+        body = body.child(render_section(section, album_thumbs, rows, cx));
     }
 
     body.into_any_element()
@@ -177,7 +195,7 @@ fn unavailable_notice(report: &'static str, detail: &str, cx: &App) -> AnyElemen
 fn render_section(
     section: &PublisherPageSectionVm,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
-    on_open_release: &OpenReleaseCallback,
+    rows: &PublisherPageRows,
     cx: &App,
 ) -> AnyElement {
     div()
@@ -194,7 +212,7 @@ fn render_section(
                     section
                         .rows
                         .iter()
-                        .map(|row| render_album_row(row, album_thumbs, on_open_release, cx)),
+                        .map(|row| render_album_row(row, album_thumbs, rows, cx)),
                 ),
         )
         .into_any_element()
@@ -203,7 +221,7 @@ fn render_section(
 fn render_album_row(
     row: &PublisherPageAlbumVm,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
-    on_open_release: &OpenReleaseCallback,
+    rows: &PublisherPageRows,
     cx: &App,
 ) -> AnyElement {
     let (title, missing_note) = title_display_text(&row.title);
@@ -249,7 +267,30 @@ fn render_album_row(
         );
     }
 
+    // ADR 0084 packet 018: the selection facts of the row come from the
+    // view model. The checkbox shows only in selection mode.
+    let selection = &row.selection;
     let mut list_row = ListRow::new(SharedString::from(format!("publisher-album:{row_id}")))
+        .selected(selection.is_marked())
+        .focused(selection.focused)
+        .scroll_probe(selection.focused.then(|| rows.reveal.probe()));
+    if let (true, Some(open)) = (selection.checkbox_visible, &row.open) {
+        let on_toggle_release = Rc::clone(&rows.on_toggle_release);
+        let key = open.key.clone();
+        list_row = list_row.checkbox(
+            Checkbox::new(
+                SharedString::from(format!("publisher-album-checkbox:{row_id}")),
+                checkbox_state_for(selection.check_state),
+            )
+            .a11y_label(selection.checkbox_a11y_label.clone())
+            .on_click(move |_event: &ClickEvent, window, cx| {
+                cx.stop_propagation();
+                on_toggle_release(&key, window, cx);
+            })
+            .into_any_element(),
+        );
+    }
+    list_row = list_row
         .child(Thumbnail::new(EntityKind::Release, ThumbnailSize::Sm).image(thumb_image))
         .child(div().flex_1().min_w_0().child(text_block));
 
@@ -257,14 +298,16 @@ fn render_album_row(
     // availability. A row with no feed GUID gets no click handler, so it
     // stays inert.
     if let Some(open) = &row.open {
-        let on_open_release = Rc::clone(on_open_release);
+        let on_click_release = Rc::clone(&rows.on_click_release);
         let key = open.key.clone();
         let label = title.clone();
         list_row = list_row
             .a11y_label(ListRowA11yLabel {
                 label: open.a11y_label.clone().into(),
             })
-            .on_click(move |_event, window, cx| on_open_release(&key, label.clone(), window, cx));
+            .on_click(move |event: &ClickEvent, window, cx| {
+                on_click_release(&key, label.clone(), event.modifiers(), window, cx);
+            });
     }
 
     let mut marks = Vec::new();
@@ -290,6 +333,17 @@ fn render_album_row(
     }
 
     list_row.into_any_element()
+}
+
+/// Maps the typed check state of the view model to the state of the
+/// checkbox primitive. A release row has one member, so it never reads
+/// mixed.
+fn checkbox_state_for(check_state: RowCheckState) -> CheckboxState {
+    match check_state {
+        RowCheckState::Checked => CheckboxState::Checked,
+        RowCheckState::Mixed => CheckboxState::Mixed,
+        RowCheckState::Clear => CheckboxState::NotChecked,
+    }
 }
 
 fn title_display_text(title: &TitleDisplay) -> (String, Option<&'static str>) {

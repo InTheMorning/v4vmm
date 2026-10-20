@@ -29,6 +29,9 @@ use crate::ui::shells::entity::{
     render_named_feed_rows, render_release_detail_shell, ContributorRowSlot,
     ReleaseDetailBehaviorSlots,
 };
+use crate::ui::shells::library::detail::{
+    with_detail_row_slot, DetailRowSlot, LibraryTrackRowPlace,
+};
 use crate::ui::style::{color, typography};
 use crate::view_models::album_page::{
     album_page_actions, AlbumPageAction, AlbumPageActionDisplay, AlbumPageActions, AlbumPageOrigin,
@@ -43,7 +46,7 @@ use crate::view_models::library::{
     LibraryTrackRowVm, LibraryViewModel, MbStatusKind, MbTrackStatus,
 };
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm, TrackRowVm};
-use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart, ReleaseKey};
+use crate::view_models::workspace::{FrameNavigationEntry, ReleaseKey};
 use crate::views::{FeedView, TrackView};
 
 #[expect(
@@ -62,6 +65,8 @@ pub(crate) fn render_library_feed_detail(
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     cover_color: Option<CoverColor>,
     playlists: &[db::Playlist],
+    row_slots: Vec<DetailRowSlot>,
+    scroll: &gpui::ScrollHandle,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let feed_row = db::FeedRow {
@@ -114,14 +119,15 @@ pub(crate) fn render_library_feed_detail(
     let track_rows: Vec<ReleaseSurfaceElement> = album
         .release_track_rows()
         .iter()
-        .map(|track| {
+        .zip(row_slots)
+        .map(|(track, slot)| {
             ReleaseSurfaceElement::from_element(render_library_track_row(
                 track,
                 mb_status,
                 vm.track_row_busy(track, busy_track == Some(track.id), feed_busy),
                 album_thumbs,
                 playlists,
-                LibraryTrackRowContext::ReleasePage,
+                LibraryTrackRowContext::ReleasePage.with_slot(slot),
                 cx,
             ))
         })
@@ -155,6 +161,7 @@ pub(crate) fn render_library_feed_detail(
         primary_actions: vec![ReleaseSurfaceElement::from_element(action_row)],
         identity_actions: render_feed_identity_actions(&page),
         track_rows: Some(track_rows),
+        scroll_handle: Some(scroll.clone()),
         ..ReleaseDetailBehaviorSlots::default()
     };
     if let Some(panel) = render_library_contributors_panel(&projection, album_thumbs) {
@@ -443,7 +450,7 @@ pub(crate) fn render_library_track_row(
     is_busy: bool,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     playlists: &[db::Playlist],
-    context: LibraryTrackRowContext,
+    place: LibraryTrackRowPlace,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let track_for_click = track.clone();
@@ -535,12 +542,9 @@ pub(crate) fn render_library_track_row(
 
     let track_view = TrackView::from_local(track.clone());
     let mut row_vm = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Library).row();
-    let open_entry = context.apply(track, &mut row_vm);
-    let mut row = TrackRowComposite::from_vm(SharedString::from(row_id), &row_vm)
-        .thumbnail(thumbnail)
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.open_page(open_entry.clone(), NavigationPathStart::CurrentPath, cx);
-        }));
+    let open_entry = place.context.apply(track, &mut row_vm);
+    let row = TrackRowComposite::from_vm(SharedString::from(row_id), &row_vm).thumbnail(thumbnail);
+    let mut row = with_detail_row_slot(row, place.slot, open_entry, cx);
 
     for action in actions {
         row = row.trailing_child(action);

@@ -38,6 +38,9 @@ pub(crate) struct TrackDetailBehaviorSlots {
     pub sections: Vec<TrackDetailSection>,
     pub section_elements: Vec<TrackSurfaceElement>,
     pub advanced_panels: Vec<TrackSurfaceElement>,
+    /// The held scroll handle of the Music detail column (ADR 0084
+    /// Decision 10, packet 018). `None` scrolls with no held handle.
+    pub scroll_handle: Option<gpui::ScrollHandle>,
 }
 
 #[must_use]

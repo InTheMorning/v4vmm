@@ -16,7 +16,9 @@ use gpui::{
 };
 
 use crate::runtime::paged_list_vm::{PagedListVm, RowSlot};
-use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::music_column_scroll::{
+    music_column_scrollbar, music_column_tracked_scrollbar,
+};
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{
     EntityKind, Segment, SegmentDisplay, SegmentedControl, TagBadge, TagBadgeDisplay, Thumbnail,
@@ -285,6 +287,7 @@ pub(crate) fn render_index_track_detail(
 ) -> AnyElement {
     let page = TrackDetailVm::new(track, TrackDetailSurfaceContext::Discover).page();
     slots.external_links = render_track_page_identity_actions(&page);
+    let scroll = slots.scroll_handle.take();
 
     let container = div()
         .id(SharedString::from("index-detail-track"))
@@ -295,7 +298,12 @@ pub(crate) fn render_index_track_detail(
         .min_w_0()
         .p(Spacing::MD.scaled(cx))
         .child(page_scroll_content(cx).child(build_track_detail_surface(&page, slots)));
-    music_column_scrollbar(container, "index-detail-track-scrollbar")
+    // ADR 0084 packet 018: in the Music detail column, the page holds the
+    // scroll handle of the column, so its keys can scroll it.
+    match &scroll {
+        Some(scroll) => music_column_tracked_scrollbar(container, scroll, None),
+        None => music_column_scrollbar(container, "index-detail-track-scrollbar"),
+    }
 }
 
 fn render_inspector_header(

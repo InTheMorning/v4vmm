@@ -17,6 +17,7 @@
 #![warn(clippy::pedantic)]
 
 use crate::api::{AlbumNamesAs, PublisherLinkResolution, RoleAgreement};
+use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::role_words::{
     capitalize_first, role_contains_artist, role_list_text, role_words, stated_sides_text,
@@ -226,6 +227,10 @@ pub(crate) struct PublisherPageAlbumVm {
     pub(crate) role_line: Option<String>,
     /// The open action of this row. `None` when the row has no feed GUID.
     pub(crate) open: Option<ReleaseRowOpenAction>,
+    /// The selection facts of this row (ADR 0084 Decision 10, packet
+    /// 018). [`Self::album_vm`] gives [`RowSelectionVm::none`]. The app
+    /// layer sets the facts of the detail selection before it renders.
+    pub(crate) selection: RowSelectionVm,
 }
 
 impl PublisherPageAlbumVm {
@@ -785,6 +790,7 @@ impl PublisherPageVm {
             in_library: album.in_library,
             role_line,
             open,
+            selection: RowSelectionVm::none(),
         }
     }
 

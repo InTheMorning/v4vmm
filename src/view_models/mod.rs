@@ -68,6 +68,7 @@ pub mod album_page;
 pub mod artist;
 pub mod artist_detail;
 pub mod artist_identity;
+pub(crate) mod detail_selection;
 pub mod entity_detail;
 pub mod feed;
 pub mod format;

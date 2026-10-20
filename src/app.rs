@@ -54,6 +54,7 @@ mod startup;
 
 mod bootstrap;
 mod breadcrumb;
+mod detail_selection;
 mod events;
 pub(crate) mod keyboard;
 mod menu;
@@ -1405,6 +1406,13 @@ impl TopApp {
             }
         }
 
+        // ADR 0084 packet 018: the detail selection belongs to the open
+        // page. A move to another page clears it and sets `Normal`.
+        if let (true, Some(entry)) = (fills_detail, &current_nav) {
+            self.library
+                .update(cx, |library, _cx| library.bind_detail_selection(entry));
+        }
+
         let mut workspace_slots = match &current_nav {
             // ADR 0084 Decision 2: search results fill the list column, and
             // a result opens in the detail column. With no result open, the
@@ -1438,26 +1446,10 @@ impl TopApp {
             // database lookup here.
             Some(FrameNavigationEntry::Release(_)) => match self.release_page_source.clone() {
                 Some(ReleasePageSource::Index { feed_guid }) => {
-                    let activation_id = format!("index-feed:{feed_guid}");
-                    let label = self
-                        .release_page_labels
-                        .get(&feed_guid)
-                        .cloned()
-                        .unwrap_or_else(|| feed_guid.clone());
                     // While the operator's own open-time fetch is still
                     // loading, the cached content-list row shows at once,
                     // when the content list already holds it.
-                    let detail = self
-                        .index_feed_detail_is_pending(&feed_guid)
-                        .then(|| {
-                            self.library.read(cx).recent_music_index_feed_detail(
-                                &activation_id,
-                                &feed_guid,
-                                &label,
-                            )
-                        })
-                        .flatten()
-                        .unwrap_or_else(|| self.index_feed_detail_display(&feed_guid, &label));
+                    let detail = self.index_release_page_detail(&feed_guid, cx);
                     let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
                     if fills_detail {
                         WorkspaceSlots::new().detail_slot(detail_content)
@@ -1567,6 +1559,25 @@ impl TopApp {
                     .on_content_list_header_action(move |_window, cx| {
                         header_action_entity.update(cx, |this, cx| {
                             this.toggle_list_column_selection_mode(cx);
+                        });
+                    });
+            }
+        }
+
+        // ADR 0084 packet 018: the detail column has its own keyboard
+        // focus, its "Select" and "Done" button and its action bar.
+        if fills_detail {
+            if let Some(content) = workspace_slots.take_detail_slot() {
+                let content = self.render_detail_column_frame(content, cx);
+                workspace_slots = workspace_slots.detail_slot(content);
+            }
+            if let Some(header_action) = self.detail_column_header_action(cx) {
+                let header_action_entity = entity.clone();
+                workspace_slots = workspace_slots
+                    .detail_header_action(header_action)
+                    .on_detail_header_action(move |_window, cx| {
+                        header_action_entity.update(cx, |this, cx| {
+                            this.toggle_detail_selection_mode(cx);
                         });
                     });
             }

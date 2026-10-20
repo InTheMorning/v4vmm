@@ -816,6 +816,10 @@ pub enum Size {
     /// 44 px `MinHitTarget` is the iOS touch minimum, and stays the
     /// minimum height of the whole row.
     PointerHitTarget,
+    /// 40 px — the distance that Up or Down scrolls a Music detail page
+    /// with no selectable row (ADR 0084 Decision 10, packet 018). Page Up
+    /// and Page Down scroll one view height less this step.
+    KeyScrollStep,
 }
 
 impl Size {
@@ -824,7 +828,7 @@ impl Size {
         match self {
             Self::ButtonSm | Self::PointerHitTarget => px(28.0),
             Self::ButtonMd => px(32.0),
-            Self::ButtonLg => px(40.0),
+            Self::ButtonLg | Self::KeyScrollStep => px(40.0),
             Self::MenuCompact => px(160.0),
             Self::MenuRegular => px(220.0),
             Self::MenuWide => px(280.0),
@@ -1074,6 +1078,34 @@ mod tests {
         assert_eq!(Size::PointerHitTarget.px(), px(28.0));
         assert!(Size::CheckboxIndicator.px() < Size::PointerHitTarget.px());
         assert!(Size::PointerHitTarget.px() < Size::MinHitTarget.px());
+    }
+
+    /// R18-09, ADR 0084 packet 018: the key scroll step of a detail page
+    /// with no selectable row comes from the named token. The view height
+    /// step is one view height less one step.
+    #[test]
+    fn adr_0084_detail_selection_r18_09_key_scroll_uses_the_token_step() {
+        use crate::ui::composites::music_column_scroll::key_scroll_offset_y;
+        use crate::view_models::list_selection::FocusStep;
+
+        let step = f32::from(Size::KeyScrollStep.px());
+        assert!((step - 40.0).abs() < f32::EPSILON);
+        let (view, max) = (400.0, 1000.0);
+        let at = |key, offset| key_scroll_offset_y(key, offset, view, max, step);
+        let near = |left: f32, right: f32| (left - right).abs() < f32::EPSILON;
+
+        assert!(near(at(FocusStep::Down, -100.0), -100.0 - step));
+        assert!(near(at(FocusStep::Up, -100.0), -100.0 + step));
+        assert!(near(
+            at(FocusStep::PageDown, -100.0),
+            -100.0 - (view - step)
+        ));
+        assert!(near(at(FocusStep::PageUp, -500.0), -500.0 + (view - step)));
+        assert!(near(at(FocusStep::Home, -500.0), 0.0));
+        assert!(near(at(FocusStep::End, 0.0), -max));
+        // The offset stops at the top and at the bottom.
+        assert!(near(at(FocusStep::Up, 0.0), 0.0));
+        assert!(near(at(FocusStep::PageDown, -990.0), -max));
     }
 
     #[test]

@@ -24,7 +24,7 @@ Phase 4A builds ADR 0084 in the packets of the
 for each item, three columns, the six destinations and Discover.
 Packets 016, the scopes, and 017, the name level, wait for Stophammer request 8. It asks for complete list and search rows.
 
-Packets 001 to 009, 013 to 015 and 019 are complete. Packets 010 to 012 and 018 are not written.
+Packets 001 to 009, 013 to 015, 018 and 019 are complete. Packets 010 to 012 and 020 are not written.
 
 Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).

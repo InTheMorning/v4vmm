@@ -39,9 +39,10 @@ use gpui::{
 };
 
 use crate::ui::composites::{EntityKind, ListRow, ListRowA11yLabel, Thumbnail, ThumbnailSize};
-use crate::ui::primitives::Label;
+use crate::ui::primitives::{Checkbox, CheckboxState, Label};
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::entity_detail::SharedTrackRowVm;
+use crate::view_models::list_selection::{RowCheckState, RowSelectionVm};
 use crate::view_models::track_detail::TrackRowVm;
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
@@ -95,6 +96,14 @@ pub struct TrackRow {
     a11y_label: String,
     thumbnail: Option<Arc<Image>>,
     on_click: Option<ClickHandler>,
+    /// The selection facts of the row (ADR 0084 Decision 10, packet 018).
+    /// [`RowSelectionVm::none`] shows no checkbox, no selected fill and no
+    /// focus outline.
+    selection: RowSelectionVm,
+    /// The click on the checkbox. The checkbox shows only when the view
+    /// model makes it visible.
+    on_toggle_selection: Option<ClickHandler>,
+    scroll_probe: Option<gpui::AnyElement>,
     trailing: Vec<gpui::AnyElement>,
 }
 
@@ -109,6 +118,9 @@ impl TrackRow {
             a11y_label: display.a11y_label,
             thumbnail: None,
             on_click: None,
+            selection: RowSelectionVm::none(),
+            on_toggle_selection: None,
+            scroll_probe: None,
             trailing: Vec::new(),
         }
     }
@@ -135,6 +147,29 @@ impl TrackRow {
         F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     {
         self.on_click = Some(Rc::new(handler));
+        self
+    }
+
+    /// The selection facts of the row (ADR 0084 Decision 10, packet 018):
+    /// the checkbox, the selected fill and the keyboard focus outline.
+    pub(crate) fn selection(mut self, selection: RowSelectionVm) -> Self {
+        self.selection = selection;
+        self
+    }
+
+    /// Called when the user clicks the checkbox of the row.
+    pub(crate) fn on_toggle_selection<F>(mut self, handler: F) -> Self
+    where
+        F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    {
+        self.on_toggle_selection = Some(Rc::new(handler));
+        self
+    }
+
+    /// The scroll probe of the focused row (ADR 0084 Decision 10, packet
+    /// 018), from `ScrollReveal::probe`.
+    pub(crate) fn scroll_probe(mut self, probe: Option<gpui::AnyElement>) -> Self {
+        self.scroll_probe = probe;
         self
     }
 
@@ -169,6 +204,7 @@ impl RenderOnce for TrackRow {
             };
             SharedString::from(row_str)
         };
+        let checkbox_id = SharedString::from(format!("{body_id}-checkbox"));
 
         let mut body = div()
             .id(body_id)
@@ -231,11 +267,32 @@ impl RenderOnce for TrackRow {
             );
         }
 
+        let selection = self.selection;
         let mut row = ListRow::compact(self.id)
             .a11y_label(ListRowA11yLabel {
                 label: a11y_label.into(),
             })
-            .child(body);
+            .selected(selection.is_marked())
+            .focused(selection.focused)
+            .scroll_probe(self.scroll_probe);
+        // ADR 0084 Decision 10: the checkbox leads the row, before the
+        // track number. It shows only in selection mode. Decision 11: the
+        // audition slot of `ListRow` stays empty.
+        if selection.checkbox_visible {
+            let on_toggle = self.on_toggle_selection;
+            row = row.checkbox(
+                Checkbox::new(checkbox_id, checkbox_state_for(selection.check_state))
+                    .a11y_label(selection.checkbox_a11y_label)
+                    .on_click(move |event, window, cx| {
+                        cx.stop_propagation();
+                        if let Some(handler) = &on_toggle {
+                            handler(event, window, cx);
+                        }
+                    })
+                    .into_any_element(),
+            );
+        }
+        row = row.child(body);
         for child in self.trailing {
             row = row.child(child);
         }
@@ -243,6 +300,16 @@ impl RenderOnce for TrackRow {
             .min_h(crate::ui::layouts::MIN_HIT_TARGET)
             .debug_selector(|| "track-row".to_owned())
             .child(row)
+    }
+}
+
+/// Maps the typed check state of the view model to the state of the
+/// checkbox primitive. A track row has one member, so it never reads mixed.
+fn checkbox_state_for(check_state: RowCheckState) -> CheckboxState {
+    match check_state {
+        RowCheckState::Checked => CheckboxState::Checked,
+        RowCheckState::Mixed => CheckboxState::Mixed,
+        RowCheckState::Clear => CheckboxState::NotChecked,
     }
 }
 

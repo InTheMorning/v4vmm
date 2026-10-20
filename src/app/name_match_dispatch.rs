@@ -153,7 +153,8 @@ impl TopApp {
                             this.handle_search_result_selected(tab, &result_id, cx);
                         });
                     });
-                render_name_match_page(&vm, &thumbnails, &on_result_select, cx)
+                let scroll = self.library.read(cx).detail_scroll_handle();
+                render_name_match_page(&vm, &thumbnails, &on_result_select, &scroll, cx)
             }
             Some(NameMatchPageState::Failed { message, .. }) => {
                 render_name_match_page_status(&NameMatchPageLoadDisplay::failed(message), cx)

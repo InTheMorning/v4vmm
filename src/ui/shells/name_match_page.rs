@@ -11,9 +11,11 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use gpui::{div, prelude::*, AnyElement, App, Image, IntoElement, ParentElement, Styled};
+use gpui::{
+    div, prelude::*, AnyElement, App, Image, IntoElement, ParentElement, ScrollHandle, Styled,
+};
 
-use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::music_column_scroll::music_column_tracked_scrollbar;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::EntityKind;
 use crate::ui::primitives::{Label, LabelVariant, SectionHeader};
@@ -35,6 +37,7 @@ pub(crate) fn render_name_match_page(
     vm: &NameMatchPageVm,
     track_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     on_result_select: &SearchResultSelectHandler,
+    scroll: &ScrollHandle,
     cx: &App,
 ) -> AnyElement {
     let container = div()
@@ -51,7 +54,9 @@ pub(crate) fn render_name_match_page(
                 .child(SectionHeader::new(vm.title_text()))
                 .child(render_body(vm, track_thumbs, on_result_select, cx)),
         );
-    music_column_scrollbar(container, "name-match-page-scrollbar")
+    // ADR 0084 packet 018: the page holds the scroll handle of the detail
+    // column, so its keys can scroll it.
+    music_column_tracked_scrollbar(container, scroll, None)
 }
 
 fn render_body(

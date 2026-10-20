@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use gpui::{
     div, AnyElement, App, ClickEvent, ClipboardItem, Image, InteractiveElement, IntoElement,
-    ParentElement, SharedString, Styled, Window,
+    ParentElement, ScrollHandle, SharedString, Styled, Window,
 };
 
 use crate::media::cover_color::CoverColor;
@@ -31,6 +31,7 @@ use crate::view_models::entity_detail::{
     ReleaseDetailPageVm, ReleaseHeroVm, ReleasePanelKind, ReleasePanelVm, ReleaseTextPanelDisplay,
     SharedTrackRowVm,
 };
+use crate::view_models::list_selection::RowSelectionVm;
 
 type ReleaseTrackRowClick = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
@@ -46,6 +47,13 @@ pub struct ReleaseTrackRowSlot {
     pub on_click: Option<ReleaseTrackRowClick>,
     pub actions: Vec<ReleaseSurfaceElement>,
     pub popover: Option<ReleaseSurfaceElement>,
+    /// The selection facts of the row (ADR 0084 Decision 10, packet 018).
+    /// `None` shows no checkbox.
+    pub(crate) selection: Option<RowSelectionVm>,
+    /// The click on the checkbox of the row.
+    pub(crate) on_toggle_selection: Option<ReleaseTrackRowClick>,
+    /// The scroll probe of the focused row.
+    pub(crate) scroll_probe: Option<AnyElement>,
 }
 
 impl ReleaseTrackRowSlot {
@@ -78,6 +86,9 @@ pub struct ReleaseDetailBehaviorSlots {
     pub description_panel: Option<ReleaseSurfaceElement>,
     pub track_rows: Option<Vec<ReleaseSurfaceElement>>,
     pub after_section: Vec<ReleaseSurfaceElement>,
+    /// The held scroll handle of the Music detail column (ADR 0084
+    /// Decision 10, packet 018).
+    pub scroll_handle: Option<ScrollHandle>,
 }
 
 #[must_use]
@@ -87,6 +98,7 @@ pub fn render_release_detail_shell(
 ) -> AnyElement {
     let mut surface = ReleaseDetailSurface::new(page.detail_scroll_key.clone())
         .scrollable(true)
+        .scroll_handle(slots.scroll_handle)
         .header(ReleaseSurfaceElement::from_element(
             CoverBackdrop::new(
                 slots.cover_color,
@@ -227,7 +239,16 @@ pub fn render_release_track_row(
     row: SharedTrackRowVm<'_>,
     slot: ReleaseTrackRowSlot,
 ) -> ReleaseSurfaceElement {
-    let mut track_row = TrackRow::from_shared_track_row(id.into(), row).thumbnail(slot.thumbnail);
+    let mut track_row = TrackRow::from_shared_track_row(id.into(), row)
+        .thumbnail(slot.thumbnail)
+        .scroll_probe(slot.scroll_probe);
+    if let Some(selection) = slot.selection {
+        track_row = track_row.selection(selection);
+    }
+    if let Some(on_toggle) = slot.on_toggle_selection {
+        track_row =
+            track_row.on_toggle_selection(move |event, window, cx| on_toggle(event, window, cx));
+    }
 
     if let Some(on_click) = slot.on_click {
         track_row = track_row.on_click(move |event, window, cx| on_click(event, window, cx));

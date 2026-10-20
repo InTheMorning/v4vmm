@@ -9,10 +9,13 @@
 #![warn(clippy::pedantic)]
 
 use gpui::{
-    div, prelude::*, AnyElement, App, IntoElement, ParentElement, RenderOnce, SharedString, Window,
+    div, prelude::*, AnyElement, App, IntoElement, ParentElement, RenderOnce, ScrollHandle,
+    SharedString, Window,
 };
 
-use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::music_column_scroll::{
+    music_column_scrollbar, music_column_tracked_scrollbar,
+};
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 
@@ -22,6 +25,9 @@ use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 pub struct ReleaseDetailSurface {
     id: SharedString,
     scrollable: bool,
+    /// The held scroll handle of the Music detail column (ADR 0084
+    /// Decision 10, packet 018). `None` scrolls with no held handle.
+    scroll_handle: Option<ScrollHandle>,
     header: Option<ReleaseSurfaceElement>,
     actions: Option<ReleaseSurfaceElement>,
     actions_a11y_label: Option<SharedString>,
@@ -47,6 +53,7 @@ impl ReleaseDetailSurface {
         Self {
             id: id.into(),
             scrollable: false,
+            scroll_handle: None,
             header: None,
             actions: None,
             actions_a11y_label: None,
@@ -59,6 +66,13 @@ impl ReleaseDetailSurface {
 
     pub fn scrollable(mut self, scrollable: bool) -> Self {
         self.scrollable = scrollable;
+        self
+    }
+
+    /// Scrolls the surface with `scroll_handle`, so the keys of the detail
+    /// column can scroll it (ADR 0084 Decision 10, packet 018).
+    pub fn scroll_handle(mut self, scroll_handle: Option<ScrollHandle>) -> Self {
+        self.scroll_handle = scroll_handle;
         self
     }
 
@@ -138,7 +152,10 @@ impl RenderOnce for ReleaseDetailSurface {
                 .min_w_0()
                 .p(Spacing::LG.scaled(cx))
                 .child(page_scroll_content(cx).child(body));
-            music_column_scrollbar(container, scrollbar_id)
+            match &self.scroll_handle {
+                Some(scroll) => music_column_tracked_scrollbar(container, scroll, None),
+                None => music_column_scrollbar(container, scrollbar_id),
+            }
         } else {
             body.id(id).into_any_element()
         }

@@ -8,14 +8,14 @@
 
 use std::sync::Arc;
 
-use gpui::{div, prelude::*, AnyElement, Context, Image, SharedString};
+use gpui::{div, prelude::*, AnyElement, Context, Image, ScrollHandle, SharedString};
 
 use crate::api::{Feed, Track};
 use crate::db;
 use crate::feed_service::track_row_to_track_context;
 use crate::library::{InspectorFrame, LazyPanel, LibraryApp};
 use crate::metadata::{TagCompareResult, TrackContext};
-use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::music_column_scroll::music_column_tracked_scrollbar;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{DisclosureTextPanel, DisclosureTextPanelDisplay, TrackSurfaceElement};
 use crate::ui::shells::library::track_detail_metadata::{
@@ -38,6 +38,7 @@ pub(crate) fn render_library_track_detail(
     playlists: &[db::Playlist],
     chrome: &LibraryChromeDisplay,
     named_feeds: &[NamedFeed],
+    scroll: &ScrollHandle,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let context = track_row_to_track_context(&frame.track);
@@ -60,7 +61,9 @@ pub(crate) fn render_library_track_detail(
             named_feeds,
             cx,
         )));
-    music_column_scrollbar(container, "track-detail-scroll-scrollbar")
+    // ADR 0084 packet 018: the keys of the detail column scroll the page
+    // through its held scroll handle.
+    music_column_tracked_scrollbar(container, scroll, None)
 }
 
 fn render_library_track_window(

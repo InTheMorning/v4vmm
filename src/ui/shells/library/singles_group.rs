@@ -9,18 +9,20 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use gpui::{
-    div, prelude::*, AnyElement, ClickEvent, Context, FontWeight, Image, SharedString, Styled,
+    div, prelude::*, AnyElement, ClickEvent, Context, FontWeight, Image, ScrollHandle,
+    SharedString, Styled,
 };
 
 use crate::db;
 use crate::library::{playlist_options, LibraryApp};
-use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::music_column_scroll::music_column_tracked_scrollbar;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{
     ActionRow, ActionRowDisplay, AddToPlaylistDisplay, AddToPlaylistPopover,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{Button as UiButton, Label};
+use crate::ui::shells::library::detail::DetailRowSlot;
 use crate::ui::shells::library::feed_detail::{render_library_track_row, LibraryTrackRowContext};
 use crate::ui::style::spacing;
 use crate::ui::tokens::{FontSize, SemanticColor};
@@ -38,6 +40,8 @@ pub(crate) fn render_library_singles_group_page(
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     playlists: &[db::Playlist],
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
+    row_slots: Vec<DetailRowSlot>,
+    scroll: &ScrollHandle,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let SinglesGroupPageVm {
@@ -85,12 +89,11 @@ pub(crate) fn render_library_singles_group_page(
             .control_group(vec![render_main_action(action, playlists, cx)]),
         );
     }
-    content = content.child(
-        div().flex().flex_col().gap(spacing::XXS).children(
-            rows.into_iter()
-                .map(|row| render_single_row(row, mb_status, album_thumbs, playlists, cx)),
-        ),
-    );
+    content = content.child(div().flex().flex_col().gap(spacing::XXS).children(
+        rows.into_iter().zip(row_slots).map(|(row, slot)| {
+            render_single_row(row, mb_status, album_thumbs, playlists, slot, cx)
+        }),
+    ));
 
     let container = div()
         .id("singles-group-page")
@@ -101,7 +104,9 @@ pub(crate) fn render_library_singles_group_page(
         .min_w_0()
         .p(spacing::LG)
         .child(content);
-    music_column_scrollbar(container, "singles-group-page-scrollbar")
+    // ADR 0084 packet 018: the page holds the scroll handle of the detail
+    // column, so a key can keep the focused row in view.
+    music_column_tracked_scrollbar(container, scroll, None)
 }
 
 /// The one main action of a group page: "Download n singles" or "Add to
@@ -165,6 +170,7 @@ fn render_single_row(
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     playlists: &[db::Playlist],
+    slot: DetailRowSlot,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let SinglesGroupPageRowVm {
@@ -179,7 +185,7 @@ fn render_single_row(
         busy,
         album_thumbs,
         playlists,
-        LibraryTrackRowContext::SinglesGroupPage { key, date_text },
+        LibraryTrackRowContext::SinglesGroupPage { key, date_text }.with_slot(slot),
         cx,
     )
 }

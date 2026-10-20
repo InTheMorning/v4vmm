@@ -422,10 +422,12 @@ impl TopApp {
             // ADR 0084 Decision 10: Escape clears a Music list selection
             // first, and keeps the present Back behavior only when no
             // selection exists to clear.
+            // ADR 0084 packet 018: the detail column ends its own
+            // selection mode first, when it carries the focus.
             AppTab::Music => {
                 let cleared = self.library.update(cx, |library, cx| {
                     library.clear_focused_selection(window, cx)
-                });
+                }) || self.end_detail_selecting(window, cx);
                 if !cleared {
                     self.library.update(cx, LibraryApp::pop_inspector);
                 }
@@ -495,9 +497,14 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) {
         match self.tab {
-            AppTab::Music => self.library.update(cx, |library, cx| {
-                library.move_selection_focus(step, window, cx);
-            }),
+            // ADR 0084 packet 018: each column checks its own focus
+            // handle, so only the column with the focus acts.
+            AppTab::Music => {
+                self.library.update(cx, |library, cx| {
+                    library.move_selection_focus(step, window, cx);
+                });
+                self.move_detail_selection_focus(step, window, cx);
+            }
             AppTab::Show | AppTab::Settings => {}
         }
     }
@@ -537,9 +544,12 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) {
         match self.tab {
-            AppTab::Music => self.library.update(cx, |library, cx| {
-                library.toggle_focused_selection(window, cx);
-            }),
+            AppTab::Music => {
+                self.library.update(cx, |library, cx| {
+                    library.toggle_focused_selection(window, cx);
+                });
+                self.toggle_focused_detail_row(window, cx);
+            }
             AppTab::Show | AppTab::Settings => {}
         }
     }
@@ -551,9 +561,11 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) {
         match self.tab {
-            AppTab::Music => self
-                .library
-                .update(cx, |library, cx| library.select_all_visible(window, cx)),
+            AppTab::Music => {
+                self.library
+                    .update(cx, |library, cx| library.select_all_visible(window, cx));
+                self.select_all_detail_rows(window, cx);
+            }
             AppTab::Show | AppTab::Settings => {}
         }
     }
@@ -567,10 +579,15 @@ impl TopApp {
         match self.tab {
             // ADR 0084 Decision 10: Enter opens the page of the row with
             // the keyboard focus, in the Music list column.
+            // Packet 018: the detail column opens the page of its own
+            // focused row.
             AppTab::Music => {
-                self.library.update(cx, |library, cx| {
-                    library.open_focused_selection_row(window, cx);
+                let opened = self.library.update(cx, |library, cx| {
+                    library.open_focused_selection_row(window, cx)
                 });
+                if !opened {
+                    self.open_focused_detail_row(window, cx);
+                }
             }
             AppTab::Show | AppTab::Settings => {}
         }

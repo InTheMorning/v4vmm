@@ -1,8 +1,9 @@
 //! Search dispatch, Index async wiring, and drill-down helpers.
 
+use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{prelude::*, AnyElement, Context, Image, SharedString, Window};
+use gpui::{prelude::*, AnyElement, ClickEvent, Context, Image, SharedString, Window};
 
 use crate::application::capability::Dependency;
 use crate::application::capability_recovery::{RecoveryAction, RecoveryIntent};
@@ -42,6 +43,9 @@ use crate::view_models::album_page::{
     album_page_actions, AlbumNameLinkTarget, AlbumPageAction, AlbumPageOrigin,
     ALBUM_PAGE_MENU_A11Y_LABEL,
 };
+use crate::view_models::detail_selection::{
+    index_release_track_rows, index_track_guid, DetailPageRows, DetailRowKey,
+};
 use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm, SharedTrackRowVm};
 use crate::view_models::library::{
     display_description_text, keyed_description_state, toggle_keyed_description_state,
@@ -62,7 +66,7 @@ use crate::view_models::workspace::{
     FrameNavigationEntry, FrameNavigationState, NavigationPathStart, ReleaseKey, ReleasePageSource,
     TrackKey, TrackPageSource, WorkspaceFrameId,
 };
-use crate::views::{FeedRef, FeedView, TrackRef, TrackView};
+use crate::views::{FeedRef, FeedView, TrackView};
 
 use super::{AppTab, TopApp};
 
@@ -721,7 +725,7 @@ impl TopApp {
     /// Opens a track page by its key, from any origin (ADR 0084
     /// Decision 4). Replaces `push_index_track_detail`: one function
     /// pushes the entry, resolves its data source, and restores the page.
-    fn open_track_in_frame(
+    pub(super) fn open_track_in_frame(
         &mut self,
         content_frame_id: WorkspaceFrameId,
         key: &TrackKey,
@@ -1090,6 +1094,7 @@ impl TopApp {
             primary_actions: Self::index_feed_primary_actions(feed, cx),
             description_panel: self.index_feed_description_panel(feed, cx),
             track_rows: Some(self.index_feed_track_rows(feed, cx)),
+            scroll_handle: Some(self.library.read(cx).detail_scroll_handle()),
             ..ReleaseDetailBehaviorSlots::default()
         }
     }
@@ -1127,6 +1132,9 @@ impl TopApp {
             // an Index track page shows its description, with the same
             // panel and the same projection as the Index release page.
             description_panel: self.index_track_description_panel(track, &page, cx),
+            // ADR 0084 packet 018: the keys of the detail column scroll
+            // the page through its held scroll handle.
+            scroll_handle: Some(self.library.read(cx).detail_scroll_handle()),
             ..TrackDetailBehaviorSlots::default()
         }
     }
@@ -1244,7 +1252,11 @@ impl TopApp {
 
     /// "Download album" of an Index track: reads the album feed from
     /// `MusicIndex`, then downloads it like the Index album page does.
-    fn download_index_album_of_track(&mut self, feed_guid: String, cx: &mut Context<Self>) {
+    pub(super) fn download_index_album_of_track(
+        &mut self,
+        feed_guid: String,
+        cx: &mut Context<Self>,
+    ) {
         let command = FetchIndexFeedDetail::new(self.musicindex_endpoint.clone(), feed_guid);
         present_command(
             &self.command_runner,
@@ -1446,30 +1458,52 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) -> Vec<ReleaseSurfaceElement> {
         let feed_guid = feed_guid_from_view(feed);
+        // ADR 0084 packet 018: each row carries the detail selection facts.
+        // The Library row and the Index row of one track give the same
+        // facts, from the same row key.
+        let detail_rows =
+            DetailPageRows::Tracks(index_release_track_rows(feed_guid.as_deref(), &feed.tracks));
+        let (selections, probes): (Vec<_>, Vec<_>) = {
+            let library = self.library.read(cx);
+            let selections = library.detail_selection().row_selections(&detail_rows);
+            let probes = selections
+                .iter()
+                .map(|selection| library.detail_row_probe(selection))
+                .collect();
+            (selections, probes)
+        };
         feed.tracks
             .iter()
+            .zip(selections.into_iter().zip(probes))
             .enumerate()
-            .map(|(index, track)| {
+            .map(|(index, (track, (selection, probe)))| {
                 let row = SharedTrackRowVm::new(track, EntitySurfaceContext::Library, index);
                 let row_id = row.element_id();
                 let mut slot = ReleaseTrackRowSlot {
                     thumbnail: self.index_track_row_thumbnail(feed, track, cx),
                     actions: self.index_track_row_actions(feed, track, index, cx),
+                    selection: Some(selection),
+                    scroll_probe: probe,
                     ..ReleaseTrackRowSlot::default()
                 };
                 // ADR 0084 Decision 4: a click on an Index track row opens
                 // its track page, the same as a Library row. A track with
-                // no track GUID gets no click, as today.
+                // no track GUID gets no click, as today. Packet 018: in
+                // selection mode, a click changes the selection instead.
                 if let Some(key) =
                     index_track_row_click_key(feed_guid.as_deref(), track_guid_from_view(track))
                 {
                     // The search path uses the same fallback: the track GUID.
                     let label = track.title.clone().unwrap_or_else(|| key.item_guid.clone());
-                    slot = slot.on_click(cx.listener(move |this, _, _, cx| {
-                        let Some(content_frame_id) = this.content_list_frame_id() else {
-                            return;
-                        };
-                        this.open_track_in_frame(content_frame_id, &key, label.clone(), cx);
+                    let row_key = DetailRowKey::Track(key);
+                    let toggle_key = row_key.clone();
+                    slot.on_toggle_selection = Some(Rc::new(cx.listener(
+                        move |this, _: &ClickEvent, _window, cx| {
+                            this.toggle_detail_row(&toggle_key, cx);
+                        },
+                    )));
+                    slot = slot.on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                        this.click_detail_row(&row_key, label.clone(), event.modifiers(), cx);
                     }));
                 }
                 render_release_track_row(SharedString::from(row_id), row, slot)
@@ -1631,9 +1665,15 @@ impl TopApp {
         cx.notify();
     }
 
-    fn download_index_track(&mut self, feed: &FeedView, track: &TrackView, cx: &mut Context<Self>) {
+    pub(super) fn download_index_track(
+        &mut self,
+        feed: &FeedView,
+        track: &TrackView,
+        cx: &mut Context<Self>,
+    ) {
+        let downloaded_feed_guid = feed_guid_from_view(feed);
         let downloaded_key = TrackKey::from_index_track_target(
-            feed_guid_from_view(feed).as_deref(),
+            downloaded_feed_guid.as_deref(),
             track_guid_from_view(track).unwrap_or_default(),
         );
         let command = SubscribeTrack::new(
@@ -1668,6 +1708,16 @@ impl TopApp {
                     .map(|nav| nav.current().clone());
                 if track_download_updates_open_page(current.as_ref(), Some(&downloaded_key)) {
                     this.apply_track_page_source(&downloaded_key, cx);
+                }
+                // ADR 0084 Decision 4: the open release page of this
+                // track's feed also resolves its source again, in place.
+                if release_download_updates_open_page(
+                    current.as_ref(),
+                    downloaded_feed_guid.as_deref(),
+                ) {
+                    if let Some(FrameNavigationEntry::Release(key)) = current {
+                        this.apply_release_page_source(&key, cx);
+                    }
                 }
             },
             |this, error, _cx| {
@@ -1991,7 +2041,7 @@ fn api_track_from_view(feed: &FeedView, track: &TrackView) -> crate::api::Track 
     }
 }
 
-fn feed_guid_from_view(feed: &FeedView) -> Option<String> {
+pub(super) fn feed_guid_from_view(feed: &FeedView) -> Option<String> {
     feed.feed_guid.clone().or_else(|| match &feed.id {
         Some(FeedRef::Musicindex(feed_guid)) => Some(feed_guid.clone()),
         Some(FeedRef::LocalFeedId(_)) | None => None,
@@ -1999,10 +2049,7 @@ fn feed_guid_from_view(feed: &FeedView) -> Option<String> {
 }
 
 fn track_guid_from_view(track: &TrackView) -> Option<String> {
-    track.track_guid.clone().or_else(|| match &track.id {
-        Some(TrackRef::Musicindex(track_guid)) => Some(track_guid.clone()),
-        Some(TrackRef::LocalTrackId(_)) | None => None,
-    })
+    index_track_guid(track)
 }
 
 /// The click key of an Index track row (ADR 0084 Decision 4, "The Index

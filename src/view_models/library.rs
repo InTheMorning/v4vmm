@@ -33,6 +33,7 @@ use crate::metadata::MusicBrainzLookupResult;
 use crate::view_models::album_page::AlbumNameLinkVm;
 use crate::view_models::artist_detail::{ArtistDetailFactVm, ArtistDetailPageVm};
 use crate::view_models::artist_identity::ArtistIdentity;
+use crate::view_models::detail_selection::LibraryReleaseFacts;
 use crate::view_models::entity_detail::{
     EntityActionTarget, EntityActionVm, PlaylistActionState, ReleaseMembershipState,
     TrackActionState, TrackMembershipState,
@@ -2959,6 +2960,19 @@ impl LibraryViewModel {
     fn release_is_fully_downloaded(&self, key: &ReleaseKey) -> bool {
         self.album_for_release_key(key).is_none_or(|album| {
             !album.tracks.is_empty() && album.tracks.iter().all(|track| track.is_in_library)
+        })
+    }
+
+    /// The Library facts of the release `key`, for the detail column
+    /// selection (ADR 0084 packet 018). `None` when the tree does not hold
+    /// the release, or when the release has no Library feed id.
+    #[must_use]
+    pub(crate) fn library_release_facts(&self, key: &ReleaseKey) -> Option<LibraryReleaseFacts> {
+        let album = self.album_for_release_key(key)?;
+        Some(LibraryReleaseFacts {
+            feed_id: album.feed_id?,
+            fully_downloaded: !album.tracks.is_empty()
+                && album.tracks.iter().all(|track| track.is_in_library),
         })
     }
 

@@ -71,6 +71,9 @@ pub struct ListRow {
     /// [ADR 0068](../../../docs/adr/0068-show-cue-and-audition-isolation.md)
     /// fills it.
     audition: Option<gpui::AnyElement>,
+    /// The scroll probe of the focused row of a detail page (ADR 0084
+    /// Decision 10, packet 018). It paints nothing.
+    scroll_probe: Option<gpui::AnyElement>,
     children: Vec<gpui::AnyElement>,
 }
 
@@ -85,6 +88,7 @@ impl ListRow {
             on_click: None,
             checkbox: None,
             audition: None,
+            scroll_probe: None,
             children: Vec::new(),
         }
     }
@@ -126,6 +130,14 @@ impl ListRow {
     /// 11). No packet fills this yet, so no caller passes one.
     pub fn audition(mut self, audition: gpui::AnyElement) -> Self {
         self.audition = Some(audition);
+        self
+    }
+
+    /// The scroll probe of the focused row of a detail page (ADR 0084
+    /// Decision 10, packet 018), from `ScrollReveal::probe`. The row gives
+    /// it its own bounds, so the column can keep the row in view.
+    pub(crate) fn scroll_probe(mut self, probe: Option<gpui::AnyElement>) -> Self {
+        self.scroll_probe = probe;
         self
     }
 
@@ -195,7 +207,8 @@ impl RenderOnce for ListRow {
                         .chain(self.children)
                         .chain(self.audition),
                 ),
-            );
+            )
+            .when_some(self.scroll_probe, |el, probe| el.relative().child(probe));
 
         if let Some(handler) = on_click {
             row = row

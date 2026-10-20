@@ -51,10 +51,12 @@ pub(crate) struct WorkspaceSlots {
     detail: Option<AnyElement>,
     content_list_view_mode_control: Option<ContentViewModeControlDisplay>,
     content_list_header_action: Option<FrameHeaderActionDisplay>,
+    detail_header_action: Option<FrameHeaderActionDisplay>,
     content_list_filter_chip_strip: Option<FilterChipStripDisplay>,
     on_content_list_filter_select: Option<WorkspaceFilterSelectHandler>,
     on_content_list_view_mode_select: Option<WorkspaceViewModeSelectHandler>,
     on_content_list_header_action: Option<WorkspaceHeaderActionHandler>,
+    on_detail_header_action: Option<WorkspaceHeaderActionHandler>,
     on_content_list_breadcrumb_select: Option<WorkspaceBreadcrumbSelectHandler>,
     content_list_breadcrumb_labeler: Option<WorkspaceBreadcrumbLabeler>,
     on_content_list_back_select: Option<WorkspaceBackSelectHandler>,
@@ -108,6 +110,13 @@ impl WorkspaceSlots {
         self
     }
 
+    /// Takes the content of the detail frame, so the caller can wrap it
+    /// and supply it again (ADR 0084 packet 018: the focus and the action
+    /// bar of the Music detail column).
+    pub(crate) fn take_detail_slot(&mut self) -> Option<AnyElement> {
+        self.detail.take()
+    }
+
     /// Supplies frame-local content view-mode chrome for the content-list frame.
     pub(crate) fn content_list_view_mode_control(
         mut self,
@@ -131,6 +140,22 @@ impl WorkspaceSlots {
         handler: impl Fn(&mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_content_list_header_action = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the detail frame's trailing header action (ADR 0084
+    /// packet 018): the Music detail column's "Select" and "Done" button.
+    pub(crate) fn detail_header_action(mut self, display: FrameHeaderActionDisplay) -> Self {
+        self.detail_header_action = Some(display);
+        self
+    }
+
+    /// Supplies the detail header action's click callback.
+    pub(crate) fn on_detail_header_action(
+        mut self,
+        handler: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_detail_header_action = Some(Rc::new(handler));
         self
     }
 
@@ -310,9 +335,8 @@ impl WorkspaceSlots {
     fn header_action_for(&self, kind: WorkspaceFrameKind) -> Option<FrameHeaderActionDisplay> {
         match kind {
             WorkspaceFrameKind::ContentList => self.content_list_header_action.clone(),
-            WorkspaceFrameKind::SourceList
-            | WorkspaceFrameKind::Detail
-            | WorkspaceFrameKind::QueueNowPlaying => None,
+            WorkspaceFrameKind::Detail => self.detail_header_action.clone(),
+            WorkspaceFrameKind::SourceList | WorkspaceFrameKind::QueueNowPlaying => None,
         }
     }
 
@@ -322,9 +346,8 @@ impl WorkspaceSlots {
     ) -> Option<WorkspaceHeaderActionHandler> {
         match kind {
             WorkspaceFrameKind::ContentList => self.on_content_list_header_action.clone(),
-            WorkspaceFrameKind::SourceList
-            | WorkspaceFrameKind::Detail
-            | WorkspaceFrameKind::QueueNowPlaying => None,
+            WorkspaceFrameKind::Detail => self.on_detail_header_action.clone(),
+            WorkspaceFrameKind::SourceList | WorkspaceFrameKind::QueueNowPlaying => None,
         }
     }
 

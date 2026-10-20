@@ -8,17 +8,23 @@
 //! text.
 
 use std::collections::BTreeMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{AnyElement, App, Context, Image, Window};
+use gpui::{AnyElement, App, Context, Image, Modifiers, Window};
 
 use crate::application::queries::feed::FetchIndexPublisherPage;
 use crate::application::queries::library::FetchLibraryPublisherPage;
 use crate::application::{ApplicationCommand, CommandContext};
 use crate::presentation::present_command;
-use crate::ui::shells::publisher::{render_publisher_page, render_publisher_page_status};
+use crate::ui::shells::publisher::{
+    render_publisher_page, render_publisher_page_status, ClickReleaseCallback, PublisherPageRows,
+    ToggleReleaseCallback,
+};
+use crate::view_models::detail_selection::DetailRowKey;
 use crate::view_models::publisher_page::{
     PublisherPageContext, PublisherPageFacts, PublisherPageLoadDisplay, PublisherPageVm,
+    TitleDisplay,
 };
 use crate::view_models::workspace::{FrameNavigationEntry, ReleaseKey};
 
@@ -239,26 +245,16 @@ impl TopApp {
                 };
                 // Required Change 7: a release row opens the one release
                 // route, in the current frame, the same as a release row
-                // of a list does.
-                let content_frame_id = self.content_list_frame_id();
-                let entity = cx.entity();
-                let on_open_release =
-                    move |key: &ReleaseKey, label: String, _window: &mut Window, cx: &mut App| {
-                        let Some(content_frame_id) = content_frame_id else {
-                            return;
-                        };
-                        let key = key.clone();
-                        entity.update(cx, |this, cx| {
-                            this.open_release_in_frame(content_frame_id, &key, label, cx);
-                        });
-                    };
+                // of a list does. ADR 0084 packet 018: in selection mode,
+                // a click changes the selection of the row instead.
+                let rows = self.publisher_page_rows(&vm, cx);
                 render_publisher_page(
                     &vm,
                     context,
                     &album_thumbs,
                     header_image,
                     on_open_publisher,
-                    on_open_release,
+                    &rows,
                     cx,
                 )
             }
@@ -267,6 +263,56 @@ impl TopApp {
                 render_publisher_page_status(&display, cx)
             }
             None => render_publisher_page_status(&PublisherPageLoadDisplay::empty(), cx),
+        }
+    }
+
+    /// The release rows of the mounted feed page, with the facts of the
+    /// detail selection on each row (ADR 0084 Decision 10, packet 018).
+    fn publisher_page_rows(
+        &self,
+        vm: &PublisherPageVm,
+        cx: &mut Context<Self>,
+    ) -> PublisherPageRows {
+        let library = self.library.read(cx);
+        let mut sections = vm.sections();
+        for row in sections
+            .iter_mut()
+            .flat_map(|section| section.rows.iter_mut())
+        {
+            let key = row
+                .open
+                .as_ref()
+                .map(|open| DetailRowKey::Release(open.key.clone()));
+            let title = match &row.title {
+                TitleDisplay::Stated(text) | TitleDisplay::Missing(text) => text.as_str(),
+            };
+            row.selection = library
+                .detail_selection()
+                .row_selection(key.as_ref(), title);
+        }
+        let scroll = library.detail_scroll_handle();
+        let reveal = library.detail_scroll_reveal().clone();
+        let entity = cx.entity();
+        let on_click_release: ClickReleaseCallback = Rc::new(
+            move |key: &ReleaseKey, label: String, modifiers: Modifiers, _window, cx: &mut App| {
+                let key = DetailRowKey::Release(key.clone());
+                entity.update(cx, |this, cx| {
+                    this.click_detail_row(&key, label, modifiers, cx);
+                });
+            },
+        );
+        let entity = cx.entity();
+        let on_toggle_release: ToggleReleaseCallback =
+            Rc::new(move |key: &ReleaseKey, _window, cx: &mut App| {
+                let key = DetailRowKey::Release(key.clone());
+                entity.update(cx, |this, cx| this.toggle_detail_row(&key, cx));
+            });
+        PublisherPageRows {
+            sections,
+            scroll,
+            reveal,
+            on_click_release,
+            on_toggle_release,
         }
     }
 

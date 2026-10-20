@@ -14,7 +14,7 @@ use gpui::{
 };
 
 use crate::library::{LibraryApp, LibraryArtistDetail};
-use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::music_column_scroll::music_column_tracked_scrollbar;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{
     DisclosureSupplementDisplay, DisclosureSupplementLabel, EntityKind, Thumbnail, ThumbnailSize,
@@ -29,6 +29,7 @@ pub(crate) fn render_library_feed_list(
     detail: &LibraryArtistDetail,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     chrome: &LibraryChromeDisplay,
+    scroll: &gpui::ScrollHandle,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let vm = LibraryArtistDetailVm::new(&detail.name, &detail.tracks);
@@ -119,5 +120,7 @@ pub(crate) fn render_library_feed_list(
                 },
             )),
         );
-    music_column_scrollbar(container, "artist-detail-scroll-scrollbar")
+    // ADR 0084 packet 018: the keys of the detail column scroll the page
+    // through its held scroll handle.
+    music_column_tracked_scrollbar(container, scroll, None)
 }

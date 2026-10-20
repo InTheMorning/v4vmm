@@ -26,6 +26,8 @@ use crate::metadata::{MusicBrainzLookupResult, PendingId3Edit, TagCompareResult,
 use crate::presentation::RuntimeHost;
 use crate::runtime::actor::ActorHandle;
 use crate::runtime::musicbrainz_feed_saga::MusicBrainzFeedSagaHandle;
+use crate::ui::composites::music_column_scroll::ScrollReveal;
+use crate::view_models::detail_selection::DetailSelection;
 use crate::view_models::library::{
     description_line_count, AlbumNode, InspectorPanelKind, LibraryTrackInspectorDisplay,
     LibraryTrackInspectorState, LibraryViewModel, ReleasesRowId,
@@ -239,11 +241,11 @@ pub struct LibraryApp {
     /// The singles groups whose Releases list rows show their singles
     /// (ADR 0084 Decision 6). This is view state. It is not stored.
     expanded_singles_groups: BTreeSet<SinglesGroupKey>,
-    /// The Library feed ids that wait for a download from a singles group
-    /// page, newest first (ADR 0084 Decision 6). `download_feed` runs one
-    /// download at a time, so the next one starts when the current one
-    /// ends.
-    queued_feed_downloads: VecDeque<i64>,
+    /// The downloads that wait: the Library feeds of a singles group page,
+    /// newest first (ADR 0084 Decision 6), and the Library tracks of the
+    /// detail column bar (packet 018). One download runs at a time, so
+    /// the next one starts when the current one ends.
+    queued_downloads: VecDeque<QueuedDownload>,
     /// The Releases list selection (ADR 0084 Decision 10). A change of
     /// destination clears it. Required correction item 2, 2026-10-18:
     /// the focus and the anchor hold a [`ReleasesRowId`], a release row
@@ -274,6 +276,28 @@ pub struct LibraryApp {
     /// The result of the whole-selection removal that runs, when one runs
     /// (ADR 0084 Decision 10).
     selection_removal_report: Option<SelectionRemovalReport>,
+    /// The detail column selection, its mode and its page entry (ADR 0084
+    /// Decision 10, packet 018). A page change clears it.
+    detail_selection: DetailSelection,
+    /// The Music detail column's own focus handle (packet 018). The
+    /// detail selection keys act only while it carries the focus.
+    detail_column_focus: FocusHandle,
+    /// The held scroll handle of each Music detail page (packet 018), so
+    /// a key can scroll the page or keep the focused row in view.
+    detail_column_scroll: ScrollHandle,
+    /// The request to keep the focused detail row in view (packet 018).
+    detail_scroll_reveal: ScrollReveal,
+}
+
+/// One download that waits in `LibraryApp::queued_downloads`. A singles
+/// group page queues Library feeds. The detail column bar (ADR 0084
+/// packet 018) also queues Library tracks.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum QueuedDownload {
+    /// A Library feed id, for `download_feed`.
+    Feed(i64),
+    /// A Library track id, for `download_rss_added_track`.
+    Track(i64),
 }
 
 pub(crate) struct PlaylistActorState {
@@ -284,6 +308,7 @@ pub(crate) struct PlaylistActorState {
 
 mod app_impl;
 mod column_view;
+mod detail_selection;
 
 pub(crate) use app_impl::playlist_options;
 pub(crate) use column_view::{LibraryColumn, LibraryColumnView};

@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use super::PlaylistActorState;
 use super::{
     InspectorFrame, LazyPanel, LibraryApp, LibraryArtistDetail, LibraryDetail, PlaylistDetail,
-    ThumbnailState,
+    QueuedDownload, ThumbnailState,
 };
 use crate::app::keyboard::primary_modifier_held;
 use crate::application::commands::download::{SubscribeThenAppendToPlaylist, SubscribeTrack};
@@ -46,7 +46,7 @@ use crate::metadata::{
 use crate::presentation::{bridge_watch, present_command};
 use crate::runtime::musicbrainz_feed_saga::{MusicBrainzFeedSagaState, StartFeedLookup};
 use crate::subscribe_service::{self, SubscribeFeedRequest, SubscribeTrackRequest};
-use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::music_column_scroll::{music_column_scrollbar, ScrollReveal};
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{PlaylistOption, PlaylistOptionDisplay, StatusRole};
 use crate::ui::control_styles::ControlStyle;
@@ -69,6 +69,7 @@ use crate::ui::shells::tag_update_confirmation::{
 };
 use crate::ui::style::color;
 use crate::ui::style::spacing;
+use crate::view_models::detail_selection::DetailSelection;
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::library::{
     description_line_count, list_column_header_action, releases_disclosure_step, AlbumNode,
@@ -660,7 +661,17 @@ impl LibraryApp {
     /// download at a time, so this queues the feed ids and starts the
     /// first one.
     pub(crate) fn download_singles(&mut self, feed_ids: &[i64], cx: &mut Context<Self>) {
-        self.queued_feed_downloads.extend(feed_ids.iter().copied());
+        self.queued_downloads
+            .extend(feed_ids.iter().copied().map(QueuedDownload::Feed));
+        self.start_next_queued_download(cx);
+    }
+
+    /// Queues each Library track of `track_ids` for a download, and starts
+    /// the first one (ADR 0084 packet 018: "Download n tracks" of the
+    /// detail column bar). One download runs at a time.
+    pub(crate) fn download_library_tracks(&mut self, track_ids: &[i64], cx: &mut Context<Self>) {
+        self.queued_downloads
+            .extend(track_ids.iter().copied().map(QueuedDownload::Track));
         self.start_next_queued_download(cx);
     }
 
@@ -669,10 +680,13 @@ impl LibraryApp {
     /// not stop the queue.
     fn start_next_queued_download(&mut self, cx: &mut Context<Self>) {
         while !(self.vm.has_busy_track() || self.vm.has_busy_feed()) {
-            let Some(feed_id) = self.queued_feed_downloads.pop_front() else {
-                return;
-            };
-            self.download_feed(feed_id, cx);
+            match self.queued_downloads.pop_front() {
+                Some(QueuedDownload::Feed(feed_id)) => self.download_feed(feed_id, cx),
+                Some(QueuedDownload::Track(track_id)) => {
+                    self.download_rss_added_track(track_id, cx);
+                }
+                None => return,
+            }
         }
     }
 
@@ -851,6 +865,7 @@ impl LibraryApp {
         };
         let mut vm = LibraryViewModel::new();
         vm.set_content_view_mode(content_view_mode);
+        let detail_column_scroll = gpui::ScrollHandle::new();
         let mut app = Self {
             playback_availability: Err(
                 crate::application::capability::ExecutionUnavailable::configured(
@@ -881,7 +896,7 @@ impl LibraryApp {
             recent_music_page: RecentFeedsPageVm::loading(),
             recent_music_scroll: gpui::ScrollHandle::new(),
             expanded_singles_groups: BTreeSet::new(),
-            queued_feed_downloads: std::collections::VecDeque::new(),
+            queued_downloads: std::collections::VecDeque::new(),
             releases_selection: ListSelection::new(),
             releases_selection_mode: SelectionMode::Normal,
             track_selection: ListSelection::new(),
@@ -890,6 +905,10 @@ impl LibraryApp {
             list_column_focus: cx.focus_handle(),
             selection_removal: SelectionRemovalConfirmationState::new(),
             selection_removal_report: None,
+            detail_selection: DetailSelection::new(),
+            detail_column_focus: cx.focus_handle(),
+            detail_scroll_reveal: ScrollReveal::new(detail_column_scroll.clone()),
+            detail_column_scroll,
         };
         app.maybe_start_musicbrainz_feed_saga(cx);
         app.maybe_start_playlist_rss_check(cx);
@@ -1251,6 +1270,12 @@ impl LibraryApp {
                 this.releases_selection.retain_visible(&releases_visible);
                 let tracks_visible = this.content_list_visible_track_keys();
                 this.track_selection.retain_visible(&tracks_visible);
+                // ADR 0084 packet 018: the same for the detail selection
+                // of a Library page. The feed page and the Index page
+                // keep each row after a removal.
+                if let Some(rows) = this.library_detail_page_rows() {
+                    this.detail_selection.retain_visible(&rows.members());
+                }
             },
             |this, err, _cx| this.vm.set_error_status(err),
         );
@@ -2077,6 +2102,9 @@ impl LibraryApp {
         entry: &FrameNavigationEntry,
         cx: &mut Context<Self>,
     ) {
+        // ADR 0084 packet 018: a page change clears the detail selection
+        // and sets `Normal`.
+        self.reset_detail_selection(entry);
         match entry {
             FrameNavigationEntry::ArtistDetail(name) => {
                 self.select_artist(name, cx);
@@ -3804,7 +3832,7 @@ impl LibraryApp {
 
     /// Adds each track of `track_ids` to a playlist, through one append
     /// (ADR 0084 Decision 10). An empty `track_ids` adds nothing.
-    fn add_tracks_to_playlist(
+    pub(crate) fn add_tracks_to_playlist(
         &mut self,
         track_ids: Vec<i64>,
         playlist_id: i64,
@@ -3820,7 +3848,7 @@ impl LibraryApp {
 
     /// Creates a playlist, then adds each track of `track_ids` to it
     /// (ADR 0084 Decision 10).
-    fn create_playlist_and_add_tracks(
+    pub(crate) fn create_playlist_and_add_tracks(
         &mut self,
         name: &str,
         track_ids: Vec<i64>,
@@ -3850,16 +3878,11 @@ impl LibraryApp {
         let feed_ids = self
             .vm
             .releases_removable_feed_ids(&self.releases_selection);
-        let items = self.plan_selection_removal(
-            feed_ids
-                .into_iter()
-                .map(|(feed_id, title)| (LibraryRemovalIntent::FeedId(feed_id), title)),
-        );
-        if items.is_empty() {
-            return;
-        }
-        self.selection_removal.open("release", items);
-        self.open_selection_removal_dialog(window, cx);
+        let items = feed_ids
+            .into_iter()
+            .map(|(feed_id, title)| (LibraryRemovalIntent::FeedId(feed_id), title))
+            .collect();
+        self.request_selection_removal(items, "release", window, cx);
     }
 
     /// "Remove n tracks…" of the Tracks action bar (ADR 0084 Decision
@@ -3870,15 +3893,28 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) {
         let tracks = self.vm.content_list_selected_tracks(&self.track_selection);
-        let items = self.plan_selection_removal(
-            tracks
-                .into_iter()
-                .map(|(track_id, title)| (LibraryRemovalIntent::TrackId(track_id), title)),
-        );
+        let items = tracks
+            .into_iter()
+            .map(|(track_id, title)| (LibraryRemovalIntent::TrackId(track_id), title))
+            .collect();
+        self.request_selection_removal(items, "track", window, cx);
+    }
+
+    /// Opens one confirmation that lists each item of `items` (ADR 0084
+    /// Decision 10). The list column bars and the detail column bar
+    /// (packet 018) use it. `item_noun` is "track" or "release".
+    pub(crate) fn request_selection_removal(
+        &mut self,
+        items: Vec<(LibraryRemovalIntent, String)>,
+        item_noun: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items = self.plan_selection_removal(items.into_iter());
         if items.is_empty() {
             return;
         }
-        self.selection_removal.open("track", items);
+        self.selection_removal.open(item_noun, items);
         self.open_selection_removal_dialog(window, cx);
     }
 
@@ -4437,6 +4473,10 @@ impl LibraryApp {
             }
             _ => None,
         };
+        // ADR 0084 packet 018: each row of a release page and of a singles
+        // group page carries the detail selection facts.
+        let row_slots = self.library_detail_row_slots();
+        let scroll = self.detail_scroll_handle();
         render_library_detail(
             &self.detail,
             self.vm.busy_track(),
@@ -4451,6 +4491,8 @@ impl LibraryApp {
             self.playlist_rss_snapshot.as_ref(),
             &track_named_feeds,
             album_cover_color,
+            row_slots,
+            &scroll,
             cx,
         )
     }

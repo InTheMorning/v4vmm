@@ -54,6 +54,24 @@ pub(crate) struct SelectionActionBarInput {
     pub(crate) in_library_count: usize,
 }
 
+/// The count of each action of the bar (ADR 0084 packet 018). A caller
+/// gathers these from the selected rows. The detail column gives a
+/// separate count to each action: for example, "Add to playlist" counts
+/// only the selected tracks that are in the Library.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SelectionActionCounts {
+    /// The total number of selected items.
+    pub(crate) selected_count: usize,
+    /// The singular noun of one selected item, for example "track".
+    pub(crate) item_noun: &'static str,
+    /// The number of selected items that "Download" acts on.
+    pub(crate) download_count: usize,
+    /// The number of selected items that "Add to playlist" acts on.
+    pub(crate) add_count: usize,
+    /// The number of selected items that "Remove" acts on.
+    pub(crate) remove_count: usize,
+}
+
 /// The action bar at the bottom of a list with a selection (ADR 0084
 /// Decision 10).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -68,24 +86,43 @@ impl SelectionActionBarVm {
     /// Builds the bar, or gives `None` outside [`SelectionMode::Selecting`]
     /// (ADR 0084 Decision 10 Amendment, 2026-10-19). In `Selecting`, with
     /// no selected row, the bar reads "Select items" and carries no
-    /// action.
+    /// action. "Add to playlist" counts every selected item.
     #[must_use]
     pub(crate) fn new(mode: SelectionMode, input: SelectionActionBarInput) -> Option<Self> {
+        Self::from_counts(
+            mode,
+            SelectionActionCounts {
+                selected_count: input.selected_count,
+                item_noun: input.item_noun,
+                download_count: input.not_in_library_count,
+                add_count: input.selected_count,
+                remove_count: input.in_library_count,
+            },
+        )
+    }
+
+    /// Builds the bar from a separate count for each action (ADR 0084
+    /// packet 018: the detail column). An action with a count of 0 is
+    /// absent. "Clear" shows with each selection.
+    #[must_use]
+    pub(crate) fn from_counts(mode: SelectionMode, counts: SelectionActionCounts) -> Option<Self> {
         if !mode.is_selecting() {
             return None;
         }
-        if input.selected_count == 0 {
+        if counts.selected_count == 0 {
             return Some(Self {
                 count_label: "Select items".to_owned(),
                 actions: Vec::new(),
             });
         }
-        let noun = format!("{}{}", input.item_noun, plural(input.selected_count));
+        let noun_for = |count: usize| format!("{}{}", counts.item_noun, plural(count));
         let mut actions = Vec::new();
-        if input.not_in_library_count > 0 {
-            let download_noun =
-                format!("{}{}", input.item_noun, plural(input.not_in_library_count));
-            let label = format!("Download {} {download_noun}", input.not_in_library_count);
+        if counts.download_count > 0 {
+            let label = format!(
+                "Download {} {}",
+                counts.download_count,
+                noun_for(counts.download_count)
+            );
             actions.push(SelectionActionVm {
                 kind: SelectionActionKind::Download,
                 element_id: "music-selection-download",
@@ -93,18 +130,24 @@ impl SelectionActionBarVm {
                 label,
             });
         }
-        let add_label = format!("Add {} {noun} to playlist", input.selected_count);
-        actions.push(SelectionActionVm {
-            kind: SelectionActionKind::AddToPlaylist,
-            element_id: "music-selection-add-to-playlist",
-            a11y_label: add_label.clone(),
-            label: add_label,
-        });
-        if input.in_library_count > 0 {
-            let remove_noun = format!("{}{}", input.item_noun, plural(input.in_library_count));
+        if counts.add_count > 0 {
             let label = format!(
-                "Remove {} {remove_noun}{OPENS_DIALOG_MARK}",
-                input.in_library_count
+                "Add {} {} to playlist",
+                counts.add_count,
+                noun_for(counts.add_count)
+            );
+            actions.push(SelectionActionVm {
+                kind: SelectionActionKind::AddToPlaylist,
+                element_id: "music-selection-add-to-playlist",
+                a11y_label: label.clone(),
+                label,
+            });
+        }
+        if counts.remove_count > 0 {
+            let label = format!(
+                "Remove {} {}{OPENS_DIALOG_MARK}",
+                counts.remove_count,
+                noun_for(counts.remove_count)
             );
             actions.push(SelectionActionVm {
                 kind: SelectionActionKind::Remove,
@@ -120,7 +163,11 @@ impl SelectionActionBarVm {
             label: "Clear".to_owned(),
         });
         Some(Self {
-            count_label: format!("{} {noun} selected", input.selected_count),
+            count_label: format!(
+                "{} {} selected",
+                counts.selected_count,
+                noun_for(counts.selected_count)
+            ),
             actions,
         })
     }
