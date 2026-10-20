@@ -1,6 +1,6 @@
 # ADR 0084 Task 019: Selection Mode With A Select Button
 
-Status: Implemented - 2026-10-19. Cases R19-01 to R19-07 pass. Mechanical checks are Green. The visual gate is open.
+Status: Complete - 2026-10-20. Cases R19-01 to R19-07 pass. Mechanical checks are Green. The operator passed V1 to V7 on 2026-10-20.
 
 ## Goal
 
@@ -9,10 +9,10 @@ The list column has two modes. In normal mode, rows show no checkbox and keep no
 
 ## Authority
 
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 10, amended on 2026-10-19: normal mode, selection mode, the "Select" and "Done" button, and the action bar with "Select items".
-- [Packet 009](archive/adr-0084-task-009-list-selection-and-action-bar.md): the selection model, the rows with members, the checkbox, the keys and the action bar. This packet keeps each of them.
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 10, amended on 2026-10-19: normal mode, selection mode, the "Select" and "Done" button, and the action bar with "Select items".
+- [Packet 009](adr-0084-task-009-list-selection-and-action-bar.md): the selection model, the rows with members, the checkbox, the keys and the action bar. This packet keeps each of them.
 - The operator decided the design on 2026-10-19, on the model of Apple Photos, Files and Mail. Ctrl+click, Shift+click, Ctrl+A and Space also start selection mode.
-- The durable set in [AGENTS.md](../../AGENTS.md): typed action state, renderer portability and token discipline.
+- The durable set in [AGENTS.md](../../../AGENTS.md): typed action state, renderer portability and token discipline.
 
 ## Recorded Facts - 2026-10-19
 
@@ -93,7 +93,7 @@ These are for the operator. No test proves them.
 
 ## Files To Inspect
 
-- [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
+- [Agent rules](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
 - `src/view_models/list_selection.rs`, `src/view_models/selection_action_bar.rs`, `src/view_models/library.rs`.
 - `src/library/app_impl.rs`, `src/library.rs`.
 - `src/ui/composites/list_row.rs`, `src/ui/shells/library/destination_lists.rs`, `src/ui/shells/library/content_list.rs`.
@@ -180,7 +180,7 @@ No application launch and no production-data change occurred.
 ### Unresolved Concerns
 
 1. V1 to V6 below need the operator. No test proves a rendered checkbox, a rendered button label at its actual screen position, or a layout at a narrow width.
-2. [Pending human check 5](../pending-human-checks.md#5-checkbox-and-keyboard-focus-contrast---adr-0084-decision-10) names the checkbox border and the keyboard focus outline contrast. It says to walk that check with this packet. This implementer changed no color, no border and no outline logic. The task instructions for this packet named only this one document to edit. The operator check below folds that check's two contrast points into its V1 and V3 steps. A later session should retire or merge pending check 5 against this packet's own visual gate, when an operator walks both checks.
+2. [Pending human check 5](../../pending-human-checks.md) names the checkbox border and the keyboard focus outline contrast. It says to walk that check with this packet. This implementer changed no color, no border and no outline logic. The task instructions for this packet named only this one document to edit. The operator check below folds that check's two contrast points into its V1 and V3 steps. A later session should retire or merge pending check 5 against this packet's own visual gate, when an operator walks both checks.
 3. The unresolved concerns of packet 009's Implementation Result and Correction Result stay open. This packet changes none of them.
 
 ## Operator Visual Check
@@ -264,7 +264,7 @@ Implement only this task. Do not redesign the architecture.
 
 Read:
 - `AGENTS.md` and `docs/architecture/source-map.md`
-- This packet: `docs/tasks/adr-0084-task-019-selection-mode.md`
+- This packet: `docs/tasks/archive/adr-0084-task-019-selection-mode.md`
 - ADR 0084 Decision 10, and the archived packet 009
 - Each file in "Files To Inspect"
 

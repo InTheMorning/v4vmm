@@ -327,7 +327,7 @@ Update this table when a packet lands.
 | `v4vmm` | [0084 014 Music column scrollbars](../tasks/archive/adr-0084-task-014-music-column-scrollbars.md) | Complete - 2026-10-17. The mechanical checks are Green. The operator passed V1 to V7 on 2026-10-17. |
 | `v4vmm` | [0084 007 release kind](../tasks/archive/adr-0084-task-007-release-kind.md) | Complete - 2026-10-17. The mechanical checks are Green. The operator passed V1 to V6 on 2026-10-17. |
 | `v4vmm` | [0084 015 singles groups](../tasks/archive/adr-0084-task-015-singles-groups.md) | Complete - 2026-10-17. The mechanical checks are Green. The operator passed V1 to V11 on 2026-10-17. |
-| `v4vmm` | [0084 019 selection mode](../tasks/adr-0084-task-019-selection-mode.md) | Implemented - 2026-10-19. The mechanical checks are Green. The visual gate V1 to V6 is open. |
+| `v4vmm` | [0084 019 selection mode](../tasks/archive/adr-0084-task-019-selection-mode.md) | Complete - 2026-10-20. The mechanical checks are Green. The operator passed V1 to V7 on 2026-10-20. |
 | `v4vmm` | [0084 009 selection and action bar](../tasks/archive/adr-0084-task-009-list-selection-and-action-bar.md) | Complete - 2026-10-19. The mechanical checks are Green. The operator passed V1 to V7. |
 | `v4vmm` | [0084 008 feed page and Artists](../tasks/archive/adr-0084-task-008-feed-page-and-artists.md) | Complete - 2026-10-18. The mechanical checks are Green. The operator passed V1 to V9 on 2026-10-18. |
 | `v4vmm` | [0059 018 service watch pace](../tasks/archive/adr-0059-task-018-service-watch-pace.md) | Complete - 2026-10-18. The mechanical checks are Green. The operator passed V1 to V3 on 2026-10-18. |
