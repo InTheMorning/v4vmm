@@ -121,6 +121,8 @@ The operator sends screenshots, and the orchestrator records each result here wi
 | 2026-10-20 | 024.1 HeyCitizen Artists row after its feed page | Pass | The row shows the channel image |
 | 2026-10-20 | Playlist row covers | Pass | Playlist "0001" |
 | 2026-10-20 | Breadcrumb of a group page opened from its list row | Fail, fixed | It read "Releases > Aged Friends & Old Whiskey > Singles by Haleen". The defect is older than the run (packet 015) |
+| 2026-10-20 | Release badge reads "release" | Pass | Release page "Aged Friends & Old Whiskey" |
+| 2026-10-20 | Breadcrumb of a group page opened from its list row | Pass | "Releases > Singles by Haleen" |
 
 ## Final Walk
 

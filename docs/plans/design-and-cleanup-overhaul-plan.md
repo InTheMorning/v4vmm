@@ -78,7 +78,7 @@ The first Phase 4 packet builds the track page once, for a Library track and an 
 
 1. [ADR 0083 task 004](../tasks/archive/adr-0083-task-004-one-track-page.md): one track page, the action hierarchy, name links, credits and "Inspect sources". Done on 2026-10-07.
 2. [ADR 0083 task 005](../tasks/archive/adr-0083-task-005-album-page-header-and-actions.md): one album page header and action row for the Library and the Index, the 200 pixel cover and the cover color backdrop. Done on 2026-10-08.
-3. Later packets, not started on 2026-10-20: the inspection view of RSS, MusicIndex and file tags (ADR 0083 Decision 8), and the row hover actions (ADR 0083 Decision 6).
+3. Later packets: the inspection view of RSS, MusicIndex and file tags (ADR 0083 Decision 8), not started. The row hover actions (ADR 0083 Decisions 5 and 6) are three Ready packets of 2026-10-20: [task 006](../tasks/adr-0083-task-006-row-hover-actions.md) for the track row, [task 007](../tasks/adr-0083-task-007-list-and-playlist-row-actions.md) for the playlist, Tracks and Needs attention rows, and [task 008](../tasks/adr-0083-task-008-drag-track-to-playlist.md) for a drag to a playlist.
    Also the payment split bar for the track page and the album page.
 
 ### Phase 4A: Flow And Information Architecture
@@ -131,7 +131,7 @@ Steps:
    2. One page for each item (Decision 4). Library and Index rows open the same release and track pages. It fixes finding 2.
       Written on 2026-10-08 as two packets: [task 002](../tasks/archive/adr-0084-task-002-one-release-route.md) for releases, complete on 2026-10-11, and [task 003](../tasks/archive/adr-0084-task-003-one-track-route.md) for tracks, complete on 2026-10-11. The [ADR 0084 phase plan](adr-0084-music-column-browser-phase-plan.md) holds the packet register.
    3. The three-column shell: the destinations, the collapsible sidebar, Discover with "New releases", Needs attention and Playlists (Decisions 1 to 3). It deletes the sidebar tree and fixes finding 5. Complete as packets 004 to 006, 013 and 014.
-   4. Releases: the kind of each release, the two scopes and the singles groups with their group page (Decisions 5, 6 and 8). Packets 007 and 015 are complete. Packet 016, the scopes, waits for Stophammer request 8.
+   4. Releases: the kind of each release, the two scopes and the singles groups with their group page (Decisions 5, 6 and 8). Packets 007 and 015 are complete. Packet 016, the scopes, waits for no Stophammer change since release 0.12.0.
    5. The artist page with two levels and its scope (Decisions 7 and 8). It replaces the Library artist page by name and the name match page, and fixes finding 6.
       The operator split it on 2026-10-18. [ADR 0084 packet 008](../tasks/archive/adr-0084-task-008-feed-page-and-artists.md) builds the feed level and the Artists list. Packet 017 builds the name level, and replaces the two old pages.
       Packet 010 fixes finding 6, and packet 016 adds the scope.
@@ -274,7 +274,7 @@ The operator walked §2 and §19 on the one track page on 2026-10-07. They left 
 ### Phase 4: Publisher And Artist Pages
 
 - **§12 Library Artist View Without Artist Storage — ADR 0077 Task 001.** Owner: [task 001](../tasks/adr-0077-task-001-remove-dead-artist-storage.md).
-  - Waits for ADR 0084 packet 017, the name level page. Packet 017 waits for Stophammer request 8 item 4, and is not yet written.
+  - Waits for ADR 0084 packet 017, the name level page. Stophammer 0.12.0 delivered request 8 item 4 on 2026-10-18.
   - Precondition: migration 13 deletes the stored artist rows. Make the SQLite backup before the first run of the new build.
   - V1: a Library artist view shows its tracks and albums, with no aliases, area, active years or source subjects.
   - A missing track, an empty view, or an error report is wrong.
