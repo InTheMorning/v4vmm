@@ -180,6 +180,8 @@ The operator asked on 2026-10-08 for a later phase that tunes how fast the app r
     Each snapshot redraws the full window, also when no value changed. `publish_snapshot` uses `send`, not `send_if_modified`, and `bridge_watch` in `src/presentation/gpui_vm_bridge.rs` calls `cx.notify()` after each snapshot. The playback poll of `src/runtime/playback_polling.rs` also redraws each second.
     ADR 0059 task 018 owns the service watch part, and the playback poll part has no owner.
 13. 2026-10-20: the top app builds the playlist page rows of the detail selection several times in each render. A long playlist can thus render slowly (`detail_page_rows` in `src/app/detail_selection.rs`, ADR 0084 packet 025). No measurement confirms it.
+14. 2026-10-20: `reload_playlists` reads the cover images of each playlist on the UI thread, beside the playlist list read (`playlist_cover_images` in `src/db.rs`, ADR 0084 packet 011). No measurement confirms a delay.
+15. 2026-10-20: the first show of the Artists list or the Playlists list starts one logo composition for each row at the same time, on the command runner (`FetchLogoMosaic` in `src/application/queries/images.rs`, ADR 0084 packet 011). The rows show the entity color until each image arrives.
 
 ## Visual Requirements Moved From Pending Checks - 2026-10-07
 

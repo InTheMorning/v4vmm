@@ -24,7 +24,8 @@ use crate::ui::composites::music_column_scroll::music_column_tracked_scrollbar;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::track_row::checkbox_state_for;
 use crate::ui::composites::{
-    DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow, DetailTextRow, EntityKind, StatusRole,
+    CollectionArt, CollectionArtImage, DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow,
+    DetailTextRow, EntityKind, StatusRole, ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::{Icon, IconName, IconSize};
@@ -39,6 +40,7 @@ use crate::ui::{
     layouts as layout,
     tokens::{color as token_color, FontSize, Radius, SemanticColor, Size as TokenSize, Spacing},
 };
+use crate::view_models::collection_art::CollectionKind;
 use crate::view_models::library::{
     PlaylistTrackControlsDisplay, PlaylistTrackMenuItemDisplay, PlaylistTrackRowDisplay,
 };
@@ -68,6 +70,9 @@ pub(crate) struct PlaylistDetailBehaviorSlots {
     pub(crate) on_download_added_track: Option<PlaylistTrackIdHandler>,
     pub(crate) on_reorder: Option<PlaylistReorderHandler>,
     pub(crate) track_rows: Vec<PlaylistShellRow>,
+    /// The header art of the playlist in the logo frame (ADR 0084
+    /// Decision 12). `None` shows the playlist thumbnail.
+    pub(crate) header_art: Option<CollectionArtImage>,
 }
 
 /// One row inside the playlist detail shell.
@@ -160,6 +165,7 @@ pub(crate) fn render_playlist_detail_shell(
         on_download_added_track,
         on_reorder,
         track_rows: rows,
+        header_art,
     } = slots;
     let track_rows = if rows.is_empty() {
         vec![render_empty_message(page.empty_message())]
@@ -167,15 +173,23 @@ pub(crate) fn render_playlist_detail_shell(
         render_playlist_rows_with_reorder_targets(page.playlist_id(), rows, on_reorder.as_ref(), cx)
     };
 
+    let mut header = DetailHeader::new(DetailHeaderDisplay {
+        kind: EntityKind::Playlist,
+        title: SharedString::from(header_display.title),
+        subtitle: None,
+        data_rows: Vec::new(),
+    });
+    if let Some(image) = header_art {
+        header = header.art(CollectionArt::new(
+            image,
+            CollectionKind::Playlist,
+            ThumbnailSize::XXl,
+        ));
+    }
     let content =
         page_scroll_content(cx)
             .gap(spacing::MD)
-            .child(DetailHeader::new(DetailHeaderDisplay {
-                kind: EntityKind::Playlist,
-                title: SharedString::from(header_display.title),
-                subtitle: None,
-                data_rows: Vec::new(),
-            }))
+            .child(header)
             .child(DetailGrid::new(
                 page.detail_rows()
                     .into_iter()

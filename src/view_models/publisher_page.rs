@@ -17,6 +17,7 @@
 #![warn(clippy::pedantic)]
 
 use crate::api::{AlbumNamesAs, PublisherLinkResolution, RoleAgreement};
+use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
 use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::role_words::{
@@ -526,6 +527,19 @@ impl PublisherPageVm {
     #[must_use]
     pub(crate) fn header_image_url(&self) -> Option<String> {
         self.facts.feed_image_url.clone()
+    }
+
+    /// The header art of the page (ADR 0084 Decision 12). The channel
+    /// image of the feed shows as a square. With no channel image, or when
+    /// it does not load, the first four images of
+    /// [`Self::album_image_urls`] show in the logo frame.
+    #[must_use]
+    pub(crate) fn collection_art(&self) -> CollectionArtVm {
+        CollectionArtVm::resolve(
+            self.header_image_url().as_deref(),
+            self.album_image_urls(),
+            CollectionKind::Artist,
+        )
     }
 
     /// The confirmation level of this feed (ADR 0085 Decision 2). It reads
@@ -1340,6 +1354,37 @@ mod tests {
 
         let vm = PublisherPageVm::new(facts(vec![]));
         assert_eq!(vm.header_image_url(), None);
+    }
+
+    /// R11-05 (ADR 0084 Decision 12): the channel image of the feed is the
+    /// provided image, and the first four album images are its fallback.
+    #[test]
+    fn adr_0084_logo_frame_r11_05_feed_page_art() {
+        let albums: Vec<_> = ["d", "a", "c", "b", "e"]
+            .into_iter()
+            .map(|name| {
+                let mut album = owned_album();
+                album.image_url = Some(format!("https://example.test/{name}.png"));
+                album
+            })
+            .collect();
+        let mosaic = CollectionArtVm::Mosaic(
+            ["a", "b", "c", "d"].map(|name| format!("https://example.test/{name}.png")),
+        );
+
+        let vm = PublisherPageVm::new(facts(albums.clone()));
+        assert_eq!(vm.collection_art(), mosaic);
+
+        let mut page_facts = facts(albums);
+        page_facts.feed_image_url = Some("https://example.test/feed.jpg".into());
+        let vm = PublisherPageVm::new(page_facts);
+        assert_eq!(
+            vm.collection_art(),
+            CollectionArtVm::ProvidedImage {
+                url: "https://example.test/feed.jpg".to_owned(),
+                fallback: Box::new(mosaic),
+            }
+        );
     }
 
     /// R3-09: an owned album with `publisher_lists_music = false` or an

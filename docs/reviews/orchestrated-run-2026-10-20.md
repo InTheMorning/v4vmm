@@ -65,6 +65,8 @@ Each entry names the step, the decision and the reason.
 
 - Packet 025 review: "Remove n from playlist" has no confirmation, because it deletes no file. A selection change during a move can give a wrong key, and the next reload drops it. The row cost of a long playlist is responsiveness item 13.
 
+- Packet 011 review: the singles group row no longer animates a GIF cover on hover, because it shows a mosaic. Each logo is composed at two device pixels for each logical pixel, because the render path has no window scale factor. The playlist image read and the first compositions are responsiveness items 14 and 15.
+
 ## Steps
 
 | Step | State | Commit |
@@ -73,8 +75,8 @@ Each entry names the step, the decision and the reason.
 | Packet 021: one release page | Implemented. V1 to V3 open | `6439c00` |
 | Packet 022: the download queue | Implemented. V1 to V6 open | `905f3fe` |
 | Packet 020: Discover tiles | Implemented. V1 to V6 open | `4cc4540` |
-| Packet 025: playlist page | Implemented. V1 to V7 open | This commit |
-| Packet 011: the logo frame | Open | |
+| Packet 025: playlist page | Implemented. V1 to V7 open | `421eb53` |
+| Packet 011: the logo frame | Implemented. V1 to V7 open | This commit |
 | Packet 024: the image of an artist feed (migration 20) | Open | |
 
 ## Final Walk

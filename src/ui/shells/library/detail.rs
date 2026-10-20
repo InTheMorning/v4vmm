@@ -12,6 +12,7 @@ use crate::db;
 use crate::library::PlaylistActorState;
 use crate::library::{LibraryApp, LibraryDetail};
 use crate::media::cover_color::CoverColor;
+use crate::ui::composites::CollectionArtImage;
 use crate::ui::shells::library::feed_detail::render_library_feed_detail;
 use crate::ui::shells::library::feed_list::render_library_feed_list;
 use crate::ui::shells::library::playlist_detail::{
@@ -51,6 +52,7 @@ pub(crate) fn render_library_detail(
     playlist_rss_check: Option<&crate::runtime::PlaylistRssCheckSnapshot>,
     track_named_feeds: &[NamedFeed],
     album_cover_color: Option<CoverColor>,
+    header_art: Option<CollectionArtImage>,
     row_slots: Vec<DetailRowSlot>,
     scroll: &ScrollHandle,
     cx: &mut Context<LibraryApp>,
@@ -107,6 +109,7 @@ pub(crate) fn render_library_detail(
         // each render, so a download or a removal updates it in place.
         LibraryDetail::SinglesGroup(key) => render_library_singles_group_page(
             library_vm.singles_group_page(key),
+            header_art,
             mb_status,
             playlists,
             album_thumbs,
@@ -119,6 +122,7 @@ pub(crate) fn render_library_detail(
             LibraryPlaylistPage {
                 detail,
                 album_thumbs,
+                header_art,
                 chrome,
                 rename_playlist_input,
                 renaming_playlist_id,

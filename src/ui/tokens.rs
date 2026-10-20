@@ -26,6 +26,7 @@ use gpui::{
 use gpui_component::ActiveTheme;
 
 use crate::media::cover_color::CoverColor;
+use crate::media::logo_frame::{BakedShadow, LOGO_FRAME_ASPECT};
 use crate::theme_profile::ThemeProfile;
 use crate::ui::contrast::{delinearize, linearize};
 
@@ -628,6 +629,8 @@ impl From<Weight> for FontWeight {
 ///
 /// No other element draws this shadow. A guard in
 /// `tests/architecture_tests.rs` checks this rule for ADR 0083 Decision 4.
+/// The logo frame of a collection (ADR 0084 Decision 12) bakes the `XXl`
+/// values into its composed image, through [`ArtworkShadow::baked`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ArtworkShadow {
     /// 152 px artwork — `ImageSize::Xl` and the Music content tile.
@@ -687,6 +690,59 @@ impl ArtworkShadow {
             spread_radius: px(0.0),
             inset: false,
         }]
+    }
+}
+
+impl ArtworkShadow {
+    /// The shadow values in device pixels, for an image that bakes the
+    /// shadow (ADR 0084 Decision 12). `density` is the device pixels for
+    /// each logical pixel.
+    ///
+    /// ADR 0039: shadow geometry is CHROME.
+    #[must_use]
+    pub fn baked(self, cx: &App, density: f32) -> BakedShadow {
+        let scale = ScaleFactor::current(cx);
+        BakedShadow {
+            blur_px: f32::from(scale_chrome_px(f32::from(self.blur_radius_base()), scale))
+                * density,
+            offset_y_px: f32::from(scale_chrome_px(f32::from(self.offset_y_base()), scale))
+                * density,
+            alpha: self.alpha(),
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// ArtworkShape. ADR 0084 Decision 12: the MusicIndex logo frames the art of
+// a collection.
+// -----------------------------------------------------------------------------
+
+/// The shape of collection art.
+///
+/// `src/media/logo_frame.rs` holds the polygons of the shape. This token
+/// names them, and holds no number of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ArtworkShape {
+    /// The `MusicIndex` logo: three pillars in a box that is wider than it
+    /// is tall.
+    LogoFrame,
+}
+
+impl ArtworkShape {
+    /// The device pixels for each logical pixel of a composed logo image.
+    /// The image stays sharp on a display with a scale of two.
+    pub const RASTER_DENSITY: f32 = 2.0;
+
+    /// The opacity of the entity color in a logo with no cover. The
+    /// `MusicIndex` site mixes 45 percent of the entity color.
+    pub const ENTITY_FILL_OPACITY: f32 = 0.45;
+
+    /// The width of the shape divided by its height.
+    #[must_use]
+    pub const fn aspect(self) -> f32 {
+        match self {
+            Self::LogoFrame => LOGO_FRAME_ASPECT,
+        }
     }
 }
 
@@ -1341,6 +1397,13 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// R11-10: the logo frame is 735 units wide and 681 units tall.
+    #[test]
+    fn adr_0084_logo_frame_r11_10_aspect() {
+        let aspect: f32 = 735.0 / 681.0;
+        assert!((ArtworkShape::LogoFrame.aspect() - aspect).abs() < f32::EPSILON);
     }
 
     /// ADR 0083 task 005: the backdrop keeps the hue of the cover.

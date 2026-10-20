@@ -22,11 +22,12 @@ use gpui::{
 use crate::ui::composites::music_column_scroll::{music_column_tracked_scrollbar, ScrollReveal};
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{
-    DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay, EntityKind, ListRow, ListRowA11yLabel,
-    TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize,
+    CollectionArt, CollectionArtImage, DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay,
+    EntityKind, ListRow, ListRowA11yLabel, TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize,
 };
 use crate::ui::primitives::{Checkbox, CheckboxState, Label, LabelVariant, SectionHeader};
 use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Spacing};
+use crate::view_models::collection_art::CollectionKind;
 use crate::view_models::list_selection::RowCheckState;
 use crate::view_models::publisher_page::{
     CoCreditedFeedVm, FeedLevel, OtherAlbumsStatus, PublisherPageAlbumVm, PublisherPageContext,
@@ -69,9 +70,9 @@ pub(crate) struct PublisherPageRows {
 ///
 /// `album_thumbs` holds each album artwork image the app layer already
 /// resolved, keyed by its `image_url` (ADR 0077 packet 004, orchestrator
-/// fix 5). `header_image` is the feed's own channel image (ADR 0085
-/// Decision 7 design, Required Change 7). The screen fetches no image of
-/// its own.
+/// fix 5). `header_art` is the loaded header art of the page: the feed's
+/// own channel image or the logo mosaic of its albums (ADR 0084 Decision
+/// 12). The screen fetches no image of its own.
 ///
 /// `on_open_publisher` opens the feed page of a "Shares albums with"
 /// entry's feed GUID (ADR 0082 Decision 5). `rows` gives the release rows
@@ -83,7 +84,7 @@ pub(crate) fn render_publisher_page(
     vm: &PublisherPageVm,
     context: PublisherPageContext,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
-    header_image: Option<Arc<Image>>,
+    header_art: CollectionArtImage,
     on_open_publisher: impl Fn(&str, &mut Window, &mut App) + 'static,
     rows: &PublisherPageRows,
     cx: &App,
@@ -100,7 +101,7 @@ pub(crate) fn render_publisher_page(
         .child(
             page_scroll_content(cx)
                 .gap(Spacing::LG.scaled(cx))
-                .child(render_header(vm, header_image))
+                .child(render_header(vm, header_art))
                 .child(render_sections(vm, context, album_thumbs, rows, cx))
                 .when_some(
                     render_shares_albums_with(vm.shares_albums_with(), &on_open_publisher, cx),
@@ -123,7 +124,7 @@ const fn entity_kind_for_level(level: FeedLevel) -> EntityKind {
     }
 }
 
-fn render_header(vm: &PublisherPageVm, header_image: Option<Arc<Image>>) -> AnyElement {
+fn render_header(vm: &PublisherPageVm, header_art: CollectionArtImage) -> AnyElement {
     let data_rows = vm
         .header_facts()
         .into_iter()
@@ -139,7 +140,11 @@ fn render_header(vm: &PublisherPageVm, header_image: Option<Arc<Image>>) -> AnyE
         subtitle: None,
         data_rows,
     })
-    .image(header_image)
+    .art(CollectionArt::new(
+        header_art,
+        CollectionKind::Artist,
+        ThumbnailSize::XXl,
+    ))
     // ADR 0083 Decision 3: the feed page title uses Display.
     .title_size(FontSize::Display)
     .into_any_element()

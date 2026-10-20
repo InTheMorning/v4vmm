@@ -21,6 +21,9 @@ use crate::library::{
 use crate::media::ImageCache;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::PlaybackOwner;
+use crate::presentation::collection_art::{
+    CollectionArtHost, CollectionArtLoads, CollectionArtParts,
+};
 use crate::presentation::{bridge_watch, present_command, GpuiEventBridge};
 use crate::runtime::playback_polling::{PlaybackPollingHandle, PlaybackTickOutcome};
 use crate::runtime::{
@@ -122,6 +125,16 @@ impl From<AppTab> for WorkspaceScreenMount {
 // TopApp
 // ---------------------------------------------------------------------------
 
+impl CollectionArtHost for TopApp {
+    fn collection_art_parts(&mut self) -> CollectionArtParts<'_> {
+        CollectionArtParts {
+            loads: &mut self.collection_art,
+            cache: &self.image_cache,
+            runner: &self.command_runner,
+        }
+    }
+}
+
 pub struct TopApp {
     tab: AppTab,
     library: Entity<LibraryApp>,
@@ -180,6 +193,8 @@ pub struct TopApp {
     image_cache: Arc<ImageCache>,
     remote_detail_thumbnails: BTreeMap<String, RemoteDetailThumbnailState>,
     remote_cover_colors: BTreeMap<String, RemoteCoverColorState>,
+    /// The load state of each collection art (ADR 0084 Decision 12).
+    collection_art: CollectionArtLoads,
     cached_files: CachedFilesVm,
     application_services: Arc<ApplicationServices>,
     command_runner: AsyncCommandRunner,
@@ -491,6 +506,7 @@ impl TopApp {
             image_cache,
             remote_detail_thumbnails: BTreeMap::new(),
             remote_cover_colors: BTreeMap::new(),
+            collection_art: CollectionArtLoads::default(),
             cached_files: CachedFilesVm::default(),
             application_services,
             command_runner,

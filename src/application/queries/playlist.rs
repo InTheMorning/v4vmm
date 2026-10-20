@@ -16,6 +16,19 @@ impl ApplicationQueryService {
         playlist_service::list(conn).map_err(|error| query_error(&error))
     }
 
+    /// Reads the first four images of each local playlist (ADR 0084
+    /// Decision 12).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when local playlist storage cannot be read.
+    pub fn playlist_cover_images(
+        &self,
+        conn: &Connection,
+    ) -> Result<std::collections::BTreeMap<i64, Vec<String>>, CommandError> {
+        playlist_service::cover_images(conn).map_err(|error| query_error(&error))
+    }
+
     /// Lists tracks in a local playlist.
     ///
     /// # Errors
@@ -65,6 +78,54 @@ mod tests {
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].id, track_id);
 
+        Ok(())
+    }
+
+    /// R11-05 (ADR 0084 Decision 12): one read gives the first four images
+    /// of each playlist, in playlist order. A track image comes before the
+    /// album image of its feed. An empty image and a repeated image are
+    /// dropped before the count.
+    #[test]
+    fn adr_0084_logo_frame_r11_05_playlist_cover_images_read() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+        let service = ApplicationQueryService::new();
+        let feed_id = create_feed(&conn)?;
+        conn.execute(
+            "UPDATE feeds SET album_image_href = 'album.jpg' WHERE id = ?1",
+            [feed_id],
+        )?;
+        let images = [
+            "", "a.jpg", "a.jpg", "b.jpg", " ", "c.jpg", "d.jpg", "e.jpg",
+        ];
+        let mix = playlist_service::create(&conn, "Mix")?;
+        for (index, image) in images.iter().enumerate() {
+            let track_id = create_track(&conn, feed_id, &format!("mix-{index}"))?;
+            conn.execute(
+                "UPDATE tracks SET track_image_href = ?1 WHERE id = ?2",
+                rusqlite::params![image, track_id],
+            )?;
+            playlist_service::append_track(&conn, mix, track_id)?;
+        }
+        let album_only = playlist_service::create(&conn, "Album")?;
+        let track_id = create_track(&conn, feed_id, "album-only")?;
+        playlist_service::append_track(&conn, album_only, track_id)?;
+        let empty = playlist_service::create(&conn, "Empty")?;
+
+        let covers = service.playlist_cover_images(&conn)?;
+
+        assert_eq!(
+            covers.get(&mix).cloned(),
+            Some(
+                ["album.jpg", "a.jpg", "b.jpg", "c.jpg"]
+                    .map(str::to_owned)
+                    .to_vec()
+            )
+        );
+        assert_eq!(
+            covers.get(&album_only).cloned(),
+            Some(vec!["album.jpg".to_owned()])
+        );
+        assert_eq!(covers.get(&empty), None);
         Ok(())
     }
 

@@ -77,7 +77,7 @@ impl ThumbnailSize {
         gpui::px(self.base() * ScaleFactor::current(cx).chrome_multiplier())
     }
 
-    fn radius(self) -> Radius {
+    pub(crate) fn radius(self) -> Radius {
         match self {
             Self::Sm | Self::Md => Radius::SM,
             Self::Lg => Radius::MD,

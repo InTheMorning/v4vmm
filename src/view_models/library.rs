@@ -33,6 +33,7 @@ use crate::metadata::MusicBrainzLookupResult;
 use crate::view_models::album_page::AlbumNameLinkVm;
 use crate::view_models::artist_detail::{ArtistDetailFactVm, ArtistDetailPageVm};
 use crate::view_models::artist_identity::ArtistIdentity;
+use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
 use crate::view_models::detail_selection::LibraryReleaseFacts;
 use crate::view_models::download_progress::{DownloadActivity, DownloadPhase, FeedKey};
 use crate::view_models::entity_detail::{
@@ -541,6 +542,9 @@ pub(crate) struct LibraryTree {
 pub(crate) struct LibrarySnapshot {
     tree: LibraryTree,
     playlists: Vec<db::Playlist>,
+    /// The first four images of each playlist, by playlist id (ADR 0084
+    /// Decision 12).
+    playlist_covers: BTreeMap<i64, Vec<String>>,
     playlist_tracks: Vec<TrackRow>,
     mb_status: BTreeMap<i64, MbTrackStatus>,
     staged_musicbrainz: BTreeMap<i64, MusicBrainzLookupResult>,
@@ -573,6 +577,8 @@ pub(crate) struct PlaylistSidebarRowVm {
     pub(crate) name: String,
     pub(crate) track_count_label: String,
     pub(crate) selected: bool,
+    /// The art of the playlist in the logo frame (ADR 0084 Decision 12).
+    pub(crate) art: CollectionArtVm,
 }
 
 /// Static labels for the Library shell chrome.
@@ -1655,6 +1661,9 @@ pub(crate) struct DestinationListRowVm {
     pub(crate) a11y_label: String,
     /// The row's thumbnail href, when it has one.
     pub(crate) thumbnail_href: Option<String>,
+    /// The art of a collection row in the logo frame (ADR 0084 Decision
+    /// 12). `None` for a release row, which shows its cover.
+    pub(crate) art: Option<CollectionArtVm>,
     /// The entry the row opens.
     pub(crate) open: DestinationListRowTarget,
     /// The checkbox facts of the row (ADR 0084 Decision 10). The
@@ -1796,6 +1805,7 @@ pub(crate) fn destination_release_row(
         secondary_text: format!("{} · {}", artist.name, album.release_kind().label()),
         a11y_label: format!("Release: {}", album.name),
         thumbnail_href: album.image_href.clone(),
+        art: None,
         open: DestinationListRowTarget::Release(key),
         selection: RowSelectionVm::none(),
     })
@@ -1816,10 +1826,29 @@ const ARTIST_NAME_ROW_MARK: &str = "by name";
 /// The separator between the parts of an Artists list row text.
 const ARTIST_ROW_SEPARATOR: &str = " \u{b7} ";
 
+/// The art of an Artists row in the logo frame (ADR 0084 Decision 12): the
+/// newest four images of its member albums. The date of an album is the
+/// latest `pub_date` of its tracks, and an album with no date comes last.
+/// Packet 024 adds the image that an artist feed gives.
+fn artist_row_art(members: &[(&ArtistNode, &AlbumNode)]) -> CollectionArtVm {
+    let mut albums: Vec<&AlbumNode> = members.iter().map(|(_, album)| *album).collect();
+    albums.sort_by_key(|album| {
+        std::cmp::Reverse(album.tracks.iter().filter_map(|track| track.pub_date).max())
+    });
+    CollectionArtVm::resolve(
+        None,
+        albums
+            .iter()
+            .filter_map(|album| album.image_href.as_deref()),
+        CollectionKind::Artist,
+    )
+}
+
 fn artist_list_row(
     identity: ArtistIdentity,
     members: &[(&ArtistNode, &AlbumNode)],
 ) -> DestinationListRowVm {
+    let art = Some(artist_row_art(members));
     let secondary_text = format!("{} release{}", members.len(), plural(members.len()));
     match identity {
         ArtistIdentity::Name(name) => DestinationListRowVm {
@@ -1828,6 +1857,7 @@ fn artist_list_row(
             secondary_text: format!("{secondary_text}{ARTIST_ROW_SEPARATOR}{ARTIST_NAME_ROW_MARK}"),
             a11y_label: format!("Artist: {name}, {ARTIST_NAME_ROW_MARK}"),
             thumbnail_href: None,
+            art,
             open: DestinationListRowTarget::Artist(name),
             // ADR 0084 Decision 10 Exclusions: the Artists list has no
             // selection model, so its row never shows a checkbox.
@@ -1849,6 +1879,7 @@ fn artist_list_row(
                 secondary_text,
                 a11y_label: format!("Artist: {title}"),
                 thumbnail_href: None,
+                art,
                 open: DestinationListRowTarget::Publisher(feed_guid),
                 selection: RowSelectionVm::none(),
             }
@@ -2807,6 +2838,12 @@ impl LibraryViewModel {
         self.snapshot.playlists = playlists;
     }
 
+    /// Replaces the first four images of each playlist (ADR 0084
+    /// Decision 12). One database read gives them for each playlist.
+    pub(crate) fn replace_playlist_covers(&mut self, covers: BTreeMap<i64, Vec<String>>) {
+        self.snapshot.playlist_covers = covers;
+    }
+
     pub(crate) fn fail_playlist_load(&mut self, error: impl std::fmt::Display) {
         self.status = format!("Error loading playlists: {error:#}");
     }
@@ -2847,6 +2884,15 @@ impl LibraryViewModel {
                     name: playlist.name.clone(),
                     track_count_label: format!("({})", playlist.track_count),
                     selected: self.selected_playlist_id == Some(playlist.id),
+                    art: CollectionArtVm::resolve(
+                        None,
+                        self.snapshot
+                            .playlist_covers
+                            .get(&playlist.id)
+                            .into_iter()
+                            .flatten(),
+                        CollectionKind::Playlist,
+                    ),
                 })
                 .collect(),
         }
@@ -5206,6 +5252,24 @@ impl<'a> PlaylistDetailVm<'a> {
             text_filter: None,
             rss_check: None,
         }
+    }
+
+    /// The header art of the playlist in the logo frame (ADR 0084 Decision
+    /// 12): the first four images in playlist order. The image of a track
+    /// is its own image, else its album image. A playlist gives no image of
+    /// its own.
+    #[must_use]
+    pub(crate) fn collection_art(&self) -> CollectionArtVm {
+        CollectionArtVm::resolve(
+            None,
+            self.tracks.iter().filter_map(|track| {
+                track
+                    .track_image_href
+                    .as_deref()
+                    .or(track.album_image_href.as_deref())
+            }),
+            CollectionKind::Playlist,
+        )
     }
 
     /// Attach the playlist RSS check snapshot (ADR 0076 Decision 2).
@@ -7853,7 +7917,12 @@ mod tests {
         assert_eq!(group.label, "Haleen");
         assert_eq!(group.secondary_text, "3 singles · 2 in Library · By name");
         assert_eq!(group.a11y_label, "Haleen, 3 singles, 2 in Library, By name");
-        assert_eq!(group.thumbnail_href.as_deref(), Some("2.jpg"));
+        // R11-05 (ADR 0084 Decision 12): the group row shows the newest
+        // images of its singles in the logo mosaic.
+        assert_eq!(
+            group.art,
+            CollectionArtVm::Mosaic(["2.jpg", "1.jpg", "3.jpg", "2.jpg"].map(str::to_owned))
+        );
         assert_eq!(
             group.open,
             SinglesGroupKey(ArtistIdentity::Name("Haleen".into()))
@@ -8116,6 +8185,82 @@ mod tests {
         assert_eq!(rows[0].secondary_text, "2 releases \u{b7} by name");
         assert_eq!(rows[1].secondary_text, "1 release \u{b7} by name");
         assert_eq!(rows[0].a11y_label, "Artist: Aphex Twin, by name");
+    }
+
+    /// R11-06 (ADR 0084 Decision 12): each Artists row gives collection
+    /// art, never the monogram. The newest album image comes first.
+    #[test]
+    fn adr_0084_logo_frame_r11_06_artists_rows_give_collection_art() {
+        let mut tree = library_tree();
+        let aphex = &mut tree.artists[0];
+        aphex.albums[0].tracks[0].pub_date = Some(100);
+        aphex.albums[1].image_href = Some("wl.jpg".into());
+        aphex.albums[1].tracks[0].pub_date = Some(200);
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(tree);
+
+        let rows = vm.artists_list();
+
+        assert_eq!(
+            rows[0].art,
+            Some(CollectionArtVm::Mosaic(
+                ["wl.jpg", "saw.jpg", "saw.jpg", "wl.jpg"].map(str::to_owned)
+            ))
+        );
+        assert_eq!(
+            rows[1].art,
+            Some(CollectionArtVm::EntityColor(CollectionKind::Artist))
+        );
+        assert!(rows.iter().all(|row| row.thumbnail_href.is_none()));
+
+        let mut one_cover = LibraryViewModel::new();
+        one_cover.replace_tree(library_tree());
+        assert_eq!(
+            one_cover.artists_list()[0].art,
+            Some(CollectionArtVm::SingleCover("saw.jpg".into()))
+        );
+    }
+
+    /// R11-05 (ADR 0084 Decision 12): each Playlists row gives the art of
+    /// the one playlist image read, and the playlist page gives the first
+    /// four images in playlist order.
+    #[test]
+    fn adr_0084_logo_frame_r11_05_playlist_rows_and_page_give_collection_art() {
+        let mut vm = LibraryViewModel::new();
+        let mut alpha = playlist("Alpha");
+        alpha.id = 10;
+        let mut zed = playlist("zed");
+        zed.id = 20;
+        vm.replace_playlists(vec![zed, alpha.clone()]);
+        vm.replace_playlist_covers(BTreeMap::from([(10, vec!["a".into(), "b".into()])]));
+
+        let sidebar = vm.playlist_sidebar();
+
+        assert_eq!(
+            sidebar.rows[0].art,
+            CollectionArtVm::Mosaic(["a", "b", "b", "a"].map(str::to_owned))
+        );
+        assert_eq!(
+            sidebar.rows[1].art,
+            CollectionArtVm::EntityColor(CollectionKind::Playlist)
+        );
+
+        let mut own_image = row();
+        own_image.track_image_href = Some("track.jpg".into());
+        own_image.album_image_href = Some("album-a.jpg".into());
+        let mut album_only = row();
+        album_only.album_image_href = Some("album-b.jpg".into());
+        let tracks = [own_image, album_only, row()];
+        assert_eq!(
+            PlaylistDetailVm::new(&alpha, &tracks).collection_art(),
+            CollectionArtVm::Mosaic(
+                ["track.jpg", "album-b.jpg", "album-b.jpg", "track.jpg"].map(str::to_owned)
+            )
+        );
+        assert_eq!(
+            PlaylistDetailVm::new(&alpha, &[]).collection_art(),
+            CollectionArtVm::EntityColor(CollectionKind::Playlist)
+        );
     }
 
     /// One minimal `AlbumNode`, with no named feed. Tests that add a named

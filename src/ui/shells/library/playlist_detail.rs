@@ -31,6 +31,7 @@ use crate::db::{PlaylistEntryKey, TrackRow};
 use crate::library::PlaylistActorState;
 use crate::library::{LibraryApp, LibraryAppEvent, PlaylistDetail};
 use crate::runtime::PlaylistRssCheckSnapshot;
+use crate::ui::composites::CollectionArtImage;
 use crate::ui::shells::library::detail::DetailRowSlot;
 use crate::ui::shells::library::thumbnail::render_album_thumb;
 use crate::ui::shells::playlist::{
@@ -47,6 +48,8 @@ use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
 pub(crate) struct LibraryPlaylistPage<'a> {
     pub(crate) detail: &'a PlaylistDetail,
     pub(crate) album_thumbs: &'a BTreeMap<String, Option<Arc<Image>>>,
+    /// The header art in the logo frame (ADR 0084 Decision 12).
+    pub(crate) header_art: Option<CollectionArtImage>,
     pub(crate) chrome: &'a LibraryChromeDisplay,
     pub(crate) rename_playlist_input: Entity<InputState>,
     pub(crate) renaming_playlist_id: Option<i64>,
@@ -74,6 +77,7 @@ pub(crate) fn render_library_playlist_detail(
     let LibraryPlaylistPage {
         detail,
         album_thumbs,
+        header_art,
         chrome,
         rename_playlist_input,
         renaming_playlist_id,
@@ -117,19 +121,16 @@ pub(crate) fn render_library_playlist_detail(
             .collect()
     };
 
-    render_playlist_detail_shell(
+    let mut slots = behavior_slots(
+        detail,
         &page,
-        behavior_slots(
-            detail,
-            &page,
-            rename_playlist_input,
-            renaming_playlist_id,
-            track_rows,
-            cx,
-        ),
-        scroll,
+        rename_playlist_input,
+        renaming_playlist_id,
+        track_rows,
         cx,
-    )
+    );
+    slots.header_art = header_art;
+    render_playlist_detail_shell(&page, slots, scroll, cx)
 }
 
 /// The page actions of the playlist page. The eager path and the paged
@@ -175,6 +176,7 @@ fn behavior_slots(
             },
         ))),
         track_rows,
+        header_art: None,
     }
 }
 

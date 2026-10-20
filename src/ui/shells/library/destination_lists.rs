@@ -23,9 +23,9 @@ use crate::library::LibraryApp;
 use crate::ui::composites::music_column_scroll::music_column_scrollbar;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{
-    disclosure_column, DisclosureIndicator, DisclosureIndicatorDisplay,
-    DisclosureSupplementDisplay, DisclosureSupplementLabel, EntityKind, ListRow, ListRowA11yLabel,
-    Thumbnail, ThumbnailSize,
+    disclosure_column, CollectionArt, CollectionArtImage, DisclosureIndicator,
+    DisclosureIndicatorDisplay, DisclosureSupplementDisplay, DisclosureSupplementLabel, EntityKind,
+    ListRow, ListRowA11yLabel, Thumbnail, ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
@@ -36,6 +36,7 @@ use crate::ui::shells::library::destination_list_scroll::{
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::style::spacing;
 use crate::ui::tokens::{FontSize, SemanticColor};
+use crate::view_models::collection_art::CollectionKind;
 use crate::view_models::library::{
     DestinationListRowTarget, DestinationListRowVm, DiscoverViewRowVm, PlaylistSidebarRowVm,
     PlaylistSidebarVm, ReleasesListEntryVm,
@@ -53,6 +54,28 @@ fn checkbox_state_for(check_state: RowCheckState) -> CheckboxState {
         RowCheckState::Mixed => CheckboxState::Mixed,
         RowCheckState::Clear => CheckboxState::NotChecked,
     }
+}
+
+/// The collection art of each row, by element id (ADR 0084 Decision 12).
+pub(crate) type RowArts = BTreeMap<String, CollectionArtImage>;
+
+/// The logo frame of one collection row. A row with no loaded state shows
+/// the entity color.
+fn row_art(arts: &RowArts, element_id: &str, kind: CollectionKind) -> CollectionArt {
+    let image = arts.get(element_id).cloned();
+    CollectionArt::new(
+        image.unwrap_or(CollectionArtImage::EntityColor),
+        kind,
+        ThumbnailSize::Sm,
+    )
+}
+
+/// The leading art of a destination row.
+enum RowArt {
+    /// A release cover, with its image when it loaded.
+    Cover(Option<Arc<Image>>),
+    /// The logo frame of a collection.
+    Collection(CollectionArt),
 }
 
 /// Renders the Discover views list column (ADR 0084 Decision 3). "New
@@ -120,14 +143,14 @@ fn render_discover_view_row(row: &DiscoverViewRowVm, cx: &mut Context<LibraryApp
 pub(crate) fn render_library_destination_rows(
     rows: Vec<DestinationListRowVm>,
     empty_label: &'static str,
-    thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
+    arts: &RowArts,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let children: Vec<AnyElement> = rows
         .into_iter()
         .map(|row| {
-            let thumbnail = thumbnails.get(&row.element_id).cloned().flatten();
-            render_destination_list_row(row, thumbnail, LeadingDisclosure::None, cx)
+            let art = RowArt::Collection(row_art(arts, &row.element_id, CollectionKind::Artist));
+            render_destination_list_row(row, art, LeadingDisclosure::None, cx)
         })
         .collect();
     render_destination_list_container(children, empty_label, cx)
@@ -142,6 +165,7 @@ pub(crate) fn render_library_destination_rows(
 pub(crate) fn render_library_releases_list(
     entries: Vec<ReleasesListEntryVm>,
     thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
+    arts: &RowArts,
     scroll_handle: &ScrollHandle,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
@@ -152,13 +176,13 @@ pub(crate) fn render_library_releases_list(
                 let thumbnail = thumbnails.get(&row.element_id).cloned().flatten();
                 children.push(render_destination_list_row(
                     row,
-                    thumbnail,
+                    RowArt::Cover(thumbnail),
                     LeadingDisclosure::Empty,
                     cx,
                 ));
             }
             ReleasesListEntryVm::SinglesGroup(group) => {
-                render_singles_group_rows(group, thumbnails, cx, &mut children);
+                render_singles_group_rows(group, thumbnails, arts, cx, &mut children);
             }
         }
     }
@@ -171,6 +195,7 @@ pub(crate) fn render_library_releases_list(
 fn render_singles_group_rows(
     group: SinglesGroupRowVm,
     thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
+    arts: &RowArts,
     cx: &mut Context<LibraryApp>,
     children: &mut Vec<AnyElement>,
 ) {
@@ -179,7 +204,7 @@ fn render_singles_group_rows(
         label,
         secondary_text,
         a11y_label,
-        thumbnail_href,
+        art: _,
         open,
         expanded,
         disclosure_element_id,
@@ -188,8 +213,7 @@ fn render_singles_group_rows(
         single_keys,
         selection,
     } = group;
-    let thumbnail = thumbnails.get(&element_id).cloned().flatten();
-    let thumb_element_id = format!("{element_id}-thumb");
+    let art = row_art(arts, &element_id, CollectionKind::SinglesGroup);
     let open_key = open.clone();
     let toggle_key = open;
 
@@ -247,12 +271,7 @@ fn render_singles_group_rows(
                 this.click_singles_group_row(&open_key, &single_keys, event.modifiers(), cx);
             }))
             .child(disclosure)
-            .child(render_hoverable_release_thumb(
-                thumb_element_id,
-                thumbnail_href,
-                Thumbnail::new(EntityKind::Release, ThumbnailSize::Sm).image(thumbnail),
-                cx,
-            ))
+            .child(art)
             .child(
                 div()
                     .flex_1()
@@ -277,7 +296,7 @@ fn render_singles_group_rows(
         let thumbnail = thumbnails.get(&row.element_id).cloned().flatten();
         children.push(render_destination_list_row(
             row,
-            thumbnail,
+            RowArt::Cover(thumbnail),
             LeadingDisclosure::Indented,
             cx,
         ));
@@ -299,7 +318,7 @@ enum LeadingDisclosure {
 
 fn render_destination_list_row(
     row: DestinationListRowVm,
-    thumbnail: Option<Arc<Image>>,
+    art: RowArt,
     leading_disclosure: LeadingDisclosure,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
@@ -360,12 +379,15 @@ fn render_destination_list_row(
             ),
             |el| el.child(disclosure_column(cx)),
         )
-        .child(render_hoverable_release_thumb(
-            thumb_element_id,
-            thumbnail_href,
-            Thumbnail::new(entity_kind, ThumbnailSize::Sm).image(thumbnail),
-            cx,
-        ))
+        .child(match art {
+            RowArt::Cover(thumbnail) => render_hoverable_release_thumb(
+                thumb_element_id,
+                thumbnail_href,
+                Thumbnail::new(entity_kind, ThumbnailSize::Sm).image(thumbnail),
+                cx,
+            ),
+            RowArt::Collection(art) => art.into_any_element(),
+        })
         .child(
             div()
                 .flex_1()
@@ -427,6 +449,7 @@ pub(crate) fn render_hoverable_release_thumb(
 pub(crate) fn render_library_playlists_list(
     sidebar: PlaylistSidebarVm,
     new_playlist_input: &gpui::Entity<gpui_component::input::InputState>,
+    arts: &RowArts,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let PlaylistSidebarVm {
@@ -503,7 +526,9 @@ pub(crate) fn render_library_playlists_list(
             name,
             track_count_label,
             selected,
+            art: _,
         } = row;
+        let art = row_art(arts, &element_id, CollectionKind::Playlist);
         let row_a11y_label = format!("Playlist: {name}");
         items.push(
             ListRow::new(SharedString::from(element_id))
@@ -518,11 +543,11 @@ pub(crate) fn render_library_playlists_list(
                         cx,
                     );
                 }))
+                .child(div().pl(spacing::MD).child(art))
                 .child(
                     div()
                         .flex_1()
                         .min_w_0()
-                        .pl(spacing::MD)
                         .child(
                             Label::new(name)
                                 .color(if selected {

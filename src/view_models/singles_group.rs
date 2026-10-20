@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use crate::db::TrackRow;
 use crate::view_models::album_page::{AlbumNameLinkTarget, AlbumNameLinkVm};
 use crate::view_models::artist_identity::ArtistIdentity;
+use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
 use crate::view_models::format::{fmt_date, plural};
 use crate::view_models::library::{
     AlbumNode, ArtistNode, BusyItems, DestinationListRowVm, LibraryTree, TrackRowWork,
@@ -132,12 +133,18 @@ impl SinglesGroup<'_> {
         }
     }
 
-    /// The image of the newest single.
+    /// The art of the group in the logo frame (ADR 0084 Decision 12): the
+    /// newest four images of its singles. A group gives no image of its
+    /// own in this packet.
     #[must_use]
-    pub(crate) fn newest_image_href(&self) -> Option<String> {
-        self.singles
-            .first()
-            .and_then(|single| single.album.image_href.clone())
+    pub(crate) fn collection_art(&self) -> CollectionArtVm {
+        CollectionArtVm::resolve(
+            None,
+            self.singles
+                .iter()
+                .filter_map(|single| single.album.image_href.as_deref()),
+            CollectionKind::SinglesGroup,
+        )
     }
 
     /// Tells if the group holds the release `key`.
@@ -234,8 +241,8 @@ pub(crate) struct SinglesGroupRowVm {
     /// The accessibility label, for example "Haleen, 7 singles, 5 in
     /// Library, By name".
     pub(crate) a11y_label: String,
-    /// The image of the newest single.
-    pub(crate) thumbnail_href: Option<String>,
+    /// The art of the group in the logo frame (ADR 0084 Decision 12).
+    pub(crate) art: CollectionArtVm,
     /// The key of the group page.
     pub(crate) open: SinglesGroupKey,
     /// The row shows its singles.
@@ -278,7 +285,7 @@ impl SinglesGroupRowVm {
                 group.library_state_text(),
                 group.level_label()
             ),
-            thumbnail_href: group.newest_image_href(),
+            art: group.collection_art(),
             open: group.key(),
             expanded,
             disclosure_a11y_label: if expanded {
@@ -417,6 +424,9 @@ pub(crate) struct SinglesGroupPageVm {
     pub(crate) main_action: Option<SinglesGroupActionVm>,
     /// The empty state text, when no group has the key.
     pub(crate) empty_message: Option<&'static str>,
+    /// The header art in the logo frame (ADR 0084 Decision 12). `None`
+    /// for the empty state.
+    pub(crate) art: Option<CollectionArtVm>,
 }
 
 impl SinglesGroupPageVm {
@@ -437,6 +447,7 @@ impl SinglesGroupPageVm {
                 rows: Vec::new(),
                 main_action: None,
                 empty_message: Some(EMPTY_GROUP_MESSAGE),
+                art: None,
             },
         }
     }
@@ -471,6 +482,7 @@ impl SinglesGroupPageVm {
             rows,
             main_action: Some(main_action(group, group_busy)),
             empty_message: None,
+            art: Some(group.collection_art()),
         }
     }
 }
@@ -826,6 +838,27 @@ mod tests {
         assert_eq!(page.empty_message, Some(EMPTY_GROUP_MESSAGE));
         assert!(page.main_action.is_none());
         assert!(page.rows.is_empty());
+    }
+
+    /// R11-05 (ADR 0084 Decision 12): the group row and the group page
+    /// give the newest four images of the singles in the logo mosaic. The
+    /// empty state gives no art.
+    #[test]
+    fn adr_0084_logo_frame_r11_05_group_row_and_page_give_the_newest_four() {
+        let key = SinglesGroupKey(ArtistIdentity::Name("Haleen".to_owned()));
+        let tree = haleen_tree(5, 5);
+        let newest_four =
+            CollectionArtVm::Mosaic(["5.jpg", "4.jpg", "3.jpg", "2.jpg"].map(str::to_owned));
+
+        let page = SinglesGroupPageVm::from_tree(&tree, &key, &BusyItems::default());
+        assert_eq!(page.art, Some(newest_four.clone()));
+
+        let groups = singles_groups(&tree);
+        let row = SinglesGroupRowVm::new(&groups[0], false, |_, _| None);
+        assert_eq!(row.art, newest_four);
+
+        let empty = SinglesGroupPageVm::from_tree(&haleen_tree(1, 1), &key, &BusyItems::default());
+        assert_eq!(empty.art, None);
     }
 
     /// ADR 0084 task 015, operator decision of 2026-10-17: a page row

@@ -18,7 +18,8 @@ use crate::library::{playlist_options, LibraryApp};
 use crate::ui::composites::music_column_scroll::music_column_tracked_scrollbar;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{
-    ActionRow, ActionRowDisplay, AddToPlaylistDisplay, AddToPlaylistPopover,
+    ActionRow, ActionRowDisplay, AddToPlaylistDisplay, AddToPlaylistPopover, CollectionArt,
+    CollectionArtImage, ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{Button as UiButton, Label};
@@ -27,6 +28,7 @@ use crate::ui::shells::library::feed_detail::library_release_page_dispatch;
 use crate::ui::shells::release_page::{render_release_page_track_row, ReleasePageDispatch};
 use crate::ui::style::spacing;
 use crate::ui::tokens::{FontSize, SemanticColor};
+use crate::view_models::collection_art::CollectionKind;
 use crate::view_models::library::MbTrackStatus;
 use crate::view_models::release_page::ReleaseTrackRowVm;
 use crate::view_models::singles_group::{
@@ -38,8 +40,13 @@ use crate::view_models::{playlist_option_displays, PlaylistOptionDisplayVm};
 const MAIN_ACTION_ID: &str = "singles-group-main-action";
 
 /// Renders the page of one singles group (ADR 0084 Decision 6).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the page composes the view model, the header art, the Library state and the row slots"
+)]
 pub(crate) fn render_library_singles_group_page(
     page: SinglesGroupPageVm,
+    header_art: Option<CollectionArtImage>,
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     playlists: &[db::Playlist],
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
@@ -54,27 +61,46 @@ pub(crate) fn render_library_singles_group_page(
         rows,
         main_action,
         empty_message,
+        art: _,
     } = page;
 
-    let mut content = page_scroll_content(cx).gap(spacing::SM).child(
-        Label::new(title)
-            .size(FontSize::Title2)
-            .weight(FontWeight::SEMIBOLD),
-    );
+    let mut heading = div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w_0()
+        .gap(spacing::SM)
+        .child(
+            Label::new(title)
+                .size(FontSize::Title2)
+                .weight(FontWeight::SEMIBOLD),
+        );
     if let Some(subtitle) = subtitle {
-        content = content.child(
+        heading = heading.child(
             Label::new(subtitle)
                 .size(FontSize::Caption)
                 .color(SemanticColor::SecondaryLabel),
         );
     }
     if let Some(note) = identity_note {
-        content = content.child(
+        heading = heading.child(
             Label::new(note)
                 .size(FontSize::Caption)
                 .color(SemanticColor::TertiaryLabel),
         );
     }
+    // ADR 0084 Decision 12: the header art of the group in the logo frame.
+    let art = header_art
+        .map(|image| CollectionArt::new(image, CollectionKind::SinglesGroup, ThumbnailSize::XXl));
+    let mut content = page_scroll_content(cx).gap(spacing::SM).child(
+        div()
+            .flex()
+            .flex_row()
+            .items_start()
+            .gap(spacing::LG)
+            .children(art)
+            .child(heading),
+    );
     if let Some(message) = empty_message {
         content = content.child(
             Label::new(message)

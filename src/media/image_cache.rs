@@ -18,6 +18,7 @@ use crate::application::capability::{
 };
 use crate::media::cover_color::{cover_color, CoverColor};
 use crate::media::image_type;
+use crate::media::logo_frame::{self, BakedShadow, LogoMosaicKey};
 use crate::remote_media;
 
 pub(crate) type CacheWorker =
@@ -34,6 +35,8 @@ pub(crate) fn spawn_cache_worker(
 const DEFAULT_HOT_CAPACITY: usize = 128;
 const DEFAULT_MAX_DIM: u32 = 512;
 const DEFAULT_MAX_DISK_BYTES: u64 = 500 * 1024 * 1024;
+/// The composed logo mosaics that memory keeps (ADR 0084 Decision 12).
+const LOGO_MOSAIC_CAPACITY: usize = 256;
 
 /// Shared image cache. Clone the `Arc` cheaply across entities.
 pub struct ImageCache {
@@ -45,6 +48,9 @@ pub struct ImageCache {
     /// The main color of each cover that a page header asked for (ADR 0083
     /// task 005). `None` records a cover that has no color.
     cover_colors: Mutex<LruCache<String, Option<CoverColor>>>,
+    /// The composed logo mosaics of collections (ADR 0084 Decision 12).
+    /// They live in memory only.
+    logo_mosaics: Mutex<LruCache<LogoMosaicKey, Arc<Image>>>,
     max_dimension: u32,
     max_disk_bytes: u64,
     writes_since_eviction: Mutex<u32>,
@@ -131,6 +137,9 @@ impl ImageCache {
             hot: Mutex::new(LruCache::new(capacity)),
             static_hot: Mutex::new(LruCache::new(capacity)),
             cover_colors: Mutex::new(LruCache::new(capacity)),
+            logo_mosaics: Mutex::new(LruCache::new(
+                NonZeroUsize::new(LOGO_MOSAIC_CAPACITY).unwrap_or(capacity),
+            )),
             max_dimension,
             max_disk_bytes,
             writes_since_eviction: Mutex::new(0),
@@ -305,6 +314,46 @@ impl ImageCache {
             }
             Some(image)
         }
+    }
+
+    /// Fast path — a composed logo mosaic. UI-thread safe.
+    pub fn peek_logo_mosaic(&self, key: &LogoMosaicKey) -> Option<Arc<Image>> {
+        let mut mosaics = self.logo_mosaics.lock().ok()?;
+        mosaics.get(key).cloned()
+    }
+
+    /// Blocking composition of the logo mosaic of `key` (ADR 0084 Decision
+    /// 12). Call from a background executor.
+    ///
+    /// It reads each different cover of the cells: memory, then the cached
+    /// downscaled bytes, then the network. A cover that does not decode is
+    /// dropped, and the repeat rule applies again to the other covers. With
+    /// no cover left, the result is `None`. `shadow` gives the baked shadow
+    /// when `key.shadow` is true.
+    pub fn compose_logo_mosaic_blocking(
+        &self,
+        key: &LogoMosaicKey,
+        shadow: Option<BakedShadow>,
+    ) -> Option<Arc<Image>> {
+        if let Some(image) = self.peek_logo_mosaic(key) {
+            return Some(image);
+        }
+        let covers: Vec<image::DynamicImage> = key
+            .distinct_cells()
+            .into_iter()
+            .filter_map(|url| {
+                let (bytes, _) = self.read_or_download(url).ok().flatten()?;
+                image::load_from_memory(&bytes).ok()
+            })
+            .collect();
+        let shadow = shadow.filter(|_| key.shadow);
+        let composed = logo_frame::compose_logo_mosaic(&covers, key.width_px, shadow)?;
+        let png = logo_frame::encode_png(&composed)?;
+        let image = Arc::new(Image::from_bytes(ImageFormat::Png, png));
+        if let Ok(mut mosaics) = self.logo_mosaics.lock() {
+            mosaics.put(key.clone(), Arc::clone(&image));
+        }
+        Some(image)
     }
 
     fn read_or_download(&self, url: &str) -> Result<Option<(Vec<u8>, String)>> {
@@ -660,5 +709,79 @@ mod tests {
             .map(|entries| entries.count())
             .unwrap_or(0);
         assert_eq!(cached_entries, 0, "a failed fetch must not be cached");
+    }
+
+    /// Writes one recorded cover into the disk cache, so no test sends a
+    /// request.
+    fn store_cover(cache_dir: &Path, url: &str, mime: &str, bytes: &[u8]) {
+        fs::create_dir_all(cache_dir).expect("cache dir");
+        write_cache_entry(&cache_dir.join(cache_key(url)), mime, bytes).expect("cache entry");
+    }
+
+    fn solid_png(color: [u8; 4]) -> Vec<u8> {
+        let image = image::RgbaImage::from_pixel(8, 8, image::Rgba(color));
+        logo_frame::encode_png(&image).expect("encode the fixture")
+    }
+
+    /// R11-08: the cache composes a recorded 2 by 2 fixture into the logo,
+    /// and keeps the result for the next peek.
+    #[test]
+    fn adr_0084_logo_frame_r11_08_cache_composes_recorded_covers() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cache_dir = temp.path().join("thumbnails");
+        let cache = ImageCache::with_capacity(cache_dir.clone(), 2, 512, 1024 * 1024);
+        let urls =
+            ["a.png", "b.png", "c.png", "d.png"].map(|name| format!("http://127.0.0.1:1/{name}"));
+        for (url, color) in urls.iter().zip([
+            [200, 0, 0, 255],
+            [0, 200, 0, 255],
+            [0, 0, 200, 255],
+            [9, 9, 9, 255],
+        ]) {
+            store_cover(&cache_dir, url, "image/png", &solid_png(color));
+        }
+        let key = LogoMosaicKey::new(urls.clone(), 64, false);
+
+        let image = cache
+            .compose_logo_mosaic_blocking(&key, None)
+            .expect("the recorded covers compose");
+        assert_eq!(image.format, ImageFormat::Png);
+        let decoded = image::load_from_memory(&image.bytes)
+            .expect("decode")
+            .to_rgba8();
+        let height = logo_frame::frame_height_px(64);
+        let at = |x: f32, y: f32| {
+            decoded
+                .get_pixel((x * 64.0) as u32, (y * height as f32) as u32)
+                .0
+        };
+        assert_eq!(at(0.22, 0.5)[3], 0, "the gap between the pillars is clear");
+        assert_eq!(at(0.08, 0.6)[3], 255, "a pillar is opaque");
+        assert!(
+            cache.peek_logo_mosaic(&key).is_some(),
+            "memory keeps the mosaic"
+        );
+    }
+
+    /// R11-09: when no cover decodes, the composition gives `None`.
+    #[test]
+    fn adr_0084_logo_frame_r11_09_no_decoded_cover_gives_none() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cache_dir = temp.path().join("thumbnails");
+        let cache = ImageCache::with_capacity(cache_dir.clone(), 2, 512, 1024 * 1024);
+        let urls = ["x.jpg", "y.jpg"].map(|name| format!("http://127.0.0.1:1/{name}"));
+        for url in &urls {
+            store_cover(&cache_dir, url, "image/jpeg", b"not a jpeg");
+        }
+        let cells = [
+            urls[0].clone(),
+            urls[1].clone(),
+            urls[1].clone(),
+            urls[0].clone(),
+        ];
+
+        assert!(cache
+            .compose_logo_mosaic_blocking(&LogoMosaicKey::new(cells, 64, false), None)
+            .is_none());
     }
 }

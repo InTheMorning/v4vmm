@@ -7,6 +7,7 @@ use crate::application::command_bus::{ApplicationCommand, CommandOutcome, Comman
 use crate::application::command_context::CommandContext;
 use crate::application::errors::command::CommandError;
 use crate::media::cover_color::CoverColor;
+use crate::media::logo_frame::{BakedShadow, LogoMosaicKey};
 use crate::media::{CachedImage, ImageCache};
 
 /// Fetches one cached thumbnail for presentation.
@@ -52,6 +53,53 @@ impl ApplicationCommand for FetchThumbnail {
             self.cache.fetch_static_blocking(&self.url)
         };
         Ok(CommandOutcome::without_events(image))
+    }
+}
+
+/// Composes the logo mosaic of one collection (ADR 0084 Decision 12).
+///
+/// The image cache reads the covers and composes them off the UI thread.
+/// The UI thread only peeks at the result.
+#[derive(Clone)]
+pub(crate) struct FetchLogoMosaic {
+    cache: Arc<ImageCache>,
+    key: LogoMosaicKey,
+    shadow: Option<BakedShadow>,
+}
+
+impl FetchLogoMosaic {
+    /// Creates a logo mosaic query command. `shadow` gives the baked
+    /// shadow values when `key.shadow` is true.
+    #[must_use]
+    pub(crate) fn new(
+        cache: Arc<ImageCache>,
+        key: LogoMosaicKey,
+        shadow: Option<BakedShadow>,
+    ) -> Self {
+        Self { cache, key, shadow }
+    }
+}
+
+impl fmt::Debug for FetchLogoMosaic {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("FetchLogoMosaic")
+            .field("key", &self.key)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ApplicationCommand for FetchLogoMosaic {
+    type Output = Option<CachedImage>;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        Ok(CommandOutcome::without_events(
+            self.cache
+                .compose_logo_mosaic_blocking(&self.key, self.shadow),
+        ))
     }
 }
 

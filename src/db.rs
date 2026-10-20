@@ -1,5 +1,5 @@
 // src/db.rs
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -2212,6 +2212,47 @@ pub fn playlists_list(conn: &Connection) -> Result<Vec<Playlist>> {
         .context("collect playlists_list")?;
 
     Ok(rows)
+}
+
+/// The first four images of each playlist, in playlist order, by playlist
+/// id (ADR 0084 Decision 12).
+///
+/// One SQL statement reads every playlist. The image of an entry is the
+/// track image, else the album image of its feed. An empty image and a
+/// repeated image of one playlist are dropped before the count.
+pub fn playlist_cover_images(conn: &Connection) -> Result<BTreeMap<i64, Vec<String>>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT playlist_id, image FROM (
+                 SELECT playlist_id, image,
+                        ROW_NUMBER() OVER (PARTITION BY playlist_id ORDER BY first_position) AS rank
+                 FROM (
+                     SELECT pt.playlist_id,
+                            COALESCE(NULLIF(TRIM(t.track_image_href), ''),
+                                     NULLIF(TRIM(f.album_image_href), '')) AS image,
+                            MIN(pt.position) AS first_position
+                     FROM playlist_tracks pt
+                     JOIN tracks t ON t.id = pt.track_id
+                     JOIN feeds f ON f.id = t.feed_id
+                     WHERE image IS NOT NULL
+                     GROUP BY pt.playlist_id, image
+                 )
+             )
+             WHERE rank <= 4
+             ORDER BY playlist_id, rank",
+        )
+        .context("prepare playlist_cover_images")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .context("query playlist_cover_images")?;
+    let mut covers: BTreeMap<i64, Vec<String>> = BTreeMap::new();
+    for row in rows {
+        let (playlist_id, image) = row.context("read playlist_cover_images")?;
+        covers.entry(playlist_id).or_default().push(image);
+    }
+    Ok(covers)
 }
 
 pub fn playlist_create(conn: &Connection, name: &str) -> Result<i64> {

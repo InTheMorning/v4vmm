@@ -17,6 +17,12 @@ pub fn list(conn: &Connection) -> Result<Vec<db::Playlist>> {
     db::playlists_list(conn)
 }
 
+/// The first four images of each playlist, by playlist id (ADR 0084
+/// Decision 12).
+pub fn cover_images(conn: &Connection) -> Result<std::collections::BTreeMap<i64, Vec<String>>> {
+    db::playlist_cover_images(conn)
+}
+
 pub fn tracks(conn: &Connection, playlist_id: i64) -> Result<Vec<db::TrackRow>> {
     db::playlist_tracks(conn, playlist_id)
 }

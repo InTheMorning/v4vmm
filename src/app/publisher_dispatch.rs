@@ -16,7 +16,9 @@ use gpui::{AnyElement, App, Context, Image, Modifiers, Window};
 use crate::application::queries::feed::FetchIndexPublisherPage;
 use crate::application::queries::library::FetchLibraryPublisherPage;
 use crate::application::{ApplicationCommand, CommandContext};
+use crate::presentation::collection_art::collection_art_image;
 use crate::presentation::present_command;
+use crate::ui::composites::ThumbnailSize;
 use crate::ui::shells::publisher::{
     render_publisher_page, render_publisher_page_status, ClickReleaseCallback, PublisherPageRows,
     ToggleReleaseCallback,
@@ -226,11 +228,10 @@ impl TopApp {
                     let image = self.index_remote_detail_hero_image(&url, cx);
                     album_thumbs.insert(url, image);
                 }
-                // ADR 0085 Decision 7 design, Required Change 7: the
-                // feed's own header image, through the same thumbnail path.
-                let header_image = vm
-                    .header_image_url()
-                    .and_then(|url| self.index_remote_detail_hero_image(&url, cx));
+                // ADR 0084 Decision 12: the feed's own channel image as a
+                // square, else the logo mosaic of its album images.
+                let header_art =
+                    collection_art_image(self, &vm.collection_art(), ThumbnailSize::XXl, cx);
                 // ADR 0082 Decision 5: a "Shares albums with" entry opens
                 // the Index shape of its own feed page. The data behind
                 // every entry comes from the one Index request
@@ -252,7 +253,7 @@ impl TopApp {
                     &vm,
                     context,
                     &album_thumbs,
-                    header_image,
+                    header_art,
                     on_open_publisher,
                     &rows,
                     cx,

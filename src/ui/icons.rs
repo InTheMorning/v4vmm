@@ -382,6 +382,12 @@ gpui_kit_assets::icon_assets!(
     ]
 );
 
+/// The asset path of the logo frame shape (ADR 0084 Decision 12). A
+/// collection with no cover shows this shape in its entity color.
+/// [`InterfaceAssets`] builds the SVG from `LOGO_FRAME_POLYGONS`, so no
+/// asset file holds the numbers.
+pub(crate) const LOGO_FRAME_ASSET_PATH: &str = "artwork/logo-frame.svg";
+
 /// The asset source this app registers at start.
 ///
 /// It serves the default `gpui-component` icon bundle, and the extra Lucide
@@ -395,6 +401,11 @@ pub struct InterfaceAssets;
 
 impl AssetSource for InterfaceAssets {
     fn load(&self, path: &str) -> gpui::Result<Option<std::borrow::Cow<'static, [u8]>>> {
+        if path == LOGO_FRAME_ASSET_PATH {
+            return Ok(Some(std::borrow::Cow::Owned(
+                crate::media::logo_frame::logo_frame_svg().into_bytes(),
+            )));
+        }
         if let Some(bytes) = ExtraLucideIcons.load(path)? {
             return Ok(Some(bytes));
         }
@@ -404,6 +415,9 @@ impl AssetSource for InterfaceAssets {
     fn list(&self, path: &str) -> gpui::Result<Vec<SharedString>> {
         let mut paths = gpui_kit_assets::Assets.list(path)?;
         paths.extend(ExtraLucideIcons.list(path)?);
+        if LOGO_FRAME_ASSET_PATH.starts_with(path) {
+            paths.push(SharedString::from(LOGO_FRAME_ASSET_PATH));
+        }
         paths.sort();
         paths.dedup();
         Ok(paths)
@@ -413,6 +427,21 @@ impl AssetSource for InterfaceAssets {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR 0084 Decision 12: the asset source serves the logo frame SVG.
+    #[test]
+    fn adr_0084_logo_frame_asset_is_served() {
+        let bytes = InterfaceAssets
+            .load(LOGO_FRAME_ASSET_PATH)
+            .expect("the asset loads")
+            .expect("the asset exists");
+        let svg = std::str::from_utf8(&bytes).expect("utf-8");
+        assert!(svg.starts_with("<svg"));
+        assert!(InterfaceAssets
+            .list("artwork/")
+            .expect("the list loads")
+            .contains(&SharedString::from(LOGO_FRAME_ASSET_PATH)));
+    }
 
     #[test]
     fn brand_protocol_icons_expose_catalog_colors() {

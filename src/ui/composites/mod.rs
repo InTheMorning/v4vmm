@@ -22,6 +22,7 @@ pub(crate) mod startup_report;
 pub mod action_button;
 pub mod action_row;
 pub mod breadcrumb_trail;
+pub mod collection_art;
 pub mod confirmation_dialog;
 pub mod cover_backdrop;
 pub mod detail_grid;
@@ -62,6 +63,7 @@ pub use action_row::{
     ActionRow, ActionRowDisplay, ActionRowMessage, ActionRowMessageDisplay, ActionRowMessageTone,
 };
 pub(crate) use breadcrumb_trail::BreadcrumbTrail;
+pub use collection_art::{CollectionArt, CollectionArtImage};
 pub use confirmation_dialog::{
     confirmation_dialog, ConfirmationDialogDisplay, ConfirmationDialogHandlers,
     ConfirmationDialogItem,

@@ -23,6 +23,9 @@ use crate::application::{ApplicationServices, AsyncCommandRunner};
 use crate::db::{self, TrackRow};
 use crate::media::ImageCache;
 use crate::metadata::{MusicBrainzLookupResult, PendingId3Edit, TagCompareResult, TrackContext};
+use crate::presentation::collection_art::{
+    CollectionArtHost, CollectionArtLoads, CollectionArtParts,
+};
 use crate::presentation::RuntimeHost;
 use crate::runtime::actor::ActorHandle;
 use crate::runtime::musicbrainz_feed_saga::MusicBrainzFeedSagaHandle;
@@ -195,6 +198,16 @@ enum CoverColorState {
     Loaded(Option<crate::media::cover_color::CoverColor>),
 }
 
+impl CollectionArtHost for LibraryApp {
+    fn collection_art_parts(&mut self) -> CollectionArtParts<'_> {
+        CollectionArtParts {
+            loads: &mut self.collection_art,
+            cache: &self.cache,
+            runner: &self.command_runner,
+        }
+    }
+}
+
 pub struct LibraryApp {
     conn: Arc<Mutex<Connection>>,
     application_services: Arc<ApplicationServices>,
@@ -215,6 +228,8 @@ pub struct LibraryApp {
     detail: LibraryDetail,
     thumbnails: BTreeMap<(String, bool), ThumbnailState>,
     cover_colors: BTreeMap<String, CoverColorState>,
+    /// The load state of each collection art (ADR 0084 Decision 12).
+    collection_art: CollectionArtLoads,
     new_playlist_input: Entity<InputState>,
     rename_playlist_input: Entity<InputState>,
     _rename_playlist_sub: gpui::Subscription,

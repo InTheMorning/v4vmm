@@ -28,6 +28,7 @@ pub struct DetailHeader {
     title_size: FontSize,
     cover_size: ThumbnailSize,
     name_links: Vec<AnyElement>,
+    art: Option<AnyElement>,
 }
 
 /// Display-ready header facts.
@@ -56,6 +57,7 @@ impl DetailHeader {
             title_size: FontSize::Title2,
             cover_size: ThumbnailSize::Lg,
             name_links: Vec::new(),
+            art: None,
         }
     }
 
@@ -85,6 +87,13 @@ impl DetailHeader {
     /// `ThumbnailSize::XXl`.
     pub fn cover_size(mut self, cover_size: ThumbnailSize) -> Self {
         self.cover_size = cover_size;
+        self
+    }
+
+    /// Sets the art element that replaces the cover thumbnail, for example
+    /// the logo frame of a collection (ADR 0084 Decision 12).
+    pub fn art(mut self, art: impl IntoElement) -> Self {
+        self.art = Some(art.into_any_element());
         self
     }
 
@@ -167,7 +176,11 @@ impl RenderOnce for DetailHeader {
         HStack::new()
             .spacing(Spacing::LG)
             .top()
-            .child(Thumbnail::new(self.display.kind, self.cover_size).image(self.image))
+            .child(self.art.unwrap_or_else(|| {
+                Thumbnail::new(self.display.kind, self.cover_size)
+                    .image(self.image)
+                    .into_any_element()
+            }))
             .child(div().flex_1().min_w_0().child(text_block))
     }
 }

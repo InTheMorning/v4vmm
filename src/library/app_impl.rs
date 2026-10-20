@@ -45,12 +45,13 @@ use crate::metadata::{
     auto_populated_pending_id3_edits, pending_id3_conflict_descriptions,
     pending_id3_edits_for_apply, MusicBrainzLookupResult,
 };
+use crate::presentation::collection_art::{collection_art_image, CollectionArtLoads};
 use crate::presentation::{bridge_watch, present_command};
 use crate::runtime::musicbrainz_feed_saga::{MusicBrainzFeedSagaState, StartFeedLookup};
 use crate::subscribe_service::{self, SubscribeFeedRequest, SubscribeTrackRequest};
 use crate::ui::composites::music_column_scroll::{music_column_scrollbar, ScrollReveal};
 use crate::ui::composites::page_scroll_content::page_scroll_content;
-use crate::ui::composites::{PlaylistOption, PlaylistOptionDisplay, StatusRole};
+use crate::ui::composites::{PlaylistOption, PlaylistOptionDisplay, StatusRole, ThumbnailSize};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::Button as UiButton;
 use crate::ui::shells::library::content_list::{
@@ -58,7 +59,7 @@ use crate::ui::shells::library::content_list::{
 };
 use crate::ui::shells::library::destination_lists::{
     render_library_destination_rows, render_library_discover_views_list,
-    render_library_playlists_list, render_library_releases_list,
+    render_library_playlists_list, render_library_releases_list, RowArts,
 };
 use crate::ui::shells::library::detail::render_library_detail;
 use crate::ui::shells::library::sidebar::{render_destination_row, render_sidebar_collapse_button};
@@ -851,6 +852,7 @@ impl LibraryApp {
             detail: LibraryDetail::None,
             thumbnails: BTreeMap::new(),
             cover_colors: BTreeMap::new(),
+            collection_art: CollectionArtLoads::default(),
             new_playlist_input,
             rename_playlist_input,
             _rename_playlist_sub: rename_playlist_sub,
@@ -1231,6 +1233,14 @@ impl LibraryApp {
             Ok(list) => self.vm.replace_playlists(list),
             Err(err) => self.vm.fail_playlist_load(err),
         }
+        // ADR 0084 Decision 12: one read gives the art of each playlist
+        // row. A failed read shows each row in the entity color.
+        let covers = self
+            .application_services
+            .query_service()
+            .playlist_cover_images(&conn)
+            .unwrap_or_default();
+        self.vm.replace_playlist_covers(covers);
     }
 
     pub(crate) fn playlists(&self) -> &[db::Playlist] {
@@ -4298,6 +4308,7 @@ impl LibraryApp {
                 );
                 let hovered_url = self.vm.hovered_thumb_url().map(str::to_string);
                 let mut sources: Vec<(String, String)> = Vec::new();
+                let mut arts = RowArts::new();
                 for entry in &entries {
                     match entry {
                         ReleasesListEntryVm::Release(row) => {
@@ -4306,9 +4317,10 @@ impl LibraryApp {
                             }
                         }
                         ReleasesListEntryVm::SinglesGroup(group) => {
-                            if let Some(href) = group.thumbnail_href.clone() {
-                                sources.push((group.element_id.clone(), href));
-                            }
+                            // ADR 0084 Decision 12: the group row shows its
+                            // art in the logo frame.
+                            let art = collection_art_image(self, &group.art, ThumbnailSize::Sm, cx);
+                            arts.insert(group.element_id.clone(), art);
                             sources.extend(group.singles.iter().filter_map(|row| {
                                 row.thumbnail_href
                                     .clone()
@@ -4323,8 +4335,13 @@ impl LibraryApp {
                     let img = self.thumbnail_for_url(Some(&href), animated, cx);
                     thumbs.insert(element_id, img);
                 }
-                let pane =
-                    render_library_releases_list(entries, &thumbs, &self.releases_list_scroll, cx);
+                let pane = render_library_releases_list(
+                    entries,
+                    &thumbs,
+                    &arts,
+                    &self.releases_list_scroll,
+                    cx,
+                );
                 if let Some(bar) = self.releases_selection_action_bar() {
                     action_bar = Some(self.render_selection_action_bar(
                         bar,
@@ -4338,11 +4355,23 @@ impl LibraryApp {
             }
             MusicDestination::Artists => {
                 let rows = self.vm.artists_list();
-                render_library_destination_rows(rows, "artists", &BTreeMap::new(), cx)
+                let mut arts = RowArts::new();
+                for row in &rows {
+                    if let Some(art) = &row.art {
+                        let image = collection_art_image(self, art, ThumbnailSize::Sm, cx);
+                        arts.insert(row.element_id.clone(), image);
+                    }
+                }
+                render_library_destination_rows(rows, "artists", &arts, cx)
             }
             MusicDestination::Playlists => {
                 let sidebar = self.vm.playlist_sidebar();
-                render_library_playlists_list(sidebar, &self.new_playlist_input, cx)
+                let mut arts = RowArts::new();
+                for row in &sidebar.rows {
+                    let image = collection_art_image(self, &row.art, ThumbnailSize::Sm, cx);
+                    arts.insert(row.element_id.clone(), image);
+                }
+                render_library_playlists_list(sidebar, &self.new_playlist_input, &arts, cx)
             }
         };
 
@@ -4526,6 +4555,20 @@ impl LibraryApp {
         // group page carries the detail selection facts.
         let row_slots = self.library_detail_row_slots();
         let scroll = self.detail_scroll_handle();
+        // ADR 0084 Decision 12: a singles group page and a playlist page
+        // show their header art in the logo frame.
+        let header_art = match &self.detail {
+            LibraryDetail::SinglesGroup(key) => self.singles_group_page(key).art,
+            LibraryDetail::Playlist(detail) => Some(
+                crate::view_models::library::PlaylistDetailVm::new(
+                    &detail.playlist,
+                    &detail.tracks,
+                )
+                .collection_art(),
+            ),
+            _ => None,
+        }
+        .map(|art| collection_art_image(self, &art, ThumbnailSize::XXl, cx));
         render_library_detail(
             &self.detail,
             self.vm.mb_status(),
@@ -4539,6 +4582,7 @@ impl LibraryApp {
             self.playlist_rss_snapshot.as_ref(),
             &track_named_feeds,
             album_cover_color,
+            header_art,
             row_slots,
             &scroll,
             cx,

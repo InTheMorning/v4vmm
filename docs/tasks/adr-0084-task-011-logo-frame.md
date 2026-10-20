@@ -1,6 +1,6 @@
 # ADR 0084 Task 011: The Logo Frame For Collections
 
-Status: Ready - 2026-10-20.
+Status: Implemented - 2026-10-20. Cases R11-01 to R11-11 pass. Mechanical checks are Green. V1 to V7 are open, in the final walk of the run.
 
 ## Goal
 
@@ -150,6 +150,168 @@ cargo build --bin v4vmm
 ## Rollback
 
 Revert the commit. This packet adds no migration and no stored data. The composed images live in memory only.
+
+## Implementation Result - 2026-10-20
+
+### Files Changed
+
+- `src/media/logo_frame.rs` (new), with no renderer type:
+  - `LOGO_FRAME_POLYGONS`, `LOGO_FRAME_ASPECT` and `LOGO_FRAME_SHAPE_VERSION`. No other file holds the polygon numbers.
+  - `repeat_cells`, the one repeat rule. `LogoMosaicKey`, `BakedShadow`, `frame_height_px` and `canvas_size_px`.
+  - `compose_logo_mosaic` crops each cover to fill its cell, and uses the three polygons as the alpha with 4 by 4 supersampling. It bakes the shadow when it gets one. `encode_png` and `logo_frame_svg`.
+  - Tests R11-01, R11-07, R11-08 and R11-09 on recorded solid color covers.
+- `src/media/image_cache.rs`: the in-memory LRU `logo_mosaics` (256 entries), `peek_logo_mosaic` and `compose_logo_mosaic_blocking(key, shadow)`. A cover that does not decode is dropped, and the repeat rule applies again. Tests R11-08 and R11-09 read recorded covers from the disk cache.
+- `src/media/mod.rs`: the new module.
+- `src/application/queries/images.rs`: the command `FetchLogoMosaic`, beside `FetchThumbnail`.
+- `src/view_models/collection_art.rs` (new), pure: `CollectionKind`, `CollectionArtVm`, `resolve`, `without_provided` and `mosaic_cells`. Tests R11-01 to R11-04.
+- `src/view_models/singles_group.rs`: `SinglesGroup::collection_art` replaces `newest_image_href`. `SinglesGroupRowVm::art` replaces `thumbnail_href`. `SinglesGroupPageVm` has the new field `art`.
+- `src/view_models/publisher_page.rs`: `PublisherPageVm::collection_art`.
+- `src/view_models/library.rs`:
+  - `DestinationListRowVm::art`. An Artists row gets the art of `artist_row_art`, and a release row gets `None`.
+  - `PlaylistSidebarRowVm::art`, from the new snapshot field `playlist_covers` and `replace_playlist_covers`. `PlaylistDetailVm::collection_art`.
+- `src/db.rs`: `playlist_cover_images`, one SQL statement for the first four images of each playlist. `src/playlist_service.rs` and `src/application/queries/playlist.rs` pass it on.
+- `src/ui/tokens.rs`: `ArtworkShape::LogoFrame` with `aspect()`, `RASTER_DENSITY` and `ENTITY_FILL_OPACITY`. `ArtworkShadow::baked` gives the `XXl` values as plain numbers. Test R11-10.
+- `src/ui/icons.rs`: `LOGO_FRAME_ASSET_PATH`. `InterfaceAssets` serves `artwork/logo-frame.svg` from `logo_frame_svg`.
+- `src/ui/composites/collection_art.rs` (new): `CollectionArtImage`, `LogoRaster` and the composite `CollectionArt`.
+- `src/ui/composites/detail_header.rs`: `DetailHeader::art` replaces the cover thumbnail with an art element. `src/ui/composites/thumbnail.rs`: `ThumbnailSize::radius` is `pub(crate)`.
+- `src/presentation/collection_art.rs` (new): `CollectionArtLoads`, the trait `CollectionArtHost` and `collection_art_image`. It starts each load through `present_command`. The UI thread only peeks.
+- `src/library.rs`, `src/library/app_impl.rs`, `src/app.rs` and `src/app/publisher_dispatch.rs`:
+  - `LibraryApp` and `TopApp` implement `CollectionArtHost`.
+  - The app layer gives the art of the Releases group rows, the Artists rows and the Playlists rows. It also gives the art of the group page, the playlist page and the feed page.
+  - `reload_playlists` also reads the playlist images.
+- `src/ui/shells/library/destination_lists.rs`, `singles_group.rs`, `playlist_detail.rs`, `detail.rs`, `src/ui/shells/playlist.rs` and `src/ui/shells/publisher.rs`: each place renders `CollectionArt`. `destination_lists.rs` has 491 code lines.
+- `tests/architecture_tests.rs`: the guard `adr_0084_logo_frame_r11_11_one_shape_owner_and_no_ui_composition` (R11-11).
+- R11-05 and R11-06 tests are in `singles_group.rs`, `publisher_page.rs`, `library.rs` and `src/application/queries/playlist.rs`.
+
+### Behavior Changed
+
+- A singles group row shows the newest four covers of its singles in the logo frame at the `Sm` size. Two or three covers repeat. One cover shows as a square.
+- A singles group page shows the same art at the `XXl` size, before its title.
+- An artist feed page shows its channel image as a square cover, with the `XXl` radius and shadow. With no channel image, or when it does not load, the page shows the logo mosaic of the first four images of `album_image_urls()`.
+- An Artists row shows the logo mosaic of the newest four album images of the row. The monogram "AR" no longer shows on an Artists row.
+- A playlist page shows the first four images in playlist order in the logo frame. The image of a track is its own image, else its album image. The monogram "PL" no longer shows.
+- A Playlists row shows the same art at the `Sm` size.
+- A collection with no cover shows the logo shape in its entity color at 45 percent opacity, with no monogram. A mosaic that still loads shows this fallback.
+- At the `XXl` size, the composed image holds the artwork shadow, so the shadow follows the logo shape.
+
+### Checks - 2026-10-20
+
+| Check | Result |
+|---|---|
+| `cargo test --lib adr_0084_logo_frame_` | Green, 21 tests |
+| `cargo test` | Green, 2053 unit tests and 339 guards. Ten documentation examples stay ignored |
+| `cargo test --test architecture_tests` | Green, 339 guards |
+| `cargo fmt -- --check` | Green |
+| `cargo clippy -- -D warnings` | Green |
+| `cargo check --all-targets` | Green, no warning |
+| `cargo build --bin v4vmm` | Green |
+
+No application launch and no production-data change occurred. No test sends a request.
+
+### Deviations From The Task
+
+1. `ArtworkShape` did not exist before this packet. It has one variant, `LogoFrame`. It also holds `RASTER_DENSITY` (2) and `ENTITY_FILL_OPACITY` (0.45).
+2. The asset `artwork/logo-frame.svg` is not a file. `InterfaceAssets` builds it from `LOGO_FRAME_POLYGONS`, so no asset file holds the numbers.
+3. The repeat rule is `repeat_cells` in `src/media/logo_frame.rs`. `mosaic_cells` of the view model calls it, so the view model and the composition use one rule. Thus `src/view_models/collection_art.rs` imports `src/media`.
+4. `compose_logo_mosaic_blocking` takes `Option<BakedShadow>` beside the key. The key holds only `shadow: bool`, and `src/media` cannot read the token.
+5. The render path has no window scale factor. Thus the composition uses 2 device pixels for each logical pixel at each UI scale.
+6. `src/presentation/collection_art.rs` keeps the load state of each image for the session, as the thumbnail maps do. The LRU of the image cache is a second level.
+   An LRU alone can drop a visible row and start a new composition at each render.
+7. Each art keeps a square slot of its size. The logo is centered in the slot. Thus a row stays aligned, and a header does not move when a square falls back to the logo.
+8. A square that still loads shows a square in the entity color, with no monogram. The entity color logo at `XXl` has no shadow, because a box shadow cannot follow the logo shape.
+9. The feed page uses the artist color for each feed page, also for a feed with the level `FeedLevel::None`. The header badge still names that feed "feed".
+10. The singles group row no longer animates a GIF cover when the pointer is on it. The row shows the composed mosaic.
+11. `render_library_singles_group_page` gets an eighth argument, the header art, with `#[expect(clippy::too_many_arguments)]`.
+12. `reload_playlists` reads the playlist images on the UI thread, beside the playlist list read that it already did there.
+
+### Unresolved Concerns
+
+1. V1 to V7 below need the operator. No test proves the rendered shape, the shadow, a theme color or the scroll speed.
+2. The Artists list and the Playlists list render each row. On the first show, each row starts one composition at the same time. V7 checks the scroll. This item is not in the responsiveness list of the overhaul plan, because this task permitted an edit of this packet only.
+3. The new visual checks V1 to V7 are not in `docs/pending-human-checks.md`. The task instructions named only this packet as a document to edit.
+4. `cargo clippy --all-targets -- -D warnings` reports findings in test code of files that this packet does not own. The packet check `cargo clippy -- -D warnings` is Green.
+
+## Operator Visual Check
+
+This check needs a Linux desktop session with a network connection and this checkout. It also needs these items:
+
+- A Library singles group with four or more singles that have covers.
+- An artist feed page with a channel image, and an artist feed page with no channel image. Both need two or more album covers.
+- An Artists list with an artist that has no cover.
+- A playlist with four or more tracks that have images, and an empty playlist.
+
+V6 turns off the network and moves the thumbnail cache. The cleanup steps undo both.
+
+1. Build the app: `cargo build --bin v4vmm`. Then start `target/debug/v4vmm` from a desktop session.
+2. Open Music, then Releases, in the sidebar.
+
+### V1: The mosaic at the page size
+
+3. Open the singles group page. Look at the art before the title.
+4. Look for four covers in the logo shape: three pillars. The background must show in the gaps between the pillars.
+
+**Wrong if:** the art is a square, a cover is stretched, or a gap shows a color that is not the page background.
+
+### V2: The logo at the row size
+
+5. Look at the singles group row in the Releases list. Make sure that the art shows the logo shape at the row size.
+6. Look at the rows above and below it. The titles of each row must start in one column.
+
+**Wrong if:** the logo is cut, it is not centered in its slot, or a row title moves to the left or the right.
+
+### V3: The shadow follows the logo
+
+7. Look at the art of the singles group page again, below each pillar.
+8. Look for a soft dark shadow under each pillar, and no shadow in the gaps.
+
+**Wrong if:** a rectangle of shadow shows around the logo, or the shadow is cut at an edge.
+
+### V4: The provided image of an artist feed page
+
+9. Open Music, then Artists. Click the row of the artist feed with a channel image.
+10. Look for the channel image as a square, with round corners and a shadow, the same as a release page cover.
+11. Open the artist feed with no channel image. Look for the logo mosaic of its album covers.
+
+**Wrong if:** the channel image shows in the logo shape, or the page shows the monogram "AR".
+
+### V5: The entity colors in the two themes
+
+12. Open Music, then Artists. Find the artist with no cover. Its row must show the logo in a pale pink artist color.
+13. Open Music, then Playlists. The empty playlist must show the logo in a pale green playlist color.
+14. Open Settings. Set "Theme" to Light. Do steps 12 and 13 again.
+
+**Wrong if:** a fallback shows a monogram, or a color does not match the entity dot of the same kind in that theme.
+
+### V6: A fallback with no flash
+
+15. Close the app. In a terminal, run `nmcli networking off`.
+16. Run `mv ~/.config/v4vmm/thumbnail-cache ~/.config/v4vmm/thumbnail-cache.v6`.
+17. Start `target/debug/v4vmm`. Open the artist feed page with a channel image.
+18. Look at the header art while the page opens. It can show a square in the artist color for a short time. Then it must show the logo in the artist color.
+
+**Wrong if:** the art shows the monogram "AR" at any time, or the square stays.
+
+Cleanup:
+
+19. Close the app. Run `nmcli networking on`.
+20. Run `rm -r ~/.config/v4vmm/thumbnail-cache`, then `mv ~/.config/v4vmm/thumbnail-cache.v6 ~/.config/v4vmm/thumbnail-cache`.
+
+### V7: The lists scroll with no stutter
+
+21. Start `target/debug/v4vmm`. Open Music, then Artists. Scroll the list from the top to the end and back.
+22. Open Music, then Playlists. Do step 21 again.
+
+**Wrong if:** the scroll stops, jumps or pauses while the logo images come in.
+
+## Orchestrator Review - 2026-10-20
+
+Pass. The code needs no fix.
+
+- `cargo fmt -- --check` and `cargo clippy -- -D warnings` are Green. `cargo test` gives 2053 library tests and 339 guards, all passing.
+- The deviations agree with the packet. The repeat rule lives in `src/media/logo_frame.rs`, so the polygon owner and the rule owner are one file.
+- The singles group row no longer animates a GIF cover on hover, because it shows a mosaic now. The orchestrator accepts this.
+- V6 turns the network off for a short time, and its cleanup turns it on again.
+- The orchestrator added two concerns to the responsiveness list of the overhaul plan, as items 14 and 15.
 
 ## Prompt for lower-context coding model
 

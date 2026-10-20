@@ -1,6 +1,7 @@
 pub mod cover_color;
 pub mod image_cache;
 pub mod image_type;
+pub mod logo_frame;
 
 pub use image_cache::ImageCache;
 

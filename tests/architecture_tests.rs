@@ -21402,3 +21402,44 @@ src/view_models/singles_group.rs groups releases by `ReleaseKind::Single`. Call 
     }
     assert!(violations.is_empty(), "{}", violations.join("\n"));
 }
+
+/// R11-11 (ADR 0084 Decision 12) situational guard. Only
+/// `src/media/logo_frame.rs` holds the numbers of the logo polygons, and no
+/// file in `src/ui` calls the logo mosaic composition. The composition runs
+/// on the command runner, off the UI thread.
+#[test]
+fn adr_0084_logo_frame_r11_11_one_shape_owner_and_no_ui_composition() {
+    const SHAPE_OWNER: &str = "src/media/logo_frame.rs";
+    // Unambiguous values of the `mi-mark-clip` polygons.
+    const SHAPE_MARKERS: &[&str] = &[".1674", ".2816", ".4857", ".7143", ".8408", ".9251"];
+
+    let mut files = Vec::new();
+    collect_rust_files(&manifest_path("src"), &mut files);
+    let mut violations = Vec::new();
+    for file in files {
+        let relative = rel_path(&file);
+        let source = read_source(&file);
+        if relative != SHAPE_OWNER {
+            for (line_number, line) in code_lines(&source) {
+                if SHAPE_MARKERS.iter().any(|marker| line.contains(marker)) {
+                    violations.push(format!(
+                        "{relative}:{line_number}: ADR 0084 Decision 12: only {SHAPE_OWNER} \
+holds the logo polygons. Use `LOGO_FRAME_POLYGONS` or the token `ArtworkShape::LogoFrame`: `{line}`"
+                    ));
+                }
+            }
+        }
+        if relative.starts_with("src/ui/") {
+            for (line_number, line) in code_lines(&source) {
+                if line.contains("compose_logo_mosaic") {
+                    violations.push(format!(
+                        "{relative}:{line_number}: ADR 0084 Decision 12: no file in src/ui \
+composes the logo mosaic. Give the screen a `CollectionArtImage` from \
+src/presentation/collection_art.rs: `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
