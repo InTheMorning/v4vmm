@@ -84,7 +84,7 @@ These are for the operator. No test proves them.
 - V4: in normal mode, Ctrl+click on a row starts selection mode with that row selected.
 - V5: the same in Tracks and in Needs attention. Artists shows no "Select".
 - V6: check normal and narrow widths, Light and Dark themes, and the larger type sizes. The button, the checkboxes and the bar stay in place, with no clipped text.
-- V7: the chevron of a singles group row has the icon size of the checkbox mark, and the gray of secondary text. Each cover in Releases aligns, and each single row starts one step to the right of its group row.
+- V7: the chevron of a singles group row has the icon size of the checkbox mark, and the gray of secondary text. Each cover in Releases aligns, and each single row starts one step to the right of its group row. Each checkbox stays in one column, single rows included. In selection mode, a row is not taller than in normal mode.
 
 ## Exclusions
 
@@ -244,7 +244,9 @@ This check needs a Linux desktop session and this checkout. It also needs a Libr
 22. Look at the chevron. It must be the same size as the check mark in a checkbox, and as clear as the second line of a row.
 23. Look at the covers. The cover of each release row must align with the cover of each group row, in one vertical line.
 24. Click the chevron, then click near it but not on it, within the left edge of the row. Each click must open or close the group, and must not open the group page. Press Right, then Left, on the focused group row. The group must open, then close.
-25. Open the group. Look at each single row. Its cover must start one step to the right of the cover of the group row.
+25. Open the group. Look at each single row. Its cover must start one step to the right of the cover of the group row. Click "Select". The checkbox of each single row must be in the same column as each other checkbox.
+25b. Select one single of a group, and not the others. Close the group. The group row must show the dash in its checkbox, and no selected fill and no accent outline. Select each single of the group. The group row must then show the check mark and the selected fill.
+25a. Compare the row height in selection mode and in normal mode. The rows must not become taller when the checkboxes show. Click a checkbox, and click its edge. Each click must change the check state.
 26. Open a track page with a metadata cell that opens, for example a tag value with more than one entry. Click its chevron. The chevron must show at the new size, and the text beside it must not overlap or move to a second line.
 27. Repeat steps 22 and 23 in Light and Dark.
 
@@ -321,3 +323,19 @@ The operator approved a change of the singles group chevron on 2026-10-19. The c
 - `disclosure_column` is a square of `Size::MinHitTarget`. A singles group row puts its chevron in this column. A release row and a single row keep the empty column, so each cover aligns. The Artists list keeps no column.
 - The metadata cells of the track page use the same indicator, so their chevron also changes. V7 step 26 checks them.
 - Mechanical checks are Green. V7 needs the operator.
+
+## Orchestrator Amendment - 2026-10-19: The Pointer Hit Target
+
+The operator found that the 44 px squares of the checkbox and of the disclosure column made each Releases row about 64 px high. They also used about 130 px before the cover. The operator approved this change on 2026-10-19.
+
+- The new token `Size::PointerHitTarget` is 28 px, the macOS default control size of the Apple HIG. The checkbox and `disclosure_column` use it. The 44 px `MinHitTarget` stays the minimum height of the whole row.
+- A single row of an open group puts its indent after the checkbox, so each checkbox stays in one column.
+- The tests `pointer_hit_target_is_the_macos_control_size`, `adr_0084_selection_checkbox_uses_the_pointer_hit_target` and `indicator_matches_the_checkbox_tokens` hold the tokens. V7 steps 25 and 25a need the operator.
+- The checkboxes of Tracks and of Needs attention also get the smaller hit square, because they use the same primitive.
+
+## Orchestrator Amendment - 2026-10-20: The Mixed Row
+
+The operator found on 2026-10-20 that a group row with some singles selected had the full selected fill. The fill read as "each single selected", but the checkbox read mixed. The operator approved this change.
+
+- `RowSelectionVm::is_marked` is true only for a checked row. A mixed row shows its state through the checkbox dash only.
+- The test `adr_0084_selection_mixed_row_is_not_marked` holds the rule. V7 step 25b needs the operator.

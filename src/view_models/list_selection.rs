@@ -426,16 +426,26 @@ impl RowSelectionVm {
     }
 
     /// Tells if the row's background shows the selected mark: the
-    /// checkbox reads checked or mixed.
+    /// checkbox reads checked. A mixed row shows its state through the
+    /// checkbox dash only. The operator found on 2026-10-20 that a full
+    /// fill on a mixed group row read as "each single selected".
     #[must_use]
     pub(crate) const fn is_marked(&self) -> bool {
-        !matches!(self.check_state, RowCheckState::Clear)
+        matches!(self.check_state, RowCheckState::Checked)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adr_0084_selection_mixed_row_is_not_marked() {
+        let row = |state| RowSelectionVm::for_group_row("Haleen", state, false, true);
+        assert!(row(RowCheckState::Checked).is_marked());
+        assert!(!row(RowCheckState::Mixed).is_marked());
+        assert!(!row(RowCheckState::Clear).is_marked());
+    }
 
     fn rows(values: &[i32]) -> Vec<SelectionRow<i32, i32>> {
         values.iter().copied().map(SelectionRow::of_one).collect()
