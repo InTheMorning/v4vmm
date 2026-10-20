@@ -808,16 +808,21 @@ pub enum Size {
     /// 600 px — readable measure for empty-state explanations and reports.
     NoticeWidth,
     /// 18 px — the visible square of a row-selection checkbox (ADR 0084
-    /// Decision 10). The primitive wraps it in the 44 px minimum hit
-    /// target.
+    /// Decision 10). The primitive wraps it in the pointer hit target.
     CheckboxIndicator,
+    /// 28 px — the hit square of a small control inside a list row, such
+    /// as the row checkbox and the disclosure chevron. The Apple HIG gives
+    /// 28 × 28 pt as the default macOS control size for a pointer. The
+    /// 44 px `MinHitTarget` is the iOS touch minimum, and stays the
+    /// minimum height of the whole row.
+    PointerHitTarget,
 }
 
 impl Size {
     #[must_use]
     pub const fn px(self) -> Pixels {
         match self {
-            Self::ButtonSm => px(28.0),
+            Self::ButtonSm | Self::PointerHitTarget => px(28.0),
             Self::ButtonMd => px(32.0),
             Self::ButtonLg => px(40.0),
             Self::MenuCompact => px(160.0),
@@ -1061,6 +1066,15 @@ const fn hex_alpha(rgb: u32, alpha: f32) -> Rgba {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR 0084 Decision 10: a row control has the macOS pointer size, and
+    /// its visible box fits inside it.
+    #[test]
+    fn pointer_hit_target_is_the_macos_control_size() {
+        assert_eq!(Size::PointerHitTarget.px(), px(28.0));
+        assert!(Size::CheckboxIndicator.px() < Size::PointerHitTarget.px());
+        assert!(Size::PointerHitTarget.px() < Size::MinHitTarget.px());
+    }
 
     #[test]
     fn dark_label_contrast_is_high() {

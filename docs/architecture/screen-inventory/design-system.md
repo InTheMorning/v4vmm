@@ -341,6 +341,7 @@ website's `clamp()`-based responsive sizing, but serving the same goal
 |---|---|---|
 | `MinHitTarget` / `RowLg` | 44 | minimum tap target, HIG row |
 | `ButtonSm` | 28 | compact button |
+| `PointerHitTarget` | 28 | hit square of a row checkbox or disclosure chevron (macOS pointer size) |
 | `ButtonMd` | 32 | default button |
 | `ButtonLg` | 40 | prominent dialog button |
 | `MenuCompact` | 160 | compact menu |

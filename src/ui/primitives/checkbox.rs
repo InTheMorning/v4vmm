@@ -24,6 +24,11 @@ use crate::ui::tokens::{color, Radius, SemanticColor, Size};
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
+/// The hit square of the checkbox. The operator found on 2026-10-19 that
+/// a 44 px square, the iOS touch minimum, made each Releases row too tall
+/// and too wide before its cover. A pointer control uses the macOS size.
+const CHECKBOX_HIT_TARGET: Size = Size::PointerHitTarget;
+
 /// The checked state of a [`Checkbox`] (ADR 0084 Decision 10). A group row
 /// of two or more members reads [`Self::Mixed`] when some, but not every,
 /// member is selected (Operator Correction, 2026-10-18).
@@ -109,7 +114,7 @@ impl RenderOnce for Checkbox {
             IconName::Check
         };
         let box_size = Size::CheckboxIndicator.scaled(cx);
-        let hit_target = Size::MinHitTarget.scaled(cx);
+        let hit_target = CHECKBOX_HIT_TARGET.scaled(cx);
         let radius = Radius::SM.scaled(cx);
         // The operator found on 2026-10-19 that the clear box was almost
         // invisible: `Separator` is a translucent divider color. A control
@@ -177,6 +182,11 @@ mod tests {
         assert!(!CheckboxState::Checked.is_mixed());
         assert!(!CheckboxState::NotChecked.is_mixed());
         assert_ne!(CheckboxState::Mixed, CheckboxState::Checked);
+    }
+
+    #[test]
+    fn adr_0084_selection_checkbox_uses_the_pointer_hit_target() {
+        assert_eq!(CHECKBOX_HIT_TARGET, Size::PointerHitTarget);
     }
 
     #[test]

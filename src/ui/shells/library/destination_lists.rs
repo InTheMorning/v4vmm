@@ -275,17 +275,12 @@ fn render_singles_group_rows(
 
     for row in singles {
         let thumbnail = thumbnails.get(&row.element_id).cloned().flatten();
-        children.push(
-            div()
-                .pl(spacing::LG)
-                .child(render_destination_list_row(
-                    row,
-                    thumbnail,
-                    LeadingDisclosure::Empty,
-                    cx,
-                ))
-                .into_any_element(),
-        );
+        children.push(render_destination_list_row(
+            row,
+            thumbnail,
+            LeadingDisclosure::Indented,
+            cx,
+        ));
     }
 }
 
@@ -297,6 +292,9 @@ fn render_singles_group_rows(
 enum LeadingDisclosure {
     None,
     Empty,
+    /// A single row of an open group. The indent comes after the checkbox,
+    /// so each checkbox in the list stays in one column.
+    Indented,
 }
 
 fn render_destination_list_row(
@@ -352,7 +350,14 @@ fn render_destination_list_row(
             this.click_release_row(&target, event.modifiers(), cx);
         }))
         .when(
-            matches!(leading_disclosure, LeadingDisclosure::Empty),
+            matches!(leading_disclosure, LeadingDisclosure::Indented),
+            |el| el.child(div().flex_none().w(spacing::LG)),
+        )
+        .when(
+            matches!(
+                leading_disclosure,
+                LeadingDisclosure::Empty | LeadingDisclosure::Indented
+            ),
             |el| el.child(disclosure_column(cx)),
         )
         .child(render_hoverable_release_thumb(

@@ -60,8 +60,9 @@ const DISCLOSURE_ICON_SIZE: IconSize = IconSize::Action;
 const DISCLOSURE_ICON_COLOR: SemanticColor = SemanticColor::SecondaryLabel;
 /// The box of the chevron is the box of the checkbox.
 const DISCLOSURE_INDICATOR_BOX: Size = Size::CheckboxIndicator;
-/// The leading disclosure column is the minimum hit target.
-const DISCLOSURE_COLUMN_SIDE: Size = Size::MinHitTarget;
+/// The leading disclosure column is the pointer hit target, the same as
+/// the hit square of the row checkbox.
+const DISCLOSURE_COLUMN_SIDE: Size = Size::PointerHitTarget;
 
 #[derive(IntoElement)]
 #[must_use]
@@ -214,8 +215,8 @@ impl RenderOnce for DisclosureIndicator {
 
 /// The fixed leading disclosure column of a list row (ADR 0084 Decision 6).
 ///
-/// The column is a square of the minimum hit target, the same as the
-/// checkbox slot of `ListRow`. A row that can open puts its
+/// The column is a square of the pointer hit target, the same as the hit
+/// square of the row checkbox. A row that can open puts its
 /// [`DisclosureIndicator`] in the column. A row that cannot open keeps the
 /// empty column, so each cover in the list aligns.
 #[must_use]
@@ -347,7 +348,7 @@ mod tests {
         assert_eq!(DISCLOSURE_ICON_SIZE, IconSize::Action);
         assert_eq!(DISCLOSURE_ICON_COLOR, SemanticColor::SecondaryLabel);
         assert_eq!(DISCLOSURE_INDICATOR_BOX, Size::CheckboxIndicator);
-        assert_eq!(DISCLOSURE_COLUMN_SIDE, Size::MinHitTarget);
+        assert_eq!(DISCLOSURE_COLUMN_SIDE, Size::PointerHitTarget);
     }
 
     #[test]
