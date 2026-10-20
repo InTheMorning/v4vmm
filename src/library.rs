@@ -309,6 +309,7 @@ pub(crate) struct PlaylistActorState {
 mod app_impl;
 mod column_view;
 mod detail_selection;
+mod release_page;
 
 pub(crate) use app_impl::playlist_options;
 pub(crate) use column_view::{LibraryColumn, LibraryColumnView};

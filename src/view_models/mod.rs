@@ -88,6 +88,7 @@ pub(crate) mod publisher_page;
 pub(crate) mod queue_now_playing;
 pub(crate) mod recent_feeds;
 pub(crate) mod release_kind;
+pub(crate) mod release_page;
 pub(crate) mod role_words;
 pub mod search_results;
 pub(crate) mod selection_action_bar;

@@ -5,17 +5,14 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use gpui::{
-    div, prelude::*, AnyElement, ClickEvent, Context, Entity, Image, ScrollHandle, SharedString,
-};
+use gpui::{div, prelude::*, AnyElement, Context, Entity, Image, ScrollHandle, SharedString};
 use gpui_component::input::InputState;
 
 use crate::db;
 use crate::library::PlaylistActorState;
 use crate::library::{LibraryApp, LibraryDetail};
 use crate::media::cover_color::CoverColor;
-use crate::ui::composites::TrackRow;
-use crate::ui::shells::library::feed_detail::{render_library_feed_detail, LibraryTrackRowContext};
+use crate::ui::shells::library::feed_detail::render_library_feed_detail;
 use crate::ui::shells::library::feed_list::render_library_feed_list;
 use crate::ui::shells::library::playlist_detail::render_library_playlist_detail;
 use crate::ui::shells::library::singles_group::render_library_singles_group_page;
@@ -24,7 +21,6 @@ use crate::ui::style::color;
 use crate::view_models::library::{LibraryChromeDisplay, LibraryViewModel, MbTrackStatus};
 use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::named_feeds::NamedFeed;
-use crate::view_models::workspace::FrameNavigationEntry;
 
 /// The selection facts and the scroll probe of one row of a Library
 /// detail page (ADR 0084 Decision 10, packet 018). `LibraryApp` builds one
@@ -33,45 +29,6 @@ use crate::view_models::workspace::FrameNavigationEntry;
 pub(crate) struct DetailRowSlot {
     pub(crate) selection: RowSelectionVm,
     pub(crate) probe: Option<AnyElement>,
-}
-
-/// A Library track row's page context with its detail selection facts
-/// (ADR 0084 packet 018).
-pub(crate) struct LibraryTrackRowPlace {
-    pub(crate) context: LibraryTrackRowContext,
-    pub(crate) slot: DetailRowSlot,
-}
-
-impl LibraryTrackRowContext {
-    /// Joins this page context and the detail selection facts of the row.
-    pub(crate) fn with_slot(self, slot: DetailRowSlot) -> LibraryTrackRowPlace {
-        LibraryTrackRowPlace {
-            context: self,
-            slot,
-        }
-    }
-}
-
-/// The selection wiring of one row of a Library detail page (ADR 0084
-/// Decision 10, packet 018): the checkbox, the selected fill, the focus
-/// outline and the click. `open_entry` is the page that a plain click in
-/// `Normal` mode opens. In `Selecting` mode, a plain click changes the
-/// selection of the row.
-pub(crate) fn with_detail_row_slot(
-    row: TrackRow,
-    slot: DetailRowSlot,
-    open_entry: FrameNavigationEntry,
-    cx: &mut Context<LibraryApp>,
-) -> TrackRow {
-    let toggle_entry = open_entry.clone();
-    row.selection(slot.selection)
-        .scroll_probe(slot.probe)
-        .on_toggle_selection(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-            this.toggle_library_detail_row(&toggle_entry, cx);
-        }))
-        .on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
-            this.click_library_detail_row(&open_entry, event.modifiers(), cx);
-        }))
 }
 
 #[expect(
@@ -126,7 +83,6 @@ pub(crate) fn render_library_detail(
             library_vm,
             album_thumbs,
             album_cover_color,
-            playlists,
             row_slots,
             scroll,
             cx,

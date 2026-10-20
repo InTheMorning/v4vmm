@@ -26,9 +26,6 @@ use crate::ui::composites::{
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{Button as UiButton, Label, LabelVariant, MultilineText};
-use crate::ui::shells::entity::{
-    render_feed_identity_actions, render_release_detail_shell, ReleaseDetailBehaviorSlots,
-};
 use crate::ui::shells::search_result_rows::{
     artist_fields, feed_fields, origin_label, render_pending_result_row, render_result_row, tab_id,
     track_fields, SearchResultRowFields, SearchResultSelectHandler,
@@ -37,7 +34,6 @@ use crate::ui::shells::track::{
     build_track_detail_surface, render_track_page_identity_actions, TrackDetailBehaviorSlots,
 };
 use crate::ui::tokens::{FontSize, SemanticColor, Size, Spacing};
-use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm};
 use crate::view_models::search_results::{
     EmptyStateDisplay, IndexDetailDisplay, IndexDetailKind, SearchFailureAction,
     SearchFailureAvailability, SearchResultItemId, SearchResultOrigin,
@@ -194,13 +190,6 @@ fn render_search_results_inspector_with_scope(
 
 /// Renders a remote Index detail page reached from search-result drill-down.
 pub(crate) fn render_index_detail_display(display: &IndexDetailDisplay, cx: &App) -> AnyElement {
-    if let Some(feed) = display.feed.as_ref() {
-        return render_index_feed_detail(feed, ReleaseDetailBehaviorSlots::default());
-    }
-    if let Some(track) = display.track.as_ref() {
-        return render_index_track_detail(track, TrackDetailBehaviorSlots::default(), cx);
-    }
-
     let kind = entity_kind_for_index_detail(display.kind);
     let mut heading = div()
         .flex()
@@ -266,17 +255,6 @@ pub(crate) fn render_index_detail_display(display: &IndexDetailDisplay, cx: &App
         container,
         SharedString::from(format!("index-detail-{suffix}-scrollbar")),
     )
-}
-
-/// Renders a remote Index feed through the shared release-detail shell.
-pub(crate) fn render_index_feed_detail(
-    feed: &crate::views::FeedView,
-    mut slots: ReleaseDetailBehaviorSlots,
-) -> AnyElement {
-    let projection = ReleaseDetailVm::new(feed, EntitySurfaceContext::Library);
-    let page = projection.page();
-    slots.identity_actions = render_feed_identity_actions(&page);
-    render_release_detail_shell(&page, slots)
 }
 
 /// Renders a remote Index track through the shared track-detail shell.

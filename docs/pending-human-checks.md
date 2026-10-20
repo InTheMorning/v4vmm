@@ -52,6 +52,14 @@ Open - implementation and mechanical checks recorded 2026-09-11.
   The phase plan retains its scheduling exception.
 - The three groups that used to precede this packet moved to the [overhaul plan](plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07) on 2026-10-07.
 
+## 2. Final Walk Of The Run Of 2026-10-20
+
+Open - the run adds each packet when its mechanical checks are Green.
+
+- Owner: the [run record](reviews/orchestrated-run-2026-10-20.md#final-walk).
+- Packets: [ADR 0084 packet 021](tasks/adr-0084-task-021-one-release-page-assembly.md) V1 to V3.
+- Part B holds the deferred visual requirements of the overhaul plan that present screens can show.
+
 ## Method: Reach A Publisher Service State
 
 This section is not a check. It is the method that each publisher check needs.
@@ -131,7 +139,7 @@ systemctl --user reset-failed mixxx-now-playing.service
 - `docs/adr/0061-executable-governance.md`, for the mechanical and visual rule
 - `docs/plans/broadcast-chain-delivery-order.md`
 
-## 2. Metadata Migration Repair Report And Readiness — ADR 0075 Task 012
+## 3. Metadata Migration Repair Report And Readiness — ADR 0075 Task 012
 
 Open and paused - implementation, technical review, and mechanical checks are complete on 2026-09-20. Operator inspection is pending.
 
@@ -142,7 +150,7 @@ Open and paused - implementation, technical review, and mechanical checks are co
 - Retain a failing fixture. Confirm successful preservation and fixture cleanup before closing this gate.
 - This check has no runnable procedure and no owner (triage of 2026-10-20). The fixture checks a migration-11 ledger and migration-12 rows, and expects a separate version-12 candidate. Schema version 19 is current. The fixture needs revision for schema 19 before anyone can walk this check.
 
-## 3. MusicBrainz URL Relations By Type — ADR 0080 Task 002
+## 4. MusicBrainz URL Relations By Type — ADR 0080 Task 002
 
 Open and paused - implementation and mechanical checks are complete on 2026-09-29. Operator inspection is pending.
 
@@ -151,7 +159,7 @@ Open and paused - implementation and mechanical checks are complete on 2026-09-2
 - V3: after a write of the homepage and the license on a test copy, an external tag reader shows plain URLs in `WOAR` and `WCOP`.
 - V1, V2 and V4 moved to the [overhaul plan](plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07) on 2026-10-07, under Phase 4: Inspect sources.
 
-## 4. Forward Navigation — ADR 0046 Task 015
+## 5. Forward Navigation — ADR 0046 Task 015
 
 Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 2026-10-07, in Dark and Light, at UI scale L and at narrow width.
 

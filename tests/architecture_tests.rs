@@ -287,7 +287,8 @@ const RENDER_HELPER_DUPLICATION_BASELINES: &[RenderHelperDuplicationBaseline] = 
 const PLAYLIST_POPOVER_CALLSITE_FILES: &[&str] = &[
     "src/library.rs",
     "src/ui/shells/track.rs",
-    "src/ui/shells/library/feed_detail.rs",
+    "src/ui/shells/release_page.rs",
+    "src/ui/shells/library/singles_group.rs",
     "src/ui/shells/library/track_detail_metadata.rs",
 ];
 
@@ -727,6 +728,10 @@ fn local_feed_language_parity_is_loaded_through_read_model_path() {
     let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
     let library_query_source = read_source(&manifest_path("src/application/queries/library.rs"));
     let feed_detail_source = read_source(&manifest_path("src/ui/shells/library/feed_detail.rs"));
+    // ADR 0084 packet 021 moved the Library `FeedView` build into the one
+    // release page view model, and its render into the release page shell.
+    let release_page_vm_source = read_source(&manifest_path("src/view_models/release_page.rs"));
+    let release_page_shell_source = read_source(&manifest_path("src/ui/shells/release_page.rs"));
     let views_source = read_source(&manifest_path("src/views.rs"));
 
     for (source_name, source, required) in [
@@ -766,8 +771,8 @@ fn local_feed_language_parity_is_loaded_through_read_model_path() {
             "db::feed_language_by_id(&conn, feed_id)",
         ),
         (
-            "src/ui/shells/library/feed_detail.rs",
-            feed_detail_source.as_str(),
+            "src/view_models/release_page.rs",
+            release_page_vm_source.as_str(),
             "language: album.language.clone()",
         ),
         (
@@ -782,10 +787,21 @@ fn local_feed_language_parity_is_loaded_through_read_model_path() {
         );
     }
 
-    assert!(
-        !feed_detail_source.contains("\"Language\""),
-        "src/ui/shells/library/feed_detail.rs must not infer or label feed language in the renderer"
-    );
+    for (source_name, source) in [
+        (
+            "src/ui/shells/library/feed_detail.rs",
+            feed_detail_source.as_str(),
+        ),
+        (
+            "src/ui/shells/release_page.rs",
+            release_page_shell_source.as_str(),
+        ),
+    ] {
+        assert!(
+            !source.contains("\"Language\""),
+            "{source_name} must not infer or label feed language in the renderer"
+        );
+    }
 }
 
 #[test]
@@ -1151,7 +1167,17 @@ fn adr_0047_phase_c_inspector_rewire_uses_vm_state_and_shared_disclosures() {
         "src/ui/shells/library/track_detail_metadata.rs",
     ));
     let track_detail_source = read_source(&manifest_path("src/ui/shells/library/track_detail.rs"));
-    let feed_detail_source = read_source(&manifest_path("src/ui/shells/library/feed_detail.rs"));
+    // ADR 0084 packet 021: the Library release page description panel
+    // has three owners. The view model reads the text and the state, the
+    // shell draws the panel, and `LibraryApp` runs the toggle.
+    let feed_description_source = [
+        "src/view_models/release_page.rs",
+        "src/ui/shells/release_page.rs",
+        "src/library/release_page.rs",
+    ]
+    .iter()
+    .map(|file| read_source(&manifest_path(file)))
+    .collect::<String>();
     let disclosure_source = read_source(&manifest_path("src/ui/composites/disclosure_group.rs"));
     let composite_mod_source = read_source(&manifest_path("src/ui/composites/mod.rs"));
     let mut violations = Vec::new();
@@ -1285,9 +1311,9 @@ fn adr_0047_phase_c_inspector_rewire_uses_vm_state_and_shared_disclosures() {
         "album_description_state",
         "toggle_album_description",
     ] {
-        if !feed_detail_source.contains(required) {
+        if !feed_description_source.contains(required) {
             violations.push(format!(
-                "src/ui/shells/library/feed_detail.rs: ADR 0047 Phase C feed description disclosure missing `{required}`"
+                "src/view_models/release_page.rs, src/ui/shells/release_page.rs or src/library/release_page.rs: ADR 0047 Phase C feed description disclosure missing `{required}`"
             ));
         }
     }
@@ -1303,7 +1329,9 @@ fn adr_0047_phase_c_inspector_rewire_uses_vm_state_and_shared_disclosures() {
 fn adr_0047_description_rendering_must_not_infer_placeholder_metadata() {
     let checked_files = [
         "src/view_models/library.rs",
+        "src/view_models/release_page.rs",
         "src/ui/shells/library/feed_detail.rs",
+        "src/ui/shells/release_page.rs",
         "src/ui/shells/library/track_detail.rs",
         "src/ui/composites/disclosure_group.rs",
         "src/ui/composites/track_detail_surface.rs",
@@ -2838,33 +2866,52 @@ fn adr_0084_discover_r6_06_three_state_filter_control_is_deleted() {
 
 /// R13-06 (ADR 0084 task 013, Decision 4): an Index release page's track
 /// rows open their track page, and its description panel takes a toggle.
+/// ADR 0084 packet 021 moved the row and the panel into the one release
+/// page shell. The Index dispatcher maps each command to its route.
 #[test]
 fn adr_0084_index_page_r13_06_track_row_click_and_description_toggle_are_wired() {
     let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let shell_source = read_source(&manifest_path("src/ui/shells/release_page.rs"));
     let mut violations = Vec::new();
 
-    let track_rows_fn = source_between(
-        &search_dispatch_source,
-        "fn index_feed_track_rows(",
-        "fn index_track_row_thumbnail(",
+    let track_row_fn = source_between(
+        &shell_source,
+        "pub(crate) fn render_release_page_track_row(",
+        "fn playlist_choices(",
     );
-    if !track_rows_fn.contains(".on_click(") {
+    if !track_row_fn.contains(".on_click(") {
         violations.push(
-            "src/app/search_dispatch.rs: ADR 0084 Decision 4 index_feed_track_rows must set ReleaseTrackRowSlot::on_click"
+            "src/ui/shells/release_page.rs: ADR 0084 Decision 4 render_release_page_track_row must set TrackRow::on_click"
                 .to_string(),
         );
     }
 
     let description_panel_fn = source_between(
-        &search_dispatch_source,
-        "fn index_feed_description_panel(",
-        "fn index_release_description_state(",
+        &shell_source,
+        "fn render_release_page_description(",
+        "fn render_release_page_contributors(",
     );
     if !description_panel_fn.contains(".on_toggle(") {
         violations.push(
-            "src/app/search_dispatch.rs: ADR 0084 Decision 4 index_feed_description_panel must take an on_toggle handler"
+            "src/ui/shells/release_page.rs: ADR 0084 Decision 4 render_release_page_description must take an on_toggle handler"
                 .to_string(),
         );
+    }
+
+    let dispatcher_fn = source_between(
+        &search_dispatch_source,
+        "fn run_index_release_page_command(",
+        "\n    }\n",
+    );
+    for required in [
+        "self.click_detail_row(",
+        "self.toggle_index_release_description(",
+    ] {
+        if !dispatcher_fn.contains(required) {
+            violations.push(format!(
+                "src/app/search_dispatch.rs: ADR 0084 Decision 4 run_index_release_page_command must call `{required}`"
+            ));
+        }
     }
 
     assert!(
@@ -2889,7 +2936,10 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
     let search_results_shell_source =
         read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
     let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
-    let feed_detail_source = read_source(&manifest_path("src/ui/shells/library/feed_detail.rs"));
+    // ADR 0084 packet 021 moved the Library release rows into the one
+    // release page view model, and the Index page into its shell.
+    let release_page_vm_source = read_source(&manifest_path("src/view_models/release_page.rs"));
+    let release_page_shell_source = read_source(&manifest_path("src/ui/shells/release_page.rs"));
     let mut violations = Vec::new();
 
     for required in [
@@ -2903,13 +2953,13 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         "FrameNavigationEntry::Track(",
         "render_index_detail_display(",
         "content_list_breadcrumb_labeler(",
-        "render_index_feed_detail(feed, slots)",
+        "self.render_index_release_page(feed, cx)",
         "hero_image: self.index_feed_hero_image(feed, cx)",
         "fn index_feed_hero_image(",
         "RemoteDetailThumbnailState::Loaded",
-        "fn index_feed_artwork_url(",
-        "fn index_feed_primary_actions(",
-        "fn index_feed_track_rows(",
+        "index_feed_artwork_url(feed)",
+        "fn run_index_release_page_command(",
+        "fn render_index_release_page(",
         "fn render_index_feed_or_fallback_detail(",
         "DisclosureTextPanel::new(",
         "SubscribeFeedRequest {",
@@ -3028,16 +3078,23 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         );
     }
 
-    for required in [
-        "SearchResultsHeaderMode::Tabbed",
-        "pub(crate) fn render_index_feed_detail(",
-        "EntitySurfaceContext::Library",
-    ] {
-        if !search_results_shell_source.contains(required) {
-            violations.push(format!(
-                "src/ui/shells/search_results_inspector.rs: ADR 0049 scoped drill-down chrome missing `{required}`"
-            ));
-        }
+    if !search_results_shell_source.contains("SearchResultsHeaderMode::Tabbed") {
+        violations.push(
+            "src/ui/shells/search_results_inspector.rs: ADR 0049 scoped drill-down chrome missing `SearchResultsHeaderMode::Tabbed`"
+                .to_string(),
+        );
+    }
+    if !release_page_shell_source.contains("pub(crate) fn render_release_page(") {
+        violations.push(
+            "src/ui/shells/release_page.rs: ADR 0049 Index release page missing `pub(crate) fn render_release_page(`"
+                .to_string(),
+        );
+    }
+    if !release_page_vm_source.contains("EntitySurfaceContext::Library") {
+        violations.push(
+            "src/view_models/release_page.rs: ADR 0049 Index release page missing `EntitySurfaceContext::Library`"
+                .to_string(),
+        );
     }
     // ADR 0077 packet 006 deleted `SearchResultsHeaderMode::Scoped`, the
     // old Index name-route feed results mode. It had no other caller.
@@ -3062,9 +3119,9 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
 
     // ADR 0084 Decisions 4 and 8 (operator decision of 2026-10-16): the
     // release page reads no list filter. It always shows every track.
-    if !feed_detail_source.contains(".release_track_rows()") {
+    if !release_page_vm_source.contains(".release_track_rows()") {
         violations.push(
-            "src/ui/shells/library/feed_detail.rs: ADR 0084 Decisions 4 and 8 require the release page to read album.release_track_rows(), with no list filter"
+            "src/view_models/release_page.rs: ADR 0084 Decisions 4 and 8 require the release page to read album.release_track_rows(), with no list filter"
                 .to_string(),
         );
     }
@@ -3072,9 +3129,9 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         "library_vm.content_filter()",
         "ContentFilter::Library => track",
     ] {
-        if feed_detail_source.contains(forbidden) {
+        if release_page_vm_source.contains(forbidden) {
             violations.push(format!(
-                "src/ui/shells/library/feed_detail.rs: ADR 0084 Decision 8 deletes the release page's list filter; found `{forbidden}`"
+                "src/view_models/release_page.rs: ADR 0084 Decision 8 deletes the release page's list filter; found `{forbidden}`"
             ));
         }
     }
@@ -3138,7 +3195,6 @@ fn adr_0024_index_track_detail_uses_rich_track_view_path() {
     }
 
     for required in [
-        "if let Some(track) = display.track.as_ref()",
         "TrackDetailVm::new(track, TrackDetailSurfaceContext::Discover).page()",
         "slots.external_links = render_track_page_identity_actions(&page)",
         "build_track_detail_surface(&page, slots)",
@@ -6565,7 +6621,9 @@ fn adr_0047_membership_buttons_use_download_remove_vocabulary() {
     let checked_files = [
         "src/view_models/library.rs",
         "src/view_models/entity_detail.rs",
+        "src/view_models/release_page.rs",
         "src/ui/shells/library/feed_detail.rs",
+        "src/ui/shells/release_page.rs",
         "src/ui/shells/library/track_detail.rs",
         "src/ui/shells/library/track_detail_metadata.rs",
     ];
@@ -7187,7 +7245,7 @@ fn surface_modules_under_500_loc() {
 fn library_release_detail_playlist_popovers_use_shared_composite() {
     let files = [
         "src/library.rs",
-        "src/ui/shells/library/feed_detail.rs",
+        "src/ui/shells/release_page.rs",
         "src/ui/shells/library/track_detail_metadata.rs",
     ];
     let mut violations = Vec::new();
@@ -7816,11 +7874,11 @@ fn track_surface_consumers_use_track_detail_vm() {
 fn entity_detail_pages_render_through_shell_helper_and_page_vm() {
     let consumers = [
         (
-            "Library release detail",
-            "src/ui/shells/library/feed_detail.rs",
-            "ReleaseDetailVm::new(",
-            ".page()",
-            "render_release_detail_shell(&page",
+            "Release page of both origins (ADR 0084 packet 021)",
+            "src/ui/shells/release_page.rs",
+            "ReleasePageVm",
+            "vm.page",
+            "render_release_detail_shell(&vm.page",
         ),
         (
             "Library track detail",
@@ -8374,7 +8432,7 @@ fn view_models_own_display_fallbacks_for_library() {
         (
             "src/ui/shells/entity.rs",
             "format!(\"entity-track:{index}\")",
-            "Release track row id belongs in SharedTrackRowVm",
+            "Release track row id belongs in ReleaseTrackRowVm",
         ),
         (
             "src/ui/shells/entity.rs",
@@ -10873,16 +10931,36 @@ fn shared_search_result_rows_accept_resolved_artwork_thumbnails() {
 
 #[test]
 fn index_feed_detail_track_rows_preserve_artwork_fallbacks() {
+    // ADR 0084 packet 021: the release page view model gives the artwork
+    // URL of each Index row, and the Index host resolves it.
     let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let release_page_vm_source = read_source(&manifest_path("src/view_models/release_page.rs"));
 
-    for required in [
-        "thumbnail: self.index_track_row_thumbnail(feed, track, cx)",
-        "fn index_track_row_artwork_url",
-        "index_track_artwork_url(track).or_else(|| index_feed_artwork_url(feed))",
+    for (file, source, required) in [
+        (
+            "src/app/search_dispatch.rs",
+            search_dispatch_source.as_str(),
+            ".and_then(|url| self.index_remote_detail_hero_image(url, cx))",
+        ),
+        (
+            "src/view_models/release_page.rs",
+            release_page_vm_source.as_str(),
+            "fn index_track_row_artwork_url",
+        ),
+        (
+            "src/view_models/release_page.rs",
+            release_page_vm_source.as_str(),
+            "thumbnail_url: index_track_row_artwork_url(feed, track)",
+        ),
+        (
+            "src/view_models/release_page.rs",
+            release_page_vm_source.as_str(),
+            ".or_else(|| index_feed_artwork_url(feed))",
+        ),
     ] {
         assert!(
-            search_dispatch_source.contains(required),
-            "src/app/search_dispatch.rs: Index feed detail track rows must receive track/feed artwork thumbnails; missing `{required}`"
+            source.contains(required),
+            "{file}: Index feed detail track rows must receive track/feed artwork thumbnails; missing `{required}`"
         );
     }
 }
@@ -13626,7 +13704,14 @@ fn adr_0061_root_content_frame_header_omits_redundant_section_title() {
 fn adr_0060_music_row_state_labels_are_vm_owned() {
     let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
     let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
-    let feed_detail_source = read_source(&manifest_path("src/ui/shells/library/feed_detail.rs"));
+    // ADR 0084 packet 021: the release page shell draws the row labels.
+    let feed_detail_source = [
+        "src/ui/shells/library/feed_detail.rs",
+        "src/ui/shells/release_page.rs",
+    ]
+    .iter()
+    .map(|file| read_source(&manifest_path(file)))
+    .collect::<String>();
     let mut violations = Vec::new();
 
     for required in [
@@ -13657,7 +13742,7 @@ fn adr_0060_music_row_state_labels_are_vm_owned() {
     }
     if feed_detail_source.contains("\"New\"") {
         violations.push(
-            "src/ui/shells/library/feed_detail.rs: ADR 0060 task 003 renderer must consume VM-owned `New` row labels"
+            "src/ui/shells/library/feed_detail.rs or src/ui/shells/release_page.rs: ADR 0060 task 003 renderer must consume VM-owned `New` row labels"
                 .to_string(),
         );
     }
@@ -20406,59 +20491,171 @@ second track page layout in a shell.";
 
 /// R83-57 (ADR 0083 task 005, ADR 0037): the Library album page and the
 /// Index album page build through the shared release shell and take their
-/// actions from the one album page model.
+/// actions from the one album page model. ADR 0084 packet 021: both origins
+/// call the one release page shell, which builds the shared release shell.
 #[test]
 fn adr_0083_both_album_page_origins_build_one_shared_surface() {
     const FIX: &str = "ADR 0083 task 005 and ADR 0037: build each album page through \
-`render_release_detail_shell` with `ReleaseDetailBehaviorSlots`, and take its actions from \
-`view_models::album_page::album_page_actions`. Do not compose a second album page layout.";
+`render_release_page` in src/ui/shells/release_page.rs, which builds \
+`render_release_detail_shell` with `ReleaseDetailBehaviorSlots`. Take the actions from \
+`view_models::album_page::album_page_actions` in `release_page_actions`. Do not compose a second \
+album page layout.";
     let library = read_source(&manifest_path("src/ui/shells/library/feed_detail.rs"));
-    let index = read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
     let dispatch = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let shell = read_source(&manifest_path("src/ui/shells/release_page.rs"));
+    let vm = read_source(&manifest_path("src/view_models/release_page.rs"));
     let library_page = code_only(source_between(
         &library,
         "pub(crate) fn render_library_feed_detail(",
         "\n}\n",
     ));
     let index_page = code_only(source_between(
-        &index,
-        "pub(crate) fn render_index_feed_detail(",
-        "\n}\n",
-    ));
-    let index_actions = code_only(source_between(
         &dispatch,
-        "fn index_feed_primary_actions(",
+        "fn render_index_release_page(",
         "\n    }\n",
     ));
+    let shell_page = code_only(source_between(
+        &shell,
+        "pub(crate) fn render_release_page(",
+        "\n}\n",
+    ));
+    let vm_actions = code_only(source_between(&vm, "fn release_page_actions(", "\n}\n"));
     let mut violations = Vec::new();
     for (path, body) in [
         ("src/ui/shells/library/feed_detail.rs", &library_page),
-        ("src/ui/shells/search_results_inspector.rs", &index_page),
+        ("src/app/search_dispatch.rs", &index_page),
     ] {
-        if !body.contains("render_release_detail_shell(") {
+        if !body.contains("render_release_page(") {
             violations.push(format!(
-                "{path}: the album page does not build the shared shell.\n  {FIX}"
+                "{path}: the album page does not build the one release page shell.\n  {FIX}"
             ));
         }
+    }
+    if !shell_page.contains("render_release_detail_shell(") {
+        violations.push(format!(
+            "src/ui/shells/release_page.rs: the album page does not build the shared shell.\n  {FIX}"
+        ));
+    }
+    for (path, body) in [
+        ("src/ui/shells/library/feed_detail.rs", &library_page),
+        ("src/app/search_dispatch.rs", &index_page),
+        ("src/ui/shells/release_page.rs", &shell_page),
+    ] {
         if body.contains("ReleaseDetailSurface::new(") {
             violations.push(format!(
                 "{path}: the album page builds a surface of its own.\n  {FIX}"
             ));
         }
     }
-    for (path, body) in [
-        ("src/ui/shells/library/feed_detail.rs", &library_page),
-        ("src/app/search_dispatch.rs", &index_actions),
-    ] {
-        if !body.contains("album_page_actions(") {
-            violations.push(format!(
-                "{path}: the album page actions do not come from the album page model.\n  {FIX}"
-            ));
-        }
+    if !vm_actions.contains("album_page_actions(") {
+        violations.push(format!(
+            "src/view_models/release_page.rs: the album page actions do not come from the album page model.\n  {FIX}"
+        ));
     }
     assert!(
         violations.is_empty(),
         "ADR 0083 album page parity violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R21-09 (situational ADR 0084 Decision 4, packet 021): `src/` has one
+/// definition of `render_release_page`, and only the release page shell
+/// calls `render_release_detail_shell`.
+#[test]
+fn adr_0084_release_page_r21_09_one_release_page_shell() {
+    const FIX: &str = "ADR 0084 Decision 4: one page for each item. Build each release page \
+through `render_release_page` in src/ui/shells/release_page.rs. Give the origin facts to \
+`ReleasePageFacts`, and do not call `render_release_detail_shell` from another file.";
+    let mut definitions = Vec::new();
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(production_source(&source)) {
+            if line.contains("fn render_release_page(") {
+                definitions.push(format!("{file}:{line_number}"));
+            }
+            if file != "src/ui/shells/release_page.rs"
+                && line.contains("render_release_detail_shell(")
+                && !line.contains("fn render_release_detail_shell(")
+            {
+                violations.push(format!(
+                    "{file}:{line_number}: calls `render_release_detail_shell`: `{line}`\n  {FIX}"
+                ));
+            }
+        }
+    }
+    if definitions.len() != 1 {
+        violations.push(format!(
+            "src/: expected one definition of `render_release_page`, found [{}]\n  {FIX}",
+            definitions.join(", ")
+        ));
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 packet 021 release page shell violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R21-10 (situational ADR 0084 Decision 4, packet 021): the second row
+/// path and the second page assembly are deleted.
+#[test]
+fn adr_0084_release_page_r21_10_the_old_release_row_paths_are_gone() {
+    const FIX: &str = "ADR 0084 Decision 4: each release track row uses `ReleaseTrackRowVm` \
+and `render_release_page_track_row` in src/ui/shells/release_page.rs. Do not add a second \
+row view model or a second page assembly.";
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for (index, line) in source.lines().enumerate() {
+            let line_number = index + 1;
+            for name in [
+                "SharedTrackRowVm",
+                "render_library_track_row",
+                "render_index_feed_detail",
+                "LibraryTrackRowContext",
+                "from_shared_track_row",
+            ] {
+                if line.contains(name) {
+                    violations.push(format!(
+                        "{file}:{line_number}: names `{name}`: `{line}`\n  {FIX}"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 packet 021 release row path violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R21-11 (situational ADR 0084 Decision 4, packet 021): the release page
+/// shell names no host entity and no database type. Each host gives the
+/// facts, the images and one dispatch function.
+#[test]
+fn adr_0084_release_page_r21_11_the_shell_names_no_host() {
+    const FIX: &str = "ADR 0084 Decision 4 and the AGENTS.md renderer portability rule: the \
+release page shell renders the view model and sends each `ReleasePageCommand` through the \
+dispatch function. Keep `LibraryApp`, `TopApp` and `db::` in the host entities.";
+    let source = read_source(&manifest_path("src/ui/shells/release_page.rs"));
+    let mut violations = Vec::new();
+    for (line_number, line) in code_lines(&source) {
+        for name in ["LibraryApp", "TopApp", "db::"] {
+            if line.contains(name) {
+                violations.push(format!(
+                    "src/ui/shells/release_page.rs:{line_number}: names `{name}`: `{line}`\n  {FIX}"
+                ));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 packet 021 release page shell boundary violations:\n{}",
         violations.join("\n")
     );
 }

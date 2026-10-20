@@ -9,8 +9,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    div, AnyElement, App, ClickEvent, ClipboardItem, Image, InteractiveElement, IntoElement,
-    ParentElement, ScrollHandle, SharedString, Styled, Window,
+    div, AnyElement, App, ClipboardItem, Image, InteractiveElement, IntoElement, ParentElement,
+    ScrollHandle, SharedString, Styled, Window,
 };
 
 use crate::media::cover_color::CoverColor;
@@ -18,7 +18,7 @@ use crate::ui::composites::{
     identity_action_button, CoverBackdrop, DetailGrid, DetailHeader, DetailHeaderDataRow,
     DetailHeaderDisplay, DetailRow, DetailTextRow, EntityKind, IdentityActionButtonDisplay,
     IdentityActionKind, ListRow, ListRowA11yLabel, ReleaseActionGroupDisplay, ReleaseDetailSurface,
-    ReleaseSurfaceElement, ReleaseTrackSectionDisplay, Thumbnail, ThumbnailSize, TrackRow,
+    ReleaseSurfaceElement, ReleaseTrackSectionDisplay, Thumbnail, ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{Button, Label, LabelVariant};
@@ -29,42 +29,12 @@ use crate::view_models::entity_detail::{
     ContributorListVm, ContributorPersonVm, ContributorRoleRowVm, ContributorRowVm,
     EntitySurfaceKind, IdentityActionDisplay, IdentityActionDisplayKind, NamedFeedRowVm,
     ReleaseDetailPageVm, ReleaseHeroVm, ReleasePanelKind, ReleasePanelVm, ReleaseTextPanelDisplay,
-    SharedTrackRowVm,
 };
-use crate::view_models::list_selection::RowSelectionVm;
-
-type ReleaseTrackRowClick = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 #[derive(Default)]
 pub struct ContributorRowSlot {
     pub thumbnail: Option<Arc<Image>>,
     pub actions: Vec<ReleaseSurfaceElement>,
-}
-
-#[derive(Default)]
-pub struct ReleaseTrackRowSlot {
-    pub thumbnail: Option<Arc<Image>>,
-    pub on_click: Option<ReleaseTrackRowClick>,
-    pub actions: Vec<ReleaseSurfaceElement>,
-    pub popover: Option<ReleaseSurfaceElement>,
-    /// The selection facts of the row (ADR 0084 Decision 10, packet 018).
-    /// `None` shows no checkbox.
-    pub(crate) selection: Option<RowSelectionVm>,
-    /// The click on the checkbox of the row.
-    pub(crate) on_toggle_selection: Option<ReleaseTrackRowClick>,
-    /// The scroll probe of the focused row.
-    pub(crate) scroll_probe: Option<AnyElement>,
-}
-
-impl ReleaseTrackRowSlot {
-    #[must_use]
-    pub fn on_click<F>(mut self, handler: F) -> Self
-    where
-        F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    {
-        self.on_click = Some(Rc::new(handler));
-        self
-    }
 }
 
 /// The cover size of the album page header (ADR 0083 Decision 4).
@@ -144,9 +114,7 @@ pub fn render_release_detail_shell(
         }
     }
 
-    let rows = slots
-        .track_rows
-        .unwrap_or_else(|| render_track_rows(page.tracks.rows()));
+    let rows = slots.track_rows.unwrap_or_default();
     if !rows.is_empty() {
         surface = surface.track_section(ReleaseTrackSectionDisplay {
             title: page.tracks.title().into(),
@@ -232,46 +200,6 @@ pub fn render_contributor_panel(
             )
             .into_any_element(),
     )
-}
-
-pub fn render_release_track_row(
-    id: impl Into<SharedString>,
-    row: SharedTrackRowVm<'_>,
-    slot: ReleaseTrackRowSlot,
-) -> ReleaseSurfaceElement {
-    let mut track_row = TrackRow::from_shared_track_row(id.into(), row)
-        .thumbnail(slot.thumbnail)
-        .scroll_probe(slot.scroll_probe);
-    if let Some(selection) = slot.selection {
-        track_row = track_row.selection(selection);
-    }
-    if let Some(on_toggle) = slot.on_toggle_selection {
-        track_row =
-            track_row.on_toggle_selection(move |event, window, cx| on_toggle(event, window, cx));
-    }
-
-    if let Some(on_click) = slot.on_click {
-        track_row = track_row.on_click(move |event, window, cx| on_click(event, window, cx));
-    }
-
-    for action in slot.actions {
-        track_row = track_row.trailing_child(action);
-    }
-
-    let row = track_row.into_any_element();
-    if let Some(popover) = slot.popover {
-        ReleaseSurfaceElement::from_element(
-            div()
-                .flex()
-                .flex_col()
-                .gap(spacing::XXS)
-                .child(row)
-                .child(popover)
-                .into_any_element(),
-        )
-    } else {
-        ReleaseSurfaceElement::from_element(row)
-    }
 }
 
 pub fn render_contributor_rows(
@@ -587,18 +515,6 @@ fn render_action_slots(
     Some(ReleaseSurfaceElement::from_element(row.into_any_element()))
 }
 
-fn render_track_rows(rows: Vec<SharedTrackRowVm<'_>>) -> Vec<ReleaseSurfaceElement> {
-    rows.into_iter()
-        .map(|row| {
-            render_release_track_row(
-                SharedString::from(row.element_id()),
-                row,
-                ReleaseTrackRowSlot::default(),
-            )
-        })
-        .collect()
-}
-
 fn entity_kind(kind: EntitySurfaceKind) -> EntityKind {
     match kind {
         EntitySurfaceKind::Artist => EntityKind::Artist,
@@ -636,16 +552,6 @@ mod tests {
             RELEASE_HEADER_COVER.image_size(),
             crate::ui::primitives::ImageSize::XXl
         );
-    }
-
-    #[test]
-    fn release_track_row_slot_starts_empty() {
-        let slot = ReleaseTrackRowSlot::default();
-
-        assert!(slot.thumbnail.is_none());
-        assert!(slot.on_click.is_none());
-        assert!(slot.actions.is_empty());
-        assert!(slot.popover.is_none());
     }
 
     #[test]

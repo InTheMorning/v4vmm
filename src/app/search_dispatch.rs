@@ -3,7 +3,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{prelude::*, AnyElement, ClickEvent, Context, Image, SharedString, Window};
+use gpui::{prelude::*, AnyElement, Context, Image, SharedString, Window};
 
 use crate::application::capability::Dependency;
 use crate::application::capability_recovery::{RecoveryAction, RecoveryIntent};
@@ -17,42 +17,38 @@ use crate::application::queries::search::{
 use crate::application::{ApplicationCommand, CommandContext};
 use crate::db;
 use crate::feed_service;
-use crate::library::{playlist_options, LibraryApp};
+use crate::library::LibraryApp;
 use crate::library_service;
 use crate::media::cover_color::CoverColor;
 use crate::metadata::TrackContext;
 use crate::presentation::present_command;
 use crate::subscribe_service::{SubscribeFeedRequest, SubscribeTrackRequest};
-use crate::ui::composites::{
-    ActionRow, ActionRowDisplay, AddToPlaylistDisplay, AddToPlaylistPopover, DisclosureTextPanel,
-    DisclosureTextPanelDisplay, ReleaseSurfaceElement, TrackSurfaceElement,
-};
+use crate::ui::composites::{DisclosureTextPanel, DisclosureTextPanelDisplay, TrackSurfaceElement};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
     Button as UiButton, ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope,
 };
-use crate::ui::shells::entity::{
-    render_album_name_links, render_named_feed_rows, render_release_track_row,
-    ReleaseDetailBehaviorSlots, ReleaseTrackRowSlot,
+use crate::ui::shells::release_page::{
+    click_modifiers, render_release_page, ReleasePageDispatch, ReleasePageImages,
 };
 use crate::ui::shells::search_results_inspector::{
-    render_index_detail_display, render_index_feed_detail, render_index_track_detail,
+    render_index_detail_display, render_index_track_detail,
 };
 use crate::ui::shells::track::{render_track_name_links, TrackDetailBehaviorSlots};
-use crate::view_models::album_page::{
-    album_page_actions, AlbumNameLinkTarget, AlbumPageAction, AlbumPageOrigin,
-    ALBUM_PAGE_MENU_A11Y_LABEL,
-};
+use crate::view_models::album_page::AlbumNameLinkTarget;
 use crate::view_models::detail_selection::{
-    index_release_track_rows, index_track_guid, DetailPageRows, DetailRowKey,
+    index_release_track_rows, index_track_guid, DetailPageRows,
 };
-use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm, SharedTrackRowVm};
 use crate::view_models::library::{
     display_description_text, keyed_description_state, toggle_keyed_description_state,
     DescriptionDisclosureDisplay, DescriptionState, LibraryTrackRowVm,
 };
+use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::publisher_page::PublisherPageContext;
-use crate::view_models::release_kind::ReleaseKind;
+use crate::view_models::release_page::{
+    index_feed_artwork_url, index_feed_guid, release_page_vm, ReleasePageCommand, ReleasePageFacts,
+    ReleaseTrackRowVm,
+};
 use crate::view_models::search_results::{
     IndexDetailDisplay, IndexDetailKind, SearchResultsInspectorPageVm, SearchResultsTab,
 };
@@ -66,7 +62,7 @@ use crate::view_models::workspace::{
     FrameNavigationEntry, FrameNavigationState, NavigationPathStart, ReleaseKey, ReleasePageSource,
     TrackKey, TrackPageSource, WorkspaceFrameId,
 };
-use crate::views::{FeedRef, FeedView, TrackView};
+use crate::views::{FeedView, TrackView};
 
 use super::{AppTab, TopApp};
 
@@ -1039,8 +1035,7 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         if let Some(feed) = detail.feed.as_ref() {
-            let slots = self.index_feed_detail_slots(feed, cx);
-            return render_index_feed_detail(feed, slots);
+            return self.render_index_release_page(feed, cx);
         }
         if let Some(track) = detail.track.as_ref() {
             let slots = self.index_track_detail_slots(track, cx);
@@ -1049,53 +1044,141 @@ impl TopApp {
         render_index_detail_display(detail, cx)
     }
 
-    fn index_feed_detail_slots(
-        &mut self,
-        feed: &FeedView,
-        cx: &mut Context<Self>,
-    ) -> ReleaseDetailBehaviorSlots {
-        let entity = cx.entity();
-        // ADR 0084 Decision 6: a release whose key is in a Library singles
-        // group links to that group. An Index release that is not in the
-        // Library gets no link.
-        let release_key = feed
-            .feed_guid
-            .as_deref()
-            .map(ReleaseKey::from_index_feed_guid);
-        let projection = ReleaseDetailVm::new(feed, EntitySurfaceContext::Library);
-        let links = self
-            .library
-            .read(cx)
-            .release_page_name_links(projection.name_links(), release_key.as_ref());
-        let name_links = render_album_name_links(
-            links,
-            {
-                let entity = entity.clone();
-                move |target, _window, cx| {
-                    entity.update(cx, |this, cx| this.open_index_album_name_link(target, cx));
-                }
-            },
-            cx,
-        );
-        let named_feed_rows = render_named_feed_rows(
-            projection.named_feed_rows(),
-            move |target, _window, cx| {
-                entity.update(cx, |this, cx| this.open_index_album_name_link(target, cx));
-            },
-            cx,
-        );
-        ReleaseDetailBehaviorSlots {
+    /// The Index release page (ADR 0084 Decision 4, packet 021). It builds
+    /// through the one release page view model and shell. Each command goes
+    /// to [`Self::run_index_release_page_command`].
+    fn render_index_release_page(&mut self, feed: &FeedView, cx: &mut Context<Self>) -> AnyElement {
+        let feed_guid = feed_guid_from_view(feed);
+        let description_state =
+            display_description_text(feed.description.as_deref()).map(|description| {
+                self.index_release_description_state(
+                    feed_guid.as_deref().unwrap_or("unknown"),
+                    description,
+                )
+            });
+        // ADR 0084 packet 018: each row carries the detail selection facts.
+        // The Library row and the Index row of one track give the same
+        // facts, from the same row key.
+        let detail_rows =
+            DetailPageRows::Tracks(index_release_track_rows(feed_guid.as_deref(), &feed.tracks));
+        let (facts, row_probes, scroll_handle) = {
+            let library = self.library.read(cx);
+            let selections = library.detail_selection().row_selections(&detail_rows);
+            let row_probes = selections
+                .iter()
+                .map(|selection| library.detail_row_probe(selection))
+                .collect::<Vec<_>>();
+            // ADR 0084 Decision 6: a release whose key is in a Library
+            // singles group links to that group. An Index release that is
+            // not in the Library gets no link.
+            let facts = ReleasePageFacts::from_index_feed(feed.clone(), description_state)
+                .map_name_links(|links, key| library.release_page_name_links(links, key))
+                .with_row_selections(selections)
+                .with_playlists(library.playlists());
+            (facts, row_probes, library.detail_scroll_handle())
+        };
+        let vm = release_page_vm(&facts);
+        let row_thumbnails = vm
+            .rows
+            .iter()
+            .map(|row| {
+                row.thumbnail_url
+                    .as_deref()
+                    .and_then(|url| self.index_remote_detail_hero_image(url, cx))
+            })
+            .collect();
+        let images = ReleasePageImages {
             hero_image: self.index_feed_hero_image(feed, cx),
             cover_color: index_feed_artwork_url(feed)
                 .map(str::to_owned)
                 .and_then(|url| self.index_cover_color(&url, cx)),
-            name_links,
-            named_feed_rows,
-            primary_actions: Self::index_feed_primary_actions(feed, cx),
-            description_panel: self.index_feed_description_panel(feed, cx),
-            track_rows: Some(self.index_feed_track_rows(feed, cx)),
-            scroll_handle: Some(self.library.read(cx).detail_scroll_handle()),
-            ..ReleaseDetailBehaviorSlots::default()
+            row_thumbnails,
+            row_probes,
+            contributor_thumbnails: None,
+            scroll_handle: Some(scroll_handle),
+        };
+        let entity = cx.entity();
+        let dispatch: ReleasePageDispatch = Rc::new(move |command, _window, cx| {
+            entity.update(cx, |this, cx| {
+                this.run_index_release_page_command(command, cx);
+            });
+        });
+        render_release_page(&vm, images, &dispatch, cx)
+    }
+
+    /// Runs one command of the open Index release page. The command reads
+    /// the open feed again, so it never acts on an old `FeedView`. The
+    /// Index downloads and the Index playlist commands stay here.
+    fn run_index_release_page_command(
+        &mut self,
+        command: ReleasePageCommand,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(feed) = self.index_release_page_feed(cx) else {
+            return;
+        };
+        let row_vm = |row: usize| {
+            feed.tracks
+                .get(row)
+                .map(|track| ReleaseTrackRowVm::index(&feed, row, track, RowSelectionVm::none()))
+        };
+        match command {
+            ReleasePageCommand::DownloadRelease => self.download_index_feed(&feed, cx),
+            ReleasePageCommand::CopyFeedUrl => {
+                if let Some(url) = feed.feed_url.clone() {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(url));
+                }
+            }
+            ReleasePageCommand::ToggleDescription => {
+                let Some(description) = display_description_text(feed.description.as_deref())
+                else {
+                    return;
+                };
+                let description = description.to_string();
+                let feed_guid = feed_guid_from_view(&feed).unwrap_or_else(|| "unknown".to_string());
+                self.toggle_index_release_description(&feed_guid, &description, cx);
+            }
+            ReleasePageCommand::OpenNameLink(target) => {
+                self.open_index_album_name_link(&target, cx);
+            }
+            ReleasePageCommand::TrackPrimary(row) => {
+                if let Some(track) = feed.tracks.get(row) {
+                    self.download_index_track(&feed, track, cx);
+                }
+            }
+            ReleasePageCommand::AddTrackToPlaylist(row, playlist_id) => {
+                if let Some(track) = feed.tracks.get(row) {
+                    self.add_index_track_to_playlist(&feed, track, playlist_id, cx);
+                }
+            }
+            ReleasePageCommand::CreatePlaylistForTrack(row, name) => {
+                if let Some(track) = feed.tracks.get(row).cloned() {
+                    self.create_playlist_and_add_index_track(&name, feed.clone(), track, cx);
+                }
+            }
+            // ADR 0084 Decision 4: a click on an Index track row opens its
+            // track page, the same as a Library row. Packet 018: in
+            // selection mode, a click changes the selection instead.
+            ReleasePageCommand::ClickRow(row, modifiers) => {
+                if let Some(ReleaseTrackRowVm {
+                    row_key: Some(key),
+                    open_label: Some(label),
+                    ..
+                }) = row_vm(row)
+                {
+                    self.click_detail_row(&key, label, click_modifiers(modifiers), cx);
+                }
+            }
+            ReleasePageCommand::ToggleRow(row) => {
+                if let Some(key) = row_vm(row).and_then(|row| row.row_key) {
+                    self.toggle_detail_row(&key, cx);
+                }
+            }
+            // The Index release page offers no such action.
+            ReleasePageCommand::MusicBrainzLookup
+            | ReleasePageCommand::RemoveRelease
+            | ReleasePageCommand::AddReleaseToPlaylist(_)
+            | ReleasePageCommand::CreatePlaylistForRelease(_) => {}
         }
     }
 
@@ -1318,76 +1401,6 @@ impl TopApp {
         None
     }
 
-    /// The action row of an Index album page (ADR 0083 Decision 5): the
-    /// filled "Download …" and the "⋯" menu with "Copy feed URL". The
-    /// label names the release kind (ADR 0084 Decision 5).
-    fn index_feed_primary_actions(
-        feed: &FeedView,
-        cx: &mut Context<Self>,
-    ) -> Vec<ReleaseSurfaceElement> {
-        let kind = ReleaseKind::resolve(feed.release_kind.as_deref(), feed.track_count());
-        let actions = album_page_actions(AlbumPageOrigin::Index, feed.feed_url.as_deref());
-        let filled = actions.filled;
-        let action = filled.action;
-        let button = UiButton::styled(
-            SharedString::from(format!("index-album-page-action:{action:?}")),
-            ControlStyle::Primary,
-        )
-        .label(action.label(kind))
-        .a11y_label(action.a11y_label(kind))
-        .disabled(!filled.available);
-        let button = if action == AlbumPageAction::DownloadAlbum && filled.available {
-            let feed_for_download = feed.clone();
-            button.on_click(cx.listener(move |this, _, _, cx| {
-                this.download_index_feed(&feed_for_download, cx);
-            }))
-        } else {
-            button
-        };
-        let mut controls = vec![button.into_any_element()];
-        if !actions.menu.is_empty() {
-            let feed_url = feed.feed_url.clone();
-            let items = actions.menu.iter().map(|display| {
-                let action = display.action;
-                let mut item = ContextMenuItem::new(ContextMenuItemDisplay {
-                    id: SharedString::from(format!("index-album-page-menu:{action:?}")),
-                    label: SharedString::from(action.label(kind)),
-                    a11y_label: SharedString::from(action.a11y_label(kind)),
-                    destructive: action.is_destructive(),
-                    disabled: !display.available,
-                });
-                if let (true, AlbumPageAction::CopyFeedUrl, Some(url)) =
-                    (display.available, action, feed_url.clone())
-                {
-                    item = item.on_select(move |_window, cx| {
-                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(url.clone()));
-                    });
-                }
-                item
-            });
-            controls.push(
-                ContextMenu::new(
-                    SharedString::from(format!(
-                        "index-album-page-menu-{}",
-                        feed_guid_from_view(feed).unwrap_or_else(|| "unknown".to_string())
-                    )),
-                    ContextMenuScope::TrackList,
-                    SharedString::from(ALBUM_PAGE_MENU_A11Y_LABEL),
-                )
-                .trigger_label("")
-                .items(items)
-                .into_any_element(),
-            );
-        }
-        vec![ReleaseSurfaceElement::from_element(
-            ActionRow::new(ActionRowDisplay {
-                a11y_label: SharedString::from("Album actions"),
-            })
-            .control_group(controls)
-            .into_any_element(),
-        )]
-    }
-
     /// Opens the page of a name link under an Index album title. The Index
     /// has no artist page, so an artist name opens the tracks that match it.
     fn open_index_album_name_link(&mut self, target: &AlbumNameLinkTarget, cx: &mut Context<Self>) {
@@ -1450,126 +1463,6 @@ impl TopApp {
             |_, _, _| {},
         );
         None
-    }
-
-    fn index_feed_track_rows(
-        &mut self,
-        feed: &FeedView,
-        cx: &mut Context<Self>,
-    ) -> Vec<ReleaseSurfaceElement> {
-        let feed_guid = feed_guid_from_view(feed);
-        // ADR 0084 packet 018: each row carries the detail selection facts.
-        // The Library row and the Index row of one track give the same
-        // facts, from the same row key.
-        let detail_rows =
-            DetailPageRows::Tracks(index_release_track_rows(feed_guid.as_deref(), &feed.tracks));
-        let (selections, probes): (Vec<_>, Vec<_>) = {
-            let library = self.library.read(cx);
-            let selections = library.detail_selection().row_selections(&detail_rows);
-            let probes = selections
-                .iter()
-                .map(|selection| library.detail_row_probe(selection))
-                .collect();
-            (selections, probes)
-        };
-        feed.tracks
-            .iter()
-            .zip(selections.into_iter().zip(probes))
-            .enumerate()
-            .map(|(index, (track, (selection, probe)))| {
-                let row = SharedTrackRowVm::new(track, EntitySurfaceContext::Library, index);
-                let row_id = row.element_id();
-                let mut slot = ReleaseTrackRowSlot {
-                    thumbnail: self.index_track_row_thumbnail(feed, track, cx),
-                    actions: self.index_track_row_actions(feed, track, index, cx),
-                    selection: Some(selection),
-                    scroll_probe: probe,
-                    ..ReleaseTrackRowSlot::default()
-                };
-                // ADR 0084 Decision 4: a click on an Index track row opens
-                // its track page, the same as a Library row. A track with
-                // no track GUID gets no click, as today. Packet 018: in
-                // selection mode, a click changes the selection instead.
-                if let Some(key) =
-                    index_track_row_click_key(feed_guid.as_deref(), track_guid_from_view(track))
-                {
-                    // The search path uses the same fallback: the track GUID.
-                    let label = track.title.clone().unwrap_or_else(|| key.item_guid.clone());
-                    let row_key = DetailRowKey::Track(key);
-                    let toggle_key = row_key.clone();
-                    slot.on_toggle_selection = Some(Rc::new(cx.listener(
-                        move |this, _: &ClickEvent, _window, cx| {
-                            this.toggle_detail_row(&toggle_key, cx);
-                        },
-                    )));
-                    slot = slot.on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-                        this.click_detail_row(&row_key, label.clone(), event.modifiers(), cx);
-                    }));
-                }
-                render_release_track_row(SharedString::from(row_id), row, slot)
-            })
-            .collect()
-    }
-
-    fn index_track_row_thumbnail(
-        &mut self,
-        feed: &FeedView,
-        track: &TrackView,
-        cx: &mut Context<Self>,
-    ) -> Option<Arc<Image>> {
-        let url = index_track_row_artwork_url(feed, track)?;
-        self.index_remote_detail_hero_image(url, cx)
-    }
-
-    fn index_track_row_actions(
-        &mut self,
-        feed: &FeedView,
-        track: &TrackView,
-        index: usize,
-        cx: &mut Context<Self>,
-    ) -> Vec<ReleaseSurfaceElement> {
-        let track_key = track_guid_from_view(track).unwrap_or_else(|| index.to_string());
-        let feed_for_download = feed.clone();
-        let track_for_download = track.clone();
-        let download = UiButton::styled(
-            SharedString::from(format!("index-track-download:{track_key}")),
-            ControlStyle::RowAction,
-        )
-        .label("Download")
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.download_index_track(&feed_for_download, &track_for_download, cx);
-        }));
-
-        let playlists = self.library.read(cx).playlists().to_vec();
-        let feed_for_select = feed.clone();
-        let track_for_select = track.clone();
-        let feed_for_create = feed.clone();
-        let track_for_create = track.clone();
-        let playlist = AddToPlaylistPopover::new(AddToPlaylistDisplay {
-            id: SharedString::from(format!("index-track-add:{track_key}")),
-            playlists: playlist_options(&playlists),
-            trigger_label: SharedString::from("+ Playlist"),
-            trigger_a11y_label: SharedString::from("Add track to playlist"),
-            new_playlist_a11y_label: SharedString::from("Create a new playlist"),
-            back_a11y_label: SharedString::from("Back to playlist choices"),
-            create_a11y_label: SharedString::from("Create playlist and add track"),
-        })
-        .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
-            this.add_index_track_to_playlist(&feed_for_select, &track_for_select, *playlist_id, cx);
-        }))
-        .on_create(cx.listener(move |this, name: &String, _window, cx| {
-            this.create_playlist_and_add_index_track(
-                name,
-                feed_for_create.clone(),
-                track_for_create.clone(),
-                cx,
-            );
-        }));
-
-        vec![
-            ReleaseSurfaceElement::from_element(download.into_any_element()),
-            ReleaseSurfaceElement::from_element(playlist.into_any_element()),
-        ]
     }
 
     fn download_index_feed(&mut self, feed: &FeedView, cx: &mut Context<Self>) {
@@ -1838,44 +1731,6 @@ impl TopApp {
             .update(cx, |library, _cx| library.scan_tag_updates());
     }
 
-    /// The description panel of an Index release page (ADR 0084 Decision
-    /// 4, ADR 0047 item 8 amended 2026-10-16). `None` when the feed names
-    /// no description. The panel keeps its disclosure state in
-    /// `index_release_description_states`, by feed GUID, for the session
-    /// only.
-    fn index_feed_description_panel(
-        &mut self,
-        feed: &FeedView,
-        cx: &mut Context<Self>,
-    ) -> Option<ReleaseSurfaceElement> {
-        let description = display_description_text(feed.description.as_deref())?.to_string();
-        let feed_guid = feed_guid_from_view(feed).unwrap_or_else(|| "unknown".to_string());
-        let state = self.index_release_description_state(&feed_guid, &description);
-        let display = DescriptionDisclosureDisplay::project(&description, state);
-        let id = SharedString::from(format!("index-feed-description:{feed_guid}"));
-        let toggle_feed_guid = feed_guid;
-        let toggle_description = description;
-        Some(ReleaseSurfaceElement::from_element(
-            DisclosureTextPanel::new(DisclosureTextPanelDisplay {
-                id: id.into(),
-                label: SharedString::from("Description"),
-                a11y_label: SharedString::from("Toggle feed description"),
-                collapsed: display.collapsed,
-                body: display.body.map(SharedString::from),
-                show_more: display.show_more.map(|show_more| {
-                    (
-                        SharedString::from(show_more.label),
-                        SharedString::from(show_more.a11y_label),
-                    )
-                }),
-            })
-            .on_toggle(cx.listener(move |this, _, _, cx| {
-                this.toggle_index_release_description(&toggle_feed_guid, &toggle_description, cx);
-            }))
-            .into_any_element(),
-        ))
-    }
-
     /// The disclosure state of an Index release's description, by feed
     /// GUID (ADR 0084 Decision 4, ADR 0047 item 8 amended 2026-10-16). The
     /// state lives for the session only; it is not stored.
@@ -1967,23 +1822,11 @@ impl TopApp {
     }
 }
 
-fn index_feed_artwork_url(feed: &FeedView) -> Option<&str> {
-    non_empty_str(feed.image_url.as_deref()).or_else(|| {
-        feed.tracks
-            .iter()
-            .find_map(|track| non_empty_str(track.image_url.as_deref()))
-    })
-}
-
 /// The image URL to show for an Index track (ADR 0075 Decision C,
 /// packet 048). `TrackView::display_artwork_url` makes this choice. A
 /// caller resolves the returned URL to an image.
 fn index_track_artwork_url(track: &TrackView) -> Option<&str> {
     track.display_artwork_url()
-}
-
-fn index_track_row_artwork_url<'a>(feed: &'a FeedView, track: &'a TrackView) -> Option<&'a str> {
-    index_track_artwork_url(track).or_else(|| index_feed_artwork_url(feed))
 }
 
 fn api_feed_from_view(feed: &FeedView) -> crate::api::Feed {
@@ -2042,25 +1885,11 @@ fn api_track_from_view(feed: &FeedView, track: &TrackView) -> crate::api::Track 
 }
 
 pub(super) fn feed_guid_from_view(feed: &FeedView) -> Option<String> {
-    feed.feed_guid.clone().or_else(|| match &feed.id {
-        Some(FeedRef::Musicindex(feed_guid)) => Some(feed_guid.clone()),
-        Some(FeedRef::LocalFeedId(_)) | None => None,
-    })
+    index_feed_guid(feed)
 }
 
 fn track_guid_from_view(track: &TrackView) -> Option<String> {
     index_track_guid(track)
-}
-
-/// The click key of an Index track row (ADR 0084 Decision 4, "The Index
-/// track rows"). `None` when the track has no track GUID, so the row
-/// gets no click, as today. A pure function: a test calls it with no
-/// GPUI.
-fn index_track_row_click_key(
-    feed_guid: Option<&str>,
-    track_guid: Option<String>,
-) -> Option<TrackKey> {
-    Some(TrackKey::from_index_track_target(feed_guid, track_guid?))
 }
 
 /// The Index activation target of a track, for its description state key
@@ -2171,67 +2000,11 @@ mod index_detail_dispatch_tests {
         );
         assert_eq!(split_index_track_target("track-guid"), (None, "track-guid"));
     }
-
-    /// R13-05 (ADR 0084 task 013): the Index track row click builds the
-    /// key `TrackKey::from_index_track_target`, through a pure function.
-    /// A track with no GUID gives no key.
-    #[test]
-    fn adr_0084_index_page_r13_05_track_row_click_key_needs_a_track_guid() {
-        assert_eq!(
-            index_track_row_click_key(Some("feed-1"), Some("track-1".to_string())),
-            Some(TrackKey::from_index_track_target(Some("feed-1"), "track-1"))
-        );
-        assert_eq!(
-            index_track_row_click_key(None, Some("track-1".to_string())),
-            Some(TrackKey::from_index_track_target(None, "track-1"))
-        );
-        assert_eq!(index_track_row_click_key(Some("feed-1"), None), None);
-        assert_eq!(index_track_row_click_key(None, None), None);
-    }
 }
 
 #[cfg(test)]
 mod remote_detail_thumbnail_tests {
     use super::*;
-
-    #[test]
-    fn index_feed_artwork_url_prefers_feed_image() {
-        let feed = FeedView {
-            image_url: Some("https://example.test/feed.jpg".to_string()),
-            tracks: vec![TrackView {
-                image_url: Some("https://example.test/track.jpg".to_string()),
-                ..TrackView::default()
-            }],
-            ..FeedView::default()
-        };
-
-        assert_eq!(
-            index_feed_artwork_url(&feed),
-            Some("https://example.test/feed.jpg")
-        );
-    }
-
-    #[test]
-    fn index_feed_artwork_url_falls_back_to_track_image() {
-        let feed = FeedView {
-            tracks: vec![
-                TrackView {
-                    image_url: Some("   ".to_string()),
-                    ..TrackView::default()
-                },
-                TrackView {
-                    image_url: Some("https://example.test/track.jpg".to_string()),
-                    ..TrackView::default()
-                },
-            ],
-            ..FeedView::default()
-        };
-
-        assert_eq!(
-            index_feed_artwork_url(&feed),
-            Some("https://example.test/track.jpg")
-        );
-    }
 
     #[test]
     fn index_track_artwork_url_uses_track_image() {
@@ -2254,40 +2027,6 @@ mod remote_detail_thumbnail_tests {
         };
 
         assert_eq!(index_track_artwork_url(&track), None);
-    }
-
-    #[test]
-    fn index_track_row_artwork_url_falls_back_to_feed_image() {
-        let feed = FeedView {
-            image_url: Some("https://example.test/feed.jpg".to_string()),
-            ..FeedView::default()
-        };
-        let track = TrackView {
-            image_url: None,
-            ..TrackView::default()
-        };
-
-        assert_eq!(
-            index_track_row_artwork_url(&feed, &track),
-            Some("https://example.test/feed.jpg")
-        );
-    }
-
-    #[test]
-    fn index_track_row_artwork_url_prefers_track_image() {
-        let feed = FeedView {
-            image_url: Some("https://example.test/feed.jpg".to_string()),
-            ..FeedView::default()
-        };
-        let track = TrackView {
-            image_url: Some("https://example.test/track.jpg".to_string()),
-            ..TrackView::default()
-        };
-
-        assert_eq!(
-            index_track_row_artwork_url(&feed, &track),
-            Some("https://example.test/track.jpg")
-        );
     }
 
     /// R48-05 (ADR 0075 packet 048): `api_track_from_view` carries the
@@ -2313,10 +2052,6 @@ mod remote_detail_thumbnail_tests {
             Some("https://example.test/feed.jpg")
         );
     }
-}
-
-fn non_empty_str(value: Option<&str>) -> Option<&str> {
-    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 #[cfg(test)]

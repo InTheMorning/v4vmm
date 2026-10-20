@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use gpui::{
-    div, prelude::*, AnyElement, ClickEvent, Context, FontWeight, Image, ScrollHandle,
+    div, prelude::*, AnyElement, App, ClickEvent, Context, FontWeight, Image, ScrollHandle,
     SharedString, Styled,
 };
 
@@ -23,13 +23,16 @@ use crate::ui::composites::{
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{Button as UiButton, Label};
 use crate::ui::shells::library::detail::DetailRowSlot;
-use crate::ui::shells::library::feed_detail::{render_library_track_row, LibraryTrackRowContext};
+use crate::ui::shells::library::feed_detail::library_release_page_dispatch;
+use crate::ui::shells::release_page::{render_release_page_track_row, ReleasePageDispatch};
 use crate::ui::style::spacing;
 use crate::ui::tokens::{FontSize, SemanticColor};
 use crate::view_models::library::MbTrackStatus;
+use crate::view_models::release_page::ReleaseTrackRowVm;
 use crate::view_models::singles_group::{
     SinglesGroupAction, SinglesGroupActionVm, SinglesGroupPageRowVm, SinglesGroupPageVm,
 };
+use crate::view_models::{playlist_option_displays, PlaylistOptionDisplayVm};
 
 /// The element id of the main action of a group page.
 const MAIN_ACTION_ID: &str = "singles-group-main-action";
@@ -89,11 +92,32 @@ pub(crate) fn render_library_singles_group_page(
             .control_group(vec![render_main_action(action, playlists, cx)]),
         );
     }
-    content = content.child(div().flex().flex_col().gap(spacing::XXS).children(
-        rows.into_iter().zip(row_slots).map(|(row, slot)| {
-            render_single_row(row, mb_status, album_thumbs, playlists, slot, cx)
-        }),
-    ));
+    let dispatch = library_release_page_dispatch(cx);
+    let playlist_displays = playlist_option_displays(playlists);
+    let row_elements: Vec<AnyElement> = rows
+        .iter()
+        .zip(row_slots)
+        .enumerate()
+        .map(|(index, (row, slot))| {
+            render_single_row(
+                row,
+                index,
+                mb_status,
+                album_thumbs,
+                &playlist_displays,
+                slot,
+                &dispatch,
+                cx,
+            )
+        })
+        .collect();
+    content = content.child(
+        div()
+            .flex()
+            .flex_col()
+            .gap(spacing::XXS)
+            .children(row_elements),
+    );
 
     let container = div()
         .id("singles-group-page")
@@ -162,30 +186,28 @@ fn render_main_action(
 }
 
 /// One single row of a group page (ADR 0084 task 015, operator decision of
-/// 2026-10-17): the shared Library track row of a release page, with the
-/// track of the single. A click opens the release page of the single. The
-/// row shows the date of the single from the view model.
+/// 2026-10-17): the shared track row of a release page, with the track of
+/// the single. A click opens the release page of the single. The row shows
+/// the date of the single from the view model.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the row takes each already-resolved value of the Library host"
+)]
 fn render_single_row(
-    row: SinglesGroupPageRowVm,
+    row: &SinglesGroupPageRowVm,
+    index: usize,
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
-    playlists: &[db::Playlist],
+    playlists: &[PlaylistOptionDisplayVm],
     slot: DetailRowSlot,
-    cx: &mut Context<LibraryApp>,
+    dispatch: &ReleasePageDispatch,
+    cx: &App,
 ) -> AnyElement {
-    let SinglesGroupPageRowVm {
-        track,
-        date_text,
-        busy,
-        key,
-    } = row;
-    render_library_track_row(
-        &track,
-        mb_status,
-        busy,
-        album_thumbs,
-        playlists,
-        LibraryTrackRowContext::SinglesGroupPage { key, date_text }.with_slot(slot),
-        cx,
-    )
+    let vm = ReleaseTrackRowVm::library_single(row, mb_status.get(&row.track.id), slot.selection);
+    let thumbnail = vm
+        .thumbnail_url
+        .as_deref()
+        .and_then(|url| album_thumbs.get(url))
+        .and_then(Clone::clone);
+    render_release_page_track_row(&vm, index, thumbnail, slot.probe, playlists, dispatch, cx)
 }

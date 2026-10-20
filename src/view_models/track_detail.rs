@@ -1158,13 +1158,12 @@ mod tests {
 
     /// ADR 0084 task 015, operator decision of 2026-10-17: the shared
     /// track row display gets the date text of a track from each origin. A
-    /// Library `TrackRow` gives it through `TrackRowVm`, and an Index
-    /// `TrackView` through `SharedTrackRowVm`. A track with no date gives
+    /// Library `TrackRow` and an Index `TrackView` give it through
+    /// `TrackRowVm` (ADR 0084 packet 021). A track with no date gives
     /// `None`.
     #[test]
     fn adr_0084_singles_group_track_row_carries_the_date_for_each_origin() {
         use crate::db::TrackRow as LibraryTrack;
-        use crate::view_models::entity_detail::{EntitySurfaceContext, SharedTrackRowVm};
 
         // 1712275200 is 2024-04-05 00:00 UTC.
         let library_date = |pub_date: Option<i64>| {
@@ -1189,7 +1188,9 @@ mod tests {
                 pub_date,
                 ..TrackView::default()
             };
-            SharedTrackRowVm::new(&track, EntitySurfaceContext::Discover, 0).date_text()
+            TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
+                .row()
+                .date_text
         };
         assert_eq!(
             index_date(Some(1_712_275_200)).as_deref(),

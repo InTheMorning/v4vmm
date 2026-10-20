@@ -66,7 +66,7 @@ impl TopApp {
     }
 
     /// The feed of the open Index release page, when it shows one.
-    fn index_release_page_feed(&self, cx: &App) -> Option<FeedView> {
+    pub(super) fn index_release_page_feed(&self, cx: &App) -> Option<FeedView> {
         let Some(ReleasePageSource::Index { feed_guid }) = &self.release_page_source else {
             return None;
         };

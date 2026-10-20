@@ -30,6 +30,7 @@ Each entry names the step, the decision and the reason.
 - Packet 021: the track page also has two assembly paths. The orchestrator registered packet 023 for it, outside this run, because its two surface contexts differ in behavior.
 - Packet 021: the shell function `render_release_page` is the one owner of the release page body. `TopApp` and `LibraryApp` each give facts and one command dispatcher. The two other owners need a new observation of `LibraryApp` or a move of Index state.
 
+- Packet 021: a row command holds the row index, and reads the open page again at the click. The orchestrator accepts it, because a render follows each change of the rows.
 - Packet 022: a pure scheduler type `DownloadQueue` in `src/library/download_queue.rs`, owned by `LibraryApp`. A runtime actor would add a second executor, and its completions must still change two GPUI entities.
 - Packet 022: a finished batch stays visible until the operator dismisses it. A timer could hide a failure, and no decision states a delay.
 - Packet 022: no cancel. A stop during a write leaves partial files. The final summary asks the operator about "Stop queued".
@@ -40,7 +41,7 @@ Each entry names the step, the decision and the reason.
 - Triage: §23 V2 and V3 wait for packet 017, not retire. The name match page stays live until packet 017 replaces it.
 - Triage: packet 014 V1, V2 and V7 carried the wheel and scrollbar part of §1. The keyboard part goes into the final walk with packet 018 V6. The operator can reject this carry in the audit.
 - Triage: the Index track page builds `TrackDetailVm` with no `with_feed_identity`, so it shows no feed identity section and no "Feed publication date" row. Packet 023 owns the fix.
-- Triage: the procedures of §8 (task 038), §9 (task 039) and pending check 2 (task 012, schemas 11 and 12) cannot run as written. They stay in the plan with the reason, and they are not in the final walk.
+- Triage: the procedures of §8 (task 038), §9 (task 039) and the pending check of ADR 0075 task 012 (schemas 11 and 12) cannot run as written. They stay in the plan with the reason, and they are not in the final walk.
 - Triage: the tasks ADR 0077 task 004 and task 007 have no open requirement, so they move to the archive.
 
 - Packet 020: split into 020a, the Discover tiles, and 020b, the playlist page, after packet 022. The playlist key is the entry position and the track id, because a playlist can hold one track two times. The tile focus moves in a line, because the number of tiles in a row is a layout fact. Up and Left go back, and Down and Right go forward.
@@ -56,8 +57,8 @@ Each entry names the step, the decision and the reason.
 
 | Step | State | Commit |
 |---|---|---|
-| Plan edits, triage, flow check | Done | |
-| Packet 021: one release page | Open | |
+| Plan edits, triage, flow check | Done | `143a9ff` |
+| Packet 021: one release page | Implemented. V1 to V3 open | This commit |
 | Packet 022: the download queue | Open | |
 | Packet 020: playlist page and Discover tiles | Open | |
 | Packet 011: the logo frame | Open | |

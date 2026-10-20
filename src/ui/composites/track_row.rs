@@ -1,7 +1,7 @@
 //! Track row composite — the standard list-row shape for tracks across all
 //! screens.
 //!
-//! ## Display contract: `TrackRowVm` / `SharedTrackRowVm`
+//! ## Display contract: `TrackRowVm`
 //!
 //! Sits above [`crate::ui::composites::ListRow`] and uses
 //! [`crate::ui::composites::Thumbnail`] + [`crate::ui::primitives::Label`]
@@ -12,7 +12,7 @@
 //! The composite owns no fallback policy — it is purely presentational.
 //!
 //! Accessibility note (ADR 0038 task 005): the row label is projected by
-//! `TrackRowVm` / `SharedTrackRowVm` and retained on the row/ListRow contract.
+//! `TrackRowVm` and retained on the row/ListRow contract.
 //!
 //! # Examples
 //!
@@ -41,7 +41,6 @@ use gpui::{
 use crate::ui::composites::{EntityKind, ListRow, ListRowA11yLabel, Thumbnail, ThumbnailSize};
 use crate::ui::primitives::{Checkbox, CheckboxState, Label};
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
-use crate::view_models::entity_detail::SharedTrackRowVm;
 use crate::view_models::list_selection::{RowCheckState, RowSelectionVm};
 use crate::view_models::track_detail::TrackRowVm;
 
@@ -64,16 +63,6 @@ impl TrackRowDisplay {
             title: vm.title.clone(),
             duration: vm.duration.clone(),
             date_text: vm.date_text.clone(),
-            a11y_label: vm.a11y_label(),
-        }
-    }
-
-    fn from_shared_track_row(vm: SharedTrackRowVm<'_>) -> Self {
-        Self {
-            number: vm.number_label(),
-            title: vm.title(),
-            duration: vm.duration_display(),
-            date_text: vm.date_text(),
             a11y_label: vm.a11y_label(),
         }
     }
@@ -128,11 +117,6 @@ impl TrackRow {
     /// Create a row from the shared ADR 0035 row display contract.
     pub fn from_vm(id: impl Into<ElementId>, vm: &TrackRowVm) -> Self {
         Self::new(id, TrackRowDisplay::from_vm(vm))
-    }
-
-    /// Create a row from the shared release/entity row display contract.
-    pub fn from_shared_track_row(id: impl Into<ElementId>, vm: SharedTrackRowVm<'_>) -> Self {
-        Self::new(id, TrackRowDisplay::from_shared_track_row(vm))
     }
 
     /// Album-art thumbnail. Pass `None` to render the entity-kind monogram fallback.

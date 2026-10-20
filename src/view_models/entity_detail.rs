@@ -14,7 +14,6 @@ use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::role_words::{
     capitalize_first, role_list_text, role_words, stated_sides_text,
 };
-use crate::view_models::track::fmt_dur;
 use crate::view_models::{ActionStatusMessageDisplay, ActionStatusMessageWidth};
 use crate::views::{
     ArtistRef, ArtworkRef, ContributorView, EntityIdentityLinks, FeedRef, FeedView, TrackRef,
@@ -1070,7 +1069,7 @@ impl<'a> ReleaseDetailVm<'a> {
 
     #[must_use]
     pub fn track_list(&self) -> TrackListVm<'a> {
-        TrackListVm::new(&self.view.tracks, self.context)
+        TrackListVm::new(&self.view.tracks)
     }
 
     #[must_use]
@@ -1339,27 +1338,17 @@ impl<'a> ContributorPersonVm<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct TrackListVm<'a> {
     tracks: &'a [TrackView],
-    context: EntitySurfaceContext,
 }
 
 impl<'a> TrackListVm<'a> {
     #[must_use]
-    pub const fn new(tracks: &'a [TrackView], context: EntitySurfaceContext) -> Self {
-        Self { tracks, context }
+    pub const fn new(tracks: &'a [TrackView]) -> Self {
+        Self { tracks }
     }
 
     #[must_use]
     pub const fn title(&self) -> &'static str {
         "Tracks"
-    }
-
-    #[must_use]
-    pub fn rows(&self) -> Vec<SharedTrackRowVm<'a>> {
-        self.tracks
-            .iter()
-            .enumerate()
-            .map(|(index, track)| SharedTrackRowVm::new(track, self.context, index))
-            .collect()
     }
 
     #[must_use]
@@ -1375,79 +1364,6 @@ impl<'a> TrackListVm<'a> {
         } else {
             format!("{count} total")
         }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct SharedTrackRowVm<'a> {
-    track: &'a TrackView,
-    context: EntitySurfaceContext,
-    index: usize,
-}
-
-impl<'a> SharedTrackRowVm<'a> {
-    #[must_use]
-    pub const fn new(track: &'a TrackView, context: EntitySurfaceContext, index: usize) -> Self {
-        Self {
-            track,
-            context,
-            index,
-        }
-    }
-
-    #[must_use]
-    pub fn element_id(&self) -> String {
-        format!("entity-track:{}", self.index)
-    }
-
-    #[must_use]
-    pub fn title(&self) -> String {
-        self.track
-            .title
-            .clone()
-            .or_else(|| self.track.track_guid.clone())
-            .unwrap_or_else(|| "Untitled".to_string())
-    }
-
-    #[must_use]
-    pub fn number_label(&self) -> String {
-        self.track
-            .track_number
-            .map_or_else(|| "·".to_string(), |number| number.to_string())
-    }
-
-    #[must_use]
-    pub fn duration_display(&self) -> Option<String> {
-        self.track.duration_secs.map(fmt_dur)
-    }
-
-    /// The date of the track, for the second line under the title. `None`
-    /// when the track has no date (ADR 0084 task 015, operator decision of
-    /// 2026-10-17).
-    #[must_use]
-    pub fn date_text(&self) -> Option<String> {
-        self.track.pub_date.and_then(fmt_date)
-    }
-
-    #[must_use]
-    pub fn a11y_label(&self) -> String {
-        self.duration_display().map_or_else(
-            || self.title(),
-            |duration| format!("{}, {duration}", self.title()),
-        )
-    }
-
-    #[must_use]
-    pub fn actions(&self) -> Vec<EntityActionVm> {
-        self.actions_with_state(TrackActionState::for_context(self.context))
-    }
-
-    #[must_use]
-    pub fn actions_with_state(&self, state: TrackActionState) -> Vec<EntityActionVm> {
-        let Some(id) = self.track.id.clone() else {
-            return Vec::new();
-        };
-        state.actions(EntityActionTarget::Track(id))
     }
 }
 
@@ -1558,7 +1474,7 @@ mod tests {
         assert_eq!(page.identity_actions.len(), 3);
         assert!(!page.summary_facts.is_empty());
         assert!(!page.panels.is_empty());
-        assert_eq!(page.tracks.rows().len(), 2);
+        assert!(page.tracks.summary().starts_with("2 total"));
     }
 
     #[test]
@@ -1839,7 +1755,6 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert_eq!(discover.tracks.summary(), library.tracks.summary());
-        assert_eq!(discover.tracks.rows().len(), library.tracks.rows().len());
     }
 
     #[test]
@@ -2147,24 +2062,15 @@ mod tests {
         let track_list = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).track_list();
 
         assert_eq!(track_list.summary(), "2 total · 3 min");
-        assert_eq!(
-            track_list.rows()[0].duration_display().as_deref(),
-            Some("1:05")
-        );
-        assert_eq!(track_list.rows()[0].element_id(), "entity-track:0");
     }
 
     #[test]
     fn track_actions_change_by_context_without_changing_layout_contract() {
-        let feed = feed_view();
-        let discover_actions = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover)
-            .track_list()
-            .rows()[0]
-            .actions();
-        let library_actions = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library)
-            .track_list()
-            .rows()[0]
-            .actions();
+        let target = EntityActionTarget::Track(TrackRef::Musicindex("track-1".into()));
+        let discover_actions =
+            TrackActionState::for_context(EntitySurfaceContext::Discover).actions(target.clone());
+        let library_actions =
+            TrackActionState::for_context(EntitySurfaceContext::Library).actions(target);
 
         assert_eq!(discover_actions[0].kind, EntityActionKind::Download);
         assert_eq!(discover_actions[0].tone, EntityActionTone::Secondary);
