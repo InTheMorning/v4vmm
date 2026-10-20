@@ -19,6 +19,7 @@ use crate::view_models::library::{
     AlbumNode, ArtistNode, BusyItems, DestinationListRowVm, LibraryTree, TrackRowWork,
 };
 use crate::view_models::list_selection::RowSelectionVm;
+use crate::view_models::named_feeds::named_feed_image;
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::workspace::ReleaseKey;
 
@@ -134,12 +135,22 @@ impl SinglesGroup<'_> {
     }
 
     /// The art of the group in the logo frame (ADR 0084 Decision 12): the
-    /// newest four images of its singles. A group gives no image of its
-    /// own in this packet.
+    /// newest four images of its singles. A group of an artist feed gives
+    /// the channel image of that feed first. A group of a name gives no
+    /// image of its own.
     #[must_use]
     pub(crate) fn collection_art(&self) -> CollectionArtVm {
+        let provided = match &self.identity {
+            ArtistIdentity::Publisher(feed_guid) => named_feed_image(
+                self.singles
+                    .iter()
+                    .flat_map(|single| single.album.named_feeds.iter()),
+                feed_guid,
+            ),
+            ArtistIdentity::Name(_) => None,
+        };
         CollectionArtVm::resolve(
-            None,
+            provided,
             self.singles
                 .iter()
                 .filter_map(|single| single.album.image_href.as_deref()),
@@ -607,6 +618,7 @@ mod tests {
             feed_rel: None,
             album_rel: None,
             confirmed: true,
+            image_url: None,
         }];
         album
     }
@@ -859,6 +871,53 @@ mod tests {
 
         let empty = SinglesGroupPageVm::from_tree(&haleen_tree(1, 1), &key, &BusyItems::default());
         assert_eq!(empty.art, None);
+    }
+
+    /// R24-05 (ADR 0084 packet 024): a singles group of a feed-level artist
+    /// gives the channel image of that feed, the same as its Artists row,
+    /// on the group row and the group page. A group of a name only gives
+    /// none.
+    #[test]
+    fn adr_0084_artist_image_r24_05_feed_group_gives_the_feed_image() {
+        let with_image = |album: AlbumNode, image: Option<&str>| {
+            let mut album = with_publisher(album, "pub");
+            album.named_feeds[0].image_url = image.map(str::to_owned);
+            album
+        };
+        let tree = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![
+                    with_image(single("A", 1, Some(1), true), None),
+                    with_image(
+                        single("B", 2, Some(2), true),
+                        Some(" https://img.test/pub.jpg "),
+                    ),
+                ],
+            )],
+        };
+        let expected = CollectionArtVm::ProvidedImage {
+            url: "https://img.test/pub.jpg".to_owned(),
+            fallback: Box::new(CollectionArtVm::Mosaic(
+                ["2.jpg", "1.jpg", "1.jpg", "2.jpg"].map(str::to_owned),
+            )),
+        };
+
+        let groups = singles_groups(&tree);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].collection_art(), expected);
+        let row = SinglesGroupRowVm::new(&groups[0], false, |_, _| None);
+        assert_eq!(row.art, expected);
+        let key = SinglesGroupKey(ArtistIdentity::Publisher("pub".to_owned()));
+        let page = SinglesGroupPageVm::from_tree(&tree, &key, &BusyItems::default());
+        assert_eq!(page.art, Some(expected));
+
+        let name_tree = haleen_tree(2, 2);
+        let name_groups = singles_groups(&name_tree);
+        assert!(!matches!(
+            name_groups[0].collection_art(),
+            CollectionArtVm::ProvidedImage { .. }
+        ));
     }
 
     /// ADR 0084 task 015, operator decision of 2026-10-17: a page row

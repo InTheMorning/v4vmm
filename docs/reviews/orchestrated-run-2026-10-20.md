@@ -67,6 +67,8 @@ Each entry names the step, the decision and the reason.
 
 - Packet 011 review: the singles group row no longer animates a GIF cover on hover, because it shows a mosaic. Each logo is composed at two device pixels for each logical pixel, because the render path has no window scale factor. The playlist image read and the first compositions are responsiveness items 14 and 15.
 
+- Packet 024 review: the Artists list gets the image of an artist feed only after a view of one album of that artist. The phase plan records it as an open finding with no owner.
+
 ## Steps
 
 | Step | State | Commit |
@@ -76,8 +78,8 @@ Each entry names the step, the decision and the reason.
 | Packet 022: the download queue | Implemented. V1 to V6 open | `905f3fe` |
 | Packet 020: Discover tiles | Implemented. V1 to V6 open | `4cc4540` |
 | Packet 025: playlist page | Implemented. V1 to V7 open | `421eb53` |
-| Packet 011: the logo frame | Implemented. V1 to V7 open | This commit |
-| Packet 024: the image of an artist feed (migration 20) | Open | |
+| Packet 011: the logo frame | Implemented. V1 to V7 open | `a08ec7a` |
+| Packet 024: the image of an artist feed (migration 20) | Implemented. V1 to V3 open | This commit |
 
 ## Final Walk
 

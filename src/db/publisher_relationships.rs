@@ -6,8 +6,10 @@
 //! Migration 18 (`publisher_link_facts`) adds `album_names_as` and
 //! `role_agreement`, the two Stophammer 0.7.0 link facts of ADR 0082
 //! Decision 2, to the same table. Migration 19 (`named_feed_position`) adds
-//! the RSS position of each named feed (ADR 0085 Decision 6). This module
-//! still owns the write and the read of every column.
+//! the RSS position of each named feed (ADR 0085 Decision 6). Migration 20
+//! (`publisher_feed_image`) adds the channel image of each named feed (ADR
+//! 0084 Decision 12). This module still owns the write and the read of
+//! every column.
 //!
 //! Packet 013 keeps `MusicIndex` collection replacement disabled. Thus a write
 //! inserts or updates the rows of the entries in a response, and it deletes
@@ -100,6 +102,10 @@ fn nonempty(value: Option<&str>) -> Option<&str> {
 /// feed GUID. On a `publisher_to_music` entry, it is the listed feed GUID.
 /// Thus each entry of a publisher feed gets its own row.
 ///
+/// `publisher_feed_image_url` stores the `remote_feed_image_url` of each
+/// entry, trimmed. An empty value stores null (ADR 0084 Decision 12,
+/// migration 20).
+///
 /// `publisher_feed_title` comes from the same feed response. `observed_at`
 /// is the Unix time in seconds of the observation that supplied the
 /// response. The function returns the number of rows that it wrote.
@@ -125,9 +131,10 @@ pub(crate) fn upsert_feed_publisher_relationships(
                 music_names_publisher, publisher_lists_music, publisher_link_resolution,
                 publisher_link_observed_at, reciprocal_declared, reciprocal_medium,
                 two_way_validated, publisher_rel, music_rel, role, role_source,
-                publisher_feed_title, observed_at, album_names_as, role_agreement
+                publisher_feed_title, observed_at, album_names_as, role_agreement,
+                publisher_feed_image_url
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
-                ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
+                ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)
             ON CONFLICT (feed_id, direction, publisher_feed_guid, remote_feed_guid) DO UPDATE SET
                 music_feed_guid = excluded.music_feed_guid,
                 remote_feed_url = excluded.remote_feed_url,
@@ -148,7 +155,8 @@ pub(crate) fn upsert_feed_publisher_relationships(
                 publisher_feed_title = excluded.publisher_feed_title,
                 observed_at = excluded.observed_at,
                 album_names_as = excluded.album_names_as,
-                role_agreement = excluded.role_agreement",
+                role_agreement = excluded.role_agreement,
+                publisher_feed_image_url = excluded.publisher_feed_image_url",
         )?;
         for entry in relationships {
             let (Some(direction), Some(publisher_feed_guid), Some(remote_feed_guid)) = (
@@ -196,6 +204,7 @@ pub(crate) fn upsert_feed_publisher_relationships(
                         .role_agreement
                         .as_ref()
                         .map(crate::api::RoleAgreement::as_str),
+                    nonempty(entry.remote_feed_image_url.as_deref().map(str::trim)),
                 ])
                 .context("Write feed publisher relationship")?;
             written += 1;
@@ -328,7 +337,8 @@ pub(crate) fn named_feeds(
     let mut statement = conn
         .prepare(
             "SELECT remote_feed_guid, named_feed_position, role, role_agreement,
-                    publisher_rel, music_rel, two_way_validated, publisher_feed_title
+                    publisher_rel, music_rel, two_way_validated, publisher_feed_title,
+                    publisher_feed_image_url
              FROM feed_publisher_relationships
              WHERE feed_id = ?1 AND direction = 'music_to_publisher' AND music_names_publisher = 1",
         )
@@ -345,6 +355,7 @@ pub(crate) fn named_feeds(
                     feed_rel: row.get(4)?,
                     album_rel: row.get(5)?,
                     confirmed: row.get::<_, Option<bool>>(6)?.unwrap_or(false),
+                    image_url: row.get(8)?,
                 },
                 row.get::<_, Option<String>>(7)?,
             ))
@@ -1224,7 +1235,15 @@ mod tests {
 
         crate::db::migrate_schema_to(&conn, 19).unwrap();
 
-        assert_eq!(inspect_schema(&conn).unwrap(), SchemaCompatibility::Current);
+        // Migration 20 (ADR 0084 packet 024) follows, so version 19 is not
+        // current.
+        assert_eq!(
+            inspect_schema(&conn).unwrap(),
+            SchemaCompatibility::UpgradeRequired {
+                applied: 19,
+                current: MIGRATIONS.len()
+            }
+        );
         upgrades::verify_target(&conn, 19).unwrap();
         let name: String = conn
             .query_row(
@@ -1296,5 +1315,172 @@ mod tests {
             test_support::value(unstated_row, "role_agreement"),
             rusqlite::types::Value::Null
         );
+    }
+
+    /// R24-01 (ADR 0084 packet 024): migration 20 adds
+    /// `publisher_feed_image_url`, keeps each row and gives null. A version
+    /// 19 fixture migrates to version 20.
+    #[test]
+    fn adr_0084_artist_image_r24_01_version_19_migrates_to_20_with_null_image() {
+        let conn = Connection::open_in_memory().unwrap();
+        upgrades::create_fixture(&conn, 19).unwrap();
+        conn.execute(
+            "INSERT INTO feeds(id, feed_url, feed_guid) VALUES (1, 'https://example.test/one.xml', 'f1')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO feed_publisher_relationships (
+                feed_id, direction, publisher_feed_guid, remote_feed_guid,
+                publisher_feed_title, named_feed_position, observed_at
+            ) VALUES (1, 'music_to_publisher', 'publisher-a', 'publisher-a', 'Publisher A', 2, 10)",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            inspect_schema(&conn).unwrap(),
+            SchemaCompatibility::UpgradeRequired {
+                applied: 19,
+                current: MIGRATIONS.len()
+            }
+        );
+
+        crate::db::migrate_schema_to(&conn, 20).unwrap();
+
+        assert_eq!(inspect_schema(&conn).unwrap(), SchemaCompatibility::Current);
+        upgrades::verify_target(&conn, 20).unwrap();
+        let name: String = conn
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 20",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(name, "publisher_feed_image");
+        let rows = test_support::rows(&conn, 1);
+        assert_eq!(rows.len(), 1, "the migration keeps each row");
+        assert_eq!(
+            test_support::value(&rows[0], "publisher_feed_title"),
+            rusqlite::types::Value::Text("Publisher A".to_owned())
+        );
+        assert_eq!(
+            test_support::value(&rows[0], "named_feed_position"),
+            rusqlite::types::Value::Integer(2)
+        );
+        assert_eq!(
+            test_support::value(&rows[0], "publisher_feed_image_url"),
+            rusqlite::types::Value::Null,
+            "an existing row reads null in the new publisher_feed_image_url column"
+        );
+    }
+
+    /// R24-02 (ADR 0084 packet 024): the upsert stores a recorded
+    /// `remote_feed_image_url`, trimmed. An empty value and a value of only
+    /// spaces store null. A later response with no image writes null.
+    #[test]
+    fn adr_0084_artist_image_r24_02_upsert_stores_the_trimmed_image() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        upgrades::create_fixture(&conn, CURRENT_VERSION).unwrap();
+        conn.execute(
+            "INSERT INTO feeds(id, feed_url, feed_guid) VALUES (1, 'https://example.test/one.xml', 'f1')",
+            [],
+        )
+        .unwrap();
+        let image = |guid: &str, url: Option<&str>| PublisherRelationship {
+            remote_feed_image_url: url.map(str::to_owned),
+            ..entry(guid, None)
+        };
+        let recorded = image(
+            "publisher-a",
+            Some("  https://d12wklypp119aj.cloudfront.net/image/0ea057e2-fcf3-4e1d-881e-51a87b582b92.jpg \n"),
+        );
+        upsert_feed_publisher_relationships(
+            &mut conn,
+            1,
+            None,
+            Some(&[
+                recorded,
+                image("publisher-b", Some("")),
+                image("publisher-c", Some("   ")),
+                image("publisher-d", None),
+            ]),
+            10,
+        )
+        .unwrap();
+
+        let stored = |conn: &Connection, guid: &str| {
+            test_support::rows(conn, 1)
+                .iter()
+                .find(|row| {
+                    test_support::value(row, "publisher_feed_guid")
+                        == rusqlite::types::Value::Text(guid.to_owned())
+                })
+                .map(|row| test_support::value(row, "publisher_feed_image_url"))
+                .expect("the row should be written")
+        };
+        assert_eq!(
+            stored(&conn, "publisher-a"),
+            rusqlite::types::Value::Text(
+                "https://d12wklypp119aj.cloudfront.net/image/0ea057e2-fcf3-4e1d-881e-51a87b582b92.jpg"
+                    .to_owned()
+            )
+        );
+        for guid in ["publisher-b", "publisher-c", "publisher-d"] {
+            assert_eq!(stored(&conn, guid), rusqlite::types::Value::Null, "{guid}");
+        }
+
+        upsert_feed_publisher_relationships(
+            &mut conn,
+            1,
+            None,
+            Some(&[image("publisher-a", None)]),
+            20,
+        )
+        .unwrap();
+        assert_eq!(stored(&conn, "publisher-a"), rusqlite::types::Value::Null);
+    }
+
+    /// R24-03 (ADR 0084 packet 024): `named_feeds` reads the stored image of
+    /// each named feed. A feed with no stored image gives `None`.
+    #[test]
+    fn adr_0084_artist_image_r24_03_named_feeds_read_the_stored_image() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        upgrades::create_fixture(&conn, CURRENT_VERSION).unwrap();
+        conn.execute(
+            "INSERT INTO feeds(id, feed_url, feed_guid) VALUES (1, 'https://example.test/one.xml', 'f1')",
+            [],
+        )
+        .unwrap();
+        let with_image = PublisherRelationship {
+            music_names_publisher: Some(true),
+            remote_feed_image_url: Some("https://img.test/artist.jpg".to_owned()),
+            ..entry("publisher-a", Some("artist"))
+        };
+        let without_image = PublisherRelationship {
+            music_names_publisher: Some(true),
+            ..entry("publisher-b", None)
+        };
+        upsert_feed_publisher_relationships(
+            &mut conn,
+            1,
+            Some("Publisher A"),
+            Some(&[with_image, without_image]),
+            10,
+        )
+        .unwrap();
+
+        let feeds = named_feeds(&conn, 1).unwrap();
+        let image = |guid: &str| {
+            feeds
+                .iter()
+                .find(|feed| feed.feed_guid == guid)
+                .map(|feed| feed.image_url.clone())
+                .expect("the named feed should be read")
+        };
+        assert_eq!(
+            image("publisher-a").as_deref(),
+            Some("https://img.test/artist.jpg")
+        );
+        assert_eq!(image("publisher-b"), None);
     }
 }

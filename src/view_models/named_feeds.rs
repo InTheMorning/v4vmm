@@ -30,6 +30,9 @@ pub(crate) struct NamedFeed {
     pub(crate) album_rel: Option<String>,
     /// `two_way_validated` of the link: the two feeds name each other.
     pub(crate) confirmed: bool,
+    /// The channel image URL of the feed, as `MusicIndex` reports it (ADR
+    /// 0084 Decision 12, migration 20). `None` when the app knows no image.
+    pub(crate) image_url: Option<String>,
 }
 
 /// The artist feed of an album (ADR 0085 Decision 6, read above).
@@ -82,6 +85,21 @@ pub(crate) fn select_artist_feed(feeds: &[NamedFeed]) -> ArtistFeed {
     ArtistFeed::None
 }
 
+/// The channel image of the feed `feed_guid`: the first image that one of
+/// `feeds` gives for that feed (ADR 0084 Decision 12). A trimmed empty URL
+/// gives no image.
+#[must_use]
+pub(crate) fn named_feed_image<'a, I>(feeds: I, feed_guid: &str) -> Option<&'a str>
+where
+    I: IntoIterator<Item = &'a NamedFeed>,
+{
+    feeds
+        .into_iter()
+        .filter(|feed| feed.feed_guid == feed_guid)
+        .filter_map(|feed| feed.image_url.as_deref().map(str::trim))
+        .find(|url| !url.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,6 +114,7 @@ mod tests {
             feed_rel: None,
             album_rel: None,
             confirmed: false,
+            image_url: None,
         }
     }
 

@@ -2858,6 +2858,7 @@ pub(crate) mod named_feed_position;
 pub(crate) mod payment_routes;
 pub mod provider_observations;
 mod provider_snapshot_schema;
+pub(crate) mod publisher_feed_image;
 pub(crate) mod publisher_link_facts;
 pub(crate) mod publisher_relationships;
 pub mod rss_check_runs;
@@ -2871,7 +2872,7 @@ struct Migration {
     apply: fn(&Connection) -> Result<()>,
 }
 
-pub(crate) const CURRENT_VERSION: i64 = 19;
+pub(crate) const CURRENT_VERSION: i64 = 20;
 
 const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -2968,6 +2969,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 19,
         name: "named_feed_position",
         apply: named_feed_position::apply,
+    },
+    Migration {
+        version: 20,
+        name: "publisher_feed_image",
+        apply: publisher_feed_image::apply,
     },
 ];
 
@@ -3086,8 +3092,9 @@ fn matches_contract(conn: &Connection, version: i64) -> rusqlite::Result<bool> {
 /// drops the three superseded selection tables (ADR 0076 packet 002),
 /// migration 17 adds the stored payment route columns (ADR 0076 packet 003),
 /// migration 18 adds the publisher link fact columns of Stophammer
-/// 0.7.0 (ADR 0082 Decision 2), and migration 19 adds the RSS position of
-/// each named feed (ADR 0085 Decision 6).
+/// 0.7.0 (ADR 0082 Decision 2), migration 19 adds the RSS position of
+/// each named feed (ADR 0085 Decision 6), and migration 20 adds the channel
+/// image of each named feed (ADR 0084 Decision 12).
 pub(crate) fn schema_contract(
     version: i64,
 ) -> impl Iterator<Item = &'static (&'static str, &'static [&'static str])> {
@@ -3116,7 +3123,9 @@ pub(crate) fn schema_contract(
                 version < 16 || !rss_field_holds::SUPERSEDED_SELECTION_TABLES.contains(table)
             }),
         )
-        .chain(if version >= 19 {
+        .chain(if version >= 20 {
+            publisher_feed_image::EXTENDED_COLUMNS
+        } else if version >= 19 {
             named_feed_position::EXTENDED_COLUMNS
         } else if version >= 18 {
             publisher_link_facts::EXTENDED_COLUMNS
@@ -3450,7 +3459,7 @@ fn migrate_schema_internal(
         }
         let baseline = match migration.version {
             12 if verify => Some(upgrades::legacy_digest(conn)?),
-            13..=19 if verify => Some(upgrades::retained_digest(conn)?),
+            13..=20 if verify => Some(upgrades::retained_digest(conn)?),
             _ => None,
         };
         boundary(migration.version, MigrationBoundary::BeforeApply)?;
@@ -3459,6 +3468,13 @@ fn migrate_schema_internal(
         boundary(migration.version, MigrationBoundary::AfterApply)?;
         record_migration(conn, migration.version, migration.name)?;
         boundary(migration.version, MigrationBoundary::AfterRecord)?;
+        if let (20, Some(before)) = (migration.version, baseline.as_ref()) {
+            upgrades::verify_target(conn, 20)?;
+            anyhow::ensure!(
+                upgrades::retained_digest(conn)? == *before,
+                "Migration changed retained records"
+            );
+        }
         if let (19, Some(before)) = (migration.version, baseline.as_ref()) {
             upgrades::verify_target(conn, 19)?;
             anyhow::ensure!(
@@ -5021,7 +5037,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
             "ADR 0016: fresh schema should record all registry migrations"
         );
 
@@ -5357,7 +5373,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
             "cleanup migration should be recorded exactly once"
         );
 

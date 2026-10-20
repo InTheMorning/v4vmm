@@ -740,6 +740,7 @@ mod tests {
                 feed_rel: None,
                 album_rel: None,
                 confirmed: true,
+                image_url: None,
             }],
             identity_facts: LocalIdentityFacts::default(),
             metadata_facts: Box::new(FeedMetadataFacts::default()),

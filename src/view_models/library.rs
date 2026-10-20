@@ -48,7 +48,7 @@ use crate::view_models::library_removal::{
 use crate::view_models::list_selection::{ListSelection, RowSelectionVm, SelectionMode};
 #[cfg(test)]
 use crate::view_models::list_selection::{RowCheckState, SelectionRow};
-use crate::view_models::named_feeds::NamedFeed;
+use crate::view_models::named_feeds::{named_feed_image, NamedFeed};
 use crate::view_models::pagination::pending_skeleton_count;
 use crate::view_models::playlist_detail::PlaylistDetailPageVm;
 use crate::view_models::recent_feeds::{
@@ -1830,13 +1830,18 @@ const ARTIST_ROW_SEPARATOR: &str = " \u{b7} ";
 /// newest four images of its member albums. The date of an album is the
 /// latest `pub_date` of its tracks, and an album with no date comes last.
 /// Packet 024 adds the image that an artist feed gives.
-fn artist_row_art(members: &[(&ArtistNode, &AlbumNode)]) -> CollectionArtVm {
+/// The art of one Artists row (ADR 0084 Decision 12). `provided` is the
+/// channel image of the artist feed. A name row gives `None`.
+fn artist_row_art(
+    provided: Option<&str>,
+    members: &[(&ArtistNode, &AlbumNode)],
+) -> CollectionArtVm {
     let mut albums: Vec<&AlbumNode> = members.iter().map(|(_, album)| *album).collect();
     albums.sort_by_key(|album| {
         std::cmp::Reverse(album.tracks.iter().filter_map(|track| track.pub_date).max())
     });
     CollectionArtVm::resolve(
-        None,
+        provided,
         albums
             .iter()
             .filter_map(|album| album.image_href.as_deref()),
@@ -1848,7 +1853,6 @@ fn artist_list_row(
     identity: ArtistIdentity,
     members: &[(&ArtistNode, &AlbumNode)],
 ) -> DestinationListRowVm {
-    let art = Some(artist_row_art(members));
     let secondary_text = format!("{} release{}", members.len(), plural(members.len()));
     match identity {
         ArtistIdentity::Name(name) => DestinationListRowVm {
@@ -1857,7 +1861,7 @@ fn artist_list_row(
             secondary_text: format!("{secondary_text}{ARTIST_ROW_SEPARATOR}{ARTIST_NAME_ROW_MARK}"),
             a11y_label: format!("Artist: {name}, {ARTIST_NAME_ROW_MARK}"),
             thumbnail_href: None,
-            art,
+            art: Some(artist_row_art(None, members)),
             open: DestinationListRowTarget::Artist(name),
             // ADR 0084 Decision 10 Exclusions: the Artists list has no
             // selection model, so its row never shows a checkbox.
@@ -1873,6 +1877,13 @@ fn artist_list_row(
                         .flatten()
                 })
                 .unwrap_or_else(|| feed_guid.clone());
+            let image = named_feed_image(
+                members
+                    .iter()
+                    .flat_map(|(_, album)| album.named_feeds.iter()),
+                &feed_guid,
+            );
+            let art = Some(artist_row_art(image, members));
             DestinationListRowVm {
                 element_id: format!("music-artist-row-publisher:{feed_guid}"),
                 label: title.clone(),
@@ -8221,6 +8232,88 @@ mod tests {
         );
     }
 
+    /// Gives `album` the image `image_url` and the named feed of
+    /// `with_named_feed` with the channel image `feed_image`.
+    fn with_feed_image(
+        album: AlbumNode,
+        image_url: &str,
+        feed_guid: &str,
+        role: Option<&str>,
+        feed_image: Option<&str>,
+    ) -> AlbumNode {
+        let mut album = with_named_feed(album, feed_guid, feed_guid, role, Some("both"));
+        album.image_href = Some(image_url.to_owned());
+        album.named_feeds[0].image_url = feed_image.map(str::to_owned);
+        album
+    }
+
+    /// R24-04 (ADR 0084 Decision 12, packet 024): a feed row of the Artists
+    /// list gives `ProvidedImage` when its feed has a channel image, and the
+    /// mosaic when it has none. A name row never gives `ProvidedImage`, also
+    /// when one of its albums names a feed with an image.
+    #[test]
+    fn adr_0084_artist_image_r24_04_feed_row_gives_the_feed_image() {
+        let with_image = |name: &str, id: i64, cover: &str, image: Option<&str>| {
+            with_feed_image(
+                minimal_album(name, id),
+                cover,
+                "artist-guid",
+                Some("artist"),
+                image,
+            )
+        };
+        let label_album = with_feed_image(
+            minimal_album("Label Release", 3),
+            "c.jpg",
+            "label-guid",
+            Some("label"),
+            Some("https://img.test/label.jpg"),
+        );
+        let tree = |image: Option<&'static str>| LibraryTree {
+            artists: vec![
+                ArtistNode {
+                    name: "Echo Chamber".to_owned(),
+                    albums: vec![
+                        with_image("One", 1, "a.jpg", image),
+                        with_image("Two", 2, "b.jpg", image),
+                    ],
+                },
+                ArtistNode {
+                    name: "Label Act".to_owned(),
+                    albums: vec![label_album.clone()],
+                },
+            ],
+        };
+        let row_art = |vm: &LibraryViewModel, label: &str| {
+            vm.artists_list()
+                .into_iter()
+                .find(|row| row.label == label)
+                .and_then(|row| row.art)
+                .expect("the row gives art")
+        };
+
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(tree(Some("  https://img.test/artist.jpg  ")));
+        let mosaic =
+            CollectionArtVm::Mosaic(["a.jpg", "b.jpg", "b.jpg", "a.jpg"].map(str::to_owned));
+        assert_eq!(
+            row_art(&vm, "artist-guid"),
+            CollectionArtVm::ProvidedImage {
+                url: "https://img.test/artist.jpg".to_owned(),
+                fallback: Box::new(mosaic.clone()),
+            }
+        );
+        assert_eq!(
+            row_art(&vm, "Label Act"),
+            CollectionArtVm::SingleCover("c.jpg".to_owned()),
+            "a name row gives no provided image"
+        );
+
+        let mut no_image = LibraryViewModel::new();
+        no_image.replace_tree(tree(None));
+        assert_eq!(row_art(&no_image, "artist-guid"), mosaic);
+    }
+
     /// R11-05 (ADR 0084 Decision 12): each Playlists row gives the art of
     /// the one playlist image read, and the playlist page gives the first
     /// four images in playlist order.
@@ -8301,6 +8394,7 @@ mod tests {
             feed_rel: None,
             album_rel: None,
             confirmed: true,
+            image_url: None,
         }];
         album
     }

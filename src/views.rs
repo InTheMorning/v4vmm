@@ -630,6 +630,12 @@ fn named_feeds_from_api(
                 feed_rel: entry.publisher_rel.clone(),
                 album_rel: entry.music_rel.clone(),
                 confirmed: entry.two_way_validated == Some(true),
+                image_url: entry
+                    .remote_feed_image_url
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|url| !url.is_empty())
+                    .map(str::to_owned),
             })
         })
         .collect();

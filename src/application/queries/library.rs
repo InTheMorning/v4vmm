@@ -1412,7 +1412,9 @@ mod observation_tests {
             "publisher_rel": null,
             "music_rel": null,
             "role": "artist",
-            "role_source": "default"
+            "role_source": "default",
+            // ADR 0084 packet 024: the hydration stores this value, trimmed.
+            "remote_feed_image_url": " https://example.test/publisher-artist.jpg "
         });
         let conflict = json!({
             "direction": "music_to_publisher",
@@ -1562,6 +1564,10 @@ mod observation_tests {
             ("album_names_as", Value::Null),
             ("role_agreement", Value::Null),
             ("named_feed_position", Value::Null),
+            (
+                "publisher_feed_image_url",
+                text("https://example.test/publisher-artist.jpg"),
+            ),
         ]
         .into_iter()
         .map(|(name, value)| (name.to_owned(), value))
@@ -1593,6 +1599,7 @@ mod observation_tests {
             ("album_names_as", Value::Null),
             ("role_agreement", Value::Null),
             ("named_feed_position", Value::Null),
+            ("publisher_feed_image_url", Value::Null),
         ]
         .into_iter()
         .map(|(name, value)| (name.to_owned(), value))

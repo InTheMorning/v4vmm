@@ -1470,6 +1470,7 @@ mod tests {
             feed_rel: None,
             album_rel: None,
             confirmed,
+            image_url: None,
         }
     }
 
