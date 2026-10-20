@@ -20,8 +20,9 @@ pub(crate) struct IndexSearchResultRows {
 /// Remote Index detail kind rendered from a search-result drill-down.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum IndexDetailKind {
-    /// Remote feed detail.
-    Feed,
+    /// Remote release detail. ADR 0084 Decision 5: the curator sees
+    /// "release" in place of "feed" for a release.
+    Release,
     /// Remote track detail.
     Track,
 }
@@ -31,7 +32,7 @@ impl IndexDetailKind {
     #[must_use]
     pub(crate) const fn label(self) -> &'static str {
         match self {
-            Self::Feed => "feed",
+            Self::Release => "release",
             Self::Track => "track",
         }
     }
@@ -73,7 +74,7 @@ impl IndexDetailDisplay {
 
     pub(super) fn feed(row: &FeedResultDisplay, fallback_id: &str) -> Self {
         let mut display = Self::new(
-            IndexDetailKind::Feed,
+            IndexDetailKind::Release,
             fallback_id,
             row.label.clone(),
             row.secondary_text.clone(),
@@ -101,7 +102,7 @@ impl IndexDetailDisplay {
         row.map_or_else(
             || {
                 Self::new(
-                    IndexDetailKind::Feed,
+                    IndexDetailKind::Release,
                     fallback_id,
                     fallback_label,
                     "MusicIndex feed",
@@ -176,7 +177,7 @@ impl IndexDetailDisplay {
     /// opened, already returned this feed.
     #[must_use]
     pub(crate) fn loaded_feed(feed: FeedView, id: impl Into<String>) -> Self {
-        let mut display = Self::new(IndexDetailKind::Feed, id, String::new(), String::new());
+        let mut display = Self::new(IndexDetailKind::Release, id, String::new(), String::new());
         display.feed = Some(feed);
         display
     }

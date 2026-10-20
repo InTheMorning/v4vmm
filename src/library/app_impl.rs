@@ -4533,6 +4533,28 @@ impl LibraryApp {
                     .or_else(|| row.track.album_image_href.clone())
             }));
         }
+        // Walk fix F5 of 2026-10-20: a playlist page row reads its art by
+        // URL, the same as a release page track row. Only the drawn rows
+        // give a URL: the ready rows of the paged path, or each row of
+        // the eager path.
+        if let LibraryDetail::Playlist(detail) = &self.detail {
+            let paged = self
+                .playlist_actor
+                .as_ref()
+                .filter(|state| state.playlist_id == detail.playlist.id);
+            urls.extend(match paged {
+                Some(state) => {
+                    crate::view_models::paged_playlist_detail::PagedPlaylistDetailVm::new(
+                        &detail.playlist,
+                        &state.snapshot,
+                    )
+                    .thumbnail_urls()
+                }
+                None => {
+                    crate::view_models::playlist_detail::playlist_row_thumbnail_urls(&detail.tracks)
+                }
+            });
+        }
         let hovered_url = self.vm.hovered_thumb_url().map(str::to_string);
         let mut album_thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
         for url in &urls {

@@ -571,14 +571,16 @@ fn render_empty_state(
 
 const fn entity_kind_for_index_detail(kind: IndexDetailKind) -> EntityKind {
     match kind {
-        IndexDetailKind::Feed => EntityKind::Feed,
+        IndexDetailKind::Release => EntityKind::Release,
         IndexDetailKind::Track => EntityKind::Track,
     }
 }
 
+/// The element id suffix of a detail page. The id of a release page keeps
+/// the suffix "feed", so that each element id stays the same.
 const fn detail_id_suffix(kind: IndexDetailKind) -> &'static str {
     match kind {
-        IndexDetailKind::Feed => "feed",
+        IndexDetailKind::Release => "feed",
         IndexDetailKind::Track => "track",
     }
 }
@@ -586,6 +588,17 @@ const fn detail_id_suffix(kind: IndexDetailKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// F6 of the walk of 2026-10-20 (ADR 0084 Decision 5): the loading and
+    /// failed header of an Index release page shows the tag "release".
+    #[test]
+    fn adr_0084_walk_fix_index_release_header_kind_label_is_release() {
+        assert_eq!(IndexDetailKind::Release.label(), "release");
+        assert_eq!(
+            entity_kind_for_index_detail(IndexDetailKind::Release).label(),
+            "release"
+        );
+    }
 
     #[test]
     fn slots_accept_callbacks() {

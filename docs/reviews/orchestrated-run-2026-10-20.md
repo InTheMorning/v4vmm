@@ -71,6 +71,8 @@ Each entry names the step, the decision and the reason.
 
 - Final walk fixes, approved by the operator on 2026-10-20: fixed columns in the track row, no track number on a single row, and one image map for each feed. The packets 021 and 024 record them as amendments.
 
+- Final walk fixes, approved by the operator on 2026-10-20: a feed page stores its channel image for the feed. The playlist rows load their covers, and a release badge reads "release". The packets 021 and 024 record them as amendments.
+
 ## Steps
 
 | Step | State | Commit |
@@ -93,6 +95,27 @@ The run did not decide these points. Each one needs the operator.
 4. Packet 023 (one track page assembly) is registered. It also gives the Index track page the feed identity section that the triage found missing. Is it next?
 5. The Artists list shows the image of an artist feed only after a view of one album of that artist. Is a fill for each artist wanted?
 6. `cargo clippy --all-targets -- -D warnings` fails in test code that no packet of the run changed. The overhaul plan wants it in the gate. Is it a packet now?
+
+## Walk Log
+
+The operator sends screenshots, and the orchestrator records each result here with its date.
+
+| Date | Check | Result | Evidence |
+|---|---|---|---|
+| 2026-10-20 | 011.1 mosaic at the page size | Pass | Singles group page, Dark |
+| 2026-10-20 | 011.2 logo at the row size | Pass | Releases list, group row |
+| 2026-10-20 | 011.3 provided image as a square | Pass | Haleen and HeyCitizen feed pages |
+| 2026-10-20 | 011.3 mosaic for a feed with no image, 024.2 | No data | Each artist feed of the Library has a channel image. Unit tests R11-04 and R24-04 cover it |
+| 2026-10-20 | 021.1 header, facts, layout in Light at narrow width | Pass | Release page "Aged Friends & Old Whiskey" |
+| 2026-10-20 | 021.1 selection on the release page | Pass | Two rows checked, bar "Add 2 tracks to playlist", "Remove 2 tracks…" |
+| 2026-10-20 | 021.1 row columns, 021.3 track numbers | Fail, fixed in `958a17e` | Walk again on a new build |
+| 2026-10-20 | 021.1 badge "● feed" above a release title | Fail, fix in progress | ADR 0084 Decision 5 |
+| 2026-10-20 | 021.3 selection on the singles group page | Pass | Two singles checked, release bar |
+| 2026-10-20 | 024.1 image on the group page and the group row | Pass | Haleen photo |
+| 2026-10-20 | 024.1 HeyCitizen Artists row | Fail, fix in progress | Feed page shows the image, the row shows the mosaic |
+| 2026-10-20 | 022.4 finished item text and "Dismiss" | Pass | "Downloaded 1 of 1. Finished 18:44" |
+| 2026-10-20 | §13 V1 "Check RSS" button and state | Pass | Playlist "0001" |
+| 2026-10-20 | Playlist row covers | Fail, fix in progress | Each row shows the placeholder. The defect is older than the run |
 
 ## Final Walk
 

@@ -534,6 +534,57 @@ pub(crate) fn set_music_to_publisher_remote(
     Ok(())
 }
 
+/// The longest channel image URL that the feed page write stores.
+const MAX_FEED_IMAGE_URL_LEN: usize = 4096;
+
+/// Write the channel image of one artist feed from its feed page (ADR 0084
+/// Decision 12).
+///
+/// A feed page load gives the channel image of the feed
+/// `publisher_feed_guid`. This function writes that image to
+/// `publisher_feed_image_url` of each `music_to_publisher` row of that
+/// feed. Thus the Artists row and the singles groups show the same image
+/// as the feed page, before the next album hydration.
+///
+/// The value is untrusted input from RSS or `MusicIndex`. The function
+/// trims it. It writes no row when the value is empty, longer than
+/// `MAX_FEED_IMAGE_URL_LEN`, or not an `http` or `https` URL. Thus an empty
+/// value never replaces a stored image. The function returns the number of
+/// rows that it changed.
+///
+/// # Errors
+///
+/// Returns an error when the database write fails.
+pub(crate) fn store_publisher_feed_image(
+    conn: &Connection,
+    publisher_feed_guid: &str,
+    image_url: &str,
+) -> Result<usize> {
+    let image_url = image_url.trim();
+    let publisher_feed_guid = publisher_feed_guid.trim();
+    if publisher_feed_guid.is_empty() || !is_storable_feed_image_url(image_url) {
+        return Ok(0);
+    }
+    conn.execute(
+        "UPDATE feed_publisher_relationships SET publisher_feed_image_url = ?1
+         WHERE direction = 'music_to_publisher' AND publisher_feed_guid = ?2
+           AND (publisher_feed_image_url IS NULL OR publisher_feed_image_url != ?1)",
+        params![image_url, publisher_feed_guid],
+    )
+    .context("Write publisher feed image")
+}
+
+/// `true` when a trimmed channel image URL is not empty, is not too long,
+/// and uses the `http` or `https` scheme.
+fn is_storable_feed_image_url(image_url: &str) -> bool {
+    if image_url.is_empty() || image_url.len() > MAX_FEED_IMAGE_URL_LEN {
+        return false;
+    }
+    let lower = image_url.to_ascii_lowercase();
+    (lower.starts_with("https://") || lower.starts_with("http://"))
+        && !image_url.chars().any(char::is_control)
+}
+
 #[cfg(test)]
 pub(crate) mod test_support {
     //! Test-only reads. Packets 003 and 004 add the production readers.
@@ -1482,5 +1533,87 @@ mod tests {
             Some("https://img.test/artist.jpg")
         );
         assert_eq!(image("publisher-b"), None);
+    }
+
+    /// F4 of the walk of 2026-10-20 (ADR 0084 Decision 12): the feed page
+    /// image of feed G goes to each row of G. The rows of other feeds do
+    /// not change. An empty or unsafe value changes no row.
+    #[test]
+    fn adr_0084_walk_fix_feed_page_image_updates_the_rows_of_the_feed() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        upgrades::create_fixture(&conn, CURRENT_VERSION).unwrap();
+        for (id, guid) in [(1, "album-1"), (2, "album-2")] {
+            conn.execute(
+                "INSERT INTO feeds(id, feed_url, feed_guid) VALUES (?1, ?2, ?3)",
+                params![id, format!("https://example.test/{guid}.xml"), guid],
+            )
+            .unwrap();
+        }
+        let other = PublisherRelationship {
+            remote_feed_image_url: Some("https://img.test/other.jpg".to_owned()),
+            ..entry("publisher-other", None)
+        };
+        upsert_feed_publisher_relationships(
+            &mut conn,
+            1,
+            None,
+            Some(&[entry("publisher-g", Some("artist")), other]),
+            10,
+        )
+        .unwrap();
+        upsert_feed_publisher_relationships(
+            &mut conn,
+            2,
+            None,
+            Some(&[entry("publisher-g", Some("artist"))]),
+            10,
+        )
+        .unwrap();
+        let stored = |conn: &Connection, feed_id: i64, guid: &str| {
+            test_support::rows(conn, feed_id)
+                .iter()
+                .find(|row| {
+                    test_support::value(row, "publisher_feed_guid")
+                        == rusqlite::types::Value::Text(guid.to_owned())
+                })
+                .map(|row| test_support::value(row, "publisher_feed_image_url"))
+                .expect("the row should be written")
+        };
+        let text = |value: &str| rusqlite::types::Value::Text(value.to_owned());
+
+        let changed =
+            store_publisher_feed_image(&conn, "publisher-g", "  https://img.test/g.jpg \n")
+                .unwrap();
+        assert_eq!(changed, 2, "each row of feed G changes");
+        assert_eq!(
+            stored(&conn, 1, "publisher-g"),
+            text("https://img.test/g.jpg")
+        );
+        assert_eq!(
+            stored(&conn, 2, "publisher-g"),
+            text("https://img.test/g.jpg")
+        );
+        assert_eq!(
+            stored(&conn, 1, "publisher-other"),
+            text("https://img.test/other.jpg"),
+            "the row of another feed does not change"
+        );
+
+        for ignored in ["", "   ", "javascript:alert(1)", "file:///etc/passwd"] {
+            assert_eq!(
+                store_publisher_feed_image(&conn, "publisher-g", ignored).unwrap(),
+                0,
+                "{ignored:?} changes no row"
+            );
+        }
+        assert_eq!(
+            stored(&conn, 1, "publisher-g"),
+            text("https://img.test/g.jpg")
+        );
+        assert_eq!(
+            store_publisher_feed_image(&conn, "publisher-g", "https://img.test/g.jpg").unwrap(),
+            0,
+            "the same value changes no row"
+        );
     }
 }

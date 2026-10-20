@@ -518,7 +518,7 @@ fn render_action_slots(
 fn entity_kind(kind: EntitySurfaceKind) -> EntityKind {
     match kind {
         EntitySurfaceKind::Artist => EntityKind::Artist,
-        EntitySurfaceKind::Feed => EntityKind::Feed,
+        EntitySurfaceKind::Release => EntityKind::Release,
         EntitySurfaceKind::Track => EntityKind::Track,
         EntitySurfaceKind::Contributor => EntityKind::Generic,
     }
@@ -528,6 +528,22 @@ fn entity_kind(kind: EntitySurfaceKind) -> EntityKind {
 mod tests {
     use super::*;
     use crate::view_models::entity_detail::EntitySurfaceContext;
+
+    /// F6 of the walk of 2026-10-20 (ADR 0084 Decision 5): the release
+    /// page header shows the tag "release", not "feed", for each origin.
+    #[test]
+    fn adr_0084_walk_fix_release_page_header_kind_label_is_release() {
+        let feed = crate::views::FeedView::default();
+        for context in [
+            EntitySurfaceContext::Library,
+            EntitySurfaceContext::Discover,
+        ] {
+            let hero = crate::view_models::entity_detail::ReleaseDetailVm::new(&feed, context)
+                .hero()
+                .display();
+            assert_eq!(entity_kind(hero.kind).label(), "release", "{context:?}");
+        }
+    }
 
     #[test]
     fn behavior_slots_start_empty() {

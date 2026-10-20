@@ -13,7 +13,8 @@
 //!
 //! `ui/shells/library/playlist_detail.rs` reads [`PagedPlaylistDetailVm::new`],
 //! [`PagedPlaylistDetailVm::track_count`] and [`PagedPlaylistDetailVm::row`] for
-//! the paged playlist page. These three are its whole live surface.
+//! the paged playlist page. `src/library/app_impl.rs` reads
+//! [`PagedPlaylistDetailVm::thumbnail_urls`] for the row images.
 #![warn(clippy::pedantic)]
 
 use std::sync::{Arc, Mutex};
@@ -91,6 +92,29 @@ impl<'a> PagedPlaylistDetailVm<'a> {
             RowSlot::Pending(_) => PagedPlaylistRow::Pending { position },
         }
     }
+
+    /// The thumbnail URLs of the rows that the page draws now: the ready
+    /// rows, in position order (walk fix F5 of 2026-10-20). A pending row
+    /// draws a skeleton, so it gives no URL.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the backing mutex is poisoned.
+    #[must_use]
+    pub(crate) fn thumbnail_urls(&self) -> Vec<String> {
+        let guard = self
+            .backing
+            .lock()
+            .expect("paged track list mutex poisoned");
+        let ready: Vec<Arc<TrackRow>> = (0..guard.total())
+            .filter_map(|position| match guard.peek_row(position) {
+                RowSlot::Ready(track) => Some(track),
+                RowSlot::Pending(_) => None,
+            })
+            .collect();
+        drop(guard);
+        super::playlist_detail::playlist_row_thumbnail_urls(ready.iter().map(AsRef::as_ref))
+    }
 }
 
 #[cfg(test)]
@@ -120,6 +144,41 @@ mod tests {
 
     fn handle(ids: Vec<i64>) -> PagedTrackListHandle {
         Arc::new(Mutex::new(PagedListVm::new(ids)))
+    }
+
+    /// F5 of the walk of 2026-10-20: only the ready rows give a
+    /// thumbnail URL. A pending row gives none.
+    #[test]
+    fn adr_0084_walk_fix_paged_playlist_thumbnail_urls_read_only_ready_rows() {
+        let pl = playlist(1, "p");
+        let ids: Vec<i64> = (1..=60).collect();
+        let h = handle(ids);
+        let with_image = |id: i64, url: &str| TrackRow {
+            album_image_href: Some(url.to_owned()),
+            ..track(id, "t")
+        };
+        {
+            let mut guard = h.lock().unwrap();
+            let _ = guard.row(0);
+            let _ = guard.drain_requests();
+            guard.fulfill_page(
+                0,
+                vec![
+                    (1, with_image(1, "https://img.test/a.jpg")),
+                    (2, with_image(2, "https://img.test/b.jpg")),
+                ],
+            );
+        }
+
+        let vm = PagedPlaylistDetailVm::new(&pl, &h);
+        assert!(matches!(vm.row(59), PagedPlaylistRow::Pending { .. }));
+        assert_eq!(
+            vm.thumbnail_urls(),
+            vec![
+                "https://img.test/a.jpg".to_owned(),
+                "https://img.test/b.jpg".to_owned()
+            ]
+        );
     }
 
     #[test]

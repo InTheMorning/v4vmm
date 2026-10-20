@@ -962,9 +962,9 @@ impl TopApp {
                 IndexDetailDisplay::loaded_feed((**feed).clone(), id)
             }
             Some(IndexFeedDetailState::Failed { feed_guid, message }) if feed_guid == id => {
-                IndexDetailDisplay::failed(IndexDetailKind::Feed, id, label, message.clone())
+                IndexDetailDisplay::failed(IndexDetailKind::Release, id, label, message.clone())
             }
-            _ => IndexDetailDisplay::loading(IndexDetailKind::Feed, id, label),
+            _ => IndexDetailDisplay::loading(IndexDetailKind::Release, id, label),
         }
     }
 

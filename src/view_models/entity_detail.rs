@@ -23,7 +23,9 @@ use crate::views::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EntitySurfaceKind {
     Artist,
-    Feed,
+    /// A release page. ADR 0084 Decision 5: the curator sees "release" in
+    /// place of "album" and "feed".
+    Release,
     Track,
     Contributor,
 }
@@ -794,7 +796,7 @@ impl<'a> ReleaseDetailVm<'a> {
     #[must_use]
     pub fn hero(&self) -> ReleaseHeroVm<'a> {
         ReleaseHeroVm {
-            kind: EntitySurfaceKind::Feed,
+            kind: EntitySurfaceKind::Release,
             artwork: self.view.artwork.as_ref(),
             title: self
                 .view
@@ -1484,7 +1486,7 @@ mod tests {
         let feed = feed_view();
         let page = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).page();
 
-        assert_eq!(page.hero.kind, EntitySurfaceKind::Feed);
+        assert_eq!(page.hero.kind, EntitySurfaceKind::Release);
         assert_eq!(page.hero.title, "Release");
         assert_eq!(page.identity_actions.len(), 3);
         assert!(!page.summary_facts.is_empty());
@@ -1660,7 +1662,7 @@ mod tests {
         assert_eq!(
             page.hero.display(),
             ReleaseHeroDisplay {
-                kind: EntitySurfaceKind::Feed,
+                kind: EntitySurfaceKind::Release,
                 title: "Release".into(),
                 data_rows: vec![ReleaseHeaderDataRowVm {
                     label: "Feed owner",
@@ -1671,7 +1673,7 @@ mod tests {
         );
 
         let hero = ReleaseHeroVm {
-            kind: EntitySurfaceKind::Feed,
+            kind: EntitySurfaceKind::Release,
             artwork: None,
             title: "Untitled",
             supporting_line: None,
@@ -1679,7 +1681,7 @@ mod tests {
         assert_eq!(
             hero.display(),
             ReleaseHeroDisplay {
-                kind: EntitySurfaceKind::Feed,
+                kind: EntitySurfaceKind::Release,
                 title: "Untitled".into(),
                 data_rows: Vec::new(),
             }

@@ -5,9 +5,38 @@
 
 #![warn(clippy::pedantic)]
 
+use crate::db;
 use crate::view_models::library::{
     PlaylistDetailActionsDisplay, PlaylistDetailHeaderDisplay, PlaylistDetailVm, PlaylistTrackRowVm,
 };
+
+/// The thumbnail URLs of the playlist page rows, in row order (ADR 0084
+/// Decision 12, walk fix F5 of 2026-10-20).
+///
+/// A row reads its track image, else its album image. This is the same
+/// order as the lookup of the playlist page row. A URL occurs one time
+/// only. A row with no image or with an empty value gives no URL. The
+/// caller gives only the rows that the page draws, so the count of image
+/// requests stays at the count of drawn rows.
+#[must_use]
+pub(crate) fn playlist_row_thumbnail_urls<'t>(
+    tracks: impl IntoIterator<Item = &'t db::TrackRow>,
+) -> Vec<String> {
+    let mut urls: Vec<String> = Vec::new();
+    for track in tracks {
+        let url = track
+            .track_image_href
+            .as_deref()
+            .or(track.album_image_href.as_deref())
+            .filter(|url| !url.is_empty());
+        if let Some(url) = url {
+            if !urls.iter().any(|known| known == url) {
+                urls.push(url.to_owned());
+            }
+        }
+    }
+    urls
+}
 
 /// Page-level projection for a playlist detail surface.
 pub(crate) struct PlaylistDetailPageVm<'a> {
@@ -79,7 +108,39 @@ impl<'a> PlaylistDetailPageVm<'a> {
 mod tests {
     use crate::db;
     use crate::view_models::library::PlaylistDetailVm;
-    use crate::view_models::playlist_detail::PlaylistDetailPageVm;
+    use crate::view_models::playlist_detail::{playlist_row_thumbnail_urls, PlaylistDetailPageVm};
+
+    /// F5 of the walk of 2026-10-20: each playlist row gives its track
+    /// image, else its album image, in row order and one time only.
+    #[test]
+    fn adr_0084_walk_fix_playlist_rows_give_track_image_else_album_image() {
+        let row = |track: Option<&str>, album: Option<&str>| db::TrackRow {
+            track_image_href: track.map(str::to_owned),
+            album_image_href: album.map(str::to_owned),
+            ..db::TrackRow::default()
+        };
+        let rows = [
+            row(
+                Some("https://img.test/track-1.jpg"),
+                Some("https://img.test/album-a.jpg"),
+            ),
+            row(None, Some("https://img.test/album-a.jpg")),
+            row(None, None),
+            row(Some(""), None),
+            row(None, Some("https://img.test/album-a.jpg")),
+            row(Some("https://img.test/track-1.jpg"), None),
+            row(None, Some("https://img.test/album-b.jpg")),
+        ];
+
+        assert_eq!(
+            playlist_row_thumbnail_urls(&rows),
+            vec![
+                "https://img.test/track-1.jpg".to_owned(),
+                "https://img.test/album-a.jpg".to_owned(),
+                "https://img.test/album-b.jpg".to_owned(),
+            ]
+        );
+    }
 
     fn playlist(name: &str) -> db::Playlist {
         db::Playlist {

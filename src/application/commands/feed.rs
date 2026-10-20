@@ -660,6 +660,51 @@ impl ApplicationCommand for UnsubscribeFeedByUrl {
     }
 }
 
+/// Stores the channel image of an artist feed from its feed page (ADR 0084
+/// Decision 12).
+///
+/// The feed page load already holds the image. This command sends no
+/// `MusicIndex` request. It writes the image to the stored relationship
+/// rows of the feed. Its output is the number of changed rows. The caller
+/// refreshes the Library when that number is not zero.
+#[derive(Clone, Debug)]
+pub(crate) struct StorePublisherFeedImage {
+    conn: SharedConnection,
+    publisher_feed_guid: String,
+    image_url: String,
+}
+
+impl StorePublisherFeedImage {
+    /// Creates the command for one feed GUID and one channel image URL.
+    #[must_use]
+    pub(crate) fn new(
+        conn: SharedConnection,
+        publisher_feed_guid: impl Into<String>,
+        image_url: impl Into<String>,
+    ) -> Self {
+        Self {
+            conn,
+            publisher_feed_guid: publisher_feed_guid.into(),
+            image_url: image_url.into(),
+        }
+    }
+}
+
+impl ApplicationCommand for StorePublisherFeedImage {
+    type Output = usize;
+
+    fn execute(self, _context: &CommandContext) -> CommandResult<Self::Output> {
+        let conn = self.conn.lock().map_err(|_| feed_lock_error())?;
+        let changed = db::publisher_relationships::store_publisher_feed_image(
+            &conn,
+            &self.publisher_feed_guid,
+            &self.image_url,
+        )
+        .map_err(|error| feed_command_error(&error))?;
+        Ok(CommandOutcome::new(changed, Vec::new()))
+    }
+}
+
 fn feed_changed_events() -> Vec<ApplicationEvent> {
     vec![
         ApplicationEvent::Feed(FeedEvent::Changed),

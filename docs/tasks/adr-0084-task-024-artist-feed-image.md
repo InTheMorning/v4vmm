@@ -199,6 +199,14 @@ The operator found that the singles group of Haleen showed the mosaic, while the
 - Cause: the group and the Artists row each looked for the image only in the named feeds of their own albums. The image is stored for each album relation, and an album that the app has not hydrated since migration 20 has no image.
 - Fix: one map from each feed GUID to its first stored image, built from each album of the Library. The Artists rows and the singles groups use it. The test `adr_0084_row_fix_feed_image_comes_from_each_album_of_the_feed` holds it.
 
+## Orchestrator Amendment - 2026-10-20: The Feed Page Stores Its Image
+
+The operator found that the Artists row of HeyCitizen showed the mosaic, while its feed page showed the channel image. No album of HeyCitizen had stored the image since migration 20.
+
+- When a feed page loads a channel image, the command `StorePublisherFeedImage` writes it to each named feed record of that feed. It sends no request. The Library then reloads, so the Artists row and the singles groups update in place.
+- The command ignores an empty value, a value that is not an http or https URL, a value longer than 4096 bytes, and a value with a control character.
+- The test `adr_0084_walk_fix_feed_page_image_updates_the_rows_of_the_feed` and the guard `adr_0084_walk_fix_feed_page_completion_stores_the_feed_image` hold it.
+
 ## Prompt for lower-context coding model
 
 You are implementing one bounded task from a larger plan.

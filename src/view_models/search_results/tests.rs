@@ -222,11 +222,12 @@ fn index_detail_display_preserves_remote_track_view() {
 /// entity kind, and it carries no feed or track detail.
 #[test]
 fn index_detail_display_loading_names_the_kind_and_carries_no_detail() {
-    let detail = super::IndexDetailDisplay::loading(IndexDetailKind::Feed, "feed-guid", "Monster");
+    let detail =
+        super::IndexDetailDisplay::loading(IndexDetailKind::Release, "feed-guid", "Monster");
 
-    assert_eq!(detail.kind, IndexDetailKind::Feed);
+    assert_eq!(detail.kind, IndexDetailKind::Release);
     assert_eq!(detail.id, "feed-guid");
-    assert!(detail.secondary_text.contains("feed"));
+    assert!(detail.secondary_text.contains("release"));
     assert!(detail.feed.is_none());
     assert!(detail.track.is_none());
 }
@@ -259,7 +260,7 @@ fn index_detail_display_loaded_feed_and_track_carry_the_fetched_view() {
         },
         "feed-guid",
     );
-    assert_eq!(feed_detail.kind, IndexDetailKind::Feed);
+    assert_eq!(feed_detail.kind, IndexDetailKind::Release);
     assert_eq!(
         feed_detail
             .feed

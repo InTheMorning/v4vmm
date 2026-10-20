@@ -276,6 +276,12 @@ The operator found two defects in the final walk and approved the fixes on 2026-
 - Each row of the singles group page showed the track number "1". A single row now has no number column, and the cover leads. The test `adr_0084_row_fix_single_row_has_no_track_number` holds it.
 - A row with a MusicBrainz status and "New" puts both texts in the state column. The text can be cut at the column edge. The final walk checks it.
 
+## Orchestrator Amendment - 2026-10-20: The Release Badge And The Playlist Covers
+
+- The badge above a release title read "feed". ADR 0084 Decision 5 says that the curator sees "Release". The release page header and the Index loading header now read "release". The tests `adr_0084_walk_fix_release_page_header_kind_label_is_release` and `adr_0084_walk_fix_index_release_header_kind_label_is_release` hold it.
+- The fallback title "Unknown Feed" of a release with no title still uses the old word. No packet owns it.
+- The playlist page did not load the covers of its rows, also before the run. The page now asks for the track image, else the album image, of each row that it draws. The tests `adr_0084_walk_fix_playlist_rows_give_track_image_else_album_image` and `adr_0084_walk_fix_paged_playlist_thumbnail_urls_read_only_ready_rows` hold it.
+
 ## Prompt for lower-context coding model
 
 You are implementing one bounded task from a larger plan.

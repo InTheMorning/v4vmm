@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use gpui::{AnyElement, App, Context, Image, Modifiers, Window};
 
+use crate::application::commands::feed::StorePublisherFeedImage;
 use crate::application::queries::feed::FetchIndexPublisherPage;
 use crate::application::queries::library::FetchLibraryPublisherPage;
 use crate::application::{ApplicationCommand, CommandContext};
@@ -185,12 +186,16 @@ impl TopApp {
                 if !publisher_page_result_is_current(this.publisher_page.as_ref(), &success_guid) {
                     return;
                 }
+                let feed_image_url = facts.feed_image_url.clone();
                 this.publisher_page = Some(PublisherPageState::Loaded {
-                    publisher_feed_guid: success_guid,
+                    publisher_feed_guid: success_guid.clone(),
                     facts: Box::new(facts),
                     context,
                 });
                 cx.notify();
+                if let Some(image_url) = feed_image_url {
+                    this.store_publisher_feed_image(success_guid, image_url, cx);
+                }
             },
             move |this, error, cx| {
                 if !publisher_page_result_is_current(this.publisher_page.as_ref(), &failure_guid) {
@@ -200,6 +205,37 @@ impl TopApp {
                     publisher_feed_guid: failure_guid,
                     message: format!("{error}"),
                 });
+                cx.notify();
+            },
+        );
+    }
+
+    /// Stores the channel image of a loaded feed page in the relationship
+    /// rows of that feed (ADR 0084 Decision 12). The command runs on the
+    /// ADR 0040 runtime and sends no request. When a row changes, the
+    /// Library reloads, so the Artists row and the singles groups show the
+    /// image in place.
+    fn store_publisher_feed_image(
+        &mut self,
+        publisher_feed_guid: String,
+        image_url: String,
+        cx: &mut Context<Self>,
+    ) {
+        let command =
+            StorePublisherFeedImage::new(Arc::clone(&self.conn), publisher_feed_guid, image_url);
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            |this, changed, cx| {
+                if changed > 0 {
+                    this.library.update(cx, crate::library::LibraryApp::refresh);
+                }
+            },
+            |this, error, cx| {
+                this.settings_status =
+                    format!("The app could not store the image of the artist feed: {error}");
                 cx.notify();
             },
         );

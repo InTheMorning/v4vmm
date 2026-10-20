@@ -21443,3 +21443,50 @@ src/presentation/collection_art.rs: `{line}`"
     }
     assert!(violations.is_empty(), "{}", violations.join("\n"));
 }
+
+/// Walk fix F4 of 2026-10-20 (ADR 0084 Decision 12) situational guard. The
+/// completion handler of the feed page load stores the channel image of the
+/// feed through `StorePublisherFeedImage`, and a changed row refreshes the
+/// Library. Without this, the Artists row and the singles groups show the
+/// mosaic while the feed page shows the image.
+#[test]
+fn adr_0084_walk_fix_feed_page_completion_stores_the_feed_image() {
+    const OWNER: &str = "src/app/publisher_dispatch.rs";
+    let source = read_source(&manifest_path(OWNER));
+    let code = code_only(&source);
+    let checked = production_source(&code);
+    let body_of = |name: &str| -> String {
+        let start = checked
+            .find(&format!("fn {name}"))
+            .unwrap_or_else(|| panic!("{OWNER}: no `fn {name}`"));
+        let rest = &checked[start..];
+        let end = rest[1..]
+            .find("\n    fn ")
+            .map_or(rest.len(), |index| index + 1);
+        let end = rest[1..]
+            .find("\n    pub(super) fn ")
+            .map_or(end, |index| end.min(index + 1));
+        rest[..end].to_string()
+    };
+    let completion = body_of("dispatch_publisher_page_fetch");
+    assert!(
+        completion.contains("store_publisher_feed_image("),
+        "{OWNER}: ADR 0084 Decision 12: the feed page completion handler in \
+`dispatch_publisher_page_fetch` must call `store_publisher_feed_image` with the loaded \
+`feed_image_url`. Call it after the page state becomes `Loaded`, so the Artists row and the \
+singles groups show the channel image of the feed."
+    );
+    let store = body_of("store_publisher_feed_image");
+    assert!(
+        store.contains("StorePublisherFeedImage::new(") && store.contains("present_command("),
+        "{OWNER}: ADR 0084 Decision 12: `store_publisher_feed_image` must run the \
+`StorePublisherFeedImage` command through `present_command` on the ADR 0040 command runner. \
+Do not write the database on the UI thread and do not send a new MusicIndex request."
+    );
+    assert!(
+        store.contains("LibraryApp::refresh"),
+        "{OWNER}: ADR 0084 Decision 12: when `StorePublisherFeedImage` changes a row, \
+`store_publisher_feed_image` must call `LibraryApp::refresh`, so the Artists row and the \
+singles groups update in place."
+    );
+}
