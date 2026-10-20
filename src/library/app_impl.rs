@@ -624,12 +624,14 @@ impl LibraryApp {
         }
     }
 
-    /// Opens the page of a singles group in the current path (ADR 0084
-    /// Decision 6).
+    /// Opens the page of a singles group from its row in the Releases list
+    /// (ADR 0084 Decisions 6 and 9). A list row starts the path at its
+    /// destination, the same as a release row. The "All n singles" link of
+    /// a single page keeps the current path.
     pub(crate) fn open_singles_group(&mut self, key: &SinglesGroupKey, cx: &mut Context<Self>) {
         self.open_page(
             FrameNavigationEntry::SinglesGroup(key.clone()),
-            NavigationPathStart::CurrentPath,
+            NavigationPathStart::ListRow,
             cx,
         );
     }

@@ -5023,6 +5023,22 @@ and the menu behind `reorder_visible`, and keep the held scroll handle.\n{}",
     );
 }
 
+/// Situational ADR 0084 Decision 9 (final walk of 2026-10-20): a singles
+/// group row of the Releases list starts the path at its destination, the
+/// same as a release row. Before this fix, the group page joined the path
+/// of the open release page, for example "Releases > Aged Friends > Singles".
+#[test]
+fn adr_0084_walk_fix_group_row_starts_the_path_at_its_destination() {
+    let source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let body = adr_0084_detail_selection_fn_body(&source, "pub(crate) fn open_singles_group(");
+    assert!(
+        body.contains("NavigationPathStart::ListRow") && !body.contains("NavigationPathStart::CurrentPath"),
+        "ADR 0084 Decision 9: `open_singles_group` in src/library/app_impl.rs opens the group page \
+from a list row, so it must use `NavigationPathStart::ListRow`. The \"All n singles\" link of a \
+single page uses its own `CurrentPath` call and must not call this function."
+    );
+}
+
 /// Situational ADR 0084 Decision 10 (packet 020 review, 2026-10-20): the
 /// key scroll of a page that opens from Discover moves that page. Before
 /// this fix, `detail_scroll_handle` read only `LibraryDetail::Discover`, and

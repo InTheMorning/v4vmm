@@ -116,6 +116,11 @@ The operator sends screenshots, and the orchestrator records each result here wi
 | 2026-10-20 | 022.4 finished item text and "Dismiss" | Pass | "Downloaded 1 of 1. Finished 18:44" |
 | 2026-10-20 | §13 V1 "Check RSS" button and state | Pass | Playlist "0001" |
 | 2026-10-20 | Playlist row covers | Fail, fix in progress | Each row shows the placeholder. The defect is older than the run |
+| 2026-10-20 | 021.1 row columns on a new build | Pass | "3:47" lines up with each duration |
+| 2026-10-20 | 021.3 single rows with no number | Pass | Singles group page of Haleen |
+| 2026-10-20 | 024.1 HeyCitizen Artists row after its feed page | Pass | The row shows the channel image |
+| 2026-10-20 | Playlist row covers | Pass | Playlist "0001" |
+| 2026-10-20 | Breadcrumb of a group page opened from its list row | Fail, fixed | It read "Releases > Aged Friends & Old Whiskey > Singles by Haleen". The defect is older than the run (packet 015) |
 
 ## Final Walk
 
