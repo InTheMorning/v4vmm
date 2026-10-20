@@ -23,8 +23,9 @@ use crate::library::LibraryApp;
 use crate::ui::composites::music_column_scroll::music_column_scrollbar;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{
-    DisclosureIndicator, DisclosureIndicatorDisplay, DisclosureSupplementDisplay,
-    DisclosureSupplementLabel, EntityKind, ListRow, ListRowA11yLabel, Thumbnail, ThumbnailSize,
+    disclosure_column, DisclosureIndicator, DisclosureIndicatorDisplay,
+    DisclosureSupplementDisplay, DisclosureSupplementLabel, EntityKind, ListRow, ListRowA11yLabel,
+    Thumbnail, ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
@@ -126,7 +127,7 @@ pub(crate) fn render_library_destination_rows(
         .into_iter()
         .map(|row| {
             let thumbnail = thumbnails.get(&row.element_id).cloned().flatten();
-            render_destination_list_row(row, thumbnail, cx)
+            render_destination_list_row(row, thumbnail, LeadingDisclosure::None, cx)
         })
         .collect();
     render_destination_list_container(children, empty_label, cx)
@@ -149,7 +150,12 @@ pub(crate) fn render_library_releases_list(
         match entry {
             ReleasesListEntryVm::Release(row) => {
                 let thumbnail = thumbnails.get(&row.element_id).cloned().flatten();
-                children.push(render_destination_list_row(row, thumbnail, cx));
+                children.push(render_destination_list_row(
+                    row,
+                    thumbnail,
+                    LeadingDisclosure::Empty,
+                    cx,
+                ));
             }
             ReleasesListEntryVm::SinglesGroup(group) => {
                 render_singles_group_rows(group, thumbnails, cx, &mut children);
@@ -187,11 +193,8 @@ fn render_singles_group_rows(
     let open_key = open.clone();
     let toggle_key = open;
 
-    let disclosure = div()
+    let disclosure = disclosure_column(cx)
         .id(SharedString::from(disclosure_element_id))
-        .flex()
-        .items_center()
-        .justify_center()
         .cursor_pointer()
         .tooltip({
             let tooltip = crate::ui::primitives::Tooltip::new(disclosure_a11y_label);
@@ -275,15 +278,31 @@ fn render_singles_group_rows(
         children.push(
             div()
                 .pl(spacing::LG)
-                .child(render_destination_list_row(row, thumbnail, cx))
+                .child(render_destination_list_row(
+                    row,
+                    thumbnail,
+                    LeadingDisclosure::Empty,
+                    cx,
+                ))
                 .into_any_element(),
         );
     }
 }
 
+/// The leading disclosure column of a destination row (ADR 0084 Decision
+/// 6). The Releases list keeps the column on each row, so each cover aligns
+/// with the cover of a singles group row. The Artists list has no group, so
+/// it keeps no column.
+#[derive(Clone, Copy)]
+enum LeadingDisclosure {
+    None,
+    Empty,
+}
+
 fn render_destination_list_row(
     row: DestinationListRowVm,
     thumbnail: Option<Arc<Image>>,
+    leading_disclosure: LeadingDisclosure,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let entity_kind = match &row.open {
@@ -332,6 +351,10 @@ fn render_destination_list_row(
         .on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
             this.click_release_row(&target, event.modifiers(), cx);
         }))
+        .when(
+            matches!(leading_disclosure, LeadingDisclosure::Empty),
+            |el| el.child(disclosure_column(cx)),
+        )
         .child(render_hoverable_release_thumb(
             thumb_element_id,
             thumbnail_href,

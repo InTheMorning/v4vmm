@@ -68,9 +68,9 @@ pub use cover_backdrop::CoverBackdrop;
 pub use detail_grid::{DetailElementRow, DetailGrid, DetailRow, DetailTextRow};
 pub use detail_header::{DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay};
 pub use disclosure_group::{
-    DisclosureGroup, DisclosureGroupDisplay, DisclosureIndicator, DisclosureIndicatorDisplay,
-    DisclosureSupplementDisplay, DisclosureSupplementLabel, DisclosureTextPanel,
-    DisclosureTextPanelDisplay,
+    disclosure_column, DisclosureGroup, DisclosureGroupDisplay, DisclosureIndicator,
+    DisclosureIndicatorDisplay, DisclosureSupplementDisplay, DisclosureSupplementLabel,
+    DisclosureTextPanel, DisclosureTextPanelDisplay,
 };
 pub use file_header::FileHeader;
 #[expect(

@@ -84,6 +84,7 @@ These are for the operator. No test proves them.
 - V4: in normal mode, Ctrl+click on a row starts selection mode with that row selected.
 - V5: the same in Tracks and in Needs attention. Artists shows no "Select".
 - V6: check normal and narrow widths, Light and Dark themes, and the larger type sizes. The button, the checkboxes and the bar stay in place, with no clipped text.
+- V7: the chevron of a singles group row has the icon size of the checkbox mark, and the gray of secondary text. Each cover in Releases aligns, and each single row starts one step to the right of its group row.
 
 ## Exclusions
 
@@ -237,7 +238,19 @@ This check needs a Linux desktop session and this checkout. It also needs a Libr
 
 **Wrong if:** a narrower or wider column clips the button, a checkbox, or the bar text. Also wrong: a theme or a larger type size hides or overlaps any of the three.
 
-**Cleanup:** press Escape, or click "Done", to leave selection mode and clear any checked row. This check removes no file and changes no stored record.
+### V7: The chevron and the disclosure column
+
+21. Open Releases in normal mode. Find a singles group row, which has a chevron at its left.
+22. Look at the chevron. It must be the same size as the check mark in a checkbox, and as clear as the second line of a row.
+23. Look at the covers. The cover of each release row must align with the cover of each group row, in one vertical line.
+24. Click the chevron, then click near it but not on it, within the left edge of the row. Each click must open or close the group, and must not open the group page. Press Right, then Left, on the focused group row. The group must open, then close.
+25. Open the group. Look at each single row. Its cover must start one step to the right of the cover of the group row.
+26. Open a track page with a metadata cell that opens, for example a tag value with more than one entry. Click its chevron. The chevron must show at the new size, and the text beside it must not overlap or move to a second line.
+27. Repeat steps 22 and 23 in Light and Dark.
+
+**Wrong if:** the chevron is smaller than the check mark, or as faint as before. Also wrong: a cover that is out of line, a click beside the chevron that opens the group page, or a metadata row that overlaps.
+
+**Cleanup:** press Escape, or click "Done", to leave selection mode and clear any checked row. Close each group that you opened. This check removes no file and changes no stored record.
 
 Do not delete `/tmp/v4vmm-governance.ie6k8TQf`. Color alone is not a valid difference.
 
@@ -299,3 +312,12 @@ Pass. The code needs no fix.
 - R19-01, R19-02, R19-04 and R19-07 are source guards, because no test builds `LibraryApp` with a GPUI context. Packet 009 uses the same method for R9-08 and R9-09.
 - The orchestrator replaced the open contrast check of 2026-10-19 with the check of this packet. V1 step 5 and V2 step 8 hold its two points.
 
+
+## Orchestrator Amendment - 2026-10-19: The Chevron
+
+The operator approved a change of the singles group chevron on 2026-10-19. The chevron was too small and too faint beside the new checkbox.
+
+- `DisclosureIndicator` draws `IconSize::Action` in `SecondaryLabel`, in the box of the checkbox (`Size::CheckboxIndicator`). The test `indicator_matches_the_checkbox_tokens` holds these tokens.
+- `disclosure_column` is a square of `Size::MinHitTarget`. A singles group row puts its chevron in this column. A release row and a single row keep the empty column, so each cover aligns. The Artists list keeps no column.
+- The metadata cells of the track page use the same indicator, so their chevron also changes. V7 step 26 checks them.
+- Mechanical checks are Green. V7 needs the operator.

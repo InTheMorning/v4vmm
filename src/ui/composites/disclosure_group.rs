@@ -50,6 +50,19 @@ use crate::ui::tokens::{FontSize, Radius, SemanticColor, Size, Spacing};
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
+/// The chevron has the icon size of the checkbox mark, so the two leading
+/// controls of a row match. The operator found on 2026-10-19 that the
+/// smaller `Transport` chevron in `TertiaryLabel` was hard to see and hard
+/// to hit.
+const DISCLOSURE_ICON_SIZE: IconSize = IconSize::Action;
+/// `SecondaryLabel` meets 4.5:1 on each surface (`src/ui/contrast.rs`),
+/// more than the 3:1 that a graphic needs.
+const DISCLOSURE_ICON_COLOR: SemanticColor = SemanticColor::SecondaryLabel;
+/// The box of the chevron is the box of the checkbox.
+const DISCLOSURE_INDICATOR_BOX: Size = Size::CheckboxIndicator;
+/// The leading disclosure column is the minimum hit target.
+const DISCLOSURE_COLUMN_SIDE: Size = Size::MinHitTarget;
+
 #[derive(IntoElement)]
 #[must_use]
 pub struct DisclosureGroup {
@@ -183,12 +196,38 @@ impl RenderOnce for DisclosureIndicator {
         } else {
             IconName::ChevronRight
         };
-        div().w(Spacing::MD.scaled(cx)).child(
-            Icon::new(icon_name)
-                .size(IconSize::Transport)
-                .color(crate::ui::tokens::color(cx, SemanticColor::TertiaryLabel)),
-        )
+        let box_size = DISCLOSURE_INDICATOR_BOX.scaled(cx);
+        div()
+            .flex_none()
+            .w(box_size)
+            .h(box_size)
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                Icon::new(icon_name)
+                    .size(DISCLOSURE_ICON_SIZE)
+                    .color(crate::ui::tokens::color(cx, DISCLOSURE_ICON_COLOR)),
+            )
     }
+}
+
+/// The fixed leading disclosure column of a list row (ADR 0084 Decision 6).
+///
+/// The column is a square of the minimum hit target, the same as the
+/// checkbox slot of `ListRow`. A row that can open puts its
+/// [`DisclosureIndicator`] in the column. A row that cannot open keeps the
+/// empty column, so each cover in the list aligns.
+#[must_use]
+pub fn disclosure_column(cx: &App) -> gpui::Div {
+    let side = DISCLOSURE_COLUMN_SIDE.scaled(cx);
+    div()
+        .flex_none()
+        .w(side)
+        .h(side)
+        .flex()
+        .items_center()
+        .justify_center()
 }
 
 impl RenderOnce for DisclosureSupplementLabel {
@@ -298,6 +337,17 @@ mod tests {
 
         let expanded = DisclosureIndicator::new(DisclosureIndicatorDisplay { expanded: true });
         assert!(expanded.expanded);
+    }
+
+    #[test]
+    fn indicator_matches_the_checkbox_tokens() {
+        // ADR 0084 Decision 6: the chevron and the checkbox are the two
+        // leading controls of a Releases row. They have the same icon
+        // size, the same box and the same hit target.
+        assert_eq!(DISCLOSURE_ICON_SIZE, IconSize::Action);
+        assert_eq!(DISCLOSURE_ICON_COLOR, SemanticColor::SecondaryLabel);
+        assert_eq!(DISCLOSURE_INDICATOR_BOX, Size::CheckboxIndicator);
+        assert_eq!(DISCLOSURE_COLUMN_SIDE, Size::MinHitTarget);
     }
 
     #[test]

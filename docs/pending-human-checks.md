@@ -166,3 +166,4 @@ Open - implementation and mechanical checks are complete on 2026-10-19. Operator
 - It includes the contrast fix of 2026-10-19: V1 step 5 checks the focus outline, and V2 step 8 checks the checkbox border, in Dark and in Light.
 - V1: normal mode shows no checkbox and a "Select" button. V2: "Select" shows each checkbox and "Select items", and a click selects. V3: "Done" and Escape end the mode.
 - V4: Ctrl+click starts the mode. V5: Tracks and Needs attention, and no button in Artists. V6: the widths, themes and type sizes.
+- V7: the larger singles group chevron, its hit area, the aligned covers in Releases, and the chevron of the track page metadata cells.
