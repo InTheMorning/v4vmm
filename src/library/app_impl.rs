@@ -75,12 +75,12 @@ use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::library::{
     description_line_count, list_column_header_action, releases_disclosure_step, AlbumNode,
     BroadcastRouteRepairCompletion, BroadcastRouteRepairCompletionStatus, ContentListRowActionKind,
-    DestinationListRowTarget, FeedCheckRouteRepairOutcome, FeedUpdateActionDisplay,
-    FeedUpdateActionKind, FeedUpdateDisplay, FeedUpdatePhase, InspectorPanelKind,
-    LibraryArtistDetailVm, LibraryTrackActionVm, LibraryTrackInspectorState, LibraryTrackRowVm,
-    LibraryViewModel, MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome,
-    PlaylistDetailActionsDisplay, ReleasesDisclosureStep, ReleasesListEntryVm, ReleasesRowId,
-    RemovalConfirmation, TrackSubscribeOutcome,
+    ContentListSelectionTarget, DestinationListRowTarget, FeedCheckRouteRepairOutcome,
+    FeedUpdateActionDisplay, FeedUpdateActionKind, FeedUpdateDisplay, FeedUpdatePhase,
+    InspectorPanelKind, LibraryArtistDetailVm, LibraryTrackActionVm, LibraryTrackInspectorState,
+    LibraryTrackRowVm, LibraryViewModel, MbTrackStatus, PlaylistAppendIntent,
+    PlaylistAppendOutcome, PlaylistDetailActionsDisplay, ReleasesDisclosureStep,
+    ReleasesListEntryVm, ReleasesRowId, RemovalConfirmation, TrackSubscribeOutcome,
 };
 use crate::view_models::library_removal::{
     SelectionRemovalConfirmationState, SelectionRemovalPendingItem, SelectionRemovalReport,
@@ -833,6 +833,7 @@ impl LibraryApp {
         let mut vm = LibraryViewModel::new();
         vm.set_content_view_mode(content_view_mode);
         let detail_column_scroll = gpui::ScrollHandle::new();
+        let recent_music_scroll = gpui::ScrollHandle::new();
         let mut app = Self {
             playback_availability: Err(
                 crate::application::capability::ExecutionUnavailable::configured(
@@ -861,7 +862,8 @@ impl LibraryApp {
             tag_update_snapshot: None,
             tag_update_request_failed: false,
             recent_music_page: RecentFeedsPageVm::loading(),
-            recent_music_scroll: gpui::ScrollHandle::new(),
+            discover_scroll_reveal: ScrollReveal::new(recent_music_scroll.clone()),
+            recent_music_scroll,
             expanded_singles_groups: BTreeSet::new(),
             download_queue: super::DownloadQueue::default(),
             releases_selection: ListSelection::new(),
@@ -4188,6 +4190,7 @@ impl LibraryApp {
                     rows,
                     &content_row_thumbs,
                     &self.recent_music_scroll,
+                    (ContentListSelectionTarget::ListColumn, None),
                     cx,
                 );
                 if let Some(bar) = self.content_list_selection_action_bar() {
@@ -4374,8 +4377,10 @@ impl LibraryApp {
                     content_row_thumbs.insert(row_id, img);
                 }
                 let view_mode_display = self.vm.content_view_mode_control();
+                let probe = self.detail_scroll_reveal().probe();
                 render_discover_new_releases_detail(
                     self.vm.content_list_page(),
+                    (&self.detail_selection, probe),
                     view_mode_display,
                     &content_row_thumbs,
                     &self.recent_music_scroll,

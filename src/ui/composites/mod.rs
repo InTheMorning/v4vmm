@@ -41,6 +41,7 @@ pub mod playlist_popover;
 pub mod release_detail_surface;
 pub mod segmented_control;
 pub mod selectable_text;
+pub(crate) mod selectable_tile;
 pub(crate) mod selection_action_bar;
 pub mod show_card;
 pub mod show_detail_panel;

@@ -4962,6 +4962,139 @@ and sets `Normal`. Keep the reset and the bind of the detail selection.\n{}",
     );
 }
 
+/// Situational ADR 0084 Decision 10 (packet 020 review, 2026-10-20): the
+/// key scroll of a page that opens from Discover moves that page. Before
+/// this fix, `detail_scroll_handle` read only `LibraryDetail::Discover`, and
+/// a release page opened from Discover scrolled the hidden Discover list.
+#[test]
+fn adr_0084_discover_selection_a_page_from_discover_scrolls_its_own_handle() {
+    let source = read_source(&manifest_path("src/library/detail_selection.rs"));
+    let body = adr_0084_detail_selection_fn_body(&source, "pub(crate) fn detail_scroll_handle(");
+    assert!(
+        body.contains("self.discover_is_open()") && !body.contains("LibraryDetail::Discover(_) =>"),
+        "ADR 0084 Decision 10: `detail_scroll_handle` in src/library/detail_selection.rs must \
+choose the handle with `self.discover_is_open()`, as `detail_scroll_reveal` does. A page that \
+opens from Discover keeps `LibraryDetail::Discover`, so the detail kind alone picks the wrong handle."
+    );
+}
+
+/// R20-06, situational ADR 0084 Decision 10 (packet 020): the Discover
+/// rows and tiles send each click through
+/// `ContentListSelectionTarget::DetailColumn` to the detail selection of
+/// packet 018. The list column keeps its own selection methods.
+#[test]
+fn adr_0084_discover_selection_r20_06_discover_clicks_go_to_the_detail_column() {
+    let mut violations = Vec::new();
+    let shell = "src/ui/shells/library/content_list.rs";
+    let source = read_source(&manifest_path(shell));
+    let click = "this.click_content_row(target, &row_id, event.modifiers(), cx);";
+    for (start, end, required) in [
+        (
+            "pub(crate) fn render_discover_new_releases_detail(",
+            "fn render_content_list_rows(",
+            "let routing = (ContentListSelectionTarget::DetailColumn, Some(probe));",
+        ),
+        (
+            "fn render_content_list_row(",
+            "fn render_content_list_tile(",
+            click,
+        ),
+        (
+            "fn render_content_list_tile(",
+            "fn render_content_row_checkbox(",
+            click,
+        ),
+        (
+            "fn render_content_row_checkbox(",
+            "fn render_content_list_tile_artwork(",
+            "this.toggle_content_row(target, &row_id, cx);",
+        ),
+    ] {
+        if !source_between(&source, start, end).contains(required) {
+            violations.push(format!("{shell}: `{start}` must contain `{required}`."));
+        }
+    }
+    let renderers = source_between(
+        &source,
+        "fn render_content_list_row(",
+        "fn render_content_list_tile_artwork(",
+    );
+    for forbidden in [
+        "this.open_content_list_row(",
+        "this.click_content_list_row(",
+        "this.toggle_content_list_row_selection(",
+    ] {
+        if renderers.contains(forbidden) {
+            violations.push(format!(
+                "{shell}: a row or tile renderer must not call `{forbidden}` directly. \
+Send the click through `click_content_row` or `toggle_content_row` with its target."
+            ));
+        }
+    }
+    let library = "src/library/detail_selection.rs";
+    let detail = read_source(&manifest_path(library));
+    for (signature, required) in [
+        (
+            "pub(crate) fn click_content_row(",
+            "ContentListSelectionTarget::DetailColumn => {\n                self.click_discover_row(row_id, modifiers, cx);",
+        ),
+        (
+            "pub(crate) fn toggle_content_row(",
+            "ContentListSelectionTarget::DetailColumn => self.toggle_discover_row(row_id, cx)",
+        ),
+    ] {
+        if !adr_0084_detail_selection_fn_body(&detail, signature).contains(required) {
+            violations.push(format!("{library}: `{signature}` must contain `{required}`."));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 Decision 10 (packet 020): send each Discover click through \
+`ContentListSelectionTarget::DetailColumn` to the detail selection methods.\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R20-07, situational ADR 0084 Decision 10 (packet 020): the selectable
+/// tile uses named tokens only, and uses `row_outline` of `list_row.rs`
+/// with no copy of it.
+#[test]
+fn adr_0084_discover_selection_r20_07_selectable_tile_uses_named_tokens() {
+    let mut violations = Vec::new();
+    let file = "src/ui/composites/selectable_tile.rs";
+    let source = read_source(&manifest_path(file));
+    for (line_number, line) in code_lines(&source) {
+        if line.contains("gpui::px(") || contains_numeric_px_literal(&line) {
+            violations.push(format!("{file}:{line_number}: raw pixel literal: `{line}`"));
+        }
+        for forbidden in ["rgb(", "rgba(", "hsla(", "fn row_outline("] {
+            if line.contains(forbidden) {
+                violations.push(format!("{file}:{line_number}: `{forbidden}` in `{line}`"));
+            }
+        }
+    }
+    for required in [
+        "Size::PointerHitTarget",
+        "Spacing::XS",
+        "SemanticColor::SystemBackground",
+        "SemanticColor::Separator",
+        "SemanticColor::Accent",
+        "SemanticColor::SelectedContent",
+        "SemanticColor::Focus",
+        "row_outline(self.selected, self.focused)",
+    ] {
+        if !source.contains(required) {
+            violations.push(format!("{file}: missing `{required}`."));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 Decision 10 (packet 020): the selectable tile takes each size and \
+color from a named token, and its outline from `row_outline` of `list_row.rs`.\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Situational ADR 0084 Decision 4 (packet 018 review, 2026-10-20): an
 /// Index track download also updates the open release page of the
 /// track's feed in place. Before this fix, only an open track page

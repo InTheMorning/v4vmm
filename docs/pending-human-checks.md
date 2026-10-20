@@ -57,7 +57,7 @@ Open - implementation and mechanical checks recorded 2026-09-11.
 Open - the run adds each packet when its mechanical checks are Green.
 
 - Owner: the [run record](reviews/orchestrated-run-2026-10-20.md#final-walk).
-- Packets: [ADR 0084 packet 021](tasks/adr-0084-task-021-one-release-page-assembly.md) V1 to V3, and [packet 022](tasks/adr-0084-task-022-download-queue.md) V1 to V6.
+- Packets: [ADR 0084 packet 021](tasks/adr-0084-task-021-one-release-page-assembly.md) V1 to V3, [packet 022](tasks/adr-0084-task-022-download-queue.md) V1 to V6, and [packet 020](tasks/adr-0084-task-020-discover-selection.md) V1 to V6.
 - Part B holds the deferred visual requirements of the overhaul plan that present screens can show.
 
 ## Method: Reach A Publisher Service State

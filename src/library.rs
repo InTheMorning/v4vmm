@@ -294,6 +294,9 @@ pub struct LibraryApp {
     detail_column_scroll: ScrollHandle,
     /// The request to keep the focused detail row in view (packet 018).
     detail_scroll_reveal: ScrollReveal,
+    /// The request to keep the focused Discover row or tile in view
+    /// (packet 020). The Discover view scrolls with `recent_music_scroll`.
+    discover_scroll_reveal: ScrollReveal,
 }
 
 pub(crate) struct PlaylistActorState {

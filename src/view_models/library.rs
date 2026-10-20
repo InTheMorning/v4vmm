@@ -1163,6 +1163,16 @@ fn release_kind_of_feed_result(display: &FeedResultDisplay) -> ReleaseKind {
     }
 }
 
+/// The selection that a click on a content row or tile changes (ADR 0084
+/// Decision 10, packet 020).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ContentListSelectionTarget {
+    /// The Tracks or Needs attention list of the list column.
+    ListColumn,
+    /// The Discover "New releases" view of the detail column.
+    DetailColumn,
+}
+
 /// Display row cached by the GPUI-free content-list page VM.
 #[derive(Clone, Debug)]
 pub(crate) struct ContentListRowDisplay {
@@ -1330,6 +1340,16 @@ impl ContentListRowDisplay {
     #[must_use]
     pub(crate) const fn accepts_row_click(&self) -> bool {
         self.activation.accepts_click()
+    }
+
+    /// The feed GUID of a Discover release row, from its `index-feed:` row
+    /// id (ADR 0084 packet 020). `None` for each other row and for an
+    /// empty GUID.
+    #[must_use]
+    pub(crate) fn index_feed_guid(&self) -> Option<&str> {
+        self.id
+            .strip_prefix(ContentListPageVm::INDEX_FEED_PREFIX)
+            .filter(|guid| !guid.is_empty())
     }
 
     fn from_kind(kind: ContentListRowKind) -> Self {

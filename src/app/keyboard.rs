@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use gpui::{actions, App, Context, KeyBinding, Modifiers, Window};
 
 use crate::library::LibraryApp;
+use crate::view_models::detail_selection::TileArrow;
 use crate::view_models::list_selection::FocusStep;
 
 use super::{AppTab, TopApp};
@@ -516,9 +517,14 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) {
         match self.tab {
-            AppTab::Music => self.library.update(cx, |library, cx| {
-                library.disclose_focused_group(true, window, cx);
-            }),
+            // Packet 020: Right also moves the Discover tile focus, when
+            // the detail column carries the focus.
+            AppTab::Music => {
+                self.library.update(cx, |library, cx| {
+                    library.disclose_focused_group(true, window, cx);
+                });
+                self.move_discover_tile_focus(TileArrow::Right, window, cx);
+            }
             AppTab::Show | AppTab::Settings => {}
         }
     }
@@ -530,9 +536,14 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) {
         match self.tab {
-            AppTab::Music => self.library.update(cx, |library, cx| {
-                library.disclose_focused_group(false, window, cx);
-            }),
+            // Packet 020: Left also moves the Discover tile focus, when
+            // the detail column carries the focus.
+            AppTab::Music => {
+                self.library.update(cx, |library, cx| {
+                    library.disclose_focused_group(false, window, cx);
+                });
+                self.move_discover_tile_focus(TileArrow::Left, window, cx);
+            }
             AppTab::Show | AppTab::Settings => {}
         }
     }

@@ -1,6 +1,6 @@
 # ADR 0084 Task 020: Selection On Discover
 
-Status: Ready - 2026-10-20.
+Status: Implemented - 2026-10-20. Cases R20-01 to R20-08 pass. Mechanical checks are Green. V1 to V6 are open, in the final walk of the run.
 
 ## Goal
 
@@ -122,6 +122,158 @@ cargo build --bin v4vmm
 ## Rollback
 
 Revert the commit. This packet adds no migration and no stored data.
+
+## Implementation Result - 2026-10-20
+
+### Files Changed
+
+- `src/view_models/detail_selection.rs`:
+  - `DetailListKind::for_entry` gives `Releases` for `DiscoverView::NewReleases`.
+  - New `discover_row_key`, `discover_release_rows` (the builder) and `discover_rows_with_selection`.
+  - New `TileArrow` (Left and Right) with `focus_step`. `DetailSelection::entry` is now also in the production build.
+  - Tests R20-01 to R20-05.
+- `src/view_models/library.rs`: new `ContentListSelectionTarget { ListColumn, DetailColumn }` and `ContentListRowDisplay::index_feed_guid`.
+- `src/library.rs` and `src/library/app_impl.rs`: new field `discover_scroll_reveal`, on the scroll handle of the content list. The two calls of the content list renderers give the target.
+- `src/library/detail_selection.rs`:
+  - `library_detail_page_rows` has the arm for Discover.
+  - New `click_discover_row`, `toggle_discover_row`, `click_content_row` and `toggle_content_row`.
+  - `detail_scroll_reveal` gives the Discover request while the Discover view is open.
+- `src/app/detail_selection.rs`: `detail_page_rows` has the arm for Discover. New `move_discover_tile_focus` for Left and Right.
+- `src/app/keyboard.rs`: Right and Left also call `move_discover_tile_focus`.
+- `src/ui/composites/selectable_tile.rs` (new): the tile composite, with its token test.
+- `src/ui/composites/list_row.rs`: `RowOutline` and `row_outline` are `pub(crate)`.
+- `src/ui/composites/mod.rs`: the new module.
+- `src/ui/shells/library/content_list.rs`:
+  - `render_library_content_list` takes the target and the scroll probe.
+  - The tile renderer uses `SelectableTile`. The row renderer and the tile renderer share `render_content_row_checkbox`.
+  - The comment that said that Discover has no selection model is deleted. The file has 496 code lines.
+- `tests/architecture_tests.rs`: new guards `adr_0084_discover_selection_r20_06_discover_clicks_go_to_the_detail_column` and `adr_0084_discover_selection_r20_07_selectable_tile_uses_named_tokens`.
+
+### Behavior Changed
+
+- "New releases" in Discover has the selection model and the two modes of packets 018 and 019, in the row view and in the tile view.
+- The detail column header shows "Select" and "Done" on the view. The accessibility label is "Select releases" or "Done selecting releases".
+- In selection mode, each tile shows its checkbox at the top-left corner of its cover. The checkbox is on a circle of `SystemBackground` with a `Separator` border.
+- A selected tile has the `Accent` outline and the `SelectedContent` fill. A focused tile has the `Focus` outline. The outline is a layer over the tile, so the tile keeps its size.
+- A plain click on a row or a tile in `Normal` opens the release page, as before. In selection mode, it changes the selection and opens no page. Ctrl+click and Shift+click start selection mode.
+- Up, Down, Left and Right move the tile focus in a line, and stop at the first and the last tile. The row view and the tile view use one focus order.
+- Space, Ctrl+A, Enter and Escape act as in packet 018. The focused row or tile stays in view.
+- The bar is the release bar of packet 018. "Download" queues each Index release and each Library release that is not fully downloaded through the queue of packet 022.
+- "Load more" adds rows that are not selected.
+
+### Checks - 2026-10-20
+
+| Check | Result |
+|---|---|
+| `cargo test --lib adr_0084_discover_selection_` | Green, 6 tests |
+| `cargo test --lib adr_0084_detail_selection_` | Green, 9 tests |
+| `cargo test --lib adr_0084_selection_` | Green, 29 tests |
+| `cargo test --lib adr_0084_download_queue_` | Green, 21 tests |
+| `cargo test` | Green, 2020 unit tests and 336 guards. Ten documentation examples stay ignored |
+| `cargo test --test architecture_tests` | Green, 336 guards |
+| `cargo fmt -- --check` | Green |
+| `cargo clippy -- -D warnings` | Green |
+| `cargo check --all-targets` | Green, no warning |
+| `cargo build --bin v4vmm` | Green |
+
+No application launch and no production-data change occurred. No test sends a request.
+
+### Deviations From The Task
+
+1. `render_library_content_list` takes one argument `routing: (ContentListSelectionTarget, Option<AnyElement>)`, not a separate target. The second item is the scroll probe of the focused row.
+   Two separate arguments made `content_list.rs` go above the ADR 0038 ceiling.
+2. `ContentListSelectionTarget` is in `src/view_models/library.rs`, not in `content_list.rs`. `LibraryApp` and the shell both use it, and it holds no renderer type.
+3. The match on the target is in `LibraryApp::click_content_row` and `LibraryApp::toggle_content_row`, in `src/library/detail_selection.rs`. The shell sends each click with its target.
+   This also keeps `content_list.rs` under the ceiling. The guard R20-06 reads the shell and these two methods.
+4. A tile in the list column now sends its click to `click_content_list_row`, with the modifiers, the same as a row of the list column. Before, a tile click only opened the page.
+   A tile in the list column also shows the checkbox of its row in selection mode. The list column selection model does not change.
+5. Left and Right move the focus on the Discover view only, in the tile view and in the row view. On each other page, they keep their packet 018 behavior.
+6. The Discover view uses a second `ScrollReveal`, on the scroll handle of the content list. The request of packet 018 scrolls the other detail pages.
+7. A release page or a feed page that opens from Discover keeps `LibraryDetail::Discover`. Thus the Discover rows and the Discover request also need the bound page entry of the detail selection.
+8. `TileArrow` has only Left and Right. Up and Down use `FocusStep::Up` and `FocusStep::Down` directly. R20-05 tests the four keys.
+9. R20-04 tests the rows of `discover_rows_with_selection`. The row view and the tile view render these same rows. No test proves the rendered tile.
+
+### Unresolved Concerns
+
+1. V1 to V6 below need the operator. No test proves the checkbox place, its backing, the outline, the scroll position or a layout at a narrow width.
+2. `detail_scroll_handle` of packet 018 gives the content list handle while `LibraryDetail::Discover` stays, also on a release page or a feed page that opens from Discover. This packet does not change it.
+   A key scroll on such a page can thus move the wrong handle.
+3. The source map and `docs/pending-human-checks.md` do not name `src/ui/composites/selectable_tile.rs` or V1 to V6. The task instructions named only this packet as a document to edit.
+
+## Operator Visual Check
+
+This check needs a Linux desktop session, this checkout and a connection to MusicIndex. It also needs these items:
+
+- Three Index releases in "New releases" that are not in the Library: one with a light cover, one with a dark cover and one with a busy cover.
+- One release in "New releases" that is also in the Library and fully downloaded.
+
+V4 downloads three releases. Use releases that you can remove after the check.
+
+1. Build the app: `cargo build --bin v4vmm`. Then start `target/debug/v4vmm` from a desktop session.
+2. Open Music, then Discover, then "New releases", in the sidebar.
+3. Set the tile view with the view-mode control at the top of the detail column.
+
+### V1: The header button and the tile checkbox
+
+4. Look for a "Select" button at the right end of the detail column header.
+5. Click "Select". Look for a checkbox at the top-left corner of the cover of each tile. Look for the bar "Select items" at the bottom of the detail column.
+6. Click "Done". The checkboxes and the bar must go, and the header must read "Select".
+
+**Wrong if:** a tile shows a checkbox in normal mode, or the checkbox is not at the top-left corner of the cover.
+
+### V2: The checkbox on each cover
+
+7. Click "Select". Look at the checkbox on the light cover, on the dark cover and on the busy cover.
+8. Check each of these three tiles, and look at each checkbox again.
+
+**Wrong if:** a checkbox or its circle backing is hard to see on a cover. Examine the clear state and the checked state.
+
+### V3: The selected tile and the focused tile
+
+9. Look at a checked tile. It must show a check mark, an outline and a fill.
+10. Click an empty area of the detail column. Push Right two times, then Left one time. A focus outline must move one tile at a time.
+11. Push Down at the last tile of a row. The focus must go to the first tile of the next row.
+12. Push End, then Home. The focus must go to the last tile, then to the first tile. The column must scroll to keep the focused tile in view.
+
+**Wrong if:** a selected tile shows its state only by color, with no check mark. Also wrong: the focus skips a tile, or the focused tile goes out of view.
+
+### V4: A click in selection mode and "Download"
+
+13. Click "Done", then click "Select". Click the body of three tiles that are not in the Library.
+14. Each of the three tiles must become checked, and no release page must open.
+15. Look for "Download 3 releases" in the bar. Click it.
+16. Look at the progress item below the live status strip. It must show three downloads, for example "Downloading 1 of 3".
+17. Click "Done". Click one tile. Its release page must open.
+
+**Wrong if:** a click in selection mode opens a page, or the progress item does not show the three releases.
+
+### V5: The row view
+
+18. Go back to "New releases". Set the row view with the view-mode control.
+19. Do steps 4 to 17 again in the row view. In the row view, the checkbox is at the start of each row, and Up and Down move the focus.
+20. Move the focus to a row, then change to the tile view. The same release must keep the focus.
+
+**Wrong if:** the row view does not do the same as the tile view. Also wrong: a change of view moves the focus to a different release.
+
+### V6: Themes, widths and type sizes
+
+21. In the tile view, click "Select" and check two tiles. Compare the size of a tile in selection mode and in normal mode.
+22. Change between the Light and the Dark theme in Settings.
+23. Make the window narrow, then make it wide again.
+24. Set a larger type size in Settings, if this setting is available.
+25. In each condition, look at the tiles, the checkboxes, the outlines and the bar.
+
+**Wrong if:** a tile changes its size in selection mode, text is clipped, or a checkbox moves off its cover.
+
+**Cleanup:** click "Done" to end selection mode. Remove the three releases that V4 downloaded, if you do not want them. Do not delete `/tmp/v4vmm-governance.ie6k8TQf`.
+
+## Orchestrator Review - 2026-10-20
+
+Pass, after one fix. The orchestrator made the fix in the same change.
+
+- A release page or a feed page that opens from Discover keeps `LibraryDetail::Discover`. `detail_scroll_handle` read only that kind, so the keys of such a page scrolled the hidden Discover list. It now chooses the handle with `discover_is_open()`, as `detail_scroll_reveal` does. The guard `adr_0084_discover_selection_a_page_from_discover_scrolls_its_own_handle` holds it.
+- The deviations agree with the packet. A tile in the list column now sends its click with the modifiers to `click_content_list_row`, so a tile and a row act the same.
+- The orchestrator added `selectable_tile.rs` to the source map.
 
 ## Prompt for lower-context coding model
 

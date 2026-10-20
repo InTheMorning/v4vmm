@@ -1,9 +1,10 @@
 //! The selection of the Music detail column (ADR 0084 Decision 10, packet
 //! 018).
 //!
-//! Three detail pages have a list that the curator can select: the track
-//! rows of a release page, the rows of a singles group page and the
-//! release rows of a feed page. The detail column has one selection and
+//! Four detail pages have a list that the curator can select: the track
+//! rows of a release page, the rows of a singles group page, the release
+//! rows of a feed page and the Discover "New releases" view (packet 020).
+//! The detail column has one selection and
 //! one mode. They belong to one page entry. A move to another page clears
 //! the selection and sets [`SelectionMode::Normal`].
 //!
@@ -14,6 +15,7 @@
 #![warn(clippy::pedantic)]
 
 use crate::db::TrackRow;
+use crate::view_models::library::ContentListRowDisplay;
 use crate::view_models::list_selection::{
     FocusStep, ListSelection, RowSelectionVm, SelectionMode, SelectionRow,
 };
@@ -21,7 +23,7 @@ use crate::view_models::publisher_page::{PublisherPageSectionVm, TitleDisplay};
 use crate::view_models::selection_action_bar::{SelectionActionBarVm, SelectionActionCounts};
 use crate::view_models::singles_group::SinglesGroupPageRowVm;
 use crate::view_models::workspace::{
-    FrameHeaderActionDisplay, FrameNavigationEntry, ReleaseKey, TrackKey,
+    DiscoverView, FrameHeaderActionDisplay, FrameNavigationEntry, ReleaseKey, TrackKey,
 };
 use crate::views::{TrackRef, TrackView};
 
@@ -60,16 +62,16 @@ pub(crate) enum DetailListKind {
 
 impl DetailListKind {
     /// The list kind of the page `entry`. A release page gives tracks. A
-    /// singles group page and a feed page give releases. Each other page
-    /// gives `None`: it has no selection in this packet. Packet 020 owns
-    /// the playlist page.
+    /// singles group page, a feed page and the Discover "New releases"
+    /// view give releases. Each other page gives `None`: it has no
+    /// selection. Packet 025 owns the playlist page.
     #[must_use]
     pub(crate) const fn for_entry(entry: &FrameNavigationEntry) -> Option<Self> {
         match entry {
             FrameNavigationEntry::Release(_) => Some(Self::Tracks),
-            FrameNavigationEntry::SinglesGroup(_) | FrameNavigationEntry::PublisherDetail(_) => {
-                Some(Self::Releases)
-            }
+            FrameNavigationEntry::SinglesGroup(_)
+            | FrameNavigationEntry::PublisherDetail(_)
+            | FrameNavigationEntry::DiscoverView(DiscoverView::NewReleases) => Some(Self::Releases),
             _ => None,
         }
     }
@@ -346,7 +348,6 @@ impl DetailSelection {
     }
 
     /// The page entry of this selection.
-    #[cfg(test)]
     #[must_use]
     pub(crate) fn entry(&self) -> Option<&FrameNavigationEntry> {
         self.entry.as_ref()
@@ -627,6 +628,73 @@ pub(crate) fn feed_page_release_rows(
             })
         })
         .collect()
+}
+
+/// The key of a Discover row or tile (packet 020), from its `index-feed:`
+/// row id. A row with no feed GUID has no key, so it has no checkbox and
+/// no focus stop.
+#[must_use]
+pub(crate) fn discover_row_key(row: &ContentListRowDisplay) -> Option<DetailRowKey> {
+    row.index_feed_guid()
+        .map(|guid| DetailRowKey::Release(ReleaseKey::FeedGuid(guid.to_owned())))
+}
+
+/// The rows of the Discover "New releases" view (packet 020), in their
+/// visible order. A row with no key is not in this list. `facts` gives the
+/// Library facts of a release key, so the bar counts follow packet 018.
+#[must_use]
+pub(crate) fn discover_release_rows<'a>(
+    rows: impl IntoIterator<Item = &'a ContentListRowDisplay>,
+    facts: impl Fn(&ReleaseKey) -> Option<LibraryReleaseFacts>,
+) -> Vec<DetailReleaseRow> {
+    rows.into_iter()
+        .filter_map(|row| match discover_row_key(row)? {
+            DetailRowKey::Release(key) => Some(DetailReleaseRow {
+                title: row.title().to_owned(),
+                library: facts(&key),
+                key,
+            }),
+            DetailRowKey::Track(_) => None,
+        })
+        .collect()
+}
+
+/// The Discover rows with the selection facts of the detail column
+/// (packet 020). The row view and the tile view use these same rows. A row
+/// with no key gets [`RowSelectionVm::none`].
+#[must_use]
+pub(crate) fn discover_rows_with_selection(
+    rows: Vec<ContentListRowDisplay>,
+    selection: &DetailSelection,
+) -> Vec<ContentListRowDisplay> {
+    rows.into_iter()
+        .map(|mut row| {
+            row.selection = selection.row_selection(discover_row_key(&row).as_ref(), row.title());
+            row
+        })
+        .collect()
+}
+
+/// Left or Right on the Discover tiles (packet 020). The tile focus moves
+/// in a line: the number of tiles in a row is a layout fact, and the view
+/// model holds no layout fact. Up and Down use [`FocusStep::Up`] and
+/// [`FocusStep::Down`] directly.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TileArrow {
+    Left,
+    Right,
+}
+
+impl TileArrow {
+    /// Left goes to the tile before, the same as Up. Right goes to the
+    /// tile after, the same as Down.
+    #[must_use]
+    pub(crate) const fn focus_step(self) -> FocusStep {
+        match self {
+            Self::Left => FocusStep::Up,
+            Self::Right => FocusStep::Down,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1023,5 +1091,155 @@ mod tests {
             .action(SelectionActionKind::AddToPlaylist)
             .is_none());
         assert!(index_only.action(SelectionActionKind::Remove).is_none());
+    }
+    fn discover_row(id: &str, title: &str) -> ContentListRowDisplay {
+        ContentListRowDisplay::new(
+            id,
+            title,
+            "Haleen",
+            crate::view_models::library::ContentListRowSource::Index,
+        )
+    }
+
+    fn discover_entry() -> FrameNavigationEntry {
+        FrameNavigationEntry::DiscoverView(DiscoverView::NewReleases)
+    }
+
+    /// R20-01: the Discover "New releases" view gives `Releases`.
+    #[test]
+    fn adr_0084_discover_selection_r20_01_new_releases_gives_releases() {
+        assert_eq!(
+            DetailListKind::for_entry(&discover_entry()),
+            Some(DetailListKind::Releases)
+        );
+    }
+
+    /// R20-02: only an `index-feed:` row gives a key. A row with no feed
+    /// GUID has no key and no checkbox.
+    #[test]
+    fn adr_0084_discover_selection_r20_02_only_an_index_feed_row_gives_a_key() {
+        assert_eq!(
+            discover_row_key(&discover_row("index-feed:face-pale", "Face Pale")),
+            Some(DetailRowKey::Release(release_key("face-pale")))
+        );
+        for id in ["index-feed:", "42", "library-feed:7"] {
+            assert_eq!(discover_row_key(&discover_row(id, "No GUID")), None, "{id}");
+        }
+
+        let rows = vec![
+            discover_row("index-feed:face-pale", "Face Pale"),
+            discover_row("index-feed:", "No GUID"),
+        ];
+        let releases = discover_release_rows(&rows, |_| None);
+        assert_eq!(releases.len(), 1);
+        assert_eq!(releases[0].title, "Face Pale");
+
+        let mut selection = DetailSelection::new();
+        selection.bind(&discover_entry());
+        selection.toggle_mode();
+        let rows = discover_rows_with_selection(rows, &selection);
+        assert!(rows[0].selection.checkbox_visible);
+        assert!(!rows[1].selection.checkbox_visible);
+        assert!(!rows[1].selection.focused);
+    }
+
+    /// R20-03: the Discover bar counts follow packet 018 R18-06. "Download"
+    /// counts the Index releases and the Library releases that are not
+    /// fully downloaded. "Add to playlist" and "Remove" count the Library
+    /// releases.
+    #[test]
+    fn adr_0084_discover_selection_r20_03_bar_counts_follow_packet_018() {
+        let rows = [
+            discover_row("index-feed:index-only", "Rain"),
+            discover_row("index-feed:downloaded", "Haleen"),
+            discover_row("index-feed:partial", "Face Pale"),
+        ];
+        let rows = DetailPageRows::Releases(discover_release_rows(&rows, |key| {
+            if key == &release_key("downloaded") {
+                library_facts(9, true)
+            } else if key == &release_key("partial") {
+                library_facts(10, false)
+            } else {
+                None
+            }
+        }));
+        let mut selection = DetailSelection::new();
+        selection.bind(&discover_entry());
+        selection.select_all(&rows.selection_rows());
+
+        let bar = rows.action_bar(&selection).expect("Selecting shows a bar");
+        assert_eq!(bar.count_label, "3 releases selected");
+        let label = |kind| bar.action(kind).map(|action| action.label.clone());
+        assert_eq!(
+            label(SelectionActionKind::Download).as_deref(),
+            Some("Download 2 releases")
+        );
+        assert_eq!(
+            label(SelectionActionKind::AddToPlaylist).as_deref(),
+            Some("Add 2 releases to playlist")
+        );
+        assert_eq!(
+            label(SelectionActionKind::Remove).as_deref(),
+            Some("Remove 1 release\u{2026}")
+        );
+    }
+
+    /// R20-04: in `Normal`, no Discover row or tile view model shows a
+    /// checkbox. In `Selecting`, each row with a key shows one. The row
+    /// view and the tile view render these same rows.
+    #[test]
+    fn adr_0084_discover_selection_r20_04_checkbox_follows_the_mode() {
+        let rows = vec![
+            discover_row("index-feed:a", "Rain"),
+            discover_row("index-feed:b", "Haleen"),
+            discover_row("index-feed:", "No GUID"),
+        ];
+        let mut selection = DetailSelection::new();
+        selection.bind(&discover_entry());
+        assert!(discover_rows_with_selection(rows.clone(), &selection)
+            .iter()
+            .all(|row| !row.selection.checkbox_visible));
+
+        selection.toggle_mode();
+        let shown: Vec<bool> = discover_rows_with_selection(rows, &selection)
+            .iter()
+            .map(|row| row.selection.checkbox_visible)
+            .collect();
+        assert_eq!(shown, [true, true, false]);
+    }
+
+    /// R20-05: the tile focus moves in a line for Up, Down, Left and Right,
+    /// and stops at the first and the last tile.
+    #[test]
+    fn adr_0084_discover_selection_r20_05_tile_focus_moves_in_a_line() {
+        let rows = [
+            discover_row("index-feed:a", "A"),
+            discover_row("index-feed:b", "B"),
+            discover_row("index-feed:c", "C"),
+        ];
+        let rows = DetailPageRows::Releases(discover_release_rows(&rows, |_| None));
+        let visible = rows.selection_rows();
+        let key = |guid: &str| Some(DetailRowKey::Release(release_key(guid)));
+        let mut selection = DetailSelection::new();
+        selection.bind(&discover_entry());
+
+        let mut step = |step: FocusStep| selection.move_focus(step, &visible);
+        assert_eq!(step(TileArrow::Right.focus_step()), key("a"));
+        assert_eq!(step(TileArrow::Right.focus_step()), key("b"));
+        assert_eq!(step(FocusStep::Down), key("c"));
+        assert_eq!(
+            step(TileArrow::Right.focus_step()),
+            key("c"),
+            "stops at the last tile"
+        );
+        assert_eq!(step(FocusStep::Down), key("c"), "stops at the last tile");
+        assert_eq!(step(TileArrow::Left.focus_step()), key("b"));
+        assert_eq!(step(FocusStep::Up), key("a"));
+        assert_eq!(
+            step(TileArrow::Left.focus_step()),
+            key("a"),
+            "stops at the first tile"
+        );
+        assert_eq!(step(FocusStep::Up), key("a"), "stops at the first tile");
     }
 }

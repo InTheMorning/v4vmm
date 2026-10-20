@@ -19,7 +19,7 @@ use crate::library::{playlist_options, LibraryApp};
 use crate::ui::composites::{SelectionActionBar, SelectionActionBarPlaylists};
 use crate::view_models::detail_selection::{
     detail_header_action, feed_page_release_rows, index_release_track_rows, DetailListKind,
-    DetailPageRows, DetailRowKey,
+    DetailPageRows, DetailRowKey, TileArrow,
 };
 use crate::view_models::list_selection::FocusStep;
 use crate::view_models::publisher_page::PublisherPageVm;
@@ -73,9 +73,9 @@ impl TopApp {
         self.index_release_page_detail(feed_guid, cx).feed
     }
 
-    /// The selectable rows of the open detail page (ADR 0084 packet 018):
-    /// a release page, a singles group page or a feed page. `None` for
-    /// each other page.
+    /// The selectable rows of the open detail page (ADR 0084 packets 018
+    /// and 020): a release page, a singles group page, a feed page or the
+    /// Discover "New releases" view. `None` for each other page.
     pub(super) fn detail_page_rows(&self, cx: &App) -> Option<DetailPageRows> {
         let entry = self.current_music_entry()?;
         DetailListKind::for_entry(&entry)?;
@@ -93,7 +93,9 @@ impl TopApp {
                     library.library_detail_page_rows()
                 }
             },
-            FrameNavigationEntry::SinglesGroup(_) => library.library_detail_page_rows(),
+            FrameNavigationEntry::SinglesGroup(_) | FrameNavigationEntry::DiscoverView(_) => {
+                library.library_detail_page_rows()
+            }
             FrameNavigationEntry::PublisherDetail(_) => {
                 let Some(PublisherPageState::Loaded { facts, .. }) = &self.publisher_page else {
                     return None;
@@ -175,6 +177,23 @@ impl TopApp {
         self.library.update(cx, |library, cx| {
             library.move_detail_focus(step, rows.as_ref(), window, cx);
         });
+    }
+
+    /// Left and Right, for the Discover tiles (packet 020). The tile focus
+    /// moves in a line, the same as Up and Down. Each other page ignores
+    /// these keys.
+    pub(super) fn move_discover_tile_focus(
+        &mut self,
+        arrow: TileArrow,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if matches!(
+            self.current_music_entry(),
+            Some(FrameNavigationEntry::DiscoverView(_))
+        ) {
+            self.move_detail_selection_focus(arrow.focus_step(), window, cx);
+        }
     }
 
     /// Space, for the detail column.

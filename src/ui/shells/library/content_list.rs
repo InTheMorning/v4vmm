@@ -12,12 +12,12 @@ use std::sync::Arc;
 
 use gpui::{
     div, prelude::FluentBuilder, AnyElement, App, ClickEvent, Context, FontWeight, Image,
-    InteractiveElement, IntoElement, ParentElement, ScrollHandle, SharedString,
-    StatefulInteractiveElement, Styled,
+    InteractiveElement, IntoElement, ParentElement, ScrollHandle, SharedString, Styled,
 };
 
 use crate::library::LibraryApp;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
+use crate::ui::composites::selectable_tile::SelectableTile;
 use crate::ui::composites::{
     view_mode_control, EntityKind, ListRow, ListRowA11yLabel, SkeletonTrackRow, TagBadge,
     TagBadgeDisplay, Thumbnail, ThumbnailSize, ViewModeControlSlots,
@@ -29,10 +29,11 @@ use crate::ui::primitives::{
 };
 use crate::ui::shells::library::content_list_scroll::attach_content_list_scroll;
 use crate::ui::tokens::{color, ArtworkShadow, FontSize, Radius, SemanticColor, Size, Spacing};
+use crate::view_models::detail_selection::{discover_rows_with_selection, DetailSelection};
 use crate::view_models::library::{
     ContentListEntityKind, ContentListLoadMoreDisplay, ContentListLoadingStateDisplay,
     ContentListPageStateDisplay, ContentListPageVm, ContentListRowActionDisplay,
-    ContentListRowDisplay,
+    ContentListRowDisplay, ContentListSelectionTarget,
 };
 use crate::view_models::workspace::{ContentViewMode, ContentViewModeControlDisplay};
 
@@ -41,21 +42,23 @@ struct ContentListRenderState {
     loading_display: Option<ContentListLoadingStateDisplay>,
     state_display: Option<ContentListPageStateDisplay>,
     load_more_display: Option<ContentListLoadMoreDisplay>,
+    routing: (ContentListSelectionTarget, Option<AnyElement>),
 }
 
 /// Renders the Music content-list page. `rows` is the page's visible
-/// rows, already carrying the Decision 10 checkbox facts of the Tracks
-/// or Needs attention list's selection — the Discover "New releases"
-/// view passes rows with no selection, so it shows no checkbox.
+/// rows, with the Decision 10 checkbox facts of the selection that
+/// `routing` names. The focused row carries the scroll probe of `routing`.
 pub(crate) fn render_library_content_list(
     page: &ContentListPageVm,
     rows: Vec<ContentListRowDisplay>,
     thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
     scroll_handle: &ScrollHandle,
+    routing: (ContentListSelectionTarget, Option<AnyElement>),
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let render_state = ContentListRenderState {
         visible_rows: rows,
+        routing,
         loading_display: page.loading_display(),
         state_display: page.page_state_display(),
         load_more_display: page.load_more_display(),
@@ -87,9 +90,11 @@ pub(crate) fn render_library_content_list(
 /// the frame chrome, and a view-mode control is not a filter, but this
 /// packet adds no new frame-chrome slot either. The content list below
 /// keeps its own scroll handle, so Back to this view keeps its scroll
-/// position.
+/// position. The rows carry the facts of the detail `selection`, and the
+/// focused row carries `probe` (packet 020).
 pub(crate) fn render_discover_new_releases_detail(
     page: &ContentListPageVm,
+    (selection, probe): (&DetailSelection, AnyElement),
     view_mode: ContentViewModeControlDisplay,
     thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
     scroll_handle: &ScrollHandle,
@@ -101,10 +106,12 @@ pub(crate) fn render_discover_new_releases_detail(
             this.request_content_view_mode(mode, cx);
         });
     });
-    // ADR 0084 Decision 10 Exclusions: Discover has no selection model,
-    // so its rows carry no checkbox facts.
-    let rows: Vec<ContentListRowDisplay> = page.visible_rows().into_iter().cloned().collect();
-    let body = render_library_content_list(page, rows, thumbnails, scroll_handle, cx);
+    let rows = discover_rows_with_selection(
+        page.visible_rows().into_iter().cloned().collect(),
+        selection,
+    );
+    let routing = (ContentListSelectionTarget::DetailColumn, Some(probe));
+    let body = render_library_content_list(page, rows, thumbnails, scroll_handle, routing, cx);
 
     div()
         .flex()
@@ -137,6 +144,7 @@ fn render_content_list_rows(
         .loading_display
         .as_ref()
         .map_or(0, |display| display.skeleton_count);
+    let (target, mut probe) = render_state.routing;
 
     // ADR 0084 Decision 10: `track_scroll` (inside `attach_content_list_scroll`)
     // reads the bounds of its direct children to find a row by index, so
@@ -150,7 +158,8 @@ fn render_content_list_rows(
         .pb(Spacing::MD.scaled(cx))
         .children(render_state.visible_rows.into_iter().map(|row| {
             let thumbnail = thumbnails.get(&row.id).cloned().flatten();
-            render_content_list_row(&row, thumbnail, cx)
+            let probe = probe.take_if(|_| row.selection.focused);
+            render_content_list_row(&row, thumbnail, (target, probe), cx)
         }))
         .children((0..pending_rows).map(|index| {
             SkeletonTrackRow::new(ContentListPageVm::skeleton_row_id(index))
@@ -184,6 +193,7 @@ fn render_content_list_tiles(
         .loading_display
         .as_ref()
         .map_or(0, |display| display.skeleton_count);
+    let (target, mut probe) = render_state.routing;
 
     let mut content = page_scroll_content(cx).gap(Spacing::SM.scaled(cx)).child(
         // ADR 0084 Decision 1: the tile grid keeps its content height in
@@ -197,7 +207,8 @@ fn render_content_list_tiles(
             .gap(Spacing::MD.scaled(cx))
             .children(render_state.visible_rows.into_iter().map(|row| {
                 let thumbnail = thumbnails.get(&row.id).cloned().flatten();
-                render_content_list_tile(&row, thumbnail, cx)
+                let probe = probe.take_if(|_| row.selection.focused);
+                render_content_list_tile(&row, thumbnail, (target, probe), cx)
             }))
             .children((0..pending_tiles).map(|index| render_pending_content_tile(index, cx))),
     );
@@ -231,39 +242,20 @@ fn render_content_list_tiles(
 fn render_content_list_row(
     row: &ContentListRowDisplay,
     thumbnail: Option<Arc<Image>>,
+    (target, probe): (ContentListSelectionTarget, Option<AnyElement>),
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let row_id = row.id.clone();
-    let checkbox_row_id = row.id.clone();
     let entity_kind = entity_kind_for_content(row.entity_kind());
     let mut list_row = ListRow::new(SharedString::from(row.element_id()))
         .a11y_label(ListRowA11yLabel {
             label: SharedString::from(row.a11y_label().to_string()),
         })
         .selected(row.selection.is_marked())
-        .focused(row.selection.focused);
-
-    // ADR 0084 Decision 10 Amendment, 2026-10-19: the checkbox shows
-    // only in selection mode (`checkbox_visible`). A row with no
-    // selection model at all, for example an Index row, keeps
-    // `checkbox_visible` false in every mode.
-    if row.selection.checkbox_visible {
-        let checkbox_a11y_label = row.selection.checkbox_a11y_label.clone();
-        list_row = list_row.checkbox(
-            Checkbox::new(
-                SharedString::from(format!("{}-checkbox", row.element_id())),
-                CheckboxState::from_checked(row.selection.check_state.is_checked()),
-            )
-            .a11y_label(checkbox_a11y_label)
-            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                // The checkbox toggles the row and never opens its
-                // page: stop the click from also reaching the row's
-                // own handler.
-                cx.stop_propagation();
-                this.toggle_content_list_row_selection(&checkbox_row_id, cx);
-            }))
-            .into_any_element(),
-        );
+        .focused(row.selection.focused)
+        .scroll_probe(probe);
+    if let Some(checkbox) = render_content_row_checkbox(row, target, cx) {
+        list_row = list_row.checkbox(checkbox);
     }
 
     list_row = list_row
@@ -277,7 +269,7 @@ fn render_content_list_row(
     list_row
         .when(row.accepts_row_click(), |el| {
             el.on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
-                this.click_content_list_row(&row_id, event.modifiers(), cx);
+                this.click_content_row(target, &row_id, event.modifiers(), cx);
             }))
         })
         .into_any_element()
@@ -286,26 +278,21 @@ fn render_content_list_row(
 fn render_content_list_tile(
     row: &ContentListRowDisplay,
     thumbnail: Option<Arc<Image>>,
+    (target, probe): (ContentListSelectionTarget, Option<AnyElement>),
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let row_id = row.id.clone();
     let entity_kind = entity_kind_for_content(row.entity_kind());
     let artwork_size = Size::ContentTileArtwork.scaled(cx);
-    let hover_bg = color(cx, SemanticColor::SecondarySystemBackground);
+    let artwork = render_content_list_tile_artwork(thumbnail, artwork_size, cx);
 
-    let mut tile = div()
-        .id(SharedString::from(row.element_id()))
-        .flex()
-        .flex_col()
-        .gap(Spacing::SM.scaled(cx))
-        .w(Size::ContentTileWidth.scaled(cx))
-        .p(Spacing::SM.scaled(cx))
-        .rounded(Radius::MD.scaled(cx))
-        .child(render_content_list_tile_artwork(
-            thumbnail,
-            artwork_size,
-            cx,
-        ))
+    // Packet 020: the tile composite owns the checkbox place, the outline,
+    // the fill and the hover.
+    let mut tile = SelectableTile::new(SharedString::from(row.element_id()), artwork)
+        .checkbox(render_content_row_checkbox(row, target, cx))
+        .selected(row.selection.is_marked())
+        .focused(row.selection.focused)
+        .scroll_probe(probe)
         .child(
             div().w(artwork_size).min_w_0().child(
                 Label::new(row.title().to_string())
@@ -331,15 +318,39 @@ fn render_content_list_tile(
     }
 
     if row.accepts_row_click() {
-        tile = tile
-            .cursor_pointer()
-            .hover(move |el| el.bg(hover_bg))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                this.open_content_list_row(&row_id, cx);
-            }));
+        tile = tile.on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
+            this.click_content_row(target, &row_id, event.modifiers(), cx);
+        }));
     }
 
     tile.into_any_element()
+}
+
+/// The checkbox of a row or a tile, or `None` outside selection mode (ADR
+/// 0084 Decision 10 Amendment, 2026-10-19). A row with no selection model,
+/// for example a Discover row with no feed GUID, gets `None` in each mode.
+/// The click changes the selection that `target` names, and never opens
+/// the page of the row.
+fn render_content_row_checkbox(
+    row: &ContentListRowDisplay,
+    target: ContentListSelectionTarget,
+    cx: &mut Context<LibraryApp>,
+) -> Option<AnyElement> {
+    if !row.selection.checkbox_visible {
+        return None;
+    }
+    let row_id = row.id.clone();
+    let checkbox = Checkbox::new(
+        SharedString::from(format!("{}-checkbox", row.element_id())),
+        CheckboxState::from_checked(row.selection.check_state.is_checked()),
+    )
+    .a11y_label(row.selection.checkbox_a11y_label.clone())
+    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+        // Stop the click from also reaching the row's own handler.
+        cx.stop_propagation();
+        this.toggle_content_row(target, &row_id, cx);
+    }));
+    Some(checkbox.into_any_element())
 }
 
 fn render_content_list_tile_artwork(

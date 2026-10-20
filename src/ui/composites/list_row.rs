@@ -223,9 +223,10 @@ impl RenderOnce for ListRow {
     }
 }
 
-/// The outline of a list row (ADR 0084 Decision 10).
+/// The outline of a list row and of a selectable tile (ADR 0084 Decision
+/// 10).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RowOutline {
+pub(crate) enum RowOutline {
     None,
     Selected,
     Focus,
@@ -234,7 +235,7 @@ enum RowOutline {
 /// The keyboard focus outline wins, so each focused row shows it, selected
 /// or not. The operator found on 2026-10-19 that the focus showed only on a
 /// selected row.
-const fn row_outline(selected: bool, focused: bool) -> RowOutline {
+pub(crate) const fn row_outline(selected: bool, focused: bool) -> RowOutline {
     match (selected, focused) {
         (_, true) => RowOutline::Focus,
         (true, false) => RowOutline::Selected,

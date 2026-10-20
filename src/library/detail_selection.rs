@@ -18,11 +18,15 @@ use crate::ui::composites::music_column_scroll::{key_scroll, ScrollReveal};
 use crate::ui::shells::library::detail::DetailRowSlot;
 use crate::ui::tokens::Size;
 use crate::view_models::detail_selection::{
-    library_release_track_rows, singles_group_release_rows, DetailPageRows, DetailRowClick,
-    DetailRowKey, DetailSelection, LibraryReleaseFacts,
+    discover_release_rows, discover_row_key, library_release_track_rows,
+    singles_group_release_rows, DetailPageRows, DetailRowClick, DetailRowKey, DetailSelection,
+    LibraryReleaseFacts,
 };
+use crate::view_models::library::ContentListSelectionTarget;
 use crate::view_models::list_selection::{FocusStep, RowSelectionVm};
-use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart, ReleaseKey};
+use crate::view_models::workspace::{
+    DiscoverView, FrameNavigationEntry, NavigationPathStart, ReleaseKey,
+};
 
 impl LibraryApp {
     /// The focus handle of the Music detail column.
@@ -38,21 +42,47 @@ impl LibraryApp {
     /// The held scroll handle of the open detail page. The Discover view
     /// keeps the handle of the content list, as before this packet.
     pub(crate) fn detail_scroll_handle(&self) -> ScrollHandle {
-        match self.detail {
-            LibraryDetail::Discover(_) => self.recent_music_scroll.clone(),
-            _ => self.detail_column_scroll.clone(),
+        // A page that opens from Discover keeps `LibraryDetail::Discover`.
+        // Thus the open page entry decides the handle, not the detail kind.
+        if self.discover_is_open() {
+            self.recent_music_scroll.clone()
+        } else {
+            self.detail_column_scroll.clone()
         }
     }
 
-    /// The request to keep the focused detail row in view.
+    /// The request to keep the focused detail row in view. The Discover
+    /// view uses its own request, on the scroll handle of the content list.
     pub(crate) fn detail_scroll_reveal(&self) -> &ScrollReveal {
-        &self.detail_scroll_reveal
+        if self.discover_is_open() {
+            &self.discover_scroll_reveal
+        } else {
+            &self.detail_scroll_reveal
+        }
+    }
+
+    /// Tells if the open page is the Discover "New releases" view (packet
+    /// 020). A release page or a feed page that opens from Discover keeps
+    /// `LibraryDetail::Discover`, so this also reads the page entry of the
+    /// detail selection. The top app binds that entry at each render.
+    fn discover_is_open(&self) -> bool {
+        matches!(
+            (&self.detail, self.detail_selection.entry()),
+            (
+                LibraryDetail::Discover(DiscoverView::NewReleases),
+                Some(FrameNavigationEntry::DiscoverView(
+                    DiscoverView::NewReleases
+                ))
+            )
+        )
     }
 
     /// The scroll probe of a detail row: `Some` only for the row with the
     /// keyboard focus, so the column can keep that row in view.
     pub(crate) fn detail_row_probe(&self, selection: &RowSelectionVm) -> Option<AnyElement> {
-        selection.focused.then(|| self.detail_scroll_reveal.probe())
+        selection
+            .focused
+            .then(|| self.detail_scroll_reveal().probe())
     }
 
     /// The Library facts of the release `key`.
@@ -76,8 +106,8 @@ impl LibraryApp {
     }
 
     /// The selectable rows of a detail page that this entity renders: a
-    /// Library release page and a singles group page. `None` for each
-    /// other page.
+    /// Library release page, a singles group page and the Discover "New
+    /// releases" view. `None` for each other page.
     pub(crate) fn library_detail_page_rows(&self) -> Option<DetailPageRows> {
         match &self.detail {
             LibraryDetail::Album(album) => {
@@ -90,6 +120,12 @@ impl LibraryApp {
                 let page = self.vm.singles_group_page(key);
                 Some(DetailPageRows::Releases(singles_group_release_rows(
                     &page.rows,
+                    |key| self.vm.library_release_facts(key),
+                )))
+            }
+            LibraryDetail::Discover(DiscoverView::NewReleases) if self.discover_is_open() => {
+                Some(DetailPageRows::Releases(discover_release_rows(
+                    self.vm.content_list_page().visible_rows(),
                     |key| self.vm.library_release_facts(key),
                 )))
             }
@@ -137,6 +173,76 @@ impl LibraryApp {
         };
         if self.click_detail_row(&key, modifiers, &rows, cx) {
             self.open_page(open_entry.clone(), NavigationPathStart::CurrentPath, cx);
+        }
+    }
+
+    /// A click on the body of a Discover row or tile (packet 020). A plain
+    /// click in `Normal` mode opens the page of the row, the same as
+    /// before. A row with no key opens its page in each mode.
+    pub(crate) fn click_discover_row(
+        &mut self,
+        row_id: &str,
+        modifiers: Modifiers,
+        cx: &mut Context<Self>,
+    ) {
+        let key = self.discover_row_key_of(row_id);
+        let open = match (key, self.library_detail_page_rows()) {
+            (Some(key), Some(rows)) => self.click_detail_row(&key, modifiers, &rows, cx),
+            _ => true,
+        };
+        if open {
+            self.open_content_list_row(row_id, cx);
+        }
+    }
+
+    /// A click on the checkbox of a Discover row or tile (packet 020).
+    pub(crate) fn toggle_discover_row(&mut self, row_id: &str, cx: &mut Context<Self>) {
+        if let Some(key) = self.discover_row_key_of(row_id) {
+            self.toggle_detail_row(&key, cx);
+        }
+    }
+
+    fn discover_row_key_of(&self, row_id: &str) -> Option<DetailRowKey> {
+        self.vm
+            .content_list_page()
+            .visible_rows()
+            .into_iter()
+            .find(|row| row.id == row_id)
+            .and_then(discover_row_key)
+    }
+
+    /// A click on the body of a content row or tile (packet 020). The
+    /// list column keeps its own selection methods. A Discover click goes
+    /// to the detail selection of packet 018.
+    pub(crate) fn click_content_row(
+        &mut self,
+        target: ContentListSelectionTarget,
+        row_id: &str,
+        modifiers: Modifiers,
+        cx: &mut Context<Self>,
+    ) {
+        match target {
+            ContentListSelectionTarget::ListColumn => {
+                self.click_content_list_row(row_id, modifiers, cx);
+            }
+            ContentListSelectionTarget::DetailColumn => {
+                self.click_discover_row(row_id, modifiers, cx);
+            }
+        }
+    }
+
+    /// A click on the checkbox of a content row or tile (packet 020).
+    pub(crate) fn toggle_content_row(
+        &mut self,
+        target: ContentListSelectionTarget,
+        row_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        match target {
+            ContentListSelectionTarget::ListColumn => {
+                self.toggle_content_list_row_selection(row_id, cx);
+            }
+            ContentListSelectionTarget::DetailColumn => self.toggle_discover_row(row_id, cx),
         }
     }
 
@@ -206,7 +312,7 @@ impl LibraryApp {
                     .move_focus(step, &rows.selection_rows())
                     .is_some()
                 {
-                    self.detail_scroll_reveal.request();
+                    self.detail_scroll_reveal().request();
                 }
             }
             None => key_scroll(
