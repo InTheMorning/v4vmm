@@ -267,6 +267,15 @@ Pass. The code needs no fix.
 - The deviations agree with the packet. `RowClickModifiers` keeps the view model free of a renderer type.
 - The orchestrator added the three new files to the source map.
 
+## Orchestrator Amendment - 2026-10-20: The Row Columns And The Single Rows
+
+The operator found two defects in the final walk and approved the fixes on 2026-10-20.
+
+- The duration of a row with "Download" and "New" was to the left of the other durations. The trailing area of `TrackRow` had no fixed columns.
+  `TrackRow` now gives four fixed columns from the token `TrackRowColumn`: the duration, the main action, the state and the playlist action. An empty slot keeps its width. The test `adr_0084_row_fix_empty_columns_keep_their_token_width` holds it.
+- Each row of the singles group page showed the track number "1". A single row now has no number column, and the cover leads. The test `adr_0084_row_fix_single_row_has_no_track_number` holds it.
+- A row with a MusicBrainz status and "New" puts both texts in the state column. The text can be cut at the column edge. The final walk checks it.
+
 ## Prompt for lower-context coding model
 
 You are implementing one bounded task from a larger plan.

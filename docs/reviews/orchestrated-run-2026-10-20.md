@@ -69,6 +69,8 @@ Each entry names the step, the decision and the reason.
 
 - Packet 024 review: the Artists list gets the image of an artist feed only after a view of one album of that artist. The phase plan records it as an open finding with no owner.
 
+- Final walk fixes, approved by the operator on 2026-10-20: fixed columns in the track row, no track number on a single row, and one image map for each feed. The packets 021 and 024 record them as amendments.
+
 ## Steps
 
 | Step | State | Commit |

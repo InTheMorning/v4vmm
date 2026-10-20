@@ -419,7 +419,9 @@ impl ReleaseTrackRowVm {
 
     /// The row of a single on a singles group page (ADR 0084 task 015,
     /// operator decision of 2026-10-17). A click opens the release page of
-    /// the single. The row shows the date of the single.
+    /// the single. The row shows the date of the single. The row shows no
+    /// track number: the number of the track in its single tells
+    /// nothing (operator finding of 2026-10-20). The cover leads the row.
     #[must_use]
     pub(crate) fn library_single(
         single: &SinglesGroupPageRowVm,
@@ -430,6 +432,7 @@ impl ReleaseTrackRowVm {
         let mut row =
             Self::library_with_entry(&single.track, mb, single.work, selection, open_entry);
         row.row.date_text.clone_from(&single.date_text);
+        row.row.number = None;
         row
     }
 
@@ -1011,7 +1014,36 @@ mod tests {
         assert_eq!(row.primary.id, "lib-toggle-9");
     }
 
-    /// R21-07: `contributors_panel` is true for the Library origin and
+    /// Operator finding of 2026-10-20: a single row on a singles group
+    /// page has no track number. A Library row and an Index row on a
+    /// release page keep their track number.
+    #[test]
+    fn adr_0084_row_fix_single_row_has_no_track_number() {
+        let track = library_track(9, "guid-9", "Single", true);
+        let single = SinglesGroupPageRowVm {
+            track: track.clone(),
+            date_text: None,
+            work: TrackRowWork::Idle,
+            key: ReleaseKey::FeedGuid("single-guid".to_owned()),
+        };
+
+        let single_row = ReleaseTrackRowVm::library_single(&single, None, RowSelectionVm::none());
+        assert_eq!(single_row.row.number, None);
+
+        let release_row =
+            ReleaseTrackRowVm::library(&track, None, TrackRowWork::Idle, RowSelectionVm::none());
+        assert_eq!(release_row.row.number.as_deref(), Some("9"));
+
+        let index_track = TrackView {
+            track_number: Some(3),
+            ..index_track(Some("Song"), Some("item-3"))
+        };
+        let feed = index_feed(vec![index_track.clone()]);
+        let index_row = ReleaseTrackRowVm::index(&feed, 0, &index_track, RowSelectionVm::none());
+        assert_eq!(index_row.row.number.as_deref(), Some("3"));
+    }
+
+    /// R21-07:`contributors_panel` is true for the Library origin and
     /// false for the Index origin.
     #[test]
     fn adr_0084_release_page_r21_07_contributors_panel_is_library_only() {

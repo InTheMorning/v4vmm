@@ -379,7 +379,9 @@ pub(crate) fn render_release_page_track_row(
                 dispatch(ReleasePageCommand::TrackPrimary(index), window, cx);
             })
     };
-    let mut actions = vec![primary.into_any_element()];
+    // The composite gives each slot a fixed column (operator finding of
+    // 2026-10-20). The status and the state label share the state column.
+    let mut state = Vec::new();
     if let Some(status) = vm.status {
         let status_color = match status.kind {
             Some(MbStatusKind::Success) => StatusRole::Success.color(cx),
@@ -387,7 +389,7 @@ pub(crate) fn render_release_page_track_row(
             Some(MbStatusKind::Warning) => StatusRole::Warning.color(cx),
             _ => color::text_muted(),
         };
-        actions.push(
+        state.push(
             div()
                 .text_size(typography::SIZE_MICRO)
                 .text_color(status_color)
@@ -396,7 +398,7 @@ pub(crate) fn render_release_page_track_row(
         );
     }
     if let Some(label) = vm.state_label {
-        actions.push(
+        state.push(
             div()
                 .text_size(typography::SIZE_MICRO)
                 .text_color(color::text_muted())
@@ -406,34 +408,33 @@ pub(crate) fn render_release_page_track_row(
     }
     let select = Rc::clone(dispatch);
     let create = Rc::clone(dispatch);
-    actions.push(
-        AddToPlaylistPopover::new(AddToPlaylistDisplay {
-            id: SharedString::from(vm.playlist_popover_id.clone()),
-            playlists: playlist_choices(playlists),
-            trigger_label: SharedString::from(vm.playlist_trigger_label),
-            trigger_a11y_label: SharedString::from("Add track to playlist"),
-            new_playlist_a11y_label: SharedString::from("Create a new playlist"),
-            back_a11y_label: SharedString::from("Back to playlist choices"),
-            create_a11y_label: SharedString::from("Create playlist and add track"),
-        })
-        .on_select(move |playlist_id: &i64, window, cx| {
-            select(
-                ReleasePageCommand::AddTrackToPlaylist(index, *playlist_id),
-                window,
-                cx,
-            );
-        })
-        .on_create(move |name: &String, window, cx| {
-            create(
-                ReleasePageCommand::CreatePlaylistForTrack(index, name.clone()),
-                window,
-                cx,
-            );
-        })
-        .into_any_element(),
-    );
+    let playlist_action = AddToPlaylistPopover::new(AddToPlaylistDisplay {
+        id: SharedString::from(vm.playlist_popover_id.clone()),
+        playlists: playlist_choices(playlists),
+        trigger_label: SharedString::from(vm.playlist_trigger_label),
+        trigger_a11y_label: SharedString::from("Add track to playlist"),
+        new_playlist_a11y_label: SharedString::from("Create a new playlist"),
+        back_a11y_label: SharedString::from("Back to playlist choices"),
+        create_a11y_label: SharedString::from("Create playlist and add track"),
+    })
+    .on_select(move |playlist_id: &i64, window, cx| {
+        select(
+            ReleasePageCommand::AddTrackToPlaylist(index, *playlist_id),
+            window,
+            cx,
+        );
+    })
+    .on_create(move |name: &String, window, cx| {
+        create(
+            ReleasePageCommand::CreatePlaylistForTrack(index, name.clone()),
+            window,
+            cx,
+        );
+    });
 
     let mut row = TrackRow::from_vm(SharedString::from(vm.row_id.clone()), &vm.row)
+        .primary_action(primary)
+        .playlist_action(playlist_action)
         .thumbnail(thumbnail)
         .selection(vm.selection.clone())
         .scroll_probe(probe);
@@ -454,8 +455,8 @@ pub(crate) fn render_release_page_track_row(
                 );
             });
     }
-    for action in actions {
-        row = row.trailing_child(action);
+    for child in state {
+        row = row.state_child(child);
     }
     row.into_any_element()
 }

@@ -8,6 +8,8 @@
 
 #![warn(clippy::pedantic)]
 
+use std::collections::BTreeMap;
+
 use crate::view_models::role_words::role_contains_artist;
 
 /// The `role_agreement` value that tells that both sides agree on the role
@@ -85,19 +87,42 @@ pub(crate) fn select_artist_feed(feeds: &[NamedFeed]) -> ArtistFeed {
     ArtistFeed::None
 }
 
-/// The channel image of the feed `feed_guid`: the first image that one of
-/// `feeds` gives for that feed (ADR 0084 Decision 12). A trimmed empty URL
-/// gives no image.
-#[must_use]
-pub(crate) fn named_feed_image<'a, I>(feeds: I, feed_guid: &str) -> Option<&'a str>
-where
-    I: IntoIterator<Item = &'a NamedFeed>,
-{
-    feeds
-        .into_iter()
-        .filter(|feed| feed.feed_guid == feed_guid)
-        .filter_map(|feed| feed.image_url.as_deref().map(str::trim))
-        .find(|url| !url.is_empty())
+/// The channel image of each named feed, by feed GUID (ADR 0084 Decision
+/// 12). The image belongs to the feed, but the app stores it with each
+/// album that names the feed. An album that the app did not hydrate after
+/// migration 20 has no image. This map gives the image of a feed from each
+/// album that names it, so that all rows of one feed show the same image.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct FeedImages<'a> {
+    by_feed_guid: BTreeMap<&'a str, &'a str>,
+}
+
+impl<'a> FeedImages<'a> {
+    /// Builds the map from `feeds`. For each feed GUID, the first image in
+    /// the sequence of `feeds` that is not empty after a trim is the image.
+    #[must_use]
+    pub(crate) fn from_feeds<I>(feeds: I) -> Self
+    where
+        I: IntoIterator<Item = &'a NamedFeed>,
+    {
+        let mut by_feed_guid = BTreeMap::new();
+        for feed in feeds {
+            let Some(url) = feed.image_url.as_deref().map(str::trim) else {
+                continue;
+            };
+            if !url.is_empty() {
+                by_feed_guid.entry(feed.feed_guid.as_str()).or_insert(url);
+            }
+        }
+        Self { by_feed_guid }
+    }
+
+    /// The channel image of the feed `feed_guid`. `None` when no album
+    /// gives an image for that feed.
+    #[must_use]
+    pub(crate) fn get(&self, feed_guid: &str) -> Option<&'a str> {
+        self.by_feed_guid.get(feed_guid).copied()
+    }
 }
 
 #[cfg(test)]

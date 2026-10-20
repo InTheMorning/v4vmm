@@ -960,6 +960,96 @@ impl SkeletonBlock {
 }
 
 // -----------------------------------------------------------------------------
+// TrackRowColumn — the fixed trailing columns of a track row.
+// -----------------------------------------------------------------------------
+
+/// The fixed trailing columns of a track row (operator finding of
+/// 2026-10-20).
+///
+/// Each column starts at the same position on each row of a track list,
+/// also when the slot of the column is empty. A column holds text, so its
+/// width has two parts:
+///
+/// - The text part holds the longest label of the slot. It follows the
+///   TYPE scale of the font role of the slot (ADR 0039), because the label
+///   grows with that role.
+/// - The inset part holds the horizontal padding of a button on each side.
+///   It follows the CHROME scale, the same as the padding of the button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TrackRowColumn {
+    /// 44 px text at `FontSize::Micro` — the duration, for example
+    /// "1:02:03".
+    Duration,
+    /// 92 px text at `FontSize::Caption` plus `Spacing::SM` on each side —
+    /// the primary action, for example "Downloading...".
+    PrimaryAction,
+    /// 120 px text at `FontSize::Micro` — the `MusicBrainz` status and the
+    /// state label, for example "MB: no missing fields" or "New".
+    State,
+    /// 64 px text at `FontSize::Caption` plus `Spacing::SM` on each side —
+    /// the "+ Playlist" trigger.
+    PlaylistAction,
+}
+
+impl TrackRowColumn {
+    /// The trailing columns in row order, after the title.
+    pub const ROW_ORDER: [Self; 4] = [
+        Self::Duration,
+        Self::PrimaryAction,
+        Self::State,
+        Self::PlaylistAction,
+    ];
+
+    /// The width of the longest label of the slot at the base (1.0×) type
+    /// size.
+    #[must_use]
+    pub const fn text_px(self) -> Pixels {
+        match self {
+            Self::Duration => px(44.0),
+            Self::PrimaryAction => px(92.0),
+            Self::State => px(120.0),
+            Self::PlaylistAction => px(64.0),
+        }
+    }
+
+    /// The font role of the text in the slot.
+    #[must_use]
+    pub const fn font_size(self) -> FontSize {
+        match self {
+            Self::Duration | Self::State => FontSize::Micro,
+            Self::PrimaryAction | Self::PlaylistAction => FontSize::Caption,
+        }
+    }
+
+    /// The horizontal padding of the control on each side. `None` for a
+    /// column of plain text.
+    #[must_use]
+    pub const fn inset(self) -> Option<Spacing> {
+        match self {
+            Self::Duration | Self::State => None,
+            Self::PrimaryAction | Self::PlaylistAction => Some(Spacing::SM),
+        }
+    }
+
+    /// The column width at `scale`: the text part on the TYPE scale of
+    /// [`Self::font_size`], plus the inset part on the CHROME scale.
+    #[must_use]
+    pub fn scaled_px(self, scale: ScaleFactor) -> Pixels {
+        let text = f32::from(self.text_px()) * self.font_size().type_multiplier(scale);
+        let inset = self.inset().map_or(0.0, |spacing| {
+            f32::from(scale_chrome_px(f32::from(spacing.px()) * 2.0, scale))
+        });
+        px(text + inset)
+    }
+
+    /// Same as [`Self::scaled_px`] at the active [`ScaleFactor`].
+    #[must_use]
+    pub fn scaled(self, cx: &App) -> Pixels {
+        self.scaled_px(ScaleFactor::current(cx))
+    }
+}
+
+// -----------------------------------------------------------------------------
 // ScaleFactor — Apple Dynamic Type-style runtime UI scale.
 // -----------------------------------------------------------------------------
 

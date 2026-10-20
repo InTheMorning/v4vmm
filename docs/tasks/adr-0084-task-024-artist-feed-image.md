@@ -192,6 +192,13 @@ Pass. The code needs no fix.
 - Open finding: the Artists list gets each image only after a view of one album of that artist. No packet owns a fill for each artist. The phase plan records it.
 - The orchestrator added the migration file to the source map.
 
+## Orchestrator Amendment - 2026-10-20: One Image For Each Feed
+
+The operator found that the singles group of Haleen showed the mosaic, while the Artists row of the same feed showed its image.
+
+- Cause: the group and the Artists row each looked for the image only in the named feeds of their own albums. The image is stored for each album relation, and an album that the app has not hydrated since migration 20 has no image.
+- Fix: one map from each feed GUID to its first stored image, built from each album of the Library. The Artists rows and the singles groups use it. The test `adr_0084_row_fix_feed_image_comes_from_each_album_of_the_feed` holds it.
+
 ## Prompt for lower-context coding model
 
 You are implementing one bounded task from a larger plan.

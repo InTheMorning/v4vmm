@@ -48,7 +48,7 @@ use crate::view_models::library_removal::{
 use crate::view_models::list_selection::{ListSelection, RowSelectionVm, SelectionMode};
 #[cfg(test)]
 use crate::view_models::list_selection::{RowCheckState, SelectionRow};
-use crate::view_models::named_feeds::{named_feed_image, NamedFeed};
+use crate::view_models::named_feeds::{FeedImages, NamedFeed};
 use crate::view_models::pagination::pending_skeleton_count;
 use crate::view_models::playlist_detail::PlaylistDetailPageVm;
 use crate::view_models::recent_feeds::{
@@ -531,6 +531,21 @@ pub(crate) struct AlbumNode {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct LibraryTree {
     pub(crate) artists: Vec<ArtistNode>,
+}
+
+impl LibraryTree {
+    /// The channel image of each feed that an album of the tree names
+    /// (ADR 0084 Decision 12), in tree order. The Artists rows and the
+    /// singles groups read the image of a feed from this one map.
+    #[must_use]
+    pub(crate) fn feed_images(&self) -> FeedImages<'_> {
+        FeedImages::from_feeds(
+            self.artists
+                .iter()
+                .flat_map(|artist| artist.albums.iter())
+                .flat_map(|album| album.named_feeds.iter()),
+        )
+    }
 }
 
 /// Pure data snapshots loaded by the library screen.
@@ -1852,6 +1867,7 @@ fn artist_row_art(
 fn artist_list_row(
     identity: ArtistIdentity,
     members: &[(&ArtistNode, &AlbumNode)],
+    feed_images: &FeedImages<'_>,
 ) -> DestinationListRowVm {
     let secondary_text = format!("{} release{}", members.len(), plural(members.len()));
     match identity {
@@ -1877,13 +1893,7 @@ fn artist_list_row(
                         .flatten()
                 })
                 .unwrap_or_else(|| feed_guid.clone());
-            let image = named_feed_image(
-                members
-                    .iter()
-                    .flat_map(|(_, album)| album.named_feeds.iter()),
-                &feed_guid,
-            );
-            let art = Some(artist_row_art(image, members));
+            let art = Some(artist_row_art(feed_images.get(&feed_guid), members));
             DestinationListRowVm {
                 element_id: format!("music-artist-row-publisher:{feed_guid}"),
                 label: title.clone(),
@@ -3323,9 +3333,10 @@ impl LibraryViewModel {
             }
         }
 
+        let feed_images = self.snapshot.tree.feed_images();
         let mut rows: Vec<DestinationListRowVm> = by_identity
             .into_iter()
-            .map(|(identity, members)| artist_list_row(identity, &members))
+            .map(|(identity, members)| artist_list_row(identity, &members, &feed_images))
             .collect();
         rows.sort_by_key(|row| row.label.to_lowercase());
         rows

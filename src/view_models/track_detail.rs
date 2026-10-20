@@ -702,7 +702,10 @@ pub struct FeedIdentitySectionVm {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TrackRowVm {
     pub element_key: String,
-    pub number: String,
+    /// The track number column text. `None` gives the row no number
+    /// column, for example a single row on a singles group page, where the
+    /// number inside the single tells nothing.
+    pub number: Option<String>,
     pub title: String,
     pub subtitle: Option<String>,
     pub duration: Option<String>,
@@ -720,10 +723,12 @@ impl TrackRowVm {
         let duration = detail.duration_display();
         Self {
             element_key: track_element_key(detail.track),
-            number: detail
-                .track
-                .track_number
-                .map_or_else(|| "\u{00B7}".to_string(), |number| number.to_string()),
+            number: Some(
+                detail
+                    .track
+                    .track_number
+                    .map_or_else(|| "\u{00B7}".to_string(), |number| number.to_string()),
+            ),
             a11y_label: track_row_a11y_label(&title, duration.as_deref()),
             title,
             subtitle: Some(detail.display_artist()).filter(|artist| artist != UNKNOWN_ARTIST),
@@ -1216,7 +1221,7 @@ mod tests {
         let row = vm.row();
 
         assert_eq!(row.element_key, "musicindex:t1");
-        assert_eq!(row.number, "7");
+        assert_eq!(row.number.as_deref(), Some("7"));
         assert_eq!(row.title, "Track title");
         assert_eq!(row.subtitle.as_deref(), Some("Artist"));
         assert_eq!(row.duration.as_deref(), Some("2:05"));

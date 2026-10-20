@@ -19,7 +19,6 @@ use crate::view_models::library::{
     AlbumNode, ArtistNode, BusyItems, DestinationListRowVm, LibraryTree, TrackRowWork,
 };
 use crate::view_models::list_selection::RowSelectionVm;
-use crate::view_models::named_feeds::named_feed_image;
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::workspace::ReleaseKey;
 
@@ -76,6 +75,9 @@ pub(crate) struct SinglesGroup<'a> {
     pub(crate) display_artist: &'a str,
     /// The singles, newest first.
     pub(crate) singles: Vec<GroupSingle<'a>>,
+    /// The channel image of the artist feed of a feed-level group, from
+    /// [`LibraryTree::feed_images`]. `None` for a group of a name.
+    pub(crate) feed_image: Option<&'a str>,
 }
 
 impl SinglesGroup<'_> {
@@ -140,17 +142,8 @@ impl SinglesGroup<'_> {
     /// image of its own.
     #[must_use]
     pub(crate) fn collection_art(&self) -> CollectionArtVm {
-        let provided = match &self.identity {
-            ArtistIdentity::Publisher(feed_guid) => named_feed_image(
-                self.singles
-                    .iter()
-                    .flat_map(|single| single.album.named_feeds.iter()),
-                feed_guid,
-            ),
-            ArtistIdentity::Name(_) => None,
-        };
         CollectionArtVm::resolve(
-            provided,
+            self.feed_image,
             self.singles
                 .iter()
                 .filter_map(|single| single.album.image_href.as_deref()),
@@ -198,16 +191,22 @@ pub(crate) fn singles_groups(tree: &LibraryTree) -> Vec<SinglesGroup<'_>> {
                 });
         }
     }
+    let feed_images = tree.feed_images();
     by_identity
         .into_iter()
         .filter(|(_, singles)| singles.len() >= 2)
         .map(|(identity, mut singles)| {
             singles.sort_by(newest_first);
             let display_artist = singles[0].artist.name.as_str();
+            let feed_image = match &identity {
+                ArtistIdentity::Publisher(feed_guid) => feed_images.get(feed_guid),
+                ArtistIdentity::Name(_) => None,
+            };
             SinglesGroup {
                 identity,
                 display_artist,
                 singles,
+                feed_image,
             }
         })
         .collect()
@@ -918,6 +917,61 @@ mod tests {
             name_groups[0].collection_art(),
             CollectionArtVm::ProvidedImage { .. }
         ));
+    }
+
+    /// Operator finding of 2026-10-20: the channel image belongs to the
+    /// feed. Two albums name the feed "pub", and only the album "Long
+    /// Player" carries its image. The singles group of the other albums,
+    /// on the group row and the group page, and the Artists row of the
+    /// feed each give `ProvidedImage`. The test also uses an agreed role
+    /// other than `artist` for "Long Player". Then "Long Player" is not a
+    /// member of the Artists row of the feed.
+    #[test]
+    fn adr_0084_row_fix_feed_image_comes_from_each_album_of_the_feed() {
+        const IMAGE: &str = "https://img.test/pub.jpg";
+        for role in [None, Some("label")] {
+            let mut long_player = with_publisher(
+                release(
+                    "Long Player",
+                    9,
+                    vec![track(90, 9, Some(50), true), track(91, 9, Some(50), true)],
+                    None,
+                ),
+                "pub",
+            );
+            long_player.named_feeds[0].role = role.map(str::to_owned);
+            long_player.named_feeds[0].role_agreement = role.map(|_| "both".to_owned());
+            long_player.named_feeds[0].image_url = Some(IMAGE.to_owned());
+            let tree = LibraryTree {
+                artists: vec![artist(
+                    "Haleen",
+                    vec![
+                        with_publisher(single("A", 1, Some(100), true), "pub"),
+                        with_publisher(single("B", 2, Some(200), true), "pub"),
+                        long_player,
+                    ],
+                )],
+            };
+            let gives_image = |art: &CollectionArtVm| matches!(art, CollectionArtVm::ProvidedImage { url, .. } if url == IMAGE);
+
+            let groups = singles_groups(&tree);
+            assert_eq!(groups.len(), 1, "{role:?}");
+            assert!(gives_image(&groups[0].collection_art()), "{role:?}");
+            let row = SinglesGroupRowVm::new(&groups[0], false, |_, _| None);
+            assert!(gives_image(&row.art), "{role:?}");
+            let key = SinglesGroupKey(ArtistIdentity::Publisher("pub".to_owned()));
+            let page = SinglesGroupPageVm::from_tree(&tree, &key, &BusyItems::default());
+            assert!(page.art.as_ref().is_some_and(gives_image), "{role:?}");
+
+            let mut vm = crate::view_models::library::LibraryViewModel::new();
+            vm.replace_tree(tree.clone());
+            let artist_row = vm
+                .artists_list()
+                .into_iter()
+                .find(|row| row.element_id == "music-artist-row-publisher:pub")
+                .expect("the feed has an Artists row");
+            assert!(artist_row.art.as_ref().is_some_and(gives_image), "{role:?}");
+        }
     }
 
     /// ADR 0084 task 015, operator decision of 2026-10-17: a page row
