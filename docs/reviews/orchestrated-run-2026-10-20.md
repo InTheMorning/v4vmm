@@ -63,6 +63,8 @@ Each entry names the step, the decision and the reason.
 - Packet 020 review: `detail_scroll_handle` now uses the open page entry, so a page that opens from Discover scrolls its own handle. Before the fix, its keys scrolled the hidden Discover list.
 - Packet 020: Left and Right move the focus only on the Discover view. The other pages keep the keys of packet 018.
 
+- Packet 025 review: "Remove n from playlist" has no confirmation, because it deletes no file. A selection change during a move can give a wrong key, and the next reload drops it. The row cost of a long playlist is responsiveness item 13.
+
 ## Steps
 
 | Step | State | Commit |
@@ -70,8 +72,8 @@ Each entry names the step, the decision and the reason.
 | Plan edits, triage, flow check | Done | `143a9ff` |
 | Packet 021: one release page | Implemented. V1 to V3 open | `6439c00` |
 | Packet 022: the download queue | Implemented. V1 to V6 open | `905f3fe` |
-| Packet 020: Discover tiles | Implemented. V1 to V6 open | This commit |
-| Packet 025: playlist page | Open | |
+| Packet 020: Discover tiles | Implemented. V1 to V6 open | `4cc4540` |
+| Packet 025: playlist page | Implemented. V1 to V7 open | This commit |
 | Packet 011: the logo frame | Open | |
 | Packet 024: the image of an artist feed (migration 20) | Open | |
 

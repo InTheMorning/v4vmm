@@ -355,6 +355,17 @@ impl<K: Clone + Eq + Ord, R: Clone + Eq> ListSelection<K, R> {
     }
 }
 
+impl<T: Clone + Eq + Ord> ListSelection<T, T> {
+    /// Gives each selected key, the anchor and the focus the key that
+    /// `map` returns (ADR 0084 packet 025: the keys follow a playlist
+    /// move). Use this only for a list whose every row has one member.
+    pub(crate) fn rekey(&mut self, map: impl Fn(&T) -> T) {
+        self.selected = self.selected.iter().map(&map).collect();
+        self.anchor = self.anchor.as_ref().map(&map);
+        self.focus = self.focus.as_ref().map(&map);
+    }
+}
+
 /// The selection facts of one list row (ADR 0084 Decision 10): whether its
 /// checkbox shows, its checked state, whether it carries the keyboard
 /// focus, and the checkbox's accessibility label.

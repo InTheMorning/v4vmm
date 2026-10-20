@@ -2,6 +2,10 @@
 //!
 //! The shell owns the playlist page hierarchy and row chrome. Screens provide
 //! thumbnail images and command callbacks through behavior slots.
+//!
+//! ADR 0084 Decision 10, packet 025: in selection mode, the row checkbox
+//! takes the place of the drag handle, and the row menu and the drop
+//! target are absent. The page scrolls with the held detail column handle.
 
 #![warn(clippy::pedantic)]
 
@@ -9,13 +13,16 @@ use std::rc::Rc;
 
 use gpui::{
     div, prelude::*, AnyElement, App, ClickEvent, ClipboardItem, Context, Entity, FontWeight,
-    InteractiveElement, ParentElement, Pixels, Point, Render, SharedString, Styled, Window,
+    InteractiveElement, ParentElement, Pixels, Point, Render, ScrollHandle, SharedString, Styled,
+    Window,
 };
 use gpui_component::input::{Input, InputState};
 use gpui_component::Size;
 
-use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::list_row::{row_outline, RowOutline};
+use crate::ui::composites::music_column_scroll::music_column_tracked_scrollbar;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
+use crate::ui::composites::track_row::checkbox_state_for;
 use crate::ui::composites::{
     DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow, DetailTextRow, EntityKind, StatusRole,
 };
@@ -23,13 +30,14 @@ use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
 use crate::ui::primitives::{
-    Button as UiButton, ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope,
+    Button as UiButton, Checkbox, ContextMenu, ContextMenuItem, ContextMenuItemDisplay,
+    ContextMenuScope,
 };
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::style::{color, spacing};
 use crate::ui::{
     layouts as layout,
-    tokens::{FontSize, Radius, Size as TokenSize, Spacing},
+    tokens::{color as token_color, FontSize, Radius, SemanticColor, Size as TokenSize, Spacing},
 };
 use crate::view_models::library::{
     PlaylistTrackControlsDisplay, PlaylistTrackMenuItemDisplay, PlaylistTrackRowDisplay,
@@ -72,6 +80,8 @@ pub(crate) enum PlaylistShellRow {
     Pending {
         position: usize,
         last_position: usize,
+        /// The scroll probe of the focused row (ADR 0084 packet 025).
+        probe: Option<AnyElement>,
     },
     Ready(Box<PlaylistShellReadyRow>),
 }
@@ -91,6 +101,10 @@ pub(crate) struct PlaylistTrackRowSlot {
     pub(crate) on_remove: Option<PlaylistCommandHandler>,
     /// ADR 0076 Decision 7: "Remove from all playlists" of a removed track.
     pub(crate) on_remove_from_all_playlists: Option<PlaylistClickHandler>,
+    /// ADR 0084 packet 025: a click on the row checkbox.
+    pub(crate) on_toggle_selection: Option<PlaylistClickHandler>,
+    /// ADR 0084 packet 025: the scroll probe of the focused row.
+    pub(crate) scroll_probe: Option<AnyElement>,
 }
 
 struct PlaylistActionSlots {
@@ -131,6 +145,7 @@ where
 pub(crate) fn render_playlist_detail_shell(
     page: &PlaylistDetailPageVm<'_>,
     slots: PlaylistDetailBehaviorSlots,
+    scroll: &ScrollHandle,
     cx: &App,
 ) -> AnyElement {
     let header_display = page.header_display();
@@ -204,7 +219,9 @@ pub(crate) fn render_playlist_detail_shell(
         .min_w_0()
         .p(spacing::LG)
         .child(content);
-    music_column_scrollbar(container, "playlist-detail-scroll-scrollbar")
+    // ADR 0084 packet 025: the page holds the detail column scroll handle,
+    // so the keys can keep the focused row in view.
+    music_column_tracked_scrollbar(container, scroll, None)
 }
 
 fn render_playlist_rows_with_reorder_targets(
@@ -534,7 +551,8 @@ fn render_playlist_shell_row(
         PlaylistShellRow::Pending {
             position,
             last_position,
-        } => render_pending_playlist_row(playlist_id, position, last_position, cx),
+            probe,
+        } => render_pending_playlist_row(playlist_id, position, last_position, probe, cx),
         PlaylistShellRow::Ready(ready) => {
             render_playlist_track_row(playlist_id, ready.display, ready.slot, on_reorder, cx)
         }
@@ -545,6 +563,7 @@ fn render_pending_playlist_row(
     playlist_id: i64,
     position: usize,
     last_position: usize,
+    probe: Option<AnyElement>,
     cx: &App,
 ) -> AnyElement {
     let row_id = SharedString::from(format!(
@@ -564,6 +583,7 @@ fn render_pending_playlist_row(
                 .show_thumbnail(true)
                 .show_duration(true),
         )
+        .when_some(probe, |el, probe| el.relative().child(probe))
         .into_any_element()
 }
 
@@ -650,11 +670,6 @@ fn render_playlist_track_row(
     let row_pad_y = Spacing::XS.scaled(cx);
     let row_radius = Radius::SM.scaled(cx);
     let drop_indicator = Spacing::XS.scaled(cx);
-    let drag_payload = PlaylistTrackDragPayload {
-        playlist_id,
-        from_position: display.position,
-        title: SharedString::from(display.title.clone()),
-    };
     let removed_from_feed = render_removed_from_feed(&display, &slot, cx);
     let PlaylistTrackRowSlot {
         thumbnail,
@@ -664,7 +679,14 @@ fn render_playlist_track_row(
         on_move_down,
         on_remove,
         on_remove_from_all_playlists: _,
+        on_toggle_selection,
+        scroll_probe,
     } = slot;
+    // ADR 0084 packet 025: selection mode hides the drag handle, the drop
+    // target and the row menu.
+    let reorder_visible = controls.reorder_visible;
+    let selection = display.selection.clone();
+    let leading = render_playlist_leading_slot(playlist_id, &display, on_toggle_selection, cx);
 
     let mut row = div()
         .id(SharedString::from(controls.row_id.clone()))
@@ -682,9 +704,9 @@ fn render_playlist_track_row(
                 .border_color(color::border_strong())
         })
         .hover(|el| el.bg(color::bg_surface_hi()))
+        .map(|el| apply_playlist_row_selection(el, selection.is_marked(), selection.focused, cx))
         .child(render_playlist_row_identity(
-            &controls,
-            drag_payload,
+            leading,
             render_playlist_track_body(display, thumbnail, on_select, cx),
             cx,
         ))
@@ -698,9 +720,12 @@ fn render_playlist_track_row(
             },
             cx,
         ))
-        .when_some(removed_from_feed, ParentElement::child);
+        .when_some(removed_from_feed, ParentElement::child)
+        .when_some(scroll_probe, |el, probe| el.relative().child(probe));
 
-    if let Some(on_reorder) = on_reorder {
+    // ADR 0084 Decision 10, packet 025: in selection mode the row accepts
+    // no drop.
+    if let (Some(on_reorder), true) = (on_reorder, reorder_visible) {
         row = row
             .can_drop(move |drag, _window, _cx| {
                 drag.downcast_ref::<PlaylistTrackDragPayload>().is_some()
@@ -748,8 +773,7 @@ fn render_playlist_track_row(
 }
 
 fn render_playlist_row_identity(
-    controls: &PlaylistTrackControlsDisplay,
-    drag_payload: PlaylistTrackDragPayload,
+    leading: AnyElement,
     body: AnyElement,
     cx: &App,
 ) -> impl IntoElement {
@@ -760,8 +784,81 @@ fn render_playlist_row_identity(
         .flex_auto()
         .flex_basis(TokenSize::ColumnRegular.scaled(cx))
         .min_w_0()
-        .child(render_playlist_drag_handle(controls, drag_payload, cx))
+        .child(leading)
         .child(body)
+}
+
+/// The leading slot of a playlist row: the drag handle in `Normal`, and the
+/// row checkbox in `Selecting` (ADR 0084 Decision 10, packet 025).
+fn render_playlist_leading_slot(
+    playlist_id: i64,
+    display: &PlaylistTrackRowDisplay,
+    on_toggle: Option<PlaylistClickHandler>,
+    cx: &App,
+) -> AnyElement {
+    if display.controls.reorder_visible {
+        let drag_payload = PlaylistTrackDragPayload {
+            playlist_id,
+            from_position: display.position,
+            title: SharedString::from(display.title.clone()),
+        };
+        render_playlist_drag_handle(&display.controls, drag_payload, cx)
+    } else {
+        render_playlist_row_checkbox(&display.controls, &display.selection, on_toggle, cx)
+    }
+}
+
+/// The selected fill and the outlines of a playlist row (ADR 0084 Decision
+/// 10, packet 025). They come from `row_outline` of `list_row.rs`, the same
+/// as each other selectable row.
+fn apply_playlist_row_selection<E: Styled>(el: E, selected: bool, focused: bool, cx: &App) -> E {
+    let el = if selected {
+        el.bg(token_color(cx, SemanticColor::SelectedContent))
+    } else {
+        el
+    };
+    match row_outline(selected, focused) {
+        RowOutline::None => el,
+        RowOutline::Selected => el
+            .border_1()
+            .border_color(token_color(cx, SemanticColor::Accent)),
+        RowOutline::Focus => el
+            .border_2()
+            .border_color(token_color(cx, SemanticColor::Focus)),
+    }
+}
+
+/// The row checkbox of selection mode (ADR 0084 Decision 10, packet 025).
+/// It takes the leading place of the drag handle, in a slot of the same
+/// `TokenSize::MinHitTarget` width, so the row width does not change.
+fn render_playlist_row_checkbox(
+    controls: &PlaylistTrackControlsDisplay,
+    selection: &crate::view_models::list_selection::RowSelectionVm,
+    on_toggle: Option<PlaylistClickHandler>,
+    cx: &App,
+) -> AnyElement {
+    let checkbox = selection.checkbox_visible.then(|| {
+        Checkbox::new(
+            SharedString::from(controls.checkbox_id.clone()),
+            checkbox_state_for(selection.check_state),
+        )
+        .a11y_label(selection.checkbox_a11y_label.clone())
+        .on_click(move |event, window, cx| {
+            cx.stop_propagation();
+            if let Some(handler) = &on_toggle {
+                handler(event, window, cx);
+            }
+        })
+    });
+    div()
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .justify_center()
+        .min_w(TokenSize::MinHitTarget.scaled(cx))
+        .min_h(TokenSize::MinHitTarget.scaled(cx))
+        .children(checkbox)
+        .into_any_element()
 }
 
 struct PlaylistTrackControlSlots {
@@ -831,6 +928,7 @@ fn render_playlist_track_controls(
         move_up_menu_item,
         move_down_menu_item,
         remove_menu_item,
+        reorder_visible,
         ..
     } = controls;
     let PlaylistTrackControlSlots {
@@ -851,15 +949,18 @@ fn render_playlist_track_controls(
         None => play_button.leading_icon(IconName::Play),
     };
     let play_btn = apply_click_handler(play_button, play);
-    let actions_menu = render_playlist_track_actions_menu(
-        actions_menu_id,
-        actions_menu_a11y_label,
-        [
-            menu_item(move_up_menu_item, move_up),
-            menu_item(move_down_menu_item, move_down),
-            menu_item(remove_menu_item, remove),
-        ],
-    );
+    // ADR 0084 packet 025: selection mode shows no row menu.
+    let actions_menu = reorder_visible.then(|| {
+        render_playlist_track_actions_menu(
+            actions_menu_id,
+            actions_menu_a11y_label,
+            [
+                menu_item(move_up_menu_item, move_up),
+                menu_item(move_down_menu_item, move_down),
+                menu_item(remove_menu_item, remove),
+            ],
+        )
+    });
 
     let controls = div()
         .flex()
@@ -871,7 +972,7 @@ fn render_playlist_track_controls(
         .items_center()
         .gap(Spacing::XS.scaled(cx))
         .child(play_btn)
-        .child(actions_menu);
+        .children(actions_menu);
     #[cfg(test)]
     let controls = controls.debug_selector(|| "playlist-row-controls".to_owned());
     controls.into_any_element()
@@ -929,6 +1030,7 @@ fn render_playlist_track_body(
         duration_label,
         thumb_url: _,
         controls,
+        selection: _,
     } = display;
     let title_color = if is_available {
         color::text_primary()

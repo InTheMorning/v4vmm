@@ -179,6 +179,7 @@ The operator asked on 2026-10-08 for a later phase that tunes how fast the app r
 12. 2026-10-18: the operator heard the processor fan run faster with the debug build. The same watch also runs `systemctl --user show` two times each second, for the publisher unit and the producer unit (`ServiceControl::show` in `src/broadcast/control.rs`).
     Each snapshot redraws the full window, also when no value changed. `publish_snapshot` uses `send`, not `send_if_modified`, and `bridge_watch` in `src/presentation/gpui_vm_bridge.rs` calls `cx.notify()` after each snapshot. The playback poll of `src/runtime/playback_polling.rs` also redraws each second.
     ADR 0059 task 018 owns the service watch part, and the playback poll part has no owner.
+13. 2026-10-20: the top app builds the playlist page rows of the detail selection several times in each render. A long playlist can thus render slowly (`detail_page_rows` in `src/app/detail_selection.rs`, ADR 0084 packet 025). No measurement confirms it.
 
 ## Visual Requirements Moved From Pending Checks - 2026-10-07
 

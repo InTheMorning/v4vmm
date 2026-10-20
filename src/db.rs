@@ -2450,6 +2450,159 @@ pub fn playlist_reorder(conn: &mut Connection, playlist_id: i64, from: i64, to: 
     Ok(())
 }
 
+/// One entry of a playlist: its position and its track (ADR 0084 Decision
+/// 10, packet 025). A playlist can hold one track two times, so the
+/// position identifies the entry. The track id is a check: a stale entry
+/// names a position that now holds a different track.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct PlaylistEntryKey {
+    /// The zero-based position of the entry.
+    pub position: i64,
+    /// The track of the entry.
+    pub track_id: i64,
+}
+
+/// The edge of a playlist that "Move to top" and "Move to bottom" move the
+/// selected entries to (ADR 0084 Decision 10, packet 025).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PlaylistEdge {
+    /// The first positions.
+    Top,
+    /// The last positions.
+    Bottom,
+}
+
+/// The error text of a stale playlist entry (ADR 0084 packet 025).
+pub const PLAYLIST_CHANGED_ERROR: &str = "The playlist changed. Select the tracks again.";
+
+/// Reads the track ids of a playlist in position order, and checks that
+/// each entry of `entries` names its present track.
+fn playlist_checked_track_ids(
+    tx: &rusqlite::Transaction<'_>,
+    playlist_id: i64,
+    entries: &[PlaylistEntryKey],
+) -> Result<Vec<i64>> {
+    let track_ids = tx
+        .prepare("SELECT track_id FROM playlist_tracks WHERE playlist_id = ?1 ORDER BY position")
+        .context("prepare select tracks")?
+        .query_map([playlist_id], |row| row.get::<_, i64>(0))
+        .context("query tracks")?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .context("collect tracks")?;
+    let stale = entries.iter().any(|entry| {
+        usize::try_from(entry.position)
+            .ok()
+            .and_then(|index| track_ids.get(index))
+            != Some(&entry.track_id)
+    });
+    if stale {
+        anyhow::bail!(PLAYLIST_CHANGED_ERROR);
+    }
+    Ok(track_ids)
+}
+
+/// Writes `track_ids` as the full position order of a playlist, and sets
+/// its modification time.
+fn playlist_rewrite_order(
+    tx: &rusqlite::Transaction<'_>,
+    playlist_id: i64,
+    track_ids: &[i64],
+) -> Result<()> {
+    tx.execute(
+        "DELETE FROM playlist_tracks WHERE playlist_id = ?1",
+        rusqlite::params![playlist_id],
+    )
+    .context("delete all playlist tracks")?;
+    for (position, track_id) in (0_i64..).zip(track_ids) {
+        tx.execute(
+            "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (?1, ?2, ?3)",
+            rusqlite::params![playlist_id, track_id, position],
+        )
+        .context("reinsert track")?;
+    }
+    tx.execute(
+        "UPDATE playlists SET updated_at = strftime('%s','now') WHERE id = ?1",
+        rusqlite::params![playlist_id],
+    )
+    .context("update playlist timestamp")?;
+    Ok(())
+}
+
+/// Moves the entries `entries` of a playlist to `edge` in one transaction
+/// (ADR 0084 Decision 10, packet 025). The moved entries keep their
+/// present order, and the other entries keep their order. Returns the
+/// number of entries in the playlist.
+///
+/// # Errors
+///
+/// Gives [`PLAYLIST_CHANGED_ERROR`] and changes nothing when an entry
+/// names a position that holds a different track, or no track.
+pub fn playlist_move_entries(
+    conn: &mut Connection,
+    playlist_id: i64,
+    entries: &[PlaylistEntryKey],
+    edge: PlaylistEdge,
+) -> Result<usize> {
+    let tx = conn.transaction().context("start transaction")?;
+    let track_ids = playlist_checked_track_ids(&tx, playlist_id, entries)?;
+    let moved: std::collections::BTreeSet<i64> =
+        entries.iter().map(|entry| entry.position).collect();
+    let mut selected = Vec::with_capacity(moved.len());
+    let mut others = Vec::with_capacity(track_ids.len());
+    for (position, track_id) in (0_i64..).zip(track_ids) {
+        if moved.contains(&position) {
+            selected.push(track_id);
+        } else {
+            others.push(track_id);
+        }
+    }
+    let order = match edge {
+        PlaylistEdge::Top => [selected, others].concat(),
+        PlaylistEdge::Bottom => [others, selected].concat(),
+    };
+    playlist_rewrite_order(&tx, playlist_id, &order)?;
+    tx.commit().context("commit transaction")?;
+    Ok(order.len())
+}
+
+/// Removes the entries `entries` from a playlist in one transaction (ADR
+/// 0084 Decision 10, packet 025). It deletes in descending position order
+/// and closes each gap. The tracks stay in the Library.
+///
+/// # Errors
+///
+/// Gives [`PLAYLIST_CHANGED_ERROR`] and changes nothing when an entry
+/// names a position that holds a different track, or no track.
+pub fn playlist_remove_entries(
+    conn: &mut Connection,
+    playlist_id: i64,
+    entries: &[PlaylistEntryKey],
+) -> Result<()> {
+    let tx = conn.transaction().context("start transaction")?;
+    playlist_checked_track_ids(&tx, playlist_id, entries)?;
+    let positions: std::collections::BTreeSet<i64> =
+        entries.iter().map(|entry| entry.position).collect();
+    for position in positions.into_iter().rev() {
+        tx.execute(
+            "DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND position = ?2",
+            rusqlite::params![playlist_id, position],
+        )
+        .context("delete track entry")?;
+        tx.execute(
+            "UPDATE playlist_tracks SET position = position - 1 WHERE playlist_id = ?1 AND position > ?2",
+            rusqlite::params![playlist_id, position],
+        )
+        .context("shift positions")?;
+    }
+    tx.execute(
+        "UPDATE playlists SET updated_at = strftime('%s','now') WHERE id = ?1",
+        rusqlite::params![playlist_id],
+    )
+    .context("update playlist timestamp")?;
+    tx.commit().context("commit transaction")?;
+    Ok(())
+}
+
 pub fn playlist_first_track(conn: &Connection, playlist_id: i64) -> Result<Option<(i64, i64)>> {
     playlist_track_at(conn, playlist_id, 0)
 }
@@ -5843,6 +5996,143 @@ mod tests {
         assert_eq!(tracks[1].id, track_id3);
         assert_eq!(tracks[2].id, track_id1);
 
+        Ok(())
+    }
+
+    /// A recorded playlist that holds track `b` two times: a, b, c, b, d.
+    fn adr_0084_playlist_selection_fixture(conn: &Connection) -> Result<(i64, [i64; 4])> {
+        let feed_id = create_test_feed(conn)?;
+        let a = create_test_track(conn, feed_id)?;
+        let b = create_test_track(conn, feed_id)?;
+        let c = create_test_track(conn, feed_id)?;
+        let d = create_test_track(conn, feed_id)?;
+        let playlist_id = playlist_create(conn, "Packet 025")?;
+        for track_id in [a, b, c, b, d] {
+            playlist_append(conn, playlist_id, track_id)?;
+        }
+        Ok((playlist_id, [a, b, c, d]))
+    }
+
+    fn adr_0084_playlist_selection_order(conn: &Connection, playlist_id: i64) -> Result<Vec<i64>> {
+        Ok(playlist_tracks(conn, playlist_id)?
+            .into_iter()
+            .map(|track| track.id)
+            .collect())
+    }
+
+    /// R25-06: the selected entries go to the top or to the bottom in
+    /// their present order. The other entries keep their order.
+    #[test]
+    fn adr_0084_playlist_selection_r25_06_move_keeps_the_relative_order() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let (playlist_id, [a, b, c, d]) = adr_0084_playlist_selection_fixture(&conn)?;
+        let entries = [
+            PlaylistEntryKey {
+                position: 3,
+                track_id: b,
+            },
+            PlaylistEntryKey {
+                position: 4,
+                track_id: d,
+            },
+            PlaylistEntryKey {
+                position: 0,
+                track_id: a,
+            },
+        ];
+
+        let total = playlist_move_entries(&mut conn, playlist_id, &entries, PlaylistEdge::Top)?;
+        assert_eq!(total, 5);
+        assert_eq!(
+            adr_0084_playlist_selection_order(&conn, playlist_id)?,
+            vec![a, b, d, b, c]
+        );
+
+        let entries = [
+            PlaylistEntryKey {
+                position: 0,
+                track_id: a,
+            },
+            PlaylistEntryKey {
+                position: 3,
+                track_id: b,
+            },
+        ];
+        playlist_move_entries(&mut conn, playlist_id, &entries, PlaylistEdge::Bottom)?;
+        assert_eq!(
+            adr_0084_playlist_selection_order(&conn, playlist_id)?,
+            vec![b, d, c, a, b]
+        );
+        Ok(())
+    }
+
+    /// R25-06: a removal deletes only the named entry of a track that the
+    /// playlist holds two times, and closes the gap.
+    #[test]
+    fn adr_0084_playlist_selection_r25_06_remove_closes_each_gap() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let (playlist_id, [a, b, c, d]) = adr_0084_playlist_selection_fixture(&conn)?;
+        let entries = [
+            PlaylistEntryKey {
+                position: 1,
+                track_id: b,
+            },
+            PlaylistEntryKey {
+                position: 2,
+                track_id: c,
+            },
+        ];
+
+        playlist_remove_entries(&mut conn, playlist_id, &entries)?;
+        assert_eq!(
+            adr_0084_playlist_selection_order(&conn, playlist_id)?,
+            vec![a, b, d]
+        );
+        let positions: Vec<i64> = conn
+            .prepare(
+                "SELECT position FROM playlist_tracks WHERE playlist_id = ?1 ORDER BY position",
+            )?
+            .query_map([playlist_id], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        assert_eq!(positions, vec![0, 1, 2]);
+        Ok(())
+    }
+
+    /// R25-07: a stale entry makes the move and the removal fail with the
+    /// recorded error, and the playlist does not change.
+    #[test]
+    fn adr_0084_playlist_selection_r25_07_a_stale_entry_changes_nothing() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let (playlist_id, [a, b, c, d]) = adr_0084_playlist_selection_fixture(&conn)?;
+        let before = adr_0084_playlist_selection_order(&conn, playlist_id)?;
+        let stale = [
+            PlaylistEntryKey {
+                position: 0,
+                track_id: a,
+            },
+            PlaylistEntryKey {
+                position: 2,
+                track_id: b,
+            },
+        ];
+        let past_end = [PlaylistEntryKey {
+            position: 5,
+            track_id: d,
+        }];
+
+        for entries in [&stale[..], &past_end[..]] {
+            let error = playlist_move_entries(&mut conn, playlist_id, entries, PlaylistEdge::Top)
+                .expect_err("a stale entry fails the move");
+            assert_eq!(error.to_string(), PLAYLIST_CHANGED_ERROR);
+            let error = playlist_remove_entries(&mut conn, playlist_id, entries)
+                .expect_err("a stale entry fails the removal");
+            assert_eq!(error.to_string(), PLAYLIST_CHANGED_ERROR);
+            assert_eq!(
+                adr_0084_playlist_selection_order(&conn, playlist_id)?,
+                before
+            );
+        }
+        assert_eq!(before, vec![a, b, c, b, d]);
         Ok(())
     }
 

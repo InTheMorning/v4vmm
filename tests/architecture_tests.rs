@@ -4962,6 +4962,67 @@ and sets `Normal`. Keep the reset and the bind of the detail selection.\n{}",
     );
 }
 
+/// R25-11, situational ADR 0084 Decision 10 (packet 025): in selection
+/// mode the playlist row attaches no drop handler and shows no row menu.
+/// The drop target and the menu exist only when `reorder_visible` is true.
+/// The playlist page also scrolls with the held detail column handle, so
+/// the keys can keep the focused row in view.
+#[test]
+fn adr_0084_playlist_selection_r25_11_selection_mode_row_accepts_no_drop() {
+    let mut violations = Vec::new();
+    let shell = read_source(&manifest_path("src/ui/shells/playlist.rs"));
+    // A top-level function ends at its closing brace in column 0.
+    let top_level_body = |signature: &str| {
+        let start = shell
+            .find(signature)
+            .unwrap_or_else(|| panic!("src/ui/shells/playlist.rs is missing `{signature}`"));
+        let rest = &shell[start..];
+        &rest[..rest.find("\n}\n").unwrap_or(rest.len())]
+    };
+    let row = top_level_body("fn render_playlist_track_row(");
+    let gate = "if let (Some(on_reorder), true) = (on_reorder, reorder_visible) {";
+    match row.find(gate) {
+        Some(gate_at) => {
+            for handler in [".can_drop(", ".drag_over(", ".on_drop("] {
+                if row.find(handler).is_none_or(|at| at < gate_at) {
+                    violations.push(format!(
+                        "src/ui/shells/playlist.rs: `render_playlist_track_row` must attach \
+`{handler}` only inside `{gate}`."
+                    ));
+                }
+            }
+        }
+        None => violations.push(format!(
+            "src/ui/shells/playlist.rs: `render_playlist_track_row` must gate the drop target with \
+`{gate}`."
+        )),
+    }
+    let controls = top_level_body("fn render_playlist_track_controls(");
+    if !controls.contains("let actions_menu = reorder_visible.then(||") {
+        violations.push(
+            "src/ui/shells/playlist.rs: `render_playlist_track_controls` must render the row menu \
+only when `reorder_visible` is true."
+                .to_owned(),
+        );
+    }
+    if !shell.contains("music_column_tracked_scrollbar(container, scroll, None)")
+        || shell.contains("music_column_scrollbar(")
+    {
+        violations.push(
+            "src/ui/shells/playlist.rs: the playlist page must scroll through \
+`music_column_tracked_scrollbar` with the held detail column handle."
+                .to_owned(),
+        );
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 Decision 10 (packet 025): in selection mode the playlist row shows its checkbox \
+in place of the drag handle, attaches no drop handler and shows no row menu. Keep the drop target \
+and the menu behind `reorder_visible`, and keep the held scroll handle.\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Situational ADR 0084 Decision 10 (packet 020 review, 2026-10-20): the
 /// key scroll of a page that opens from Discover moves that page. Before
 /// this fix, `detail_scroll_handle` read only `LibraryDetail::Discover`, and
@@ -9299,6 +9360,11 @@ fn playlist_reorder_display_contract_uses_drag_handle_and_menu_fallbacks() {
         "label: \"Remove\"",
         "a11y_label: \"Remove track from playlist\"",
         "destructive: true",
+        // ADR 0084 Decision 10, packet 025: selection mode hides the drag
+        // handle, the drop target and the row menu.
+        "pub(crate) reorder_visible: bool",
+        "reorder_visible: true,",
+        "self.controls.reorder_visible = !selection.checkbox_visible;",
     ] {
         assert!(
             view_model_source.contains(required),
@@ -9347,6 +9413,8 @@ fn playlist_reorder_display_contract_uses_drag_handle_and_menu_fallbacks() {
         ".cursor_no_drop()",
         "render_playlist_rows_with_reorder_targets(",
         "fn playlist_row_drop_index_quantizes_by_drag_direction()",
+        "let reorder_visible = controls.reorder_visible;",
+        "if display.controls.reorder_visible {",
     ] {
         assert!(
             playlist_shell_source.contains(required),

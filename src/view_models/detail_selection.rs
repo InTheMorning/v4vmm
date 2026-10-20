@@ -1,9 +1,10 @@
 //! The selection of the Music detail column (ADR 0084 Decision 10, packet
 //! 018).
 //!
-//! Four detail pages have a list that the curator can select: the track
+//! Five detail pages have a list that the curator can select: the track
 //! rows of a release page, the rows of a singles group page, the release
-//! rows of a feed page and the Discover "New releases" view (packet 020).
+//! rows of a feed page, the Discover "New releases" view (packet 020) and
+//! the entries of a playlist page (packet 025).
 //! The detail column has one selection and
 //! one mode. They belong to one page entry. A move to another page clears
 //! the selection and sets [`SelectionMode::Normal`].
@@ -14,13 +15,17 @@
 
 #![warn(clippy::pedantic)]
 
-use crate::db::TrackRow;
+use std::collections::BTreeSet;
+
+use crate::db::{Playlist, PlaylistEdge, PlaylistEntryKey, TrackRow};
 use crate::view_models::library::ContentListRowDisplay;
 use crate::view_models::list_selection::{
     FocusStep, ListSelection, RowSelectionVm, SelectionMode, SelectionRow,
 };
 use crate::view_models::publisher_page::{PublisherPageSectionVm, TitleDisplay};
-use crate::view_models::selection_action_bar::{SelectionActionBarVm, SelectionActionCounts};
+use crate::view_models::selection_action_bar::{
+    PlaylistSelectionCounts, SelectionActionBarVm, SelectionActionCounts,
+};
 use crate::view_models::singles_group::SinglesGroupPageRowVm;
 use crate::view_models::workspace::{
     DiscoverView, FrameHeaderActionDisplay, FrameNavigationEntry, ReleaseKey, TrackKey,
@@ -28,13 +33,16 @@ use crate::view_models::workspace::{
 use crate::views::{TrackRef, TrackView};
 
 /// The key of one detail row. A release page row is a track. A singles
-/// group page row and a feed page row are a release.
+/// group page row and a feed page row are a release. A playlist page row
+/// is an entry: one track can have two entries (packet 025).
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum DetailRowKey {
     /// A track row of a release page.
     Track(TrackKey),
     /// A release row of a singles group page or a feed page.
     Release(ReleaseKey),
+    /// An entry row of a playlist page.
+    PlaylistEntry(PlaylistEntryKey),
 }
 
 impl DetailRowKey {
@@ -58,13 +66,15 @@ pub(crate) enum DetailListKind {
     Tracks,
     /// The release rows of a singles group page or a feed page.
     Releases,
+    /// The entry rows of a playlist page (packet 025).
+    PlaylistEntries,
 }
 
 impl DetailListKind {
     /// The list kind of the page `entry`. A release page gives tracks. A
     /// singles group page, a feed page and the Discover "New releases"
-    /// view give releases. Each other page gives `None`: it has no
-    /// selection. Packet 025 owns the playlist page.
+    /// view give releases. A playlist page gives its entries. Each other
+    /// page gives `None`: it has no selection.
     #[must_use]
     pub(crate) const fn for_entry(entry: &FrameNavigationEntry) -> Option<Self> {
         match entry {
@@ -72,20 +82,21 @@ impl DetailListKind {
             FrameNavigationEntry::SinglesGroup(_)
             | FrameNavigationEntry::PublisherDetail(_)
             | FrameNavigationEntry::DiscoverView(DiscoverView::NewReleases) => Some(Self::Releases),
+            FrameNavigationEntry::PlaylistDetail(_) => Some(Self::PlaylistEntries),
             _ => None,
         }
     }
 
     const fn plural_noun(self) -> &'static str {
         match self {
-            Self::Tracks => "tracks",
+            Self::Tracks | Self::PlaylistEntries => "tracks",
             Self::Releases => "releases",
         }
     }
 
     const fn item_noun(self) -> &'static str {
         match self {
-            Self::Tracks => "track",
+            Self::Tracks | Self::PlaylistEntries => "track",
             Self::Releases => "release",
         }
     }
@@ -160,6 +171,30 @@ pub(crate) struct DetailReleaseRow {
     pub(crate) library: Option<LibraryReleaseFacts>,
 }
 
+/// One entry row of a playlist page (packet 025).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct DetailPlaylistEntryRow {
+    /// The key of the row: its position and its track id.
+    pub(crate) key: PlaylistEntryKey,
+    /// The track page that a plain click in `Normal` mode opens.
+    pub(crate) track: TrackKey,
+    /// The title that the checkbox label names.
+    pub(crate) title: String,
+    /// The audio file of the track is downloaded.
+    pub(crate) downloaded: bool,
+    /// A download job of the release key of the track is queued or in
+    /// flight. "Remove from Library…" is then absent.
+    pub(crate) download_active: bool,
+}
+
+impl DetailPlaylistEntryRow {
+    /// Tells if "Remove from Library…" can act on the track.
+    #[must_use]
+    pub(crate) const fn removable(&self) -> bool {
+        self.downloaded && !self.download_active
+    }
+}
+
 /// The selectable rows of the open detail page, in their visible order.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum DetailPageRows {
@@ -167,6 +202,12 @@ pub(crate) enum DetailPageRows {
     Tracks(Vec<DetailTrackRow>),
     /// The release rows of a singles group page or a feed page.
     Releases(Vec<DetailReleaseRow>),
+    /// The entry rows of the playlist `playlist_id` (packet 025). The rows
+    /// come from the full list, so a row that waits is also here.
+    PlaylistEntries {
+        playlist_id: i64,
+        rows: Vec<DetailPlaylistEntryRow>,
+    },
 }
 
 impl DetailPageRows {
@@ -176,6 +217,7 @@ impl DetailPageRows {
         match self {
             Self::Tracks(_) => DetailListKind::Tracks,
             Self::Releases(_) => DetailListKind::Releases,
+            Self::PlaylistEntries { .. } => DetailListKind::PlaylistEntries,
         }
     }
 
@@ -190,6 +232,10 @@ impl DetailPageRows {
             Self::Releases(rows) => rows
                 .iter()
                 .map(|row| DetailRowKey::Release(row.key.clone()))
+                .collect(),
+            Self::PlaylistEntries { rows, .. } => rows
+                .iter()
+                .map(|row| DetailRowKey::PlaylistEntry(row.key))
                 .collect(),
         }
     }
@@ -210,6 +256,7 @@ impl DetailPageRows {
         match self {
             Self::Tracks(rows) => rows.iter().any(|row| row.key.is_some()),
             Self::Releases(rows) => !rows.is_empty(),
+            Self::PlaylistEntries { rows, .. } => !rows.is_empty(),
         }
     }
 
@@ -225,8 +272,54 @@ impl DetailPageRows {
                 .iter()
                 .find(|row| &row.key == key)
                 .map(|row| row.title.as_str()),
+            (Self::PlaylistEntries { .. }, DetailRowKey::PlaylistEntry(key)) => {
+                self.playlist_entry(key).map(|row| row.title.as_str())
+            }
             _ => None,
         }
+    }
+
+    /// The playlist entry row of `key`.
+    #[must_use]
+    pub(crate) fn playlist_entry(&self, key: &PlaylistEntryKey) -> Option<&DetailPlaylistEntryRow> {
+        match self {
+            Self::PlaylistEntries { rows, .. } => rows.iter().find(|row| &row.key == key),
+            Self::Tracks(_) | Self::Releases(_) => None,
+        }
+    }
+
+    /// The selected playlist entry rows, in their visible order.
+    #[must_use]
+    pub(crate) fn selected_entries(
+        &self,
+        selection: &DetailSelection,
+    ) -> Vec<&DetailPlaylistEntryRow> {
+        match self {
+            Self::PlaylistEntries { rows, .. } => rows
+                .iter()
+                .filter(|row| {
+                    selection
+                        .selection
+                        .is_selected(&DetailRowKey::PlaylistEntry(row.key))
+                })
+                .collect(),
+            Self::Tracks(_) | Self::Releases(_) => Vec::new(),
+        }
+    }
+
+    /// The choices of "Add to playlist". A playlist page leaves out its
+    /// own playlist (packet 025). Each other page gives each playlist.
+    #[must_use]
+    pub(crate) fn add_to_playlist_choices(&self, playlists: &[Playlist]) -> Vec<Playlist> {
+        let open = match self {
+            Self::PlaylistEntries { playlist_id, .. } => Some(*playlist_id),
+            Self::Tracks(_) | Self::Releases(_) => None,
+        };
+        playlists
+            .iter()
+            .filter(|playlist| Some(playlist.id) != open)
+            .cloned()
+            .collect()
     }
 
     /// The selected track rows, in their visible order.
@@ -243,7 +336,7 @@ impl DetailPageRows {
                     })
                 })
                 .collect(),
-            Self::Releases(_) => Vec::new(),
+            Self::Releases(_) | Self::PlaylistEntries { .. } => Vec::new(),
         }
     }
 
@@ -259,7 +352,7 @@ impl DetailPageRows {
                         .is_selected(&DetailRowKey::Release(row.key.clone()))
                 })
                 .collect(),
-            Self::Tracks(_) => Vec::new(),
+            Self::Tracks(_) | Self::PlaylistEntries { .. } => Vec::new(),
         }
     }
 
@@ -271,10 +364,18 @@ impl DetailPageRows {
     /// the downloaded tracks. Release rows: "Download" counts an Index
     /// release and a Library release that is not fully downloaded. "Add
     /// to playlist" counts each Library release. "Remove" counts each
-    /// Library release that is fully downloaded.
+    /// Library release that is fully downloaded. Playlist entries: see
+    /// [`Self::playlist_action_bar`].
     #[must_use]
     pub(crate) fn action_bar(&self, selection: &DetailSelection) -> Option<SelectionActionBarVm> {
         let counts = match self {
+            Self::PlaylistEntries { rows, .. } => {
+                return Self::playlist_action_bar(
+                    rows.len(),
+                    &self.selected_entries(selection),
+                    selection.mode,
+                );
+            }
             Self::Tracks(_) => {
                 let selected = self.selected_tracks(selection);
                 SelectionActionCounts {
@@ -306,6 +407,42 @@ impl DetailPageRows {
             }
         };
         SelectionActionBarVm::from_counts(selection.mode, counts)
+    }
+
+    /// The bar of a playlist page (packet 025). "Download" and "Remove
+    /// from Library…" count distinct tracks, because one track can have
+    /// two entries. "Move to top" is absent when the selected entries are
+    /// the first `n` entries of the `total`. "Move to bottom" is absent
+    /// when they are the last `n` entries.
+    fn playlist_action_bar(
+        total: usize,
+        selected: &[&DetailPlaylistEntryRow],
+        mode: SelectionMode,
+    ) -> Option<SelectionActionBarVm> {
+        let distinct = |keep: fn(&DetailPlaylistEntryRow) -> bool| {
+            selected
+                .iter()
+                .filter(|row| keep(row))
+                .map(|row| row.key.track_id)
+                .collect::<BTreeSet<_>>()
+                .len()
+        };
+        let count = selected.len();
+        let index = |row: &&DetailPlaylistEntryRow| usize::try_from(row.key.position).ok();
+        SelectionActionBarVm::for_playlist(
+            mode,
+            PlaylistSelectionCounts {
+                selected_count: count,
+                download_count: distinct(|row| !row.downloaded),
+                remove_count: distinct(DetailPlaylistEntryRow::removable),
+                at_top: selected
+                    .iter()
+                    .all(|row| index(row).is_some_and(|index| index < count)),
+                at_bottom: selected.iter().all(|row| {
+                    index(row).is_some_and(|index| index >= total.saturating_sub(count))
+                }),
+            },
+        )
     }
 }
 
@@ -404,6 +541,12 @@ impl DetailSelection {
                     self.row_selection(Some(&DetailRowKey::Release(row.key.clone())), &row.title)
                 })
                 .collect(),
+            DetailPageRows::PlaylistEntries { rows, .. } => rows
+                .iter()
+                .map(|row| {
+                    self.row_selection(Some(&DetailRowKey::PlaylistEntry(row.key)), &row.title)
+                })
+                .collect(),
         }
     }
 
@@ -500,6 +643,52 @@ impl DetailSelection {
     /// for example after a removal.
     pub(crate) fn retain_visible(&mut self, visible_members: &[DetailRowKey]) {
         self.selection.retain_visible(visible_members);
+    }
+
+    /// The selected playlist entries, in position order (packet 025).
+    #[must_use]
+    pub(crate) fn selected_playlist_entries(&self) -> Vec<PlaylistEntryKey> {
+        let mut entries: Vec<PlaylistEntryKey> = self
+            .selection
+            .selected_keys()
+            .filter_map(|key| match key {
+                DetailRowKey::PlaylistEntry(entry) => Some(*entry),
+                DetailRowKey::Track(_) | DetailRowKey::Release(_) => None,
+            })
+            .collect();
+        entries.sort_unstable();
+        entries
+    }
+
+    /// After "Move to top" or "Move to bottom" of a playlist of `total`
+    /// entries (packet 025): each selected key, the anchor and the focus
+    /// get the new position of their entry. The track id of each key
+    /// stays, so the selection follows the moved entries.
+    pub(crate) fn rekey_after_move(&mut self, edge: PlaylistEdge, total: usize) {
+        let moved: Vec<i64> = self
+            .selected_playlist_entries()
+            .iter()
+            .map(|entry| entry.position)
+            .collect();
+        let count = i64::try_from(moved.len()).unwrap_or(i64::MAX);
+        let total = i64::try_from(total).unwrap_or(i64::MAX);
+        self.selection.rekey(|key| match key {
+            DetailRowKey::PlaylistEntry(entry) => {
+                let before = moved.partition_point(|position| *position < entry.position);
+                let before = i64::try_from(before).unwrap_or(i64::MAX);
+                let position = match (moved.binary_search(&entry.position).is_ok(), edge) {
+                    (true, PlaylistEdge::Top) => before,
+                    (true, PlaylistEdge::Bottom) => total - count + before,
+                    (false, PlaylistEdge::Top) => entry.position + count - before,
+                    (false, PlaylistEdge::Bottom) => entry.position - before,
+                };
+                DetailRowKey::PlaylistEntry(PlaylistEntryKey {
+                    position,
+                    track_id: entry.track_id,
+                })
+            }
+            other => other.clone(),
+        });
     }
 }
 
@@ -630,6 +819,30 @@ pub(crate) fn feed_page_release_rows(
         .collect()
 }
 
+/// The rows of a playlist page (packet 025), from the full list of its
+/// entries in the visible order of `PlaylistDetailVm::visible_tracks`.
+/// `download_active` tells if a download job of the release key of a
+/// track is queued or in flight.
+#[must_use]
+pub(crate) fn playlist_entry_rows(
+    entries: &[(usize, &TrackRow)],
+    download_active: impl Fn(&TrackRow) -> bool,
+) -> Vec<DetailPlaylistEntryRow> {
+    entries
+        .iter()
+        .map(|(position, track)| DetailPlaylistEntryRow {
+            key: PlaylistEntryKey {
+                position: i64::try_from(*position).unwrap_or(i64::MAX),
+                track_id: track.id,
+            },
+            track: track.track_key(),
+            title: track_row_title(track.track_title.as_deref(), Some(&track.item_guid)),
+            downloaded: track.is_in_library,
+            download_active: download_active(track),
+        })
+        .collect()
+}
+
 /// The key of a Discover row or tile (packet 020), from its `index-feed:`
 /// row id. A row with no feed GUID has no key, so it has no checkbox and
 /// no focus stop.
@@ -654,7 +867,7 @@ pub(crate) fn discover_release_rows<'a>(
                 library: facts(&key),
                 key,
             }),
-            DetailRowKey::Track(_) => None,
+            DetailRowKey::Track(_) | DetailRowKey::PlaylistEntry(_) => None,
         })
         .collect()
 }
@@ -964,16 +1177,14 @@ mod tests {
                 "Haleen".to_owned(),
             ))),
             FrameNavigationEntry::PublisherDetail("feed-artist".to_owned()),
+            // Packet 025 gave the playlist page its selection.
+            FrameNavigationEntry::PlaylistDetail(3),
         ] {
             assert!(DetailListKind::for_entry(&entry).is_some());
         }
         let track_page =
             FrameNavigationEntry::Track(TrackKey::from_index_track_target(Some(FEED_GUID), "t1"));
         assert_eq!(DetailListKind::for_entry(&track_page), None);
-        assert_eq!(
-            DetailListKind::for_entry(&FrameNavigationEntry::PlaylistDetail(3)),
-            None
-        );
         assert!(detail_header_action(None, SelectionMode::Normal).is_none());
         let empty = DetailPageRows::Tracks(Vec::new());
         assert!(detail_header_action(Some(&empty), SelectionMode::Normal).is_none());
@@ -1241,5 +1452,247 @@ mod tests {
             "stops at the first tile"
         );
         assert_eq!(step(FocusStep::Up), key("a"), "stops at the first tile");
+    }
+
+    const PLAYLIST_ID: i64 = 25;
+
+    /// A recorded playlist that holds "Haleen" (track 2) two times:
+    /// positions 0 to 4 hold tracks 1, 2, 3, 2 and 4. Tracks 1 and 2 are
+    /// downloaded.
+    fn playlist_tracks() -> Vec<TrackRow> {
+        vec![
+            library_track(1, "t1", "Face Pale", true),
+            library_track(2, "t2", "Haleen", true),
+            library_track(3, "t3", "Glass", false),
+            library_track(2, "t2", "Haleen", true),
+            library_track(4, "t4", "Ember", false),
+        ]
+    }
+
+    fn playlist_rows(tracks: &[TrackRow]) -> DetailPageRows {
+        let entries: Vec<(usize, &TrackRow)> = tracks.iter().enumerate().collect();
+        DetailPageRows::PlaylistEntries {
+            playlist_id: PLAYLIST_ID,
+            rows: playlist_entry_rows(&entries, |_| false),
+        }
+    }
+
+    fn entry(position: i64, track_id: i64) -> DetailRowKey {
+        DetailRowKey::PlaylistEntry(PlaylistEntryKey { position, track_id })
+    }
+
+    fn playlist_entry_page() -> FrameNavigationEntry {
+        FrameNavigationEntry::PlaylistDetail(PLAYLIST_ID)
+    }
+
+    /// R25-01: a playlist page gives `PlaylistEntries`, with the noun
+    /// "track".
+    #[test]
+    fn adr_0084_playlist_selection_r25_01_playlist_page_gives_entries() {
+        assert_eq!(
+            DetailListKind::for_entry(&playlist_entry_page()),
+            Some(DetailListKind::PlaylistEntries)
+        );
+        let tracks = playlist_tracks();
+        let rows = playlist_rows(&tracks);
+        assert_eq!(rows.kind(), DetailListKind::PlaylistEntries);
+        let header = detail_header_action(Some(&rows), SelectionMode::Normal)
+            .expect("a playlist with entries has a Select button");
+        assert_eq!(header.label, "Select");
+        assert_eq!(header.a11y_label, "Select tracks");
+    }
+
+    /// R25-02: two entries of one track have two keys. A toggle of one does
+    /// not select the other.
+    #[test]
+    fn adr_0084_playlist_selection_r25_02_two_entries_have_two_keys() {
+        let tracks = playlist_tracks();
+        let rows = playlist_rows(&tracks);
+        assert_eq!(rows.members()[1], entry(1, 2));
+        assert_eq!(rows.members()[3], entry(3, 2));
+
+        let mut selection = DetailSelection::new();
+        selection.bind(&playlist_entry_page());
+        selection.toggle_row(&entry(3, 2));
+        let checked: Vec<bool> = selection
+            .row_selections(&rows)
+            .iter()
+            .map(|row| row.check_state.is_checked())
+            .collect();
+        assert_eq!(checked, [false, false, false, true, false]);
+        assert_eq!(selection.selected_playlist_entries().len(), 1);
+    }
+
+    /// R25-03: after a reload, `retain_visible` drops a key whose position
+    /// now holds a different track.
+    #[test]
+    fn adr_0084_playlist_selection_r25_03_retain_drops_a_changed_position() {
+        let tracks = playlist_tracks();
+        let mut selection = DetailSelection::new();
+        selection.bind(&playlist_entry_page());
+        selection.toggle_row(&entry(1, 2));
+        selection.toggle_row(&entry(4, 4));
+
+        // Another action removed position 1. Position 1 now holds track 3.
+        let mut reloaded = tracks.clone();
+        reloaded.remove(1);
+        selection.retain_visible(&playlist_rows(&reloaded).members());
+        assert_eq!(
+            selection.selected_playlist_entries(),
+            Vec::<PlaylistEntryKey>::new()
+        );
+
+        selection.toggle_row(&entry(0, 1));
+        selection.retain_visible(&playlist_rows(&tracks).members());
+        assert_eq!(selection.selected_count(), 1);
+    }
+
+    fn bar_labels(rows: &DetailPageRows, selection: &DetailSelection) -> Vec<String> {
+        rows.action_bar(selection)
+            .expect("Selecting shows the bar")
+            .actions
+            .into_iter()
+            .map(|action| action.label)
+            .collect()
+    }
+
+    /// R25-04: the bar gives the six actions and "Clear" in the order of
+    /// the packet table. "Download" and "Remove from Library…" count
+    /// distinct tracks.
+    #[test]
+    fn adr_0084_playlist_selection_r25_04_bar_order_and_distinct_counts() {
+        let tracks = playlist_tracks();
+        let rows = playlist_rows(&tracks);
+        let mut selection = DetailSelection::new();
+        selection.bind(&playlist_entry_page());
+        for key in [entry(1, 2), entry(2, 3), entry(3, 2)] {
+            selection.toggle_row(&key);
+        }
+
+        assert_eq!(
+            bar_labels(&rows, &selection),
+            [
+                "Remove 3 from playlist",
+                "Download 1 track",
+                "Add 3 to playlist",
+                "Move to top",
+                "Move to bottom",
+                "Remove from Library\u{2026}",
+                "Clear",
+            ]
+        );
+        let bar = rows
+            .action_bar(&selection)
+            .expect("Selecting shows the bar");
+        let remove = bar
+            .action(SelectionActionKind::Remove)
+            .expect("track 2 is downloaded");
+        assert_eq!(remove.a11y_label, "Remove 1 track from Library\u{2026}");
+        assert_eq!(bar.count_label, "3 tracks selected");
+    }
+
+    /// R25-05: "Move to top" is absent when the selection is already at
+    /// the top. "Move to bottom" is absent when it is already at the
+    /// bottom.
+    #[test]
+    fn adr_0084_playlist_selection_r25_05_move_absent_at_its_edge() {
+        let tracks = playlist_tracks();
+        let rows = playlist_rows(&tracks);
+        let mut selection = DetailSelection::new();
+        selection.bind(&playlist_entry_page());
+        selection.toggle_row(&entry(1, 2));
+        selection.toggle_row(&entry(0, 1));
+        let labels = bar_labels(&rows, &selection);
+        assert!(!labels.iter().any(|label| label == "Move to top"));
+        assert!(labels.iter().any(|label| label == "Move to bottom"));
+
+        selection.clear_rows();
+        selection.toggle_row(&entry(4, 4));
+        selection.toggle_row(&entry(3, 2));
+        let labels = bar_labels(&rows, &selection);
+        assert!(labels.iter().any(|label| label == "Move to top"));
+        assert!(!labels.iter().any(|label| label == "Move to bottom"));
+
+        selection.select_all(&rows.selection_rows());
+        let labels = bar_labels(&rows, &selection);
+        assert!(!labels.iter().any(|label| label.starts_with("Move")));
+    }
+
+    /// R25-08: `rekey_after_move` gives the new keys and the new focus.
+    /// The order a, b, c, b, d with positions 1 and 3 selected gives
+    /// b, b, a, c, d after "Move to top".
+    #[test]
+    fn adr_0084_playlist_selection_r25_08_rekey_follows_the_moved_entries() {
+        let mut selection = DetailSelection::new();
+        selection.bind(&playlist_entry_page());
+        selection.toggle_row(&entry(1, 2));
+        selection.toggle_row(&entry(3, 2));
+        let visible = playlist_rows(&playlist_tracks()).selection_rows();
+        // The focus is on the unselected entry at position 2 (track 3).
+        selection.move_focus(FocusStep::Up, &visible);
+
+        selection.rekey_after_move(PlaylistEdge::Top, 5);
+        assert_eq!(
+            selection.selected_playlist_entries(),
+            [
+                PlaylistEntryKey {
+                    position: 0,
+                    track_id: 2
+                },
+                PlaylistEntryKey {
+                    position: 1,
+                    track_id: 2
+                },
+            ]
+        );
+        assert_eq!(selection.focused(), Some(&entry(3, 3)));
+
+        // From b, b, a, c, d: the focus moves to the selected entry at
+        // position 1, then "Move to bottom" gives a, c, d, b, b.
+        selection.toggle_row(&entry(1, 2));
+        selection.toggle_row(&entry(1, 2));
+        selection.rekey_after_move(PlaylistEdge::Bottom, 5);
+        assert_eq!(
+            selection.selected_playlist_entries(),
+            [
+                PlaylistEntryKey {
+                    position: 3,
+                    track_id: 2
+                },
+                PlaylistEntryKey {
+                    position: 4,
+                    track_id: 2
+                },
+            ]
+        );
+        assert_eq!(selection.focused(), Some(&entry(4, 2)));
+    }
+
+    /// R25-10: the "Add to playlist" choices of a playlist page leave out
+    /// the open playlist. Each other page gives each playlist.
+    #[test]
+    fn adr_0084_playlist_selection_r25_10_choices_leave_out_the_open_playlist() {
+        let playlist = |id: i64, name: &str| Playlist {
+            id,
+            name: name.to_owned(),
+            description: None,
+            track_count: 0,
+            created_at: 0,
+            updated_at: 0,
+        };
+        let playlists = [playlist(PLAYLIST_ID, "Open"), playlist(9, "Other")];
+        let tracks = playlist_tracks();
+        let ids = |choices: Vec<Playlist>| -> Vec<i64> {
+            choices.into_iter().map(|playlist| playlist.id).collect()
+        };
+        assert_eq!(
+            ids(playlist_rows(&tracks).add_to_playlist_choices(&playlists)),
+            [9]
+        );
+        let release = DetailPageRows::Tracks(Vec::new());
+        assert_eq!(
+            ids(release.add_to_playlist_choices(&playlists)),
+            [PLAYLIST_ID, 9]
+        );
     }
 }

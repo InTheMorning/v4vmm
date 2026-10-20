@@ -3022,6 +3022,21 @@ impl LibraryViewModel {
             .is_some_and(|album| self.busy.release_downloading(album))
     }
 
+    /// The Library track ids of each release with a queued or running
+    /// download job (ADR 0084 packet 025). The playlist page reads this
+    /// set one time for each render, not one tree search for each entry.
+    #[must_use]
+    pub(crate) fn release_download_active_track_ids(&self) -> BTreeSet<i64> {
+        self.snapshot
+            .tree
+            .artists
+            .iter()
+            .flat_map(|artist| artist.albums.iter())
+            .filter(|album| self.busy.release_downloading(album))
+            .flat_map(|album| album.tracks.iter().map(|track| track.id))
+            .collect()
+    }
+
     /// The action bar of the Releases list selection (ADR 0084 Decision
     /// 10), or `None` outside [`SelectionMode::Selecting`] (Amendment,
     /// 2026-10-19).
@@ -4907,6 +4922,12 @@ pub(crate) struct PlaylistTrackControlsDisplay {
     pub(crate) move_up_menu_item: PlaylistTrackMenuItemDisplay,
     pub(crate) move_down_menu_item: PlaylistTrackMenuItemDisplay,
     pub(crate) remove_menu_item: PlaylistTrackMenuItemDisplay,
+    /// The id of the row checkbox of selection mode (packet 025).
+    pub(crate) checkbox_id: String,
+    /// The drag handle, the drop target and the row menu show (ADR 0084
+    /// Decision 10, packet 025). True in `Normal` only. In `Selecting`,
+    /// the checkbox takes the place of the drag handle.
+    pub(crate) reorder_visible: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -4923,6 +4944,20 @@ pub(crate) struct PlaylistTrackRowDisplay {
     pub(crate) duration_label: String,
     pub(crate) thumb_url: Option<String>,
     pub(crate) controls: PlaylistTrackControlsDisplay,
+    /// The selection facts of the row (ADR 0084 Decision 10, packet 025).
+    pub(crate) selection: RowSelectionVm,
+}
+
+impl PlaylistTrackRowDisplay {
+    /// Applies the selection facts of the row (packet 025). In
+    /// `Selecting`, the checkbox shows, and the drag handle, the drop
+    /// target and the row menu hide.
+    #[must_use]
+    pub(crate) fn with_selection(mut self, selection: RowSelectionVm) -> Self {
+        self.controls.reorder_visible = !selection.checkbox_visible;
+        self.selection = selection;
+        self
+    }
 }
 
 #[cfg(test)]
@@ -5126,6 +5161,8 @@ impl<'a> PlaylistTrackRowVm<'a> {
                 destructive: true,
                 disabled: false,
             },
+            checkbox_id: format!("playlist-checkbox-{playlist_id}-{position}"),
+            reorder_visible: true,
         }
     }
 
@@ -5143,6 +5180,7 @@ impl<'a> PlaylistTrackRowVm<'a> {
             duration_label: self.duration_label(),
             thumb_url: self.thumb_url().map(str::to_string),
             controls: self.controls_display(playlist_id),
+            selection: RowSelectionVm::none(),
         }
     }
 }
@@ -5308,7 +5346,9 @@ impl<'a> PlaylistDetailVm<'a> {
             .collect()
     }
 
-    fn visible_tracks(&self) -> Vec<(usize, &'a TrackRow)> {
+    /// Each visible track with its position, in stored order. The detail
+    /// selection reads its rows in this order (packet 025).
+    pub(crate) fn visible_tracks(&self) -> Vec<(usize, &'a TrackRow)> {
         self.tracks
             .iter()
             .enumerate()
@@ -6909,6 +6949,8 @@ mod tests {
                     destructive: true,
                     disabled: false,
                 },
+                checkbox_id: "playlist-checkbox-7-0".into(),
+                reorder_visible: true,
             }
         );
 
@@ -6978,9 +7020,32 @@ mod tests {
                         destructive: true,
                         disabled: false,
                     },
+                    checkbox_id: "playlist-checkbox-7-0".into(),
+                    reorder_visible: true,
                 },
+                selection: RowSelectionVm::none(),
             }
         );
+    }
+
+    /// R25-09: in `Selecting`, the checkbox shows and `reorder_visible` is
+    /// false. In `Normal`, the opposite.
+    #[test]
+    fn adr_0084_playlist_selection_r25_09_reorder_follows_the_mode() {
+        let pl = playlist("Mix");
+        let tracks = [row()];
+        let vm = PlaylistDetailVm::new(&pl, &tracks);
+        let display = || vm.track_rows()[0].display(pl.id);
+
+        let selecting =
+            display().with_selection(RowSelectionVm::for_row("Song", true, false, true));
+        assert!(selecting.selection.checkbox_visible);
+        assert!(!selecting.controls.reorder_visible);
+
+        let normal = display().with_selection(RowSelectionVm::for_row("Song", false, false, false));
+        assert!(!normal.selection.checkbox_visible);
+        assert!(normal.controls.reorder_visible);
+        assert!(display().controls.reorder_visible);
     }
 
     #[test]

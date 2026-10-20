@@ -15,6 +15,7 @@ use super::publisher_dispatch::PublisherPageState;
 use super::search_dispatch::feed_guid_from_view;
 use super::TopApp;
 use crate::application::library_removal::LibraryRemovalIntent;
+use crate::db::PlaylistEdge;
 use crate::library::{playlist_options, LibraryApp};
 use crate::ui::composites::{SelectionActionBar, SelectionActionBarPlaylists};
 use crate::view_models::detail_selection::{
@@ -73,9 +74,10 @@ impl TopApp {
         self.index_release_page_detail(feed_guid, cx).feed
     }
 
-    /// The selectable rows of the open detail page (ADR 0084 packets 018
-    /// and 020): a release page, a singles group page, a feed page or the
-    /// Discover "New releases" view. `None` for each other page.
+    /// The selectable rows of the open detail page (ADR 0084 packets 018,
+    /// 020 and 025): a release page, a singles group page, a feed page,
+    /// the Discover "New releases" view or a playlist page. `None` for
+    /// each other page.
     pub(super) fn detail_page_rows(&self, cx: &App) -> Option<DetailPageRows> {
         let entry = self.current_music_entry()?;
         DetailListKind::for_entry(&entry)?;
@@ -93,9 +95,9 @@ impl TopApp {
                     library.library_detail_page_rows()
                 }
             },
-            FrameNavigationEntry::SinglesGroup(_) | FrameNavigationEntry::DiscoverView(_) => {
-                library.library_detail_page_rows()
-            }
+            FrameNavigationEntry::SinglesGroup(_)
+            | FrameNavigationEntry::DiscoverView(_)
+            | FrameNavigationEntry::PlaylistDetail(_) => library.library_detail_page_rows(),
             FrameNavigationEntry::PublisherDetail(_) => {
                 let Some(PublisherPageState::Loaded { facts, .. }) = &self.publisher_page else {
                     return None;
@@ -161,6 +163,11 @@ impl TopApp {
             DetailRowKey::Track(key) => self.open_track_in_frame(content_frame_id, key, label, cx),
             DetailRowKey::Release(key) => {
                 self.open_release_in_frame(content_frame_id, key, label, cx);
+            }
+            DetailRowKey::PlaylistEntry(entry) => {
+                let entry = *entry;
+                self.library
+                    .update(cx, |library, cx| library.open_playlist_entry(entry, cx));
             }
         }
     }
@@ -250,10 +257,12 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let focus = self.library.read(cx).detail_column_focus().clone();
-        let bar = self
-            .detail_page_rows(cx)
-            .and_then(|rows| rows.action_bar(self.library.read(cx).detail_selection()));
-        let bar = bar.map(|bar| self.render_detail_action_bar(bar, cx));
+        let rows = self.detail_page_rows(cx);
+        let bar = rows.as_ref().and_then(|rows| {
+            rows.action_bar(self.library.read(cx).detail_selection())
+                .map(|bar| (bar, rows))
+        });
+        let bar = bar.map(|(bar, rows)| self.render_detail_action_bar(bar, rows, cx));
         div()
             .id("music-detail-column")
             .track_focus(&focus)
@@ -279,10 +288,14 @@ impl TopApp {
     fn render_detail_action_bar(
         &mut self,
         bar: SelectionActionBarVm,
+        rows: &DetailPageRows,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        // Packet 025: a playlist page leaves its own playlist out of the
+        // "Add to playlist" choices.
+        let choices = rows.add_to_playlist_choices(self.library.read(cx).playlists());
         let playlists = SelectionActionBarPlaylists {
-            playlists: playlist_options(self.library.read(cx).playlists()),
+            playlists: playlist_options(&choices),
             new_playlist_a11y_label: SharedString::from("Create a new playlist"),
             back_a11y_label: SharedString::from("Back to playlist choices"),
             create_a11y_label: SharedString::from("Create playlist and add the selection"),
@@ -299,10 +312,22 @@ impl TopApp {
         let clear = cx.listener(|this, (): &(), window, cx| {
             this.run_detail_selection_action(SelectionActionKind::Clear, window, cx);
         });
+        let remove_from_playlist = cx.listener(|this, (): &(), window, cx| {
+            this.run_detail_selection_action(SelectionActionKind::RemoveFromPlaylist, window, cx);
+        });
+        let move_to_top = cx.listener(|this, (): &(), window, cx| {
+            this.run_detail_selection_action(SelectionActionKind::MoveToTop, window, cx);
+        });
+        let move_to_bottom = cx.listener(|this, (): &(), window, cx| {
+            this.run_detail_selection_action(SelectionActionKind::MoveToBottom, window, cx);
+        });
         SelectionActionBar::new(bar, playlists)
             .on_download(move |window, cx| download(&(), window, cx))
             .on_remove(move |window, cx| remove(&(), window, cx))
             .on_clear(move |window, cx| clear(&(), window, cx))
+            .on_remove_from_playlist(move |window, cx| remove_from_playlist(&(), window, cx))
+            .on_move_to_top(move |window, cx| move_to_top(&(), window, cx))
+            .on_move_to_bottom(move |window, cx| move_to_bottom(&(), window, cx))
             .on_add_to_playlist(cx.listener(|this, playlist_id: &i64, _window, cx| {
                 this.add_detail_selection_to_playlist(*playlist_id, cx);
             }))
@@ -312,9 +337,10 @@ impl TopApp {
             .into_any_element()
     }
 
-    /// Runs "Download", "Remove…" or "Clear" of the detail bar. The
-    /// selection stays after each action. "Add to playlist" opens its own
-    /// popover.
+    /// Runs "Download", "Remove…" or "Clear" of the detail bar, and the
+    /// playlist actions of packet 025. The selection stays after each
+    /// action, except "Remove n from playlist", which clears the rows.
+    /// "Add to playlist" opens its own popover.
     fn run_detail_selection_action(
         &mut self,
         kind: SelectionActionKind,
@@ -338,6 +364,16 @@ impl TopApp {
             SelectionActionKind::Clear => {
                 self.library.update(cx, LibraryApp::clear_detail_rows);
             }
+            SelectionActionKind::RemoveFromPlaylist => {
+                self.library
+                    .update(cx, LibraryApp::remove_selected_playlist_entries);
+            }
+            SelectionActionKind::MoveToTop => self.library.update(cx, |library, cx| {
+                library.move_selected_playlist_entries(PlaylistEdge::Top, cx);
+            }),
+            SelectionActionKind::MoveToBottom => self.library.update(cx, |library, cx| {
+                library.move_selected_playlist_entries(PlaylistEdge::Bottom, cx);
+            }),
             SelectionActionKind::AddToPlaylist => {}
         }
         cx.notify();
@@ -403,6 +439,21 @@ impl TopApp {
                     self.download_index_album_of_track(feed_guid, Some(title), cx);
                 }
             }
+            // Packet 025: one job for each distinct track that is not
+            // downloaded. One track can have two entries.
+            DetailPageRows::PlaylistEntries { .. } => {
+                let mut track_ids: Vec<i64> = rows
+                    .selected_entries(&selection)
+                    .iter()
+                    .filter(|row| !row.downloaded)
+                    .map(|row| row.key.track_id)
+                    .collect();
+                track_ids.sort_unstable();
+                track_ids.dedup();
+                self.library.update(cx, |library, cx| {
+                    library.download_library_tracks(&track_ids, cx);
+                });
+            }
         }
     }
 
@@ -417,7 +468,9 @@ impl TopApp {
             detail_library_ids(&rows, selection)
         };
         self.library.update(cx, |library, cx| match rows {
-            DetailPageRows::Tracks(_) => library.add_tracks_to_playlist(track_ids, playlist_id, cx),
+            DetailPageRows::Tracks(_) | DetailPageRows::PlaylistEntries { .. } => {
+                library.add_tracks_to_playlist(track_ids, playlist_id, cx);
+            }
             DetailPageRows::Releases(_) => {
                 library.add_albums_to_playlist(&feed_ids, playlist_id, cx);
             }
@@ -435,7 +488,7 @@ impl TopApp {
             detail_library_ids(&rows, selection)
         };
         self.library.update(cx, |library, cx| match rows {
-            DetailPageRows::Tracks(_) => {
+            DetailPageRows::Tracks(_) | DetailPageRows::PlaylistEntries { .. } => {
                 library.create_playlist_and_add_tracks(name, track_ids, cx);
             }
             DetailPageRows::Releases(_) => {
@@ -446,7 +499,8 @@ impl TopApp {
 }
 
 /// The Library track ids and the Library feed ids of the selected rows,
-/// for "Add to playlist".
+/// for "Add to playlist". A playlist page gives the track of each selected
+/// entry, in position order (packet 025).
 fn detail_library_ids(
     rows: &DetailPageRows,
     selection: &crate::view_models::detail_selection::DetailSelection,
@@ -455,6 +509,11 @@ fn detail_library_ids(
         .selected_tracks(selection)
         .iter()
         .filter_map(|row| row.library_track_id)
+        .chain(
+            rows.selected_entries(selection)
+                .iter()
+                .map(|row| row.key.track_id),
+        )
         .collect();
     let feed_ids = rows
         .selected_releases(selection)
@@ -491,5 +550,23 @@ fn detail_removal_items(
                 .collect(),
             "release",
         ),
+        // Packet 025: one item for each distinct downloaded track. One
+        // track can have two entries.
+        DetailPageRows::PlaylistEntries { .. } => {
+            let mut seen = std::collections::BTreeSet::new();
+            (
+                rows.selected_entries(selection)
+                    .iter()
+                    .filter(|row| row.removable() && seen.insert(row.key.track_id))
+                    .map(|row| {
+                        (
+                            LibraryRemovalIntent::TrackId(row.key.track_id),
+                            row.title.clone(),
+                        )
+                    })
+                    .collect(),
+                "track",
+            )
+        }
     }
 }

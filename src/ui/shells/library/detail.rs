@@ -14,7 +14,9 @@ use crate::library::{LibraryApp, LibraryDetail};
 use crate::media::cover_color::CoverColor;
 use crate::ui::shells::library::feed_detail::render_library_feed_detail;
 use crate::ui::shells::library::feed_list::render_library_feed_list;
-use crate::ui::shells::library::playlist_detail::render_library_playlist_detail;
+use crate::ui::shells::library::playlist_detail::{
+    render_library_playlist_detail, LibraryPlaylistPage,
+};
 use crate::ui::shells::library::singles_group::render_library_singles_group_page;
 use crate::ui::shells::library::track_detail::render_library_track_detail;
 use crate::ui::style::color;
@@ -24,8 +26,8 @@ use crate::view_models::named_feeds::NamedFeed;
 
 /// The selection facts and the scroll probe of one row of a Library
 /// detail page (ADR 0084 Decision 10, packet 018). `LibraryApp` builds one
-/// for each row of a release page and of a singles group page, in the
-/// visible order.
+/// for each row of a release page, of a singles group page and of a
+/// playlist page (packet 025), in the visible order.
 pub(crate) struct DetailRowSlot {
     pub(crate) selection: RowSelectionVm,
     pub(crate) probe: Option<AnyElement>,
@@ -114,13 +116,17 @@ pub(crate) fn render_library_detail(
         ),
 
         LibraryDetail::Playlist(detail) => render_library_playlist_detail(
-            detail,
-            album_thumbs,
-            chrome,
-            rename_playlist_input,
-            renaming_playlist_id,
-            playlist_actor,
-            playlist_rss_check,
+            LibraryPlaylistPage {
+                detail,
+                album_thumbs,
+                chrome,
+                rename_playlist_input,
+                renaming_playlist_id,
+                playlist_actor,
+                playlist_rss_check,
+                row_slots,
+                scroll,
+            },
             cx,
         ),
     }

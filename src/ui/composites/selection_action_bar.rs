@@ -47,6 +47,9 @@ pub(crate) struct SelectionActionBar {
     on_clear: Option<RunHandler>,
     on_add_to_playlist: Option<SelectHandler>,
     on_create_playlist: Option<CreateHandler>,
+    on_remove_from_playlist: Option<RunHandler>,
+    on_move_to_top: Option<RunHandler>,
+    on_move_to_bottom: Option<RunHandler>,
 }
 
 impl SelectionActionBar {
@@ -59,7 +62,37 @@ impl SelectionActionBar {
             on_clear: None,
             on_add_to_playlist: None,
             on_create_playlist: None,
+            on_remove_from_playlist: None,
+            on_move_to_top: None,
+            on_move_to_bottom: None,
         }
+    }
+
+    /// "Remove n from playlist" of the playlist page (packet 025).
+    pub(crate) fn on_remove_from_playlist(
+        mut self,
+        handler: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_remove_from_playlist = Some(Rc::new(handler));
+        self
+    }
+
+    /// "Move to top" of the playlist page (packet 025).
+    pub(crate) fn on_move_to_top(
+        mut self,
+        handler: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_move_to_top = Some(Rc::new(handler));
+        self
+    }
+
+    /// "Move to bottom" of the playlist page (packet 025).
+    pub(crate) fn on_move_to_bottom(
+        mut self,
+        handler: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_move_to_bottom = Some(Rc::new(handler));
+        self
     }
 
     pub(crate) fn on_download(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
@@ -104,6 +137,9 @@ impl RenderOnce for SelectionActionBar {
             on_clear,
             on_add_to_playlist,
             on_create_playlist,
+            on_remove_from_playlist,
+            on_move_to_top,
+            on_move_to_bottom,
         } = self;
 
         let mut children: Vec<AnyElement> = vec![Label::new(bar.count_label)
@@ -147,6 +183,27 @@ impl RenderOnce for SelectionActionBar {
                     action.a11y_label,
                     ControlStyle::Destructive,
                     on_remove.clone(),
+                ),
+                SelectionActionKind::RemoveFromPlaylist => action_button(
+                    action.element_id,
+                    action.label,
+                    action.a11y_label,
+                    ControlStyle::Secondary,
+                    on_remove_from_playlist.clone(),
+                ),
+                SelectionActionKind::MoveToTop => action_button(
+                    action.element_id,
+                    action.label,
+                    action.a11y_label,
+                    ControlStyle::Secondary,
+                    on_move_to_top.clone(),
+                ),
+                SelectionActionKind::MoveToBottom => action_button(
+                    action.element_id,
+                    action.label,
+                    action.a11y_label,
+                    ControlStyle::Secondary,
+                    on_move_to_bottom.clone(),
                 ),
                 SelectionActionKind::Clear => action_button(
                     action.element_id,

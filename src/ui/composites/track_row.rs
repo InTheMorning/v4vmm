@@ -289,7 +289,8 @@ impl RenderOnce for TrackRow {
 
 /// Maps the typed check state of the view model to the state of the
 /// checkbox primitive. A track row has one member, so it never reads mixed.
-fn checkbox_state_for(check_state: RowCheckState) -> CheckboxState {
+/// The playlist row uses it too (packet 025).
+pub(crate) fn checkbox_state_for(check_state: RowCheckState) -> CheckboxState {
     match check_state {
         RowCheckState::Checked => CheckboxState::Checked,
         RowCheckState::Mixed => CheckboxState::Mixed,

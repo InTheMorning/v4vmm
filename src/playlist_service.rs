@@ -62,6 +62,32 @@ pub fn reorder(conn: &mut Connection, playlist_id: i64, from: i64, to: i64) -> R
     db::playlist_reorder(conn, playlist_id, from, to)
 }
 
+/// Moves the selected entries of a playlist to one edge (ADR 0084 packet
+/// 025). Returns the number of entries in the playlist.
+pub fn move_entries(
+    conn: &mut Connection,
+    playlist_id: i64,
+    entries: &[db::PlaylistEntryKey],
+    edge: db::PlaylistEdge,
+) -> Result<usize> {
+    for entry in entries {
+        ensure_non_negative_position(entry.position)?;
+    }
+    db::playlist_move_entries(conn, playlist_id, entries, edge)
+}
+
+/// Removes the selected entries from a playlist (ADR 0084 packet 025).
+pub fn remove_entries(
+    conn: &mut Connection,
+    playlist_id: i64,
+    entries: &[db::PlaylistEntryKey],
+) -> Result<()> {
+    for entry in entries {
+        ensure_non_negative_position(entry.position)?;
+    }
+    db::playlist_remove_entries(conn, playlist_id, entries)
+}
+
 pub fn track_at(conn: &Connection, playlist_id: i64, position: i64) -> Result<Option<(i64, i64)>> {
     ensure_non_negative_position(position)?;
     db::playlist_track_at(conn, playlist_id, position)

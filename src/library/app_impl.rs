@@ -21,8 +21,9 @@ use crate::application::commands::payment_routes::{
     PaymentRouteRepairStatus, PaymentRouteRepairTrackResult, RepairPaymentRoutesForTrack,
 };
 use crate::application::commands::playlist::{
-    ConfirmRemovedTrack, CreatePlaylist, DeletePlaylist, RemovePlaylistTrackAt,
-    RemoveTrackFromAllPlaylists, RenamePlaylist, ReorderPlaylistTrack,
+    ConfirmRemovedTrack, CreatePlaylist, DeletePlaylist, MovePlaylistEntries,
+    RemovePlaylistEntries, RemovePlaylistTrackAt, RemoveTrackFromAllPlaylists, RenamePlaylist,
+    ReorderPlaylistTrack,
 };
 use crate::application::errors::command::CommandError;
 use crate::application::library_removal::{
@@ -1333,6 +1334,14 @@ impl LibraryApp {
                 let _ = checker.load(id);
             }
             self.vm.replace_playlist_tracks(tracks);
+            // ADR 0084 packet 025: a reload drops each selected entry that
+            // the playlist no longer holds at its position. A move to
+            // another page resets the selection before this call.
+            if self.detail_selection.entry() == Some(&FrameNavigationEntry::PlaylistDetail(id)) {
+                if let Some(rows) = self.library_detail_page_rows() {
+                    self.detail_selection.retain_visible(&rows.members());
+                }
+            }
         }
         cx.notify();
     }
@@ -1663,6 +1672,70 @@ impl LibraryApp {
                 }
             },
             |this, err, _cx| this.vm.fail_playlist_track_reorder(err),
+        );
+    }
+
+    /// "Move to top" and "Move to bottom" of the playlist page bar (ADR
+    /// 0084 Decision 10, packet 025). One transaction moves the selected
+    /// entries. The selection and the focus then follow the entries.
+    pub(crate) fn move_selected_playlist_entries(
+        &mut self,
+        edge: db::PlaylistEdge,
+        cx: &mut Context<Self>,
+    ) {
+        let LibraryDetail::Playlist(detail) = &self.detail else {
+            return;
+        };
+        let playlist_id = detail.playlist.id;
+        let entries = self.detail_selection.selected_playlist_entries();
+        if entries.is_empty() {
+            return;
+        }
+        let command = MovePlaylistEntries::new(Arc::clone(&self.conn), playlist_id, entries, edge);
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, total, cx| {
+                this.detail_selection.rekey_after_move(edge, total);
+                if this.vm.is_playlist_selected(playlist_id) {
+                    this.select_playlist(playlist_id, cx);
+                }
+            },
+            |this, err, _cx| this.vm.fail_playlist_track_reorder(err),
+        );
+    }
+
+    /// "Remove n from playlist" of the playlist page bar (ADR 0084
+    /// Decision 10, packet 025). One transaction removes the selected
+    /// entries. The tracks stay in the Library. The rows clear, and the
+    /// mode stays `Selecting`.
+    pub(crate) fn remove_selected_playlist_entries(&mut self, cx: &mut Context<Self>) {
+        let LibraryDetail::Playlist(detail) = &self.detail else {
+            return;
+        };
+        let playlist_id = detail.playlist.id;
+        let entries = self.detail_selection.selected_playlist_entries();
+        if entries.is_empty() {
+            return;
+        }
+        let command = RemovePlaylistEntries::new(Arc::clone(&self.conn), playlist_id, entries);
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, (), cx| {
+                this.reload_playlists();
+                this.reload_playlist_rss_marks(playlist_id);
+                this.refresh_current_broadcast_readiness_report();
+                this.detail_selection.clear_rows();
+                if this.vm.is_playlist_selected(playlist_id) {
+                    this.select_playlist(playlist_id, cx);
+                }
+            },
+            |this, err, _cx| this.vm.fail_playlist_track_remove(err),
         );
     }
 
@@ -3712,7 +3785,12 @@ impl LibraryApp {
                 self.releases_selection.clear();
                 cx.notify();
             }
-            SelectionActionKind::AddToPlaylist => {}
+            // Only the playlist page bar of packet 025 gives the playlist
+            // actions.
+            SelectionActionKind::AddToPlaylist
+            | SelectionActionKind::RemoveFromPlaylist
+            | SelectionActionKind::MoveToTop
+            | SelectionActionKind::MoveToBottom => {}
         }
     }
 
@@ -3754,7 +3832,13 @@ impl LibraryApp {
             // since every selectable row is already in the Library.
             // "Add to playlist" opens its own popover and dispatches no
             // bar action.
-            SelectionActionKind::Download | SelectionActionKind::AddToPlaylist => {}
+            // Only the playlist page bar of packet 025 gives the playlist
+            // actions.
+            SelectionActionKind::Download
+            | SelectionActionKind::AddToPlaylist
+            | SelectionActionKind::RemoveFromPlaylist
+            | SelectionActionKind::MoveToTop
+            | SelectionActionKind::MoveToBottom => {}
             SelectionActionKind::Remove => self.request_content_list_selection_removal(window, cx),
             SelectionActionKind::Clear => {
                 self.track_selection.clear();

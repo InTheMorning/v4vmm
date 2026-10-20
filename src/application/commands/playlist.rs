@@ -10,8 +10,8 @@ use crate::application::errors::command::CommandError;
 use crate::application::events::library::LibraryEvent;
 use crate::application::events::playlist::PlaylistEvent;
 use crate::application::events::ApplicationEvent;
-use crate::playlist_service;
 use crate::runtime::{PlaylistRssCheckHandle, RssCheckTrigger};
+use crate::{db, playlist_service};
 
 type SharedConnection = Arc<Mutex<Connection>>;
 
@@ -206,6 +206,89 @@ impl ApplicationCommand for ReorderPlaylistTrack {
     fn execute(self, _context: &CommandContext) -> CommandResult<Self::Output> {
         let mut conn = self.conn.lock().map_err(|_| poisoned_lock())?;
         playlist_service::reorder(&mut conn, self.playlist_id, self.from, self.to)
+            .map_err(|error| playlist_command_error(&error))?;
+        Ok(CommandOutcome::new(
+            (),
+            playlist_tracks_changed_events(self.playlist_id),
+        ))
+    }
+}
+
+/// Moves the selected entries of a playlist to its top or its bottom, in
+/// one transaction (ADR 0084 Decision 10, packet 025). The output is the
+/// number of entries in the playlist.
+#[derive(Clone, Debug)]
+pub struct MovePlaylistEntries {
+    conn: SharedConnection,
+    playlist_id: i64,
+    entries: Vec<db::PlaylistEntryKey>,
+    edge: db::PlaylistEdge,
+}
+
+impl MovePlaylistEntries {
+    /// Creates a command that moves `entries` to `edge`.
+    #[must_use]
+    pub const fn new(
+        conn: SharedConnection,
+        playlist_id: i64,
+        entries: Vec<db::PlaylistEntryKey>,
+        edge: db::PlaylistEdge,
+    ) -> Self {
+        Self {
+            conn,
+            playlist_id,
+            entries,
+            edge,
+        }
+    }
+}
+
+impl ApplicationCommand for MovePlaylistEntries {
+    type Output = usize;
+
+    fn execute(self, _context: &CommandContext) -> CommandResult<Self::Output> {
+        let mut conn = self.conn.lock().map_err(|_| poisoned_lock())?;
+        let total =
+            playlist_service::move_entries(&mut conn, self.playlist_id, &self.entries, self.edge)
+                .map_err(|error| playlist_command_error(&error))?;
+        Ok(CommandOutcome::new(
+            total,
+            playlist_tracks_changed_events(self.playlist_id),
+        ))
+    }
+}
+
+/// Removes the selected entries from a playlist in one transaction (ADR
+/// 0084 Decision 10, packet 025). The tracks stay in the Library.
+#[derive(Clone, Debug)]
+pub struct RemovePlaylistEntries {
+    conn: SharedConnection,
+    playlist_id: i64,
+    entries: Vec<db::PlaylistEntryKey>,
+}
+
+impl RemovePlaylistEntries {
+    /// Creates a command that removes `entries`.
+    #[must_use]
+    pub const fn new(
+        conn: SharedConnection,
+        playlist_id: i64,
+        entries: Vec<db::PlaylistEntryKey>,
+    ) -> Self {
+        Self {
+            conn,
+            playlist_id,
+            entries,
+        }
+    }
+}
+
+impl ApplicationCommand for RemovePlaylistEntries {
+    type Output = ();
+
+    fn execute(self, _context: &CommandContext) -> CommandResult<Self::Output> {
+        let mut conn = self.conn.lock().map_err(|_| poisoned_lock())?;
+        playlist_service::remove_entries(&mut conn, self.playlist_id, &self.entries)
             .map_err(|error| playlist_command_error(&error))?;
         Ok(CommandOutcome::new(
             (),
@@ -701,6 +784,67 @@ mod tests {
 
         assert!(result.value());
         assert!(marks(&conn)?.is_empty());
+        Ok(())
+    }
+
+    /// R25-06 and R25-07 at the command layer: a move returns the entry
+    /// count and emits the track event. A stale removal gives the recorded
+    /// error and changes nothing.
+    #[test]
+    fn adr_0084_playlist_selection_commands_move_and_remove_entries() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+        let (playlist_id, first, second) = {
+            let db = conn.lock().expect("lock test db");
+            let feed_id = create_feed(&db)?;
+            let playlist_id = playlist_service::create(&db, "Packet 025")?;
+            let first = create_track(&db, feed_id, "first")?;
+            let second = create_track(&db, feed_id, "second")?;
+            for track_id in [first, second, first] {
+                playlist_service::append_track(&db, playlist_id, track_id)?;
+            }
+            (playlist_id, first, second)
+        };
+        let entry = |position, track_id| db::PlaylistEntryKey { position, track_id };
+        let order = || -> anyhow::Result<Vec<i64>> {
+            let db = conn.lock().expect("lock test db");
+            Ok(playlist_service::tracks(&db, playlist_id)?
+                .into_iter()
+                .map(|track| track.id)
+                .collect())
+        };
+
+        let result = CommandBus::new().execute(
+            MovePlaylistEntries::new(
+                Arc::clone(&conn),
+                playlist_id,
+                vec![entry(1, second)],
+                db::PlaylistEdge::Bottom,
+            ),
+            &CommandContext::next(),
+        )?;
+        assert_eq!(*result.value(), 3);
+        assert_eq!(result.events(), playlist_tracks_changed_events(playlist_id));
+        assert_eq!(order()?, vec![first, first, second]);
+
+        let stale = CommandBus::new().execute(
+            RemovePlaylistEntries::new(Arc::clone(&conn), playlist_id, vec![entry(1, second)]),
+            &CommandContext::next(),
+        );
+        assert_eq!(
+            stale.expect_err("position 1 now holds the first track"),
+            CommandError::Playlist(db::PLAYLIST_CHANGED_ERROR.to_owned())
+        );
+        assert_eq!(order()?, vec![first, first, second]);
+
+        CommandBus::new().execute(
+            RemovePlaylistEntries::new(
+                Arc::clone(&conn),
+                playlist_id,
+                vec![entry(0, first), entry(2, second)],
+            ),
+            &CommandContext::next(),
+        )?;
+        assert_eq!(order()?, vec![first]);
         Ok(())
     }
 }

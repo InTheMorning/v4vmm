@@ -14,15 +14,16 @@ use gpui::{AnyElement, App, Context, FocusHandle, Modifiers, ScrollHandle, Windo
 
 use super::{LibraryApp, LibraryDetail};
 use crate::app::keyboard::primary_modifier_held;
+use crate::db::PlaylistEntryKey;
 use crate::ui::composites::music_column_scroll::{key_scroll, ScrollReveal};
 use crate::ui::shells::library::detail::DetailRowSlot;
 use crate::ui::tokens::Size;
 use crate::view_models::detail_selection::{
-    discover_release_rows, discover_row_key, library_release_track_rows,
+    discover_release_rows, discover_row_key, library_release_track_rows, playlist_entry_rows,
     singles_group_release_rows, DetailPageRows, DetailRowClick, DetailRowKey, DetailSelection,
     LibraryReleaseFacts,
 };
-use crate::view_models::library::ContentListSelectionTarget;
+use crate::view_models::library::{ContentListSelectionTarget, PlaylistDetailVm};
 use crate::view_models::list_selection::{FocusStep, RowSelectionVm};
 use crate::view_models::workspace::{
     DiscoverView, FrameNavigationEntry, NavigationPathStart, ReleaseKey,
@@ -106,8 +107,9 @@ impl LibraryApp {
     }
 
     /// The selectable rows of a detail page that this entity renders: a
-    /// Library release page, a singles group page and the Discover "New
-    /// releases" view. `None` for each other page.
+    /// Library release page, a singles group page, the Discover "New
+    /// releases" view and a playlist page (packet 025). `None` for each
+    /// other page.
     pub(crate) fn library_detail_page_rows(&self) -> Option<DetailPageRows> {
         match &self.detail {
             LibraryDetail::Album(album) => {
@@ -128,6 +130,16 @@ impl LibraryApp {
                     self.vm.content_list_page().visible_rows(),
                     |key| self.vm.library_release_facts(key),
                 )))
+            }
+            LibraryDetail::Playlist(detail) => {
+                let active = self.vm.release_download_active_track_ids();
+                let vm = PlaylistDetailVm::new(&detail.playlist, &detail.tracks);
+                Some(DetailPageRows::PlaylistEntries {
+                    playlist_id: detail.playlist.id,
+                    rows: playlist_entry_rows(&vm.visible_tracks(), |track| {
+                        active.contains(&track.id)
+                    }),
+                })
             }
             _ => None,
         }
@@ -243,6 +255,45 @@ impl LibraryApp {
                 self.toggle_content_list_row_selection(row_id, cx);
             }
             ContentListSelectionTarget::DetailColumn => self.toggle_discover_row(row_id, cx),
+        }
+    }
+
+    /// A click on the body of a playlist page row (packet 025). Gives
+    /// `true` when the caller must open the track page: a plain click in
+    /// `Normal` mode.
+    pub(crate) fn click_playlist_entry(
+        &mut self,
+        entry: PlaylistEntryKey,
+        modifiers: Modifiers,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(rows) = self.library_detail_page_rows() else {
+            return true;
+        };
+        self.click_detail_row(&DetailRowKey::PlaylistEntry(entry), modifiers, &rows, cx)
+    }
+
+    /// A click on the checkbox of a playlist page row (packet 025).
+    pub(crate) fn toggle_playlist_entry(
+        &mut self,
+        entry: PlaylistEntryKey,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_detail_row(&DetailRowKey::PlaylistEntry(entry), cx);
+    }
+
+    /// Opens the track page of the playlist entry `entry`: Enter on a
+    /// playlist page (packet 025).
+    pub(crate) fn open_playlist_entry(&mut self, entry: PlaylistEntryKey, cx: &mut Context<Self>) {
+        let track = self
+            .library_detail_page_rows()
+            .and_then(|rows| rows.playlist_entry(&entry).map(|row| row.track.clone()));
+        if let Some(track) = track {
+            self.open_page(
+                FrameNavigationEntry::Track(track),
+                NavigationPathStart::CurrentPath,
+                cx,
+            );
         }
     }
 

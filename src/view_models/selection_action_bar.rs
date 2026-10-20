@@ -23,6 +23,13 @@ pub(crate) enum SelectionActionKind {
     Download,
     AddToPlaylist,
     Remove,
+    /// "Remove n from playlist" of the playlist page (packet 025). The
+    /// tracks stay in the Library.
+    RemoveFromPlaylist,
+    /// "Move to top" of the playlist page (packet 025).
+    MoveToTop,
+    /// "Move to bottom" of the playlist page (packet 025).
+    MoveToBottom,
     Clear,
 }
 
@@ -70,6 +77,24 @@ pub(crate) struct SelectionActionCounts {
     pub(crate) add_count: usize,
     /// The number of selected items that "Remove" acts on.
     pub(crate) remove_count: usize,
+}
+
+/// The counts and the edge facts of the playlist page bar (ADR 0084
+/// Decision 10, packet 025). A caller gathers these from the selected
+/// entries.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PlaylistSelectionCounts {
+    /// The number of selected entries. One track can have two entries.
+    pub(crate) selected_count: usize,
+    /// The number of distinct selected tracks that are not downloaded.
+    pub(crate) download_count: usize,
+    /// The number of distinct selected tracks that "Remove from
+    /// Library…" acts on.
+    pub(crate) remove_count: usize,
+    /// The selected entries are the first entries of the playlist.
+    pub(crate) at_top: bool,
+    /// The selected entries are the last entries of the playlist.
+    pub(crate) at_bottom: bool,
 }
 
 /// The action bar at the bottom of a list with a selection (ADR 0084
@@ -168,6 +193,93 @@ impl SelectionActionBarVm {
                 counts.selected_count,
                 noun_for(counts.selected_count)
             ),
+            actions,
+        })
+    }
+
+    /// Builds the bar of the playlist page (ADR 0084 Decision 10, packet
+    /// 025), or gives `None` outside [`SelectionMode::Selecting`]. The
+    /// order is "Remove n from playlist", "Download n tracks", "Add n to
+    /// playlist", "Move to top", "Move to bottom", "Remove from
+    /// Library…" and "Clear". An action that cannot act is absent.
+    #[must_use]
+    pub(crate) fn for_playlist(
+        mode: SelectionMode,
+        counts: PlaylistSelectionCounts,
+    ) -> Option<Self> {
+        if !mode.is_selecting() {
+            return None;
+        }
+        let selected = counts.selected_count;
+        if selected == 0 {
+            return Some(Self {
+                count_label: "Select items".to_owned(),
+                actions: Vec::new(),
+            });
+        }
+        let tracks = |count: usize| format!("{count} track{}", plural(count));
+        let action = |kind, element_id, label: String, a11y_label: String| SelectionActionVm {
+            kind,
+            element_id,
+            label,
+            a11y_label,
+        };
+        let mut actions = vec![action(
+            SelectionActionKind::RemoveFromPlaylist,
+            "music-selection-remove-from-playlist",
+            format!("Remove {selected} from playlist"),
+            format!("Remove {} from playlist", tracks(selected)),
+        )];
+        if counts.download_count > 0 {
+            let label = format!("Download {}", tracks(counts.download_count));
+            actions.push(action(
+                SelectionActionKind::Download,
+                "music-selection-download",
+                label.clone(),
+                label,
+            ));
+        }
+        actions.push(action(
+            SelectionActionKind::AddToPlaylist,
+            "music-selection-add-to-playlist",
+            format!("Add {selected} to playlist"),
+            format!("Add {} to playlist", tracks(selected)),
+        ));
+        if !counts.at_top {
+            actions.push(action(
+                SelectionActionKind::MoveToTop,
+                "music-selection-move-to-top",
+                "Move to top".to_owned(),
+                format!("Move {} to top", tracks(selected)),
+            ));
+        }
+        if !counts.at_bottom {
+            actions.push(action(
+                SelectionActionKind::MoveToBottom,
+                "music-selection-move-to-bottom",
+                "Move to bottom".to_owned(),
+                format!("Move {} to bottom", tracks(selected)),
+            ));
+        }
+        if counts.remove_count > 0 {
+            actions.push(action(
+                SelectionActionKind::Remove,
+                "music-selection-remove",
+                format!("Remove from Library{OPENS_DIALOG_MARK}"),
+                format!(
+                    "Remove {} from Library{OPENS_DIALOG_MARK}",
+                    tracks(counts.remove_count)
+                ),
+            ));
+        }
+        actions.push(action(
+            SelectionActionKind::Clear,
+            "music-selection-clear",
+            "Clear".to_owned(),
+            "Clear the selection".to_owned(),
+        ));
+        Some(Self {
+            count_label: format!("{} selected", tracks(selected)),
             actions,
         })
     }
