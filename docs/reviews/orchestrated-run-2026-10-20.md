@@ -108,7 +108,7 @@ Each entry names the step, the decision and the reason.
 | Packet 016: the scopes, Parts A and B | Implemented. V1 to V8 open | `0bf685e`, `1febbf4` |
 | Packet 017: the name level page; `src/sources.rs` deleted | Implemented. V1 to V11 open | `46656ce` |
 | Packet 010: the search results in the list column | Implemented. V1 to V7 open | `2c4170e` |
-| Packet 012: saved searches (migration 21) | Implemented. V1 to V7 open | this commit |
+| Packet 012: saved searches (migration 21) | Implemented. V1 to V7 open | `c563ca4` |
 | Packet 026: the Index singles groups | Not written. It waits for Stophammer request 9, which the operator reviews | - |
 
 ## Questions For The Operator
