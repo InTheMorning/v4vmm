@@ -17,9 +17,9 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, AnyElement, App, ClickEvent, ClipboardItem, Context, Div, Entity, FontWeight,
-    InteractiveElement, ParentElement, Pixels, Point, Render, RenderOnce, ScrollHandle,
-    SharedString, Styled, Window,
+    div, prelude::*, AnyElement, App, ClickEvent, ClipboardItem, Div, Entity, FontWeight,
+    InteractiveElement, ParentElement, Pixels, Point, RenderOnce, ScrollHandle, SharedString,
+    Styled, Window,
 };
 use gpui_component::input::{Input, InputState};
 use gpui_component::Size;
@@ -29,6 +29,7 @@ use crate::ui::composites::list_row::{
 };
 use crate::ui::composites::music_column_scroll::music_column_tracked_scrollbar;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
+use crate::ui::composites::track_drag::{PlaylistTrackDragPayload, TrackDragPreview};
 use crate::ui::composites::track_row::checkbox_state_for;
 use crate::ui::composites::track_row_menu::{
     menu_cell_visibility, MenuCellVisibility, TrackRowMenuCell, TRACK_ROW_GROUP,
@@ -616,33 +617,6 @@ fn render_pending_playlist_row(
         .into_any_element()
 }
 
-#[derive(Clone, Debug)]
-struct PlaylistTrackDragPayload {
-    playlist_id: i64,
-    from_position: i64,
-    title: SharedString,
-}
-
-struct PlaylistTrackDragPreview {
-    title: SharedString,
-}
-
-impl Render for PlaylistTrackDragPreview {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .rounded(Radius::MD.scaled(cx))
-            .border_1()
-            .border_color(color::accent())
-            .bg(color::bg_surface())
-            .px(Spacing::MD.scaled(cx))
-            .py(Spacing::SM.scaled(cx))
-            .text_size(FontSize::Micro.scaled(cx))
-            .font_weight(FontWeight::BOLD)
-            .text_color(color::text_primary())
-            .child(self.title.clone())
-    }
-}
-
 #[must_use]
 const fn playlist_reorder_target(from: i64, drop_index: i64) -> Option<i64> {
     let target = if drop_index > from {
@@ -855,6 +829,7 @@ fn render_playlist_leading_slot(
         let drag_payload = PlaylistTrackDragPayload {
             playlist_id,
             from_position: display.position,
+            track_id: display.track_id,
             title: SharedString::from(display.title.clone()),
         };
         // ADR 0083 task 007, decision D3: the handle shows on a hover of
@@ -974,11 +949,7 @@ fn render_playlist_drag_handle(
             |payload: &PlaylistTrackDragPayload,
              _position: Point<Pixels>,
              _window,
-             cx: &mut App| {
-                cx.new(|_| PlaylistTrackDragPreview {
-                    title: payload.title.clone(),
-                })
-            },
+             cx: &mut App| { TrackDragPreview::build(&payload.title, cx) },
         )
         .child(
             Icon::new(IconName::DragHandle)
@@ -1057,6 +1028,7 @@ fn render_playlist_track_body(
     cx: &App,
 ) -> AnyElement {
     let PlaylistTrackRowDisplay {
+        track_id: _,
         is_available,
         position: _,
         position_label,
@@ -1447,6 +1419,7 @@ mod tests {
                     super::PlaylistTrackDragPayload {
                         playlist_id: 1,
                         from_position: 0,
+                        track_id: 1,
                         title: "Original track".into(),
                     },
                     cx,
@@ -1588,6 +1561,89 @@ mod tests {
         cx.simulate_mouse_move(target, MouseButton::Left, Modifiers::default());
         cx.update(|_, cx| assert!(cx.has_active_drag(), "the shown handle must start a drag"));
         cx.simulate_mouse_up(target, MouseButton::Left, Modifiers::default());
+    }
+
+    struct EntryDropTest {
+        drops: std::rc::Rc<std::cell::RefCell<Vec<(i64, i64)>>>,
+    }
+
+    impl gpui::Render for EntryDropTest {
+        fn render(
+            &mut self,
+            _: &mut gpui::Window,
+            cx: &mut gpui::Context<Self>,
+        ) -> impl gpui::IntoElement {
+            use crate::ui::composites::track_drag::{playlist_drop_target, PlaylistDropHandler};
+            let track = crate::db::TrackRow {
+                id: 42,
+                track_title: Some("Original track".into()),
+                ..Default::default()
+            };
+            let display =
+                crate::view_models::library::PlaylistTrackRowVm::new(&track, 0, 1).display(1);
+            let drops = std::rc::Rc::clone(&self.drops);
+            let on_drop: PlaylistDropHandler = std::rc::Rc::new(move |drop, _, _| {
+                drops.borrow_mut().push((drop.track_id, drop.playlist_id));
+            });
+            let target = |playlist_id: i64, cx: &gpui::App| {
+                gpui::div()
+                    .debug_selector(move || format!("entry-drop-{playlist_id}"))
+                    .child(playlist_drop_target(
+                        crate::ui::composites::ListRow::new((
+                            "entry-drop-row",
+                            playlist_id.cast_unsigned(),
+                        ))
+                        .child("Playlist")
+                        .into_any_element(),
+                        playlist_id,
+                        &on_drop,
+                        cx,
+                    ))
+            };
+            gpui::div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .child(
+                    gpui::div()
+                        .id("entry-drop-source")
+                        .group(super::TRACK_ROW_GROUP)
+                        .child(super::render_playlist_leading_slot(1, &display, None, cx)),
+                )
+                .child(target(1, cx))
+                .child(target(2, cx))
+        }
+    }
+
+    /// R83-8-04 (ADR 0083 task 008, decisions D2 and D7): a drag of a
+    /// playlist entry by its handle onto the row of another playlist calls
+    /// the drop handler with the track id of the entry. A drop onto the row
+    /// of its own playlist calls no handler.
+    #[gpui::test]
+    fn adr_0083_track_drag_r83_8_04_entry_drops_on_another_playlist(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let drops = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let state = std::rc::Rc::clone(&drops);
+        let (_view, cx) = cx.add_window_view(move |_, _| EntryDropTest { drops: state });
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        let handle = cx.debug_bounds("playlist-drag-handle").unwrap().center();
+        for (selector, playlist_id, expected) in [
+            ("entry-drop-1", 1, Vec::new()),
+            ("entry-drop-2", 2, vec![(42, 2)]),
+        ] {
+            let target = cx.debug_bounds(selector).unwrap().center();
+            cx.simulate_mouse_move(handle, None, Modifiers::default());
+            cx.update(|window, cx| {
+                let _ = window.draw(cx);
+            });
+            cx.simulate_mouse_down(handle, MouseButton::Left, Modifiers::default());
+            cx.simulate_mouse_move(target, MouseButton::Left, Modifiers::default());
+            cx.update(|_, cx| assert!(cx.has_active_drag()));
+            cx.simulate_mouse_up(target, MouseButton::Left, Modifiers::default());
+            assert_eq!(*drops.borrow(), expected, "playlist {playlist_id}");
+        }
     }
 
     #[test]

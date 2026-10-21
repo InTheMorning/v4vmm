@@ -22,6 +22,7 @@ use gpui_component::Size;
 use crate::library::LibraryApp;
 use crate::ui::composites::music_column_scroll::music_column_scrollbar;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
+use crate::ui::composites::track_drag::{self, playlist_drop_target, PlaylistDrop};
 use crate::ui::composites::{
     disclosure_column, CollectionArt, CollectionArtImage, DisclosureIndicator,
     DisclosureIndicatorDisplay, DisclosureSupplementDisplay, DisclosureSupplementLabel, EntityKind,
@@ -519,6 +520,12 @@ pub(crate) fn render_library_playlists_list(
         );
     }
 
+    // ADR 0083 task 008, D6: a drop uses the add path of the menu item.
+    let on_add =
+        track_drag::playlist_drop_handler(cx.listener(|this, drop: &PlaylistDrop, _, cx| {
+            this.end_track_drag();
+            this.add_tracks_to_playlist(vec![drop.track_id], drop.playlist_id, cx);
+        }));
     for row in rows {
         let PlaylistSidebarRowVm {
             id: playlist_id,
@@ -530,41 +537,40 @@ pub(crate) fn render_library_playlists_list(
         } = row;
         let art = row_art(arts, &element_id, CollectionKind::Playlist);
         let row_a11y_label = format!("Playlist: {name}");
-        items.push(
-            ListRow::new(SharedString::from(element_id))
-                .a11y_label(ListRowA11yLabel {
-                    label: row_a11y_label.into(),
-                })
-                .selected(selected)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                    this.open_page(
-                        FrameNavigationEntry::PlaylistDetail(playlist_id),
-                        NavigationPathStart::CurrentPath,
-                        cx,
-                    );
-                }))
-                .child(div().pl(spacing::MD).child(art))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(
-                            Label::new(name)
-                                .color(if selected {
-                                    SemanticColor::Accent
-                                } else {
-                                    SemanticColor::Label
-                                })
-                                .truncated(),
-                        )
-                        .child(DisclosureSupplementLabel::new(
-                            DisclosureSupplementDisplay {
-                                label: track_count_label.into(),
-                            },
-                        )),
-                )
-                .into_any_element(),
-        );
+        let row = ListRow::new(SharedString::from(element_id))
+            .a11y_label(ListRowA11yLabel {
+                label: row_a11y_label.into(),
+            })
+            .selected(selected)
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                this.open_page(
+                    FrameNavigationEntry::PlaylistDetail(playlist_id),
+                    NavigationPathStart::CurrentPath,
+                    cx,
+                );
+            }))
+            .child(div().pl(spacing::MD).child(art))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        Label::new(name)
+                            .color(if selected {
+                                SemanticColor::Accent
+                            } else {
+                                SemanticColor::Label
+                            })
+                            .truncated(),
+                    )
+                    .child(DisclosureSupplementLabel::new(
+                        DisclosureSupplementDisplay {
+                            label: track_count_label.into(),
+                        },
+                    )),
+            )
+            .into_any_element();
+        items.push(playlist_drop_target(row, playlist_id, &on_add, cx));
     }
 
     let container = div()

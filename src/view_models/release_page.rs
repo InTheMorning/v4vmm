@@ -24,7 +24,7 @@ use crate::view_models::entity_detail::{
 use crate::view_models::library::{
     description_line_count, display_description_text, AlbumNode, BusyItems,
     DescriptionDisclosureDisplay, DescriptionState, LibraryAlbumDetailVm, LibraryTrackRowVm,
-    LibraryViewModel, MbTrackStatus, TrackRowWork,
+    LibraryViewModel, MbTrackStatus, TrackDragVm, TrackRowWork,
 };
 use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::release_kind::ReleaseKind;
@@ -813,6 +813,10 @@ pub(crate) struct ReleaseTrackRowVm {
     pub(crate) open_label: Option<String>,
     pub(crate) selection: RowSelectionVm,
     pub(crate) thumbnail_url: Option<String>,
+    /// The drag fact of the row (ADR 0083 task 008, decision D2). `Some`
+    /// only for a Library row in `Normal`. An Index row has no drag
+    /// (decision D3), and no row starts a drag in `Selecting` (D5).
+    pub(crate) drag: Option<TrackDragVm>,
 }
 
 impl ReleaseTrackRowVm {
@@ -888,6 +892,10 @@ impl ReleaseTrackRowVm {
             remove: availability.remove.then_some(TrackRowRemoveLabel::Remove),
             ..TrackRowMenuFacts::new(&display.row_id, &row.title, selection.checkbox_visible)
         });
+        let drag = (!selection.checkbox_visible).then(|| TrackDragVm {
+            track_id: track.id,
+            title: row.title.clone(),
+        });
         Self {
             row_id: display.row_id,
             badges,
@@ -904,6 +912,7 @@ impl ReleaseTrackRowVm {
                 .track_image_href
                 .clone()
                 .or_else(|| track.album_image_href.clone()),
+            drag,
         }
     }
 
@@ -958,6 +967,7 @@ impl ReleaseTrackRowVm {
             open_label,
             selection,
             thumbnail_url: index_track_row_artwork_url(feed, track).map(str::to_owned),
+            drag: None,
         }
     }
 }
@@ -1973,5 +1983,45 @@ mod tests {
                 label: "MusicBrainz: skipped",
             })
         );
+    }
+
+    /// R83-8-01 (ADR 0083 task 008, decisions D2, D3 and D5): a Library row
+    /// in `Normal` gives its drag fact with the track id and the title. An
+    /// Index row and each row in `Selecting` give none.
+    #[test]
+    fn adr_0083_track_drag_r83_8_01_release_row_drag() {
+        use crate::view_models::library::TrackDragVm;
+        let expected = Some(TrackDragVm {
+            track_id: 4,
+            title: "Face Pale".to_owned(),
+        });
+        for in_library in [true, false] {
+            assert_eq!(
+                library_row(in_library, TrackRowWork::Idle).drag,
+                expected,
+                "in_library {in_library}"
+            );
+        }
+        let track = library_track(4, "guid-4", "Face Pale", true);
+        let selected = ReleaseTrackRowVm::library(&track, None, TrackRowWork::Idle, selecting());
+        assert_eq!(selected.drag, None);
+
+        let single = SinglesGroupPageRowVm {
+            track: library_track(9, "guid-9", "Single", true),
+            date_text: None,
+            work: TrackRowWork::Idle,
+            key: ReleaseKey::FeedGuid("single-guid".to_owned()),
+        };
+        let single_row = ReleaseTrackRowVm::library_single(&single, None, RowSelectionVm::none());
+        assert_eq!(single_row.drag.map(|drag| drag.track_id), Some(9));
+        let single_selected = ReleaseTrackRowVm::library_single(&single, None, selecting());
+        assert_eq!(single_selected.drag, None);
+
+        let feed = index_feed(vec![index_track(Some("Song"), Some("guid-b"))]);
+        for selection in [RowSelectionVm::none(), selecting()] {
+            let index_row =
+                ReleaseTrackRowVm::index(&feed, 0, &feed.tracks[0], selection, TrackRowWork::Idle);
+            assert_eq!(index_row.drag, None);
+        }
     }
 }

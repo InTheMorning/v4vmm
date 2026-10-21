@@ -53,6 +53,7 @@ pub mod split_pane;
 pub mod tag_badge;
 pub mod thumbnail;
 pub mod track_detail_surface;
+pub(crate) mod track_drag;
 pub mod track_header;
 pub mod track_metadata_grid;
 pub mod track_row;

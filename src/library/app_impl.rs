@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use super::download_queue::{DownloadOutcome, JobIdentity};
 use super::PlaylistActorState;
@@ -46,6 +47,7 @@ use crate::metadata::{
     pending_id3_edits_for_apply, MusicBrainzLookupResult,
 };
 use crate::presentation::collection_art::{collection_art_image, CollectionArtLoads};
+use crate::presentation::delayed_presenter::present_after;
 use crate::presentation::{bridge_watch, present_command};
 use crate::runtime::musicbrainz_feed_saga::{MusicBrainzFeedSagaState, StartFeedLookup};
 use crate::subscribe_service::{self, SubscribeFeedRequest, SubscribeTrackRequest};
@@ -72,6 +74,7 @@ use crate::ui::shells::tag_update_confirmation::{
 };
 use crate::ui::style::color;
 use crate::ui::style::spacing;
+use crate::ui::tokens::Motion;
 use crate::view_models::detail_selection::DetailSelection;
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::library::{
@@ -84,6 +87,7 @@ use crate::view_models::library::{
     PlaylistAppendOutcome, PlaylistDetailActionsDisplay, ReleasesDisclosureStep,
     ReleasesListEntryVm, ReleasesRowId, RemovalConfirmation, TrackSubscribeOutcome,
 };
+use crate::view_models::library::{spring_load_navigation, SpringLoadGeneration};
 use crate::view_models::library_removal::{
     SelectionRemovalConfirmationState, SelectionRemovalPendingItem, SelectionRemovalReport,
 };
@@ -991,6 +995,7 @@ impl LibraryApp {
             detail_selection: DetailSelection::new(),
             detail_column_focus: cx.focus_handle(),
             pending_inspect_sources: None,
+            spring_load: crate::view_models::library::SpringLoadVm::default(),
             detail_scroll_reveal: ScrollReveal::new(detail_column_scroll.clone()),
             detail_column_scroll,
         };
@@ -3200,6 +3205,51 @@ impl LibraryApp {
     /// The navigation to that page mounts it after this call.
     pub(crate) fn request_inspect_sources(&mut self, track_id: i64) {
         self.pending_inspect_sources = Some(track_id);
+    }
+
+    /// The pointer of a track drag moves on or off the sidebar row of
+    /// `destination` (ADR 0083 task 008, decision D1). On the row of a
+    /// spring-loaded destination, this starts one timer of
+    /// `Motion::SpringLoadDelay`. Off the row, the timer stops.
+    pub(crate) fn spring_load_pointer(
+        &mut self,
+        destination: MusicDestination,
+        on_row: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if !on_row {
+            self.spring_load.leave();
+            return;
+        }
+        let active = self.vm.active_destination();
+        let Some(generation) = self.spring_load.enter(destination, active, Instant::now()) else {
+            return;
+        };
+        present_after(Motion::SpringLoadDelay.duration(), cx, move |this, cx| {
+            this.fire_spring_load(generation, cx);
+        });
+    }
+
+    /// The spring-load timer of `generation` ends. When the drag continues
+    /// and the pointer stayed on the row, the list column opens the
+    /// destination. The navigation is the same as a click on the sidebar
+    /// row.
+    fn fire_spring_load(&mut self, generation: SpringLoadGeneration, cx: &mut Context<Self>) {
+        if !cx.has_active_drag() {
+            self.spring_load.end_drag();
+            return;
+        }
+        let delay = Motion::SpringLoadDelay.duration();
+        if let Some(destination) = self.spring_load.fire(generation, Instant::now(), delay) {
+            let (entry, start) = spring_load_navigation(destination);
+            self.open_page(entry, start, cx);
+        }
+    }
+
+    /// A track drag ends with a drop (ADR 0083 task 008). The spring-load
+    /// timer stops.
+    pub(crate) fn end_track_drag(&mut self) {
+        self.spring_load.end_drag();
     }
 
     /// The downloads and the removals in progress (ADR 0084 Decision 10).

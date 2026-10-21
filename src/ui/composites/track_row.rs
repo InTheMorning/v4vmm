@@ -50,6 +50,7 @@ use gpui::{
     MouseButton, RenderOnce, SharedString, Styled, Window,
 };
 
+use crate::ui::composites::track_drag::{attach_track_drag, TrackDragPayload};
 use crate::ui::composites::track_row_menu::{
     row_menu_state, track_row_menu_items, track_row_pointer_menu, TrackRowMenuCell,
     TrackRowMenuHandlers, TRACK_ROW_GROUP,
@@ -62,6 +63,7 @@ use crate::ui::icons::{Icon, IconName};
 use crate::ui::primitives::status_badge::render_row_badge;
 use crate::ui::primitives::{Button, Checkbox, CheckboxState, Label, Tooltip};
 use crate::ui::tokens::{color, FontSize, SemanticColor, Size, Spacing, TrackRowColumn};
+use crate::view_models::library::TrackDragVm;
 use crate::view_models::list_selection::{RowCheckState, RowSelectionVm};
 use crate::view_models::release_page::{
     DownloadSlotState, DownloadSlotVm, MbStatusIcon, TrackRowBadgeVm, TrackRowMbStatusVm,
@@ -135,6 +137,9 @@ pub struct TrackRow {
     menu_handlers: Option<TrackRowMenuHandlers>,
     /// The focus that the right-click menu gives back on its dismissal.
     menu_return_focus: Option<FocusHandle>,
+    /// The drag of the track to a playlist (ADR 0083 task 008). `None`
+    /// starts no drag.
+    drag: Option<TrackDragVm>,
 }
 
 impl TrackRow {
@@ -159,6 +164,7 @@ impl TrackRow {
             menu_playlists: Rc::new(Vec::new()),
             menu_handlers: None,
             menu_return_focus: None,
+            drag: None,
         }
     }
 
@@ -240,6 +246,13 @@ impl TrackRow {
     ) -> Self {
         self.menu = menu;
         self.menu_playlists = Rc::new(playlists);
+        self
+    }
+
+    /// The drag fact of the row (ADR 0083 task 008). With `Some`, a drag
+    /// of the clickable body starts a drag of the track to a playlist.
+    pub(crate) fn drag(mut self, drag: Option<TrackDragVm>) -> Self {
+        self.drag = drag;
         self
     }
 
@@ -428,6 +441,12 @@ impl RenderOnce for TrackRow {
 
         if let Some(handler) = on_click {
             body = body.on_click(move |event, window, cx| handler(event, window, cx));
+        }
+
+        // ADR 0083 task 008, decision D12: the drag starts on the same
+        // element as the click, so a drag clears the pending click.
+        if let Some(drag) = &self.drag {
+            body = attach_track_drag(body, TrackDragPayload::from_vm(drag));
         }
 
         body = body

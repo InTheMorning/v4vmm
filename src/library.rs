@@ -307,6 +307,9 @@ pub struct LibraryApp {
     /// The Library track whose track page opens its "Inspect sources"
     /// disclosure when it mounts (ADR 0083 task 006, decision D4).
     pending_inspect_sources: Option<i64>,
+    /// The spring-load timer of the sidebar row "Playlists" (ADR 0083
+    /// task 008, decision D1).
+    spring_load: crate::view_models::library::SpringLoadVm,
     /// The held scroll handle of each Music detail page (packet 018), so
     /// a key can scroll the page or keep the focused row in view.
     detail_column_scroll: ScrollHandle,

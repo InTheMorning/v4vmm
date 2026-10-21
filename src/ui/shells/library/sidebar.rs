@@ -7,9 +7,12 @@
 
 #![warn(clippy::pedantic)]
 
-use gpui::{div, prelude::*, AnyElement, App, ClickEvent, Context, FontWeight, SharedString};
+use gpui::{
+    div, prelude::*, AnyElement, App, ClickEvent, Context, DragMoveEvent, FontWeight, SharedString,
+};
 
 use crate::library::LibraryApp;
+use crate::ui::composites::track_drag::{PlaylistTrackDragPayload, TrackDragPayload};
 use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::primitives::Label;
 use crate::ui::style::{color, spacing};
@@ -92,6 +95,25 @@ pub(crate) fn render_destination_row(
                 cx,
             );
         }));
+
+    // ADR 0083 Decision 6, task 008 decision D1: a spring-loaded row opens
+    // its destination while a dragged track stays over it. The row accepts
+    // no drop.
+    if row.spring_loaded {
+        el = el
+            .on_drag_move(cx.listener(
+                move |this, event: &DragMoveEvent<TrackDragPayload>, _window, cx| {
+                    let on_row = event.bounds.contains(&event.event.position);
+                    this.spring_load_pointer(destination, on_row, cx);
+                },
+            ))
+            .on_drag_move(cx.listener(
+                move |this, event: &DragMoveEvent<PlaylistTrackDragPayload>, _window, cx| {
+                    let on_row = event.bounds.contains(&event.event.position);
+                    this.spring_load_pointer(destination, on_row, cx);
+                },
+            ));
+    }
 
     el = match state {
         MusicSidebarState::Expanded => el

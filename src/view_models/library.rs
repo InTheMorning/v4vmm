@@ -19,6 +19,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
+use std::time::{Duration, Instant};
 
 #[cfg(test)]
 use crate::application::library_removal::LibraryRemovalImpact;
@@ -70,7 +71,8 @@ use crate::view_models::text_filter::contains_normalized;
 use crate::view_models::text_filter::normalize;
 use crate::view_models::workspace::{
     ContentViewMode, ContentViewModeControlDisplay, DiscoverView, FrameHeaderActionDisplay,
-    MusicDestination, MusicSidebarPreference, MusicSidebarState, ReleaseKey, TrackKey,
+    FrameNavigationEntry, MusicDestination, MusicSidebarPreference, MusicSidebarState,
+    NavigationPathStart, ReleaseKey, TrackKey,
 };
 use crate::view_models::ActionStatusMessageDisplay;
 use crate::views::{FeedMetadataFacts, LocalIdentityFacts, TrackRef};
@@ -585,6 +587,112 @@ pub(crate) struct PlaylistSidebarRowVm {
     pub(crate) selected: bool,
     /// The art of the playlist in the logo frame (ADR 0084 Decision 12).
     pub(crate) art: CollectionArtVm,
+}
+
+/// The drag fact of a track row (ADR 0083 Decision 6, task 008). A row
+/// with this fact starts a drag of one track. The drop adds the track to a
+/// playlist.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TrackDragVm {
+    pub(crate) track_id: i64,
+    /// The title that the drag preview shows.
+    pub(crate) title: String,
+}
+
+/// Whether a playlist row accepts a dropped track (ADR 0083 task 008,
+/// decision D7). `source_playlist` is the playlist of a dragged playlist
+/// entry, and `None` for a track row. The row of the playlist that holds
+/// the entry does not accept it.
+#[must_use]
+pub(crate) fn playlist_accepts_drop(source_playlist: Option<i64>, target_playlist: i64) -> bool {
+    source_playlist != Some(target_playlist)
+}
+
+/// Whether the sidebar row of `destination` is spring-loaded (ADR 0083
+/// Decision 6, as amended on 2026-10-20). Only "Playlists" opens while a
+/// dragged track stays over it.
+#[must_use]
+pub(crate) const fn destination_is_spring_loaded(destination: MusicDestination) -> bool {
+    matches!(destination, MusicDestination::Playlists)
+}
+
+/// The navigation of a spring-load open (ADR 0083 task 008, decision D1).
+/// It is the same navigation as a click on the sidebar row: a new path
+/// starts at the destination (ADR 0084 Decision 9).
+#[must_use]
+pub(crate) const fn spring_load_navigation(
+    destination: MusicDestination,
+) -> (FrameNavigationEntry, NavigationPathStart) {
+    (
+        FrameNavigationEntry::Destination(destination),
+        NavigationPathStart::NewPath,
+    )
+}
+
+/// The generation of one spring-load timer. A timer of an earlier
+/// generation opens nothing.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SpringLoadGeneration(u64);
+
+/// The spring-load state of the sidebar (ADR 0083 task 008, decision D1).
+///
+/// The state holds no GPUI type and reads no clock. The host gives the
+/// time to each call, and the host starts one timer for each generation.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct SpringLoadVm {
+    generation: u64,
+    /// The destination of the running timer and the time it started.
+    armed: Option<(MusicDestination, Instant)>,
+}
+
+impl SpringLoadVm {
+    /// The pointer of a drag comes onto the sidebar row of `destination`.
+    /// This starts a timer only for a spring-loaded destination that the
+    /// list column does not show, and only when no timer runs. The return
+    /// value is the generation of the new timer.
+    pub(crate) fn enter(
+        &mut self,
+        destination: MusicDestination,
+        active_destination: MusicDestination,
+        now: Instant,
+    ) -> Option<SpringLoadGeneration> {
+        if !destination_is_spring_loaded(destination)
+            || destination == active_destination
+            || self.armed.is_some()
+        {
+            return None;
+        }
+        self.generation = self.generation.wrapping_add(1);
+        self.armed = Some((destination, now));
+        Some(SpringLoadGeneration(self.generation))
+    }
+
+    /// The pointer goes off the row. The timer stops.
+    pub(crate) fn leave(&mut self) {
+        self.armed = None;
+    }
+
+    /// The drag ends, with a drop or with no drop. The timer stops.
+    pub(crate) fn end_drag(&mut self) {
+        self.armed = None;
+    }
+
+    /// The timer of `generation` ends at `now`. This gives the destination
+    /// to open one time, when the generation is the current one and the
+    /// pointer stayed on the row for `delay`. Then the state stops.
+    pub(crate) fn fire(
+        &mut self,
+        generation: SpringLoadGeneration,
+        now: Instant,
+        delay: Duration,
+    ) -> Option<MusicDestination> {
+        let (destination, started) = self.armed?;
+        if generation.0 != self.generation || now.saturating_duration_since(started) < delay {
+            return None;
+        }
+        self.armed = None;
+        Some(destination)
+    }
 }
 
 /// Static labels for the Library shell chrome.
@@ -1198,6 +1306,10 @@ pub(crate) struct ContentListRowDisplay {
     /// The readiness state of a Needs attention row. `None` for each other
     /// row.
     pub(crate) readiness_state: Option<BroadcastReadinessState>,
+    /// The drag fact of a Tracks list row of a Library track in `Normal`
+    /// (ADR 0083 task 008, decision D4). `None` for a Needs attention row,
+    /// for a row with no track key and in selection mode.
+    pub(crate) drag: Option<TrackDragVm>,
     /// The checkbox facts of the row (ADR 0084 Decision 10). Every row
     /// constructs with no selection; [`LibraryViewModel::content_list_rows_with_selection`]
     /// fills it for the Tracks and Needs attention lists.
@@ -1372,6 +1484,7 @@ impl ContentListRowDisplay {
             fix: None,
             menu: None,
             readiness_state: None,
+            drag: None,
             selection: RowSelectionVm::none(),
         }
     }
@@ -1466,6 +1579,19 @@ fn broadcast_readiness_row_actions(
         | BroadcastReadinessState::FileMissing
         | BroadcastReadinessState::RouteOutOfDate => None,
     }
+}
+
+/// The drag fact of a Tracks list row that has a track key (ADR 0083 task
+/// 008, decision D4). A Needs attention row has no drag, because its menu
+/// has no "Add to playlist" item.
+fn content_list_row_drag(row: &ContentListRowDisplay) -> Option<TrackDragVm> {
+    if row.readiness_state.is_some() {
+        return None;
+    }
+    Some(TrackDragVm {
+        track_id: row.id.parse().ok()?,
+        title: row.title().to_owned(),
+    })
 }
 
 /// The menu of a Library track row of the Tracks list or of the Needs
@@ -1661,6 +1787,9 @@ pub(crate) struct DestinationRowVm {
     /// Decision 1). Never the only sign of the count: the tooltip and the
     /// accessibility label give it in text.
     pub(crate) shows_attention_mark: bool,
+    /// The row opens its destination while a dragged track stays over it
+    /// (ADR 0083 Decision 6, task 008).
+    pub(crate) spring_loaded: bool,
 }
 
 /// Display data for the sidebar collapse button (ADR 0084 Decision 1).
@@ -3244,6 +3373,7 @@ impl LibraryViewModel {
                     // no menu and no fix button.
                     if !selecting {
                         row.menu = self.content_list_row_menu(&row);
+                        row.drag = content_list_row_drag(&row);
                     }
                 }
                 if selecting {
@@ -3451,6 +3581,7 @@ impl LibraryViewModel {
             selected: self.active_destination == destination,
             shows_attention_mark: matches!(destination, MusicDestination::NeedsAttention)
                 && count.is_some(),
+            spring_loaded: destination_is_spring_loaded(destination),
         }
     }
 
@@ -5076,6 +5207,9 @@ pub(crate) struct PlaylistTrackControlsDisplay {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PlaylistTrackRowDisplay {
+    /// The id of the track of the entry. The drag payload of the entry
+    /// holds it (ADR 0083 task 008).
+    pub(crate) track_id: i64,
     pub(crate) is_available: bool,
     pub(crate) position: i64,
     pub(crate) position_label: String,
@@ -5330,6 +5464,7 @@ impl<'a> PlaylistTrackRowVm<'a> {
     pub(crate) fn display(&self, playlist_id: i64) -> PlaylistTrackRowDisplay {
         let position = i64::try_from(self.position).unwrap_or(i64::MAX);
         PlaylistTrackRowDisplay {
+            track_id: self.track.id,
             is_available: self.is_available(),
             position,
             position_label: self.position_label(),
@@ -7068,6 +7203,7 @@ mod tests {
         assert_eq!(
             display,
             PlaylistTrackRowDisplay {
+                track_id: rows[0].track().id,
                 is_available: true,
                 position: 0,
                 position_label: "1.".into(),
@@ -10020,5 +10156,123 @@ mod tests {
             track_job.track_row_work(&album, &album.tracks[1]),
             TrackRowWork::Downloading
         );
+    }
+
+    /// R83-8-02 (ADR 0083 task 008, decision D7): a playlist row does not
+    /// accept an entry of its own playlist. It accepts an entry of another
+    /// playlist and a track from a track row.
+    #[test]
+    fn adr_0083_track_drag_r83_8_02_playlist_accepts_drop() {
+        assert!(!playlist_accepts_drop(Some(7), 7));
+        assert!(playlist_accepts_drop(Some(7), 8));
+        assert!(playlist_accepts_drop(None, 7));
+    }
+
+    /// R83-8-11 (decision D4): a Tracks list row of a Library track in
+    /// `Normal` gives its drag fact. A Needs attention row, a row with no
+    /// track key and each row in `Selecting` give none.
+    #[test]
+    fn adr_0083_track_drag_r83_8_11_content_list_row_drag() {
+        use crate::application::queries::broadcast::BroadcastReadinessState as State;
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+        let rhubarb = vm.tree().artists[0].albums[0].tracks[0].clone();
+        let cliffs = vm.tree().artists[0].albums[0].tracks[1].clone();
+        let mut needs_attention = ContentListRowDisplay::from_broadcast_readiness_track(
+            &broadcast_readiness_track(cliffs.id, "Cliffs", State::NoRouteTag, "Reason."),
+            false,
+        );
+        needs_attention.source = ContentListRowSource::Library;
+        vm.content_list_page = ContentListPageVm::new(vec![
+            ContentListRowDisplay::from_track(&rhubarb),
+            needs_attention,
+            ContentListRowDisplay::from_release_result(release_result(
+                "index-feed:saw-guid",
+                "Release",
+                SearchResultOrigin::Index,
+            )),
+        ]);
+        let normal =
+            vm.content_list_rows_with_selection(&ListSelection::new(), SelectionMode::Normal);
+        assert_eq!(
+            normal[0].drag,
+            Some(TrackDragVm {
+                track_id: rhubarb.id,
+                title: "Rhubarb".to_owned(),
+            })
+        );
+        assert_eq!(normal[1].drag, None, "a Needs attention row has no drag");
+        assert_eq!(normal[2].drag, None, "a row with no track key has no drag");
+        let selecting =
+            vm.content_list_rows_with_selection(&ListSelection::new(), SelectionMode::Selecting);
+        assert!(selecting.iter().all(|row| row.drag.is_none()));
+    }
+
+    /// R83-8-12 (decision D1): the spring-load timer with recorded times.
+    #[test]
+    fn adr_0083_track_drag_r83_8_12_spring_load_timer() {
+        use MusicDestination::{Playlists, Releases, Tracks};
+        let delay = Duration::from_millis(500);
+        let start = Instant::now();
+        let early = start + Duration::from_millis(499);
+        let late = start + delay;
+
+        let mut state = SpringLoadVm::default();
+        let generation = state.enter(Playlists, Releases, start).expect("a timer");
+        assert_eq!(state.enter(Playlists, Releases, early), None, "one timer");
+        assert_eq!(state.fire(generation, early, delay), None);
+        assert_eq!(state.fire(generation, late, delay), Some(Playlists));
+        assert_eq!(state.fire(generation, late, delay), None, "one time only");
+
+        for stop in [SpringLoadVm::leave, SpringLoadVm::end_drag] {
+            let mut state = SpringLoadVm::default();
+            let generation = state.enter(Playlists, Tracks, start).expect("a timer");
+            stop(&mut state);
+            assert_eq!(state.fire(generation, late, delay), None);
+        }
+
+        let mut state = SpringLoadVm::default();
+        let first = state.enter(Playlists, Releases, start).expect("a timer");
+        state.leave();
+        let second = state.enter(Playlists, Releases, early).expect("a timer");
+        assert_ne!(first, second);
+        assert_eq!(state.fire(first, late + delay, delay), None, "stale");
+        assert_eq!(state.fire(second, late + delay, delay), Some(Playlists));
+
+        let mut state = SpringLoadVm::default();
+        assert_eq!(state.enter(Releases, Tracks, start), None);
+        assert_eq!(state.enter(Playlists, Playlists, start), None);
+        for destination in MusicDestination::ALL {
+            assert_eq!(
+                destination_is_spring_loaded(destination),
+                destination == Playlists,
+                "{destination:?}"
+            );
+        }
+    }
+
+    /// R83-8-14 (decision D1, ADR 0084 Decision 9): the spring-load open is
+    /// one `Destination(Playlists)` entry that starts a new path. After it,
+    /// Back gives the location before the spring-load.
+    #[test]
+    fn adr_0083_track_drag_r83_8_14_spring_load_is_one_navigation() {
+        use crate::view_models::workspace::FrameNavigationState;
+        let release = FrameNavigationEntry::Release(ReleaseKey::from_index_feed_guid("saw-guid"));
+        let mut nav = FrameNavigationState::new_with_page(
+            FrameNavigationEntry::Destination(MusicDestination::Releases),
+            release.clone(),
+        );
+        let (entry, start) = spring_load_navigation(MusicDestination::Playlists);
+        assert_eq!(
+            entry,
+            FrameNavigationEntry::Destination(MusicDestination::Playlists)
+        );
+        assert_eq!(start, NavigationPathStart::NewPath);
+        // The host gives a new path the default page of its destination.
+        // Playlists has none, so the path holds the destination only.
+        assert_eq!(MusicDestination::Playlists.default_child_page(), None);
+        nav.start_path(entry.clone(), None);
+        assert_eq!(nav.path_entries(), vec![entry]);
+        assert_eq!(nav.go_back().ok().cloned(), Some(release));
     }
 }

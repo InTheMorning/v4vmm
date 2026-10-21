@@ -22049,3 +22049,214 @@ fn adr_0083_list_row_actions_r83_7_13_rows_use_the_shared_menu() {
         violations.join("\n")
     );
 }
+
+/// R83-8-07 (ADR 0083 Decision 6, task 008). Situational: delete this
+/// guard when ADR 0083 is superseded. A drop on a playlist row adds the
+/// track through the add path of the "Add to playlist" menu item, and
+/// through no other path.
+#[test]
+fn adr_0083_track_drag_r83_8_07_drop_uses_the_one_add_path() {
+    let composite_file = "src/ui/composites/track_drag.rs";
+    let composite = read_source(&manifest_path(composite_file));
+    let list_file = "src/ui/shells/library/destination_lists.rs";
+    let list = read_source(&manifest_path(list_file));
+    let mut violations = Vec::new();
+    let target = source_between(&composite, "pub(crate) fn playlist_drop_target(", "\n}\n");
+    if composite.matches(".on_drop(").count() != 2 || target.matches(".on_drop(").count() != 2 {
+        violations.push(format!(
+            "{composite_file}: the two `.on_drop(` handlers belong in `playlist_drop_target`, one \
+for each payload."
+        ));
+    }
+    if target.matches("(&drop, window, cx);").count() != 2 {
+        violations.push(format!(
+            "{composite_file}: each drop handler must give its drop to the handler of the host."
+        ));
+    }
+    if list.contains(".on_drop(")
+        || !list.contains("playlist_drop_target(row, playlist_id, &on_add, cx)")
+    {
+        violations.push(format!(
+            "{list_file}: each playlist row must take its drop through `playlist_drop_target`."
+        ));
+    }
+    let add = "this.add_tracks_to_playlist(vec![drop.track_id], drop.playlist_id, cx);";
+    if list.matches("add_tracks_to_playlist(").count() != 1 || !list.contains(add) {
+        violations.push(format!(
+            "{list_file}: the drop handler must call `{add}` one time."
+        ));
+    }
+    for (file, source) in [(composite_file, &composite), (list_file, &list)] {
+        for forbidden in [
+            "add_track_to_playlist(",
+            "add_content_row_to_playlist(",
+            "begin_playlist_append(",
+            "spawn_subscribe_then_append(",
+            "playlist_append(",
+        ] {
+            if source.contains(forbidden) {
+                violations.push(format!("{file}: a second add path `{forbidden}`."));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0083 Decision 6 (task 008, decision D6): a drop and the \"Add to playlist\" menu item \
+use the same add path. Keep the drop handlers in `playlist_drop_target` and give each drop to \
+`LibraryApp::add_tracks_to_playlist`. Fix:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R83-8-08 (ADR 0083 Decision 6, task 008). Situational: delete this
+/// guard when ADR 0083 is superseded. Both track drags show the one
+/// preview of `track_drag.rs`.
+#[test]
+fn adr_0083_track_drag_r83_8_08_one_drag_preview() {
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        if source.contains("PlaylistTrackDragPreview") {
+            violations.push(format!("{file}: `PlaylistTrackDragPreview` is deleted."));
+        }
+        let previews = source.matches("DragPreview {\n").count();
+        if previews > 0 && file != "src/ui/composites/track_drag.rs" {
+            violations.push(format!("{file}: a second drag preview."));
+        }
+    }
+    let composite = read_source(&manifest_path("src/ui/composites/track_drag.rs"));
+    if !composite.contains("pub(crate) struct TrackDragPreview {")
+        || !composite.contains("impl Render for TrackDragPreview {")
+    {
+        violations.push("src/ui/composites/track_drag.rs: the preview is missing.".to_owned());
+    }
+    let playlist = read_source(&manifest_path("src/ui/shells/playlist.rs"));
+    if !playlist.contains("TrackDragPreview::build(&payload.title, cx)") {
+        violations.push(
+            "src/ui/shells/playlist.rs: the drag handle must show `TrackDragPreview`.".to_owned(),
+        );
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0083 Decision 6 (task 008, decision D9): one preview composite shows the dragged \
+track. Build each drag preview with `TrackDragPreview::build`. Fix:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R83-8-09 (ADR 0083 Decision 6, task 008). Situational: delete this
+/// guard when ADR 0083 is superseded. The reorder drop target of a
+/// playlist page row accepts only a playlist entry, never a track row
+/// drag (decision D13).
+#[test]
+fn adr_0083_track_drag_r83_8_09_reorder_drop_accepts_only_playlist_entries() {
+    let source = read_source(&manifest_path("src/ui/shells/playlist.rs"));
+    let row = source_between(&source, "fn render_playlist_track_row(", "\n}\n");
+    let mut violations = Vec::new();
+    if !compact_source(row).contains(&compact_source(
+        "drag.downcast_ref::<PlaylistTrackDragPayload>().is_some()",
+    )) {
+        violations.push(
+            "src/ui/shells/playlist.rs: the reorder `.can_drop(` must accept \
+`PlaylistTrackDragPayload`."
+                .to_owned(),
+        );
+    }
+    if row
+        .replace("PlaylistTrackDragPayload", "")
+        .contains("TrackDragPayload")
+    {
+        violations.push(
+            "src/ui/shells/playlist.rs: `render_playlist_track_row` must not name \
+`TrackDragPayload`."
+                .to_owned(),
+        );
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0083 Decision 6 (task 008, decision D13): the reorder drag does not change. Its drop \
+target accepts only `PlaylistTrackDragPayload`. Fix:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R83-8-13 (ADR 0083 Decision 6, task 008). Situational: delete this
+/// guard when ADR 0083 is superseded. The spring-load delay is the named
+/// token `Motion::SpringLoadDelay`, so the operator can change it in one
+/// place.
+#[test]
+fn adr_0083_track_drag_r83_8_13_spring_load_delay_is_a_token() {
+    let mut violations = Vec::new();
+    let tokens = read_source(&manifest_path("src/ui/tokens.rs"));
+    if !tokens.contains("Self::SpringLoadDelay => Duration::from_millis(500),") {
+        violations.push("src/ui/tokens.rs: `Motion::SpringLoadDelay` must be 500 ms.".to_owned());
+    }
+    let app = read_source(&manifest_path("src/library/app_impl.rs"));
+    let spring_load = source_between(
+        &app,
+        "pub(crate) fn spring_load_pointer(",
+        "pub(crate) fn end_track_drag(",
+    );
+    let sidebar = read_source(&manifest_path("src/ui/shells/library/sidebar.rs"));
+    for (file, code) in [
+        ("src/library/app_impl.rs", spring_load),
+        ("src/ui/shells/library/sidebar.rs", sidebar.as_str()),
+    ] {
+        for forbidden in ["Duration::from_millis(", "Duration::from_secs("] {
+            if code.contains(forbidden) {
+                violations.push(format!("{file}: the spring-load code holds `{forbidden}`."));
+            }
+        }
+    }
+    if spring_load
+        .matches("Motion::SpringLoadDelay.duration()")
+        .count()
+        != 2
+    {
+        violations.push(
+            "src/library/app_impl.rs: the timer and `SpringLoadVm::fire` must read \
+`Motion::SpringLoadDelay.duration()`."
+                .to_owned(),
+        );
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0083 Decision 6 (task 008, decision D1): read the spring-load delay only from \
+`Motion::SpringLoadDelay` in `src/ui/tokens.rs`. Fix:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R83-8-15 (ADR 0083 Decision 6, task 008). Situational: delete this
+/// guard when ADR 0083 is superseded. The sidebar row "Playlists" accepts
+/// no drop. Its drag-move handlers only give the pointer to the
+/// spring-load methods of `LibraryApp`, which owns the timer.
+#[test]
+fn adr_0083_track_drag_r83_8_15_sidebar_only_reports_the_pointer() {
+    let file = "src/ui/shells/library/sidebar.rs";
+    let source = read_source(&manifest_path(file));
+    let mut violations = Vec::new();
+    for forbidden in [".on_drop(", ".can_drop(", "cx.spawn(", "timer("] {
+        if source.contains(forbidden) {
+            violations.push(format!("{file}: the sidebar holds `{forbidden}`."));
+        }
+    }
+    let handlers = source_between(&source, "if row.spring_loaded {", "el = match state {");
+    let call = "this.spring_load_pointer(destination, on_row, cx);";
+    if handlers.matches(".on_drag_move(").count() != 2
+        || handlers.matches(call).count() != 2
+        || handlers.matches("this.").count() != 2
+    {
+        violations.push(format!(
+            "{file}: each of the two `.on_drag_move(` handlers must call only `{call}`."
+        ));
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0083 Decision 6 (task 008, decision D1): a drop on the sidebar row \"Playlists\" does \
+nothing, and `LibraryApp` owns the spring-load timer. Give the pointer to \
+`LibraryApp::spring_load_pointer` and attach no drop handler. Fix:\n{}",
+        violations.join("\n")
+    );
+}

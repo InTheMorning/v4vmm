@@ -18,6 +18,8 @@
 
 #![warn(clippy::pedantic)]
 
+use std::time::Duration;
+
 use gpui::{
     linear_color_stop, linear_gradient, point, px, App, Background, BoxShadow, FontWeight, Hsla,
     Pixels, Rgba, WindowAppearance,
@@ -1066,6 +1068,33 @@ impl ScaleFactor {
 }
 
 impl gpui::Global for ScaleFactor {}
+
+// -----------------------------------------------------------------------------
+// Motion — named times of the interface.
+// -----------------------------------------------------------------------------
+
+/// The named times of the interface (ADR 0083 Decision 6).
+///
+/// The code that waits for a time reads it from this token. It holds no
+/// time literal of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Motion {
+    /// 500 ms — the time that a dragged track stays over a spring-loaded
+    /// sidebar row before the row opens its destination. The value is near
+    /// the default spring-loading delay of the macOS Finder. The operator
+    /// walk of ADR 0083 task 008 confirms it.
+    SpringLoadDelay,
+}
+
+impl Motion {
+    /// The time of the token.
+    #[must_use]
+    pub const fn duration(self) -> Duration {
+        match self {
+            Self::SpringLoadDelay => Duration::from_millis(500),
+        }
+    }
+}
 
 // -----------------------------------------------------------------------------
 // Environment — SwiftUI-style bundle of every value the UI tree reads at render.

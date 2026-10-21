@@ -22,12 +22,14 @@ use gpui::{
 };
 
 use crate::ui::composites::playlist_popover::PlaylistOption;
+use crate::ui::composites::track_drag::{attach_track_drag, TrackDragPayload};
 use crate::ui::composites::track_row_menu::{
     row_menu_state, track_row_menu_items, track_row_pointer_menu, TrackRowMenuCell,
     TrackRowMenuHandlers, TrackRowMenuState, TRACK_ROW_GROUP,
 };
 use crate::ui::primitives::{HStack, PointerContextMenu};
 use crate::ui::tokens::{color, Radius, SemanticColor, Size, Spacing, TrackRowColumn};
+use crate::view_models::library::TrackDragVm;
 use crate::view_models::release_page::TrackRowMenuVm;
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
@@ -91,6 +93,9 @@ pub struct ListRow {
     has_menu_cell: bool,
     /// The menu of the menu cell.
     menu: Option<RowMenu>,
+    /// The drag of one track to a playlist (ADR 0083 task 008). `None`
+    /// starts no drag.
+    drag: Option<TrackDragVm>,
     children: Vec<gpui::AnyElement>,
 }
 
@@ -108,6 +113,7 @@ impl ListRow {
             scroll_probe: None,
             has_menu_cell: false,
             menu: None,
+            drag: None,
             children: Vec::new(),
         }
     }
@@ -167,6 +173,13 @@ impl ListRow {
     pub(crate) fn menu_cell(mut self, menu: Option<RowMenu>) -> Self {
         self.has_menu_cell = true;
         self.menu = menu;
+        self
+    }
+
+    /// The drag fact of a track row (ADR 0083 task 008). With `Some`, a
+    /// drag of the row starts a drag of the track to a playlist.
+    pub(crate) fn drag(mut self, drag: Option<TrackDragVm>) -> Self {
+        self.drag = drag;
         self
     }
 
@@ -258,6 +271,12 @@ impl RenderOnce for ListRow {
                 .on_click(move |event, window, cx| {
                     handler(event, window, cx);
                 });
+        }
+
+        // ADR 0083 task 008, decision D12: the drag starts on the same
+        // element as the click, so a drag clears the pending click.
+        if let Some(drag) = &self.drag {
+            row = attach_track_drag(row, TrackDragPayload::from_vm(drag));
         }
 
         row

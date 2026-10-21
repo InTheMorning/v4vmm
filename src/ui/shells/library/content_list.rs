@@ -294,7 +294,10 @@ fn render_content_list_row(
         list_row = list_row.menu_cell(content_list_row_menu(row, context, cx));
     }
 
+    // ADR 0083 task 008, decision D4: a Tracks list row of a Library
+    // track in `Normal` starts a drag of its track.
     list_row
+        .drag(row.drag.clone())
         .when(row.accepts_row_click(), |el| {
             el.on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
                 this.click_content_row(target, &row_id, event.modifiers(), cx);

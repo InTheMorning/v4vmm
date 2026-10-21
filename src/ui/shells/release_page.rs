@@ -387,7 +387,8 @@ pub(crate) fn render_release_page_track_row(
         .on_download(move |window, cx| {
             download(ReleasePageCommand::DownloadTrack(index), window, cx);
         })
-        .menu(vm.menu.clone(), playlist_choices(playlists));
+        .menu(vm.menu.clone(), playlist_choices(playlists))
+        .drag(vm.drag.clone());
     // ADR 0083 Decision 6: the "⋯" menu and the right-click menu send each
     // item through the one dispatch function.
     if let Some(focus) = menu_focus {

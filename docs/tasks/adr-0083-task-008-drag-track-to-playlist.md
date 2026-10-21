@@ -1,6 +1,6 @@
 # ADR 0083 Task 008: Drag A Track To A Playlist
 
-Status: Ready - 2026-10-20. It starts after tasks 006 and 007 are implemented. D3 needs operator confirmation before the visual walk closes.
+Status: Implemented - 2026-10-21. Cases R83-8-01 to R83-8-15 pass. Mechanical checks are Green. V1 to V9 are open, in the final walk of the run.
 
 ## Goal
 
@@ -247,6 +247,15 @@ Revert the commit. This packet adds no migration and no stored data. V1a, V1e, V
 - D1: the operator decided the sidebar "Playlists" row as a spring-loaded target. ADR 0083 Decision 6 records it.
 - The delay of 500 ms comes from memory of the macOS Finder default. No source confirms it. The operator walk confirms the value.
 
+## Orchestrator Review - 2026-10-21
+
+Pass. The code needs no fix.
+
+- Known limit: a drag that ends on the "Playlists" row before the delay leaves its timer armed, because that row accepts no drop. If a new drag comes onto the row before the old timer ends, the list column can open earlier than the delay. GPUI 0.3.1 gives no event when a drag ends with no drop, so the orchestrator accepts this.
+- Known limit: GPUI 0.3.1 shows the cursor of the drag source during each drag, so V5 cannot show a no-drop cursor. The reorder drag has the same limit. The operator decides V5 in the walk.
+- `src/ui/shells/library/destination_lists.rs` has 500 code lines, the ADR 0038 ceiling. The next change to it must remove lines first.
+- The orchestrator added the two new files to the source map.
+
 ## Prompt for lower-context coding model
 
 You are implementing one bounded task from a larger plan.
@@ -308,3 +317,149 @@ Stop and report the problem, and do not guess, when:
 - The drag stops when the spring-load clears the detail column or replaces the Tracks list.
 - A guard forbids a timer in `LibraryApp`.
 - A change needs a file in "Do not touch".
+
+## Implementation Result - 2026-10-20
+
+### Files Changed
+
+- `src/ui/tokens.rs`: new token `Motion::SpringLoadDelay`. Its `duration()` is 500 ms.
+- `src/view_models/library.rs`:
+  - New `TrackDragVm`, `playlist_accepts_drop`, `destination_is_spring_loaded` and `spring_load_navigation`.
+  - New `SpringLoadVm` and `SpringLoadGeneration`. The state holds no GPUI type and reads no clock.
+  - `DestinationRowVm` has the new fact `spring_loaded`. It is true only for "Playlists".
+  - `ContentListRowDisplay` has the new field `drag`. `content_list_rows_with_selection` fills it.
+  - `PlaylistTrackRowDisplay` has the new field `track_id`.
+  - New tests R83-8-02, R83-8-11, R83-8-12 and R83-8-14.
+- `src/view_models/release_page.rs`: `ReleaseTrackRowVm` has the new field `drag`. New test R83-8-01.
+- `src/ui/composites/track_drag.rs` (new):
+  - `TrackDragPayload`, `PlaylistTrackDragPayload` with the new field `track_id`, and `TrackDragPreview`.
+  - `attach_track_drag` attaches the drag and stops the left mouse-down.
+  - `playlist_drop_target`, `PlaylistDrop`, `PlaylistDropHandler` and `playlist_drop_handler`.
+  - GPUI tests R83-8-03, R83-8-05 and R83-8-06. A second R83-8-03 test drags after the source row unmounts.
+- `src/ui/composites/track_row.rs`: new builder `TrackRow::drag`. The body of the row takes the drag.
+- `src/ui/composites/list_row.rs`: new builder `ListRow::drag`. The row root takes the drag.
+- `src/ui/composites/mod.rs`: registers `track_drag`.
+- `src/ui/shells/playlist.rs`:
+  - `PlaylistTrackDragPayload` and `PlaylistTrackDragPreview` are deleted from this file. The handle fills `track_id` and shows `TrackDragPreview`.
+  - New GPUI test R83-8-04.
+- `src/ui/shells/release_page.rs`: the release page row and the singles group row give `drag` to `TrackRow`.
+- `src/ui/shells/library/content_list.rs`: a Tracks list row gives `drag` to `ListRow`.
+- `src/ui/shells/library/destination_lists.rs`: each row of the Playlists list is a `playlist_drop_target`. Its handler calls `add_tracks_to_playlist`.
+- `src/ui/shells/library/sidebar.rs`: a row with `spring_loaded` attaches two `.on_drag_move(` handlers. They call only `LibraryApp::spring_load_pointer`.
+- `src/presentation/delayed_presenter.rs` (new): `present_after` calls a function on the entity when a delay ends.
+- `src/presentation/mod.rs`: registers `delayed_presenter`.
+- `src/library.rs` and `src/library/app_impl.rs`:
+  - New field `spring_load`.
+  - New `spring_load_pointer`, `fire_spring_load` and `end_track_drag`.
+- `tests/architecture_tests.rs`: new situational guards R83-8-07, R83-8-08, R83-8-09, R83-8-13 and R83-8-15. Each one cites ADR 0083 Decision 6.
+
+### Behavior Changed
+
+- A Library track row on a release page or a singles group page starts a drag when the pointer moves on the row body. The preview shows the title.
+- A Tracks list row of a Library track starts the same drag. A Needs attention row, an Index row and each row in selection mode start no drag.
+- The drag handle of a playlist entry starts its reorder drag as before. The payload holds the track id too.
+- The pointer of a drag stays on the sidebar row "Playlists" for 500 ms. Then the list column opens Playlists on a new path.
+  - When the pointer leaves the row first, nothing opens.
+  - When the list column shows Playlists, nothing occurs.
+  - A drop on the sidebar row does nothing.
+- Each row of the Playlists list accepts a track drag, and an entry of another playlist. An accepting row shows a 2 px accent outline under the pointer.
+- A drop calls `add_tracks_to_playlist` with one track. The status text and the track count change as for the menu item.
+- A click with no move opens the page as before. A drag opens no page and starts no text selection.
+
+### Checks - 2026-10-20
+
+| Check | Result |
+|---|---|
+| `cargo test --lib adr_0083_track_drag_` | Green, 10 tests |
+| `cargo test --lib adr_0083_row_actions_` | Green, 13 tests |
+| `cargo test --lib adr_0083_list_row_actions_` | Green, 12 tests |
+| `cargo test --lib adr_0044_` | Green, 2 tests |
+| `cargo test --lib adr_0084_playlist_selection_` | Green, 12 tests |
+| `cargo test` | Green, 2104 unit tests and 355 guards. Ten documentation examples stay ignored |
+| `cargo test --test architecture_tests` | Green, 355 guards |
+| `cargo fmt -- --check` | Green |
+| `cargo clippy -- -D warnings` | Green |
+| `cargo clippy --all-targets -- -D warnings` | Green |
+| `cargo check --all-targets` | Green, no warning |
+| `cargo build --bin v4vmm` | Green |
+
+No application launch and no production-data change occurred.
+
+### Deviations From The Task
+
+1. The drop target and its two `.on_drop(` handlers are in `src/ui/composites/track_drag.rs`, not in `destination_lists.rs`.
+   The guard `surface_modules_under_500_loc` (ADR 0038) limits `destination_lists.rs` to 500 code lines. The file has 500 code lines now.
+   `destination_lists.rs` gives the handler that calls `add_tracks_to_playlist`. Guard R83-8-07 reads both files.
+2. `PlaylistTrackDragPayload` is in `track_drag.rs`, because the playlist page and the drop target use it. It has one definition.
+3. The `TrackRow` drag attaches to the clickable body, not to the row root.
+   GPUI clears the pending click only on the element that starts the drag. On the root, a drag back onto its own row also opened the page.
+   The download cell, the duration and the menu cell start no drag.
+4. The Tracks list row takes the drag through the new `ListRow::drag` on its root, which holds the click. No wrapper element is necessary.
+5. The guard `cx_spawn_is_restricted_to_presentation_runtime_and_bootstrap` (ADR 0040) forbids `cx.spawn(` in `app_impl.rs`.
+   The new `present_after` in `src/presentation/` holds the timer. `LibraryApp` owns the state and starts each timer through it.
+6. The view model gives the new fact `DestinationRowVm::spring_loaded`. The sidebar does not decide which row is spring-loaded.
+7. The row of its own playlist does not accept an entry: `.can_drop(` gives false. The row shows no outline, and a drop calls no handler.
+8. A drag can end with no drop. The timer then finds no active drag and stops the state.
+
+### Unresolved Concerns
+
+1. V5 cannot show the no-drop cursor. GPUI 0.3.1 sets the window cursor to the cursor of the drag source during each drag.
+   The `.cursor_no_drop()` of the present reorder target has the same limit. The operator decides if V5 needs a change.
+2. `src/ui/shells/library/destination_lists.rs` is at the limit of 500 code lines. The next change to it must remove lines first.
+3. A drag can end on the sidebar row "Playlists" before the delay ends. A new drag can then come onto the row before the old timer ends.
+   In this case, the list column opens earlier than 500 ms after the new drag came onto the row.
+4. The new files `src/ui/composites/track_drag.rs` and `src/presentation/delayed_presenter.rs` are not in `docs/architecture/source-map.md`.
+   The checks V1 to V9 are not in `docs/pending-human-checks.md`. The task instructions named only this packet as a document to edit.
+5. D3 needs operator confirmation. The operator walk confirms the delay of 500 ms.
+
+## Operator Visual Check
+
+This check needs a Linux desktop session and this checkout. It also needs these items:
+
+- A Library release with two or more tracks.
+- An Index release that is not in the Library.
+- Two test playlists. One test playlist holds two or more entries.
+
+V1a, V1e, V3 and V4 add entries to a playlist. Use only the test playlists.
+
+1. Build the app: `cargo build --bin v4vmm`. Then start `target/debug/v4vmm` from a desktop session.
+2. V1: open Music, then Releases, then the Library release. Push and hold the mouse button on the title of a track row. Move the pointer.
+   - Correct: a preview with the track title follows the pointer.
+   - Wrong: the track page opens, or text becomes selected.
+3. V1a: hold the track over the sidebar row "Playlists" for about half a second.
+   - Correct: the list column shows Playlists, and the detail column becomes empty. The preview stays at the pointer.
+   - Move the pointer onto the first test playlist and release the button.
+4. V3: look at the bottom of the sidebar and at the row of the first test playlist.
+   - Correct: the status shows "Downloading 1 track..." and then "Added 1 of 1 to {playlist}". The track count increases by one.
+   - Wrong: a navigation occurs after the drop.
+5. V1d: look at the list column, then click Back.
+   - Correct: the list column stays on Playlists after the drop. Back gives the release page under Releases.
+6. V1b: drag a track row over the sidebar row "Playlists" and off it quickly.
+   - Correct: nothing opens.
+7. V1c: drag a track row onto the sidebar row "Playlists" and release the button at once.
+   - Correct: nothing occurs, and no chooser opens.
+8. V2: drag a track row to Playlists again. Move the pointer onto a playlist row, then off it.
+   - Correct: the row shows an accent outline while the pointer is on it. The outline goes when the pointer goes. The row does not move.
+9. V1e: open Tracks. Drag a row of a Library track to the sidebar row "Playlists", then drop it on a test playlist.
+   - Correct: the result is the same as in steps 3 and 4.
+   - Open Needs attention and try to drag a row. Correct: no drag starts.
+10. V1f: collapse the sidebar. Repeat step 3 on the "Playlists" icon row.
+    - Correct: the list column opens Playlists.
+11. V4: open the test playlist with two or more entries. Drag an entry by its handle onto the row of the second test playlist.
+    - Correct: the second test playlist gets the track. The source playlist does not change.
+12. V5: drag the same entry onto the row of its own playlist.
+    - Correct: the row shows no outline, and a drop does nothing. See concern 1 for the cursor.
+13. V6: click a track row on the release page with no pointer movement.
+    - Correct: the track page opens.
+14. V7: click "Select" on the release page, then try to drag a row. Do the same in Tracks. Click "Done".
+    - Correct: no drag starts in selection mode.
+15. V8: open the Index release. Try to drag a track row. Then select "Add to playlist" in the row menu.
+    - Correct: no drag starts. The menu item adds the track.
+16. V9: change to the Light theme and to the Dark theme. Repeat step 8.
+    - Wrong: an outline or a preview that you cannot see clearly.
+
+### Cleanup
+
+1. Open each test playlist. Select "Remove from playlist" in the menu of each entry that the walk added.
+2. If the walk added a track that was not downloaded, remove it from the Library with "Remove…" in its row menu.
+3. Close the app.
