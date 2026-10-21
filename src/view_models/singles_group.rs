@@ -966,7 +966,10 @@ mod tests {
             let mut vm = crate::view_models::library::LibraryViewModel::new();
             vm.replace_tree(tree.clone());
             let artist_row = vm
-                .artists_list()
+                .artists_list(
+                    crate::view_models::index_name_list::MusicListScope::Library,
+                    &crate::view_models::index_name_list::IndexNameListPage::default(),
+                )
                 .into_iter()
                 .find(|row| row.element_id == "music-artist-row-publisher:pub")
                 .expect("the feed has an Artists row");

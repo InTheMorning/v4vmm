@@ -57,7 +57,7 @@ Known open defects:
 Stored facts that agents need:
 
 - Schema version 20 is current. The migration registry of ADR 0016 owns each schema change.
-- `tests/fixtures/musicindex-openapi-0.11.0.json` is the stored MusicIndex contract. After each Stophammer
+- `tests/fixtures/musicindex-openapi-0.12.0.json` is the stored MusicIndex contract. After each Stophammer
   release, replace it in the same change as the decode changes (ADR 0075 section 6).
 - [Open Stophammer requests](docs/plans/v4vmm-open-requests.md) has an equal copy in the Stophammer
   repository. Update both copies together.

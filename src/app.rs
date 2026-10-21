@@ -406,6 +406,11 @@ impl TopApp {
                         cx,
                     );
                 }
+                LibraryAppEvent::OpenIndexPublisherPage {
+                    publisher_feed_guid,
+                } => {
+                    this.open_index_publisher_page_from_list_row(publisher_feed_guid.clone(), cx);
+                }
                 LibraryAppEvent::OpenAlbumPage { feed_id } => {
                     this.open_library_album_page(*feed_id, cx);
                 }
@@ -1581,6 +1586,20 @@ impl TopApp {
                             this.set_content_list_view_mode(view_mode, cx);
                         });
                     });
+            }
+            // ADR 0084 packet 016 decision D1: the scope control of
+            // Releases and Artists. The view model gives `None` for each
+            // other destination.
+            if let Some(scope_control) = self.library.read(cx).music_scope_control() {
+                let scope_library = self.library.clone();
+                workspace_slots = workspace_slots.content_list_scope_control(
+                    scope_control,
+                    move |scope, _window, cx| {
+                        scope_library.update(cx, |library, cx| {
+                            library.set_music_list_scope(scope, cx);
+                        });
+                    },
+                );
             }
             // ADR 0084 Decision 10 Amendment, 2026-10-19: the list
             // column's "Select" and "Done" button, for Releases, Tracks

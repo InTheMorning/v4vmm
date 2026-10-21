@@ -34,13 +34,17 @@ use crate::ui::primitives::{Button as UiButton, Checkbox, CheckboxState, Label};
 use crate::ui::shells::library::destination_list_scroll::{
     render_destination_list_container, render_destination_list_container_tracked,
 };
+use crate::ui::shells::library::index_list_status::{
+    render_index_list_status_row, IndexListActions,
+};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::style::spacing;
 use crate::ui::tokens::{FontSize, SemanticColor};
 use crate::view_models::collection_art::CollectionKind;
+use crate::view_models::index_name_list::IndexListStatusRowVm;
 use crate::view_models::library::{
-    DestinationListRowTarget, DestinationListRowVm, DiscoverViewRowVm, PlaylistSidebarRowVm,
-    PlaylistSidebarVm, ReleasesListEntryVm,
+    DestinationListRowTarget, DestinationListRowVm, PlaylistSidebarRowVm, PlaylistSidebarVm,
+    ReleasesListEntryVm,
 };
 use crate::view_models::list_selection::RowCheckState;
 use crate::view_models::singles_group::SinglesGroupRowVm;
@@ -79,81 +83,30 @@ enum RowArt {
     Collection(CollectionArt),
 }
 
-/// Renders the Discover views list column (ADR 0084 Decision 3). "New
-/// releases" is the only view today.
-pub(crate) fn render_library_discover_views_list(
-    rows: &[DiscoverViewRowVm],
-    cx: &mut Context<LibraryApp>,
-) -> AnyElement {
-    let container = div()
-        .id("music-discover-views-list")
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h_0()
-        .min_w_0()
-        .px(spacing::MD)
-        .pb(spacing::MD)
-        .child(
-            page_scroll_content(cx)
-                .gap(spacing::XXS)
-                .children(rows.iter().map(|row| render_discover_view_row(row, cx))),
-        );
-    music_column_scrollbar(container, "music-discover-views-list-scrollbar")
-}
-
-fn render_discover_view_row(row: &DiscoverViewRowVm, cx: &mut Context<LibraryApp>) -> AnyElement {
-    let view = row.view;
-
-    ListRow::new(SharedString::from(row.element_id.clone()))
-        .a11y_label(ListRowA11yLabel {
-            label: SharedString::from(row.a11y_label.clone()),
-        })
-        .selected(row.selected)
-        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-            this.open_discover_view(view, cx);
-        }))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .pl(spacing::MD)
-                .child(
-                    Label::new(row.label)
-                        .color(if row.selected {
-                            SemanticColor::Accent
-                        } else {
-                            SemanticColor::Label
-                        })
-                        .weight(FontWeight::MEDIUM)
-                        .truncated(),
-                )
-                .child(
-                    Label::new(row.subtitle)
-                        .size(FontSize::Micro)
-                        .color(SemanticColor::TertiaryLabel)
-                        .truncated(),
-                ),
-        )
-        .into_any_element()
-}
-
-/// Renders the Releases or Artists destination list (ADR 0084 Decision 2).
+/// Renders the Artists destination list (ADR 0084 Decision 2).
 /// `empty_label` names the row kind for the empty-list message, for
-/// example "releases".
+/// example "artists". `status` is the status row of the scope
+/// "Everything" (ADR 0084 packet 016 decision D8).
 pub(crate) fn render_library_destination_rows(
     rows: Vec<DestinationListRowVm>,
+    status: Option<(IndexListStatusRowVm, IndexListActions)>,
     empty_label: &'static str,
     arts: &RowArts,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let children: Vec<AnyElement> = rows
-        .into_iter()
-        .map(|row| {
-            let art = RowArt::Collection(row_art(arts, &row.element_id, CollectionKind::Artist));
-            render_destination_list_row(row, art, LeadingDisclosure::None, cx)
-        })
-        .collect();
+    let (leading, trailing) = match status {
+        Some((row, actions)) if row.at_list_start() => {
+            (Some(render_index_list_status_row(row, actions, cx)), None)
+        }
+        Some((row, actions)) => (None, Some(render_index_list_status_row(row, actions, cx))),
+        None => (None, None),
+    };
+    let mut children: Vec<AnyElement> = leading.into_iter().collect();
+    children.extend(rows.into_iter().map(|row| {
+        let art = RowArt::Collection(row_art(arts, &row.element_id, CollectionKind::Artist));
+        render_destination_list_row(row, art, LeadingDisclosure::None, cx)
+    }));
+    children.extend(trailing);
     render_destination_list_container(children, empty_label, cx)
 }
 
@@ -325,9 +278,10 @@ fn render_destination_list_row(
 ) -> AnyElement {
     let entity_kind = match &row.open {
         DestinationListRowTarget::Release(_) => EntityKind::Release,
-        DestinationListRowTarget::Artist(_) | DestinationListRowTarget::Publisher(_) => {
-            EntityKind::Artist
-        }
+        DestinationListRowTarget::Artist(_)
+        | DestinationListRowTarget::Publisher(_)
+        | DestinationListRowTarget::IndexPublisher(_)
+        | DestinationListRowTarget::IndexName(_) => EntityKind::Artist,
     };
     let target = row.open.clone();
     let thumbnail_href = row.thumbnail_href.clone();

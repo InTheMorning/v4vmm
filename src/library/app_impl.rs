@@ -60,12 +60,14 @@ use crate::ui::shells::library::content_list::{
     render_discover_new_releases_detail, render_library_content_list, ContentListMenuContext,
 };
 use crate::ui::shells::library::destination_lists::{
-    render_library_destination_rows, render_library_discover_views_list,
-    render_library_playlists_list, render_library_releases_list, RowArts,
+    render_library_destination_rows, render_library_playlists_list, render_library_releases_list,
+    RowArts,
 };
 use crate::ui::shells::library::detail::render_library_detail;
+use crate::ui::shells::library::index_list_status::IndexListActions;
 use crate::ui::shells::library::sidebar::{render_destination_row, render_sidebar_collapse_button};
 use crate::ui::shells::library::track_detail_metadata::track_metadata_rows_for_frame;
+use crate::ui::shells::library::views_list::render_library_discover_views_list;
 use crate::ui::shells::library_removal_confirmation::{
     open_library_removal_confirmation_dialog, open_selection_removal_confirmation_dialog,
 };
@@ -77,6 +79,7 @@ use crate::ui::style::spacing;
 use crate::ui::tokens::Motion;
 use crate::view_models::detail_selection::DetailSelection;
 use crate::view_models::entity_detail::TrackMetadataActionState;
+use crate::view_models::index_name_list::{IndexNameListPage, MusicListScope};
 use crate::view_models::library::{
     description_line_count, list_column_header_action, releases_disclosure_step, AlbumNode,
     BroadcastRouteRepairCompletion, BroadcastRouteRepairCompletionStatus, ContentListRowActionKind,
@@ -151,7 +154,7 @@ enum TrackSubscriptionAction {
     Remove(i64),
 }
 
-fn command_error_detail(error: CommandError) -> String {
+pub(super) fn command_error_detail(error: CommandError) -> String {
     match error {
         CommandError::Unavailable(reason) => reason.to_string(),
         CommandError::ObservationWriteFailure(failure) => failure.to_string(),
@@ -509,6 +512,20 @@ impl LibraryApp {
             // back to the Library query (ADR 0077 packet 004).
             DestinationListRowTarget::Publisher(feed_guid) => {
                 FrameNavigationEntry::PublisherDetail(feed_guid.clone())
+            }
+            // ADR 0084 packet 016 decision D14: a MusicIndex feed row opens
+            // the feed page with the MusicIndex context. The top app
+            // records the context before it restores the page.
+            DestinationListRowTarget::IndexPublisher(feed_guid) => {
+                cx.emit(super::LibraryAppEvent::OpenIndexPublisherPage {
+                    publisher_feed_guid: feed_guid.clone(),
+                });
+                return;
+            }
+            // Packet 016 decision D14: a MusicIndex name row opens the
+            // MusicIndex name match page until packet 017 replaces it.
+            DestinationListRowTarget::IndexName(name) => {
+                FrameNavigationEntry::IndexNameMatches(name.clone())
             }
         };
         self.open_page(entry, NavigationPathStart::ListRow, cx);
@@ -980,6 +997,9 @@ impl LibraryApp {
             tag_update_snapshot: None,
             tag_update_request_failed: false,
             recent_music_page: RecentFeedsPageVm::loading(),
+            releases_scope: MusicListScope::default(),
+            artists_scope: MusicListScope::default(),
+            artist_name_page: IndexNameListPage::default(),
             discover_scroll_reveal: ScrollReveal::new(recent_music_scroll.clone()),
             recent_music_scroll,
             expanded_singles_groups: BTreeSet::new(),
@@ -3461,7 +3481,9 @@ impl LibraryApp {
                         vec![key],
                     )],
                     DestinationListRowTarget::Artist(_)
-                    | DestinationListRowTarget::Publisher(_) => Vec::new(),
+                    | DestinationListRowTarget::Publisher(_)
+                    | DestinationListRowTarget::IndexPublisher(_)
+                    | DestinationListRowTarget::IndexName(_) => Vec::new(),
                 },
                 ReleasesListEntryVm::SinglesGroup(group) => {
                     let mut group_rows = vec![SelectionRow::new(
@@ -3475,7 +3497,9 @@ impl LibraryApp {
                                 vec![key.clone()],
                             )),
                             DestinationListRowTarget::Artist(_)
-                            | DestinationListRowTarget::Publisher(_) => None,
+                            | DestinationListRowTarget::Publisher(_)
+                            | DestinationListRowTarget::IndexPublisher(_)
+                            | DestinationListRowTarget::IndexName(_) => None,
                         }
                     }));
                     group_rows
@@ -4530,7 +4554,22 @@ impl LibraryApp {
                 pane
             }
             MusicDestination::Artists => {
-                let rows = self.vm.artists_list();
+                let rows = self
+                    .vm
+                    .artists_list(self.artists_scope, &self.artist_name_page);
+                // ADR 0084 packet 016 decision D8: the loading row, the
+                // error row or "Load more" of the scope "Everything".
+                let status = LibraryViewModel::artists_list_status(
+                    self.artists_scope,
+                    &self.artist_name_page,
+                )
+                .map(|row| {
+                    let actions = IndexListActions {
+                        retry: Self::retry_artist_names,
+                        load_more: Self::load_more_artist_names,
+                    };
+                    (row, actions)
+                });
                 let mut arts = RowArts::new();
                 for row in &rows {
                     if let Some(art) = &row.art {
@@ -4538,7 +4577,7 @@ impl LibraryApp {
                         arts.insert(row.element_id.clone(), image);
                     }
                 }
-                render_library_destination_rows(rows, "artists", &arts, cx)
+                render_library_destination_rows(rows, status, "artists", &arts, cx)
             }
             MusicDestination::Playlists => {
                 let sidebar = self.vm.playlist_sidebar();

@@ -29,7 +29,7 @@ use crate::view_models::publisher_page::{
     PublisherPageContext, PublisherPageFacts, PublisherPageLoadDisplay, PublisherPageVm,
     TitleDisplay,
 };
-use crate::view_models::workspace::{FrameNavigationEntry, ReleaseKey};
+use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart, ReleaseKey};
 
 use super::TopApp;
 
@@ -99,6 +99,24 @@ impl TopApp {
             self.settings_status = format!("The app could not open the feed page: {error}");
         }
         self.fetch_publisher_page(publisher_feed_guid, context, cx);
+    }
+
+    /// Opens the feed page of a `MusicIndex` feed row of the Artists list
+    /// directly under its destination (ADR 0084 Decision 9, packet 016
+    /// decision D14). The page uses the `MusicIndex` query, because the
+    /// Library holds no release of the feed.
+    pub(super) fn open_index_publisher_page_from_list_row(
+        &mut self,
+        publisher_feed_guid: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.publisher_page_routes
+            .insert(publisher_feed_guid.clone(), PublisherPageContext::Index);
+        self.open_music_page(
+            &FrameNavigationEntry::PublisherDetail(publisher_feed_guid),
+            NavigationPathStart::ListRow,
+            cx,
+        );
     }
 
     /// Restores the publisher page fetch for a navigation entry that a

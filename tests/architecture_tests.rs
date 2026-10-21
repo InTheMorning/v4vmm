@@ -19812,19 +19812,21 @@ fn adr_0075_projection_views_combine_no_fact_and_column() {
 //
 // Situational — ADR 0075 section 6. `src/api.rs` must decode only fields
 // that the deployed MusicIndex contract declares. The guard below reads the
-// stored contract copy at `tests/fixtures/musicindex-openapi-0.11.0.json` and
+// stored contract copy at `tests/fixtures/musicindex-openapi-0.12.0.json` and
 // each mapped struct body in `src/api.rs`, and fails when a decoded field is
 // not a declared property. Delete this guard when ADR 0075 is superseded.
 //
 // ADR 0082 packet 001 replaced the stored copy with the Stophammer 0.7.0
 // contract on 2026-10-02, and extended the type map for its new fields. ADR
 // 0085 packet 008 replaced it again with the Stophammer 0.11.0 contract on
-// 2026-10-18, for `album_names_rank` and `remote_episode_count`.
+// 2026-10-18, for `album_names_rank` and `remote_episode_count`. ADR 0084
+// packet 016 replaced it with the Stophammer 0.12.0 contract on 2026-10-21,
+// for the two name lists and `named_feeds`.
 
 /// The stored MusicIndex contract (ADR 0075 section 6). The file name holds
 /// the contract version. A person or an agent replaces this file after each
 /// Stophammer release, in the same change as the decode changes.
-const MUSICINDEX_CONTRACT_FIXTURE: &str = "tests/fixtures/musicindex-openapi-0.11.0.json";
+const MUSICINDEX_CONTRACT_FIXTURE: &str = "tests/fixtures/musicindex-openapi-0.12.0.json";
 
 /// Where a decoded type's declared fields live in the stored contract: a
 /// named schema under `components.schemas`, or the inline response schema
@@ -19902,6 +19904,32 @@ const CONTRACT_TYPE_MAP: &[ContractTypeMapping] = &[
     ContractTypeMapping {
         rust_type: "Pagination",
         schemas: &[ContractSchemaRef::Named("Pagination")],
+    },
+    // ADR 0084 packet 016: the two name lists of Stophammer ADR 0070, from
+    // the deployed contract version `0.12.0`.
+    ContractTypeMapping {
+        rust_type: "FeedNamesResponse",
+        schemas: &[ContractSchemaRef::Inline {
+            path: "/v1/feeds/by-name",
+            method: "get",
+            status: "200",
+        }],
+    },
+    ContractTypeMapping {
+        rust_type: "ArtistNamesResponse",
+        schemas: &[ContractSchemaRef::Inline {
+            path: "/v1/artist-names",
+            method: "get",
+            status: "200",
+        }],
+    },
+    ContractTypeMapping {
+        rust_type: "ArtistNameRow",
+        schemas: &[ContractSchemaRef::Named("ArtistNameRow")],
+    },
+    ContractTypeMapping {
+        rust_type: "NamedFeedEntry",
+        schemas: &[ContractSchemaRef::Named("NamedFeedEntry")],
     },
     ContractTypeMapping {
         rust_type: "DetailResponse",
@@ -20002,6 +20030,12 @@ packet 001).",
 plain string value of `PublisherRelationship.role_agreement`, a field the \
 map already checks. It has no properties of its own to declare (ADR 0082 \
 packet 001).",
+    ),
+    (
+        "ArtistNameKind",
+        "a string enum, not an object. MusicIndex sends it as the plain string \
+value of `ArtistNameRow.kind`, a field the map already checks. It has no \
+properties of its own to declare (ADR 0084 packet 016).",
     ),
     (
         "LiveItemCreateResponse",
@@ -20221,7 +20255,7 @@ fn undeclared_fields(decoded: &[String], declared: &BTreeSet<String>) -> Vec<Str
 /// 0075 task 051 specifies.
 fn contract_field_violation(rust_type: &str, field: &str, schema_description: &str) -> String {
     format!(
-        "ADR 0075 section 6: api::{rust_type} decodes `{field}`, and MusicIndex contract 0.11.0 \
+        "ADR 0075 section 6: api::{rust_type} decodes `{field}`, and MusicIndex contract 0.12.0 \
 does not declare it in {schema_description}.\n\
 Remove the field, or replace {MUSICINDEX_CONTRACT_FIXTURE} with the contract that declares it."
     )
@@ -20319,11 +20353,31 @@ fn adr_0075_task_051_contract_field_guard_passes_on_present_code() {
     );
 }
 
-/// R85-8-12: the stored contract copy gives `info.version` `0.11.0`.
+/// R16-03: the stored contract copy gives `info.version` `0.12.0`, the
+/// 0.11.0 copy is absent, and the type map names each decoded type of the
+/// two name lists (ADR 0084 packet 016).
 #[test]
-fn adr_0085_feed_page_contract_fixture_is_0_11_0() {
+fn adr_0084_scopes_r16_03_contract_fixture_is_0_12_0() {
     let contract = load_musicindex_contract();
-    assert_eq!(contract["info"]["version"], "0.11.0");
+    assert_eq!(contract["info"]["version"], "0.12.0");
+    let mapped: BTreeSet<&str> = CONTRACT_TYPE_MAP.iter().map(|m| m.rust_type).collect();
+    for rust_type in [
+        "FeedNamesResponse",
+        "ArtistNamesResponse",
+        "ArtistNameRow",
+        "NamedFeedEntry",
+    ] {
+        assert!(
+            mapped.contains(rust_type),
+            "ADR 0075 section 6: CONTRACT_TYPE_MAP must map api::{rust_type} (ADR 0084 packet 016). \
+Add its contract schema to the map."
+        );
+    }
+    assert!(
+        !manifest_path("tests/fixtures/musicindex-openapi-0.11.0.json").exists(),
+        "ADR 0075 section 6: tests/fixtures/musicindex-openapi-0.11.0.json must be absent. \
+The stored contract is {MUSICINDEX_CONTRACT_FIXTURE}. Delete the old copy."
+    );
 }
 
 /// R51-02: a sample struct with a field the schema does not declare gives

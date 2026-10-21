@@ -74,6 +74,76 @@ pub struct RecentFeedsResponse {
     pub pagination: Pagination,
 }
 
+/// One page of `GET /v1/feeds/by-name` (Stophammer ADR 0070, ADR 0084
+/// packet 016). The rows come in the order of their sort key.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct FeedNamesResponse {
+    pub data: Vec<Feed>,
+    pub pagination: Pagination,
+}
+
+/// One page of `GET /v1/artist-names` (Stophammer ADR 0070, ADR 0084
+/// packet 016). The rows come in the order of their sort key.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct ArtistNamesResponse {
+    pub data: Vec<ArtistNameRow>,
+    pub pagination: Pagination,
+}
+
+/// The kind of one artist name row (Stophammer ADR 0070 §3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ArtistNameKind {
+    /// A feed with the medium `publisher`. `key` is its feed GUID.
+    Publisher,
+    /// A group of release texts with no held artist link. `key` is the
+    /// sort key of the group.
+    Name,
+    /// A kind that this app does not know. The Artists list shows no
+    /// row for it.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// One row of `GET /v1/artist-names` (Stophammer ADR 0070 §3 and ADR 0071
+/// §2, ADR 0084 packet 016). The four link facts come only with
+/// `include=link_facts`, and only on a `publisher` row.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct ArtistNameRow {
+    pub kind: ArtistNameKind,
+    pub name: String,
+    pub sort_name: String,
+    pub key: String,
+    pub feed_guid: Option<String>,
+    pub image_url: Option<String>,
+    pub release_count: Option<i64>,
+    /// The role tokens that both sides of the confirmed links state.
+    pub agreed_roles: Option<Vec<String>>,
+    pub confirmed_release_artists: Option<Vec<String>>,
+    /// The count of the confirmed links whose album names this feed first.
+    pub first_named_count: Option<i64>,
+    pub stated_rels: Option<Vec<String>>,
+    pub two_way_link_count: Option<i64>,
+}
+
+/// One entry of `named_feeds` on a release (Stophammer ADR 0071 §3, ADR
+/// 0084 packet 016): a feed that the release names in
+/// `<podcast:publisher>`. The entry gives no `two_way_validated`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct NamedFeedEntry {
+    pub publisher_feed_guid: String,
+    /// The title of the named feed. Null when the node does not hold it.
+    pub remote_feed_title: Option<String>,
+    pub album_names_rank: Option<i64>,
+    pub role: Option<String>,
+    pub role_agreement: Option<RoleAgreement>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Pagination {
@@ -97,6 +167,10 @@ pub struct Feed {
     #[serde(alias = "owner_name")]
     pub release_artist: Option<String>,
     pub release_artist_sort: Option<String>,
+    /// The sort key of the title (Stophammer ADR 0070 §1). The name lists
+    /// give it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort_name: Option<String>,
     pub raw_medium: Option<String>,
     pub release_kind: Option<String>,
     pub release_date: Option<i64>,
@@ -142,6 +216,14 @@ pub struct Feed {
     /// MusicIndex derives it. It is null when the album names no publisher.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub publisher_feed_title: Option<String>,
+    /// The GUID of the first feed that this release names (Stophammer ADR
+    /// 0071 §3). Null when the node does not hold that feed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher_feed_guid: Option<String>,
+    /// Each feed that this release names, with `include=named_feeds`
+    /// (Stophammer ADR 0071 §3).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub named_feeds: Option<Vec<NamedFeedEntry>>,
     /// The source of `release_artist`, as MusicIndex sends it (ADR 0077).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub release_artist_source: Option<String>,
@@ -854,6 +936,28 @@ impl Client {
         self.get_json(&["v1", "feeds", "recent"], &params)
     }
 
+    /// Fetches one page of artist names in name order (`GET
+    /// /v1/artist-names`, ADR 0084 packet 016). The profile gives the
+    /// `include` value.
+    ///
+    /// # Errors
+    /// Returns an error when the request fails or the response does not
+    /// decode.
+    pub(crate) fn fetch_artist_names(
+        &self,
+        limit: i32,
+        cursor: Option<&str>,
+        profile: &RequestProfile,
+    ) -> Result<ArtistNamesResponse> {
+        debug_assert_eq!(
+            profile.path_shape(),
+            RequestPathShape::ArtistNameList,
+            "ADR 0084 packet 016: {profile:?} must name the artist name list path shape"
+        );
+        let params = name_list_params(limit, cursor, profile);
+        self.get_json(&["v1", "artist-names"], &params)
+    }
+
     pub fn fetch_feed(&self, feed_guid: &str, include: Option<&str>) -> Result<Feed> {
         let mut params = Vec::new();
         if let Some(include) = include {
@@ -1143,6 +1247,23 @@ impl Default for Client {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// The query of one name list page: `limit`, the cursor when there is
+/// one, and the `include` value of the profile.
+fn name_list_params(
+    limit: i32,
+    cursor: Option<&str>,
+    profile: &RequestProfile,
+) -> Vec<(&'static str, String)> {
+    let mut params = vec![("limit", limit.to_string())];
+    if let Some(cursor) = cursor {
+        params.push(("cursor", cursor.to_string()));
+    }
+    if let Some(include) = profile.include() {
+        params.push(("include", include.to_string()));
+    }
+    params
 }
 
 fn sanitize_api_path_segment(value: &str) -> Result<String> {
@@ -3789,5 +3910,147 @@ pub(crate) mod tests {
             assert_eq!(feed.unconfirmed_release_artist_count, None);
             assert_eq!(feed.unconfirmed_release_artists, None);
         }
+    }
+}
+
+/// ADR 0084 packet 016: the decode of the two name lists of the 0.12.0
+/// contract.
+#[cfg(test)]
+mod adr_0084_scopes_tests {
+    use super::*;
+
+    /// R16-01: an artist name row decodes each field. The "$2 Holla" name
+    /// row and the Sir Libre Records values are the recorded values of
+    /// 2026-10-20. The "0$" row is a constructed publisher row with each
+    /// field of the contract.
+    #[test]
+    fn adr_0084_scopes_r16_01_artist_name_rows_decode() {
+        let page: ArtistNamesResponse = serde_json::from_value(serde_json::json!({
+            "data": [
+                {"kind": "publisher", "name": "0$", "sort_name": "0$", "key": "zero-guid",
+                 "feed_guid": "zero-guid", "image_url": "https://example.test/zero.jpg",
+                 "release_count": null, "agreed_roles": ["artist"],
+                 "confirmed_release_artists": ["0$"], "first_named_count": 2,
+                 "stated_rels": ["artist"], "two_way_link_count": 2},
+                {"kind": "name", "name": "$2 Holla", "sort_name": "$2 holla",
+                 "key": "$2 holla", "feed_guid": null, "image_url": null, "release_count": 3},
+                {"kind": "publisher", "name": "Sir Libre Records",
+                 "sort_name": "sir libre records",
+                 "key": "34bf795f-f551-4db1-8877-ad19aa5f89c8",
+                 "feed_guid": "34bf795f-f551-4db1-8877-ad19aa5f89c8",
+                 "agreed_roles": ["label"], "first_named_count": 0, "two_way_link_count": 3}
+            ],
+            "pagination": {"cursor": "c1", "has_more": true}
+        }))
+        .expect("the recorded page decodes");
+
+        let zero = &page.data[0];
+        assert_eq!(zero.kind, ArtistNameKind::Publisher);
+        assert_eq!(zero.name, "0$");
+        assert_eq!(zero.sort_name, "0$");
+        assert_eq!(zero.key, "zero-guid");
+        assert_eq!(zero.feed_guid.as_deref(), Some("zero-guid"));
+        assert_eq!(
+            zero.image_url.as_deref(),
+            Some("https://example.test/zero.jpg")
+        );
+        assert_eq!(zero.release_count, None);
+        assert_eq!(
+            zero.agreed_roles.as_deref(),
+            Some(&["artist".to_owned()][..])
+        );
+        assert_eq!(
+            zero.confirmed_release_artists.as_deref(),
+            Some(&["0$".to_owned()][..])
+        );
+        assert_eq!(zero.first_named_count, Some(2));
+        assert_eq!(
+            zero.stated_rels.as_deref(),
+            Some(&["artist".to_owned()][..])
+        );
+        assert_eq!(zero.two_way_link_count, Some(2));
+
+        let holla = &page.data[1];
+        assert_eq!(holla.kind, ArtistNameKind::Name);
+        assert_eq!(holla.name, "$2 Holla");
+        assert_eq!(holla.key, "$2 holla");
+        assert_eq!(holla.feed_guid, None);
+        assert_eq!(holla.image_url, None);
+        assert_eq!(holla.release_count, Some(3));
+        assert_eq!(holla.agreed_roles, None);
+
+        let sir_libre = &page.data[2];
+        assert_eq!(
+            sir_libre.agreed_roles.as_deref(),
+            Some(&["label".to_owned()][..])
+        );
+        assert_eq!(sir_libre.first_named_count, Some(0));
+        assert_eq!(sir_libre.two_way_link_count, Some(3));
+
+        assert!(page.pagination.has_more);
+        assert_eq!(page.pagination.cursor.as_deref(), Some("c1"));
+    }
+
+    /// A kind that this app does not know decodes, and gives no failure.
+    #[test]
+    fn adr_0084_scopes_unknown_artist_name_kind_decodes() {
+        let row: ArtistNameRow = serde_json::from_value(serde_json::json!({
+            "kind": "label", "name": "x", "sort_name": "x", "key": "x"
+        }))
+        .expect("an unknown kind decodes");
+        assert_eq!(row.kind, ArtistNameKind::Unknown);
+    }
+
+    /// R16-02: a by-name row decodes `named_feeds`, `publisher_feed_guid`
+    /// and `sort_name`. An entry whose feed the node does not hold decodes
+    /// with `remote_feed_title` null. The rows follow the recorded rows of
+    /// 2026-10-20.
+    #[test]
+    fn adr_0084_scopes_r16_02_feed_name_rows_decode() {
+        let page: FeedNamesResponse = serde_json::from_value(serde_json::json!({
+            "data": [
+                {"feed_guid": "motive-album", "title": "Motive to Kill",
+                 "sort_name": "motive to kill", "raw_medium": "music",
+                 "release_kind": "unknown", "episode_count": 1,
+                 "publisher_feed_guid": "motive-guid",
+                 "named_feeds": [
+                     {"publisher_feed_guid": "motive-guid",
+                      "remote_feed_title": "Motive to Kill", "album_names_rank": 1,
+                      "role": "artist", "role_agreement": "both"},
+                     {"publisher_feed_guid": "34bf795f-f551-4db1-8877-ad19aa5f89c8",
+                      "remote_feed_title": "Sir Libre Records", "album_names_rank": 2,
+                      "role": "label", "role_agreement": "both"}
+                 ]},
+                {"feed_guid": "liii-album", "title": "#LIII4PRESIDENT",
+                 "sort_name": "#liii4president", "release_artist": "LIIINEKELA",
+                 "publisher_feed_guid": null,
+                 "named_feeds": [
+                     {"publisher_feed_guid": "liii-guid", "remote_feed_title": null,
+                      "album_names_rank": 1, "role": null, "role_agreement": null}
+                 ]}
+            ],
+            "pagination": {"cursor": null, "has_more": false}
+        }))
+        .expect("the recorded page decodes");
+
+        let motive = &page.data[0];
+        assert_eq!(motive.sort_name.as_deref(), Some("motive to kill"));
+        assert_eq!(motive.publisher_feed_guid.as_deref(), Some("motive-guid"));
+        let named = motive.named_feeds.as_deref().unwrap();
+        assert_eq!(named.len(), 2);
+        assert_eq!(named[0].publisher_feed_guid, "motive-guid");
+        assert_eq!(named[0].album_names_rank, Some(1));
+        assert_eq!(named[0].role.as_deref(), Some("artist"));
+        assert_eq!(named[0].role_agreement, Some(RoleAgreement::Both));
+        assert_eq!(named[1].role.as_deref(), Some("label"));
+
+        let liii = &page.data[1];
+        assert_eq!(liii.publisher_feed_guid, None);
+        let entry = &liii.named_feeds.as_deref().unwrap()[0];
+        assert_eq!(entry.publisher_feed_guid, "liii-guid");
+        assert_eq!(entry.remote_feed_title, None);
+        assert_eq!(entry.role, None);
+        assert_eq!(entry.role_agreement, None);
+        assert!(!page.pagination.has_more);
     }
 }

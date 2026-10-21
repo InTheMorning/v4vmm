@@ -20,8 +20,8 @@ use gpui::{
 };
 
 use crate::ui::composites::{
-    filter_chip_strip, view_mode_control, BreadcrumbTrail, FilterChipStripSlots,
-    ViewModeControlSlots,
+    filter_chip_strip, view_mode_control, BreadcrumbTrail, FilterChipStripSlots, Segment,
+    SegmentDisplay, SegmentedControl, ViewModeControlSlots,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::IconName;
@@ -29,6 +29,7 @@ use crate::ui::primitives::{
     Button, ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope,
 };
 use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor, Spacing};
+use crate::view_models::index_name_list::{MusicListScope, MusicScopeControlDisplay};
 use crate::view_models::workspace::{
     ContentFilter, ContentViewMode, ContentViewModeControlDisplay, FilterChipStripDisplay,
     FrameChromeButtonDisplay, FrameChromeMenuItemDisplay, FrameHeaderActionDisplay,
@@ -39,6 +40,7 @@ type FrameButtonHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 type FrameMenuSelectHandler = Rc<dyn Fn(SharedString, &mut Window, &mut App) + 'static>;
 type FrameFilterSelectHandler = Rc<dyn Fn(ContentFilter, &mut Window, &mut App) + 'static>;
 type FrameViewModeSelectHandler = Rc<dyn Fn(ContentViewMode, &mut Window, &mut App) + 'static>;
+type FrameScopeSelectHandler = Rc<dyn Fn(MusicListScope, &mut Window, &mut App) + 'static>;
 type FrameBreadcrumbSelectHandler =
     Rc<dyn Fn(FrameNavigationEntry, &mut Window, &mut App) + 'static>;
 
@@ -54,6 +56,7 @@ pub(crate) struct FrameShellSlots {
     on_header_action: Option<FrameButtonHandler>,
     on_filter_select: Option<FrameFilterSelectHandler>,
     on_view_mode_select: Option<FrameViewModeSelectHandler>,
+    on_scope_select: Option<FrameScopeSelectHandler>,
     on_breadcrumb_select: Option<FrameBreadcrumbSelectHandler>,
     appearance: Option<Appearance>,
 }
@@ -107,6 +110,16 @@ impl FrameShellSlots {
         handler: impl Fn(ContentViewMode, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_view_mode_select = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the scope selection callback of a Music list (ADR 0084
+    /// packet 016).
+    pub(crate) fn on_scope_select(
+        mut self,
+        handler: impl Fn(MusicListScope, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_scope_select = Some(Rc::new(handler));
         self
     }
 
@@ -220,6 +233,7 @@ fn render_chrome(
     let content_slot_id = display.content_slot_id.clone();
     let filter_chip_strip_display = display.filter_chip_strip.clone();
     let view_mode_control_display = display.view_mode_control.clone();
+    let scope_control_display = display.scope_control;
     let breadcrumb_display = display.breadcrumb.clone();
     let header_visible = display.header_visible();
     let mut nav = div()
@@ -319,12 +333,21 @@ fn render_chrome(
         chrome = chrome.child(header);
     }
 
-    if filter_chip_strip_display.is_some() || view_mode_control_display.is_some() {
+    if filter_chip_strip_display.is_some()
+        || view_mode_control_display.is_some()
+        || scope_control_display.is_some()
+    {
         chrome = chrome.child(frame_filter_row(
-            filter_chip_strip_display,
-            view_mode_control_display,
-            slots.on_filter_select,
-            slots.on_view_mode_select,
+            FrameFilterRowDisplays {
+                filter_chips: filter_chip_strip_display,
+                view_mode: view_mode_control_display,
+                scope: scope_control_display,
+            },
+            FrameFilterRowHandlers {
+                filter: slots.on_filter_select,
+                view_mode: slots.on_view_mode_select,
+                scope: slots.on_scope_select,
+            },
             cx,
         ));
     }
@@ -349,18 +372,46 @@ fn render_chrome(
     chrome
 }
 
+/// The controls of the frame filter row.
+struct FrameFilterRowDisplays {
+    filter_chips: Option<FilterChipStripDisplay>,
+    view_mode: Option<ContentViewModeControlDisplay>,
+    scope: Option<MusicScopeControlDisplay>,
+}
+
+/// The callbacks of the frame filter row.
+struct FrameFilterRowHandlers {
+    filter: Option<FrameFilterSelectHandler>,
+    view_mode: Option<FrameViewModeSelectHandler>,
+    scope: Option<FrameScopeSelectHandler>,
+}
+
 fn frame_filter_row(
-    filter_chip_display: Option<FilterChipStripDisplay>,
-    view_mode_display: Option<ContentViewModeControlDisplay>,
-    handler: Option<FrameFilterSelectHandler>,
-    view_mode_handler: Option<FrameViewModeSelectHandler>,
+    displays: FrameFilterRowDisplays,
+    handlers: FrameFilterRowHandlers,
     cx: &App,
 ) -> AnyElement {
+    let FrameFilterRowDisplays {
+        filter_chips: filter_chip_display,
+        view_mode: view_mode_display,
+        scope: scope_display,
+    } = displays;
+    let FrameFilterRowHandlers {
+        filter: handler,
+        view_mode: view_mode_handler,
+        scope: scope_handler,
+    } = handlers;
     let mut row = div()
         .flex()
         .flex_row()
         .items_center()
         .gap(Spacing::XS.scaled(cx));
+
+    // ADR 0084 packet 016 decision D1: the scope control sits at the
+    // leading edge of the row.
+    if let Some(display) = scope_display {
+        row = row.child(scope_control(display, scope_handler));
+    }
 
     if let Some(display) = filter_chip_display {
         let mut filter_slots = FilterChipStripSlots::new();
@@ -387,6 +438,33 @@ fn frame_filter_row(
         .px(Spacing::MD.scaled(cx))
         .pb(Spacing::XS.scaled(cx))
         .child(row)
+        .into_any_element()
+}
+
+/// The scope control of a Music list: a `SegmentedControl` with the
+/// `Filter` style (ADR 0084 packet 016).
+fn scope_control(
+    display: MusicScopeControlDisplay,
+    handler: Option<FrameScopeSelectHandler>,
+) -> AnyElement {
+    let mut control = SegmentedControl::new(display.selected)
+        .filter_style()
+        .segments(display.options.map(|option| {
+            Segment::new(SegmentDisplay {
+                id: SharedString::from(option.id).into(),
+                key: option.scope,
+                label: SharedString::from(option.label),
+                a11y_label: SharedString::from(option.a11y_label),
+            })
+        }));
+    if let Some(handler) = handler {
+        control = control.on_select(move |scope, window, cx| {
+            handler(*scope, window, cx);
+        });
+    }
+    div()
+        .id(SharedString::from(display.control_id))
+        .child(control)
         .into_any_element()
 }
 

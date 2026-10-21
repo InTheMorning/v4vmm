@@ -1,0 +1,412 @@
+//! The Artists list in the scope "Everything" (ADR 0084 Decisions 7 and 8,
+//! ADR 0085 Decision 2, packet 016).
+//!
+//! This module classifies each `MusicIndex` row of `GET /v1/artist-names`,
+//! gives the row of each shown `MusicIndex` artist, and merges those rows with
+//! the Library rows in one name order. The merge is a pure function of the
+//! Library rows and the loaded pages, so a download changes a row in place.
+
+#![warn(clippy::pedantic)]
+
+use std::collections::BTreeSet;
+
+use crate::api::{ArtistNameKind, ArtistNameRow};
+use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
+use crate::view_models::index_name_list::{watermark_shows, IndexNameListPage};
+use crate::view_models::library::{
+    release_row_slug_text, DestinationListRowTarget, DestinationListRowVm, ARTIST_NAME_ROW_MARK,
+    ARTIST_ROW_SEPARATOR,
+};
+use crate::view_models::list_selection::RowSelectionVm;
+use crate::view_models::role_words::role_contains_artist;
+
+/// The secondary text of a `MusicIndex` row (packet 016 decision D12).
+const NOT_IN_LIBRARY: &str = "Not in Library";
+
+/// The kind of an Artists row, in the order of Stophammer: a name row
+/// comes before a feed row with the same sort key.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum ArtistRowKind {
+    /// A name row (the name level).
+    Name,
+    /// A feed row (the feed level).
+    Feed,
+}
+
+/// The order position of one Artists row (packet 016 decision D6): the
+/// sort key, then the kind, then the key. The key of a feed row is its
+/// feed GUID. The key of a name row is its sort key.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct ArtistOrderKey {
+    sort_key: String,
+    kind: ArtistRowKind,
+    key: String,
+}
+
+impl ArtistOrderKey {
+    /// The position of a feed row with the sort key `sort_key`.
+    #[must_use]
+    pub(crate) fn feed(sort_key: String, feed_guid: &str) -> Self {
+        Self {
+            sort_key,
+            kind: ArtistRowKind::Feed,
+            key: feed_guid.to_owned(),
+        }
+    }
+
+    /// The position of a name row with the sort key `sort_key`.
+    #[must_use]
+    pub(crate) fn name(sort_key: String) -> Self {
+        Self {
+            key: sort_key.clone(),
+            sort_key,
+            kind: ArtistRowKind::Name,
+        }
+    }
+
+    /// The position of a `MusicIndex` row. `MusicIndex` gives the sort key, so
+    /// this position is the position of the row in its pages.
+    fn index(row: &ArtistNameRow) -> Self {
+        let kind = match row.kind {
+            ArtistNameKind::Name => ArtistRowKind::Name,
+            ArtistNameKind::Publisher | ArtistNameKind::Unknown => ArtistRowKind::Feed,
+        };
+        Self {
+            sort_key: row.sort_name.clone(),
+            kind,
+            key: row.key.clone(),
+        }
+    }
+}
+
+/// One Library row of the Artists list and its order position.
+#[derive(Clone, Debug)]
+pub(crate) struct LibraryArtistRow {
+    pub(crate) order: ArtistOrderKey,
+    pub(crate) row: DestinationListRowVm,
+}
+
+/// The class of one `MusicIndex` artist name row (ADR 0085 Decision 2,
+/// packet 016 decision D11).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum IndexArtistClass {
+    /// A feed whose agreed roles hold `artist`. Shown.
+    Artist,
+    /// A feed with no agreed role that a confirmed link names first.
+    /// Shown.
+    UnverifiedArtist,
+    /// A feed whose agreed roles hold no `artist`, for example a label.
+    /// Absent.
+    OtherRole,
+    /// A feed with no agreed role that no confirmed link names first.
+    /// Absent.
+    NotNamedFirst,
+    /// A name row (the name level). Shown.
+    Name,
+    /// A row of a kind that this app does not know. Absent.
+    UnknownKind,
+}
+
+impl IndexArtistClass {
+    /// Whether the Artists list shows a row of this class.
+    #[must_use]
+    pub(crate) const fn is_shown(self) -> bool {
+        matches!(self, Self::Artist | Self::UnverifiedArtist | Self::Name)
+    }
+}
+
+/// Classifies one `MusicIndex` row by the table of packet 016 "The Artists
+/// list in Everything".
+#[must_use]
+pub(crate) fn classify_index_artist(row: &ArtistNameRow) -> IndexArtistClass {
+    match row.kind {
+        ArtistNameKind::Name => IndexArtistClass::Name,
+        ArtistNameKind::Unknown => IndexArtistClass::UnknownKind,
+        ArtistNameKind::Publisher => {
+            let roles = row.agreed_roles.as_deref().unwrap_or_default();
+            if roles.iter().any(|role| role_contains_artist(Some(role))) {
+                IndexArtistClass::Artist
+            } else if !roles.is_empty() {
+                IndexArtistClass::OtherRole
+            } else if row.first_named_count.unwrap_or(0) > 0 {
+                IndexArtistClass::UnverifiedArtist
+            } else {
+                IndexArtistClass::NotNamedFirst
+            }
+        }
+    }
+}
+
+/// The row of one shown `MusicIndex` artist (packet 016 decisions D12 and
+/// D14). No row shows a level word. A feed row shows the image of its feed
+/// (ADR 0084 Decision 12). A name row shows the entity color.
+#[must_use]
+pub(crate) fn index_artist_row(row: &ArtistNameRow) -> DestinationListRowVm {
+    let no_covers = std::iter::empty::<&str>();
+    match row.kind {
+        ArtistNameKind::Name => DestinationListRowVm {
+            element_id: format!(
+                "music-artist-row-index-name:{}",
+                release_row_slug_text(&row.key)
+            ),
+            label: row.name.clone(),
+            secondary_text: format!("{NOT_IN_LIBRARY}{ARTIST_ROW_SEPARATOR}{ARTIST_NAME_ROW_MARK}"),
+            a11y_label: format!("Artist: {}, {ARTIST_NAME_ROW_MARK}", row.name),
+            thumbnail_href: None,
+            art: Some(CollectionArtVm::resolve(
+                None,
+                no_covers,
+                CollectionKind::Artist,
+            )),
+            open: DestinationListRowTarget::IndexName(row.name.clone()),
+            selection: RowSelectionVm::none(),
+        },
+        ArtistNameKind::Publisher | ArtistNameKind::Unknown => {
+            let feed_guid = row.feed_guid.clone().unwrap_or_else(|| row.key.clone());
+            DestinationListRowVm {
+                element_id: format!("music-artist-row-index-publisher:{feed_guid}"),
+                label: row.name.clone(),
+                secondary_text: NOT_IN_LIBRARY.to_owned(),
+                a11y_label: format!("Artist: {}", row.name),
+                thumbnail_href: None,
+                art: Some(CollectionArtVm::resolve(
+                    row.image_url.as_deref(),
+                    no_covers,
+                    CollectionKind::Artist,
+                )),
+                open: DestinationListRowTarget::IndexPublisher(feed_guid),
+                selection: RowSelectionVm::none(),
+            }
+        }
+    }
+}
+
+/// The Artists rows in the scope "Everything" (packet 016 decisions D5 to
+/// D8):
+///
+/// - While page 1 loads, the list shows no item row.
+/// - A `MusicIndex` feed row and a Library feed row with the same feed GUID
+///   give the Library row. A `MusicIndex` name row and a Library name row
+///   with the same sort key give the Library row.
+/// - The rows come in the order of [`ArtistOrderKey`].
+/// - While `MusicIndex` has more pages, a row shows only at or before the
+///   last loaded `MusicIndex` row.
+///
+/// Packet 017 adds the match of ADR 0084 Decision 7 ("Matched by name").
+#[must_use]
+pub(crate) fn everything_rows(
+    library: Vec<LibraryArtistRow>,
+    page: &IndexNameListPage<ArtistNameRow>,
+) -> Vec<DestinationListRowVm> {
+    if page.first_page_in_flight() {
+        return Vec::new();
+    }
+    let library_keys: BTreeSet<(ArtistRowKind, &str)> = library
+        .iter()
+        .map(|entry| (entry.order.kind, entry.order.key.as_str()))
+        .collect();
+    let index_rows: Vec<LibraryArtistRow> = page
+        .rows()
+        .iter()
+        .filter(|row| classify_index_artist(row).is_shown())
+        .map(|row| LibraryArtistRow {
+            order: ArtistOrderKey::index(row),
+            row: index_artist_row(row),
+        })
+        .filter(|entry| !library_keys.contains(&(entry.order.kind, entry.order.key.as_str())))
+        .collect();
+
+    let last_loaded = page.rows().last().map(ArtistOrderKey::index);
+    let mut rows: Vec<LibraryArtistRow> = library
+        .into_iter()
+        .chain(index_rows)
+        .filter(|entry| watermark_shows(&entry.order, last_loaded.as_ref(), page.has_more()))
+        .collect();
+    rows.sort_by(|left, right| left.order.cmp(&right.order));
+    rows.into_iter().map(|entry| entry.row).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::view_models::index_name_list::IndexNameListBatch;
+
+    /// The recorded rows of `GET /v1/artist-names?include=link_facts` on
+    /// 2026-10-20, with the fields that the classification reads.
+    pub(super) fn recorded_rows() -> Vec<ArtistNameRow> {
+        serde_json::from_value(serde_json::json!([
+            {"kind": "name", "name": "$2 Holla", "sort_name": "$2 holla", "key": "$2 holla",
+             "feed_guid": null, "image_url": null, "release_count": 3},
+            {"kind": "publisher", "name": "Motive to Kill", "sort_name": "motive to kill",
+             "key": "motive-guid", "feed_guid": "motive-guid",
+             "image_url": "https://example.test/motive.jpg",
+             "agreed_roles": ["artist"], "first_named_count": 1, "two_way_link_count": 1},
+             {"kind": "publisher", "name": "Sir Libre Records", "sort_name": "sir libre records",
+             "key": "34bf795f-f551-4db1-8877-ad19aa5f89c8",
+             "feed_guid": "34bf795f-f551-4db1-8877-ad19aa5f89c8",
+             "agreed_roles": ["label"], "first_named_count": 0, "two_way_link_count": 3},
+            {"kind": "publisher", "name": "TJ Wong", "sort_name": "tj wong",
+             "key": "a31f362c-d40b-5f56-ae2c-4ef9c548db9d",
+             "feed_guid": "a31f362c-d40b-5f56-ae2c-4ef9c548db9d",
+             "agreed_roles": [], "first_named_count": 0, "two_way_link_count": 0},
+            {"kind": "publisher", "name": "Night Owl", "sort_name": "night owl",
+             "key": "unverified-guid", "feed_guid": "unverified-guid",
+             "agreed_roles": [], "first_named_count": 2}
+        ]))
+        .expect("the recorded rows decode")
+    }
+
+    fn loaded(rows: Vec<ArtistNameRow>, has_more: bool) -> IndexNameListPage<ArtistNameRow> {
+        let mut page = IndexNameListPage::default();
+        let intent = page.begin_load(false).unwrap();
+        page.finish_load(
+            IndexNameListBatch {
+                rows,
+                cursor: has_more.then(|| "next".to_owned()),
+                has_more,
+            },
+            intent.generation,
+        );
+        page
+    }
+
+    fn library_row(label: &str, order: ArtistOrderKey) -> LibraryArtistRow {
+        LibraryArtistRow {
+            order,
+            row: DestinationListRowVm {
+                element_id: format!("library:{label}"),
+                label: label.to_owned(),
+                secondary_text: "1 in Library".to_owned(),
+                a11y_label: format!("Artist: {label}"),
+                thumbnail_href: None,
+                art: None,
+                open: DestinationListRowTarget::Artist(label.to_owned()),
+                selection: RowSelectionVm::none(),
+            },
+        }
+    }
+
+    /// R16-08: each row of the table of decision D11.
+    #[test]
+    fn adr_0084_scopes_r16_08_classification() {
+        let classes: Vec<IndexArtistClass> =
+            recorded_rows().iter().map(classify_index_artist).collect();
+        assert_eq!(
+            classes,
+            [
+                IndexArtistClass::Name,
+                IndexArtistClass::Artist,
+                IndexArtistClass::OtherRole,
+                IndexArtistClass::NotNamedFirst,
+                IndexArtistClass::UnverifiedArtist,
+            ]
+        );
+        let null_count = ArtistNameRow {
+            kind: ArtistNameKind::Publisher,
+            first_named_count: None,
+            ..ArtistNameRow::default()
+        };
+        assert_eq!(
+            classify_index_artist(&null_count),
+            IndexArtistClass::NotNamedFirst
+        );
+
+        let rows = everything_rows(Vec::new(), &loaded(recorded_rows(), false));
+        let labels: Vec<&str> = rows.iter().map(|row| row.label.as_str()).collect();
+        assert_eq!(labels, ["$2 Holla", "Motive to Kill", "Night Owl"]);
+        for row in &rows {
+            for word in ["Artist,", "Unverified", "publisher", "Publisher"] {
+                assert!(
+                    !row.secondary_text.contains(word),
+                    "no level word: {}",
+                    row.secondary_text
+                );
+            }
+            assert!(!row.a11y_label.contains("Unverified"));
+        }
+    }
+
+    /// R16-09: one row for a Library feed row and a `MusicIndex` row of the
+    /// same GUID, and one row for name rows of the same sort key. The
+    /// order follows decision D6, and the watermark follows decision D7.
+    #[test]
+    fn adr_0084_scopes_r16_09_merge_order_and_watermark() {
+        let library = vec![
+            library_row(
+                "Motive to Kill (Library)",
+                ArtistOrderKey::feed("motive to kill".to_owned(), "motive-guid"),
+            ),
+            library_row("$2 HOLLA", ArtistOrderKey::name("$2 holla".to_owned())),
+            library_row("Zed", ArtistOrderKey::name("zed".to_owned())),
+            library_row(
+                "Motive to Kill",
+                ArtistOrderKey::name("motive to kill".to_owned()),
+            ),
+        ];
+
+        let all = everything_rows(library.clone(), &loaded(recorded_rows(), false));
+        let labels: Vec<&str> = all.iter().map(|row| row.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            [
+                "$2 HOLLA",
+                "Motive to Kill",
+                "Motive to Kill (Library)",
+                "Night Owl",
+                "Zed"
+            ],
+            "the Library rows win, and a name row comes before a feed row of the same key"
+        );
+
+        let partial = everything_rows(library, &loaded(recorded_rows()[..2].to_vec(), true));
+        let labels: Vec<&str> = partial.iter().map(|row| row.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            ["$2 HOLLA", "Motive to Kill", "Motive to Kill (Library)"],
+            "a row after the last loaded MusicIndex row waits for its page"
+        );
+    }
+
+    /// R16-10: the text and the target of the `MusicIndex` rows (decisions
+    /// D12 and D14).
+    #[test]
+    fn adr_0084_scopes_r16_10_index_row_text_and_targets() {
+        let rows = recorded_rows();
+        let name = index_artist_row(&rows[0]);
+        assert_eq!(name.secondary_text, "Not in Library \u{b7} by name");
+        assert_eq!(
+            name.open,
+            DestinationListRowTarget::IndexName("$2 Holla".to_owned())
+        );
+        assert_eq!(
+            name.art,
+            Some(CollectionArtVm::EntityColor(CollectionKind::Artist))
+        );
+
+        let feed = index_artist_row(&rows[1]);
+        assert_eq!(feed.secondary_text, "Not in Library");
+        assert_eq!(
+            feed.open,
+            DestinationListRowTarget::IndexPublisher("motive-guid".to_owned())
+        );
+        assert!(matches!(
+            feed.art,
+            Some(CollectionArtVm::ProvidedImage { ref url, .. }) if url == "https://example.test/motive.jpg"
+        ));
+    }
+
+    /// R16-12: while page 1 loads, the list shows no item row. After an
+    /// error on page 1, it shows the Library rows.
+    #[test]
+    fn adr_0084_scopes_r16_12_first_page_states() {
+        let library = vec![library_row("Zed", ArtistOrderKey::name("zed".to_owned()))];
+        let mut page = IndexNameListPage::<ArtistNameRow>::default();
+        let intent = page.begin_load(false).unwrap();
+        assert!(everything_rows(library.clone(), &page).is_empty());
+
+        page.fail_load("connection refused", intent.generation);
+        let rows = everything_rows(library, &page);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].label, "Zed");
+    }
+}

@@ -21,6 +21,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
+use crate::api::ArtistNameRow;
 #[cfg(test)]
 use crate::application::library_removal::LibraryRemovalImpact;
 use crate::application::library_removal::{LibraryRemovalPlan, LibraryRemovalTarget};
@@ -34,6 +35,7 @@ use crate::metadata::MusicBrainzLookupResult;
 use crate::view_models::album_page::AlbumNameLinkVm;
 use crate::view_models::artist_detail::{ArtistDetailFactVm, ArtistDetailPageVm};
 use crate::view_models::artist_identity::ArtistIdentity;
+use crate::view_models::artists_everything::{self, ArtistOrderKey, LibraryArtistRow};
 use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
 use crate::view_models::detail_selection::LibraryReleaseFacts;
 use crate::view_models::download_progress::{DownloadActivity, DownloadPhase, FeedKey};
@@ -42,6 +44,9 @@ use crate::view_models::entity_detail::{
     TrackMembershipState,
 };
 use crate::view_models::format::{fmt_date, fmt_total_runtime_clock, plural};
+use crate::view_models::index_name_list::{
+    name_sort_key, IndexListStatusRowVm, IndexNameList, IndexNameListPage, MusicListScope,
+};
 pub(crate) use crate::view_models::library_removal::RemovalConfirmation;
 use crate::view_models::library_removal::{
     LibraryRemovalConfirmationDisplay, LibraryRemovalConfirmationState,
@@ -1814,6 +1819,14 @@ pub(crate) enum DestinationListRowTarget {
     /// The feed level, by feed GUID (ADR 0085 Decisions 2, 6 and 7). The
     /// row opens the feed page; it names no "publisher" word.
     Publisher(String),
+    /// A `MusicIndex` feed that the Library does not hold, by feed GUID
+    /// (ADR 0084 packet 016 decision D14). The row opens the feed page
+    /// with the `MusicIndex` context.
+    IndexPublisher(String),
+    /// A `MusicIndex` name row, by its name text (packet 016 decision D14).
+    /// The row opens the `MusicIndex` name match page until packet 017
+    /// replaces it.
+    IndexName(String),
 }
 
 /// One row of the Releases or Artists destination list (ADR 0084 Decision
@@ -1992,9 +2005,9 @@ pub(crate) fn destination_release_row(
 /// text (operator decision of 2026-10-18). It tells a name row from a feed
 /// row with the same label. It names the source of the group, not a
 /// confirmation level (ADR 0085 Decision 2).
-const ARTIST_NAME_ROW_MARK: &str = "by name";
+pub(crate) const ARTIST_NAME_ROW_MARK: &str = "by name";
 /// The separator between the parts of an Artists list row text.
-const ARTIST_ROW_SEPARATOR: &str = " \u{b7} ";
+pub(crate) const ARTIST_ROW_SEPARATOR: &str = " \u{b7} ";
 
 /// The art of an Artists row in the logo frame (ADR 0084 Decision 12): the
 /// newest four images of its member albums. The date of an album is the
@@ -2019,24 +2032,37 @@ fn artist_row_art(
     )
 }
 
+/// The row of one Library artist identity, with its order position (ADR
+/// 0084 packet 016 decision D6). In the scope "Everything", the count text
+/// is "n in Library" (decision D12). In the scope "Library", it stays "n
+/// release(s)".
 fn artist_list_row(
     identity: ArtistIdentity,
     members: &[(&ArtistNode, &AlbumNode)],
     feed_images: &FeedImages<'_>,
-) -> DestinationListRowVm {
-    let secondary_text = format!("{} release{}", members.len(), plural(members.len()));
+    scope: MusicListScope,
+) -> LibraryArtistRow {
+    let secondary_text = match scope {
+        MusicListScope::Library => format!("{} release{}", members.len(), plural(members.len())),
+        MusicListScope::Everything => format!("{} in Library", members.len()),
+    };
     match identity {
-        ArtistIdentity::Name(name) => DestinationListRowVm {
-            element_id: format!("music-artist-row-name:{}", release_row_slug_text(&name)),
-            label: name.clone(),
-            secondary_text: format!("{secondary_text}{ARTIST_ROW_SEPARATOR}{ARTIST_NAME_ROW_MARK}"),
-            a11y_label: format!("Artist: {name}, {ARTIST_NAME_ROW_MARK}"),
-            thumbnail_href: None,
-            art: Some(artist_row_art(None, members)),
-            open: DestinationListRowTarget::Artist(name),
-            // ADR 0084 Decision 10 Exclusions: the Artists list has no
-            // selection model, so its row never shows a checkbox.
-            selection: RowSelectionVm::none(),
+        ArtistIdentity::Name(name) => LibraryArtistRow {
+            order: ArtistOrderKey::name(name_sort_key(&name)),
+            row: DestinationListRowVm {
+                element_id: format!("music-artist-row-name:{}", release_row_slug_text(&name)),
+                label: name.clone(),
+                secondary_text: format!(
+                    "{secondary_text}{ARTIST_ROW_SEPARATOR}{ARTIST_NAME_ROW_MARK}"
+                ),
+                a11y_label: format!("Artist: {name}, {ARTIST_NAME_ROW_MARK}"),
+                thumbnail_href: None,
+                art: Some(artist_row_art(None, members)),
+                open: DestinationListRowTarget::Artist(name),
+                // ADR 0084 Decision 10 Exclusions: the Artists list has no
+                // selection model, so its row never shows a checkbox.
+                selection: RowSelectionVm::none(),
+            },
         },
         ArtistIdentity::Publisher(feed_guid) => {
             let title = members
@@ -2049,15 +2075,18 @@ fn artist_list_row(
                 })
                 .unwrap_or_else(|| feed_guid.clone());
             let art = Some(artist_row_art(feed_images.get(&feed_guid), members));
-            DestinationListRowVm {
-                element_id: format!("music-artist-row-publisher:{feed_guid}"),
-                label: title.clone(),
-                secondary_text,
-                a11y_label: format!("Artist: {title}"),
-                thumbnail_href: None,
-                art,
-                open: DestinationListRowTarget::Publisher(feed_guid),
-                selection: RowSelectionVm::none(),
+            LibraryArtistRow {
+                order: ArtistOrderKey::feed(name_sort_key(&title), &feed_guid),
+                row: DestinationListRowVm {
+                    element_id: format!("music-artist-row-publisher:{feed_guid}"),
+                    label: title.clone(),
+                    secondary_text,
+                    a11y_label: format!("Artist: {title}"),
+                    thumbnail_href: None,
+                    art,
+                    open: DestinationListRowTarget::Publisher(feed_guid),
+                    selection: RowSelectionVm::none(),
+                },
             }
         }
     }
@@ -3080,20 +3109,22 @@ impl LibraryViewModel {
     ) -> Vec<ReleasesListEntryVm> {
         let tree = &self.snapshot.tree;
         let groups = singles_groups(tree);
-        let mut entries: Vec<ReleasesListEntryVm> =
-            tree.artists
-                .iter()
-                .flat_map(|artist| artist.albums.iter().map(move |album| (artist, album)))
-                .filter_map(|(artist, album)| destination_release_row(artist, album))
-                .filter(|row| match &row.open {
-                    DestinationListRowTarget::Release(key) => {
-                        !groups.iter().any(|group| group.contains(key))
-                    }
-                    DestinationListRowTarget::Artist(_)
-                    | DestinationListRowTarget::Publisher(_) => true,
-                })
-                .map(ReleasesListEntryVm::Release)
-                .collect();
+        let mut entries: Vec<ReleasesListEntryVm> = tree
+            .artists
+            .iter()
+            .flat_map(|artist| artist.albums.iter().map(move |album| (artist, album)))
+            .filter_map(|(artist, album)| destination_release_row(artist, album))
+            .filter(|row| match &row.open {
+                DestinationListRowTarget::Release(key) => {
+                    !groups.iter().any(|group| group.contains(key))
+                }
+                DestinationListRowTarget::Artist(_)
+                | DestinationListRowTarget::Publisher(_)
+                | DestinationListRowTarget::IndexPublisher(_)
+                | DestinationListRowTarget::IndexName(_) => true,
+            })
+            .map(ReleasesListEntryVm::Release)
+            .collect();
         entries.extend(groups.iter().map(|group| {
             ReleasesListEntryVm::SinglesGroup(SinglesGroupRowVm::new(
                 group,
@@ -3519,8 +3550,17 @@ impl LibraryViewModel {
     /// label, never resolves to it, so it gets no row. An album whose
     /// artist feed has no row falls to the name row of its artist text,
     /// the same resolve. No row shows a level word.
+    ///
+    /// The rows come in the order of the Stophammer sort key, in each
+    /// scope (ADR 0084 packet 016 decision D6). In the scope
+    /// "Everything", `page` adds the `MusicIndex` rows
+    /// ([`artists_everything::everything_rows`]).
     #[must_use]
-    pub(crate) fn artists_list(&self) -> Vec<DestinationListRowVm> {
+    pub(crate) fn artists_list(
+        &self,
+        scope: MusicListScope,
+        page: &IndexNameListPage<ArtistNameRow>,
+    ) -> Vec<DestinationListRowVm> {
         let mut by_identity: BTreeMap<ArtistIdentity, Vec<(&ArtistNode, &AlbumNode)>> =
             BTreeMap::new();
         for artist in &self.snapshot.tree.artists {
@@ -3533,12 +3573,30 @@ impl LibraryViewModel {
         }
 
         let feed_images = self.snapshot.tree.feed_images();
-        let mut rows: Vec<DestinationListRowVm> = by_identity
+        let mut rows: Vec<LibraryArtistRow> = by_identity
             .into_iter()
-            .map(|(identity, members)| artist_list_row(identity, &members, &feed_images))
+            .map(|(identity, members)| artist_list_row(identity, &members, &feed_images, scope))
             .collect();
-        rows.sort_by_key(|row| row.label.to_lowercase());
-        rows
+        match scope {
+            MusicListScope::Library => {
+                rows.sort_by(|left, right| left.order.cmp(&right.order));
+                rows.into_iter().map(|entry| entry.row).collect()
+            }
+            MusicListScope::Everything => artists_everything::everything_rows(rows, page),
+        }
+    }
+
+    /// The status row at the end of the Artists list (ADR 0084 packet 016
+    /// decision D8). The scope "Library" has none.
+    #[must_use]
+    pub(crate) fn artists_list_status(
+        scope: MusicListScope,
+        page: &IndexNameListPage<ArtistNameRow>,
+    ) -> Option<IndexListStatusRowVm> {
+        match scope {
+            MusicListScope::Library => None,
+            MusicListScope::Everything => page.status_row(IndexNameList::Artists),
+        }
     }
 
     /// Rows of the six sidebar destinations, in sidebar order (ADR 0084
@@ -4427,7 +4485,7 @@ fn release_row_slug(key: &ReleaseKey) -> String {
 }
 
 /// A stable element-id fragment from free text (ADR 0084 Decision 2).
-fn release_row_slug_text(value: &str) -> String {
+pub(crate) fn release_row_slug_text(value: &str) -> String {
     value
         .chars()
         .map(|ch| {
@@ -8647,7 +8705,7 @@ mod tests {
         let mut vm = LibraryViewModel::new();
         vm.replace_tree(library_tree());
 
-        let rows = vm.artists_list();
+        let rows = vm.artists_list(MusicListScope::Library, &IndexNameListPage::default());
 
         assert_eq!(
             rows.iter()
@@ -8677,7 +8735,7 @@ mod tests {
         let mut vm = LibraryViewModel::new();
         vm.replace_tree(tree);
 
-        let rows = vm.artists_list();
+        let rows = vm.artists_list(MusicListScope::Library, &IndexNameListPage::default());
 
         assert_eq!(
             rows[0].art,
@@ -8694,7 +8752,7 @@ mod tests {
         let mut one_cover = LibraryViewModel::new();
         one_cover.replace_tree(library_tree());
         assert_eq!(
-            one_cover.artists_list()[0].art,
+            one_cover.artists_list(MusicListScope::Library, &IndexNameListPage::default())[0].art,
             Some(CollectionArtVm::SingleCover("saw.jpg".into()))
         );
     }
@@ -8752,7 +8810,7 @@ mod tests {
             ],
         };
         let row_art = |vm: &LibraryViewModel, label: &str| {
-            vm.artists_list()
+            vm.artists_list(MusicListScope::Library, &IndexNameListPage::default())
                 .into_iter()
                 .find(|row| row.label == label)
                 .and_then(|row| row.art)
@@ -8917,7 +8975,7 @@ mod tests {
             ],
         });
 
-        let rows = vm.artists_list();
+        let rows = vm.artists_list(MusicListScope::Library, &IndexNameListPage::default());
         let labels: Vec<&str> = rows.iter().map(|row| row.label.as_str()).collect();
 
         assert!(labels.contains(&"Echo Chamber"), "{labels:?}");
@@ -8975,6 +9033,92 @@ mod tests {
                 "no row text names a level: {row:?}"
             );
         }
+    }
+
+    /// R16-10 (ADR 0084 packet 016): in "Everything", a Library row gives
+    /// "n in Library" and keeps its label and its target, and a `MusicIndex`
+    /// row of the same feed GUID or the same name key gives no second row.
+    /// In "Library", the row text stays "n release(s)".
+    #[test]
+    fn adr_0084_scopes_r16_10_artists_rows_in_each_scope() {
+        use crate::view_models::index_name_list::IndexNameListBatch;
+
+        let artist_feed_album = with_named_feed(
+            minimal_album("Artist Release", 1),
+            "artist-guid",
+            "Echo Chamber",
+            Some("artist"),
+            Some("both"),
+        );
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(LibraryTree {
+            artists: vec![
+                ArtistNode {
+                    name: "Echo Chamber Act".to_owned(),
+                    albums: vec![artist_feed_album],
+                },
+                ArtistNode {
+                    name: "Name Act".to_owned(),
+                    albums: vec![minimal_album("Name Release", 2)],
+                },
+            ],
+        });
+
+        let library = vm.artists_list(MusicListScope::Library, &IndexNameListPage::default());
+        let texts: Vec<(&str, &str)> = library
+            .iter()
+            .map(|row| (row.label.as_str(), row.secondary_text.as_str()))
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                ("Echo Chamber", "1 release"),
+                ("Name Act", "1 release \u{b7} by name")
+            ]
+        );
+
+        let rows: Vec<ArtistNameRow> = serde_json::from_value(serde_json::json!([
+            {"kind": "publisher", "name": "Echo Chamber (MusicIndex)",
+             "sort_name": "echo chamber", "key": "artist-guid", "feed_guid": "artist-guid",
+             "agreed_roles": ["artist"], "first_named_count": 1},
+            {"kind": "name", "name": "NAME ACT", "sort_name": "name act", "key": "name act",
+             "release_count": 4},
+            {"kind": "publisher", "name": "Other Feed", "sort_name": "other feed",
+             "key": "other-guid", "feed_guid": "other-guid",
+             "agreed_roles": ["artist"], "first_named_count": 1}
+        ]))
+        .unwrap();
+        let mut page = IndexNameListPage::default();
+        let intent = page.begin_load(false).unwrap();
+        page.finish_load(
+            IndexNameListBatch {
+                rows,
+                cursor: None,
+                has_more: false,
+            },
+            intent.generation,
+        );
+
+        let everything = vm.artists_list(MusicListScope::Everything, &page);
+        let texts: Vec<(&str, &str)> = everything
+            .iter()
+            .map(|row| (row.label.as_str(), row.secondary_text.as_str()))
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                ("Echo Chamber", "1 in Library"),
+                ("Name Act", "1 in Library \u{b7} by name"),
+                ("Other Feed", "Not in Library"),
+            ]
+        );
+        assert_eq!(everything[0].open, library[0].open);
+        assert_eq!(everything[1].open, library[1].open);
+        assert_eq!(everything[0].element_id, library[0].element_id);
+        assert_eq!(
+            everything[2].open,
+            DestinationListRowTarget::IndexPublisher("other-guid".to_owned())
+        );
     }
 
     /// R6-01 (ADR 0084 Decision 3): the Discover views view model gives

@@ -18,6 +18,7 @@ use rusqlite::Connection;
 use gpui::{Entity, FocusHandle, Image, ScrollHandle};
 use gpui_component::input::InputState;
 
+use crate::api::ArtistNameRow;
 use crate::application::paged_track_list::{PagedTrackListMsg, PagedTrackListSnapshot};
 use crate::application::{ApplicationServices, AsyncCommandRunner};
 use crate::db::{self, TrackRow};
@@ -31,6 +32,7 @@ use crate::runtime::actor::ActorHandle;
 use crate::runtime::musicbrainz_feed_saga::MusicBrainzFeedSagaHandle;
 use crate::ui::composites::music_column_scroll::ScrollReveal;
 use crate::view_models::detail_selection::DetailSelection;
+use crate::view_models::index_name_list::{IndexNameListPage, MusicListScope};
 use crate::view_models::library::{
     description_line_count, AlbumNode, InspectorPanelKind, LibraryTrackInspectorDisplay,
     LibraryTrackInspectorState, LibraryViewModel, ReleasesRowId,
@@ -99,6 +101,12 @@ pub(crate) enum LibraryAppEvent {
     /// packet 004). `publisher_feed_guid` is the value that the album's
     /// stored owned relationship names, never name text.
     OpenPublisherPage {
+        publisher_feed_guid: String,
+    },
+    /// Opens the feed page of a MusicIndex feed row of the Artists list,
+    /// with the MusicIndex context, directly under its destination (ADR
+    /// 0084 packet 016 decision D14).
+    OpenIndexPublisherPage {
         publisher_feed_guid: String,
     },
     /// Opens the Library album page of a feed id, from the album name link
@@ -261,6 +269,15 @@ pub struct LibraryApp {
     recent_music_page: RecentFeedsPageVm,
     /// Scroll state for default Music recency pagination.
     recent_music_scroll: ScrollHandle,
+    /// The scope of the Releases list and of the Artists list (ADR 0084
+    /// packet 016 decision D3). Each app start uses "Library". The config
+    /// file does not store it.
+    releases_scope: MusicListScope,
+    artists_scope: MusicListScope,
+    /// The loaded MusicIndex artist name pages of the Artists scope
+    /// "Everything" (packet 016 decision D9). They stay until the app
+    /// stops.
+    artist_name_page: IndexNameListPage<ArtistNameRow>,
     /// The singles groups whose Releases list rows show their singles
     /// (ADR 0084 Decision 6). This is view state. It is not stored.
     expanded_singles_groups: BTreeSet<SinglesGroupKey>,
@@ -331,6 +348,7 @@ mod column_view;
 mod detail_selection;
 mod download_queue;
 mod downloads;
+mod music_scopes;
 mod release_page;
 mod track_page;
 

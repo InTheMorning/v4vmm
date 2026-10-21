@@ -348,6 +348,14 @@ Large. Part A changes about 15 files, with about 1,100 lines with tests. Part B 
 - D18: the orchestrator drafts the bundled Stophammer request 9. The operator reviews it before Stophammer reads it.
 - D14: packet 017 replaces the name match page. If packet 017 comes first, an Index name row opens the name level page.
 
+## Orchestrator Review Of Part A - 2026-10-21
+
+Pass. The code needs no fix.
+
+- The release list request moves to Part B, because Part A has no caller for it and the guards forbid a `dead_code` attribute.
+- The Releases list shows the scope control before Part B makes "Everything" act. AGENTS.md says that a control that cannot act is absent. Part B starts at once after this commit, so the orchestrator accepts the short gap. No operator walk runs on this commit alone.
+- The orchestrator added the new files to the source map.
+
 ## Prompt for lower-context coding model
 
 You are implementing one bounded part of a larger plan.
@@ -401,3 +409,103 @@ Stop and report the problem, and do not guess, when:
 - A MusicIndex row needs a detail request to show its text.
 - The frame filter row cannot hold the scope control without a change to another destination.
 - A change needs a file in "Do not touch".
+
+## Implementation Result - 2026-10-21 (Part A)
+
+Part A is complete, with two deviations. The section "Deviations" gives them.
+
+### The stored contract
+
+- The implementer sent one read-only GET request to `https://api.musicindex.org/openapi.json` on 2026-10-21 at 04:05 UTC.
+- The response gave `info.version` `0.12.0` and 100,712 bytes. Its difference from the 0.11.0 contract is the difference of the Live API facts.
+- `tests/fixtures/musicindex-openapi-0.12.0.json` holds those bytes. The 0.11.0 file is deleted.
+- `MUSICINDEX_CONTRACT_FIXTURE`, the guard comment, the failure text and the AGENTS.md "Stored facts" line name the 0.12.0 file.
+- The test `adr_0085_feed_page_contract_fixture_is_0_11_0` is replaced by `adr_0084_scopes_r16_03_contract_fixture_is_0_12_0`.
+
+### Files changed
+
+- `src/api.rs`: `FeedNamesResponse`, `ArtistNamesResponse`, `ArtistNameKind`, `ArtistNameRow` and `NamedFeedEntry`. `Feed` adds `sort_name`, `publisher_feed_guid` and `named_feeds`. `Client::fetch_artist_names` and `name_list_params`.
+- `src/application/request_profiles.rs`: `RequestPathShape::ArtistNameList` and `INDEX_ARTIST_NAME_LIST`. The registry test counts nine profiles.
+- `src/application/queries/name_lists.rs` (new): `NAME_LIST_PAGE_LIMIT` (100) and `FetchArtistNamePage`.
+- `src/view_models/index_name_list.rs` (new): `MusicListScope`, `MusicScopeControlDisplay`, `name_sort_key`, `watermark_shows`, `IndexNameListPage`, `IndexNameListBatch` and `IndexListStatusRowVm`.
+- `src/view_models/artists_everything.rs` (new): the classification of decision D11, the MusicIndex rows of decisions D12 and D14, and the merge of decisions D5 to D8.
+- `src/view_models/library.rs`: `artists_list(scope, page)` and `artists_list_status`. The Library rows use `name_sort_key` in both scopes. `DestinationListRowTarget` adds `IndexPublisher` and `IndexName`.
+- `src/library.rs`, `src/library/app_impl.rs` and `src/library/music_scopes.rs` (new): the two scopes, the artist page, the request through `present_command`, "Load more" and "Try again". The event `OpenIndexPublisherPage` opens a MusicIndex feed row.
+- `src/app.rs` and `src/app/publisher_dispatch.rs`: the scope control slot, and the feed page with `PublisherPageContext::Index`.
+- `src/view_models/workspace/chrome.rs`, `src/ui/shells/workspace.rs` and `src/ui/composites/frame_shell.rs`: the scope control at the leading edge of the frame filter row.
+- `src/ui/shells/library/destination_lists.rs`: the status row of the Artists list. The file has 458 code lines.
+- `src/ui/shells/library/views_list.rs` (new): the Discover views list, moved out of `destination_lists.rs` for the ADR 0038 ceiling.
+- `src/ui/shells/library/index_list_status.rs` (new): the loading row, the error row and "Load more".
+- `tests/architecture_tests.rs`: the contract guard of R16-03.
+- `src/view_models/singles_group.rs`: one test calls `artists_list` with the scope "Library".
+
+### Tests
+
+| Case | Proof |
+|---|---|
+| R16-01 | `api::adr_0084_scopes_tests::adr_0084_scopes_r16_01_artist_name_rows_decode` |
+| R16-02 | `api::adr_0084_scopes_tests::adr_0084_scopes_r16_02_feed_name_rows_decode` |
+| R16-03 | `adr_0084_scopes_r16_03_contract_fixture_is_0_12_0` and `adr_0075_task_051_contract_field_guard_passes_on_present_code` |
+| R16-04 | `adr_0084_scopes_r16_04_name_list_profiles` and `adr_0075_request_profile_registry_names_nine_profiles`, for the artist profile only |
+| R16-05 | `adr_0084_scopes_r16_05_artist_page_sends_one_request`, for the artist command only |
+| R16-06 | `adr_0084_scopes_r16_06_name_sort_key` |
+| R16-07 | `adr_0084_scopes_r16_07_append_keeps_rows` and `adr_0084_scopes_r16_07_old_generation_changes_nothing` |
+| R16-08 | `adr_0084_scopes_r16_08_classification` |
+| R16-09 | `adr_0084_scopes_r16_09_merge_order_and_watermark` and `adr_0084_scopes_r16_09_watermark` |
+| R16-10 | `adr_0084_scopes_r16_10_index_row_text_and_targets` and `adr_0084_scopes_r16_10_artists_rows_in_each_scope`. The present Artists tests pass in the scope "Library" |
+| R16-11 | `adr_0084_scopes_r16_11_scope_control`. The guard `adr_0084_discover_r6_06_three_state_filter_control_is_deleted` passes |
+| R16-12 | `adr_0084_scopes_r16_12_status_rows` and `adr_0084_scopes_r16_12_first_page_states` |
+| R16-21 | Not in Part A. Packet 017 adds it, because packet 016 came first |
+
+The "0$" row of R16-01 is a constructed row with each contract field. The packet does not record its values.
+
+### Deviations
+
+1. **The release name list request moves to Part B.**
+   - Part A has no caller of `FetchReleaseNamePage`, `Client::fetch_feeds_by_name`, `RequestPathShape::FeedNameList` or `INDEX_RELEASE_NAME_LIST`.
+   - The guard `adr_0060_discover_surface_stays_deleted` forbids each `dead_code` lint attribute. AGENTS.md "Delete dead code" forbids parked code.
+   - Part B adds the four items with step 11. Then the registry test counts ten profiles, and R16-04 and R16-05 get their release cases.
+   - Part A keeps the decode of the release rows: `FeedNamesResponse`, `NamedFeedEntry` and the three `Feed` fields.
+2. **The Releases scope control has no effect in Part A.** The control shows for Releases, and it keeps its value. The Releases list shows the Library rows in each scope until Part B.
+
+### Notes
+
+- A MusicIndex name row opens `FrameNavigationEntry::IndexNameMatches(name)` with the `name` text of the row.
+- The loading row and the error row of page 1 show before the item rows. "Load more" and the error row of a later page show after them.
+- A scope change on Artists starts page 1 only when no request was sent. After an error, "Try again" is the only new request.
+- `docs/architecture/source-map.md` does not name the five new files. This packet may not change that file.
+
+## Operator Visual Check
+
+Part A owns V1 to V3, V7 and V8 for the Artists list. The gate stays open until a person does these steps.
+
+The check needs a desktop session, network access to `https://api.musicindex.org` and a Library with at least one artist.
+
+1. Build the binary: `cargo build --bin v4vmm`.
+2. Start the app: `target/debug/v4vmm`. Open Music.
+3. V1: click each sidebar destination.
+   - Releases and Artists show "Library" and "Everything" under the list header. "Library" is selected. "Select" stays in the header of Releases.
+   - Discover, Tracks, Needs attention and Playlists show no scope control.
+   - Wrong: a scope control on another destination, or a control that covers the header.
+4. V1 for Releases: click "Everything" on Releases. The list does not change in Part A. Click "Library" again.
+5. V2: open Artists and click "Everything".
+   - One row "Loading MusicIndex artists" shows, and no item row. Then the rows show in name order.
+   - Each Library artist shows "n in Library". A Library name row shows "n in Library · by name".
+   - A MusicIndex artist shows "Not in Library". A MusicIndex name row shows "Not in Library · by name".
+   - Sir Libre Records is absent. No row shows "Artist", "Unverified" or "publisher".
+   - Wrong: one artist on two rows, or a Library row that shows "Not in Library".
+6. V2: scroll to the end of the list and click "Load more". The new rows come after the last row. No row that showed before moves.
+7. V3: click a MusicIndex feed row. Its feed page opens in the detail column. Click a MusicIndex name row. The MusicIndex name match page opens.
+8. V2 note: the "Haleen · by name" row goes in packet 017. Do not record it as a failure of this packet.
+9. V8: do steps 3 and 5 again in the Light theme and in the Dark theme. Make the window narrow until the list column is at its minimum width. The control and the row text must not be clipped.
+10. V7: close the app. Turn the network off: `nmcli networking off`.
+11. V7: start the app with `target/debug/v4vmm`. Open Artists and click "Everything".
+    - The error row shows first: "MusicIndex did not answer the artist list request. The list shows Library artists only." Its detail names `GET /v1/artist-names`.
+    - The Library rows show under it. The row has "Try again".
+12. V7: turn the network on with `nmcli networking on`. Click "Try again". The MusicIndex rows show.
+
+Cleanup:
+
+1. Close the app.
+2. Make sure that the network is on: `nmcli networking on`.
+3. The app stores no scope in the config file, so no other cleanup is necessary.

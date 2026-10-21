@@ -1,0 +1,106 @@
+//! The scope "Library" or "Everything" of the Releases list and the
+//! Artists list (ADR 0084 Decision 8, packet 016).
+//!
+//! `LibraryApp` keeps the scope of each list in memory (decision D3). The
+//! Artists scope "Everything" loads the `MusicIndex` artist name pages
+//! through `present_command` on the ADR 0040 command runner. A result of an
+//! older request generation changes nothing (decision D10).
+
+#![warn(clippy::pedantic)]
+
+use gpui::Context;
+
+use super::app_impl::command_error_detail;
+use super::LibraryApp;
+use crate::application::queries::name_lists::FetchArtistNamePage;
+use crate::application::CommandContext;
+use crate::presentation::present_command;
+use crate::view_models::index_name_list::{
+    IndexNameListLoadIntent, MusicListScope, MusicScopeControlDisplay,
+};
+use crate::view_models::workspace::MusicDestination;
+
+impl LibraryApp {
+    /// The scope control of the active destination. Only Releases and
+    /// Artists have one (packet 016 decision D1).
+    pub(crate) fn music_scope_control(&self) -> Option<MusicScopeControlDisplay> {
+        let destination = self.vm.active_destination();
+        let selected = match destination {
+            MusicDestination::Releases => self.releases_scope,
+            MusicDestination::Artists => self.artists_scope,
+            MusicDestination::Discover
+            | MusicDestination::Tracks
+            | MusicDestination::NeedsAttention
+            | MusicDestination::Playlists => return None,
+        };
+        MusicScopeControlDisplay::for_destination(destination, selected)
+    }
+
+    /// Sets the scope of the active destination. The Artists scope
+    /// "Everything" loads page 1 of the artist names when no request was
+    /// sent. Part B of packet 016 gives the Releases scope its `MusicIndex`
+    /// rows.
+    pub(crate) fn set_music_list_scope(&mut self, scope: MusicListScope, cx: &mut Context<Self>) {
+        match self.vm.active_destination() {
+            MusicDestination::Releases => self.releases_scope = scope,
+            MusicDestination::Artists => {
+                self.artists_scope = scope;
+                if scope == MusicListScope::Everything && self.artist_name_page.is_not_started() {
+                    let intent = self.artist_name_page.begin_load(false);
+                    self.send_artist_name_request(intent, cx);
+                }
+            }
+            MusicDestination::Discover
+            | MusicDestination::Tracks
+            | MusicDestination::NeedsAttention
+            | MusicDestination::Playlists => return,
+        }
+        cx.notify();
+    }
+
+    /// "Load more" at the end of the Artists list (packet 016 decision D7).
+    pub(crate) fn load_more_artist_names(&mut self, cx: &mut Context<Self>) {
+        let intent = self.artist_name_page.begin_load(true);
+        self.send_artist_name_request(intent, cx);
+    }
+
+    /// "Try again" on the error row of the Artists list (packet 016
+    /// decision D8).
+    pub(crate) fn retry_artist_names(&mut self, cx: &mut Context<Self>) {
+        let intent = self.artist_name_page.begin_retry();
+        self.send_artist_name_request(intent, cx);
+    }
+
+    /// Sends the request of `intent`, when there is one. The result
+    /// changes the page only when its generation is current.
+    fn send_artist_name_request(
+        &mut self,
+        intent: Option<IndexNameListLoadIntent>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(IndexNameListLoadIntent { cursor, generation }) = intent else {
+            return;
+        };
+        let command = FetchArtistNamePage::new(self.musicindex_endpoint.clone(), cursor);
+        cx.notify();
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, batch, cx| {
+                if this.artist_name_page.finish_load(batch, generation) {
+                    cx.notify();
+                }
+            },
+            move |this, error, cx| {
+                if this
+                    .artist_name_page
+                    .fail_load(command_error_detail(error), generation)
+                {
+                    cx.notify();
+                }
+            },
+        );
+    }
+}

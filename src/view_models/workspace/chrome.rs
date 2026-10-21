@@ -9,6 +9,7 @@ use super::{
     frame::{WorkspaceFrameId, WorkspaceFrameState},
     nav::FrameNavigationState,
 };
+use crate::view_models::index_name_list::MusicScopeControlDisplay;
 
 /// Content source filter for a frame-local content surface.
 ///
@@ -341,6 +342,10 @@ pub(crate) struct FrameShellDisplay {
     pub(crate) filter_chip_strip: Option<FilterChipStripDisplay>,
     /// Optional frame-local content view-mode control.
     pub(crate) view_mode_control: Option<ContentViewModeControlDisplay>,
+    /// Optional scope control of the Music Releases or Artists list (ADR
+    /// 0084 Decision 8, packet 016 decision D1). It sits at the leading
+    /// edge of the filter row.
+    pub(crate) scope_control: Option<MusicScopeControlDisplay>,
     /// Optional frame-local breadcrumb path.
     pub(crate) breadcrumb: Option<BreadcrumbDisplay>,
     /// When the chrome shows Back and Forward.
@@ -388,6 +393,7 @@ impl FrameShellDisplay {
             header_action: None,
             filter_chip_strip: None,
             view_mode_control: None,
+            scope_control: None,
             breadcrumb: None,
             history_controls: FrameHistoryControls::WhenAvailable,
             content_slot_id: format!("workspace-frame-{}-content", frame_id.value()),
@@ -413,6 +419,14 @@ impl FrameShellDisplay {
     #[must_use]
     pub(crate) fn with_view_mode_control(mut self, display: ContentViewModeControlDisplay) -> Self {
         self.view_mode_control = Some(display);
+        self
+    }
+
+    /// Returns this shell display with the scope control of a Music list
+    /// attached (ADR 0084 packet 016).
+    #[must_use]
+    pub(crate) const fn with_scope_control(mut self, display: MusicScopeControlDisplay) -> Self {
+        self.scope_control = Some(display);
         self
     }
 
