@@ -77,7 +77,7 @@ The orchestrator made these decisions on 2026-10-20. The operator can audit each
 - **D4 The list column track rows.** With the spring-loaded sidebar row, a target can now show for a list column row.
   - A Tracks list row of a Library track in `Normal` mode is a drag source. The D1 spring-load replaces the Tracks list with the Playlists list. The drag continues.
   - A Needs attention row has no drag. Its menu has no "Add to playlist" item (task 007 D10), so a drag would give it an action that its row does not have.
-- **D5 One track for each drag.** A drag carries one track. In `Selecting`, no row starts a drag, the same as packet 025. The action bar "Add n to playlist" adds a selection.
+- **D5 One track for each drag.** Replaced on 2026-10-21 by ADR 0084 packet 031 (ADR 0083 Decision 6, amended on 2026-10-21): in selection mode, a drag that starts on a checked track row carries each checked track.
 - **D6 One add path.** A drop calls `add_tracks_to_playlist(vec![track_id], playlist_id, cx)`. A drop and the menu item give the same result, also for a duplicate.
 - **D7 The own playlist.** A playlist entry on the row of its own playlist is not accepted. The row shows the no-drop cursor and no highlight. A drop does nothing.
 - **D8 Drag-over feedback.** An accepting playlist row shows a 2 px outline in `SemanticColor::Accent` while the pointer is on it. The row does not move and its text does not change.
@@ -194,7 +194,7 @@ These are for the operator. No test proves them.
 - V4: drag a playlist entry by its handle onto another playlist row. The track is added there. The source playlist does not change.
 - V5: the same entry on the row of its own playlist shows the no-drop cursor and no outline.
 - V6: a click on a track row with no move still opens the track page.
-- V7: in selection mode, no row starts a drag.
+- V7: replaced on 2026-10-21 by packet 031. In selection mode, a drag from a checked row carries each checked track, and a drag from an unchecked row does nothing. Packet 031 owns the check.
 - V8: an Index release page row starts no drag. Its "Add to playlist" menu item still adds the track.
 - V9: Light and Dark themes. The outline and the preview are clear in both.
 

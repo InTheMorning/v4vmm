@@ -26,6 +26,8 @@ Amended 2026-10-18 by [ADR 0085](0085-artists-by-confirmation.md): in Decision 7
 
 Amended 2026-10-20: the operator decided the download rules of the action bar. Decision 10 now gives one download queue and a progress item. The operator also decided that an image that an artist feed gives replaces the logo mosaic (Decision 12). The name level uses the sort key of a name (Decision 7). A feed page lists the releases that match its name (Decision 7).
 
+Amended 2026-10-21 by operator decision: in Decision 9, Back and Forward show a page at its scroll position of that history entry. A new open shows a page at the top. [Task 030](../tasks/adr-0084-task-030-music-open-defects.md) builds it.
+
 Amended 2026-10-17 by operator decision: Decision 1 adds a visible scrollbar to each Music column that scrolls. [Task 014](../tasks/archive/adr-0084-task-014-music-column-scrollbars.md) builds it.
 
 ## Context
@@ -151,6 +153,7 @@ The breadcrumb shows the location, not the history: the destination, then the pa
 
 - A page shows in the breadcrumb one time at most. A move to a page that is already in the path cuts the path at that page.
 - A sidebar click starts a new path.
+- Back and Forward show a page at the scroll position that it had in that history entry. A new open of a page, by a sidebar click, a row, a link or a search, shows the page at the top. The operator decided this on 2026-10-21.
 
 No screen keeps a second navigation stack or a breadcrumb of its own. This completes [ADR 0046](0046-workspace-frame-architecture.md) Invariant 2 for Music.
 

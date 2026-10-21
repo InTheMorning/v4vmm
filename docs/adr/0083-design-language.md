@@ -8,6 +8,8 @@ Amended 2026-10-08 by [ADR 0084](0084-music-column-browser.md): Decision 9 is su
 
 Amended 2026-10-20: Decision 6 gives the drop target of a dragged track (operator decision).
 
+Amended 2026-10-21: Decision 6 lets a drag in selection mode carry each checked track (operator decision of 2026-10-21).
+
 Amended 2026-10-07: Decision 5 names the main action until a page can play a track.
 
 It amends [ADR 0025](0025-theme-icon-style-boundary.md) (entity roles get their own palette), [ADR 0062](0062-music-content-surface.md) (a tile is a release) and [ADR 0066](0066-configuration-and-startup-failure-recovery.md) (the normal-shell notice opens from the status bar).
@@ -101,6 +103,7 @@ Until a page can play a track ([ADR 0068](0068-show-cue-and-audition-isolation.m
 - A row shows its actions on hover and on keyboard focus.
 - The right-click menu of a row holds the same items as its "⋯" menu.
 - A track can be dragged onto a playlist in the sidebar. Since ADR 0084, the sidebar holds the "Playlists" destination. While a track is held over it, the list column opens Playlists, and the track drops on a playlist row there. The operator decided this on 2026-10-20.
+- In selection mode, a drag that starts on a checked track row carries each checked track, in list order. The drag image shows the count, for example "3 tracks". A drag that starts on a row that is not checked does nothing. The drop adds each track, and the status names the count. The operator decided this on 2026-10-21.
 - Each action is reachable with the mouse. A keyboard shortcut is optional ([ADR 0067](archive/0067-platform-shortcut-modifiers.md) stays).
 
 ### 7. One Status Bar
