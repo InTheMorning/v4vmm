@@ -90,6 +90,8 @@ Each entry names the step, the decision and the reason.
 
 - Operator answers of 2026-10-21 for packets 026 and 029: the app reads the singles of each new artist feed before a page shows (026 D4), a group row takes the place of its first single (D5), the group page is not scoped (D12), and a MusicIndex single shows as a release row on it (D13). A search feed row shows "Artist", a role word or "Feed" (029 D2). The orchestrator decided the minor decisions by their recommendations. Each packet records them.
 
+- Operator answers of 2026-10-21 after the short walk: a release row on an artist page or a name page gets the same actions as a row of the Releases list, with "Select" (packet 031). In selection mode, a drag that starts on a checked track row carries each checked track (packet 031, an amendment of ADR 0083 Decision 6). The operator walked 8 important checks in place of the full walk. The other checks stay open.
+
 - Packet 012 decisions of the implementer, accepted by the orchestrator on 2026-10-21. The "New releases" row shows the Discover icon, so the labels of "New releases" and of each saved search start at the same position (Flag decision 2). An Index result writes the mounted saved-search page when the id and the query agree, so a result that arrives after the operator leaves the page is not lost (decision 9, corrected in the orchestrator review). "Save search" and "Delete…" are on the query row of the search header (decision 5).
 
 ## Steps
@@ -188,6 +190,19 @@ The operator sends screenshots, and the orchestrator records each result here wi
 | 2026-10-21 | 026: group rows in "Everything", for example "Rap Central · 15 singles · Artist feed", with the logo frame | Pass | Shot 26 |
 | 2026-10-21 | After Back to a search, the toolbar field keeps the later query | Open finding | Shot 14: the field reads "survival guide", and the list shows "haleen" |
 | 2026-10-21 | After Back to a search, the Index rows load with no visible feedback | Open finding | Shot 14 shows only the Library rows 1.2 s after Back. No loading row shows while the Library rows show |
+| 2026-10-21 | ADR 0083 task 006 V5: "Add to playlist", then "New Playlist" | Fail | The click does nothing. Packet 030 |
+| 2026-10-21 | Delete a playlist | Fail | The delete shows no confirmation. ADR 0061 durable set: cautious destructive actions. Packet 030 |
+| 2026-10-21 | 022 V1, 027 V1 and V2: 9 downloads, at most 3 in flight, "Stop queued" | Pass | "Downloaded 9 of 9. Finished 18:25" |
+| 2026-10-21 | 006 V7: "Remove…" on a release page track, with confirmation | Pass | Release page |
+| 2026-10-21 | Release rows on an artist page or a name page have no row actions | Fail | Name page "Rap Central · by name": the rows show "In Library" and no "⋯" or right-click actions. Packet 030 |
+| 2026-10-21 | 025 V3 and V5: playlist selection bar, "Remove from Library…" names 1 track | Pass | Playlist "packet 025 test" |
+| 2026-10-21 | The removal dialog says "This track is in 2 playlists" for one track that is two times in one playlist | Fail | The dialog lists only "packet 025 test". The count counts entries, not playlists. Packet 030 |
+| 2026-10-21 | 008 V1a: drag one track to a playlist | Pass | Sidebar "Playlists" row |
+| 2026-10-21 | Drag of a selection of several tracks | Fail, operator request | No drag starts in selection mode (task 008 decision, V7). The operator expects to drag a selection. Packet 030 |
+| 2026-10-21 | 016 V5: mixed selection in "Everything" | Pass | |
+| 2026-10-21 | 026 V7: the Haleen group page from "Library" and "Everything" | Pass | |
+| 2026-10-21 | 023 V4: "Download release" on an Index track page | Pass | |
+| 2026-10-21 | 012 V6: delete a saved search | Pass | |
 
 ## Final Walk
 
