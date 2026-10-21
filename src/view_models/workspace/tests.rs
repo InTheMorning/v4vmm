@@ -1901,3 +1901,37 @@ fn adr_0084_name_level_r17_13_one_breadcrumb_item_for_one_key() {
     assert_eq!(first.display_label(), "Haleen \u{b7} by name");
     assert!(first.opens_detail_page());
 }
+
+/// R12-05 (ADR 0084 Decision 3, packet 012): the `SavedSearch` entry gives
+/// the breadcrumb label "Saved: bluegrass" and the breadcrumb id
+/// `saved-search-<id>`. Its frame title is "Saved search".
+#[test]
+fn adr_0084_saved_search_r12_05_breadcrumb_and_frame_title() {
+    use crate::view_models::search_results::{SavedSearch, SavedSearchId};
+
+    let entry = FrameNavigationEntry::SavedSearch {
+        id: SavedSearchId(7),
+        query: "bluegrass".to_owned(),
+    };
+    assert_eq!(entry.display_label(), "Saved: bluegrass");
+    assert!(entry.opens_detail_page());
+
+    let nav = FrameNavigationState::new_with_page(
+        FrameNavigationEntry::Destination(MusicDestination::Discover),
+        entry.clone(),
+    );
+    let display = BreadcrumbDisplay::project(
+        "music-breadcrumb",
+        &nav,
+        FrameNavigationEntry::display_label,
+    );
+    let labels: Vec<_> = display
+        .segments
+        .iter()
+        .map(|segment| segment.label.as_str())
+        .collect();
+    assert_eq!(labels, vec!["Discover", "Saved: bluegrass"]);
+    assert_eq!(display.segments[1].id, "saved-search-7");
+    assert_eq!(nav.active_saved_search(), Some(SavedSearchId(7)));
+    assert_eq!(SavedSearch::FRAME_TITLE, "Saved search");
+}

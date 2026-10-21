@@ -74,8 +74,9 @@ use crate::view_models::releases_everything::{
     ReleaseStateWord, ReleasesDownloadPlan,
 };
 use crate::view_models::search_results::{
-    FeedResultDisplay, IndexDetailDisplay, SearchLibraryLookup, SearchLibraryRelease,
-    SearchLibraryTrack, SearchResultOrigin, TrackResultDisplay,
+    saved_search_label, saved_search_row_a11y_label, FeedResultDisplay, IndexDetailDisplay,
+    SavedSearch, SavedSearchId, SearchLibraryLookup, SearchLibraryRelease, SearchLibraryTrack,
+    SearchResultOrigin, TrackResultDisplay,
 };
 use crate::view_models::selection_action_bar::{
     SelectionActionBarInput, SelectionActionBarVm, SelectionActionCounts,
@@ -2198,18 +2199,40 @@ fn artist_feed_row(
     }
 }
 
-/// One row of the Discover views list column (ADR 0084 Decision 3). "New
-/// releases" is the only view today.
+/// The page that a row of the Discover views list column opens (ADR 0084
+/// Decision 3).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum DiscoverViewRowTarget {
+    /// A built-in view, for example "New releases".
+    View(DiscoverView),
+    /// A saved search (packet 012).
+    SavedSearch(SavedSearch),
+}
+
+/// The semantic icon of a Discover view row. The renderer maps it to a
+/// named icon.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DiscoverViewIcon {
+    /// "New releases": the icon of the Discover destination.
+    NewReleases,
+    /// A saved search: the search icon (packet 012).
+    SavedSearch,
+}
+
+/// One row of the Discover views list column (ADR 0084 Decision 3): "New
+/// releases" first, then one row for each saved search (packet 012).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DiscoverViewRowVm {
-    /// The view this row opens.
-    pub(crate) view: DiscoverView,
+    /// The page this row opens.
+    pub(crate) target: DiscoverViewRowTarget,
     /// Stable element id.
     pub(crate) element_id: String,
     /// The visible view name.
-    pub(crate) label: &'static str,
+    pub(crate) label: String,
     /// The view's subtitle.
-    pub(crate) subtitle: &'static str,
+    pub(crate) subtitle: String,
+    /// The semantic icon of the row.
+    pub(crate) icon: DiscoverViewIcon,
     /// The accessibility label for the row.
     pub(crate) a11y_label: String,
     /// Whether this view is the open page of the current location.
@@ -4020,25 +4043,41 @@ impl LibraryViewModel {
     }
 
     /// Rows of the Discover views list column, in list order (ADR 0084
-    /// Decision 3). "New releases" is the only view today, so it is
-    /// always the open page of the Discover location.
+    /// Decision 3): "New releases" first, then one row for each saved
+    /// search in `id` order (packet 012). `open_saved_search` is the saved
+    /// search of the current location. When it is `None`, "New releases"
+    /// is the open view.
     #[expect(
         clippy::unused_self,
         reason = "kept as an instance method so a later view's selected state travels with the VM"
     )]
     #[must_use]
-    pub(crate) fn discover_view_rows(&self) -> Vec<DiscoverViewRowVm> {
-        DiscoverView::ALL
-            .into_iter()
-            .map(|view| DiscoverViewRowVm {
-                view,
-                element_id: discover_view_element_id(view),
-                label: view.label(),
-                subtitle: view.subtitle(),
-                a11y_label: format!("{}, {}", view.label(), view.subtitle()),
-                selected: true,
-            })
-            .collect()
+    pub(crate) fn discover_view_rows(
+        &self,
+        saved: &[SavedSearch],
+        open_saved_search: Option<SavedSearchId>,
+    ) -> Vec<DiscoverViewRowVm> {
+        let mut saved_in_order: Vec<&SavedSearch> = saved.iter().collect();
+        saved_in_order.sort_by_key(|search| search.id);
+        let views = DiscoverView::ALL.into_iter().map(|view| DiscoverViewRowVm {
+            target: DiscoverViewRowTarget::View(view),
+            element_id: discover_view_element_id(view),
+            label: view.label().to_owned(),
+            subtitle: view.subtitle().to_owned(),
+            icon: DiscoverViewIcon::NewReleases,
+            a11y_label: format!("{}, {}", view.label(), view.subtitle()),
+            selected: open_saved_search.is_none(),
+        });
+        let searches = saved_in_order.into_iter().map(|search| DiscoverViewRowVm {
+            target: DiscoverViewRowTarget::SavedSearch(search.clone()),
+            element_id: format!("music-discover-saved-search-{}", search.id.0),
+            label: saved_search_label(&search.query),
+            subtitle: SavedSearch::SUBTITLE.to_owned(),
+            icon: DiscoverViewIcon::SavedSearch,
+            a11y_label: saved_search_row_a11y_label(&search.query),
+            selected: open_saved_search == Some(search.id),
+        });
+        views.chain(searches).collect()
     }
 
     /// Display data for the sidebar collapse button (ADR 0084 Decision 1).
@@ -9688,16 +9727,59 @@ mod tests {
     fn adr_0084_discover_r6_01_discover_view_rows_give_new_releases_first() {
         let vm = LibraryViewModel::new();
 
-        let rows = vm.discover_view_rows();
+        let rows = vm.discover_view_rows(&[], None);
 
-        assert_eq!(rows.len(), 1, "Discover has one view today");
-        assert_eq!(rows[0].view, DiscoverView::NewReleases);
+        assert_eq!(rows.len(), 1, "Discover has one built-in view");
+        assert_eq!(
+            rows[0].target,
+            DiscoverViewRowTarget::View(DiscoverView::NewReleases)
+        );
         assert_eq!(rows[0].label, "New releases");
         assert_eq!(rows[0].subtitle, "Newest first, from the Index");
         assert!(
             rows[0].selected,
             "New releases is always the open view of the Discover location"
         );
+    }
+
+    /// R12-04 (ADR 0084 Decision 3, packet 012): the Discover views list
+    /// gives "New releases" first, then "Saved: <query>" for each saved
+    /// search in `id` order, with the subtitle and the accessibility label.
+    #[test]
+    fn adr_0084_saved_search_r12_04_discover_rows_follow_new_releases() {
+        use crate::view_models::search_results::{SavedSearch, SavedSearchId, SearchResultsTab};
+        let saved = |id, query: &str| SavedSearch {
+            id: SavedSearchId(id),
+            query: query.to_owned(),
+            start_tab: SearchResultsTab::Releases,
+        };
+        let vm = LibraryViewModel::new();
+        let list = [saved(9, "jazz"), saved(2, "bluegrass")];
+
+        let rows = vm.discover_view_rows(&list, Some(SavedSearchId(9)));
+
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["New releases", "Saved: bluegrass", "Saved: jazz"]
+        );
+        assert_eq!(rows[1].subtitle, "Library and Index");
+        assert_eq!(
+            rows[1].a11y_label,
+            "Saved search: bluegrass, Library and Index"
+        );
+        assert_eq!(rows[1].icon, DiscoverViewIcon::SavedSearch);
+        assert_eq!(
+            rows[2].target,
+            DiscoverViewRowTarget::SavedSearch(saved(9, "jazz"))
+        );
+        assert_eq!(
+            rows.iter().map(|row| row.selected).collect::<Vec<_>>(),
+            vec![false, false, true],
+            "the saved search of the location is the open row"
+        );
+        assert!(vm.discover_view_rows(&list, None)[0].selected);
     }
 
     #[test]

@@ -2863,6 +2863,7 @@ pub(crate) mod publisher_link_facts;
 pub(crate) mod publisher_relationships;
 pub mod rss_check_runs;
 pub(crate) mod rss_field_holds;
+pub(crate) mod saved_searches;
 pub mod startup;
 pub(crate) mod upgrades;
 
@@ -2872,7 +2873,7 @@ struct Migration {
     apply: fn(&Connection) -> Result<()>,
 }
 
-pub(crate) const CURRENT_VERSION: i64 = 20;
+pub(crate) const CURRENT_VERSION: i64 = 21;
 
 const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -2974,6 +2975,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 20,
         name: "publisher_feed_image",
         apply: publisher_feed_image::apply,
+    },
+    Migration {
+        version: 21,
+        name: "saved_searches",
+        apply: saved_searches::apply,
     },
 ];
 
@@ -3093,8 +3099,9 @@ fn matches_contract(conn: &Connection, version: i64) -> rusqlite::Result<bool> {
 /// migration 17 adds the stored payment route columns (ADR 0076 packet 003),
 /// migration 18 adds the publisher link fact columns of Stophammer
 /// 0.7.0 (ADR 0082 Decision 2), migration 19 adds the RSS position of
-/// each named feed (ADR 0085 Decision 6), and migration 20 adds the channel
-/// image of each named feed (ADR 0084 Decision 12).
+/// each named feed (ADR 0085 Decision 6), migration 20 adds the channel
+/// image of each named feed (ADR 0084 Decision 12), and migration 21 adds
+/// the saved search table (ADR 0084 Decision 3).
 pub(crate) fn schema_contract(
     version: i64,
 ) -> impl Iterator<Item = &'static (&'static str, &'static [&'static str])> {
@@ -3141,6 +3148,11 @@ pub(crate) fn schema_contract(
         })
         .chain(if version >= 16 {
             rss_field_holds::COLUMNS
+        } else {
+            &[]
+        })
+        .chain(if version >= 21 {
+            saved_searches::COLUMNS
         } else {
             &[]
         })
@@ -3459,7 +3471,7 @@ fn migrate_schema_internal(
         }
         let baseline = match migration.version {
             12 if verify => Some(upgrades::legacy_digest(conn)?),
-            13..=20 if verify => Some(upgrades::retained_digest(conn)?),
+            13..=21 if verify => Some(upgrades::retained_digest(conn)?),
             _ => None,
         };
         boundary(migration.version, MigrationBoundary::BeforeApply)?;
@@ -3468,6 +3480,16 @@ fn migrate_schema_internal(
         boundary(migration.version, MigrationBoundary::AfterApply)?;
         record_migration(conn, migration.version, migration.name)?;
         boundary(migration.version, MigrationBoundary::AfterRecord)?;
+        if let (21, Some(before)) = (migration.version, baseline.as_ref()) {
+            upgrades::verify_target(conn, 21)?;
+            anyhow::ensure!(
+                upgrades::retained_digest(conn)? == *before,
+                "Migration changed retained records"
+            );
+            let count: i64 =
+                conn.query_row("SELECT count(*) FROM saved_searches", [], |row| row.get(0))?;
+            anyhow::ensure!(count == 0, "Migration created unexpected saved searches");
+        }
         if let (20, Some(before)) = (migration.version, baseline.as_ref()) {
             upgrades::verify_target(conn, 20)?;
             anyhow::ensure!(
@@ -5037,7 +5059,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
             "ADR 0016: fresh schema should record all registry migrations"
         );
 
@@ -5378,7 +5400,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
             "cleanup migration should be recorded exactly once"
         );
 

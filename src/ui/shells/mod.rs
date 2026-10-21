@@ -30,6 +30,7 @@ pub(crate) mod playlist_removal_confirmation;
 pub mod publisher;
 pub mod queue_now_playing;
 pub(crate) mod release_page;
+pub(crate) mod saved_search_delete_confirmation;
 pub mod search_result_rows;
 pub mod search_results_inspector;
 pub mod show;

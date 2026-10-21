@@ -2,8 +2,9 @@
 
 ## Status
 
-Implementation complete - 2026-10-20. The final walk is open. This record is advisory. It states no rule. Each rule stays in its ADR.
-The operator walks the final walk at the end of the run. Until then, each visual gate of the run is open.
+Implementation complete - 2026-10-21. Packet 026 waits for Stophammer request 9. The final walk is open.
+
+This record is advisory. It states no rule. Each rule stays in its ADR. The operator walks the final walk at the end of the run. Until then, each visual gate of the run is open.
 
 ## Operator Decisions - 2026-10-20
 
@@ -82,6 +83,8 @@ Each entry names the step, the decision and the reason.
 
 - ADR 0083 task 006 review: the icon columns are 44 px, the hit area of a `Button`, not 28 px. A 28 px column cut the hover fill of each icon button.
 
+- Packet 012 decisions of the implementer, accepted by the orchestrator on 2026-10-21. The "New releases" row shows the Discover icon, so the labels of "New releases" and of each saved search start at the same position (Flag decision 2). An Index result writes the mounted saved-search page when the id and the query agree, so a result that arrives after the operator leaves the page is not lost (decision 9, corrected in the orchestrator review). "Save search" and "Delete…" are on the query row of the search header (decision 5).
+
 ## Steps
 
 | Step | State | Commit |
@@ -93,10 +96,24 @@ Each entry names the step, the decision and the reason.
 | Packet 025: playlist page | Implemented. V1 to V7 open | `421eb53` |
 | Packet 011: the logo frame | Implemented. V1 to V7 open | `a08ec7a` |
 | Packet 024: the image of an artist feed (migration 20) | Implemented. V1 to V3 open | `fc0dbcb` |
+| Walk fixes: track row columns, single rows, feed images, playlist covers, release badge, group breadcrumb | Implemented. Walked | `958a17e`, `996754a`, `d41d381` |
+| Packets written: ADR 0083 tasks 006 to 008, ADR 0084 packets 010, 012, 016, 017, 023 and 027 | Done | `68bec25`, `e1d1281`, `71136c2` |
+| Dead code of flow map findings 13 and 14 | Deleted | `71136c2` |
+| Clippy for all targets (overhaul correctness task 001) | Complete | `0b723be` |
+| ADR 0083 task 006: the track row actions | Implemented. V1 to V12 open | `f51df32`, `545fc1f` |
+| Packet 027: "Stop queued" | Implemented. V1 to V3 open | `e655347` |
+| Packet 023: one track page | Implemented. V1 to V5 open | `24bcc2f` |
+| ADR 0083 task 007: the list and playlist row actions | Implemented. V1 to V11 open | `4b6c4ef` |
+| ADR 0083 task 008: drag a track to a playlist | Implemented. V1 to V9 open | `bc17d7b` |
+| Packet 016: the scopes, Parts A and B | Implemented. V1 to V8 open | `0bf685e`, `1febbf4` |
+| Packet 017: the name level page; `src/sources.rs` deleted | Implemented. V1 to V11 open | `46656ce` |
+| Packet 010: the search results in the list column | Implemented. V1 to V7 open | `2c4170e` |
+| Packet 012: saved searches (migration 21) | Implemented. V1 to V7 open | this commit |
+| Packet 026: the Index singles groups | Not written. It waits for Stophammer request 9, which the operator reviews | - |
 
 ## Questions For The Operator
 
-The run did not decide these points. Each one needs the operator.
+The operator answered questions 1, 3, 4 and 6 on 2026-10-20. The operator decisions above record the answers. Packet 016 answers question 2: the "Everything" scope of Artists lists the Index artists. Question 5 stays open, as an open finding of the ADR 0084 phase plan.
 
 1. Packet 022 has no cancel. A "Stop queued" action could remove the queued jobs and keep the running jobs. Is it wanted?
 2. Flow map finding 16: no view lists the Index artists without search. Is an Index artist browse a goal, for example through the "Everything" scope of packet 016?
@@ -142,8 +159,9 @@ Walk Part A first, then Part B. Each packet file holds the full steps of its che
 #### Setup
 
 1. Close the app.
-2. Copy the Library database as the backup, because packet 024 adds migration 20. The path is `db_path` in your `config.toml`. The default path is `~/.local/share/v4vmm/v4vmm.sqlite`.
-   `cp ~/.local/share/v4vmm/v4vmm.sqlite ~/v4vmm-before-schema-20.sqlite`
+2. Copy the Library database as the backup, because packet 012 adds migration 21. Do this before the first start of a build with packet 012. The path is `db_path` in your `config.toml`. The default path is `~/.local/share/v4vmm/v4vmm.sqlite`.
+   `cp ~/.local/share/v4vmm/v4vmm.sqlite ~/v4vmm-before-schema-21.sqlite`
+   Keep `~/v4vmm-before-schema-20.sqlite` too, if you made it for packet 024.
 3. Build the binary: `cargo build --bin v4vmm`. Then start `target/debug/v4vmm` from a desktop session.
 4. Prepare a test playlist, for example "Packet 025 test", for packet 025. Use tracks that you can download again.
 
@@ -157,6 +175,15 @@ The order puts the checks that only read pages first, and the checks that downlo
 4. [Packet 020](../tasks/adr-0084-task-020-discover-selection.md), V1 to V6: selection on Discover. V4 downloads three releases.
 5. [Packet 022](../tasks/adr-0084-task-022-download-queue.md), V1 to V6: the download queue and its progress item. V3 sets an unreachable MusicIndex endpoint. Its cleanup restores the endpoint.
 6. [Packet 025](../tasks/adr-0084-task-025-playlist-selection.md), V1 to V7: selection on the playlist page. Use the test playlist.
+7. [Packet 023](../tasks/adr-0084-task-023-one-track-page-assembly.md), V1 to V5: one track page for the Library and the Index. These steps read pages only.
+8. [ADR 0083 task 006](../tasks/adr-0083-task-006-row-hover-actions.md), V1 to V12: the track row and its actions on hover and focus.
+9. [Packet 016](../tasks/adr-0084-task-016-library-and-everything-scopes.md), V1 to V8: the scopes "Library" and "Everything" of Releases and Artists.
+10. [Packet 017](../tasks/adr-0084-task-017-name-level-artist-page.md), V1 to V11: the name level page and "Matched by name". V8 downloads two releases.
+11. [Packet 010](../tasks/adr-0084-task-010-search-results-list-column.md), V1 to V7: the search results in the list column. V6 downloads three releases.
+12. [Packet 012](../tasks/adr-0084-task-012-saved-searches.md), V1 to V7: saved searches. Its cleanup deletes the test saved searches.
+13. [ADR 0083 task 007](../tasks/adr-0083-task-007-list-and-playlist-row-actions.md), V1 to V11: the playlist, Tracks and Needs attention rows. Use the test playlist.
+14. [ADR 0083 task 008](../tasks/adr-0083-task-008-drag-track-to-playlist.md), V1 to V9: drag a track to a playlist. Use the test playlist.
+15. [Packet 027](../tasks/adr-0084-task-027-stop-queued-downloads.md), V1 to V3: "Stop queued". V1 queues nine releases.
 
 #### Record
 
@@ -164,11 +191,11 @@ For each packet, tell the orchestrator which checks passed and which failed, wit
 
 #### Rollback
 
-To return to schema 19, close the app, revert the commits of the run, and copy `~/v4vmm-before-schema-20.sqlite` back to the database path.
+To return to schema 20, close the app, revert the commits of packet 012, and copy `~/v4vmm-before-schema-21.sqlite` back to the database path. To return to schema 19, revert the commits of the run, and copy `~/v4vmm-before-schema-20.sqlite` back.
 
 ### Part B: Deferred Requirements
 
-This part holds the draft operator walk of the triage of 2026-10-20, corrected for three run decisions. The check of §15 is walkable at schema version 19. §23 V2 and V3 wait for packet 017 and stay out of this walk. §8 and §9 cannot run as written and stay out of this walk.
+This part holds the draft operator walk of the triage of 2026-10-20, corrected for three run decisions. The check of §15 is walkable at schema version 19. Packet 017 now carries §23 V2 and V3, so they stay out of this part. §8 and §9 cannot run as written and stay out of this walk.
 
 Each step below is for a person at a Linux desktop session.
 

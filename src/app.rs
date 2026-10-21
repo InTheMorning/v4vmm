@@ -66,6 +66,7 @@ mod playback_bar;
 mod publisher_dispatch;
 mod queue_now_playing;
 mod resize;
+mod saved_search_dispatch;
 mod search_dispatch;
 mod search_selection;
 mod show;
@@ -74,6 +75,7 @@ mod tab_bar;
 pub use bootstrap::run_app;
 
 use search_dispatch::{RemoteCoverColorState, RemoteDetailThumbnailState};
+use search_selection::{SearchPageSlot, SearchRowClick};
 use settings::render_settings;
 use show::{build_live_status_strip, build_show_screen};
 use tab_bar::render_tab_bar;
@@ -152,6 +154,13 @@ pub struct TopApp {
     /// packet 010). The key handlers act on the search selection only while
     /// the search list carries the focus.
     search_list_focus: gpui::FocusHandle,
+    /// The mounted saved-search page of the detail column (ADR 0084
+    /// Decision 3, packet 012). It is separate from the toolbar search, so
+    /// a toolbar search does not change it. Back and Forward to the same
+    /// saved search keep it.
+    saved_search_page: Option<crate::view_models::search_results::SavedSearchPage>,
+    /// The keyboard focus of the saved-search page (packet 012).
+    saved_search_focus: gpui::FocusHandle,
     queue_text_filter: Option<String>,
     show_page: ShowPageVm,
     show_commands: ShowCommandState,
@@ -474,6 +483,8 @@ impl TopApp {
             last_music_content_nav: None,
             search_results_detail: None,
             search_list_focus: cx.focus_handle(),
+            saved_search_page: None,
+            saved_search_focus: cx.focus_handle(),
             queue_text_filter: None,
             show_page,
             show_commands: ShowCommandState::default(),
@@ -659,6 +670,9 @@ impl TopApp {
                     }
                     library.refresh(cx);
                 });
+                // ADR 0084 Decision 3, packet 012: a saved-search page keeps
+                // its rows, or shows the empty state of a deleted search.
+                self.restore_saved_search_page_for_nav(&entry, cx);
             }
             AppTab::Show => {}
         }
@@ -778,6 +792,11 @@ impl TopApp {
             return;
         }
         let opened_entry = default_child.unwrap_or_else(|| entry.clone());
+        // ADR 0084 Decision 3, packet 012: each open of a saved search runs
+        // its query again. Back and Forward keep the mounted page.
+        if matches!(opened_entry, FrameNavigationEntry::SavedSearch { .. }) {
+            self.saved_search_page = None;
+        }
         self.restore_content_list_nav_entry(content_list_id, &opened_entry, cx);
     }
 
@@ -795,6 +814,7 @@ impl TopApp {
         });
         self.restore_publisher_page_for_nav(entry, cx);
         self.restore_name_level_page_for_nav(entry, cx);
+        self.restore_saved_search_page_for_nav(entry, cx);
         self.restore_release_page_source_for_nav(entry, cx);
         self.restore_track_page_source_for_nav(entry, cx);
         if let FrameNavigationEntry::Search(query) = entry {
@@ -1044,6 +1064,9 @@ impl TopApp {
                 Self::root_content_frame_title()
             }
             FrameNavigationEntry::DiscoverView(view) => view.label().to_string(),
+            FrameNavigationEntry::SavedSearch { .. } => {
+                crate::view_models::search_results::SavedSearch::FRAME_TITLE.to_string()
+            }
             FrameNavigationEntry::Search(_) => "Search Results".to_string(),
             FrameNavigationEntry::PlaylistDetail(_) => "Playlist".to_string(),
             // ADR 0084 Decision 4/5: the curator sees "Track" for a track
@@ -1303,7 +1326,7 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) -> WorkspaceSlots {
         let entity = cx.entity();
-        let (rows, header_action, bar, thumbnail_hrefs) = {
+        let (rows, header_action, bar, thumbnail_hrefs, save_action) = {
             let library = self.library.read(cx);
             let lookup = library.search_lookup();
             let search_results = self.search_results_detail.as_ref().unwrap();
@@ -1314,6 +1337,7 @@ impl TopApp {
                     .action_bar(&lookup)
                     .zip(search_results.selection_rows(&lookup)),
                 search_results.thumbnail_hrefs(),
+                search_results.save_action(library.saved_searches()),
             )
         };
         let thumbnails = self.resolve_search_result_thumbnails(thumbnail_hrefs, cx);
@@ -1321,10 +1345,11 @@ impl TopApp {
         let select_entity = entity.clone();
         let toggle_entity = entity.clone();
         let failure_entity = entity.clone();
+        let save_entity = entity.clone();
         let inspector_slots = SearchResultsInspectorSlots::new()
             .on_failure_action(move |action, _window, cx| {
                 failure_entity.update(cx, |this, cx| {
-                    this.handle_search_failure_action(action, cx);
+                    this.handle_search_failure_action(SearchPageSlot::ToolbarSearch, action, cx);
                 });
             })
             .on_tab_select(move |tab, _window, cx| {
@@ -1334,12 +1359,27 @@ impl TopApp {
             })
             .on_result_select(move |tab, result_id, key, modifiers, window, cx| {
                 select_entity.update(cx, |this, cx| {
-                    this.click_search_result_row(tab, &result_id, key, modifiers, window, cx);
+                    this.click_search_result_row(
+                        SearchPageSlot::ToolbarSearch,
+                        SearchRowClick {
+                            tab,
+                            result_id,
+                            key,
+                            modifiers,
+                        },
+                        window,
+                        cx,
+                    );
                 });
             })
             .on_row_toggle(move |key, window, cx| {
                 toggle_entity.update(cx, |this, cx| {
-                    this.toggle_search_result_row(&key, window, cx);
+                    this.toggle_search_result_row(SearchPageSlot::ToolbarSearch, &key, window, cx);
+                });
+            })
+            .header_action(save_action, move |_window, cx| {
+                save_entity.update(cx, |this, cx| {
+                    this.save_toolbar_search(cx);
                 });
             })
             .with_thumbnails(thumbnails)
@@ -1350,8 +1390,11 @@ impl TopApp {
             SearchResultsHeaderMode::Tabbed,
             cx,
         );
-        let bar = bar.map(|(bar, rows)| self.render_search_action_bar(bar, &rows, cx));
-        let content = self.render_search_list_frame(inspector_content, bar);
+        let bar = bar.map(|(bar, rows)| {
+            self.render_search_action_bar(SearchPageSlot::ToolbarSearch, bar, &rows, cx)
+        });
+        let content =
+            self.render_search_list_frame(SearchPageSlot::ToolbarSearch, inspector_content, bar);
         let mut slots = slots.content_list(content);
         if let Some(header_action) = header_action {
             let header_action_entity = entity;
@@ -1359,7 +1402,7 @@ impl TopApp {
                 .content_list_header_action(header_action)
                 .on_content_list_header_action(move |_window, cx| {
                     header_action_entity.update(cx, |this, cx| {
-                        this.toggle_search_selection_mode(cx);
+                        this.toggle_search_selection_mode(SearchPageSlot::ToolbarSearch, cx);
                     });
                 });
         }
@@ -1442,6 +1485,15 @@ impl TopApp {
             self.library
                 .update(cx, |library, _cx| library.bind_detail_selection(entry));
         }
+        // ADR 0084 Decision 3, packet 012: the Discover column marks the
+        // saved search of the current location as its open row.
+        let open_saved_search = self
+            .workspace_layout
+            .frame_nav(content_frame_id)
+            .and_then(FrameNavigationState::active_saved_search);
+        self.library.update(cx, |library, _cx| {
+            library.set_open_saved_search(open_saved_search);
+        });
 
         let mut workspace_slots = match &current_nav {
             // ADR 0084 Decision 2: search results fill the list column, and
@@ -1452,6 +1504,16 @@ impl TopApp {
                     WorkspaceSlots::new().detail_slot(self.library_detail_view.clone())
                 } else {
                     self.with_search_results_list(WorkspaceSlots::new(), content_frame_id, cx)
+                }
+            }
+            // ADR 0084 Decision 3, packet 012: a saved search shows its
+            // results in the detail column, as "New releases" does.
+            Some(FrameNavigationEntry::SavedSearch { .. }) => {
+                let detail_content = self.render_saved_search_page_content(cx);
+                if fills_detail {
+                    WorkspaceSlots::new().detail_slot(detail_content)
+                } else {
+                    WorkspaceSlots::new().content_list(detail_content)
                 }
             }
             // ADR 0084 Decision 7, packet 017: the name level page reads the
@@ -1874,6 +1936,35 @@ mod tests {
         assert!(
             frames[0].1 != frames[2].1 && frames[0].1 != content_list_id,
             "each frame id must be unique"
+        );
+    }
+
+    /// R12-05 (ADR 0084 Decision 3, packet 012): the frame title of a
+    /// saved-search page is "Saved search".
+    #[test]
+    fn adr_0084_saved_search_r12_05_frame_title_is_saved_search() {
+        use crate::view_models::search_results::SavedSearchId;
+        use crate::view_models::workspace::FrameNavigationEntry;
+
+        let mut layout = WorkspaceLayout::from_config(None);
+        let content_list_id = layout
+            .frames()
+            .iter()
+            .find(|frame| matches!(frame.kind(), WorkspaceFrameKind::ContentList))
+            .map(WorkspaceFrameState::id)
+            .expect("the default layout has a content-list frame");
+        layout
+            .open_nav_list_row(
+                content_list_id,
+                FrameNavigationEntry::SavedSearch {
+                    id: SavedSearchId(3),
+                    query: "bluegrass".to_owned(),
+                },
+            )
+            .expect("the content-list frame opens the row");
+        assert_eq!(
+            TopApp::content_list_frame_title(&layout, content_list_id, WorkspaceScreenMount::Music),
+            "Saved search"
         );
     }
 

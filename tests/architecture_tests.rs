@@ -329,6 +329,7 @@ const SCREEN_FILES: &[&str] = &[
     "src/app/playback_bar.rs",
     "src/app/publisher_dispatch.rs",
     "src/app/resize.rs",
+    "src/app/saved_search_dispatch.rs",
     "src/app/search_dispatch.rs",
     "src/app/tab_bar.rs",
     "src/library.rs",
@@ -3813,7 +3814,7 @@ fn adr_0047_task_015_search_submit_commands() {
         // ADR 0084 packet 010: the search list has its own checkbox wiring
         // and its own "Select" button.
         ".on_row_toggle(move |key, window, cx|",
-        "this.toggle_search_selection_mode(cx);",
+        "this.toggle_search_selection_mode(SearchPageSlot::ToolbarSearch, cx);",
         "SearchResultsHeaderMode::Tabbed,",
     ] {
         if !app_source.contains(required) {
@@ -3871,35 +3872,54 @@ fn adr_0047_task_015_search_submit_commands() {
     );
 }
 
-/// R6-07 (ADR 0084 Decision 3, operator decision of 2026-10-16): saved
-/// searches had no storage and no save action, so they are deleted. This
-/// replaces the saved-search half of
-/// `adr_0047_task_015_search_submit_and_saved_search_commands`.
+/// R12-11 (ADR 0084 Decision 3, packet 012). Situational: delete this
+/// guard when ADR 0084 is superseded.
+///
+/// Only `src/db/saved_searches.rs` writes the `saved_searches` table, and
+/// no file in `src/ui/` reads it. A renderer gets the saved searches from
+/// the view model.
 #[test]
-fn adr_0084_discover_r6_07_saved_searches_are_deleted() {
+fn adr_0084_saved_search_r12_11_one_writer_and_no_ui_reader() {
+    const OWNER: &str = "src/db/saved_searches.rs";
+    let writes = [
+        "insert into saved_searches",
+        "delete from saved_searches",
+        "update saved_searches",
+        "replace into saved_searches",
+        "insert or replace into saved_searches",
+    ];
+    let ui_reads = [
+        "from saved_searches",
+        "db::saved_searches",
+        "saved_searches::saved_searches(",
+    ];
     let mut violations = Vec::new();
-
-    for forbidden in [
-        "SavedSearchEntry",
-        "SavedSearchesSectionDisplay",
-        "OpenSavedSearch",
-        "saved_searches_section",
-        "fn open_saved_search(",
-    ] {
-        for path in rust_files_under("src") {
-            let source = read_source(&path);
-            if source.contains(forbidden) {
-                violations.push(format!(
-                    "{}: the operator decision of 2026-10-16 deletes saved searches; found `{forbidden}`",
-                    rel_path(&path)
-                ));
+    for path in rust_files_under("src") {
+        let rel = rel_path(&path);
+        let source = read_source(&path).to_lowercase();
+        if rel != OWNER {
+            for write in writes {
+                if source.contains(write) {
+                    violations.push(format!(
+                        "{rel}: found `{write}`. ADR 0084 Decision 3, packet 012: only {OWNER} writes the saved_searches table. Call a function of {OWNER}."
+                    ));
+                }
+            }
+        }
+        if rel.starts_with("src/ui/") {
+            for read in ui_reads {
+                if source.contains(read) {
+                    violations.push(format!(
+                        "{rel}: found `{read}`. ADR 0084 Decision 3, packet 012: a renderer does not read the saved_searches table. Read the rows from `DiscoverViewRowVm` or the search view model."
+                    ));
+                }
             }
         }
     }
 
     assert!(
         violations.is_empty(),
-        "Saved-search deletion violations:\n{}",
+        "Saved search table owner violations:\n{}",
         violations.join("\n")
     );
 }

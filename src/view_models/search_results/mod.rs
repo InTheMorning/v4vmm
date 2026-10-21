@@ -11,8 +11,8 @@
 use crate::db::TrackRow;
 use crate::runtime::paged_list_vm::{PagedListVm, RowSlot};
 use crate::view_models::detail_selection::{
-    search_header_action, search_release_rows, search_track_rows, DetailPageRows, DetailRowClick,
-    DetailRowKey, DetailSelection,
+    detail_header_action, search_header_action, search_release_rows, search_track_rows,
+    DetailPageRows, DetailRowClick, DetailRowKey, DetailSelection,
 };
 use crate::view_models::list_selection::FocusStep;
 use crate::view_models::selection_action_bar::SelectionActionBarVm;
@@ -24,6 +24,7 @@ mod index_detail;
 mod paged_tab;
 mod results;
 mod rows;
+mod saved_search;
 mod tabs;
 #[cfg(test)]
 mod tests;
@@ -39,6 +40,12 @@ pub(crate) use results::{
 pub(crate) use rows::{
     SearchLibraryLookup, SearchLibraryRelease, SearchLibraryTrack, SearchResultRowVm,
     SearchRowBadge,
+};
+pub(crate) use saved_search::{
+    delete_saved_search_confirmation, location_after_saved_search_delete, save_search_action,
+    saved_search_label, saved_search_restore, saved_search_result_is_current,
+    saved_search_row_a11y_label, SavedSearch, SavedSearchDeleteConfirmation, SavedSearchId,
+    SavedSearchPage, SavedSearchRestore, SearchPageActionDisplay, SearchPageActionStyle,
 };
 pub(crate) use tabs::{SearchResultItemId, SearchResultOrigin, SearchResultsTab};
 
@@ -58,9 +65,16 @@ pub(crate) struct SearchResultsInspectorPageVm {
     index_error: Option<EmptyStateDisplay>,
     empty_state: Option<EmptyStateDisplay>,
     tab_was_user_selected: bool,
-    /// The one selection of the search list (packet 010 "The selection"),
-    /// bound to `FrameNavigationEntry::Search(query)`.
+    /// The page entry of this view model: `FrameNavigationEntry::Search`
+    /// for the toolbar search, or `FrameNavigationEntry::SavedSearch` for
+    /// the saved-search page of the detail column (packet 012).
+    entry: FrameNavigationEntry,
+    /// The one selection of the page (packet 010 "The selection"), bound
+    /// to `entry`.
     selection: DetailSelection,
+    /// The status text of the view, for example a save failure (packet
+    /// 012). `None` when the view has no status to tell.
+    status_text: Option<String>,
 }
 
 impl SearchResultsInspectorPageVm {
@@ -68,8 +82,9 @@ impl SearchResultsInspectorPageVm {
     #[must_use]
     pub(crate) fn new(query: impl Into<String>) -> Self {
         let query = query.into();
+        let entry = FrameNavigationEntry::Search(query.clone());
         let mut selection = DetailSelection::new();
-        selection.reset(Some(FrameNavigationEntry::Search(query.clone())));
+        selection.reset(Some(entry.clone()));
         let mut page = Self {
             query,
             tab: SearchResultsTab::default(),
@@ -80,7 +95,9 @@ impl SearchResultsInspectorPageVm {
             index_error: None,
             empty_state: None,
             tab_was_user_selected: false,
+            entry,
             selection,
+            status_text: None,
         };
         page.refresh_empty_state();
         page
@@ -111,6 +128,55 @@ impl SearchResultsInspectorPageVm {
         self.tracks = SearchResultsPagedTab::ready_library(local_rows.tracks);
         self.refresh_empty_state();
         self
+    }
+
+    /// Returns this page as the page of the saved search `search` (packet
+    /// 012). The page opens on the start tab of the save. The tab counts as
+    /// a tab that the operator selected, so the arrival of the Index rows
+    /// does not change it. The selection belongs to the saved-search entry.
+    #[must_use]
+    pub(crate) fn into_saved_search(mut self, search: &SavedSearch) -> Self {
+        self.entry = search.entry();
+        self.selection.reset(Some(self.entry.clone()));
+        self.tab = search.start_tab;
+        self.tab_was_user_selected = true;
+        self.refresh_empty_state();
+        self
+    }
+
+    /// "Save search", or "Saved" when `saved` holds the query (packet 012).
+    #[must_use]
+    pub(crate) fn save_action(&self, saved: &[SavedSearch]) -> SearchPageActionDisplay {
+        save_search_action(&self.query, saved)
+    }
+
+    /// Records the failure of "Save search" (packet 012). The status text
+    /// names the query and the database error.
+    pub(crate) fn set_save_failure(&mut self, error: &str) {
+        self.status_text = Some(format!(
+            "The app could not save the search \"{}\". Database error: {error}",
+            self.query
+        ));
+    }
+
+    /// Records the failure of "Delete…" of a saved search (packet 012). The
+    /// status text names the query and the database error.
+    pub(crate) fn set_delete_failure(&mut self, error: &str) {
+        self.status_text = Some(format!(
+            "The app could not delete the saved search \"{}\". Database error: {error}",
+            self.query
+        ));
+    }
+
+    /// Removes the status text, for example after a successful save.
+    pub(crate) fn clear_status(&mut self) {
+        self.status_text = None;
+    }
+
+    /// The status text of the view, or `None`.
+    #[must_use]
+    pub(crate) fn status_text(&self) -> Option<&str> {
+        self.status_text.as_deref()
     }
 
     /// Marks the async remote Index search as pending.
@@ -203,8 +269,7 @@ impl SearchResultsInspectorPageVm {
     /// `Normal` (packet 010 decision D8).
     pub(crate) fn set_tab(&mut self, tab: SearchResultsTab) {
         if tab != self.tab {
-            self.selection
-                .reset(Some(FrameNavigationEntry::Search(self.query.clone())));
+            self.selection.reset(Some(self.entry.clone()));
         }
         self.tab = tab;
         self.tab_was_user_selected = true;
@@ -316,15 +381,23 @@ impl SearchResultsInspectorPageVm {
         &self.selection
     }
 
-    /// The "Select" or "Done" button of the list column header. It shows
-    /// only on the Releases tab and the Tracks tab, and only when the tab
-    /// has a row with a key.
+    /// The "Select" or "Done" button of the column header. It shows only
+    /// on the Releases tab and the Tracks tab, and only when the tab has a
+    /// row with a key. The toolbar search gives the id of the list column.
+    /// The saved-search page gives the id of the detail column (packet
+    /// 012).
     #[must_use]
     pub(crate) fn header_action(
         &self,
         lookup: &dyn SearchLibraryLookup,
     ) -> Option<FrameHeaderActionDisplay> {
-        search_header_action(self.selection_rows(lookup).as_ref(), self.selection.mode())
+        let rows = self.selection_rows(lookup);
+        match self.entry {
+            FrameNavigationEntry::SavedSearch { .. } => {
+                detail_header_action(rows.as_ref(), self.selection.mode())
+            }
+            _ => search_header_action(rows.as_ref(), self.selection.mode()),
+        }
     }
 
     /// The action bar of packet 018, or `None` outside selection mode.

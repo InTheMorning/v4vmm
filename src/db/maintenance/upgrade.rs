@@ -230,7 +230,7 @@ fn prepare_inner(
         };
         return Err(error.downcast::<Failure>().unwrap_or_else(|_| {
             Failure::new(
-                "Apply migrations 12 to 20 and verify retained records",
+                "Apply migrations 12 to 21 and verify retained records",
                 FailureKind::Validation,
             )
         }));
@@ -381,7 +381,7 @@ mod tests {
             };
             assert_eq!(prepared.receipt.state, PreparationState::Upgraded);
             let receipt = &prepared.receipt;
-            assert_eq!(receipt.target, 20);
+            assert_eq!(receipt.target, 21);
             assert!(receipt.started_at <= receipt.preserved_at.unwrap());
             assert!(receipt.preserved_at <= receipt.snapshot_verified_at);
             assert!(receipt.snapshot_verified_at.unwrap() <= receipt.finished_at);
@@ -392,7 +392,7 @@ mod tests {
             assert!(receipt.manifest.as_ref().unwrap().is_file());
             let report = crate::view_models::startup::preparation_report(receipt);
             assert!(report.contains(&receipt.snapshot.as_ref().unwrap().display().to_string()));
-            assert!(report.contains("Target schema version: 20"));
+            assert!(report.contains("Target schema version: 21"));
         }
     }
 
@@ -508,6 +508,9 @@ mod tests {
             Boundary::Migration(20, MigrationBoundary::BeforeApply),
             Boundary::Migration(20, MigrationBoundary::AfterApply),
             Boundary::Migration(20, MigrationBoundary::AfterRecord),
+            Boundary::Migration(21, MigrationBoundary::BeforeApply),
+            Boundary::Migration(21, MigrationBoundary::AfterApply),
+            Boundary::Migration(21, MigrationBoundary::AfterRecord),
             Boundary::AfterCommit,
             Boundary::BeforeReopen,
         ] {

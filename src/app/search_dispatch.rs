@@ -57,6 +57,7 @@ use crate::view_models::workspace::{
 };
 use crate::views::{FeedView, TrackView};
 
+use super::search_selection::SearchPageSlot;
 use super::{AppTab, TopApp};
 
 #[derive(Clone)]
@@ -256,7 +257,7 @@ impl TopApp {
         }
     }
 
-    fn search_results_detail_for_query(
+    pub(super) fn search_results_detail_for_query(
         &self,
         query: &str,
         cx: &App,
@@ -439,12 +440,12 @@ impl TopApp {
 
     pub(super) fn handle_search_failure_action(
         &mut self,
+        slot: SearchPageSlot,
         action: crate::view_models::search_results::SearchFailureAction,
         cx: &mut Context<Self>,
     ) {
         if let Some(report) = self
-            .search_results_detail
-            .as_mut()
+            .search_page_mut(slot)
             .and_then(|detail| detail.activate_failure_action(action))
         {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(report));
@@ -489,6 +490,7 @@ impl TopApp {
     /// each open function pushes its entry into the one stack.
     pub(super) fn handle_search_result_selected(
         &mut self,
+        slot: SearchPageSlot,
         tab: SearchResultsTab,
         result_id: &str,
         cx: &mut Context<Self>,
@@ -504,8 +506,7 @@ impl TopApp {
             return;
         };
         let label = self
-            .search_results_detail
-            .as_ref()
+            .search_page(slot)
             .and_then(|detail| detail.row_label(tab, result_id));
 
         match target {

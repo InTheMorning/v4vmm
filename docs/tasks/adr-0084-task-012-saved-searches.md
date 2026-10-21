@@ -1,6 +1,6 @@
 # ADR 0084 Task 012: Saved Searches
 
-Status: Ready - 2026-10-20. It depends on packet 010. Migration 21: make the backup of the Rollback section first.
+Status: Implemented - 2026-10-21. Migration 21 is in the build. The visual checks V1 to V7 are open, in the final walk of the run of 2026-10-20. Make the backup of the Rollback section before the first start.
 
 ## Goal
 
@@ -264,3 +264,114 @@ Stop and report the problem, and do not guess, when:
 - The migration registry needs a change to its own rules.
 - The saved-search page cannot use the view model of packet 010 in the detail column.
 - A change needs a file in "Do not touch".
+
+## Implementation Result - 2026-10-21
+
+### What changed
+
+- Migration 21 `saved_searches` is in the ADR 0016 registry. `CURRENT_VERSION` is 21. `schema_contract` gives the table from version 21. `migrate_schema_internal` verifies the retained records after migration 21, and makes sure that the new table is empty. The upgrade text names "migrations 12 to 21".
+- `src/db/saved_searches.rs` holds the DDL, `insert_saved_search`, `saved_searches` and `delete_saved_search`. The insert trims the query and refuses an empty query. A second insert of a query with another case gives `SavedSearchInsert::AlreadySaved`.
+- `src/view_models/search_results/saved_search.rs` holds `SavedSearchId`, `SavedSearch`, the labels, the typed actions "Save search" and "Delete…", the delete confirmation, the page state and the stale-result rule.
+- `SearchResultsInspectorPageVm` has a page entry. The toolbar search binds its selection to `Search(query)`. The saved-search page binds its selection to `SavedSearch { id, query }`. `into_saved_search` opens the page on `start_tab` and marks the tab as selected by the operator.
+- `FrameNavigationEntry::SavedSearch { id, query }` is a page under Discover. Its breadcrumb label is "Saved: <query>", its breadcrumb id is `saved-search-<id>`, and its frame title is "Saved search".
+- `LibraryApp` holds the saved searches. It reads them at start and after each save and each delete (`src/library/saved_searches.rs`).
+- `discover_view_rows` gives "New releases" first, then one row for each saved search in `id` order. The row of the saved search of the current location is the open row.
+- `TopApp` holds `saved_search_page` and `saved_search_focus` (`src/app/saved_search_dispatch.rs`). The page shows in the detail column with the renderer of packet 010. Its "Select" or "Done" button is in the detail column header. The bar of packet 010 is at the bottom of the column.
+- `src/app/search_selection.rs` has `SearchPageSlot`. The clicks, the bar and the keys of packet 010 act on the toolbar search or on the saved-search page. The slot or the keyboard focus selects the page.
+- "Delete…" opens the confirmation of `src/ui/shells/saved_search_delete_confirmation.rs`. After the delete, the location changes to Discover with "New releases". A Back step to the deleted entry shows "This saved search was deleted." and runs no query.
+
+### Decisions made in this packet
+
+1. "Save search" and "Delete…" are in the header of the search view, on the row of the query. The frame header keeps "Select" and "Done". "Save search" uses `ControlStyle::Secondary`. "Delete…" uses `ControlStyle::Destructive`.
+2. **Flag.** The "New releases" row shows the icon of the Discover destination. Thus the labels of the two kinds of row start at the same position.
+3. An Index result writes the saved-search page when two conditions are true. The current location path holds the entry `SavedSearch { id, query }`. The mounted page is the page of that entry.
+
+   The packet text gives "the current entry". With that text, the app would lose a result that arrives while a release page of the saved search is open. Back would then show a page that loads always. R12-07 still holds: a move to saved search B or to a toolbar search drops the result for A.
+4. The saved-search page has its own keyboard focus. The keys of packet 010 act on the page that has the focus. The header button of the page has the element id `music-detail-column-select-releases` or `music-detail-column-select-tracks`.
+5. The title of the confirmation is "Delete saved search?". The cancel button is "Cancel".
+6. A save failure shows the status text `The app could not save the search "<query>". Database error: <error>`. A delete failure shows the same kind of text on the saved-search page, and the location does not change.
+7. A saved search with an Index that is not available shows the failure state of packet 010. It adds no recovery action, because the recovery action of the toolbar search opens the toolbar search again.
+8. The database module has its own `StoredStartTab`. The view model converts it to `SearchResultsTab`. Thus `src/db` imports no view model.
+9. The Discover row text calls no `.truncated()`, and its container clips the text (ADR 0063). This also changes the "New releases" row.
+10. A selection of the Music tab after Settings restores the saved-search page: the same rows, or the empty state of a deleted saved search.
+11. While the page of the current entry is not mounted, the detail column shows "The app is loading the results of the saved search."
+12. The test `adr_0084_artist_image_r24_01_version_19_migrates_to_20_with_null_image` now expects `UpgradeRequired` after migration 20, because migration 21 follows.
+
+### Deviations from the packet text
+
+- The schema line of `AGENTS.md` is not changed. The orchestrator changes it.
+- The check `cargo clippy -- -D warnings` ran as `cargo clippy --all-targets -- -D warnings`.
+- The guard `adr_0047_task_015_search_submit_commands` now asks for `this.toggle_search_selection_mode(SearchPageSlot::ToolbarSearch, cx);`. The list `SCREEN_FILES` of `tests/architecture_tests.rs` now holds `src/app/saved_search_dispatch.rs`.
+- An inspection on 2026-10-21 found that decision 3 above is incorrect. `saved_search_result_is_current` no longer checks the current location path. The removed check could drop a late Index reply after a move away from the saved search. The page could then stay "loading" for good. An Index result writes the saved-search page when the mounted page holds the same id and the same query as the result.
+
+### Tests
+
+| Case | Proof |
+|---|---|
+| R12-01 | `adr_0084_saved_search_r12_01_version_20_migrates_to_21` |
+| R12-02 | `adr_0084_saved_search_r12_02_insert_list_delete_keep_id_order`, `adr_0084_saved_search_empty_query_and_unknown_tab_are_refused` |
+| R12-03 | `adr_0084_saved_search_r12_03_save_action_follows_the_saved_list` |
+| R12-04 | `adr_0084_saved_search_r12_04_discover_rows_follow_new_releases` |
+| R12-05 | `adr_0084_saved_search_r12_05_breadcrumb_and_frame_title`, `adr_0084_saved_search_r12_05_frame_title_is_saved_search` |
+| R12-06 | `adr_0084_saved_search_r12_06_page_opens_on_its_start_tab` |
+| R12-07 | `adr_0084_saved_search_r12_07_stale_result_changes_nothing` |
+| R12-08 | `adr_0084_saved_search_r12_08_delete_confirmation_and_location`, `adr_0084_saved_search_r12_08_dialog_is_destructive` |
+| R12-09 | `adr_0084_saved_search_r12_09_deleted_entry_runs_no_query` |
+| R12-10 | `adr_0084_saved_search_r12_10_header_action_and_bar` |
+| R12-11 | The guard `adr_0084_saved_search_r12_11_one_writer_and_no_ui_reader`. It replaces `adr_0084_discover_r6_07_saved_searches_are_deleted` |
+| R12-12 | `cargo test` is Green: each `adr_0084_search_list_` test and each migration test still passes |
+
+### Open points
+
+- The saved-search page has no held scroll handle, the same as the search list of packet 010. A keyboard focus move does not scroll the focused row into view.
+- A long query shows clipped text in the Discover row and in the header, because the text does not wrap. V7 examines it.
+
+## Orchestrator Review - 2026-10-21
+
+Pass, with corrections that the orchestrator made.
+
+1. The stale-result check now compares only the id and the query of the mounted page. Before, it also asked for the saved search in the current path. Thus a reply that arrived after the operator left the page was lost, and Back showed a page that stayed in its loading state. The test `adr_0084_saved_search_late_reply_after_leaving_the_path_is_not_stuck_loading` proves the fix. R12-07 still proves that a reply for one saved search does not write the page of another.
+2. Dead code is deleted: the `rerun` parameter of `saved_search_restore`, `SavedSearch.created_at` and `SavedSearchDeleteConfirmation.id`.
+3. The orchestrator made the document changes: the schema line of `AGENTS.md`, the open gates, the phase plan row, the source map and the run record.
+
+The highlight of the open Discover row comes from the render of the top view. If the highlight is one step late in V2 or V3, record it as a defect.
+
+## Operator Visual Check
+
+The visual checks V1 to V7 are open. The operator walks them in the final walk of the run of 2026-10-20.
+
+Necessary state: a desktop session, a reachable MusicIndex endpoint, and a Library with one or more downloaded releases.
+
+1. Make the backup before the first start of this build. Close the app. Find the database file: the value of `db_path` in the config file. The default is `~/.local/share/v4vmm/v4vmm.sqlite`. Copy the file:
+
+   ```bash
+   cp ~/.local/share/v4vmm/v4vmm.sqlite ~/v4vmm-before-schema-21.sqlite
+   ```
+
+2. Build and start the app:
+
+   ```bash
+   cd ~/build/v4vmm
+   cargo build --bin v4vmm
+   ./target/debug/v4vmm
+   ```
+
+3. V1: in the toolbar search, type `bluegrass` and push Enter. Make sure that the header of the list column shows "Save search" after the query. Open the Tracks tab, then click "Save search". Make sure that the button changes to "Saved" at once and that it is not available.
+
+   A change of the location is wrong.
+4. V2: click Discover in the sidebar. Make sure that "Saved: bluegrass" shows after "New releases", with the subtitle "Library and Index" and the search icon.
+5. V3: click "Saved: bluegrass". Make sure that the results show in the detail column on the Tracks tab. Make sure that the breadcrumb reads "Discover › Saved: bluegrass" and that the frame title is "Saved search".
+6. V4: click a row of the saved-search page. Make sure that its page opens. Click Back. Make sure that the saved-search page shows the same rows on the same tab.
+7. V5: open the Releases tab of the saved-search page. Click "Select" in the detail column header. Make sure that each row with a key shows a checkbox. Select two releases that are not in the Library.
+8. V5, continued: click "Download 2 releases". Make sure that the progress item shows two downloads.
+9. V6: click "Delete…" in the header of the saved-search page. Make sure that the confirmation names "bluegrass" and tells that the Library and the downloads do not change. Click "Delete".
+10. V6, continued: make sure that Discover shows "New releases" and that the row "Saved: bluegrass" is absent. Click Back. Make sure that the page shows "This saved search was deleted."
+11. V7: save a search with a long query, for example `the quick brown fox jumps over the lazy dog`. Look at the Discover row, the header of the list column and the header of the saved-search page. Do this in the Light theme and in the Dark theme. Do this in a normal window width and in a narrow window width.
+
+    Text that shows only an ellipsis is wrong. A button that covers the query is wrong.
+
+Cleanup:
+
+- Delete each saved search that the steps made, with "Delete…".
+- Remove each release that step 8 downloaded, if you do not want it in the Library. Use "Remove…" on its release page.
+- Keep `~/v4vmm-before-schema-21.sqlite` until the operator accepts packet 012. Then remove it: `rm ~/v4vmm-before-schema-21.sqlite`.

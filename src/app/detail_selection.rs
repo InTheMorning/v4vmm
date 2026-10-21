@@ -12,6 +12,7 @@
 use gpui::{div, prelude::*, AnyElement, App, Context, Modifiers, SharedString, Window};
 
 use super::search_dispatch::feed_guid_from_view;
+use super::search_selection::SearchPageSlot;
 use super::TopApp;
 use crate::application::library_removal::LibraryRemovalIntent;
 use crate::db::PlaylistEdge;
@@ -117,7 +118,19 @@ impl TopApp {
     }
 
     /// The "Select" and "Done" button of the detail column header.
+    /// The saved-search page (packet 012) gives its own button, from the
+    /// selection of its view model.
     pub(super) fn detail_column_header_action(&self, cx: &App) -> Option<FrameHeaderActionDisplay> {
+        if matches!(
+            self.current_music_entry(),
+            Some(FrameNavigationEntry::SavedSearch { .. })
+        ) {
+            let library = self.library.read(cx);
+            let lookup = library.search_lookup();
+            return self
+                .search_page(SearchPageSlot::SavedSearch)?
+                .header_action(&lookup);
+        }
         let rows = self.detail_page_rows(cx);
         let mode = self.library.read(cx).detail_selection().mode();
         detail_header_action(rows.as_ref(), mode)
@@ -125,6 +138,13 @@ impl TopApp {
 
     /// The click of the "Select" and "Done" button.
     pub(super) fn toggle_detail_selection_mode(&mut self, cx: &mut Context<Self>) {
+        if matches!(
+            self.current_music_entry(),
+            Some(FrameNavigationEntry::SavedSearch { .. })
+        ) {
+            self.toggle_search_selection_mode(SearchPageSlot::SavedSearch, cx);
+            return;
+        }
         self.library
             .update(cx, LibraryApp::toggle_detail_selection_mode);
         cx.notify();

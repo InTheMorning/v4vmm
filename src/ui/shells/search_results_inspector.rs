@@ -32,12 +32,13 @@ use crate::ui::tokens::{FontSize, SemanticColor, Size, Spacing};
 use crate::view_models::detail_selection::DetailRowKey;
 use crate::view_models::search_results::{
     EmptyStateDisplay, IndexDetailDisplay, IndexDetailKind, SearchFailureAction,
-    SearchFailureAvailability, SearchResultOrigin, SearchResultRowVm, SearchResultsInspectorPageVm,
-    SearchResultsTab,
+    SearchFailureAvailability, SearchPageActionDisplay, SearchPageActionStyle, SearchResultOrigin,
+    SearchResultRowVm, SearchResultsInspectorPageVm, SearchResultsTab,
 };
 
 type TabSelectHandler = Rc<dyn Fn(SearchResultsTab, &mut Window, &mut App) + 'static>;
 type FailureHandler = Rc<dyn Fn(SearchFailureAction, &mut Window, &mut App) + 'static>;
+type HeaderActionHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
 // ADR 0077 packet 006 deleted this mode's only scoped drill-down caller
 // (the old Index name-route feed results). `Tabbed` is the one remaining
@@ -57,6 +58,7 @@ pub(crate) struct SearchResultsInspectorSlots {
     result_select: Option<SearchResultSelectHandler>,
     row_toggle: Option<SearchResultToggleHandler>,
     failure_action: Option<FailureHandler>,
+    header_action: Option<(SearchPageActionDisplay, HeaderActionHandler)>,
     thumbnails: BTreeMap<String, Option<Arc<Image>>>,
     rows: Vec<SearchResultRowVm>,
 }
@@ -110,6 +112,18 @@ impl SearchResultsInspectorSlots {
         self
     }
 
+    /// Supplies the typed action of the header, for example "Save search"
+    /// or "Delete…" (packet 012), and its click handler. The handler runs
+    /// only when the view model makes the action available.
+    pub(crate) fn header_action(
+        mut self,
+        display: SearchPageActionDisplay,
+        handler: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.header_action = Some((display, Rc::new(handler)));
+        self
+    }
+
     /// Supplies resolved row thumbnails keyed by row thumbnail href.
     pub(crate) fn with_thumbnails(
         mut self,
@@ -140,7 +154,16 @@ pub(crate) fn render_search_results_inspector(
     let tab = match header_mode {
         SearchResultsHeaderMode::Tabbed => vm.tab(),
     };
-    let header = render_inspector_header(vm.query(), tab, slots.tab_select.as_ref(), cx);
+    let header = render_inspector_header(
+        InspectorHeader {
+            query: vm.query(),
+            status_text: vm.status_text(),
+            selected: tab,
+            tab_select: slots.tab_select.as_ref(),
+            action: slots.header_action.as_ref(),
+        },
+        cx,
+    );
     let body = if let Some(empty) = vm.empty_state() {
         render_empty_state(empty, slots.failure_action.as_ref(), cx)
     } else {
@@ -232,34 +255,94 @@ pub(crate) fn render_index_detail_display(display: &IndexDetailDisplay, cx: &App
     )
 }
 
+/// The parts of the header of a search page.
+#[derive(Clone, Copy)]
+struct InspectorHeader<'a> {
+    query: &'a str,
+    status_text: Option<&'a str>,
+    selected: SearchResultsTab,
+    tab_select: Option<&'a TabSelectHandler>,
+    action: Option<&'a (SearchPageActionDisplay, HeaderActionHandler)>,
+}
+
 /// The header at the width of the list column (packet 010 "The view at
 /// the width of the list column"): the query as the headline on the first
-/// row, and the tab control on its own row under it. Column text does not
+/// row, with the typed action of packet 012 after it, then the status text,
+/// and the tab control on its own row under them. Column text does not
 /// call `truncate()` (ADR 0063).
-fn render_inspector_header(
-    query: &str,
-    selected: SearchResultsTab,
-    tab_select: Option<&TabSelectHandler>,
-    cx: &App,
-) -> AnyElement {
-    div()
+fn render_inspector_header(header: InspectorHeader<'_>, cx: &App) -> AnyElement {
+    let mut query_row = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(Spacing::SM.scaled(cx))
+        .min_w_0()
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .child(Label::new(header.query.to_string()).variant(LabelVariant::Headline)),
+        );
+    if let Some((display, handler)) = header.action {
+        query_row = query_row.child(
+            div()
+                .flex_shrink_0()
+                .child(render_header_action(display, handler)),
+        );
+    }
+    let mut column = div()
         .flex()
         .flex_col()
         .gap(Spacing::XS.scaled(cx))
         .p(Spacing::MD.scaled(cx))
-        .child(
-            div()
-                .min_w_0()
-                .overflow_hidden()
-                .child(Label::new(query.to_string()).variant(LabelVariant::Headline)),
-        )
+        .child(query_row);
+    if let Some(status) = header.status_text {
+        column = column.child(
+            MultilineText::new(status.to_owned())
+                .max_lines(usize::MAX)
+                .wrap_lines()
+                .size(FontSize::Caption)
+                .color(SemanticColor::SecondaryLabel),
+        );
+    }
+    column
         .child(
             div()
                 .w_full()
                 .min_w_0()
-                .child(render_tab_strip(selected, tab_select)),
+                .child(render_tab_strip(header.selected, header.tab_select)),
         )
         .into_any_element()
+}
+
+/// One typed header action. The view model gives the label, the
+/// accessibility label, the availability and the style.
+fn render_header_action(
+    display: &SearchPageActionDisplay,
+    handler: &HeaderActionHandler,
+) -> AnyElement {
+    let style = match display.style {
+        SearchPageActionStyle::Plain => ControlStyle::Secondary,
+        SearchPageActionStyle::Destructive => ControlStyle::Destructive,
+    };
+    let button = UiButton::styled(SharedString::from(display.id), style)
+        .label(display.label)
+        .a11y_label(display.a11y_label.clone())
+        .disabled(!display.available);
+    if !display.available {
+        return button.into_any_element();
+    }
+    let handler = Rc::clone(handler);
+    button
+        .on_activate(move |window, cx| handler(window, cx))
+        .into_any_element()
+}
+
+/// Renders one empty state with no failure action, for example the page
+/// of a deleted saved search (packet 012).
+pub(crate) fn render_search_empty_state(empty: &EmptyStateDisplay, cx: &App) -> AnyElement {
+    render_empty_state(empty, None, cx)
 }
 
 fn render_tab_strip(

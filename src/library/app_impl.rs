@@ -1074,7 +1074,12 @@ impl LibraryApp {
             spring_load: crate::view_models::library::SpringLoadVm::default(),
             detail_scroll_reveal: ScrollReveal::new(detail_column_scroll.clone()),
             detail_column_scroll,
+            saved_searches: Vec::new(),
+            open_saved_search: None,
         };
+        // ADR 0084 Decision 3, packet 012: Discover shows the saved
+        // searches from the first render.
+        app.reload_saved_searches();
         app.maybe_start_musicbrainz_feed_saga(cx);
         app.maybe_start_playlist_rss_check(cx);
         app.maybe_start_tag_update(cx);
@@ -2304,6 +2309,12 @@ impl LibraryApp {
             // location fills the detail column with that view.
             FrameNavigationEntry::DiscoverView(view) => {
                 self.show_discover_view(*view);
+            }
+            // ADR 0084 Decision 3, packet 012: a saved search is a page
+            // under Discover. The top app renders it in the detail column.
+            FrameNavigationEntry::SavedSearch { .. } => {
+                self.vm.set_active_destination(MusicDestination::Discover);
+                self.clear_detail();
             }
             // ADR 0084 Decision 6: the group page reads the tree at each
             // render.
@@ -4458,7 +4469,9 @@ impl LibraryApp {
         let mut action_bar: Option<AnyElement> = None;
         let content_list_pane = match self.vm.active_destination() {
             MusicDestination::Discover => {
-                let rows = self.vm.discover_view_rows();
+                let rows = self
+                    .vm
+                    .discover_view_rows(&self.saved_searches, self.open_saved_search);
                 render_library_discover_views_list(&rows, cx)
             }
             MusicDestination::Tracks | MusicDestination::NeedsAttention => {

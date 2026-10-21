@@ -16,7 +16,7 @@ use super::{
 
 /// Recorded Library facts for the search rows.
 #[derive(Default)]
-struct RecordedLibrary {
+pub(super) struct RecordedLibrary {
     releases: BTreeMap<ReleaseKey, SearchLibraryRelease>,
     tracks: BTreeMap<TrackKey, SearchLibraryTrack>,
     artist_feeds: BTreeSet<String>,
@@ -88,7 +88,7 @@ fn artist(id: SearchResultItemId, label: &str) -> ArtistResultDisplay {
 }
 
 /// An Index release row, as `fetch_index_search_result_rows` builds it.
-fn index_release(
+pub(super) fn index_release(
     id: SearchResultItemId,
     guid: &str,
     label: &str,
@@ -105,7 +105,7 @@ fn index_release(
 }
 
 /// An Index track row, as `fetch_index_search_result_rows` builds it.
-fn index_track(
+pub(super) fn index_track(
     id: SearchResultItemId,
     feed_guid: Option<&str>,
     item_guid: &str,

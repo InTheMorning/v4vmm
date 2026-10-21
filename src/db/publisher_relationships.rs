@@ -1398,7 +1398,15 @@ mod tests {
 
         crate::db::migrate_schema_to(&conn, 20).unwrap();
 
-        assert_eq!(inspect_schema(&conn).unwrap(), SchemaCompatibility::Current);
+        // Migration 21 (ADR 0084 packet 012) follows, so version 20 is not
+        // current.
+        assert_eq!(
+            inspect_schema(&conn).unwrap(),
+            SchemaCompatibility::UpgradeRequired {
+                applied: 20,
+                current: MIGRATIONS.len()
+            }
+        );
         upgrades::verify_target(&conn, 20).unwrap();
         let name: String = conn
             .query_row(

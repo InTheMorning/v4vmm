@@ -123,6 +123,7 @@ fn breadcrumb_entry_id(entry: &FrameNavigationEntry) -> String {
     match entry {
         FrameNavigationEntry::Destination(destination) => destination_id(*destination),
         FrameNavigationEntry::DiscoverView(view) => discover_view_id(*view),
+        FrameNavigationEntry::SavedSearch { id, .. } => format!("saved-search-{}", id.0),
         FrameNavigationEntry::PlaylistDetail(id) => format!("playlist-{id}"),
         FrameNavigationEntry::Release(key) => release_key_id(key),
         FrameNavigationEntry::Track(key) => track_key_id(key),

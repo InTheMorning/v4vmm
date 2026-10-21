@@ -128,7 +128,7 @@ pub(crate) fn create_fixture(conn: &Connection, target: i64) -> anyhow::Result<(
         "Fixture database must be empty"
     );
     anyhow::ensure!(
-        matches!(target, 10..=20),
+        matches!(target, 10..=21),
         "Unsupported fixture schema target"
     );
     conn.pragma_update(None, "foreign_keys", true)?;

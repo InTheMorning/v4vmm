@@ -10,6 +10,7 @@ use super::WorkspaceModelError;
 use crate::view_models::artist_identity::{
     ArtistNameKey, ARTIST_NAME_ROW_MARK, ARTIST_ROW_SEPARATOR,
 };
+use crate::view_models::search_results::{saved_search_label, SavedSearchId};
 use crate::view_models::singles_group::SinglesGroupKey;
 
 /// A Music destination, in sidebar order (ADR 0084 Decision 2).
@@ -110,6 +111,10 @@ pub(crate) enum FrameNavigationEntry {
     /// A view of the Discover column, a page under the Discover
     /// destination (ADR 0084 Decision 3).
     DiscoverView(DiscoverView),
+    /// A saved search, a page under the Discover destination (ADR 0084
+    /// Decision 3, packet 012). The entry holds the query, so the page of
+    /// a deleted saved search can still name it.
+    SavedSearch { id: SavedSearchId, query: String },
     /// Playlist detail by playlist id.
     PlaylistDetail(i64),
     /// A release, keyed by its identity, whatever its origin (ADR 0084
@@ -156,6 +161,7 @@ impl FrameNavigationEntry {
         match self {
             Self::Destination(destination) => destination.label().to_string(),
             Self::DiscoverView(view) => view.label().to_string(),
+            Self::SavedSearch { query, .. } => saved_search_label(query),
             Self::PlaylistDetail(id) => format!("Playlist {id}"),
             // The top app gives the real title from the resolved data
             // source. This fallback shows only before that title is known.
@@ -505,6 +511,17 @@ impl FrameNavigationState {
     pub(crate) fn active_search_query(&self) -> Option<&str> {
         self.current.entries().find_map(|entry| match entry {
             FrameNavigationEntry::Search(query) => Some(query.as_str()),
+            _ => None,
+        })
+    }
+
+    /// Returns the saved search of the current location, when the path
+    /// holds a saved-search page (ADR 0084 Decision 3, packet 012). A page
+    /// that opens from the saved search keeps it.
+    #[must_use]
+    pub(crate) fn active_saved_search(&self) -> Option<SavedSearchId> {
+        self.current.entries().find_map(|entry| match entry {
+            FrameNavigationEntry::SavedSearch { id, .. } => Some(*id),
             _ => None,
         })
     }

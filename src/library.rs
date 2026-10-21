@@ -324,6 +324,13 @@ pub struct LibraryApp {
     /// The request to keep the focused Discover row or tile in view
     /// (packet 020). The Discover view scrolls with `recent_music_scroll`.
     discover_scroll_reveal: ScrollReveal,
+    /// The saved searches, in `id` order (ADR 0084 Decision 3, packet
+    /// 012). The app reads them at start, and again after each save and
+    /// each delete.
+    saved_searches: Vec<crate::view_models::search_results::SavedSearch>,
+    /// The saved search of the current location, for the open row of the
+    /// Discover column. The top app sets it at each render.
+    open_saved_search: Option<crate::view_models::search_results::SavedSearchId>,
 }
 
 pub(crate) struct PlaylistActorState {
@@ -339,6 +346,7 @@ mod download_queue;
 mod downloads;
 mod music_scopes;
 mod release_page;
+mod saved_searches;
 mod track_page;
 
 pub(crate) use app_impl::playlist_options;
