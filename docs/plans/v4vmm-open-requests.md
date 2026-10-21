@@ -27,7 +27,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 6 | A list of releases and of artists by name | API addition | Deployed in release 0.9.0 on 2026-10-18 |
 | 7 | The named feed rank and the release kind facts in each publisher relationship entry | API field addition | Deployed in release 0.11.0 on 2026-10-18, without `remote_release_kind` |
 | 8 | Each list row and each search row is complete | API rule and field additions | Deployed in release 0.12.0 on 2026-10-18 |
-| 9 | A named feed entry states its confirmation | API field, filter and include additions | Accepted on 2026-10-21 as Stophammer ADR 0076. Not built |
+| 9 | A named feed entry states its confirmation | API field, filter and include additions | Deployed in release 0.13.0 on 2026-10-21 |
 | 10 | Search accepts each query text | Search correction | Draft - 2026-10-21. The v4vmm operator reviews it first |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
@@ -181,7 +181,7 @@ Until then, packet 010 can use `GET /v1/artist-names?from=` to find the start of
 
 ### 9. A Named Feed Entry States Its Confirmation
 
-Status: Accepted - 2026-10-21 as Stophammer ADR 0076. Not built.
+Status: Deployed - 2026-10-21 in release 0.13.0 (Stophammer ADR 0076).
 
 **What happens.** Release 0.12.0 (Stophammer ADR 0071) gives the named feeds of each release row, a filter for the releases of a name row, and publisher feeds in search.
 v4vmm ADR 0084 packets 010 and 016 use these routes. Their authors found three gaps on 2026-10-20.
@@ -456,7 +456,7 @@ and some without. Such a name shows two times: one `publisher` row and one
 
 ## Stophammer Answers - 2026-10-21
 
-**Request 9.** The three gaps are correct. Stophammer [ADR 0076](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0076-a-named-feed-entry-states-its-confirmation.md) is Accepted on 2026-10-21. Its tasks 001 to 003 give the build. No release holds it now.
+**Request 9.** The three gaps are correct. Stophammer [ADR 0076](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0076-a-named-feed-entry-states-its-confirmation.md) is Accepted on 2026-10-21. Release 0.13.0 delivers it.
 
 The Stophammer review checked the live API on 2026-10-21, revision `056199b`. The first 200 rows of `GET /v1/feeds/by-name?include=named_feeds` gave 188 entries. 185 entries name a held feed through a confirmed link. 1 entry is a link that only the album states: "2 Die" names SOD at rank 1. 2 entries name a feed that the node does not hold. 12 rows gave an empty list.
 
@@ -468,6 +468,17 @@ The Stophammer review checked the live API on 2026-10-21, revision `056199b`. Th
 One statement of the request is not correct. The filter of item 2 is not the list of `first_named_count` (ADR 0071 §1b). That count includes only confirmed links at rank 1. A confirmed link is two-way, so `GET /v1/feeds/{guid}?include=publisher` already lists each one. The filter gives more: each rank, and the links that only the album states.
 
 Item 2 is also the reverse album list of the section "Deferred, Not Requested Now". That item is now requested, and this document removes it from that section.
+
+## Release 0.13.0 - 2026-10-21
+
+Release 0.13.0 delivers request 9 (Stophammer ADR 0076). `GET /node/info` gives `git_revision` `b00f529`. The checks on the live API on 2026-10-21:
+
+- With `include=named_feeds`, each entry gives `two_way_validated`. On the first 50 rows of `GET /v1/feeds/by-name`, 48 entries give it, and 47 of them are `true`.
+- `GET /v1/feeds/by-name` and `GET /v1/feeds/recent` with `named_feed_guid=7513ecb9-19e7-4df0-98e3-e13909e09533` each give 50 rows and `has_more` true. Each row names that feed. With `medium=publisher` or with `artist_key`, the route gives `400`.
+- `GET /v1/search?q=Libre&type=publisher&include=link_facts` gives Sir Libre Records and "Kolomona Myer - AKA Sir Libre". The five values of each row are the same as the values of the same feed in `GET /v1/feeds/by-name?medium=publisher&include=link_facts`. Without the include, the rows give no link facts.
+- `GET /v1/node/capabilities` gives `include_params.search` with `link_facts`.
+
+The two visual criteria of ADR 0076 are for the v4vmm operator: a group of Index singles holds each single of the feed on its first page, and the search shows a label feed apart from the artist feeds.
 
 ## Release 0.12.0 - 2026-10-18
 
