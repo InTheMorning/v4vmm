@@ -27,7 +27,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 6 | A list of releases and of artists by name | API addition | Deployed in release 0.9.0 on 2026-10-18 |
 | 7 | The named feed rank and the release kind facts in each publisher relationship entry | API field addition | Deployed in release 0.11.0 on 2026-10-18, without `remote_release_kind` |
 | 8 | Each list row and each search row is complete | API rule and field additions | Deployed in release 0.12.0 on 2026-10-18 |
-| 9 | A named feed entry states its confirmation | API field, filter and include additions | Answered on 2026-10-21. Stophammer ADR 0076 is Proposed |
+| 9 | A named feed entry states its confirmation | API field, filter and include additions | Accepted on 2026-10-21 as Stophammer ADR 0076. Not built |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -180,7 +180,7 @@ Until then, packet 010 can use `GET /v1/artist-names?from=` to find the start of
 
 ### 9. A Named Feed Entry States Its Confirmation
 
-Status: Answered - 2026-10-21. Stophammer ADR 0076 is Proposed.
+Status: Accepted - 2026-10-21 as Stophammer ADR 0076. Not built.
 
 **What happens.** Release 0.12.0 (Stophammer ADR 0071) gives the named feeds of each release row, a filter for the releases of a name row, and publisher feeds in search.
 v4vmm ADR 0084 packets 010 and 016 use these routes. Their authors found three gaps on 2026-10-20.
@@ -443,7 +443,7 @@ and some without. Such a name shows two times: one `publisher` row and one
 
 ## Stophammer Answers - 2026-10-21
 
-**Request 9.** The three gaps are correct. Stophammer [ADR 0076](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0076-a-named-feed-entry-states-its-confirmation.md) is Proposed. It gives the decision. No release holds it now.
+**Request 9.** The three gaps are correct. Stophammer [ADR 0076](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0076-a-named-feed-entry-states-its-confirmation.md) is Accepted on 2026-10-21. Its tasks 001 to 003 give the build. No release holds it now.
 
 The Stophammer review checked the live API on 2026-10-21, revision `056199b`. The first 200 rows of `GET /v1/feeds/by-name?include=named_feeds` gave 188 entries. 185 entries name a held feed through a confirmed link. 1 entry is a link that only the album states: "2 Die" names SOD at rank 1. 2 entries name a feed that the node does not hold. 12 rows gave an empty list.
 
