@@ -93,6 +93,11 @@ pub(crate) struct FeedResultDisplay {
     pub(crate) label: String,
     /// Secondary row text.
     pub(crate) secondary_text: String,
+    /// The parts of the secondary text, for example the artist and the
+    /// track count. The search list joins them after the kind of the
+    /// release (walk of 2026-10-21). Empty when the row gives only
+    /// `secondary_text`.
+    pub(crate) secondary_parts: Vec<String>,
     /// Optional thumbnail URL or href.
     pub(crate) thumbnail_href: Option<String>,
     /// Accessibility label for the row.
@@ -140,6 +145,7 @@ impl FeedResultDisplay {
             a11y_label: format!("Feed: {label}"),
             label,
             secondary_text: String::new(),
+            secondary_parts: Vec::new(),
             thumbnail_href: None,
             origin,
             remote_feed: None,
@@ -163,6 +169,17 @@ impl FeedResultDisplay {
     #[must_use]
     pub(crate) fn with_secondary_text(mut self, value: impl Into<String>) -> Self {
         self.secondary_text = value.into();
+        self
+    }
+
+    /// Returns this display with the parts of its secondary text. The
+    /// secondary text joins the parts with " - ". The search list joins
+    /// them with " · " after the kind of the release (walk of
+    /// 2026-10-21).
+    #[must_use]
+    pub(crate) fn with_secondary_parts(mut self, parts: Vec<String>) -> Self {
+        self.secondary_text = parts.join(" - ");
+        self.secondary_parts = parts;
         self
     }
 
@@ -547,19 +564,17 @@ impl LocalFeedResult {
     }
 
     fn into_display(self) -> (SearchResultItemId, FeedResultDisplay) {
-        let secondary = format!(
-            "{} - {} track{}",
+        let secondary = vec![
             self.artist_name,
-            self.track_count,
-            plural(self.track_count)
-        );
+            format!("{} track{}", self.track_count, plural(self.track_count)),
+        ];
         let thumbnail_href = self.album_image_href.or(self.track_image_href);
         let mut display = FeedResultDisplay::new(
             self.feed_id.to_string(),
             self.title,
             SearchResultOrigin::Library,
         )
-        .with_secondary_text(secondary)
+        .with_secondary_parts(secondary)
         .with_release_key(self.key, ReleaseKind::resolve(None, self.track_count));
         if let Some(thumbnail_href) = thumbnail_href {
             display = display.with_thumbnail_href(thumbnail_href);

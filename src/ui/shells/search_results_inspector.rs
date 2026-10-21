@@ -167,7 +167,7 @@ pub(crate) fn render_search_results_inspector(
     let body = if let Some(empty) = vm.empty_state() {
         render_empty_state(empty, slots.failure_action.as_ref(), cx)
     } else {
-        render_active_result_list(tab, vm.is_index_loading(), slots, cx)
+        render_active_result_list(tab, vm.is_index_loading(), vm.index_notice(), slots, cx)
     };
 
     div()
@@ -395,10 +395,13 @@ fn detail_metadata_row(label: &str, value: &str, cx: &App) -> AnyElement {
 }
 
 /// The rows of the active tab. While the `MusicIndex` results load and the
-/// tab has no row, three rows wait.
+/// tab has no row, three rows wait. `index_notice` is the note of the
+/// Index part after the rows, when the view model gives one (walk of
+/// 2026-10-21).
 fn render_active_result_list(
     tab: SearchResultsTab,
     index_loading: bool,
+    index_notice: Option<&EmptyStateDisplay>,
     slots: &SearchResultsInspectorSlots,
     cx: &App,
 ) -> AnyElement {
@@ -422,6 +425,14 @@ fn render_active_result_list(
             })
             .collect()
     };
+    let notice = index_notice.map(|notice| {
+        div().pt(Spacing::MD.scaled(cx)).child(empty_state_content(
+            notice,
+            LabelVariant::Caption,
+            slots.failure_action.as_ref(),
+            cx,
+        ))
+    });
     let container = div()
         .id(SharedString::from(format!(
             "search-results-{tab_slug}-rows"
@@ -436,7 +447,8 @@ fn render_active_result_list(
         .child(
             page_scroll_content(cx)
                 .gap(Spacing::XXS.scaled(cx))
-                .children(children),
+                .children(children)
+                .children(notice),
         );
     music_column_scrollbar(
         container,
@@ -449,6 +461,33 @@ fn render_empty_state(
     on_failure: Option<&FailureHandler>,
     cx: &App,
 ) -> AnyElement {
+    let content = empty_state_content(empty, LabelVariant::Headline, on_failure, cx);
+    let container = div()
+        .id("search-results-notice")
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
+        .items_center()
+        .p(Spacing::MD.scaled(cx))
+        .child(
+            page_scroll_content(cx)
+                .w_full()
+                .items_center()
+                .child(content),
+        );
+    music_column_scrollbar(container, "search-results-notice-scrollbar")
+}
+
+/// The title, the text, the failure actions and the open report of one
+/// notice. The empty state and the note of the Index part share it.
+fn empty_state_content(
+    empty: &EmptyStateDisplay,
+    title_variant: LabelVariant,
+    on_failure: Option<&FailureHandler>,
+    cx: &App,
+) -> gpui::Div {
     let mut content = div()
         .w_full()
         .max_w(Size::NoticeWidth.scaled(cx))
@@ -457,7 +496,7 @@ fn render_empty_state(
         .flex_col()
         .flex_shrink_0()
         .gap(Spacing::MD.scaled(cx))
-        .child(Label::new(empty.title.clone()).variant(LabelVariant::Headline))
+        .child(Label::new(empty.title.clone()).variant(title_variant))
         .child(
             MultilineText::new(empty.secondary.clone())
                 .max_lines(usize::MAX)
@@ -498,23 +537,7 @@ fn render_empty_state(
             );
         }
     }
-
-    let container = div()
-        .id("search-results-notice")
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h_0()
-        .min_w_0()
-        .items_center()
-        .p(Spacing::MD.scaled(cx))
-        .child(
-            page_scroll_content(cx)
-                .w_full()
-                .items_center()
-                .child(content),
-        );
-    music_column_scrollbar(container, "search-results-notice-scrollbar")
+    content
 }
 
 const fn entity_kind_for_index_detail(kind: IndexDetailKind) -> EntityKind {

@@ -157,6 +157,10 @@ pub enum CommandError {
     Playback(String),
     /// Query refresh required by a command failed.
     Query(String),
+    /// The service did not accept the query text: an HTTP `400` reply to a
+    /// search (walk of 2026-10-21). The service is available, so the app
+    /// retains no action. The text is the reply of the service.
+    QueryRejected(String),
     /// ADR 0075 preserves an ordinary query failure and its committed receipts.
     ObservedQueryFailure(Arc<ObservedQueryFailure>),
     /// ADR 0075 preserves an ordinary command failure and its committed receipts.
@@ -180,6 +184,7 @@ impl fmt::Display for CommandError {
             Self::Metadata(message) => write!(f, "metadata command failed: {message}"),
             Self::Playback(message) => write!(f, "playback command failed: {message}"),
             Self::Query(message) => write!(f, "query refresh failed: {message}"),
+            Self::QueryRejected(message) => write!(f, "the service did not accept the query: {message}"),
             Self::ObservedQueryFailure(failure) => write!(f, "query refresh failed: {}", failure.message()),
             Self::ObservedCommandFailure(failure) => failure.cause().fmt(f),
             Self::ObservationWriteFailure(failure) => failure.fmt(f),

@@ -82,6 +82,23 @@ impl SearchRowBadge {
     }
 }
 
+/// The place of the kind of a release row (walk of 2026-10-21, operator
+/// decision). The view model decides it from the column of the page.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ReleaseKindPlacement {
+    /// The search list in the list column: the kind is the first word of
+    /// the second line, for example `Album · HeyCitizen · 19 tracks`. The
+    /// row has no badge, so the title has the width of the column.
+    Subtitle,
+    /// The saved-search page in the detail column (packet 012): the kind
+    /// is a badge at the trailing edge.
+    Badge,
+}
+
+/// The separator of the parts of the second line of a release row in the
+/// search list.
+const SEARCH_LIST_SUBTITLE_SEPARATOR: &str = " \u{b7} ";
+
 /// One visible search row. The shell lays it out and makes no text.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SearchResultRowVm {
@@ -108,25 +125,49 @@ pub(crate) struct SearchResultRowVm {
 }
 
 /// The visible row of a release result.
+/// `placement` puts the kind in the second line or in the badge.
 pub(super) fn release_row_vm(
     row: &FeedResultDisplay,
     lookup: &dyn SearchLibraryLookup,
     selection: &DetailSelection,
+    placement: ReleaseKindPlacement,
 ) -> SearchResultRowVm {
     let library = row.key.as_ref().and_then(|key| lookup.release(key));
     let kind = library.as_ref().map_or(row.kind, |library| library.kind);
     let key = row.key.clone().map(DetailRowKey::Release);
+    let (secondary_text, badge) = match placement {
+        ReleaseKindPlacement::Subtitle => (list_subtitle(kind, row), None),
+        ReleaseKindPlacement::Badge => (
+            row.secondary_text.clone(),
+            Some(SearchRowBadge::Release(kind)),
+        ),
+    };
     SearchResultRowVm {
         id: row.id.clone(),
         label: row.label.clone(),
-        secondary_text: row.secondary_text.clone(),
+        secondary_text,
         thumbnail_href: row.thumbnail_href.clone(),
         a11y_label: row.a11y_label.clone(),
         state_word: library.map(|library| library.state_word),
-        badge: Some(SearchRowBadge::Release(kind)),
+        badge,
         selection: selection.row_selection(key.as_ref(), &row.label),
         key,
     }
+}
+
+/// The second line of a release row in the search list: the kind, then
+/// each part of the row, with one separator. A row with no parts uses its
+/// secondary text as one part.
+fn list_subtitle(kind: ReleaseKind, row: &FeedResultDisplay) -> String {
+    let mut parts = vec![kind.label().to_owned()];
+    if row.secondary_parts.is_empty() {
+        if !row.secondary_text.is_empty() {
+            parts.push(row.secondary_text.clone());
+        }
+    } else {
+        parts.extend(row.secondary_parts.iter().cloned());
+    }
+    parts.join(SEARCH_LIST_SUBTITLE_SEPARATOR)
 }
 
 /// The visible row of a track result.

@@ -85,6 +85,9 @@ Each entry names the step, the decision and the reason.
 
 - Walk fix, decided by the operator on 2026-10-21: in the list column, a search release row shows its kind as the first word of the subtitle, for example "Album · HeyCitizen · 19 tracks". The state word stays at the trailing edge. The saved search page in the detail column keeps the kind badge. ADR 0084 Decision 5 asks that each release show its kind, and both layouts do. Packet 010 records this as an amendment.
 
+- Walk fixes of 2026-10-21, decided by the orchestrator. A query counts as rejected only when each of the three search requests gets a `400` reply. Any other failure keeps the present report of an unavailable MusicIndex. When MusicIndex is unavailable and the tab has Library rows, the page shows no note. That behavior is older than the run, and the phase plan records it as an open finding.
+- The unit test `adr_0066_paged_actor_releases_its_exclusive_configured_connection` of `src/application/paged_track_list.rs` failed one time in a full run on 2026-10-21 and passed alone. The phase plan records it as an open finding.
+
 - Packet 012 decisions of the implementer, accepted by the orchestrator on 2026-10-21. The "New releases" row shows the Discover icon, so the labels of "New releases" and of each saved search start at the same position (Flag decision 2). An Index result writes the mounted saved-search page when the id and the query agree, so a result that arrives after the operator leaves the page is not lost (decision 9, corrected in the orchestrator review). "Save search" and "Delete…" are on the query row of the search header (decision 5).
 
 ## Steps

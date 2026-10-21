@@ -221,6 +221,16 @@ fn split_index_track_target(target: &str) -> (Option<&str>, &str) {
         })
 }
 
+/// Tells if a failed `MusicIndex` search retains its action for a retry
+/// after a setup check (ADR 0066). A query that `MusicIndex` did not
+/// accept, an HTTP `400` reply, retains no action: the service is
+/// available, and the operator must change the query (walk of
+/// 2026-10-21). A connection error, a timeout, a `5xx` reply and a bad
+/// endpoint retain the action.
+fn index_search_error_retains_action(error: &crate::application::CommandError) -> bool {
+    !matches!(error, crate::application::CommandError::QueryRejected(_))
+}
+
 impl TopApp {
     pub(super) fn submit_global_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let query = self.global_search_input.read(cx).value().to_string();
@@ -245,10 +255,19 @@ impl TopApp {
             .workspace_layout
             .open_search_results_in_content_list(query.clone())
         {
-            Ok(_) => {
+            Ok(content_list_id) => {
                 self.search_results_detail = Some(self.search_results_detail_for_query(&query, cx));
-                self.start_index_search_for_query(&query, cx);
-                cx.notify();
+                // ADR 0084 Decision 9, walk of 2026-10-21: a submitted search
+                // restores its page through the function that Back uses. The
+                // Library detail of the earlier page thus clears, and the
+                // detail column shows its empty state. The earlier entries
+                // stay in the stack for Back. The restore also starts the
+                // MusicIndex search of the query.
+                self.restore_content_list_nav_entry(
+                    content_list_id,
+                    &FrameNavigationEntry::Search(query),
+                    cx,
+                );
             }
             Err(e) => {
                 self.settings_status = format!("Error opening search results: {e}");
@@ -404,7 +423,7 @@ impl TopApp {
                             "App could not complete the original Index search: {error}"
                         )),
                     );
-                } else {
+                } else if index_search_error_retains_action(&error) {
                     let dependency = match error {
                         crate::application::CommandError::Unavailable(reason) => reason.dependency,
                         _ => Dependency::MusicIndex,
@@ -2076,6 +2095,22 @@ mod remote_detail_thumbnail_tests {
 
 #[cfg(test)]
 mod tests {
+    use super::index_search_error_retains_action;
+    use crate::application::CommandError;
+
+    /// Walk of 2026-10-21: an HTTP `400` reply to the search retains no
+    /// action. Each other failure keeps the retained action of ADR 0066.
+    #[test]
+    fn adr_0084_search_list_rejected_query_retains_no_action() {
+        assert!(!index_search_error_retains_action(
+            &CommandError::QueryRejected("GET failed with HTTP 400 Bad Request".into())
+        ));
+        assert!(index_search_error_retains_action(&CommandError::Query(
+            "GET failed with HTTP 503 Service Unavailable".into()
+        )));
+        assert!(index_search_error_retains_action(&CommandError::Cancelled));
+    }
+
     /// R5-05: each completed search download requests one tag update scan.
     /// No GPUI test drives `TopApp`, so the test reads the success code of
     /// each search download. Packet 022 (ADR 0084 Decision 10) moved the

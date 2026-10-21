@@ -1160,6 +1160,36 @@ fn open_search_results_in_content_list_replaces_current_search_nav() {
     );
 }
 
+/// ADR 0084 Decisions 2 and 9, walk of 2026-10-21: a new search after a
+/// release page of an earlier search starts a path with the search page
+/// only. The release page is not in the new path, so the detail column
+/// shows no page of the earlier search. Back returns to the release page.
+#[test]
+fn adr_0084_search_list_new_search_keeps_no_page_of_the_earlier_search() {
+    let mut layout = WorkspaceLayout::default_layout();
+    let content_list_id = WorkspaceFrameId::new(2);
+    let release = FrameNavigationEntry::Release(ReleaseKey::FeedGuid("haleen-music".to_string()));
+
+    layout
+        .open_search_results_in_content_list("haleen")
+        .expect("should open the first search");
+    layout
+        .push_nav(content_list_id, release.clone())
+        .expect("should open the release page");
+    layout
+        .open_search_results_in_content_list("survival guide")
+        .expect("should open the second search");
+
+    let nav = layout
+        .frame_nav(content_list_id)
+        .expect("ContentList should have navigation state");
+    let search = FrameNavigationEntry::Search("survival guide".to_string());
+    assert_eq!(nav.current(), &search);
+    assert_eq!(nav.path_entries(), vec![search]);
+    assert_eq!(nav.active_search_query(), Some("survival guide"));
+    assert_eq!(back_page(nav), Some(release));
+}
+
 #[test]
 fn open_search_results_in_content_list_replaces_search_ancestor_nav() {
     let mut layout = WorkspaceLayout::default_layout();

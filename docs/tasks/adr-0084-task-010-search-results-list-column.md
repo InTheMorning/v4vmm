@@ -428,6 +428,22 @@ The orchestrator also recorded these points:
 - The open findings of the phase plan: the search list does not scroll a focused row into view, and a feed row shows no level word until Stophammer request 9 item C.
 - The row id `index-track:<feed>:<track>` splits on its first colon. A track with no feed GUID and a GUID with a colon, for example `urn:uuid:x`, thus opens a wrong key. The code had this defect before this packet. The phase plan records it.
 
+## Walk Fixes - 2026-10-21
+
+The operator found these defects in the walk of 2026-10-21. Each fix is at its owner, and each fix has a unit test or a guard.
+
+- Image fix, commit `e495bdd`: each Library release row, track row and artist feed row of the search shows its image, in the order of the Library lists.
+- Fix 1, operator decision of 2026-10-21: in the list column, a release row shows its kind as the first word of its second line, for example "Album · HeyCitizen · 19 tracks". The state word stays at the trailing edge, and the row shows no kind badge.
+  `ReleaseKindPlacement` decides this in the view model, and the saved-search page of packet 012 keeps the kind badge.
+  - Test: `adr_0084_search_list_release_kind_is_the_first_word_of_the_subtitle`.
+- Fix 2: a new search kept the release page of the earlier search in the detail column, because the submit did not clear the Library detail.
+  Now the submit restores the search page through `restore_content_list_nav_entry`, the function that Back uses. Back still returns to the earlier pages.
+  - Guard: `adr_0084_search_list_submit_restores_through_the_back_path`.
+  - Test: `adr_0084_search_list_new_search_keeps_no_page_of_the_earlier_search`.
+- Fix 3: an HTTP `400` reply was an availability error, because the reply status was only in the error text.
+  Now `HttpStatusError` keeps the status, and a `400` reply to each search request gives `CommandError::QueryRejected`. The app retains no action, and the Index part shows a note that names the query.
+  - Tests: `adr_0084_search_list_http_400_is_a_rejected_query`, `adr_0084_search_list_rejected_query_retains_no_action` and `adr_0084_search_list_rejected_query_shows_a_note_with_the_library_rows`.
+
 ## Operator Visual Check
 
 The visual checks V1 to V7 are open. The operator walks them in the final walk of the run of 2026-10-20.

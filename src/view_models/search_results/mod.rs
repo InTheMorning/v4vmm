@@ -38,8 +38,8 @@ pub(crate) use results::{
     SearchResultTarget, TrackResultDisplay, INDEX_FEED_PAGE_RESULT_PREFIX,
 };
 pub(crate) use rows::{
-    SearchLibraryLookup, SearchLibraryRelease, SearchLibraryTrack, SearchResultRowVm,
-    SearchRowBadge,
+    ReleaseKindPlacement, SearchLibraryLookup, SearchLibraryRelease, SearchLibraryTrack,
+    SearchResultRowVm, SearchRowBadge,
 };
 pub(crate) use saved_search::{
     delete_saved_search_confirmation, location_after_saved_search_delete, save_search_action,
@@ -230,9 +230,26 @@ impl SearchResultsInspectorPageVm {
         observed_at: std::time::SystemTime,
     ) {
         self.index_loading = false;
-        let failure = failure::SearchFailureDisplay::new(error, endpoint, observed_at);
-        let mut empty =
-            EmptyStateDisplay::new("MusicIndex search unavailable", failure.summary.clone());
+        // Walk of 2026-10-21: an HTTP `400` reply is a query error, not an
+        // availability error.
+        let (title, failure) =
+            if matches!(error, crate::application::CommandError::QueryRejected(_)) {
+                (
+                    failure::QUERY_REJECTED_TITLE,
+                    failure::SearchFailureDisplay::query_rejected(
+                        &self.query,
+                        error,
+                        endpoint,
+                        observed_at,
+                    ),
+                )
+            } else {
+                (
+                    "MusicIndex search unavailable",
+                    failure::SearchFailureDisplay::new(error, endpoint, observed_at),
+                )
+            };
+        let mut empty = EmptyStateDisplay::new(title, failure.summary.clone());
         empty.failure = Some(failure);
         self.index_error = Some(empty);
         self.refresh_empty_state();
@@ -311,6 +328,23 @@ impl SearchResultsInspectorPageVm {
         self.empty_state.as_ref()
     }
 
+    /// The note of the Index part under the rows of the active tab (walk of
+    /// 2026-10-21). It shows when the tab has rows, for example Library
+    /// rows, and `MusicIndex` did not accept the query. A tab with no rows
+    /// shows the same note as its empty state.
+    #[must_use]
+    pub(crate) fn index_notice(&self) -> Option<&EmptyStateDisplay> {
+        if self.is_empty(self.tab) {
+            return None;
+        }
+        self.index_error.as_ref().filter(|notice| {
+            notice
+                .failure
+                .as_ref()
+                .is_some_and(failure::SearchFailureDisplay::is_query_rejected)
+        })
+    }
+
     /// Returns the visible row thumbnail hrefs of the active tab.
     #[must_use]
     pub(crate) fn thumbnail_hrefs(&self) -> Vec<String> {
@@ -337,7 +371,14 @@ impl SearchResultsInspectorPageVm {
                 .releases
                 .rows()
                 .iter()
-                .map(|row| rows::release_row_vm(row, lookup, &self.selection))
+                .map(|row| {
+                    rows::release_row_vm(
+                        row,
+                        lookup,
+                        &self.selection,
+                        self.release_kind_placement(),
+                    )
+                })
                 .collect(),
             SearchResultsTab::Artists => self
                 .artists
@@ -351,6 +392,17 @@ impl SearchResultsInspectorPageVm {
                 .iter()
                 .map(|row| rows::track_row_vm(row, lookup, &self.selection))
                 .collect(),
+        }
+    }
+
+    /// The place of the kind of a release row (walk of 2026-10-21). The
+    /// toolbar search in the list column puts the kind in the second line.
+    /// The saved-search page in the detail column keeps the kind badge.
+    #[must_use]
+    pub(crate) const fn release_kind_placement(&self) -> ReleaseKindPlacement {
+        match self.entry {
+            FrameNavigationEntry::SavedSearch { .. } => ReleaseKindPlacement::Badge,
+            _ => ReleaseKindPlacement::Subtitle,
         }
     }
 

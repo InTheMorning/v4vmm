@@ -232,10 +232,77 @@ fn adr_0084_search_list_r10_02_one_release_row_for_each_item() {
     assert_eq!(rows[1].id, "index-feed:g-index");
     assert_eq!(rows[1].state_word, None);
     assert_eq!(
-        rows[1].badge,
+        rows[1].badge, None,
+        "the list column shows the kind in the second line"
+    );
+    assert_eq!(rows[1].secondary_text, "Album");
+    assert!(rows.iter().all(|row| !row.secondary_text.contains("Index")));
+}
+
+/// Walk of 2026-10-21, operator decision: in the list column, a release row
+/// shows its kind as the first word of the second line, with one separator,
+/// and no kind badge. The state word stays. A track row does not change.
+/// The saved-search page in the detail column keeps the kind badge.
+#[test]
+fn adr_0084_search_list_release_kind_is_the_first_word_of_the_subtitle() {
+    let local = [
+        local_guid_track(10, 7, "g-library", "i1", "One"),
+        local_guid_track(11, 7, "g-library", "i2", "Two"),
+    ];
+    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks(
+        "haleen",
+        &local,
+        &super::ArtistSearchFacts::default(),
+    );
+    let (id, index_row) = index_release(2_000_000_001, "g-index", "Index Release");
+    let index_row = index_row.with_secondary_parts(vec!["HeyCitizen".into(), "19 tracks".into()]);
+    vm.replace_index_results(IndexSearchResultRows {
+        feeds: vec![(id, index_row)],
+        tracks: vec![index_track(3_000_000_000, Some("g-index"), "t1", "Track")],
+        ..no_index_rows()
+    });
+    let lookup = RecordedLibrary::default().with_release("g-library", 7, false, "Not downloaded");
+
+    assert_eq!(
+        vm.release_kind_placement(),
+        super::ReleaseKindPlacement::Subtitle
+    );
+    let list = rows(&vm, &lookup);
+    assert_eq!(
+        list[0].secondary_text,
+        "Album \u{b7} Haleen \u{b7} 2 tracks"
+    );
+    assert_eq!(list[0].state_word.as_deref(), Some("Not downloaded"));
+    assert_eq!(list[0].badge, None);
+    assert_eq!(
+        list[1].secondary_text,
+        "Album \u{b7} HeyCitizen \u{b7} 19 tracks"
+    );
+    assert_eq!(list[1].state_word, None, "an Index row shows no state word");
+    assert_eq!(list[1].badge, None);
+
+    vm.set_tab(SearchResultsTab::Tracks);
+    let tracks = rows(&vm, &lookup);
+    assert_eq!(tracks[0].badge, None, "a track row shows no badge");
+    assert!(!tracks[0].secondary_text.starts_with("Album"));
+
+    let saved = super::SavedSearch {
+        id: super::SavedSearchId(1),
+        query: "haleen".to_owned(),
+        start_tab: SearchResultsTab::Releases,
+    };
+    let detail = vm.into_saved_search(&saved);
+    assert_eq!(
+        detail.release_kind_placement(),
+        super::ReleaseKindPlacement::Badge
+    );
+    let detail_rows = rows(&detail, &lookup);
+    assert_eq!(detail_rows[0].secondary_text, "Haleen - 2 tracks");
+    assert_eq!(
+        detail_rows[0].badge,
         Some(SearchRowBadge::Release(ReleaseKind::Album))
     );
-    assert!(rows.iter().all(|row| !row.secondary_text.contains("Index")));
+    assert_eq!(detail_rows[1].secondary_text, "HeyCitizen - 19 tracks");
 }
 
 /// The merge part of R10-02, for the row image: a Library release row with
@@ -850,6 +917,72 @@ fn index_error_surfaces_when_the_tab_has_no_rows() {
     assert!(empty
         .secondary
         .contains("App could not get search results from MusicIndex."));
+}
+
+/// Walk of 2026-10-21: an HTTP `400` reply to the search is a query error.
+/// The Library rows stay, and the Index part shows a note that names the
+/// query. The note names no endpoint and no connection. "Show details"
+/// keeps the redacted reply of the server. A connection error gives no
+/// note under the rows, as before.
+#[test]
+fn adr_0084_search_list_rejected_query_shows_a_note_with_the_library_rows() {
+    use super::SearchFailureAction;
+    let local = [local_guid_track(10, 7, "g-library", "i1", "One")];
+    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks(
+        "haleen'",
+        &local,
+        &super::ArtistSearchFacts::default(),
+    );
+    vm.mark_index_loading();
+    vm.set_index_error(
+        &crate::application::CommandError::QueryRejected(
+            "feed search failed: GET failed with HTTP 400 Bad Request: {\"error\":\"invalid search query: SQLite error: fts5: syntax error near \\\"'\\\"\"} (https://user:secret@index.test/v1/search)".into(),
+        ),
+        "https://user:secret@index.test",
+        std::time::SystemTime::UNIX_EPOCH,
+    );
+    let lookup = RecordedLibrary::default();
+    assert_eq!(rows(&vm, &lookup).len(), 1, "the Library row stays");
+    assert!(vm.empty_state().is_none());
+    let notice = vm.index_notice().expect("the Index part shows a note");
+    assert_eq!(notice.title, "MusicIndex did not accept the query");
+    assert_eq!(
+        notice.secondary,
+        "MusicIndex did not accept the query \"haleen'\". Change the query, then search again."
+    );
+    for forbidden in ["Edit endpoint", "Check your connection", "unavailable"] {
+        assert!(!notice.secondary.contains(forbidden), "{forbidden}");
+    }
+    let report = vm
+        .activate_failure_action(SearchFailureAction::CopyReport)
+        .expect("the report stays available");
+    assert!(report.contains("fts5: syntax error"));
+    assert!(!report.contains("secret"));
+
+    let mut no_rows = SearchResultsInspectorPageVm::new("haleen'");
+    no_rows.set_index_error(
+        &crate::application::CommandError::QueryRejected("HTTP 400".into()),
+        "https://index.test",
+        std::time::SystemTime::UNIX_EPOCH,
+    );
+    assert!(
+        no_rows.index_notice().is_none(),
+        "a tab with no rows shows the empty state"
+    );
+    let empty = no_rows
+        .empty_state()
+        .expect("the empty state shows the note");
+    assert_eq!(empty.title, "MusicIndex did not accept the query");
+
+    vm.set_index_error(
+        &crate::application::CommandError::Query("connection refused".into()),
+        "http://127.0.0.1:9",
+        std::time::SystemTime::UNIX_EPOCH,
+    );
+    assert!(
+        vm.index_notice().is_none(),
+        "a connection error keeps today's view"
+    );
 }
 
 #[test]

@@ -172,6 +172,7 @@ pub(super) fn command_error_detail(error: CommandError) -> String {
         | CommandError::Metadata(message)
         | CommandError::Playback(message)
         | CommandError::Query(message)
+        | CommandError::QueryRejected(message)
         | CommandError::Other(message) => message,
         CommandError::Cancelled => "command cancelled".to_string(),
     }

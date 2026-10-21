@@ -1332,10 +1332,47 @@ fn response_text_with_status(
 ) -> Result<String> {
     let body = response.text()?;
     if !status.is_success() {
-        return Err(anyhow!("{method} failed with HTTP {status}: {body}"));
+        return Err(HttpStatusError {
+            method: method.to_owned(),
+            status,
+            body,
+        }
+        .into());
     }
     Ok(body)
 }
+
+/// A `MusicIndex` reply with a status that is not a success. The text is
+/// the same as before this type: "GET failed with HTTP 400 Bad Request:
+/// <body>". A caller reads the status through `downcast_ref` (walk of
+/// 2026-10-21: a `400` reply to a search is a query error).
+#[derive(Debug)]
+pub(crate) struct HttpStatusError {
+    method: String,
+    status: StatusCode,
+    body: String,
+}
+
+impl HttpStatusError {
+    /// Tells if the server did not accept the request: HTTP `400 Bad
+    /// Request`.
+    #[must_use]
+    pub(crate) fn is_bad_request(&self) -> bool {
+        self.status == StatusCode::BAD_REQUEST
+    }
+}
+
+impl fmt::Display for HttpStatusError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{} failed with HTTP {}: {}",
+            self.method, self.status, self.body
+        )
+    }
+}
+
+impl std::error::Error for HttpStatusError {}
 
 #[cfg(test)]
 pub(crate) mod tests {

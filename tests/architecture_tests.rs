@@ -2907,6 +2907,31 @@ fn adr_0084_search_list_r10_08_feed_rows_open_the_feed_page() {
     );
 }
 
+/// Situational, ADR 0084 Decisions 2 and 9 (walk of 2026-10-21): a
+/// submitted toolbar search clears the detail column. Before this fix, a
+/// new search kept the Library release page of the earlier search in the
+/// detail column. The submit restores the search page through
+/// `restore_content_list_nav_entry`, the function that Back uses, so the
+/// Library detail clears. No unit test can reach `TopApp`, so this guard
+/// pins the call.
+#[test]
+fn adr_0084_search_list_submit_restores_through_the_back_path() {
+    let dispatch = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let open = source_between(
+        &dispatch,
+        "pub(super) fn open_search_results_in_content_list(",
+        "fn search_results_detail_for_query(",
+    );
+    assert!(
+        compact_source(open).contains(
+            "self.restore_content_list_nav_entry(content_list_id,&FrameNavigationEntry::Search(query),cx,);"
+        ),
+        "ADR 0084 Decision 9: `open_search_results_in_content_list` must restore the new search \
+         page through `restore_content_list_nav_entry`, so the detail column of the earlier \
+         search clears. Call it after the new search view model is set."
+    );
+}
+
 /// ADR 0084 Decision 8 (operator decision of 2026-10-16): the Music
 /// content-list tri-state filter control is deleted. This replaces
 /// `adr_0047_task_010a_content_list_page_vm_owns_filter_projection` and

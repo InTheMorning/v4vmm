@@ -28,14 +28,43 @@ pub(crate) struct SearchFailureActionDisplay {
     pub availability: SearchFailureAvailability,
 }
 
+/// The title of the Index part when `MusicIndex` did not accept the query
+/// text (walk of 2026-10-21).
+pub(super) const QUERY_REJECTED_TITLE: &str = "MusicIndex did not accept the query";
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SearchFailureDisplay {
     pub summary: String,
     report: String,
     expanded: bool,
+    /// `MusicIndex` did not accept the query text. The service is
+    /// available, so the summary names no endpoint and no connection.
+    query_rejected: bool,
 }
 
 impl SearchFailureDisplay {
+    /// The failure of a query that `MusicIndex` did not accept: an HTTP
+    /// `400` reply (walk of 2026-10-21). The summary tells the operator to
+    /// change the query. The report keeps the redacted reply of the
+    /// server.
+    pub(super) fn query_rejected(
+        query: &str,
+        error: &CommandError,
+        endpoint: &str,
+        observed_at: SystemTime,
+    ) -> Self {
+        let summary = format!(
+            "MusicIndex did not accept the query \"{query}\". Change the query, then search again."
+        );
+        Self::with_summary(summary, error, endpoint, observed_at, true)
+    }
+
+    /// Tells if `MusicIndex` did not accept the query text.
+    #[must_use]
+    pub(crate) const fn is_query_rejected(&self) -> bool {
+        self.query_rejected
+    }
+
     pub(super) fn new(error: &CommandError, endpoint: &str, observed_at: SystemTime) -> Self {
         let (summary, next) = match error {
             CommandError::Unavailable(reason) if reason.dependency == Dependency::BackgroundRuntime => (
@@ -60,6 +89,16 @@ impl SearchFailureDisplay {
             ),
         };
         let summary = format!("{summary}\nYour local library remains available.\n{next}");
+        Self::with_summary(summary, error, endpoint, observed_at, false)
+    }
+
+    fn with_summary(
+        summary: String,
+        error: &CommandError,
+        endpoint: &str,
+        observed_at: SystemTime,
+        query_rejected: bool,
+    ) -> Self {
         // Parse the configured address before displaying it; rejected values may
         // contain secrets. All report URLs share startup's redaction policy.
         let endpoint = endpoint_for_report(endpoint);
@@ -73,6 +112,7 @@ impl SearchFailureDisplay {
             summary,
             report,
             expanded: false,
+            query_rejected,
         }
     }
 

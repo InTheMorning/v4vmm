@@ -59,8 +59,7 @@ impl ApplicationCommand for FetchIndexSearchResults {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
-        let rows = fetch_index_search_result_rows(&self.endpoint, &self.query, &self.matches)
-            .map_err(|error| query_error(&error))?;
+        let rows = fetch_index_search_result_rows(&self.endpoint, &self.query, &self.matches)?;
         Ok(CommandOutcome::without_events(rows))
     }
 }
@@ -218,11 +217,15 @@ fn query_error(error: &anyhow::Error) -> CommandError {
     CommandError::Query(format!("{error:#}"))
 }
 
+/// A failure of all three requests is an error. When `MusicIndex`
+/// answered each request with HTTP `400`, it did not accept the query
+/// text, and the error is [`CommandError::QueryRejected`] (walk of
+/// 2026-10-21). Each other failure is [`CommandError::Query`].
 fn fetch_index_search_result_rows(
     endpoint: &crate::config::MusicIndexEndpoint,
     query: &str,
     matches: &NameFeedMatches,
-) -> Result<IndexSearchResultRows> {
+) -> Result<IndexSearchResultRows, CommandError> {
     let client = crate::api::Client::new_with_base_url(endpoint.clone());
     let mut rows = IndexSearchResultRows::default();
     let mut artists = BTreeMap::new();
@@ -239,9 +242,17 @@ fn fetch_index_search_result_rows(
     if let (Err(feed_error), Err(track_error), Err(publisher_error)) =
         (&feed_rows, &track_rows, &publisher_rows)
     {
-        return Err(anyhow!(
+        let message = format!(
             "feed search failed: {feed_error}; track search failed: {track_error}; publisher search failed: {publisher_error}"
-        ));
+        );
+        let rejected = [feed_error, track_error, publisher_error]
+            .into_iter()
+            .all(is_bad_request);
+        return Err(if rejected {
+            CommandError::QueryRejected(message)
+        } else {
+            query_error(&anyhow!(message))
+        });
     }
     if let Ok(feeds) = feed_rows {
         rows.feeds = feeds.rows;
@@ -257,6 +268,15 @@ fn fetch_index_search_result_rows(
         rows.artists.extend(feed_page_rows);
     }
     Ok(rows)
+}
+
+/// Tells if `MusicIndex` answered the request with HTTP `400`. A
+/// connection error, a timeout, a `5xx` reply or a bad endpoint is not a
+/// `400` reply.
+fn is_bad_request(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<crate::api::HttpStatusError>()
+        .is_some_and(crate::api::HttpStatusError::is_bad_request)
 }
 
 /// The feed rows of the Artists tab (packet 010 "The Artists tab", flow
@@ -537,12 +557,13 @@ fn index_feed_result_display(hit: &SearchResult) -> FeedResultDisplay {
         ReleaseKind::resolve(None, track_count),
     );
 
-    let secondary = count_parts([
+    // Walk of 2026-10-21: the search list joins the parts after the kind.
+    let secondary = present_parts([
         hit.release_artist.clone(),
         hit.episode_count.map(|count| count_label(count, "track")),
     ]);
     if !secondary.is_empty() {
-        display = display.with_secondary_text(secondary);
+        display = display.with_secondary_parts(secondary);
     }
     if let Some(image_url) = non_empty_string(hit.feed_image_url.clone()) {
         display = display.with_thumbnail_href(image_url);
@@ -809,11 +830,12 @@ fn count_label(count: i32, singular: &str) -> String {
 }
 
 fn count_parts<const N: usize>(parts: [Option<String>; N]) -> String {
-    parts
-        .into_iter()
-        .filter_map(non_empty_string)
-        .collect::<Vec<_>>()
-        .join(" - ")
+    present_parts(parts).join(" - ")
+}
+
+/// The parts that have text, in their order.
+fn present_parts<const N: usize>(parts: [Option<String>; N]) -> Vec<String> {
+    parts.into_iter().filter_map(non_empty_string).collect()
 }
 
 fn index_artist_name_matches_query(name: &str, query: &str) -> bool {
@@ -1745,6 +1767,41 @@ mod adr_0084_name_level_query_tests {
                 "missing {kind}. Got: {requests:?}"
             );
         }
+    }
+
+    /// Walk of 2026-10-21: when `MusicIndex` answers each search request
+    /// with HTTP `400`, the error is `QueryRejected`, with the reply of the
+    /// server. A `500` reply keeps the `Query` error of today. The query
+    /// text that the app sends does not change.
+    #[test]
+    fn adr_0084_search_list_http_400_is_a_rejected_query() {
+        let rejected =
+            r#"{"error":"invalid search query: SQLite error: fts5: syntax error near \"'\""}"#;
+        let (endpoint, requests) =
+            serve(3, Arc::new(move |_path: &str| (400, rejected.to_owned())));
+        let error = fetch_index_search_result_rows(
+            &endpoint.into(),
+            "haleen'",
+            &NameFeedMatches::default(),
+        )
+        .expect_err("each request failed");
+        let CommandError::QueryRejected(message) = error else {
+            panic!("a 400 reply is a rejected query. Got: {error:?}");
+        };
+        assert!(message.contains("HTTP 400 Bad Request"), "{message}");
+        assert!(message.contains("fts5: syntax error"), "{message}");
+        let requests = requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 3, "Got: {requests:?}");
+        assert!(
+            requests.iter().all(|path| path.contains("q=haleen%27")),
+            "the query text does not change. Got: {requests:?}"
+        );
+
+        let (endpoint, _requests) = serve(3, Arc::new(|_path: &str| (500, "{}".to_owned())));
+        let error =
+            fetch_index_search_result_rows(&endpoint.into(), "haleen", &NameFeedMatches::default())
+                .expect_err("each request failed");
+        assert!(matches!(error, CommandError::Query(_)), "Got: {error:?}");
     }
 
     /// R10-05, the failure part: a failure of the `type=publisher` request
