@@ -1,7 +1,9 @@
-//! The Library singles group page (ADR 0084 Decision 6).
+//! The singles group page (ADR 0084 Decision 6).
 //!
 //! The view model gives each text, the main action and its availability.
-//! This shell owns only the layout and the callbacks into `LibraryApp`.
+//! This shell owns only the layout and the callbacks into `LibraryApp`. A
+//! Library single shows as the shared Library track row, and a `MusicIndex`
+//! single shows as a release row (packet 026 decision D13).
 
 #![warn(clippy::pedantic)]
 
@@ -12,6 +14,16 @@ use gpui::{
     div, prelude::*, AnyElement, App, ClickEvent, Context, FocusHandle, FontWeight, Image,
     ScrollHandle, SharedString, Styled,
 };
+
+use crate::ui::composites::release_section_list::checkbox_state_for;
+use crate::ui::composites::{EntityKind, ListRow, ListRowA11yLabel, Thumbnail};
+use crate::ui::primitives::{Checkbox, LabelVariant};
+use crate::ui::shells::library::index_list_status::{
+    render_index_list_status_row, IndexListActions,
+};
+use crate::view_models::index_name_list::IndexListStatusRowVm;
+use crate::view_models::singles_group::{SinglesGroupIndexRowVm, SinglesGroupPageEntryVm};
+use crate::view_models::workspace::FrameNavigationEntry;
 
 use crate::db;
 use crate::library::{playlist_options, LibraryApp};
@@ -60,36 +72,14 @@ pub(crate) fn render_library_singles_group_page(
         subtitle,
         identity_note,
         rows,
+        index_status,
+        more_note,
         main_action,
         empty_message,
         art: _,
     } = page;
 
-    let mut heading = div()
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_w_0()
-        .gap(spacing::SM)
-        .child(
-            Label::new(title)
-                .size(FontSize::Title2)
-                .weight(FontWeight::SEMIBOLD),
-        );
-    if let Some(subtitle) = subtitle {
-        heading = heading.child(
-            Label::new(subtitle)
-                .size(FontSize::Caption)
-                .color(SemanticColor::SecondaryLabel),
-        );
-    }
-    if let Some(note) = identity_note {
-        heading = heading.child(
-            Label::new(note)
-                .size(FontSize::Caption)
-                .color(SemanticColor::TertiaryLabel),
-        );
-    }
+    let heading = render_heading(title, subtitle, identity_note);
     // ADR 0084 Decision 12: the header art of the group in the logo frame.
     let art = header_art
         .map(|image| CollectionArt::new(image, CollectionKind::SinglesGroup, ThumbnailSize::XXl));
@@ -125,8 +115,8 @@ pub(crate) fn render_library_singles_group_page(
         .iter()
         .zip(row_slots)
         .enumerate()
-        .map(|(index, (row, slot))| {
-            render_single_row(
+        .map(|(index, (row, slot))| match row {
+            SinglesGroupPageEntryVm::Library(row) => render_single_row(
                 row,
                 index,
                 mb_status,
@@ -136,7 +126,10 @@ pub(crate) fn render_library_singles_group_page(
                 detail_focus,
                 &dispatch,
                 cx,
-            )
+            ),
+            SinglesGroupPageEntryVm::Index(row) => {
+                render_index_single_row(row, album_thumbs, slot, cx)
+            }
         })
         .collect();
     content = content.child(
@@ -146,6 +139,7 @@ pub(crate) fn render_library_singles_group_page(
             .gap(spacing::XXS)
             .children(row_elements),
     );
+    content = content.children(render_index_part(index_status, more_note, cx));
 
     let container = div()
         .id("singles-group-page")
@@ -159,6 +153,72 @@ pub(crate) fn render_library_singles_group_page(
     // ADR 0084 packet 018: the page holds the scroll handle of the detail
     // column, so a key can keep the focused row in view.
     music_column_tracked_scrollbar(container, scroll, None)
+}
+
+/// The title, the subtitle and the identity note of a group page.
+fn render_heading(
+    title: String,
+    subtitle: Option<String>,
+    identity_note: Option<&'static str>,
+) -> gpui::Div {
+    let mut heading = div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w_0()
+        .gap(spacing::SM)
+        .child(
+            Label::new(title)
+                .size(FontSize::Title2)
+                .weight(FontWeight::SEMIBOLD),
+        );
+    if let Some(subtitle) = subtitle {
+        heading = heading.child(
+            Label::new(subtitle)
+                .size(FontSize::Caption)
+                .color(SemanticColor::SecondaryLabel),
+        );
+    }
+    if let Some(note) = identity_note {
+        heading = heading.child(
+            Label::new(note)
+                .size(FontSize::Caption)
+                .color(SemanticColor::TertiaryLabel),
+        );
+    }
+    heading
+}
+
+/// The rows after the single rows of a group page (packet 026 Part B): the
+/// loading row or the error row of the request for the `MusicIndex`
+/// singles of the feed, and the note that more releases exist (decision
+/// D11). The Library rows stay above them.
+fn render_index_part(
+    index_status: Option<IndexListStatusRowVm>,
+    more_note: Option<&'static str>,
+    cx: &mut Context<LibraryApp>,
+) -> Vec<AnyElement> {
+    let mut elements = Vec::new();
+    if let Some(status) = index_status {
+        elements.push(render_index_list_status_row(
+            status,
+            IndexListActions {
+                retry: LibraryApp::retry_singles_group_feed,
+                // The page shows no "Load more" row (decision D11).
+                load_more: None,
+            },
+            cx,
+        ));
+    }
+    if let Some(note) = more_note {
+        elements.push(
+            Label::new(note)
+                .size(FontSize::Caption)
+                .color(SemanticColor::TertiaryLabel)
+                .into_any_element(),
+        );
+    }
+    elements
 }
 
 /// The one main action of a group page: "Download n singles" or "Add to
@@ -179,13 +239,13 @@ fn render_main_action(
         row_a11y_label: _,
     } = action;
     match action {
-        SinglesGroupAction::DownloadSingles(feed_ids) => {
+        SinglesGroupAction::DownloadSingles(plan) => {
             UiButton::styled(MAIN_ACTION_ID, ControlStyle::Primary)
                 .label(label)
                 .a11y_label(a11y_label)
                 .disabled(!available)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                    this.download_library_feeds(&feed_ids, cx);
+                    this.download_release_plan(plan.clone(), cx);
                 }))
                 .into_any_element()
         }
@@ -248,4 +308,69 @@ fn render_single_row(
         dispatch,
         cx,
     )
+}
+
+/// One `MusicIndex` single row of a group page (packet 026 decision D13):
+/// the release image, the title and the date, with no state word. A click
+/// opens the release page of the single, or changes the selection in
+/// selection mode, as a release row of the feed page does.
+fn render_index_single_row(
+    row: &SinglesGroupIndexRowVm,
+    album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
+    slot: DetailRowSlot,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let thumbnail = row
+        .image_url
+        .as_deref()
+        .and_then(|url| album_thumbs.get(url))
+        .and_then(Clone::clone);
+    // Column text does not call `truncate()` (ADR 0063,
+    // docs/troubleshooting/column-text-truncation.md). `overflow_hidden()`
+    // is the required mitigation for text stacked in a flex column.
+    let mut text_block = div()
+        .flex()
+        .flex_col()
+        .min_w_0()
+        .overflow_hidden()
+        .gap(spacing::XXS)
+        .child(Label::new(row.title.clone()).variant(LabelVariant::Headline));
+    if let Some(date) = &row.date_text {
+        text_block = text_block.child(
+            Label::new(date.clone())
+                .variant(LabelVariant::Caption)
+                .color(SemanticColor::SecondaryLabel),
+        );
+    }
+    let DetailRowSlot { selection, probe } = slot;
+    let open_entry = FrameNavigationEntry::Release(row.key.clone());
+    let mut list_row = ListRow::new(SharedString::from(row.element_id.clone()))
+        .selected(selection.is_marked())
+        .focused(selection.focused)
+        .scroll_probe(probe);
+    if selection.checkbox_visible {
+        let toggle_entry = open_entry.clone();
+        list_row = list_row.checkbox(
+            Checkbox::new(
+                SharedString::from(row.checkbox_id.clone()),
+                checkbox_state_for(selection.check_state),
+            )
+            .a11y_label(selection.checkbox_a11y_label.clone())
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                cx.stop_propagation();
+                this.toggle_library_detail_row(&toggle_entry, cx);
+            }))
+            .into_any_element(),
+        );
+    }
+    list_row
+        .a11y_label(ListRowA11yLabel {
+            label: SharedString::from(row.a11y_label.clone()),
+        })
+        .on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
+            this.click_library_detail_row(&open_entry, event.modifiers(), cx);
+        }))
+        .child(Thumbnail::new(EntityKind::Release, ThumbnailSize::Sm).image(thumbnail))
+        .child(div().flex_1().min_w_0().child(text_block))
+        .into_any_element()
 }

@@ -29,7 +29,7 @@ use crate::view_models::search_results::{
 use crate::view_models::selection_action_bar::{
     PlaylistSelectionCounts, SelectionActionBarVm, SelectionActionCounts,
 };
-use crate::view_models::singles_group::SinglesGroupPageRowVm;
+use crate::view_models::singles_group::SinglesGroupPageEntryVm;
 use crate::view_models::workspace::{
     DiscoverView, FrameHeaderActionDisplay, FrameNavigationEntry, ReleaseKey, TrackKey,
 };
@@ -802,18 +802,24 @@ pub(crate) fn index_release_track_rows(
         .collect()
 }
 
-/// The rows of a singles group page. `facts` gives the Library facts of a
-/// release key.
+/// The rows of a singles group page: the Library rows and the `MusicIndex`
+/// rows, in page order (packet 026 decision D13). `facts` gives the
+/// Library facts of a release key.
 #[must_use]
 pub(crate) fn singles_group_release_rows(
-    rows: &[SinglesGroupPageRowVm],
+    rows: &[SinglesGroupPageEntryVm],
     facts: impl Fn(&ReleaseKey) -> Option<LibraryReleaseFacts>,
 ) -> Vec<DetailReleaseRow> {
     rows.iter()
         .map(|row| DetailReleaseRow {
-            key: row.key.clone(),
-            title: track_row_title(row.track.track_title.as_deref(), Some(&row.track.item_guid)),
-            library: facts(&row.key),
+            key: row.key().clone(),
+            title: match row {
+                SinglesGroupPageEntryVm::Library(row) => {
+                    track_row_title(row.track.track_title.as_deref(), Some(&row.track.item_guid))
+                }
+                SinglesGroupPageEntryVm::Index(row) => row.title.clone(),
+            },
+            library: facts(row.key()),
         })
         .collect()
 }
@@ -1218,12 +1224,14 @@ mod tests {
         assert_eq!(done.label, "Done");
         assert_eq!(done.a11y_label, "Done selecting tracks");
 
-        let group_rows = vec![SinglesGroupPageRowVm {
-            track: library_track(5, "s1", "Single", true),
-            date_text: None,
-            work: crate::view_models::library::TrackRowWork::Idle,
-            key: release_key("single-1"),
-        }];
+        let group_rows = vec![SinglesGroupPageEntryVm::Library(Box::new(
+            crate::view_models::singles_group::SinglesGroupPageRowVm {
+                track: library_track(5, "s1", "Single", true),
+                date_text: None,
+                work: crate::view_models::library::TrackRowWork::Idle,
+                key: release_key("single-1"),
+            },
+        ))];
         let group = DetailPageRows::Releases(singles_group_release_rows(&group_rows, |_| None));
         let group_action = detail_header_action(Some(&group), SelectionMode::Normal)
             .expect("a group page has the action");

@@ -3020,6 +3020,56 @@ fn adr_0084_index_singles_each_page_reads_the_library_feeds() {
     );
 }
 
+/// ADR 0084 packet 026 review: `select_album` sends the request for the
+/// `MusicIndex` singles of a Library single's artist feed (packet 026
+/// decision D14). A page open sends that request once. A reload that
+/// keeps the page open must call `refresh_album_detail` instead, so a
+/// failed request does not run again with no new page open. Before this
+/// fix, `refresh_selected_detail` and `show_downloaded_index_feed` both
+/// called `select_album` on every reload.
+#[test]
+fn adr_0084_index_singles_one_singles_request_for_each_page_open() {
+    let mut violations = Vec::new();
+
+    let search_dispatch = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let open_body =
+        adr_0084_detail_selection_fn_body(&search_dispatch, "fn apply_release_page_source(");
+    if !open_body.contains("library.select_album(&album, cx);") {
+        violations.push(
+            "src/app/search_dispatch.rs: `apply_release_page_source` must call \
+             `library.select_album(&album, cx)`, the one open path of a Library release page."
+                .to_owned(),
+        );
+    }
+    let download_body =
+        adr_0084_detail_selection_fn_body(&search_dispatch, "fn show_downloaded_index_feed(");
+    if download_body.contains("library.select_album(&album, cx);")
+        || !download_body.contains("library.refresh_album_detail(&album, cx);")
+    {
+        violations.push(
+            "src/app/search_dispatch.rs: `show_downloaded_index_feed` must call \
+             `library.refresh_album_detail(&album, cx)`, not `select_album`, so the end of a \
+             release download with the page already open sends no new singles request."
+                .to_owned(),
+        );
+    }
+
+    let app_impl = read_source(&manifest_path("src/library/app_impl.rs"));
+    let refresh_body = adr_0084_detail_selection_fn_body(&app_impl, "fn refresh_selected_detail(");
+    if refresh_body.contains("self.select_album(&album, cx);")
+        || !refresh_body.contains("self.refresh_album_detail(&album, cx);")
+    {
+        violations.push(
+            "src/library/app_impl.rs: `refresh_selected_detail` must call \
+             `self.refresh_album_detail(&album, cx)`, not `select_album`, so a reload with no \
+             new page open sends no new singles request."
+                .to_owned(),
+        );
+    }
+
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
 /// ADR 0084 Decision 8 (operator decision of 2026-10-16): the Music
 /// content-list tri-state filter control is deleted. This replaces
 /// `adr_0047_task_010a_content_list_page_vm_owns_filter_projection` and

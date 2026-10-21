@@ -19,11 +19,14 @@ use crate::view_models::index_name_list::{IndexListActionDisplay, IndexListStatu
 /// A `LibraryApp` action that a status row button runs.
 pub(crate) type IndexListAction = fn(&mut LibraryApp, &mut Context<LibraryApp>);
 
-/// The two actions of a status row: "Try again" and "Load more".
+/// The two actions of a status row: "Try again" and "Load more". A page
+/// with no "Load more" row, for example the group page of packet 026
+/// decision D11, gives `None` for `load_more` instead of a closure that
+/// does nothing.
 #[derive(Clone, Copy)]
 pub(crate) struct IndexListActions {
     pub(crate) retry: IndexListAction,
-    pub(crate) load_more: IndexListAction,
+    pub(crate) load_more: Option<IndexListAction>,
 }
 
 /// Renders one status row.
@@ -67,10 +70,16 @@ pub(crate) fn render_index_list_status_row(
             )
             .child(action_button(retry, actions.retry, cx))
             .into_any_element(),
-        IndexListStatusRowVm::LoadMore(load_more) => div()
-            .pt(spacing::SM)
-            .child(action_button(load_more, actions.load_more, cx))
-            .into_any_element(),
+        // A page with no "Load more" row sends no `LoadMore` status, so
+        // `actions.load_more` is always `Some` here. `None` renders no row,
+        // rather than a button with no action.
+        IndexListStatusRowVm::LoadMore(load_more) => match actions.load_more {
+            Some(action) => div()
+                .pt(spacing::SM)
+                .child(action_button(load_more, action, cx))
+                .into_any_element(),
+            None => div().into_any_element(),
+        },
     }
 }
 

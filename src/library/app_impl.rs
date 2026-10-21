@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use super::download_queue::{DownloadOutcome, JobIdentity};
-use super::downloads::index_release_job_by_guid;
 use super::PlaylistActorState;
 use super::{InspectorFrame, LazyPanel, LibraryApp, LibraryDetail, PlaylistDetail, ThumbnailState};
 use crate::app::keyboard::primary_modifier_held;
@@ -78,7 +77,6 @@ use crate::ui::tokens::Motion;
 use crate::view_models::artist_identity::{ArtistNameDestination, ArtistNameKey, NameFeedMatches};
 use crate::view_models::detail_selection::DetailSelection;
 use crate::view_models::entity_detail::TrackMetadataActionState;
-use crate::view_models::index_feed_singles::IndexFeedSingles;
 use crate::view_models::index_name_list::{IndexNameListPage, MusicListScope};
 use crate::view_models::library::{
     description_line_count, list_column_header_action, releases_disclosure_step, AlbumNode,
@@ -103,7 +101,9 @@ use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::release_page::TrackRowMenuAction;
 use crate::view_models::search_results::ArtistSearchFacts;
 use crate::view_models::selection_action_bar::{SelectionActionBarVm, SelectionActionKind};
-use crate::view_models::singles_group::{SinglesGroupKey, SinglesGroupPageVm};
+use crate::view_models::singles_group::{
+    SinglesGroupKey, SinglesGroupPageEntryVm, SinglesGroupPageVm,
+};
 use crate::view_models::track_detail::TrackNameLinkTarget;
 use crate::view_models::workspace::{
     resolve_music_sidebar_state, toggle_music_sidebar_preference, ContentViewMode,
@@ -685,8 +685,9 @@ impl LibraryApp {
         cx.notify();
     }
 
-    /// The name links of a release page with the link to the Library group
-    /// of a single, when the release `key` is in one (ADR 0084 Decision 6).
+    /// The name links of a release page with the link to the singles group
+    /// of a single, when the release `key` is in one (ADR 0084 Decision 6,
+    /// packet 026 decision D14).
     pub(crate) fn release_page_name_links(
         &self,
         base: Vec<crate::view_models::album_page::AlbumNameLinkVm>,
@@ -695,8 +696,8 @@ impl LibraryApp {
         self.vm.release_page_name_links(base, key)
     }
 
-    /// The page of a singles group, from the current tree (ADR 0084
-    /// Decision 6).
+    /// The page of a singles group, from the current tree and the loaded
+    /// `MusicIndex` singles (ADR 0084 Decision 6, packet 026 decision D12).
     pub(crate) fn singles_group_page(&self, key: &SinglesGroupKey) -> SinglesGroupPageVm {
         self.vm.singles_group_page(key)
     }
@@ -1074,7 +1075,6 @@ impl LibraryApp {
             artists_scope: MusicListScope::default(),
             artist_name_page: IndexNameListPage::default(),
             release_name_page: IndexNameListPage::default(),
-            index_feed_singles: IndexFeedSingles::default(),
             discover_scroll_reveal: ScrollReveal::new(recent_music_scroll.clone()),
             recent_music_scroll,
             expanded_singles_groups: BTreeSet::new(),
@@ -1481,7 +1481,10 @@ impl LibraryApp {
         if let LibraryDetail::Album(album) = &self.detail {
             if let Some(feed_id) = album.feed_id {
                 if let Some(album) = self.album_for_detail_by_feed_id(feed_id) {
-                    self.select_album(&album, cx);
+                    // Packet 026 review: this reload keeps the page open, so
+                    // it must not resend a failed request for the artist
+                    // feed's MusicIndex singles.
+                    self.refresh_album_detail(&album, cx);
                 }
                 return;
             }
@@ -2192,6 +2195,26 @@ impl LibraryApp {
     }
 
     pub(crate) fn select_album(&mut self, album: &AlbumNode, cx: &mut Context<Self>) {
+        self.mount_album(album, true, cx);
+    }
+
+    /// Mounts `album` as the Library detail again, for a reload that
+    /// keeps the page open. This covers a Library refresh
+    /// ([`Self::refresh_selected_detail`]) and the end of a release
+    /// download. It sends no request for the `MusicIndex` singles of the
+    /// artist feed. [`Self::select_album`] already sent that request
+    /// when the page opened. A failed request must not run again on
+    /// each reload with no new page open (packet 026 review).
+    pub(crate) fn refresh_album_detail(&mut self, album: &AlbumNode, cx: &mut Context<Self>) {
+        self.mount_album(album, false, cx);
+    }
+
+    /// Shared body of [`Self::select_album`] and
+    /// [`Self::refresh_album_detail`]. `request_singles` sends the request
+    /// for the `MusicIndex` singles of the artist feed of a Library single,
+    /// for "All n singles" (packet 026 decision D14), only on a genuine
+    /// page open (packet 026 review).
+    fn mount_album(&mut self, album: &AlbumNode, request_singles: bool, cx: &mut Context<Self>) {
         if let Some(feed_id) = album.feed_id {
             self.vm.select_library_item(feed_id);
         } else {
@@ -2212,6 +2235,9 @@ impl LibraryApp {
         }
         self.detail = LibraryDetail::Album(album.clone());
         self.hydrate_album_identity_on_view(&album, cx);
+        if request_singles {
+            self.request_library_single_feed(&album, cx);
+        }
         if let Some(feed_id) = album.feed_id {
             self.check_feed_on_view(feed_id, cx);
         }
@@ -2336,10 +2362,12 @@ impl LibraryApp {
                 self.clear_detail();
             }
             // ADR 0084 Decision 6: the group page reads the tree at each
-            // render.
+            // render. Packet 026 Part B: each open of the page reads the
+            // MusicIndex singles of its feed when the app has no result.
             FrameNavigationEntry::SinglesGroup(key) => {
                 self.vm.clear_library_selection();
                 self.detail = LibraryDetail::SinglesGroup(key.clone());
+                self.request_singles_group_feed(key, cx);
             }
             // ADR 0084 Decision 7: the top app renders the name level page,
             // as it renders the feed page.
@@ -4006,15 +4034,9 @@ impl LibraryApp {
                 let plan = self.vm.releases_download_plan(
                     &self.releases_selection,
                     &self.release_name_page,
-                    &self.index_feed_singles,
+                    self.vm.index_feed_singles(),
                 );
-                self.download_library_feeds(&plan.library_feed_ids, cx);
-                let index_jobs = plan
-                    .index_releases
-                    .into_iter()
-                    .map(|(feed_guid, title)| index_release_job_by_guid(feed_guid, title))
-                    .collect();
-                self.queue_downloads(index_jobs, cx);
+                self.download_release_plan(plan, cx);
             }
             SelectionActionKind::Remove => self.request_releases_selection_removal(window, cx),
             SelectionActionKind::Clear => {
@@ -4539,7 +4561,7 @@ impl LibraryApp {
                 let entries = self.vm.releases_list_with_selection(
                     self.releases_scope,
                     &self.release_name_page,
-                    &self.index_feed_singles,
+                    self.vm.index_feed_singles(),
                     &self.expanded_singles_groups,
                     &self.releases_selection,
                     self.releases_selection_mode,
@@ -4578,7 +4600,7 @@ impl LibraryApp {
                 let status = self.releases_status().map(|row| {
                     let actions = IndexListActions {
                         retry: Self::retry_release_names,
-                        load_more: Self::load_more_release_names,
+                        load_more: Some(Self::load_more_release_names),
                     };
                     (row, actions)
                 });
@@ -4614,7 +4636,7 @@ impl LibraryApp {
                 .map(|row| {
                     let actions = IndexListActions {
                         retry: Self::retry_artist_names,
-                        load_more: Self::load_more_artist_names,
+                        load_more: Some(Self::load_more_artist_names),
                     };
                     (row, actions)
                 });
@@ -4778,14 +4800,19 @@ impl LibraryApp {
         }
         // ADR 0084 task 015, operator decision of 2026-10-17: a group page
         // row is the Library track row of a release page. It reads its art
-        // by URL, the same as a release page track row.
+        // by URL, the same as a release page track row. A `MusicIndex` row
+        // reads its release image by URL (packet 026 decision D13).
         if let LibraryDetail::SinglesGroup(key) = &self.detail {
             let page = self.singles_group_page(key);
             urls.extend(page.rows.iter().filter_map(|row| {
-                row.track
-                    .track_image_href
-                    .clone()
-                    .or_else(|| row.track.album_image_href.clone())
+                match row {
+                    SinglesGroupPageEntryVm::Library(row) => row
+                        .track
+                        .track_image_href
+                        .clone()
+                        .or_else(|| row.track.album_image_href.clone()),
+                    SinglesGroupPageEntryVm::Index(row) => row.image_url.clone(),
+                }
             }));
         }
         // Walk fix F5 of 2026-10-20: a playlist page row reads its art by

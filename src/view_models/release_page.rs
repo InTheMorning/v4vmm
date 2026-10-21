@@ -141,7 +141,9 @@ impl ReleasePageFacts {
             })
             .collect();
         let release_key = album.release_key();
-        // ADR 0084 Decision 6: a single in a Library group links to its group.
+        // ADR 0084 Decision 6: a single in a group links to its group. The
+        // group also holds the MusicIndex singles of its feed (packet 026
+        // decision D14).
         let name_links = library_vm.release_page_name_links(
             ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).name_links(),
             release_key.as_ref(),
@@ -210,8 +212,8 @@ impl ReleasePageFacts {
     }
 
     /// Gives the name links to `links`, with the release key of the page.
-    /// The Index host uses it to add the link to a Library singles group
-    /// (ADR 0084 Decision 6).
+    /// The Index host uses it to add the link to a singles group (ADR 0084
+    /// Decision 6, packet 026 decision D14).
     #[must_use]
     pub(crate) fn map_name_links(
         mut self,

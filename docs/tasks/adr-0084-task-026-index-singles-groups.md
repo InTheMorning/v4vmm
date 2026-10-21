@@ -1,6 +1,6 @@
 # ADR 0084 Task 026: The Singles Groups Of Index Releases In "Everything"
 
-Status: Part A implemented - 2026-10-21. The mechanical cases of Part A pass. The Part A visual checks V1 to V6 and V10 are open. Part B is not started, and it runs in its own session.
+Status: Implemented - 2026-10-21, Parts A and B. The mechanical cases R26-01 to R26-26 pass. The visual checks V1 to V10 are open.
 
 ## Goal
 
@@ -437,7 +437,62 @@ Pass, with two corrections that the orchestrator made.
 1. Each page command now reads the Library artist feeds with singles, not only page 1. Before, page 1 could start before the Library loaded, or a download could add a Library single later. That single then showed as a row, and a later page moved it into a group (D10). The command skips each loaded feed, so the app still reads each feed one time. The guard `adr_0084_index_singles_each_page_reads_the_library_feeds` pins this.
 2. `finish_release_page` now records no feed singles when the page generation is old. The test `adr_0084_index_singles_old_page_result_records_no_singles` proves it. The unused `append` value of `begin_pending_retry` is deleted.
 
-Until Part B, an "Everything" group with no Library single opens the empty group page. The final walk must not click such a row before Part B.
+Part B gave the group page its MusicIndex members on 2026-10-21, so a group with no Library single opens a full page.
+
+## Implementation Result, Part B - 2026-10-21
+
+Part B makes Required Changes 11 to 16.
+
+### What changed
+
+- `src/view_models/index_feed_singles.rs`: `FeedReleaseList` holds the rows and the D11 fact `more`. `IndexFeedSingles` keeps the state of the request of a page for each feed: running or failed. `state`, `needs_request`, `begin_feed_request` and `finish_feed_request` give and change this state. A recorded result ends the request state, so a later answer of that request changes nothing.
+- `src/application/queries/name_lists.rs`: `fetch_feed_singles` records `more` when the fifth page has `has_more` true. The new command `FetchFeedSingles` reads the singles of one feed.
+- `src/view_models/singles_group.rs`:
+  - `SinglesGroupPageVm::from_tree` takes `IndexFeedSingles` and reads the groups of "Everything" in each scope (D12).
+  - Each row is a `SinglesGroupPageEntryVm`: a Library row keeps the shared track row, and a `MusicIndex` row is `SinglesGroupIndexRowVm` with the image, the title and the date (D13).
+  - The page gives `index_status`, the loading row or the error row with "Try again", and `more_note` (D11). While the request runs or after it failed, a feed with one Library single shows that row and not the empty state.
+  - `SinglesGroupAction::DownloadSingles` holds a `ReleasesDownloadPlan`: the Library feed ids and the `MusicIndex` feed GUIDs with titles, newest first.
+  - The empty state text is "This artist has fewer than two singles." (D12).
+  - `single_page_feed_to_read`, `library_page_feed_to_read`, `index_page_feed_to_read` and `group_page_feed_to_read` tell which feed a page must read.
+- `src/view_models/library.rs`: `LibraryViewModel` keeps `IndexFeedSingles`. `singles_group_page` and `release_page_name_links` read the groups of "Everything" (D12, D14). `BusyItems::index_release_downloading` tells if a `MusicIndex` single is in the download queue.
+- `src/library/music_scopes.rs`: `request_singles_group_feed`, `retry_singles_group_feed`, `request_library_single_feed` and `request_index_single_feed` send `FetchFeedSingles` through `present_command`, with the generation check.
+- `src/library/app_impl.rs`: each open of a group page and each open of a Library release page starts the request when the app has no result. `src/app/search_dispatch.rs` starts it when an Index release page has its feed.
+- `src/library/downloads.rs`: `download_release_plan` queues a plan. The Releases action bar and the group page use it.
+- `src/ui/shells/library/singles_group.rs`: the `MusicIndex` rows, with their selection checkbox, and the status row of `index_list_status.rs`. `checkbox_state_for` of `src/ui/composites/release_section_list.rs` is now shared.
+- `src/view_models/detail_selection.rs`, `src/library/release_page.rs`: the detail selection holds the `MusicIndex` rows of the group page as release rows.
+
+### Proof
+
+| Case | Test |
+|---|---|
+| R26-20 | `adr_0084_index_singles_r26_20_group_page_gives_both_origins_newest_first` |
+| R26-21 | `adr_0084_index_singles_r26_21_loading_and_error_rows_keep_the_library_rows`, `adr_0084_index_singles_page_command_reads_one_feed` |
+| R26-22 | `adr_0084_index_singles_r26_22_main_action_downloads_both_origins` |
+| R26-23 | `adr_0084_index_singles_r26_23_single_page_links_to_its_feed_group`, `adr_0084_index_singles_page_command_reads_one_feed` |
+| R26-24 | `adr_0084_index_singles_r26_24_old_answers_change_nothing` |
+| R26-25 | `adr_0084_index_singles_r26_25_empty_state_text` |
+| D11 | `adr_0084_index_singles_d11_group_page_says_more_exist`, and the `more` assertion of `adr_0084_index_singles_r26_06_feed_singles_follow_the_cursor_up_to_five_pages` |
+| R26-26 (B) | `adr_0084_singles_group_r15_09_only_the_owner_groups_singles`. Each new use of `ReleaseKind::Single` is in `src/view_models/singles_group.rs` |
+
+The gate of 2026-10-21: `cargo test` gave 2,204 unit tests and 361 architecture tests, all Green. `cargo fmt -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo check --all-targets` and `cargo build --bin v4vmm` are Green.
+
+### Deviations
+
+- `IndexFeedSingles` moved from `LibraryApp` to `LibraryViewModel`. The Library release page and the group page get their facts from `LibraryViewModel`, so this change adds no parameter to the renderers. `LibraryApp` still changes it only through `present_command` results.
+- The status row of the group page uses `IndexListStatusRowVm` and its shared renderer. The page gives no "Load more" row.
+- A feed that the app did not read yet shows the loading row. The page sends its request when it opens.
+- The main action stays available while the request runs. Its count then holds the Library singles only, and it changes in place when the result arrives.
+- A failed request of a single page gives no error row. The page shows no "All n singles" link, and the next open of the page sends the request again.
+
+## Orchestrator Review, Part B - 2026-10-21
+
+Pass, with corrections that the orchestrator had made.
+
+1. A Library single page sends its feed request only when the page opens. A refresh of the open page and the end of a download use `refresh_album_detail`, which sends no request. The guard `adr_0084_index_singles_one_singles_request_for_each_page_open` pins this.
+2. A Releases page command does not read a feed whose page request runs (`loaded_or_running_feeds`). A unit test proves it.
+3. The status row of the group page has no "Load more" action. `IndexListActions::load_more` is optional, and no closure does nothing.
+4. The D11 note names the 1,000 newest releases. A unit test ties that number to `FEED_SINGLES_MAX_PAGES` and `FEED_SINGLES_PAGE_LIMIT`.
+5. The view model gives the checkbox id of a MusicIndex row.
 
 ## Operator Visual Check
 
@@ -453,9 +508,26 @@ Walk this check in a desktop session after the commit of Part A. The machine mus
 8. V6: click "Select", select the Haleen group row, and click "Download". The progress item shows the MusicIndex singles. After each download, its row changes in place.
 9. V10: do steps 3 to 7 in the Light theme and in the Dark theme. Do them at normal width and at narrow width. Clipped row text or a clipped action is wrong.
 
-Do not open the group page in this walk. Part B owns the group page (V7 to V9).
+Part B (V7 to V10). Walk these steps after the commit of Part B, in a new start of the app. The machine must reach `https://api.musicindex.org`, except in step 14.
 
-Cleanup: the downloads of step 8 add releases to the Library. Remove them from the Library when you do not want to keep them.
+10. V7: open Music, then Releases, with the scope "Library". Click the group row "Haleen", not its chevron.
+    - A loading row "Loading MusicIndex singles" shows below the Library singles.
+    - Then the MusicIndex singles show, newest first, in one list with the Library singles.
+    - A Library single keeps its track row. A MusicIndex single shows its image, its title and its date, with no state word.
+    - The subtitle shows about 55 singles, and the main action is "Download n singles". Note the rows.
+11. V7: select the scope "Everything" and click the group row "Haleen" again. The page is the same as in step 10. A different count or different rows is wrong.
+12. V7: click a MusicIndex single row. Its release page opens. Go back.
+13. V8: in "Everything", open the chevron of the group row "Paul Birken". Click one single.
+    - Its Index release page shows the link "All n singles". A single page with no link is wrong.
+    - Click the link. The group page "Singles by Paul Birken" opens.
+14. V9: stop the app. Run `nmcli networking off`, or remove the network cable. Start `target/release/v4vmm`.
+    - Open Releases with the scope "Library", and click the group row "Haleen". The Library singles show.
+    - An error row shows below them with "Try again". Its detail names `GET /v1/feeds/recent?named_feed_guid=64569161-a8f7-52e5-8aae-9e0385043149`.
+    - An empty page or no "Try again" is wrong.
+    - Run `nmcli networking on`, and click "Try again". The MusicIndex singles show.
+15. V10: do steps 10 to 13 in the Light theme and in the Dark theme. Do them at normal width and at narrow width. Clipped row text, a clipped date or a clipped action is wrong.
+
+Cleanup: the downloads of step 8 add releases to the Library. Remove them from the Library when you do not want to keep them. After step 14, make sure that `nmcli networking on` ran.
 
 ## Prompt for lower-context coding model
 

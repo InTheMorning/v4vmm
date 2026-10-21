@@ -2853,6 +2853,10 @@ pub(crate) struct LibraryViewModel {
     hovered_thumb_url: Option<String>,
     // Operation state.
     busy: BusyItems,
+    /// The loaded `MusicIndex` singles of each artist feed, and the
+    /// request of the group page or of the single page for each feed
+    /// (ADR 0084 packet 026). They stay until the app stops.
+    index_feed_singles: IndexFeedSingles,
     in_flight_broadcast_route_repairs: BTreeSet<i64>,
     library_removal: LibraryRemovalConfirmationState,
     status: String,
@@ -2884,6 +2888,7 @@ impl LibraryViewModel {
             selected_playlist_id: None,
             hovered_thumb_url: None,
             busy: BusyItems::default(),
+            index_feed_singles: IndexFeedSingles::default(),
             in_flight_broadcast_route_repairs: BTreeSet::new(),
             library_removal: LibraryRemovalConfirmationState::new(),
             status: String::new(),
@@ -2898,6 +2903,18 @@ impl LibraryViewModel {
     #[must_use]
     pub(crate) fn tree(&self) -> &LibraryTree {
         &self.snapshot.tree
+    }
+
+    /// The loaded `MusicIndex` singles of each artist feed (ADR 0084
+    /// packet 026).
+    #[must_use]
+    pub(crate) fn index_feed_singles(&self) -> &IndexFeedSingles {
+        &self.index_feed_singles
+    }
+
+    /// The loaded `MusicIndex` singles of each artist feed, to change.
+    pub(crate) fn index_feed_singles_mut(&mut self) -> &mut IndexFeedSingles {
+        &mut self.index_feed_singles
     }
 
     pub(crate) fn replace_tree(&mut self, tree: LibraryTree) {
@@ -3781,24 +3798,35 @@ impl LibraryViewModel {
             .collect()
     }
 
-    /// The name links of a release page with the link to the Library
-    /// singles group of the release, when its `key` is in one (ADR 0084
-    /// Decision 6).
+    /// The name links of a release page with the link to the singles
+    /// group of the release, when its `key` is in one (ADR 0084 Decision
+    /// 6). The link is not scoped: a group with `MusicIndex` singles gives
+    /// its full count (packet 026 decision D14).
     #[must_use]
     pub(crate) fn release_page_name_links(
         &self,
         base: Vec<AlbumNameLinkVm>,
         key: Option<&ReleaseKey>,
     ) -> Vec<AlbumNameLinkVm> {
-        release_page_name_links(base, &singles_groups(&self.snapshot.tree), key)
+        release_page_name_links(
+            base,
+            &singles_groups_everything(&self.snapshot.tree, &self.index_feed_singles),
+            key,
+        )
     }
 
-    /// The page of a singles group, from the current tree (ADR 0084
-    /// Decision 6). A download or a removal in progress makes the main
-    /// action not available.
+    /// The page of a singles group, from the current tree and the loaded
+    /// `MusicIndex` singles (ADR 0084 Decision 6, packet 026 decision
+    /// D12). A download or a removal in progress makes the main action not
+    /// available.
     #[must_use]
     pub(crate) fn singles_group_page(&self, key: &SinglesGroupKey) -> SinglesGroupPageVm {
-        SinglesGroupPageVm::from_tree(&self.snapshot.tree, key, &self.busy)
+        SinglesGroupPageVm::from_tree(
+            &self.snapshot.tree,
+            &self.index_feed_singles,
+            key,
+            &self.busy,
+        )
     }
 
     /// Rows of the Artists destination list (ADR 0084 Decision 2, ADR 0085
@@ -5144,6 +5172,21 @@ impl BusyItems {
         album
             .feed_key()
             .and_then(|key| self.downloads.key_phase(&key))
+    }
+
+    /// `true` while a job of the `MusicIndex` release `key` is queued or in
+    /// flight (packet 026 Part B). The singles group page reads it.
+    #[must_use]
+    pub(crate) fn index_release_downloading(&self, key: &ReleaseKey) -> bool {
+        match key {
+            ReleaseKey::FeedGuid(guid) => self
+                .downloads
+                .key_phase(&crate::view_models::download_progress::FeedKey::Guid(
+                    guid.clone(),
+                ))
+                .is_some(),
+            ReleaseKey::LibraryFeed(_) => false,
+        }
     }
 
     /// `true` while the removal of the album runs.
@@ -10887,11 +10930,11 @@ mod tests {
         let generation = fills.begin_request();
         fills.record(
             HALEEN_FEED,
-            vec![
+            crate::view_models::index_feed_singles::FeedReleaseList::complete(vec![
                 single_naming("apple", "Apple", HALEEN_FEED, 900),
                 single_naming("durian", "Durian", HALEEN_FEED, 800),
                 single_naming("mango", "Mango", HALEEN_FEED, 100),
-            ],
+            ]),
             generation,
         );
         fills

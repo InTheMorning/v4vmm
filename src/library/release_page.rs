@@ -13,6 +13,7 @@ use super::{LibraryApp, LibraryDetail};
 use crate::db::TrackRow;
 use crate::ui::shells::release_page::click_modifiers;
 use crate::view_models::release_page::{inspect_sources_entry, ReleasePageCommand};
+use crate::view_models::singles_group::SinglesGroupPageEntryVm;
 use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
 
 impl LibraryApp {
@@ -137,12 +138,16 @@ impl LibraryApp {
                     FrameNavigationEntry::Track(track.track_key()),
                 )
             }),
+            // Packet 026 decision D13: a `MusicIndex` row has no track. The
+            // group page shell sends its click and its toggle directly.
             LibraryDetail::SinglesGroup(key) => {
                 let page = self.singles_group_page(key);
-                page.rows
-                    .into_iter()
-                    .nth(row)
-                    .map(|single| (single.track, FrameNavigationEntry::Release(single.key)))
+                match page.rows.into_iter().nth(row)? {
+                    SinglesGroupPageEntryVm::Library(single) => {
+                        Some((single.track, FrameNavigationEntry::Release(single.key)))
+                    }
+                    SinglesGroupPageEntryVm::Index(_) => None,
+                }
             }
             _ => None,
         }

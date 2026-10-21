@@ -10,6 +10,9 @@
 //! artist feed of its singles, with one list request for each feed (ADR
 //! 0084 Decision 6, packet 026 decision D4). At most
 //! [`FEED_SINGLES_PARALLEL`] of these requests run at the same time.
+//!
+//! `FetchFeedSingles` reads the singles of one feed for the group page and
+//! for the single page (packet 026 Part B).
 
 #![warn(clippy::pedantic)]
 
@@ -24,13 +27,15 @@ use crate::application::errors::command::CommandError;
 use crate::application::request_profiles::{
     INDEX_ARTIST_NAME_LIST, INDEX_FEED_SINGLES, INDEX_RELEASE_NAME_LIST,
 };
-use crate::view_models::index_feed_singles::{FeedSinglesResult, ReleaseNamePageLoad};
+use crate::view_models::index_feed_singles::{
+    FeedReleaseList, FeedSinglesResult, ReleaseNamePageLoad,
+};
 use crate::view_models::index_name_list::IndexNameListBatch;
 use crate::view_models::singles_group::index_single_artist_feed;
 
 /// The result of the request for the singles of one feed: the rows, or
 /// the error text.
-type FeedSinglesRows = Result<Vec<Feed>, String>;
+type FeedSinglesRows = Result<FeedReleaseList, String>;
 
 /// The row count of one name list page (packet 016 decision D7).
 pub(crate) const NAME_LIST_PAGE_LIMIT: i32 = 100;
@@ -58,8 +63,8 @@ pub(crate) struct FetchReleaseNamePage {
     /// The feeds that page 1 also reads: each Library artist feed with one
     /// or more Library singles.
     library_feeds: Vec<String>,
-    /// The feeds with a loaded result. The command sends no request for
-    /// these.
+    /// The feeds with a loaded result, and the feeds whose request already
+    /// runs (packet 026 review). The command sends no request for these.
     known_feeds: BTreeSet<String>,
 }
 
@@ -154,14 +159,16 @@ impl ApplicationCommand for FetchReleaseNamePage {
 
 /// Reads the releases that name the feed `feed_guid`, newest first: one
 /// request for each page of [`FEED_SINGLES_PAGE_LIMIT`] rows, up to
-/// [`FEED_SINGLES_MAX_PAGES`] pages (packet 026 decision D11). It reads no
-/// release detail.
+/// [`FEED_SINGLES_MAX_PAGES`] pages (packet 026 decision D11). When the
+/// last page that it reads has `has_more` true, the result records that
+/// more rows exist. It reads no release detail.
 ///
 /// # Errors
 /// Gives the error text of the first failed request.
 pub(crate) fn fetch_feed_singles(client: &Client, feed_guid: &str) -> FeedSinglesRows {
     let mut rows = Vec::new();
     let mut cursor: Option<String> = None;
+    let mut more = false;
     for _ in 0..FEED_SINGLES_MAX_PAGES {
         let response = client
             .fetch_releases_naming(
@@ -172,12 +179,55 @@ pub(crate) fn fetch_feed_singles(client: &Client, feed_guid: &str) -> FeedSingle
             )
             .map_err(|error| format!("{error:#}"))?;
         rows.extend(response.data);
+        more = false;
         match response.pagination.cursor {
-            Some(next) if response.pagination.has_more => cursor = Some(next),
+            Some(next) if response.pagination.has_more => {
+                cursor = Some(next);
+                more = true;
+            }
             _ => break,
         }
     }
-    Ok(rows)
+    Ok(FeedReleaseList { rows, more })
+}
+
+/// Fetches the `MusicIndex` singles of one feed for the group page or the
+/// single page (packet 026 Part B). It sends the requests of
+/// [`fetch_feed_singles`] and no other request.
+#[derive(Clone, Debug)]
+pub(crate) struct FetchFeedSingles {
+    endpoint: crate::config::MusicIndexEndpoint,
+    feed_guid: String,
+}
+
+impl FetchFeedSingles {
+    /// Creates the command for the feed `feed_guid`.
+    #[must_use]
+    pub(crate) fn new(
+        endpoint: impl Into<crate::config::MusicIndexEndpoint>,
+        feed_guid: impl Into<String>,
+    ) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            feed_guid: feed_guid.into(),
+        }
+    }
+}
+
+impl ApplicationCommand for FetchFeedSingles {
+    type Output = FeedSinglesResult;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        let client = Client::new_with_base_url(self.endpoint);
+        let rows = fetch_feed_singles(&client, &self.feed_guid);
+        Ok(CommandOutcome::without_events(FeedSinglesResult {
+            feed_guid: self.feed_guid,
+            rows,
+        }))
+    }
 }
 
 /// Reads the singles of each feed of `feeds` with
@@ -484,9 +534,10 @@ mod tests {
         let (endpoint, requests, _) = serve_routes(answer, 5);
         let client = Client::new_with_base_url(endpoint);
 
-        let rows = fetch_feed_singles(&client, "feed-g").unwrap();
+        let list = fetch_feed_singles(&client, "feed-g").unwrap();
 
-        assert_eq!(rows.len(), FEED_SINGLES_MAX_PAGES);
+        assert_eq!(list.rows.len(), FEED_SINGLES_MAX_PAGES);
+        assert!(list.more, "the fifth page has more rows (decision D11)");
         let requests = requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 5, "at most 5 pages");
         assert_eq!(
@@ -500,6 +551,49 @@ mod tests {
         assert!(requests
             .iter()
             .all(|path| path.starts_with("/v1/feeds/recent?")));
+    }
+
+    /// R26-21 and R26-23 (packet 026 Part B): the command of the group page
+    /// and of the single page sends the requests of one feed only. A list
+    /// with no more page gives no "more" fact, and a failed request gives
+    /// its error text in the result.
+    #[test]
+    fn adr_0084_index_singles_page_command_reads_one_feed() {
+        fn answer(path: &str) -> String {
+            if path.contains("named_feed_guid=broken&") {
+                return String::new();
+            }
+            serde_json::json!({
+                "data": [single_json("r1", "feed-g"), single_json("r2", "feed-g")],
+                "pagination": {"cursor": null, "has_more": false}
+            })
+            .to_string()
+        }
+        let (endpoint, requests, _) = serve_routes(answer, 2);
+
+        let result = FetchFeedSingles::new(endpoint.clone(), "feed-g")
+            .execute(&CommandContext::next())
+            .unwrap()
+            .into_parts()
+            .0;
+        assert_eq!(result.feed_guid, "feed-g");
+        let list = result.rows.expect("the rows");
+        assert_eq!(list.rows.len(), 2);
+        assert!(!list.more);
+
+        let failed = FetchFeedSingles::new(endpoint, "broken")
+            .execute(&CommandContext::next())
+            .unwrap()
+            .into_parts()
+            .0;
+        assert!(failed.rows.is_err(), "the error text of the failed request");
+        assert_eq!(
+            *requests.lock().unwrap(),
+            [
+                "/v1/feeds/recent?named_feed_guid=feed-g&limit=200&include=named_feeds",
+                "/v1/feeds/recent?named_feed_guid=broken&limit=200&include=named_feeds"
+            ]
+        );
     }
 
     /// R26-07 and R26-08: a page command sends one request for each new

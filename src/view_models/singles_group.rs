@@ -6,8 +6,9 @@
 //! [`singles_groups`] for the Library, and [`singles_groups_everything`] for
 //! the Releases scope "Everything", which adds the `MusicIndex` singles of
 //! each artist feed (packet 026). The Releases list, the group page and the
-//! link on a single page each use them. No other code groups releases by
-//! kind.
+//! link on a single page each use them. The group page and the link are not
+//! scoped (packet 026 decisions D12 and D14): they always read the groups of
+//! "Everything". No other code groups releases by kind.
 
 #![warn(clippy::pedantic)]
 
@@ -20,16 +21,23 @@ use crate::view_models::album_page::{AlbumNameLinkTarget, AlbumNameLinkVm};
 use crate::view_models::artist_identity::{ArtistIdentity, UNKNOWN_ARTIST_TEXT};
 use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
 use crate::view_models::format::{fmt_date, plural};
-use crate::view_models::index_feed_singles::IndexFeedSingles;
-use crate::view_models::index_name_list::name_sort_key;
+use crate::view_models::index_feed_singles::{
+    feed_singles_request, FeedSinglesState, IndexFeedSingles,
+};
+use crate::view_models::index_name_list::{
+    name_sort_key, IndexListActionDisplay, IndexListStatusRowVm,
+};
 use crate::view_models::library::{
     AlbumNode, ArtistNode, BusyItems, DestinationListRowVm, LibraryTree, TrackRowWork,
 };
 use crate::view_models::list_selection::RowSelectionVm;
-use crate::view_models::named_feeds::index_named_feeds;
+use crate::view_models::named_feeds::{index_named_feeds, NamedFeed};
 use crate::view_models::release_kind::ReleaseKind;
-use crate::view_models::releases_everything::index_release_row;
+use crate::view_models::releases_everything::{
+    index_release_row, index_release_title, ReleasesDownloadPlan,
+};
 use crate::view_models::workspace::ReleaseKey;
+use crate::views::FeedView;
 
 /// The separator between the count and the Library state of a group.
 const SUMMARY_SEPARATOR: &str = " · ";
@@ -49,8 +57,22 @@ const NAME_LEVEL_LABEL: &str = "By name";
 /// The identity level of a group at the feed level, in its summary text
 /// (ADR 0085 Decision 1).
 const PUBLISHER_LEVEL_LABEL: &str = "Artist feed";
-/// The empty state of a group page with fewer than two singles.
-const EMPTY_GROUP_MESSAGE: &str = "This artist has fewer than two singles in the Library.";
+/// The empty state of a group page with fewer than two singles. The page is
+/// not scoped (packet 026 decision D12).
+const EMPTY_GROUP_MESSAGE: &str = "This artist has fewer than two singles.";
+/// The row of a group page while the request for the `MusicIndex` singles
+/// of its feed runs (packet 026 Part B).
+const LOADING_INDEX_SINGLES_LABEL: &str = "Loading MusicIndex singles";
+/// The report of the error row of a group page.
+const INDEX_SINGLES_FAILED_MESSAGE: &str =
+    "The MusicIndex singles did not load. The Library singles show.";
+/// The accessibility label of "Try again" on the error row of a group page.
+const RETRY_INDEX_SINGLES_A11Y_LABEL: &str =
+    "Try again to load the MusicIndex singles of this artist feed";
+/// The note of a group page when more releases name the feed than the app
+/// read (packet 026 decision D11).
+const MORE_INDEX_SINGLES_NOTE: &str =
+    "MusicIndex has more releases of this artist. This page shows the singles of its 1,000 newest releases.";
 /// The title of a group page with no group.
 const EMPTY_GROUP_TITLE: &str = "Singles";
 
@@ -426,6 +448,17 @@ pub(crate) fn singles_groups_everything<'a>(
     tree: &'a LibraryTree,
     fills: &'a IndexFeedSingles,
 ) -> Vec<SinglesGroup<'a>> {
+    everything_groups(tree, fills, 2)
+}
+
+/// The groups of [`singles_groups_everything`] with `min_members` or more
+/// members. The group page uses 1 while the request for its feed runs or
+/// after it failed, so the Library single of the feed still shows.
+fn everything_groups<'a>(
+    tree: &'a LibraryTree,
+    fills: &'a IndexFeedSingles,
+    min_members: usize,
+) -> Vec<SinglesGroup<'a>> {
     let library_keys: BTreeSet<ReleaseKey> = tree
         .artists
         .iter()
@@ -466,7 +499,7 @@ pub(crate) fn singles_groups_everything<'a>(
         .filter_map(|identity| {
             let mut singles = library.remove(&identity).unwrap_or_default();
             let mut index_singles = index.remove(&identity).unwrap_or_default();
-            if singles.len() + index_singles.len() < 2 {
+            if singles.len() + index_singles.len() < min_members.max(1) {
                 return None;
             }
             singles.sort_by(newest_first);
@@ -646,8 +679,10 @@ fn group_element_id(identity: &ArtistIdentity) -> String {
 }
 
 /// The name link from a single page to its group (ADR 0084 Decision 6),
-/// for example "All 7 singles". `None` when the release `key` is in no
-/// Library group.
+/// for example "All 7 singles". `groups` are the groups of
+/// [`singles_groups_everything`], so a group with `MusicIndex` members
+/// gives its full count (packet 026 decision D14). `None` when the release
+/// `key` is in no group.
 #[must_use]
 pub(crate) fn singles_group_name_link(
     groups: &[SinglesGroup<'_>],
@@ -664,8 +699,8 @@ pub(crate) fn singles_group_name_link(
 }
 
 /// The name links of a release page (ADR 0084 Decision 6): the links of
-/// `base`, then the link to the Library group of the release, when the
-/// release `key` is in one.
+/// `base`, then the link to the group of the release, when the release
+/// `key` is in one.
 #[must_use]
 pub(crate) fn release_page_name_links(
     mut base: Vec<AlbumNameLinkVm>,
@@ -678,12 +713,66 @@ pub(crate) fn release_page_name_links(
     base
 }
 
+/// The artist feed of a single page whose `MusicIndex` singles the page
+/// must read: the artist feed of a single, when the app has no result for
+/// it and no request runs (packet 026 decision D14). `None` for a release
+/// that is not a single, and for a single at the name level.
+#[must_use]
+pub(crate) fn single_page_feed_to_read(
+    kind: ReleaseKind,
+    named_feeds: &[NamedFeed],
+    fills: &IndexFeedSingles,
+) -> Option<String> {
+    if kind != ReleaseKind::Single {
+        return None;
+    }
+    match ArtistIdentity::resolve(named_feeds, "") {
+        ArtistIdentity::Publisher(feed_guid) if fills.needs_request(&feed_guid) => Some(feed_guid),
+        ArtistIdentity::Publisher(_) | ArtistIdentity::Name(_) => None,
+    }
+}
+
+/// [`single_page_feed_to_read`] for a Library release page. The Library
+/// decides a Library release (packet 026 decision D8).
+#[must_use]
+pub(crate) fn library_page_feed_to_read(
+    album: &AlbumNode,
+    fills: &IndexFeedSingles,
+) -> Option<String> {
+    single_page_feed_to_read(album.release_kind(), &album.named_feeds, fills)
+}
+
+/// [`single_page_feed_to_read`] for an Index release page, from its loaded
+/// feed.
+#[must_use]
+pub(crate) fn index_page_feed_to_read(feed: &FeedView, fills: &IndexFeedSingles) -> Option<String> {
+    let kind = ReleaseKind::resolve(feed.release_kind.as_deref(), feed.track_count());
+    single_page_feed_to_read(kind, &feed.named_feeds, fills)
+}
+
+/// The artist feed whose `MusicIndex` singles a group page must read: the
+/// feed of a feed identity, when the app has no result for it and no
+/// request runs (packet 026 Part B). `None` for a name identity.
+#[must_use]
+pub(crate) fn group_page_feed_to_read(
+    key: &SinglesGroupKey,
+    fills: &IndexFeedSingles,
+) -> Option<String> {
+    match &key.0 {
+        ArtistIdentity::Publisher(feed_guid) if fills.needs_request(feed_guid) => {
+            Some(feed_guid.clone())
+        }
+        ArtistIdentity::Publisher(_) | ArtistIdentity::Name(_) => None,
+    }
+}
+
 /// The command of the main action of a group page.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SinglesGroupAction {
-    /// Download each single that is not in the Library, newest first, by
-    /// Library feed id.
-    DownloadSingles(Vec<i64>),
+    /// Download each single that is not in the Library, newest first: the
+    /// Library feed id of each Library single, and the feed GUID and the
+    /// title of each `MusicIndex` single (packet 026 Part B).
+    DownloadSingles(ReleasesDownloadPlan),
     /// Add each single to a playlist, newest first, by Library feed id.
     AddToPlaylist(Vec<i64>),
 }
@@ -731,6 +820,80 @@ pub(crate) struct SinglesGroupPageRowVm {
     pub(crate) key: ReleaseKey,
 }
 
+/// One `MusicIndex` single row of a group page (packet 026 decision D13):
+/// the image, the title and the date. It has no state word, as a row of
+/// the feed page. A click opens the release page of the single.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SinglesGroupIndexRowVm {
+    /// Stable element id, from the release GUID.
+    pub(crate) element_id: String,
+    /// The release key that a click opens.
+    pub(crate) key: ReleaseKey,
+    /// The title of the release.
+    pub(crate) title: String,
+    /// The date text of `newest_item_at`. `None` when the row has no date.
+    pub(crate) date_text: Option<String>,
+    /// The release image.
+    pub(crate) image_url: Option<String>,
+    /// The accessibility label, for example "Release: Night Drive, Apr 5,
+    /// 2024".
+    pub(crate) a11y_label: String,
+    /// The element id of the row's checkbox, built once with the row.
+    pub(crate) checkbox_id: String,
+}
+
+impl SinglesGroupIndexRowVm {
+    fn new(single: &IndexGroupSingle<'_>) -> Self {
+        let title = index_release_title(single.feed);
+        let date_text = single.date.and_then(fmt_date);
+        let a11y_label = match &date_text {
+            Some(date) => format!("Release: {title}, {date}"),
+            None => format!("Release: {title}"),
+        };
+        let element_id = match &single.key {
+            ReleaseKey::FeedGuid(guid) => format!("singles-group-index-row:{guid}"),
+            ReleaseKey::LibraryFeed(feed_id) => format!("singles-group-index-row:{feed_id}"),
+        };
+        let checkbox_id = format!("{element_id}-checkbox");
+        Self {
+            element_id,
+            key: single.key.clone(),
+            title,
+            date_text,
+            image_url: single
+                .feed
+                .image_url
+                .clone()
+                .filter(|url| !url.trim().is_empty()),
+            a11y_label,
+            checkbox_id,
+        }
+    }
+}
+
+/// One row of a group page: a Library single or a `MusicIndex` single
+/// (packet 026 decision D13). The two row forms share one list and one
+/// date order.
+#[derive(Clone, Debug)]
+pub(crate) enum SinglesGroupPageEntryVm {
+    /// A Library single keeps the shared Library track row. The row holds
+    /// a full track, so it is boxed.
+    Library(Box<SinglesGroupPageRowVm>),
+    /// A `MusicIndex` single shows as a release row.
+    Index(SinglesGroupIndexRowVm),
+}
+
+impl SinglesGroupPageEntryVm {
+    /// The release key that a click opens.
+    #[must_use]
+    pub(crate) fn key(&self) -> &ReleaseKey {
+        match self {
+            Self::Library(row) => &row.key,
+            Self::Index(row) => &row.key,
+        }
+    }
+}
+
 /// The page of one singles group (ADR 0084 Decision 6).
 #[derive(Clone, Debug)]
 pub(crate) struct SinglesGroupPageVm {
@@ -742,8 +905,16 @@ pub(crate) struct SinglesGroupPageVm {
     /// The note that names the identity level of the group. `None` for
     /// the empty state.
     pub(crate) identity_note: Option<&'static str>,
-    /// One row for each single, newest first.
-    pub(crate) rows: Vec<SinglesGroupPageRowVm>,
+    /// One row for each single, newest first: the Library rows and the
+    /// `MusicIndex` rows (packet 026 decision D13).
+    pub(crate) rows: Vec<SinglesGroupPageEntryVm>,
+    /// The loading row or the error row of the request for the
+    /// `MusicIndex` singles of the feed (packet 026 Part B). `None` for a
+    /// name identity and when the app has the result.
+    pub(crate) index_status: Option<IndexListStatusRowVm>,
+    /// The note that more releases name the feed than the app read
+    /// (packet 026 decision D11).
+    pub(crate) more_note: Option<&'static str>,
     /// The one main action. `None` for the empty state.
     pub(crate) main_action: Option<SinglesGroupActionVm>,
     /// The empty state text, when no group has the key.
@@ -754,21 +925,65 @@ pub(crate) struct SinglesGroupPageVm {
 }
 
 impl SinglesGroupPageVm {
-    /// Builds the page of the group `key` from the current tree. When no
-    /// group has the key, for example after a removal leaves one single,
-    /// the page is the empty state. `busy` holds the downloads and the
-    /// removals in progress (ADR 0084 Decision 10). While one single of
-    /// the group is busy, the main action is not available.
+    /// Builds the page of the group `key` from the current tree and the
+    /// loaded `MusicIndex` singles. The page is not scoped (packet 026
+    /// decision D12): it reads the groups of "Everything".
+    ///
+    /// - While the request for the feed runs, or after it failed, the
+    ///   Library rows show with the loading row or the error row.
+    /// - When no group has the key and no request is open, for example
+    ///   after a removal leaves one single, the page is the empty state.
+    ///
+    /// `busy` holds the downloads and the removals in progress (ADR 0084
+    /// Decision 10). While one single of the group is busy, the main
+    /// action is not available.
     #[must_use]
-    pub(crate) fn from_tree(tree: &LibraryTree, key: &SinglesGroupKey, busy: &BusyItems) -> Self {
-        let groups = singles_groups(tree);
+    pub(crate) fn from_tree(
+        tree: &LibraryTree,
+        fills: &IndexFeedSingles,
+        key: &SinglesGroupKey,
+        busy: &BusyItems,
+    ) -> Self {
+        let state = match &key.0 {
+            ArtistIdentity::Publisher(feed_guid) => {
+                Some((feed_guid.as_str(), fills.state(feed_guid)))
+            }
+            ArtistIdentity::Name(_) => None,
+        };
+        let index_status = state.and_then(|(feed_guid, state)| index_status_row(feed_guid, state));
+        let more_note = matches!(state, Some((_, FeedSinglesState::Loaded { more: true })))
+            .then_some(MORE_INDEX_SINGLES_NOTE);
+        let groups = everything_groups(tree, fills, 1);
         match find_group(&groups, key) {
-            Some(group) => Self::new(group, busy),
-            None => Self {
+            Some(group) if group.count() >= 2 => {
+                let mut page = Self::new(group, busy);
+                page.index_status = index_status;
+                page.more_note = more_note;
+                page
+            }
+            group if index_status.is_some() => Self {
+                title: group.map_or_else(
+                    || EMPTY_GROUP_TITLE.to_owned(),
+                    |group| singles_group_title(group.display_artist),
+                ),
+                subtitle: None,
+                identity_note: Some(PUBLISHER_LEVEL_NOTE),
+                rows: group
+                    .map(|group| page_rows(group, busy))
+                    .unwrap_or_default(),
+                index_status,
+                more_note: None,
+                main_action: None,
+                empty_message: None,
+                art: group.map(SinglesGroup::collection_art),
+            },
+            _ => Self {
                 title: EMPTY_GROUP_TITLE.to_owned(),
                 subtitle: None,
                 identity_note: None,
                 rows: Vec::new(),
+                index_status: None,
+                more_note: None,
                 main_action: None,
                 empty_message: Some(EMPTY_GROUP_MESSAGE),
                 art: None,
@@ -776,26 +991,17 @@ impl SinglesGroupPageVm {
         }
     }
 
-    /// Builds the page of one group. A single with no track has no row.
+    /// Builds the page of one group. A Library single with no track has no
+    /// row.
     #[must_use]
     pub(crate) fn new(group: &SinglesGroup<'_>, busy: &BusyItems) -> Self {
-        let group_busy = group
-            .singles
-            .iter()
-            .any(|single| busy.release_downloading(single.album) || busy.removing(single.album));
-        let rows = group
-            .singles
-            .iter()
-            .filter_map(|single| {
-                let track = single.album.tracks.first()?;
-                Some(SinglesGroupPageRowVm {
-                    track: track.clone(),
-                    date_text: single.date.and_then(fmt_date),
-                    work: busy.track_row_work(single.album, track),
-                    key: single.key.clone(),
-                })
-            })
-            .collect();
+        let group_busy =
+            group.singles.iter().any(|single| {
+                busy.release_downloading(single.album) || busy.removing(single.album)
+            }) || group
+                .index_singles
+                .iter()
+                .any(|single| busy.index_release_downloading(&single.key));
         Self {
             title: singles_group_title(group.display_artist),
             subtitle: Some(group.summary_text()),
@@ -803,11 +1009,66 @@ impl SinglesGroupPageVm {
                 ArtistIdentity::Name(_) => Some(NAME_LEVEL_NOTE),
                 ArtistIdentity::Publisher(_) => Some(PUBLISHER_LEVEL_NOTE),
             },
-            rows,
+            rows: page_rows(group, busy),
+            index_status: None,
+            more_note: None,
             main_action: Some(main_action(group, group_busy)),
             empty_message: None,
             art: Some(group.collection_art()),
         }
+    }
+}
+
+/// The rows of a group page, newest first by the date rule of the group
+/// (packet 026 decision D13).
+fn page_rows(group: &SinglesGroup<'_>, busy: &BusyItems) -> Vec<SinglesGroupPageEntryVm> {
+    group
+        .members()
+        .iter()
+        .filter_map(|member| match member {
+            GroupMember::Library(single) => {
+                let track = single.album.tracks.first()?;
+                Some(SinglesGroupPageEntryVm::Library(Box::new(
+                    SinglesGroupPageRowVm {
+                        track: track.clone(),
+                        date_text: single.date.and_then(fmt_date),
+                        work: busy.track_row_work(single.album, track),
+                        key: single.key.clone(),
+                    },
+                )))
+            }
+            GroupMember::Index(single) => Some(SinglesGroupPageEntryVm::Index(
+                SinglesGroupIndexRowVm::new(single),
+            )),
+        })
+        .collect()
+}
+
+/// The loading row or the error row of a group page for the state of the
+/// request for its feed (packet 026 Part B). `None` when the app has the
+/// result. A feed that the app did not read yet shows the loading row: the
+/// page sends its request when it opens.
+fn index_status_row(feed_guid: &str, state: FeedSinglesState<'_>) -> Option<IndexListStatusRowVm> {
+    match state {
+        FeedSinglesState::Loaded { .. } => None,
+        FeedSinglesState::NotRead | FeedSinglesState::Running => {
+            Some(IndexListStatusRowVm::Loading {
+                element_id: "singles-group-index-loading".to_owned(),
+                label: LOADING_INDEX_SINGLES_LABEL,
+            })
+        }
+        FeedSinglesState::Failed(detail) => Some(IndexListStatusRowVm::Failed {
+            element_id: "singles-group-index-error".to_owned(),
+            first_page: true,
+            message: INDEX_SINGLES_FAILED_MESSAGE.to_owned(),
+            detail: format!("{}: {detail}", feed_singles_request(feed_guid)),
+            retry: IndexListActionDisplay {
+                id: "singles-group-index-retry".to_owned(),
+                label: "Try again",
+                a11y_label: RETRY_INDEX_SINGLES_A11Y_LABEL.to_owned(),
+                available: true,
+            },
+        }),
     }
 }
 
@@ -819,14 +1080,28 @@ pub(crate) fn singles_group_title(display_artist: &str) -> String {
 }
 
 /// The main action of a group page: "Download n singles" when one or more
-/// singles are not in the Library, else "Add to playlist".
+/// singles are not in the Library, else "Add to playlist". n counts the
+/// Library singles that are not each in the Library and each `MusicIndex`
+/// single (packet 026 Part B).
 fn main_action(group: &SinglesGroup<'_>, busy: bool) -> SinglesGroupActionVm {
-    let missing: Vec<i64> = group
-        .singles
-        .iter()
-        .filter(|single| !single.in_library)
-        .filter_map(|single| single.album.feed_id)
-        .collect();
+    let missing = ReleasesDownloadPlan {
+        library_feed_ids: group
+            .singles
+            .iter()
+            .filter(|single| !single.in_library)
+            .filter_map(|single| single.album.feed_id)
+            .collect(),
+        index_releases: group
+            .index_singles
+            .iter()
+            .filter_map(|single| {
+                let ReleaseKey::FeedGuid(guid) = &single.key else {
+                    return None;
+                };
+                Some((guid.clone(), Some(index_release_title(single.feed))))
+            })
+            .collect(),
+    };
     let missing_count = group.count() - group.in_library_count();
     let (action, label, a11y_label) = if missing_count > 0 {
         let noun = format!("single{}", plural(missing_count));
@@ -951,6 +1226,14 @@ mod tests {
                     .map(|n| single(&format!("Single {n}"), n, Some(n * 100), n <= in_library))
                     .collect(),
             )],
+        }
+    }
+
+    /// The Library row of a page entry.
+    fn library_row(entry: &SinglesGroupPageEntryVm) -> &SinglesGroupPageRowVm {
+        match entry {
+            SinglesGroupPageEntryVm::Library(row) => row,
+            SinglesGroupPageEntryVm::Index(row) => panic!("a MusicIndex row: {}", row.title),
         }
     }
 
@@ -1085,7 +1368,12 @@ mod tests {
     fn adr_0084_singles_group_r15_07_page_main_action_follows_the_library_state() {
         let key = SinglesGroupKey(ArtistIdentity::Name("haleen".to_owned()));
 
-        let page = SinglesGroupPageVm::from_tree(&haleen_tree(3, 2), &key, &BusyItems::default());
+        let page = SinglesGroupPageVm::from_tree(
+            &haleen_tree(3, 2),
+            &IndexFeedSingles::default(),
+            &key,
+            &BusyItems::default(),
+        );
         let action = page.main_action.expect("a group has a main action");
         assert_eq!(action.label, "Download 1 single");
         assert_eq!(
@@ -1093,9 +1381,20 @@ mod tests {
             "Download the 1 single that is not in the Library"
         );
         assert!(action.available);
-        assert_eq!(action.action, SinglesGroupAction::DownloadSingles(vec![3]));
+        assert_eq!(
+            action.action,
+            SinglesGroupAction::DownloadSingles(ReleasesDownloadPlan {
+                library_feed_ids: vec![3],
+                index_releases: Vec::new(),
+            })
+        );
 
-        let page = SinglesGroupPageVm::from_tree(&haleen_tree(3, 1), &key, &BusyItems::default());
+        let page = SinglesGroupPageVm::from_tree(
+            &haleen_tree(3, 1),
+            &IndexFeedSingles::default(),
+            &key,
+            &BusyItems::default(),
+        );
         let action = page.main_action.expect("a group has a main action");
         assert_eq!(action.label, "Download 2 singles");
         assert_eq!(
@@ -1105,11 +1404,19 @@ mod tests {
         assert!(action.available);
         assert_eq!(
             action.action,
-            SinglesGroupAction::DownloadSingles(vec![3, 2]),
+            SinglesGroupAction::DownloadSingles(ReleasesDownloadPlan {
+                library_feed_ids: vec![3, 2],
+                index_releases: Vec::new(),
+            }),
             "the downloads run newest first"
         );
 
-        let page = SinglesGroupPageVm::from_tree(&haleen_tree(7, 7), &key, &BusyItems::default());
+        let page = SinglesGroupPageVm::from_tree(
+            &haleen_tree(7, 7),
+            &IndexFeedSingles::default(),
+            &key,
+            &BusyItems::default(),
+        );
         assert_eq!(page.title, "Singles by Haleen");
         assert_eq!(
             page.subtitle.as_deref(),
@@ -1124,8 +1431,11 @@ mod tests {
             SinglesGroupAction::AddToPlaylist(vec![7, 6, 5, 4, 3, 2, 1])
         );
         assert_eq!(page.rows.len(), 7);
-        assert_eq!(page.rows[0].key, ReleaseKey::FeedGuid("guid-7".to_owned()));
-        assert!(page.rows[0].date_text.is_some());
+        assert_eq!(
+            *page.rows[0].key(),
+            ReleaseKey::FeedGuid("guid-7".to_owned())
+        );
+        assert!(library_row(&page.rows[0]).date_text.is_some());
     }
 
     /// R15-07: each level gives its identity note and names its level in
@@ -1133,11 +1443,15 @@ mod tests {
     #[test]
     fn adr_0084_singles_group_r15_07_page_identity_note_and_empty_state() {
         let name_key = SinglesGroupKey(ArtistIdentity::Name("haleen".to_owned()));
-        let page =
-            SinglesGroupPageVm::from_tree(&haleen_tree(2, 1), &name_key, &BusyItems::default());
+        let page = SinglesGroupPageVm::from_tree(
+            &haleen_tree(2, 1),
+            &IndexFeedSingles::default(),
+            &name_key,
+            &BusyItems::default(),
+        );
         assert_eq!(page.identity_note, Some(NAME_LEVEL_NOTE));
-        assert!(!page.rows[0].track.is_in_library);
-        assert!(page.rows[1].track.is_in_library);
+        assert!(!library_row(&page.rows[0]).track.is_in_library);
+        assert!(library_row(&page.rows[1]).track.is_in_library);
 
         let publisher_tree = LibraryTree {
             artists: vec![artist(
@@ -1149,8 +1463,12 @@ mod tests {
             )],
         };
         let publisher_key = SinglesGroupKey(ArtistIdentity::Publisher("pub".to_owned()));
-        let page =
-            SinglesGroupPageVm::from_tree(&publisher_tree, &publisher_key, &BusyItems::default());
+        let page = SinglesGroupPageVm::from_tree(
+            &publisher_tree,
+            &IndexFeedSingles::default(),
+            &publisher_key,
+            &BusyItems::default(),
+        );
         assert_eq!(page.identity_note, Some(PUBLISHER_LEVEL_NOTE));
         assert_eq!(
             page.subtitle.as_deref(),
@@ -1158,8 +1476,12 @@ mod tests {
         );
         assert_eq!(page.rows.len(), 2);
 
-        let page =
-            SinglesGroupPageVm::from_tree(&haleen_tree(1, 1), &name_key, &BusyItems::default());
+        let page = SinglesGroupPageVm::from_tree(
+            &haleen_tree(1, 1),
+            &IndexFeedSingles::default(),
+            &name_key,
+            &BusyItems::default(),
+        );
         assert_eq!(page.empty_message, Some(EMPTY_GROUP_MESSAGE));
         assert!(page.main_action.is_none());
         assert!(page.rows.is_empty());
@@ -1175,14 +1497,24 @@ mod tests {
         let newest_four =
             CollectionArtVm::Mosaic(["5.jpg", "4.jpg", "3.jpg", "2.jpg"].map(str::to_owned));
 
-        let page = SinglesGroupPageVm::from_tree(&tree, &key, &BusyItems::default());
+        let page = SinglesGroupPageVm::from_tree(
+            &tree,
+            &IndexFeedSingles::default(),
+            &key,
+            &BusyItems::default(),
+        );
         assert_eq!(page.art, Some(newest_four.clone()));
 
         let groups = singles_groups(&tree);
         let row = SinglesGroupRowVm::new(&groups[0], false, |_, _| None);
         assert_eq!(row.art, newest_four);
 
-        let empty = SinglesGroupPageVm::from_tree(&haleen_tree(1, 1), &key, &BusyItems::default());
+        let empty = SinglesGroupPageVm::from_tree(
+            &haleen_tree(1, 1),
+            &IndexFeedSingles::default(),
+            &key,
+            &BusyItems::default(),
+        );
         assert_eq!(empty.art, None);
     }
 
@@ -1222,7 +1554,12 @@ mod tests {
         let row = SinglesGroupRowVm::new(&groups[0], false, |_, _| None);
         assert_eq!(row.art, expected);
         let key = SinglesGroupKey(ArtistIdentity::Publisher("pub".to_owned()));
-        let page = SinglesGroupPageVm::from_tree(&tree, &key, &BusyItems::default());
+        let page = SinglesGroupPageVm::from_tree(
+            &tree,
+            &IndexFeedSingles::default(),
+            &key,
+            &BusyItems::default(),
+        );
         assert_eq!(page.art, Some(expected));
 
         let name_tree = haleen_tree(2, 2);
@@ -1274,7 +1611,12 @@ mod tests {
             let row = SinglesGroupRowVm::new(&groups[0], false, |_, _| None);
             assert!(gives_image(&row.art), "{role:?}");
             let key = SinglesGroupKey(ArtistIdentity::Publisher("pub".to_owned()));
-            let page = SinglesGroupPageVm::from_tree(&tree, &key, &BusyItems::default());
+            let page = SinglesGroupPageVm::from_tree(
+                &tree,
+                &IndexFeedSingles::default(),
+                &key,
+                &BusyItems::default(),
+            );
             assert!(page.art.as_ref().is_some_and(gives_image), "{role:?}");
 
             let mut vm = crate::view_models::library::LibraryViewModel::new();
@@ -1308,17 +1650,22 @@ mod tests {
                 ],
             )],
         };
-        let page = SinglesGroupPageVm::from_tree(&tree, &key, &BusyItems::default());
+        let page = SinglesGroupPageVm::from_tree(
+            &tree,
+            &IndexFeedSingles::default(),
+            &key,
+            &BusyItems::default(),
+        );
         assert_eq!(page.rows.len(), 2);
 
-        let dated = &page.rows[0];
+        let dated = library_row(&page.rows[0]);
         assert_eq!(dated.track.id, 10, "the row holds the track of its single");
         assert_eq!(dated.track.feed_id, 1);
         assert_eq!(dated.date_text.as_deref(), Some("Apr 5, 2024"));
         assert_eq!(dated.key, ReleaseKey::FeedGuid("guid-1".to_owned()));
         assert_eq!(dated.work, TrackRowWork::Idle);
 
-        let undated = &page.rows[1];
+        let undated = library_row(&page.rows[1]);
         assert_eq!(undated.track.id, 20);
         assert_eq!(undated.date_text, None);
         assert_eq!(undated.key, ReleaseKey::FeedGuid("guid-2".to_owned()));
@@ -1330,21 +1677,23 @@ mod tests {
             },
             BTreeSet::new(),
         );
-        let page = SinglesGroupPageVm::from_tree(&tree, &key, &busy_track);
-        assert_eq!(page.rows[0].work, TrackRowWork::Idle);
+        let page =
+            SinglesGroupPageVm::from_tree(&tree, &IndexFeedSingles::default(), &key, &busy_track);
+        assert_eq!(library_row(&page.rows[0]).work, TrackRowWork::Idle);
         assert_eq!(
-            page.rows[1].work,
+            library_row(&page.rows[1]).work,
             TrackRowWork::Queued,
             "the queued track makes its row busy"
         );
         let busy_feed = BusyItems::new(DownloadActivity::default(), BTreeSet::from([1]));
-        let page = SinglesGroupPageVm::from_tree(&tree, &key, &busy_feed);
+        let page =
+            SinglesGroupPageVm::from_tree(&tree, &IndexFeedSingles::default(), &key, &busy_feed);
         assert_eq!(
-            page.rows[0].work,
+            library_row(&page.rows[0]).work,
             TrackRowWork::Removing,
             "the busy feed makes its row busy"
         );
-        assert_eq!(page.rows[1].work, TrackRowWork::Idle);
+        assert_eq!(library_row(&page.rows[1]).work, TrackRowWork::Idle);
     }
 
     /// R15-08: the release page name links of a single in a group of 7
@@ -1402,7 +1751,7 @@ mod tests {
     // ADR 0084 packet 026: the groups of the scope "Everything".
 
     use crate::view_models::index_feed_singles::tests::single_naming;
-    use crate::view_models::index_feed_singles::IndexFeedSingles;
+    use crate::view_models::index_feed_singles::{FeedReleaseList, IndexFeedSingles};
 
     /// The Library artist feed of Haleen (packet 008 record).
     const HALEEN: &str = "64569161-a8f7-52e5-8aae-9e0385043149";
@@ -1414,7 +1763,7 @@ mod tests {
     fn fills(feed_guid: &str, rows: Vec<Feed>) -> IndexFeedSingles {
         let mut store = IndexFeedSingles::default();
         let generation = store.begin_request();
-        store.record(feed_guid, rows, generation);
+        store.record(feed_guid, FeedReleaseList::complete(rows), generation);
         store
     }
 
@@ -1719,5 +2068,505 @@ mod tests {
             .map(|single| single.key.clone())
             .collect();
         assert_eq!(members, singles);
+    }
+
+    // ADR 0084 packet 026 Part B: the group page and the link.
+
+    /// The Haleen tree of the D12 example: three Library singles of the
+    /// feed, each in the Library, with the dates 1000, 2000 and 3000.
+    fn haleen_feed_tree() -> LibraryTree {
+        LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                (1..=3)
+                    .map(|n| {
+                        with_publisher(
+                            single(&format!("Library {n}"), n, Some(n * 1000), true),
+                            HALEEN,
+                        )
+                    })
+                    .collect(),
+            )],
+        }
+    }
+
+    /// The 52 `MusicIndex` singles of the D12 example, with the dates 1 to
+    /// 52 and the release GUIDs "i1" to "i52".
+    fn haleen_index_rows() -> Vec<Feed> {
+        (1..=52)
+            .map(|n| single_naming(&format!("i{n}"), &format!("Index {n}"), HALEEN, n))
+            .collect()
+    }
+
+    fn haleen_key() -> SinglesGroupKey {
+        SinglesGroupKey(ArtistIdentity::Publisher(HALEEN.to_owned()))
+    }
+
+    fn row_keys(page: &SinglesGroupPageVm) -> Vec<String> {
+        page.rows
+            .iter()
+            .map(|row| match row.key() {
+                ReleaseKey::FeedGuid(guid) => guid.clone(),
+                ReleaseKey::LibraryFeed(feed_id) => feed_id.to_string(),
+            })
+            .collect()
+    }
+
+    /// R26-20 and decision D12: the group page of a feed gives the Library
+    /// rows and the `MusicIndex` rows, newest first. The page is not
+    /// scoped: the group row of the scope "Library" opens the key of this
+    /// same page, and the view model of the page reads no scope.
+    #[test]
+    fn adr_0084_index_singles_r26_20_group_page_gives_both_origins_newest_first() {
+        let tree = haleen_feed_tree();
+        let store = fills(HALEEN, haleen_index_rows());
+        let page =
+            SinglesGroupPageVm::from_tree(&tree, &store, &haleen_key(), &BusyItems::default());
+        assert_eq!(page.rows.len(), 55);
+        let keys = row_keys(&page);
+        assert_eq!(keys[..4], ["guid-3", "guid-2", "guid-1", "i52"]);
+        assert_eq!(keys[54], "i1");
+        assert!(matches!(page.rows[0], SinglesGroupPageEntryVm::Library(_)));
+        let SinglesGroupPageEntryVm::Index(index_row) = &page.rows[3] else {
+            panic!("a MusicIndex row");
+        };
+        assert_eq!(index_row.title, "Index 52");
+        assert_eq!(
+            index_row.image_url.as_deref(),
+            Some("https://img.test/i52.jpg")
+        );
+        assert_eq!(index_row.element_id, "singles-group-index-row:i52");
+        assert!(index_row.a11y_label.starts_with("Release: Index 52"));
+        assert_eq!(page.title, "Singles by Haleen");
+        assert_eq!(
+            page.subtitle.as_deref(),
+            Some("55 singles \u{b7} 3 in Library \u{b7} Artist feed")
+        );
+        assert_eq!(page.index_status, None, "the app has the result");
+        assert_eq!(page.more_note, None);
+
+        let mut vm = crate::view_models::library::LibraryViewModel::new();
+        vm.replace_tree(tree.clone());
+        let library_groups = singles_groups(&tree);
+        let library_row = SinglesGroupRowVm::new(&library_groups[0], false, |_, _| None);
+        assert_eq!(
+            library_row.secondary_text, "3 singles \u{b7} In Library \u{b7} Artist feed",
+            "the scope \"Library\" keeps its row (decision D15)"
+        );
+        assert_eq!(library_row.open, haleen_key());
+        let generation = vm.index_feed_singles_mut().begin_request();
+        vm.index_feed_singles_mut().record(
+            HALEEN,
+            FeedReleaseList::complete(haleen_index_rows()),
+            generation,
+        );
+        let from_vm = vm.singles_group_page(&haleen_key());
+        assert_eq!(row_keys(&from_vm), keys, "one page for each key");
+    }
+
+    /// R26-21: while the request for the feed runs, the Library rows show
+    /// with the loading row. After a failure, they show with the error row
+    /// and "Try again". A group of one Library single shows that row, and
+    /// not the empty state, until the request has an answer.
+    #[test]
+    fn adr_0084_index_singles_r26_21_loading_and_error_rows_keep_the_library_rows() {
+        let tree = haleen_feed_tree();
+        let mut store = IndexFeedSingles::default();
+        let unread =
+            SinglesGroupPageVm::from_tree(&tree, &store, &haleen_key(), &BusyItems::default());
+        assert!(matches!(
+            unread.index_status,
+            Some(IndexListStatusRowVm::Loading { .. })
+        ));
+
+        let generation = store.begin_feed_request(HALEEN).expect("one request");
+        assert_eq!(store.begin_feed_request(HALEEN), None, "no second request");
+        let page =
+            SinglesGroupPageVm::from_tree(&tree, &store, &haleen_key(), &BusyItems::default());
+        assert_eq!(
+            page.index_status,
+            Some(IndexListStatusRowVm::Loading {
+                element_id: "singles-group-index-loading".to_owned(),
+                label: "Loading MusicIndex singles",
+            })
+        );
+        assert_eq!(row_keys(&page), ["guid-3", "guid-2", "guid-1"]);
+        assert!(page.main_action.is_some());
+
+        assert!(store.finish_feed_request(
+            crate::view_models::index_feed_singles::FeedSinglesResult {
+                feed_guid: HALEEN.to_owned(),
+                rows: Err("connection refused".to_owned()),
+            },
+            generation,
+        ));
+        let page =
+            SinglesGroupPageVm::from_tree(&tree, &store, &haleen_key(), &BusyItems::default());
+        let Some(IndexListStatusRowVm::Failed {
+            message,
+            detail,
+            retry,
+            ..
+        }) = &page.index_status
+        else {
+            panic!("the error row");
+        };
+        assert_eq!(
+            message,
+            "The MusicIndex singles did not load. The Library singles show."
+        );
+        assert_eq!(
+            detail,
+            &format!("GET /v1/feeds/recent?named_feed_guid={HALEEN}: connection refused")
+        );
+        assert_eq!(retry.label, "Try again");
+        assert!(retry.available);
+        assert_eq!(row_keys(&page), ["guid-3", "guid-2", "guid-1"]);
+        assert!(
+            store.needs_request(HALEEN),
+            "\"Try again\" and a new open send the request again"
+        );
+
+        let one = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![with_publisher(single("Only", 1, Some(5), true), HALEEN)],
+            )],
+        };
+        let page = SinglesGroupPageVm::from_tree(
+            &one,
+            &IndexFeedSingles::default(),
+            &haleen_key(),
+            &BusyItems::default(),
+        );
+        assert_eq!(page.empty_message, None);
+        assert_eq!(page.title, "Singles by Haleen");
+        assert_eq!(row_keys(&page), ["guid-1"]);
+        assert!(page.main_action.is_none());
+        assert!(page.index_status.is_some());
+    }
+
+    /// R26-22: the main action of the D12 example is "Download 52
+    /// singles". Its plan holds the Library feed id of each Library single
+    /// that is not in the Library and the GUID and the title of each
+    /// `MusicIndex` single, newest first.
+    #[test]
+    fn adr_0084_index_singles_r26_22_main_action_downloads_both_origins() {
+        let store = fills(HALEEN, haleen_index_rows());
+        let page = SinglesGroupPageVm::from_tree(
+            &haleen_feed_tree(),
+            &store,
+            &haleen_key(),
+            &BusyItems::default(),
+        );
+        let action = page.main_action.expect("a group has a main action");
+        assert_eq!(action.label, "Download 52 singles");
+        assert_eq!(
+            action.a11y_label,
+            "Download the 52 singles that are not in the Library"
+        );
+        assert!(action.available);
+        let SinglesGroupAction::DownloadSingles(plan) = action.action else {
+            panic!("the download action");
+        };
+        assert!(plan.library_feed_ids.is_empty());
+        assert_eq!(plan.index_releases.len(), 52);
+        assert_eq!(
+            plan.index_releases[0],
+            ("i52".to_owned(), Some("Index 52".to_owned()))
+        );
+        assert_eq!(plan.index_releases[51].0, "i1");
+
+        let mut tree = haleen_feed_tree();
+        tree.artists[0].albums[0].tracks[0].is_in_library = false;
+        let page =
+            SinglesGroupPageVm::from_tree(&tree, &store, &haleen_key(), &BusyItems::default());
+        let action = page.main_action.expect("a group has a main action");
+        assert_eq!(action.label, "Download 53 singles");
+        let SinglesGroupAction::DownloadSingles(plan) = action.action else {
+            panic!("the download action");
+        };
+        assert_eq!(plan.library_feed_ids, [1]);
+
+        let queued = BusyItems::new(
+            crate::view_models::download_progress::DownloadActivity {
+                keys: BTreeSet::from([crate::view_models::download_progress::FeedKey::Guid(
+                    "i7".to_owned(),
+                )]),
+                ..crate::view_models::download_progress::DownloadActivity::default()
+            },
+            BTreeSet::new(),
+        );
+        let page =
+            SinglesGroupPageVm::from_tree(&haleen_feed_tree(), &store, &haleen_key(), &queued);
+        assert!(
+            !page.main_action.expect("the action").available,
+            "a queued MusicIndex single makes the action wait"
+        );
+    }
+
+    /// R26-23 and decision D14: the page of a single in a feed group of
+    /// two or more members gives "All n singles", also for a `MusicIndex`
+    /// single. The page plans one request when the app has no result, and
+    /// none when a request runs or the result is loaded.
+    #[test]
+    fn adr_0084_index_singles_r26_23_single_page_links_to_its_feed_group() {
+        let tree = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![with_publisher(single("Only", 1, Some(5), true), HALEEN)],
+            )],
+        };
+        let mut store = IndexFeedSingles::default();
+        let library_single = &tree.artists[0].albums[0];
+        assert_eq!(
+            library_page_feed_to_read(library_single, &store).as_deref(),
+            Some(HALEEN)
+        );
+        assert!(
+            release_page_name_links(
+                Vec::new(),
+                &singles_groups_everything(&tree, &store),
+                Some(&ReleaseKey::FeedGuid("guid-1".to_owned())),
+            )
+            .is_empty(),
+            "one single makes no group before the result"
+        );
+
+        let generation = store.begin_feed_request(HALEEN).expect("one request");
+        assert_eq!(library_page_feed_to_read(library_single, &store), None);
+        assert!(store.finish_feed_request(
+            crate::view_models::index_feed_singles::FeedSinglesResult {
+                feed_guid: HALEEN.to_owned(),
+                rows: Ok(FeedReleaseList::complete(haleen_index_rows())),
+            },
+            generation,
+        ));
+        assert_eq!(library_page_feed_to_read(library_single, &store), None);
+        let groups = singles_groups_everything(&tree, &store);
+        for key in ["guid-1", "i9"] {
+            let links = release_page_name_links(
+                Vec::new(),
+                &groups,
+                Some(&ReleaseKey::FeedGuid(key.to_owned())),
+            );
+            assert_eq!(links.len(), 1, "{key}");
+            assert_eq!(links[0].label, "All 53 singles");
+            assert_eq!(links[0].a11y_label, "Open all 53 singles by Haleen");
+            assert_eq!(
+                links[0].target,
+                AlbumNameLinkTarget::SinglesGroup(haleen_key())
+            );
+        }
+
+        let index_single = FeedView {
+            release_kind: Some("unknown".to_owned()),
+            episode_count: Some(1),
+            named_feeds: vec![crate::view_models::named_feeds::NamedFeed {
+                feed_guid: HALEEN_2.to_owned(),
+                title: None,
+                position: Some(1),
+                role: None,
+                role_agreement: None,
+                feed_rel: None,
+                album_rel: None,
+                confirmed: true,
+                image_url: None,
+            }],
+            ..FeedView::default()
+        };
+        assert_eq!(
+            index_page_feed_to_read(&index_single, &store).as_deref(),
+            Some(HALEEN_2)
+        );
+        let mut album = index_single.clone();
+        album.episode_count = Some(9);
+        assert_eq!(
+            index_page_feed_to_read(&album, &store),
+            None,
+            "not a single"
+        );
+        let mut unconfirmed = index_single;
+        unconfirmed.named_feeds[0].confirmed = false;
+        assert_eq!(
+            index_page_feed_to_read(&unconfirmed, &store),
+            None,
+            "a single at the name level (decision D7)"
+        );
+        let name_key = SinglesGroupKey(ArtistIdentity::Name("haleen".to_owned()));
+        assert_eq!(group_page_feed_to_read(&name_key, &store), None);
+        assert_eq!(
+            group_page_feed_to_read(
+                &SinglesGroupKey(ArtistIdentity::Publisher(HALEEN_2.to_owned())),
+                &store
+            )
+            .as_deref(),
+            Some(HALEEN_2)
+        );
+    }
+
+    /// R26-24: an answer of an older generation changes nothing on the
+    /// group page and on the single page. A page load recorded the feed
+    /// first, so the late answer of the page request is dropped. A retry
+    /// starts a new generation, so the late answer of the failed request is
+    /// dropped too.
+    #[test]
+    fn adr_0084_index_singles_r26_24_old_answers_change_nothing() {
+        use crate::view_models::index_feed_singles::FeedSinglesResult;
+        let tree = haleen_feed_tree();
+        let mut store = IndexFeedSingles::default();
+        let page_request = store.begin_feed_request(HALEEN).expect("one request");
+        let page_load = store.begin_request();
+        assert!(store.record(
+            HALEEN,
+            FeedReleaseList::complete(haleen_index_rows()),
+            page_load
+        ));
+        let before =
+            SinglesGroupPageVm::from_tree(&tree, &store, &haleen_key(), &BusyItems::default());
+        assert!(!store.finish_feed_request(
+            FeedSinglesResult {
+                feed_guid: HALEEN.to_owned(),
+                rows: Ok(FeedReleaseList::complete(Vec::new())),
+            },
+            page_request,
+        ));
+        let after =
+            SinglesGroupPageVm::from_tree(&tree, &store, &haleen_key(), &BusyItems::default());
+        assert_eq!(row_keys(&after), row_keys(&before));
+        assert_eq!(after.rows.len(), 55);
+
+        let mut store = IndexFeedSingles::default();
+        let first = store.begin_feed_request(HALEEN).expect("one request");
+        assert!(store.finish_feed_request(
+            FeedSinglesResult {
+                feed_guid: HALEEN.to_owned(),
+                rows: Err("timeout".to_owned()),
+            },
+            first,
+        ));
+        let retry = store.begin_feed_request(HALEEN).expect("the retry");
+        assert!(!store.finish_feed_request(
+            FeedSinglesResult {
+                feed_guid: HALEEN.to_owned(),
+                rows: Ok(FeedReleaseList::complete(haleen_index_rows())),
+            },
+            first,
+        ));
+        assert_eq!(store.state(HALEEN), FeedSinglesState::Running);
+        let one = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![with_publisher(single("Only", 1, Some(5), true), HALEEN)],
+            )],
+        };
+        assert!(release_page_name_links(
+            Vec::new(),
+            &singles_groups_everything(&one, &store),
+            Some(&ReleaseKey::FeedGuid("guid-1".to_owned())),
+        )
+        .is_empty());
+        assert!(store.finish_feed_request(
+            FeedSinglesResult {
+                feed_guid: HALEEN.to_owned(),
+                rows: Ok(FeedReleaseList::complete(haleen_index_rows())),
+            },
+            retry,
+        ));
+        assert_eq!(
+            store.state(HALEEN),
+            FeedSinglesState::Loaded { more: false }
+        );
+    }
+
+    /// R26-25 and decision D12: the empty state text names no scope.
+    #[test]
+    fn adr_0084_index_singles_r26_25_empty_state_text() {
+        let name_key = SinglesGroupKey(ArtistIdentity::Name("haleen".to_owned()));
+        let page = SinglesGroupPageVm::from_tree(
+            &haleen_tree(1, 1),
+            &IndexFeedSingles::default(),
+            &name_key,
+            &BusyItems::default(),
+        );
+        assert_eq!(
+            page.empty_message,
+            Some("This artist has fewer than two singles.")
+        );
+        assert_eq!(page.index_status, None);
+
+        let store = fills(HALEEN, Vec::new());
+        let one = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![with_publisher(single("Only", 1, Some(5), true), HALEEN)],
+            )],
+        };
+        let page =
+            SinglesGroupPageVm::from_tree(&one, &store, &haleen_key(), &BusyItems::default());
+        assert_eq!(
+            page.empty_message,
+            Some("This artist has fewer than two singles."),
+            "the loaded feed has no other single"
+        );
+    }
+
+    /// Decision D11: when more releases name the feed than the app read,
+    /// the group page gives the note.
+    #[test]
+    fn adr_0084_index_singles_d11_group_page_says_more_exist() {
+        let mut store = IndexFeedSingles::default();
+        let generation = store.begin_request();
+        store.record(
+            HALEEN,
+            FeedReleaseList {
+                rows: haleen_index_rows(),
+                more: true,
+            },
+            generation,
+        );
+        assert_eq!(store.state(HALEEN), FeedSinglesState::Loaded { more: true });
+        let page = SinglesGroupPageVm::from_tree(
+            &haleen_feed_tree(),
+            &store,
+            &haleen_key(),
+            &BusyItems::default(),
+        );
+        assert_eq!(page.more_note, Some(MORE_INDEX_SINGLES_NOTE));
+        assert_eq!(page.index_status, None);
+    }
+
+    /// Packet 026 review: `MORE_INDEX_SINGLES_NOTE` must name the release
+    /// count that `FEED_SINGLES_MAX_PAGES` and `FEED_SINGLES_PAGE_LIMIT`
+    /// give together. A later change of either constant must update this
+    /// text in the same change, or this test fails.
+    #[test]
+    fn adr_0084_more_index_singles_note_names_the_feed_singles_limit() {
+        use crate::application::queries::name_lists::{
+            FEED_SINGLES_MAX_PAGES, FEED_SINGLES_PAGE_LIMIT,
+        };
+        let page_limit =
+            usize::try_from(FEED_SINGLES_PAGE_LIMIT).expect("a positive feed singles page limit");
+        let total = FEED_SINGLES_MAX_PAGES * page_limit;
+        let expected = format!("its {} newest releases.", format_with_commas(total));
+        assert!(
+            MORE_INDEX_SINGLES_NOTE.ends_with(&expected),
+            "MORE_INDEX_SINGLES_NOTE must name {total} newest releases, the product of \
+             FEED_SINGLES_MAX_PAGES and FEED_SINGLES_PAGE_LIMIT; got {MORE_INDEX_SINGLES_NOTE:?}"
+        );
+    }
+
+    /// Formats `n` with a comma every three digits from the right, the
+    /// same grouping that `MORE_INDEX_SINGLES_NOTE` uses for its number.
+    fn format_with_commas(n: usize) -> String {
+        let digits = n.to_string();
+        let mut grouped = String::new();
+        for (index, digit) in digits.chars().rev().enumerate() {
+            if index > 0 && index % 3 == 0 {
+                grouped.push(',');
+            }
+            grouped.push(digit);
+        }
+        grouped.chars().rev().collect()
     }
 }

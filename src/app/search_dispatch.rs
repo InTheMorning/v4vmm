@@ -680,10 +680,12 @@ impl TopApp {
             ReleasePageSource::Index { feed_guid } => {
                 self.library
                     .update(cx, |library, _cx| library.clear_detail());
-                if !index_feed_detail_result_is_current(
+                if index_feed_detail_result_is_current(
                     self.index_feed_detail_state.as_ref(),
                     feed_guid,
                 ) {
+                    self.request_index_single_feed(cx);
+                } else {
                     self.fetch_index_feed_detail_page(feed_guid.clone(), cx);
                 }
             }
@@ -909,6 +911,7 @@ impl TopApp {
                     feed_guid: success_guid,
                     feed: Box::new(feed),
                 });
+                this.request_index_single_feed(cx);
                 cx.notify();
             },
             move |this, error, cx| {
@@ -925,6 +928,21 @@ impl TopApp {
                 cx.notify();
             },
         );
+    }
+
+    /// Reads the `MusicIndex` singles of the artist feed of the loaded
+    /// Index release page, when it is a single and the app has no result
+    /// for that feed (ADR 0084 packet 026 decision D14). The page then
+    /// shows "All n singles". It sends nothing while the page loads.
+    fn request_index_single_feed(&mut self, cx: &mut Context<Self>) {
+        let Some(IndexFeedDetailState::Loaded { feed, .. }) = self.index_feed_detail_state.as_ref()
+        else {
+            return;
+        };
+        let feed = feed.clone();
+        self.library.update(cx, |library, cx| {
+            library.request_index_single_feed(&feed, cx);
+        });
     }
 
     /// The feed GUID of the open Index track page of `key`, with the
@@ -1156,9 +1174,10 @@ impl TopApp {
                 .iter()
                 .map(|selection| library.detail_row_probe(selection))
                 .collect::<Vec<_>>();
-            // ADR 0084 Decision 6: a release whose key is in a Library
-            // singles group links to that group. An Index release that is
-            // not in the Library gets no link.
+            // ADR 0084 Decision 6: a release whose key is in a singles
+            // group links to that group. Packet 026 decision D14: the group
+            // holds the MusicIndex singles of its feed, so an Index single
+            // gets the link when the app has the singles of its feed.
             // ADR 0083 task 006, decision D8: each Index row reads the
             // phase of its own job, then the phase of a release job.
             let facts = ReleasePageFacts::from_index_feed(feed.clone(), description_state)
@@ -1634,7 +1653,10 @@ impl TopApp {
         self.library.update(cx, |library, cx| {
             if updates_open_page {
                 if let Some(album) = library.album_for_detail_by_feed_id(feed_id) {
-                    library.select_album(&album, cx);
+                    // Packet 026 review: the release page stays open across
+                    // the download, so this must not resend a failed
+                    // request for the artist feed's MusicIndex singles.
+                    library.refresh_album_detail(&album, cx);
                 }
             }
             library.refresh(cx);

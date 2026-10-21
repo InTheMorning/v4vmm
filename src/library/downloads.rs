@@ -34,6 +34,7 @@ use crate::view_models::detail_selection::index_track_guid;
 use crate::view_models::download_progress::{DownloadProgressDisplay, FeedKey};
 use crate::view_models::library::LibraryTrackRowVm;
 use crate::view_models::release_page::index_feed_guid;
+use crate::view_models::releases_everything::ReleasesDownloadPlan;
 use crate::view_models::workspace::{ReleaseKey, TrackKey};
 use crate::views::{FeedView, TrackView};
 
@@ -49,6 +50,25 @@ impl LibraryApp {
             .map(|&feed_id| Ok(self.library_feed_job(feed_id)))
             .collect();
         self.queue_downloads(jobs, cx);
+    }
+
+    /// Queues the jobs of `plan`: the Library jobs first, then one Index
+    /// release job with no feed for each `MusicIndex` release (packet 016
+    /// Required Change 15). Each job reads its feed in its own queue slot.
+    /// The Releases action bar and the singles group page use it (packet
+    /// 026 Part B).
+    pub(crate) fn download_release_plan(
+        &mut self,
+        plan: ReleasesDownloadPlan,
+        cx: &mut Context<Self>,
+    ) {
+        self.download_library_feeds(&plan.library_feed_ids, cx);
+        let index_jobs = plan
+            .index_releases
+            .into_iter()
+            .map(|(feed_guid, title)| index_release_job_by_guid(feed_guid, title))
+            .collect();
+        self.queue_downloads(index_jobs, cx);
     }
 
     /// Queues a download of each Library track of `track_ids` (ADR 0084

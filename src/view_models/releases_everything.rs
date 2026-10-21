@@ -202,7 +202,8 @@ pub(crate) fn index_release_row(feed: &Feed) -> Option<DestinationListRowVm> {
 }
 
 /// The title of a `MusicIndex` release row.
-fn index_release_title(feed: &Feed) -> String {
+#[must_use]
+pub(crate) fn index_release_title(feed: &Feed) -> String {
     feed.title
         .as_deref()
         .map(str::trim)

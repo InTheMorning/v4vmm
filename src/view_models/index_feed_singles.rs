@@ -6,7 +6,10 @@
 //! module keeps the singles of each feed that the app read, for the
 //! session, and gives the completion of one page load of the Releases list.
 //! The rows of a page show only when each request of that page has an
-//! answer (packet 026 decision D10). It has no renderer type.
+//! answer (packet 026 decision D10). The group page and the single page
+//! read one feed with their own request, and this module keeps the state
+//! of that request: running or failed (packet 026 Part B). It has no
+//! renderer type.
 
 #![warn(clippy::pedantic)]
 
@@ -16,13 +19,32 @@ use crate::api::Feed;
 use crate::view_models::index_name_list::{IndexNameListBatch, IndexNameListPage};
 use crate::view_models::singles_group::index_singles_of_feed;
 
+/// The releases that name one feed, from each page that the app read.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct FeedReleaseList {
+    /// The rows of each loaded page, newest first.
+    pub(crate) rows: Vec<Feed>,
+    /// The last page that the app read has `has_more` true. The app reads
+    /// at most 5 pages, so more rows exist (packet 026 decision D11).
+    pub(crate) more: bool,
+}
+
+impl FeedReleaseList {
+    /// The rows of a list with no more rows.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn complete(rows: Vec<Feed>) -> Self {
+        Self { rows, more: false }
+    }
+}
+
 /// The result of the request for the releases that name one feed.
 #[derive(Clone, Debug)]
 pub(crate) struct FeedSinglesResult {
     /// The GUID of the feed.
     pub(crate) feed_guid: String,
-    /// The rows of each loaded page, newest first, or the error text.
-    pub(crate) rows: Result<Vec<Feed>, String>,
+    /// The releases that name the feed, or the error text.
+    pub(crate) rows: Result<FeedReleaseList, String>,
 }
 
 /// The result of one page load of the Releases list in "Everything": the
@@ -48,6 +70,33 @@ struct LoadedFeedSingles {
     generation: u64,
     /// The singles of the feed, newest first.
     singles: Vec<Feed>,
+    /// More releases that name the feed exist (packet 026 decision D11).
+    more: bool,
+}
+
+/// The request of the group page or of the single page for one feed
+/// (packet 026 Part B).
+#[derive(Clone, Debug)]
+enum FeedRequest {
+    /// The request with this generation runs.
+    Running(u64),
+    /// The request failed with this error text.
+    Failed(String),
+}
+
+/// The state of the `MusicIndex` singles of one feed, ready for the group
+/// page and the single page (packet 026 Part B).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FeedSinglesState<'a> {
+    /// The app has no result and no request runs.
+    NotRead,
+    /// The request of the page runs.
+    Running,
+    /// The last request of the page failed. The value is the error text.
+    Failed(&'a str),
+    /// The app has the result. `more` tells that more releases that name
+    /// the feed exist (decision D11).
+    Loaded { more: bool },
 }
 
 /// The `MusicIndex` singles of each artist feed that the app read (ADR 0084
@@ -56,6 +105,9 @@ struct LoadedFeedSingles {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct IndexFeedSingles {
     feeds: BTreeMap<String, LoadedFeedSingles>,
+    /// The request of the group page or of the single page for each feed
+    /// with no result.
+    requests: BTreeMap<String, FeedRequest>,
     generation: u64,
 }
 
@@ -66,18 +118,36 @@ impl IndexFeedSingles {
         self.generation
     }
 
-    /// The GUID of each feed with a loaded result. A page load sends no
-    /// request for these feeds.
+    /// The GUID of each feed with a loaded result, and each feed whose
+    /// request runs (packet 026 review). A page load sends no request
+    /// for these feeds either. It thus reads no feed again while the
+    /// group page or the single page already reads it.
     #[must_use]
-    pub(crate) fn loaded_feeds(&self) -> BTreeSet<String> {
-        self.feeds.keys().cloned().collect()
+    pub(crate) fn loaded_or_running_feeds(&self) -> BTreeSet<String> {
+        self.feeds
+            .keys()
+            .cloned()
+            .chain(
+                self.requests
+                    .iter()
+                    .filter(|(_, request)| matches!(request, FeedRequest::Running(_)))
+                    .map(|(feed_guid, _)| feed_guid.clone()),
+            )
+            .collect()
     }
 
-    /// Keeps the singles of `feed_guid` from `rows`, each row of the list
+    /// Keeps the singles of `feed_guid` from `list`, each row of the list
     /// that names the feed. Only the rows that are singles of the feed
     /// stay ([`index_singles_of_feed`]). Gives `false` and changes nothing
-    /// when a result of a newer generation is loaded.
-    pub(crate) fn record(&mut self, feed_guid: &str, rows: Vec<Feed>, generation: u64) -> bool {
+    /// when a result of a newer generation is loaded. A recorded result
+    /// ends the request state of the feed: a later answer of that request
+    /// changes nothing.
+    pub(crate) fn record(
+        &mut self,
+        feed_guid: &str,
+        list: FeedReleaseList,
+        generation: u64,
+    ) -> bool {
         if self
             .feeds
             .get(feed_guid)
@@ -85,15 +155,77 @@ impl IndexFeedSingles {
         {
             return false;
         }
-        let singles = index_singles_of_feed(feed_guid, rows);
+        let singles = index_singles_of_feed(feed_guid, list.rows);
         self.feeds.insert(
             feed_guid.to_owned(),
             LoadedFeedSingles {
                 generation,
                 singles,
+                more: list.more,
             },
         );
+        self.requests.remove(feed_guid);
         true
+    }
+
+    /// The state of the singles of `feed_guid` (packet 026 Part B).
+    #[must_use]
+    pub(crate) fn state(&self, feed_guid: &str) -> FeedSinglesState<'_> {
+        if let Some(loaded) = self.feeds.get(feed_guid) {
+            return FeedSinglesState::Loaded { more: loaded.more };
+        }
+        match self.requests.get(feed_guid) {
+            None => FeedSinglesState::NotRead,
+            Some(FeedRequest::Running(_)) => FeedSinglesState::Running,
+            Some(FeedRequest::Failed(detail)) => FeedSinglesState::Failed(detail),
+        }
+    }
+
+    /// Tells if a page must send the request for `feed_guid`: the app has
+    /// no result, and no request runs (packet 026 decision D14).
+    #[must_use]
+    pub(crate) fn needs_request(&self, feed_guid: &str) -> bool {
+        matches!(
+            self.state(feed_guid),
+            FeedSinglesState::NotRead | FeedSinglesState::Failed(_)
+        )
+    }
+
+    /// Starts the request of a page for `feed_guid`, and gives its
+    /// generation. `None` when the app has a result or a request runs, so
+    /// a page sends one request for each feed.
+    pub(crate) fn begin_feed_request(&mut self, feed_guid: &str) -> Option<u64> {
+        if !self.needs_request(feed_guid) {
+            return None;
+        }
+        let generation = self.begin_request();
+        self.requests
+            .insert(feed_guid.to_owned(), FeedRequest::Running(generation));
+        Some(generation)
+    }
+
+    /// Completes the request of a page. Gives `false` and changes nothing
+    /// when `generation` is not the running request of the feed, for
+    /// example after a page load recorded the feed (packet 026 R26-24).
+    pub(crate) fn finish_feed_request(
+        &mut self,
+        result: FeedSinglesResult,
+        generation: u64,
+    ) -> bool {
+        if !matches!(
+            self.requests.get(&result.feed_guid),
+            Some(FeedRequest::Running(running)) if *running == generation
+        ) {
+            return false;
+        }
+        match result.rows {
+            Ok(list) => self.record(&result.feed_guid, list, generation),
+            Err(detail) => {
+                self.requests
+                    .insert(result.feed_guid, FeedRequest::Failed(detail));
+                true
+            }
+        }
     }
 
     /// Each feed with a loaded result, and its singles, newest first.
@@ -205,21 +337,58 @@ pub(crate) mod tests {
         album.episode_count = Some(9);
         assert!(store.record(
             "g",
-            vec![
+            FeedReleaseList::complete(vec![
                 single_naming("a", "A", "g", 2),
                 album,
                 single_naming("b", "B", "other", 1)
-            ],
+            ]),
             new,
         ));
         let (guid, singles) = store.iter().next().expect("one feed");
         assert_eq!(guid, "g");
         assert_eq!(singles.len(), 1, "only the singles of the feed stay");
-        assert!(!store.record("g", Vec::new(), old), "an older result");
+        assert!(
+            !store.record("g", FeedReleaseList::default(), old),
+            "an older result"
+        );
         assert_eq!(store.iter().next().unwrap().1.len(), 1);
-        assert_eq!(store.loaded_feeds(), BTreeSet::from(["g".to_owned()]));
+        assert_eq!(
+            store.loaded_or_running_feeds(),
+            BTreeSet::from(["g".to_owned()])
+        );
         assert!(store.find_release("a").is_some());
         assert!(store.find_release("b").is_none());
+    }
+
+    /// Packet 026 review: `loaded_or_running_feeds` gives each feed with a
+    /// loaded result, and each feed whose request still runs. A running
+    /// request is one that the group page or the single page started. A
+    /// feed whose request failed is neither loaded nor running, so a
+    /// page load reads it again.
+    #[test]
+    fn adr_0084_index_singles_loaded_or_running_feeds_includes_running_requests() {
+        let mut store = IndexFeedSingles::default();
+        let loaded_generation = store.begin_request();
+        store.record("loaded", FeedReleaseList::default(), loaded_generation);
+        store
+            .begin_feed_request("running")
+            .expect("a feed with no result starts a request");
+        let failed_generation = store
+            .begin_feed_request("failed")
+            .expect("a feed with no result starts a request");
+        store.finish_feed_request(
+            FeedSinglesResult {
+                feed_guid: "failed".to_owned(),
+                rows: Err("timeout".to_owned()),
+            },
+            failed_generation,
+        );
+
+        assert_eq!(
+            store.loaded_or_running_feeds(),
+            BTreeSet::from(["loaded".to_owned(), "running".to_owned()]),
+            "the failed feed is neither loaded nor running"
+        );
     }
 
     /// R26-09: the page gives no rows while one of its requests runs. A
@@ -244,7 +413,9 @@ pub(crate) mod tests {
             feeds: vec![
                 FeedSinglesResult {
                     feed_guid: "feed-a".to_owned(),
-                    rows: Ok(vec![single_naming("a1", "A1", "feed-a", 2)]),
+                    rows: Ok(FeedReleaseList::complete(vec![single_naming(
+                        "a1", "A1", "feed-a", 2,
+                    )])),
                 },
                 FeedSinglesResult {
                     feed_guid: "feed-b".to_owned(),
@@ -260,7 +431,10 @@ pub(crate) mod tests {
             generation
         ));
         assert!(page.rows().is_empty(), "the page rows wait");
-        assert_eq!(store.loaded_feeds(), BTreeSet::from(["feed-a".to_owned()]));
+        assert_eq!(
+            store.loaded_or_running_feeds(),
+            BTreeSet::from(["feed-a".to_owned()])
+        );
         let Some(IndexListStatusRowVm::Failed { detail, .. }) =
             page.status_row(IndexNameList::Releases)
         else {
@@ -283,7 +457,9 @@ pub(crate) mod tests {
             batch: pending,
             feeds: vec![FeedSinglesResult {
                 feed_guid: "feed-b".to_owned(),
-                rows: Ok(vec![single_naming("b1", "B1", "feed-b", 1)]),
+                rows: Ok(FeedReleaseList::complete(vec![single_naming(
+                    "b1", "B1", "feed-b", 1,
+                )])),
             }],
         };
         assert!(finish_release_page(
@@ -294,7 +470,7 @@ pub(crate) mod tests {
             generation
         ));
         assert_eq!(page.rows().len(), 2, "the rows show after each answer");
-        assert_eq!(store.loaded_feeds().len(), 2);
+        assert_eq!(store.loaded_or_running_feeds().len(), 2);
     }
 
     /// Packet 026 review: the result of an old page generation changes
@@ -312,7 +488,9 @@ pub(crate) mod tests {
             batch: batch(vec![single_naming("a1", "A1", "feed-a", 2)]),
             feeds: vec![FeedSinglesResult {
                 feed_guid: "feed-a".to_owned(),
-                rows: Ok(vec![single_naming("a1", "A1", "feed-a", 2)]),
+                rows: Ok(FeedReleaseList::complete(vec![single_naming(
+                    "a1", "A1", "feed-a", 2,
+                )])),
             }],
         };
         assert!(!finish_release_page(
@@ -323,7 +501,7 @@ pub(crate) mod tests {
             generation
         ));
         assert!(
-            store.loaded_feeds().is_empty(),
+            store.loaded_or_running_feeds().is_empty(),
             "the old result records nothing"
         );
     }
