@@ -730,11 +730,22 @@ impl LibraryApp {
     }
 
     /// The Library facts that the artist rows of a search read (ADR 0084
-    /// Decision 7, packet 017 decisions D6 and D7).
+    /// Decision 7, packet 017 decisions D6 and D7). `feed_images` carries
+    /// the channel image of each artist feed (ADR 0084 Decision 12), so a
+    /// feed row of a search shows the same image as the Artists list.
     pub(crate) fn artist_search_facts(&self) -> ArtistSearchFacts {
+        let feed_images = self
+            .vm
+            .tree()
+            .feed_images()
+            .entries()
+            .into_iter()
+            .map(|(guid, href)| (guid.to_owned(), href.to_owned()))
+            .collect();
         ArtistSearchFacts {
             matches: self.vm.name_feed_matches(),
             name_level_keys: self.vm.name_level_members_by_key().into_keys().collect(),
+            feed_images,
         }
     }
 

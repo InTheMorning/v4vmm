@@ -2,7 +2,7 @@
 
 #![warn(clippy::pedantic)]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::runtime::paged_list_vm::{PagedListVm, RowSlot};
 
@@ -17,6 +17,15 @@ pub(crate) trait SearchRowMergeKey {
 
     /// The key of this row, or `None` for a row that never merges.
     fn merge_key(&self) -> Option<Self::Key>;
+
+    /// Fills a fact that this row carries as empty, from `other`, the row
+    /// that this row's key drops (packet 010 "One row for each item"). The
+    /// default keeps this row as it is. A Library row overrides this to
+    /// take the image of the dropped Index row when it has none of its
+    /// own.
+    fn adopt_missing_thumbnail_href(&mut self, other: &Self) {
+        let _ = other;
+    }
 }
 
 /// The rows of one result tab in one ADR 0041 window (packet 010 Required
@@ -98,20 +107,27 @@ impl<Row: Clone + SearchRowMergeKey> SearchResultsPagedTab<Row> {
 /// already in the list (packet 010 "One row for each item"). An Index row
 /// also drops when an earlier Index row has its key. A row id that is
 /// already in the list also drops, so the window holds each id one time.
+/// A dropped row that carries a merge key still gives its image to the row
+/// that stays, when that row has none of its own.
 pub(crate) fn merge_rows<Row: SearchRowMergeKey>(
     library_rows: Vec<(SearchResultItemId, Row)>,
     index_rows: Vec<(SearchResultItemId, Row)>,
 ) -> Vec<(SearchResultItemId, Row)> {
-    let mut keys = BTreeSet::new();
+    let mut kept_index_of_key: BTreeMap<Row::Key, usize> = BTreeMap::new();
     let mut ids = BTreeSet::new();
-    let mut merged = Vec::new();
+    let mut merged: Vec<(SearchResultItemId, Row)> = Vec::new();
     for (id, row) in library_rows.into_iter().chain(index_rows) {
-        if let Some(key) = row.merge_key() {
-            if !keys.insert(key) {
+        let key = row.merge_key();
+        if let Some(key) = key.clone() {
+            if let Some(&kept_index) = kept_index_of_key.get(&key) {
+                merged[kept_index].1.adopt_missing_thumbnail_href(&row);
                 continue;
             }
         }
         if ids.insert(id) {
+            if let Some(key) = key {
+                kept_index_of_key.insert(key, merged.len());
+            }
             merged.push((id, row));
         }
     }

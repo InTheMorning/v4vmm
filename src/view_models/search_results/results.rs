@@ -51,6 +51,15 @@ impl SearchRowMergeKey for ArtistResultDisplay {
             | SearchResultTarget::LibraryTrack(_) => None,
         }
     }
+
+    /// Keeps this row's own image. With no image of its own, this row
+    /// takes the image of the merged Index row (packet 010 "One row for
+    /// each item").
+    fn adopt_missing_thumbnail_href(&mut self, other: &Self) {
+        if self.thumbnail_href.is_none() {
+            self.thumbnail_href.clone_from(&other.thumbnail_href);
+        }
+    }
 }
 
 impl ArtistResultDisplay {
@@ -105,6 +114,15 @@ impl SearchRowMergeKey for FeedResultDisplay {
 
     fn merge_key(&self) -> Option<ReleaseKey> {
         self.key.clone()
+    }
+
+    /// Keeps this row's own image. With no image of its own, this row
+    /// takes the image of the merged Index row (packet 010 "One row for
+    /// each item").
+    fn adopt_missing_thumbnail_href(&mut self, other: &Self) {
+        if self.thumbnail_href.is_none() {
+            self.thumbnail_href.clone_from(&other.thumbnail_href);
+        }
     }
 }
 
@@ -188,6 +206,15 @@ impl SearchRowMergeKey for TrackResultDisplay {
 
     fn merge_key(&self) -> Option<TrackKey> {
         self.key.clone()
+    }
+
+    /// Keeps this row's own image. With no image of its own, this row
+    /// takes the image of the merged Index row (packet 010 "One row for
+    /// each item").
+    fn adopt_missing_thumbnail_href(&mut self, other: &Self) {
+        if self.thumbnail_href.is_none() {
+            self.thumbnail_href.clone_from(&other.thumbnail_href);
+        }
     }
 }
 
@@ -353,6 +380,10 @@ pub(crate) struct ArtistSearchFacts {
     pub(crate) matches: NameFeedMatches,
     /// Each name key with one Library release or more of the name level.
     pub(crate) name_level_keys: BTreeSet<String>,
+    /// The channel image of each Library artist feed, by feed GUID (ADR
+    /// 0084 Decision 12). The feed row of this name shows it, the same
+    /// image that the Artists list shows.
+    pub(crate) feed_images: BTreeMap<String, String>,
 }
 
 pub(super) struct LocalLibrarySearchRows {
@@ -383,13 +414,16 @@ pub(super) fn local_library_result_rows(
             .push(track);
 
         let id = item_id_from_i64(track.id, index);
-        let track_row = TrackResultDisplay::new(
+        let mut track_row = TrackResultDisplay::new(
             track.id.to_string(),
             track_vm.display_title(),
             SearchResultOrigin::Library,
         )
         .with_secondary_text(track_vm.display_artist())
         .with_track_key(track.track_key());
+        if let Some(thumbnail_href) = library_track_thumbnail_href(track) {
+            track_row = track_row.with_thumbnail_href(thumbnail_href);
+        }
         track_rows.push((id, track_row));
     }
 
@@ -439,7 +473,11 @@ fn local_artist_rows(
             NameFeedMatch::MatchedFeed(feed_guid) => {
                 if feeds_shown.insert(feed_guid.clone()) {
                     let title = artist_facts.matches.feed_title(&feed_guid);
-                    displays.push(artist_feed_result_display(&feed_guid, &title));
+                    let mut display = artist_feed_result_display(&feed_guid, &title);
+                    if let Some(image) = artist_facts.feed_images.get(&feed_guid) {
+                        display = display.with_thumbnail_href(image.clone());
+                    }
+                    displays.push(display);
                 }
             }
             NameFeedMatch::Ambiguous | NameFeedMatch::NoFeed => {
@@ -468,6 +506,13 @@ struct LocalFeedResult {
     title: String,
     artist_name: String,
     track_count: usize,
+    /// The first album image across the tracks of the feed (ADR 0084
+    /// Decision 12). The release row prefers it. This is the same order
+    /// that the Releases list of the Library uses.
+    album_image_href: Option<String>,
+    /// The first track image across the tracks of the feed. The release
+    /// row shows it only when the feed has no album image.
+    track_image_href: Option<String>,
 }
 
 impl LocalFeedResult {
@@ -484,11 +529,21 @@ impl LocalFeedResult {
             title: feed_result_title(track),
             artist_name: LibraryTrackRowVm::new(track, None).display_artist(),
             track_count: 0,
+            album_image_href: None,
+            track_image_href: None,
         }
     }
 
-    fn push(&mut self, _track: &TrackRow) {
+    /// Counts one more track of the feed. It keeps the first album image
+    /// and the first track image that a track of the feed carries.
+    fn push(&mut self, track: &TrackRow) {
         self.track_count += 1;
+        if self.album_image_href.is_none() {
+            self.album_image_href.clone_from(&track.album_image_href);
+        }
+        if self.track_image_href.is_none() {
+            self.track_image_href.clone_from(&track.track_image_href);
+        }
     }
 
     fn into_display(self) -> (SearchResultItemId, FeedResultDisplay) {
@@ -498,13 +553,17 @@ impl LocalFeedResult {
             self.track_count,
             plural(self.track_count)
         );
-        let display = FeedResultDisplay::new(
+        let thumbnail_href = self.album_image_href.or(self.track_image_href);
+        let mut display = FeedResultDisplay::new(
             self.feed_id.to_string(),
             self.title,
             SearchResultOrigin::Library,
         )
         .with_secondary_text(secondary)
         .with_release_key(self.key, ReleaseKind::resolve(None, self.track_count));
+        if let Some(thumbnail_href) = thumbnail_href {
+            display = display.with_thumbnail_href(thumbnail_href);
+        }
 
         (item_id_from_i64(self.feed_id, 0), display)
     }
@@ -516,6 +575,17 @@ fn feed_result_title(track: &TrackRow) -> String {
         .clone()
         .or_else(|| track.album_title.clone())
         .unwrap_or_else(|| "Untitled Feed".to_string())
+}
+
+/// The thumbnail of a Library track row: the track's own image, else the
+/// album image of its feed. This keeps the lookup order that
+/// `ContentListRowDisplay::from_track_with_album_image` uses for the track
+/// list of the Library, in `src/view_models/library.rs`.
+fn library_track_thumbnail_href(track: &TrackRow) -> Option<String> {
+    track
+        .track_image_href
+        .clone()
+        .or_else(|| track.album_image_href.clone())
 }
 
 fn item_id_from_i64(value: i64, fallback_index: usize) -> SearchResultItemId {

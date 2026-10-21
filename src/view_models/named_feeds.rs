@@ -123,6 +123,17 @@ impl<'a> FeedImages<'a> {
     pub(crate) fn get(&self, feed_guid: &str) -> Option<&'a str> {
         self.by_feed_guid.get(feed_guid).copied()
     }
+
+    /// Each feed GUID of this map, with its channel image, in GUID order.
+    /// This map borrows its text from the tree. A caller copies these
+    /// pairs into an owned map, so the copy does not need the tree.
+    #[must_use]
+    pub(crate) fn entries(&self) -> Vec<(&'a str, &'a str)> {
+        self.by_feed_guid
+            .iter()
+            .map(|(&guid, &href)| (guid, href))
+            .collect()
+    }
 }
 
 #[cfg(test)]

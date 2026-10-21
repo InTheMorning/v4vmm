@@ -83,6 +83,8 @@ Each entry names the step, the decision and the reason.
 
 - ADR 0083 task 006 review: the icon columns are 44 px, the hit area of a `Button`, not 28 px. A 28 px column cut the hover fill of each icon button.
 
+- Walk fix, decided by the operator on 2026-10-21: in the list column, a search release row shows its kind as the first word of the subtitle, for example "Album · HeyCitizen · 19 tracks". The state word stays at the trailing edge. The saved search page in the detail column keeps the kind badge. ADR 0084 Decision 5 asks that each release show its kind, and both layouts do. Packet 010 records this as an amendment.
+
 - Packet 012 decisions of the implementer, accepted by the orchestrator on 2026-10-21. The "New releases" row shows the Discover icon, so the labels of "New releases" and of each saved search start at the same position (Flag decision 2). An Index result writes the mounted saved-search page when the id and the query agree, so a result that arrives after the operator leaves the page is not lost (decision 9, corrected in the orchestrator review). "Save search" and "Delete…" are on the query row of the search header (decision 5).
 
 ## Steps
@@ -149,6 +151,24 @@ The operator sends screenshots, and the orchestrator records each result here wi
 | 2026-10-20 | Breadcrumb of a group page opened from its list row | Fail, fixed | It read "Releases > Aged Friends & Old Whiskey > Singles by Haleen". The defect is older than the run (packet 015) |
 | 2026-10-20 | Release badge reads "release" | Pass | Release page "Aged Friends & Old Whiskey" |
 | 2026-10-20 | Breadcrumb of a group page opened from its list row | Pass | "Releases > Singles by Haleen" |
+| 2026-10-21 | 012.1 "Save search" changes to "Saved" | Pass | Query "hey", list column header |
+| 2026-10-21 | 012.2 Discover row "Saved: hey" after "New releases", labels aligned | Pass | Discover column |
+| 2026-10-21 | 012.3 saved search page in the detail column, frame title, breadcrumb | Pass | "Saved search", "Discover > Saved: hey" |
+| 2026-10-21 | 010.3 query row, tab row, no filter chip, no horizontal scroll | Pass | Releases, Artists and Tracks tabs |
+| 2026-10-21 | 010.4 one row for each release, no word on an Index row | Pass | "The Heycitizen Experience" shows one time |
+| 2026-10-21 | 010 Artists tab: "Artist" badge, "Feed" badge, name rows with no badge | Pass | HeyCitizen, IxeMusic, D4DISTRICT, "Releases that name Matt Finlay" |
+| 2026-10-21 | Library search rows show "AL", "TR" or "AR" in place of the image | Fail, fix in progress | Each Library row of the three tabs and of the saved search page. The defect is older than the run |
+| 2026-10-21 | 010.2 release rows at the list column width | Fail, fix in progress | The state word and the badge take a fixed width, so each title wraps on two to four lines. The operator chose the fix |
+| 2026-10-21 | 017.1 no "Haleen · by name" row, Haleen row "6 releases" | Pass | Artists list, Library scope |
+| 2026-10-21 | 017.1 Haleen feed page sections and "Matched by name" | Pass | The note, `names "Haleen", no feed`, "In Library" on "Haleen - Music" |
+| 2026-10-21 | 017 a matched release opens its release page | Pass | Breadcrumb "Artists > Haleen > Haleen - Music" |
+| 2026-10-21 | 010.1 and 017.5 "Releases that name Survival Guide" with no badge | Pass | Artists tab |
+| 2026-10-21 | Detail column after a new search | Fail, fix in progress | The detail column keeps the release page "Haleen - Music" of an earlier search under the frame title "Search Results", with no breadcrumb |
+| 2026-10-21 | 017.2 and 017.5 name rows and the name level pages of "Matt Finlay" | Pass | Breadcrumb "Search: matt finlay > Matt Finlay · by name > …" |
+| 2026-10-21 | 010.5 Sir Libre Records: "Feed" badge, frame title "Label" | Pass | Breadcrumb "Search: libre > Sir Libre Records" |
+| 2026-10-21 | 017.6 search "haleen", Artists tab | Pass | No "Releases that name Haleen" row. The Library artist feed and a second Index feed "Haleen" (Wavlake, a different GUID) show as two rows |
+| 2026-10-21 | Second "Haleen" feed row shows "AR" | Open finding | MusicIndex gives a 1875 × 1000 JPEG of 1.7 MB for it, and the URL answers 200. The cause is not known |
+| 2026-10-21 | Search "haleen'" with an apostrophe | Fail, fix in progress | MusicIndex answers 400 `fts5: syntax error near "'"`. The app reports a setup failure of MusicIndex, keeps the search as a retained action and offers "Edit endpoint". The defect is older than the run |
 
 ## Final Walk
 

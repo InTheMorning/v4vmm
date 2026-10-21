@@ -238,6 +238,35 @@ fn adr_0084_search_list_r10_02_one_release_row_for_each_item() {
     assert!(rows.iter().all(|row| !row.secondary_text.contains("Index")));
 }
 
+/// The merge part of R10-02, for the row image: a Library release row with
+/// no image of its own takes the image of the Index row that its key
+/// drops.
+#[test]
+fn adr_0084_search_list_merged_row_takes_the_index_image_when_the_library_has_none() {
+    let local = [local_guid_track(10, 7, "g-library", "i1", "One")];
+    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks(
+        "q",
+        &local,
+        &super::ArtistSearchFacts::default(),
+    );
+    vm.replace_index_results(IndexSearchResultRows {
+        feeds: vec![(
+            2_000_000_000,
+            index_release(2_000_000_000, "g-library", "Library Release")
+                .1
+                .with_thumbnail_href("https://example.test/index-cover.jpg"),
+        )],
+        ..no_index_rows()
+    });
+    let releases = vm.releases().rows();
+    assert_eq!(releases.len(), 1, "the merged row keeps one place");
+    assert_eq!(
+        releases[0].thumbnail_href.as_deref(),
+        Some("https://example.test/index-cover.jpg"),
+        "the Library row had no image of its own, so it takes the Index image"
+    );
+}
+
 /// R10-03: an Index release hit whose GUID is a Library feed with no
 /// downloaded track gives a Library row with "Not downloaded".
 #[test]
@@ -344,6 +373,7 @@ fn adr_0084_search_list_r10_06_one_row_for_each_feed_guid() {
             keys: ["haleen".to_owned()].into_iter().collect(),
         }]),
         name_level_keys: BTreeSet::new(),
+        feed_images: BTreeMap::new(),
     };
     let local = [local_track(10, 1, "Feed", "One", "Haleen")];
     let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks("haleen", &local, &facts);
@@ -355,6 +385,36 @@ fn adr_0084_search_list_r10_06_one_row_for_each_feed_guid() {
     let rows = rows(&vm, &RecordedLibrary::default());
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].id, "artist-feed:haleen-guid");
+}
+
+/// The row of a Library artist feed carries the stored channel image of
+/// the feed (ADR 0084 Decision 12), the same image that the Artists list
+/// shows.
+#[test]
+fn adr_0084_search_list_library_artist_feed_row_carries_its_image() {
+    use crate::view_models::artist_identity::{name_feed_matches, NameFeedEntry};
+
+    let matches = name_feed_matches([NameFeedEntry {
+        feed_guid: "haleen-guid".to_owned(),
+        title: Some("Haleen".to_owned()),
+        keys: ["haleen".to_owned()].into_iter().collect(),
+    }]);
+    let facts = super::ArtistSearchFacts {
+        matches,
+        name_level_keys: BTreeSet::new(),
+        feed_images: BTreeMap::from([(
+            "haleen-guid".to_owned(),
+            "https://example.test/haleen.jpg".to_owned(),
+        )]),
+    };
+    let local = [local_track(10, 1, "Feed", "One", "Haleen")];
+    let artists = library_artist_rows(&local, &facts);
+    assert_eq!(artists.len(), 1);
+    assert_eq!(artists[0].id, "artist-feed:haleen-guid");
+    assert_eq!(
+        artists[0].thumbnail_href.as_deref(),
+        Some("https://example.test/haleen.jpg")
+    );
 }
 
 /// R10-07: `SearchResultTarget::from_row_id` gives the correct target for
@@ -685,6 +745,63 @@ fn visible_thumbnail_hrefs_follow_the_active_tab() {
     );
 }
 
+/// A Library release row carries the album image of its feed, the same
+/// image that the Releases list of the Library shows.
+#[test]
+fn adr_0084_search_list_library_release_row_carries_its_image() {
+    let mut track = local_track(10, 7, "The Heycitizen Experience", "Opening", "HeyCitizen");
+    track.album_image_href = Some("https://example.test/cover.jpg".to_owned());
+    let vm = SearchResultsInspectorPageVm::from_local_library_tracks(
+        "heycitizen",
+        &[track],
+        &super::ArtistSearchFacts::default(),
+    );
+    let releases = vm.releases().rows();
+    assert_eq!(releases.len(), 1);
+    assert_eq!(
+        releases[0].thumbnail_href.as_deref(),
+        Some("https://example.test/cover.jpg")
+    );
+}
+
+/// A Library track row carries its own image. With no image of its own, it
+/// falls back to the album image of its feed.
+#[test]
+fn adr_0084_search_list_library_track_row_carries_its_image() {
+    let mut own_image = local_track(10, 7, "The Heycitizen Experience", "Opening", "HeyCitizen");
+    own_image.item_guid = "opening".to_owned();
+    own_image.track_image_href = Some("https://example.test/track.jpg".to_owned());
+    own_image.album_image_href = Some("https://example.test/cover.jpg".to_owned());
+    let mut album_only = local_track(11, 7, "The Heycitizen Experience", "Side B", "HeyCitizen");
+    album_only.item_guid = "side-b".to_owned();
+    album_only.album_image_href = Some("https://example.test/cover.jpg".to_owned());
+    let vm = SearchResultsInspectorPageVm::from_local_library_tracks(
+        "heycitizen",
+        &[own_image, album_only],
+        &super::ArtistSearchFacts::default(),
+    );
+    let tracks = vm.tracks().rows();
+    assert_eq!(tracks.len(), 2);
+    let track_image = tracks
+        .iter()
+        .find(|row| row.id == "10")
+        .expect("track 10 is a row");
+    assert_eq!(
+        track_image.thumbnail_href.as_deref(),
+        Some("https://example.test/track.jpg"),
+        "the track's own image wins over the album image"
+    );
+    let album_image = tracks
+        .iter()
+        .find(|row| row.id == "11")
+        .expect("track 11 is a row");
+    assert_eq!(
+        album_image.thumbnail_href.as_deref(),
+        Some("https://example.test/cover.jpg"),
+        "with no image of its own, the track row falls back to the album image"
+    );
+}
+
 #[test]
 fn local_library_tracks_populate_ready_rows() {
     let rows_in = [
@@ -843,6 +960,7 @@ fn name_level_facts(keys: &[&str]) -> super::ArtistSearchFacts {
     super::ArtistSearchFacts {
         matches: crate::view_models::artist_identity::NameFeedMatches::default(),
         name_level_keys: keys.iter().map(|key| (*key).to_owned()).collect(),
+        feed_images: BTreeMap::new(),
     }
 }
 
@@ -889,6 +1007,7 @@ fn adr_0084_name_level_r17_28_matched_name_gives_the_feed_row() {
     let facts = super::ArtistSearchFacts {
         matches,
         name_level_keys: ["haleen".to_owned()].into_iter().collect(),
+        feed_images: BTreeMap::new(),
     };
     let rows = [
         local_track(10, 1, "Feed", "One", "Haleen"),
