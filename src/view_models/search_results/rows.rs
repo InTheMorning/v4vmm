@@ -8,6 +8,7 @@
 
 #![warn(clippy::pedantic)]
 
+use crate::view_models::collection_art::CollectionArtVm;
 use crate::view_models::detail_selection::{DetailRowKey, DetailSelection, LibraryReleaseFacts};
 use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::release_kind::ReleaseKind;
@@ -110,6 +111,9 @@ pub(crate) struct SearchResultRowVm {
     pub(crate) secondary_text: String,
     /// The thumbnail href, when the row has one.
     pub(crate) thumbnail_href: Option<String>,
+    /// The logo frame art of a Library name row (packet 028 D3). A row
+    /// with art shows the logo frame in place of the thumbnail.
+    pub(crate) art: Option<CollectionArtVm>,
     /// The accessibility label of the row.
     pub(crate) a11y_label: String,
     /// The state word of a Library item. An Index item shows no word (the
@@ -147,6 +151,7 @@ pub(super) fn release_row_vm(
         label: row.label.clone(),
         secondary_text,
         thumbnail_href: row.thumbnail_href.clone(),
+        art: None,
         a11y_label: row.a11y_label.clone(),
         state_word: library.map(|library| library.state_word),
         badge,
@@ -183,6 +188,7 @@ pub(super) fn track_row_vm(
         label: row.label.clone(),
         secondary_text: row.secondary_text.clone(),
         thumbnail_href: row.thumbnail_href.clone(),
+        art: None,
         a11y_label: row.a11y_label.clone(),
         state_word: library.map(|library| library.state_word),
         badge: None,
@@ -213,6 +219,7 @@ pub(super) fn artist_row_vm(
         label: row.label.clone(),
         secondary_text: row.secondary_text.clone(),
         thumbnail_href: row.thumbnail_href.clone(),
+        art: row.art.clone(),
         a11y_label: row.a11y_label.clone(),
         state_word: None,
         badge,

@@ -2932,6 +2932,74 @@ fn adr_0084_search_list_submit_restores_through_the_back_path() {
     );
 }
 
+/// ADR 0084 Decision 10, packet 028 D2 (situational): a keyboard focus
+/// move on the search list or on the saved-search page scrolls the focused
+/// row into view, and a tab change scrolls to the top. The view model test
+/// `adr_0084_search_open_defects_r28_03_focused_row_index_counts_each_row`
+/// proves the index. No unit test can reach `TopApp`, so this guard pins
+/// the calls.
+#[test]
+fn adr_0084_search_open_defects_r28_03_focus_move_scrolls_to_the_focused_row() {
+    let selection = compact_source(&read_source(&manifest_path("src/app/search_selection.rs")));
+    let focus_move = source_between(
+        &selection,
+        "pub(super)fnmove_search_selection_focus(",
+        "pub(super)fntoggle_focused_search_row(",
+    );
+    for required in [
+        "detail.focused_row_index()",
+        "self.search_page_scroll(slot).scroll_to_item(index);",
+    ] {
+        assert!(
+            focus_move.contains(required),
+            "ADR 0084 packet 028 D2: `move_search_selection_focus` must call `{required}`, so \
+             the focused search row scrolls into view. Ask the view model for the index after \
+             `move_focus`, then call `scroll_to_item` on the handle of the page."
+        );
+    }
+    let app = compact_source(&read_source(&manifest_path("src/app.rs")));
+    let saved = compact_source(&read_source(&manifest_path(
+        "src/app/saved_search_dispatch.rs",
+    )));
+    for (file, source, slot) in [
+        ("src/app.rs", &app, "ToolbarSearch"),
+        ("src/app/saved_search_dispatch.rs", &saved, "SavedSearch"),
+    ] {
+        for required in [
+            format!(".with_scroll(self.search_page_scroll(SearchPageSlot::{slot}))"),
+            format!("self.scroll_search_page_to_top(SearchPageSlot::{slot});"),
+        ] {
+            assert!(
+                source.contains(&required),
+                "ADR 0084 packet 028 D2: {file} must call `{required}`. The search page gives \
+                 its own scroll handle to the renderer, and a tab change scrolls to the top."
+            );
+        }
+    }
+    let renderer = compact_source(&read_source(&manifest_path(
+        "src/ui/shells/search_results_inspector.rs",
+    )));
+    assert!(
+        renderer.contains("music_column_tracked_scrollbar(container,&slots.scroll,None)"),
+        "ADR 0084 packet 028 D2: the search rows must be the direct children of the container \
+         that tracks `slots.scroll`, so `scroll_to_item` finds a row by its index."
+    );
+    assert!(
+        renderer.contains(
+            "div().flex_shrink_0().pt(Spacing::MD.scaled(cx)).child(empty_state_content("
+        ),
+        "ADR 0084 packet 028 review: the note after the search rows is a child of the scroll \
+         container, so it must call `flex_shrink_0()`. Else it shrinks under the rows."
+    );
+    let dispatch = compact_source(&read_source(&manifest_path("src/app/search_dispatch.rs")));
+    assert!(
+        dispatch.contains("self.scroll_search_page_to_top(SearchPageSlot::ToolbarSearch);"),
+        "ADR 0084 packet 028 review: a submitted search must call \
+         `scroll_search_page_to_top(SearchPageSlot::ToolbarSearch)`, so a new query starts at \
+         the top of its list."
+    );
+}
+
 /// ADR 0084 Decision 8 (operator decision of 2026-10-16): the Music
 /// content-list tri-state filter control is deleted. This replaces
 /// `adr_0047_task_010a_content_list_page_vm_owns_filter_projection` and
@@ -3466,7 +3534,12 @@ fn adr_0024_loading_shape_readiness_gate_is_locked() {
     );
     for (first, second) in [
         ("strip_prefix(\"index-feed:\")", "parse::<i64>()"),
-        ("strip_prefix(\"index-track:\")", "parse::<i64>()"),
+        // Packet 028 D1: each Index track row kind has its own prefix.
+        (
+            "strip_prefix(INDEX_TRACK_GUID_RESULT_PREFIX)",
+            "parse::<i64>()",
+        ),
+        ("strip_prefix(INDEX_TRACK_RESULT_PREFIX)", "parse::<i64>()"),
         (
             "strip_prefix(\"index-artist:\")",
             "strip_prefix(\"library-artist:\")",
@@ -3731,7 +3804,8 @@ fn adr_0047_task_014_search_results_inspector_shell_contract() {
         "vm.empty_state()",
         "render_empty_state(",
         "render_active_result_list(",
-        "render_result_row(tab, row.clone(), thumbnail, handlers)",
+        // Packet 028 D3: the row takes its thumbnail or its logo frame.
+        "render_result_row(tab, row.clone(), leading, handlers)",
     ] {
         if !shell_source.contains(required) {
             violations.push(format!(

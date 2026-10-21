@@ -88,6 +88,8 @@ Each entry names the step, the decision and the reason.
 - Walk fixes of 2026-10-21, decided by the orchestrator. A query counts as rejected only when each of the three search requests gets a `400` reply. Any other failure keeps the present report of an unavailable MusicIndex. When MusicIndex is unavailable and the tab has Library rows, the page shows no note. That behavior is older than the run, and the phase plan records it as an open finding.
 - The unit test `adr_0066_paged_actor_releases_its_exclusive_configured_connection` of `src/application/paged_track_list.rs` failed one time in a full run on 2026-10-21 and passed alone. The phase plan records it as an open finding.
 
+- Operator answers of 2026-10-21 for packets 026 and 029: the app reads the singles of each new artist feed before a page shows (026 D4), a group row takes the place of its first single (D5), the group page is not scoped (D12), and a MusicIndex single shows as a release row on it (D13). A search feed row shows "Artist", a role word or "Feed" (029 D2). The orchestrator decided the minor decisions by their recommendations. Each packet records them.
+
 - Packet 012 decisions of the implementer, accepted by the orchestrator on 2026-10-21. The "New releases" row shows the Discover icon, so the labels of "New releases" and of each saved search start at the same position (Flag decision 2). An Index result writes the mounted saved-search page when the id and the query agree, so a result that arrives after the operator leaves the page is not lost (decision 9, corrected in the orchestrator review). "Save search" and "Delete…" are on the query row of the search header (decision 5).
 
 ## Steps
@@ -114,7 +116,9 @@ Each entry names the step, the decision and the reason.
 | Packet 017: the name level page; `src/sources.rs` deleted | Implemented. V1 to V11 open | `46656ce` |
 | Packet 010: the search results in the list column | Implemented. V1 to V7 open | `2c4170e` |
 | Packet 012: saved searches (migration 21) | Implemented. V1 to V7 open | `c563ca4` |
-| Packet 026: the Index singles groups | Not written. It waits for Stophammer request 9, which the operator reviews | - |
+| Walk fixes of 2026-10-21: Library search images, the kind in the subtitle, a clear detail column, a rejected query | Implemented. Walk again | `e495bdd`, `c1c728a` |
+| Packet 028: the open defects of search | Implemented. V1 to V4 open | this commit |
+| Packets 026 and 029 written after Stophammer release 0.13.0 | Ready. The operator answered their decisions | this commit |
 
 ## Questions For The Operator
 
@@ -170,7 +174,7 @@ The operator sends screenshots, and the orchestrator records each result here wi
 | 2026-10-21 | 017.2 and 017.5 name rows and the name level pages of "Matt Finlay" | Pass | Breadcrumb "Search: matt finlay > Matt Finlay · by name > …" |
 | 2026-10-21 | 010.5 Sir Libre Records: "Feed" badge, frame title "Label" | Pass | Breadcrumb "Search: libre > Sir Libre Records" |
 | 2026-10-21 | 017.6 search "haleen", Artists tab | Pass | No "Releases that name Haleen" row. The Library artist feed and a second Index feed "Haleen" (Wavlake, a different GUID) show as two rows |
-| 2026-10-21 | Second "Haleen" feed row shows "AR" | Open finding | MusicIndex gives a 1875 × 1000 JPEG of 1.7 MB for it, and the URL answers 200. The cause is not known |
+| 2026-10-21 | Second "Haleen" feed row shows "AR" | Open, packet 028 V3 | MusicIndex gives a 1875 × 1000 JPEG of 1.7 MB for it, and the URL answers 200. The cause is not known . Packet 028 found no cause in the image path. A restart and a new search tell a missing retry from a slow load |
 | 2026-10-21 | Search "haleen'" with an apostrophe | Fail, fix in progress | MusicIndex answers 400 `fts5: syntax error near "'"`. The app reports a setup failure of MusicIndex, keeps the search as a retained action and offers "Edit endpoint". The defect is older than the run |
 
 ## Final Walk

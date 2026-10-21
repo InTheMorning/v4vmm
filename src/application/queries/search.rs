@@ -17,8 +17,9 @@ use crate::view_models::name_level_page::{
 };
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::search_results::{
-    artist_feed_result_display, ArtistResultDisplay, FeedResultDisplay, IndexSearchResultRows,
-    SearchResultItemId, SearchResultOrigin, TrackResultDisplay, INDEX_FEED_PAGE_RESULT_PREFIX,
+    artist_feed_result_display, index_track_row_id, ArtistResultDisplay, FeedResultDisplay,
+    IndexSearchResultRows, SearchResultItemId, SearchResultOrigin, TrackResultDisplay,
+    INDEX_FEED_PAGE_RESULT_PREFIX,
 };
 use crate::view_models::workspace::{ReleaseKey, TrackKey};
 use crate::views::TrackView;
@@ -576,10 +577,7 @@ fn index_feed_result_display(hit: &SearchResult) -> FeedResultDisplay {
 fn index_track_result_display(hit: &SearchResult) -> TrackResultDisplay {
     let track_guid = hit.entity_id.as_str();
     let feed_guid = non_empty_str(hit.feed_guid.as_deref());
-    let activation_id = feed_guid.map_or_else(
-        || format!("index-track:{track_guid}"),
-        |feed_guid| format!("index-track:{feed_guid}:{track_guid}"),
-    );
+    let activation_id = index_track_row_id(feed_guid, track_guid);
     let label = non_empty_str(hit.title.as_deref())
         .map(str::to_string)
         .unwrap_or_else(|| track_guid.to_string());
@@ -860,6 +858,7 @@ fn non_empty_string(value: Option<String>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::view_models::search_results::{SearchResultTarget, SearchResultsTab};
 
     /// MusicIndex gave one track twice on 2026-10-07. The rows keep the
     /// first hit of each entity, in rank order. Two tracks with one GUID in
@@ -1074,7 +1073,45 @@ mod tests {
             ..SearchResult::default()
         });
         assert_eq!(display.key, None);
-        assert_eq!(display.id, "index-track:track-guid");
+        assert_eq!(display.id, "index-track-guid:track-guid");
+    }
+
+    /// R28-01 (ADR 0084 packet 028 D1): a track hit with no feed GUID and
+    /// a track GUID with colons opens a key with no feed and the full
+    /// track GUID.
+    #[test]
+    fn adr_0084_search_open_defects_r28_01_track_guid_with_colons_opens_its_own_key() {
+        let display = index_track_result_display(&SearchResult {
+            entity_type: "track".to_string(),
+            entity_id: "urn:uuid:x".to_string(),
+            ..SearchResult::default()
+        });
+        assert_eq!(display.id, "index-track-guid:urn:uuid:x");
+        let target = SearchResultTarget::from_row_id(SearchResultsTab::Tracks, &display.id);
+        let expected = TrackKey::from_index_track_target(None, "urn:uuid:x");
+        assert_eq!(target, Some(SearchResultTarget::Track(expected.clone())));
+        assert_eq!(expected.index_feed_guid(), None);
+        assert_eq!(expected.item_guid, "urn:uuid:x");
+    }
+
+    /// R28-02 (ADR 0084 packet 028 D1): a track hit with a feed GUID gives
+    /// the same row id and key as before.
+    #[test]
+    fn adr_0084_search_open_defects_r28_02_track_with_feed_keeps_its_row_id() {
+        let display = index_track_result_display(&SearchResult {
+            entity_type: "track".to_string(),
+            entity_id: "urn:uuid:x".to_string(),
+            feed_guid: Some("feed-guid".to_string()),
+            ..SearchResult::default()
+        });
+        assert_eq!(display.id, "index-track:feed-guid:urn:uuid:x");
+        let expected = TrackKey::from_index_track_target(Some("feed-guid"), "urn:uuid:x");
+        assert_eq!(display.key, Some(expected.clone()));
+        assert_eq!(
+            SearchResultTarget::from_row_id(SearchResultsTab::Tracks, &display.id),
+            Some(SearchResultTarget::Track(expected.clone()))
+        );
+        assert_eq!(expected.index_feed_guid(), Some("feed-guid"));
     }
 
     /// R47-03 (ADR 0075 packet 047): a feed row built from summary fields

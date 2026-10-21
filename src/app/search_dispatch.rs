@@ -209,18 +209,6 @@ fn index_track_detail_result_is_current(
     current.is_some_and(|state| state.target() == target)
 }
 
-/// Splits a track row's activation target into its optional feed GUID and
-/// its track GUID (ADR 0075 packet 047). A scoped hit's target holds
-/// `<feed_guid>:<track_guid>`; an unscoped hit's target holds the bare
-/// track GUID.
-fn split_index_track_target(target: &str) -> (Option<&str>, &str) {
-    target
-        .split_once(':')
-        .map_or((None, target), |(feed_guid, track_guid)| {
-            (Some(feed_guid), track_guid)
-        })
-}
-
 /// Tells if a failed `MusicIndex` search retains its action for a retry
 /// after a setup check (ADR 0066). A query that `MusicIndex` did not
 /// accept, an HTTP `400` reply, retains no action: the service is
@@ -257,6 +245,8 @@ impl TopApp {
         {
             Ok(content_list_id) => {
                 self.search_results_detail = Some(self.search_results_detail_for_query(&query, cx));
+                // Packet 028 review: a new query starts at the top of its list.
+                self.scroll_search_page_to_top(SearchPageSlot::ToolbarSearch);
                 // ADR 0084 Decision 9, walk of 2026-10-21: a submitted search
                 // restores its page through the function that Back uses. The
                 // Library detail of the earlier page thus clears, and the
@@ -807,18 +797,19 @@ impl TopApp {
                     self.index_track_detail_state.as_ref(),
                     target,
                 ) {
-                    let (feed_guid, track_guid) = split_index_track_target(target);
+                    // Packet 028 D1: the key gives the parts. A split of
+                    // the target is not correct for a GUID with a colon.
                     self.fetch_index_track_detail_page(
                         target.clone(),
-                        feed_guid.map(str::to_string),
-                        track_guid.to_string(),
+                        key.index_feed_guid().map(str::to_string),
+                        key.item_guid.clone(),
                         cx,
                     );
                 }
                 // ADR 0084 packet 023: the track page reads its feed for
                 // the feed identity section. A track with no known feed
                 // GUID yet starts the read when its own fetch loads.
-                match self.index_track_page_feed_guid(target) {
+                match self.index_track_page_feed_guid(key, target) {
                     Some(feed_guid) => self.start_index_track_feed_read(&feed_guid, cx),
                     None => self.index_track_feed_state = None,
                 }
@@ -936,12 +927,11 @@ impl TopApp {
         );
     }
 
-    /// The feed GUID of the open Index track page with the activation
-    /// target `target`: the feed GUID of the target or of the loaded track.
-    /// `None` before the track names one.
-    fn index_track_page_feed_guid(&self, target: &str) -> Option<String> {
-        let (feed_guid, _) = split_index_track_target(target);
-        if let Some(feed_guid) = feed_guid {
+    /// The feed GUID of the open Index track page of `key`, with the
+    /// activation target `target`: the feed GUID of the key or of the
+    /// loaded track. `None` before the track names one.
+    fn index_track_page_feed_guid(&self, key: &TrackKey, target: &str) -> Option<String> {
+        if let Some(feed_guid) = key.index_feed_guid() {
             return Some(feed_guid.to_owned());
         }
         match self.index_track_detail_state.as_ref()? {
@@ -2029,15 +2019,6 @@ mod index_detail_dispatch_tests {
         ));
 
         assert!(!index_track_detail_result_is_current(None, "track-a"));
-    }
-
-    #[test]
-    fn split_index_track_target_separates_a_scoped_target() {
-        assert_eq!(
-            split_index_track_target("feed-guid:track-guid"),
-            (Some("feed-guid"), "track-guid")
-        );
-        assert_eq!(split_index_track_target("track-guid"), (None, "track-guid"));
     }
 }
 

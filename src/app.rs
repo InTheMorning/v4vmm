@@ -22,7 +22,7 @@ use crate::media::ImageCache;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::PlaybackOwner;
 use crate::presentation::collection_art::{
-    CollectionArtHost, CollectionArtLoads, CollectionArtParts,
+    collection_art_image, CollectionArtHost, CollectionArtLoads, CollectionArtParts,
 };
 use crate::presentation::{bridge_watch, present_command, GpuiEventBridge};
 use crate::runtime::playback_polling::{PlaybackPollingHandle, PlaybackTickOutcome};
@@ -154,6 +154,9 @@ pub struct TopApp {
     /// packet 010). The key handlers act on the search selection only while
     /// the search list carries the focus.
     search_list_focus: gpui::FocusHandle,
+    /// The scroll of the search list in the list column (packet 028 D2). A
+    /// keyboard focus move scrolls the focused row into view.
+    search_list_scroll: gpui::ScrollHandle,
     /// The mounted saved-search page of the detail column (ADR 0084
     /// Decision 3, packet 012). It is separate from the toolbar search, so
     /// a toolbar search does not change it. Back and Forward to the same
@@ -161,6 +164,8 @@ pub struct TopApp {
     saved_search_page: Option<crate::view_models::search_results::SavedSearchPage>,
     /// The keyboard focus of the saved-search page (packet 012).
     saved_search_focus: gpui::FocusHandle,
+    /// The scroll of the saved-search page (packet 028 D2).
+    saved_search_scroll: gpui::ScrollHandle,
     queue_text_filter: Option<String>,
     show_page: ShowPageVm,
     show_commands: ShowCommandState,
@@ -483,8 +488,10 @@ impl TopApp {
             last_music_content_nav: None,
             search_results_detail: None,
             search_list_focus: cx.focus_handle(),
+            search_list_scroll: gpui::ScrollHandle::new(),
             saved_search_page: None,
             saved_search_focus: cx.focus_handle(),
+            saved_search_scroll: gpui::ScrollHandle::new(),
             queue_text_filter: None,
             show_page,
             show_commands: ShowCommandState::default(),
@@ -714,6 +721,7 @@ impl TopApp {
     ) {
         if let Some(detail) = &mut self.search_results_detail {
             detail.set_tab(tab);
+            self.scroll_search_page_to_top(SearchPageSlot::ToolbarSearch);
             cx.notify();
         }
     }
@@ -1285,6 +1293,24 @@ impl TopApp {
         thumbnails
     }
 
+    /// The loaded logo frame art of each search row with art, by row id
+    /// (packet 028 D3). It starts each load that is not known, through
+    /// the same path as the Artists list.
+    fn resolve_search_result_arts(
+        &mut self,
+        rows: &[crate::view_models::search_results::SearchResultRowVm],
+        cx: &mut Context<Self>,
+    ) -> BTreeMap<String, crate::ui::composites::CollectionArtImage> {
+        rows.iter()
+            .filter_map(|row| Some((row.id.clone(), row.art.as_ref()?)))
+            .map(|(id, art)| {
+                let image =
+                    collection_art_image(self, art, crate::ui::composites::ThumbnailSize::Sm, cx);
+                (id, image)
+            })
+            .collect()
+    }
+
     fn render_workspace_screen_mount(
         &mut self,
         mount: WorkspaceScreenMount,
@@ -1341,6 +1367,7 @@ impl TopApp {
             )
         };
         let thumbnails = self.resolve_search_result_thumbnails(thumbnail_hrefs, cx);
+        let arts = self.resolve_search_result_arts(&rows, cx);
         let tab_entity = entity.clone();
         let select_entity = entity.clone();
         let toggle_entity = entity.clone();
@@ -1383,7 +1410,9 @@ impl TopApp {
                 });
             })
             .with_thumbnails(thumbnails)
-            .with_rows(rows);
+            .with_arts(arts)
+            .with_rows(rows)
+            .with_scroll(self.search_page_scroll(SearchPageSlot::ToolbarSearch));
         let inspector_content = render_search_results_inspector(
             self.search_results_detail.as_ref().unwrap(),
             &inspector_slots,

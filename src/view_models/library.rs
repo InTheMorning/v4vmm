@@ -2120,13 +2120,21 @@ fn artist_name_row(
             secondary_text: format!("{secondary_text}{ARTIST_ROW_SEPARATOR}{ARTIST_NAME_ROW_MARK}"),
             a11y_label: format!("Artist: {label}, {ARTIST_NAME_ROW_MARK}"),
             thumbnail_href: None,
-            art: Some(artist_row_art(None, newest_name_level_images(members))),
+            art: Some(name_level_art(members)),
             open: DestinationListRowTarget::ArtistName(ArtistNameKey::new(key, label)),
             // ADR 0084 Decision 10 Exclusions: the Artists list has no
             // selection model, so its row never shows a checkbox.
             selection: RowSelectionVm::none(),
         },
     }
+}
+
+/// The logo frame art of a name row: the newest images of its Library
+/// releases (ADR 0084 Decision 12). The Artists list and the search use
+/// this one function, so the two rows show the same art (packet 028 D3).
+#[must_use]
+pub(crate) fn name_level_art(members: &[NameLevelLibraryRelease]) -> CollectionArtVm {
+    artist_row_art(None, newest_name_level_images(members))
 }
 
 /// The images of `members`, newest first. A release with no date comes

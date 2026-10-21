@@ -90,7 +90,7 @@ use crate::view_models::library::{
     ReleasesListEntryVm, ReleasesRowId, RemovalConfirmation, TrackSubscribeOutcome,
 };
 use crate::view_models::library::{
-    releases_selection_rows, spring_load_navigation, SpringLoadGeneration,
+    name_level_art, releases_selection_rows, spring_load_navigation, SpringLoadGeneration,
 };
 use crate::view_models::library_removal::{
     SelectionRemovalConfirmationState, SelectionRemovalPendingItem, SelectionRemovalReport,
@@ -745,7 +745,12 @@ impl LibraryApp {
             .collect();
         ArtistSearchFacts {
             matches: self.vm.name_feed_matches(),
-            name_level_keys: self.vm.name_level_members_by_key().into_keys().collect(),
+            name_level_art: self
+                .vm
+                .name_level_members_by_key()
+                .into_iter()
+                .map(|(key, members)| (key, name_level_art(&members)))
+                .collect(),
             feed_images,
         }
     }

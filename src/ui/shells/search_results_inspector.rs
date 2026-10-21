@@ -12,21 +12,24 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    div, AnyElement, App, Image, InteractiveElement, IntoElement, ParentElement, SharedString,
-    Styled, Window,
+    div, AnyElement, App, Image, InteractiveElement, IntoElement, ParentElement, ScrollHandle,
+    SharedString, Styled, Window,
 };
 
-use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::music_column_scroll::{
+    music_column_scrollbar, music_column_tracked_scrollbar,
+};
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::{
-    EntityKind, Segment, SegmentDisplay, SegmentedControl, TagBadge, TagBadgeDisplay, Thumbnail,
-    ThumbnailSize,
+    CollectionArtImage, EntityKind, Segment, SegmentDisplay, SegmentedControl, TagBadge,
+    TagBadgeDisplay, Thumbnail, ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
+use crate::ui::layouts::OVERLAY_SCROLLBAR_WIDTH;
 use crate::ui::primitives::{Button as UiButton, Label, LabelVariant, MultilineText};
 use crate::ui::shells::search_result_rows::{
     origin_label, render_pending_result_row, render_result_row, tab_id, SearchResultRowHandlers,
-    SearchResultSelectHandler, SearchResultToggleHandler,
+    SearchResultSelectHandler, SearchResultToggleHandler, SearchRowLeading,
 };
 use crate::ui::tokens::{FontSize, SemanticColor, Size, Spacing};
 use crate::view_models::detail_selection::DetailRowKey;
@@ -61,6 +64,8 @@ pub(crate) struct SearchResultsInspectorSlots {
     header_action: Option<(SearchPageActionDisplay, HeaderActionHandler)>,
     thumbnails: BTreeMap<String, Option<Arc<Image>>>,
     rows: Vec<SearchResultRowVm>,
+    arts: BTreeMap<String, CollectionArtImage>,
+    scroll: ScrollHandle,
 }
 
 impl SearchResultsInspectorSlots {
@@ -136,6 +141,20 @@ impl SearchResultsInspectorSlots {
     /// Supplies the visible rows of the active tab.
     pub(crate) fn with_rows(mut self, rows: Vec<SearchResultRowVm>) -> Self {
         self.rows = rows;
+        self
+    }
+
+    /// Supplies the loaded logo frame art of each row with art, by row id
+    /// (packet 028 D3). A row with art and no entry shows the entity color.
+    pub(crate) fn with_arts(mut self, arts: BTreeMap<String, CollectionArtImage>) -> Self {
+        self.arts = arts;
+        self
+    }
+
+    /// Supplies the scroll of the rows (packet 028 D2). The owner keeps the
+    /// handle, and scrolls the focused row into view after a key.
+    pub(crate) fn with_scroll(mut self, scroll: &ScrollHandle) -> Self {
+        self.scroll = scroll.clone();
         self
     }
 
@@ -419,41 +438,53 @@ fn render_active_result_list(
             .rows
             .iter()
             .map(|row| {
-                let href = row.thumbnail_href.as_deref();
-                let thumbnail = href.and_then(|href| slots.thumbnail_for_href(href));
-                render_result_row(tab, row.clone(), thumbnail, handlers)
+                let leading = if row.art.is_some() {
+                    SearchRowLeading::Collection(
+                        slots
+                            .arts
+                            .get(&row.id)
+                            .cloned()
+                            .unwrap_or(CollectionArtImage::EntityColor),
+                    )
+                } else {
+                    let href = row.thumbnail_href.as_deref();
+                    SearchRowLeading::Thumbnail(
+                        href.and_then(|href| slots.thumbnail_for_href(href)),
+                    )
+                };
+                render_result_row(tab, row.clone(), leading, handlers)
             })
             .collect()
     };
     let notice = index_notice.map(|notice| {
-        div().pt(Spacing::MD.scaled(cx)).child(empty_state_content(
-            notice,
-            LabelVariant::Caption,
-            slots.failure_action.as_ref(),
-            cx,
-        ))
+        // The note is a child of the scroll container with the rows, so it
+        // must not shrink under them (packet 028 review).
+        div()
+            .flex_shrink_0()
+            .pt(Spacing::MD.scaled(cx))
+            .child(empty_state_content(
+                notice,
+                LabelVariant::Caption,
+                slots.failure_action.as_ref(),
+                cx,
+            ))
     });
-    let container = div()
+    // Packet 028 D2: each row is a direct child of the scroll container, in
+    // the order of the view model rows. Thus `scroll_to_item` finds the
+    // focused row by its index. The note is after the rows. The right
+    // padding keeps the clearance of `page_scroll_content` and adds the
+    // column inset.
+    let container = page_scroll_content(cx)
         .id(SharedString::from(format!(
             "search-results-{tab_slug}-rows"
         )))
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h_0()
-        .min_w_0()
-        .px(Spacing::MD.scaled(cx))
+        .gap(Spacing::XXS.scaled(cx))
+        .pl(Spacing::MD.scaled(cx))
+        .pr(OVERLAY_SCROLLBAR_WIDTH + Spacing::SM.scaled(cx) + Spacing::MD.scaled(cx))
         .pb(Spacing::MD.scaled(cx))
-        .child(
-            page_scroll_content(cx)
-                .gap(Spacing::XXS.scaled(cx))
-                .children(children)
-                .children(notice),
-        );
-    music_column_scrollbar(
-        container,
-        SharedString::from(format!("search-results-{tab_slug}-rows-scrollbar")),
-    )
+        .children(children)
+        .children(notice);
+    music_column_tracked_scrollbar(container, &slots.scroll, None)
 }
 
 fn render_empty_state(

@@ -73,6 +73,7 @@ Open - the run adds each packet when its mechanical checks are Green.
   - [ADR 0084 packet 017](tasks/adr-0084-task-017-name-level-artist-page.md) V1 to V11
   - [ADR 0084 packet 010](tasks/adr-0084-task-010-search-results-list-column.md) V1 to V7
   - [ADR 0084 packet 012](tasks/adr-0084-task-012-saved-searches.md) V1 to V7
+  - [ADR 0084 packet 028](tasks/adr-0084-task-028-search-open-defects.md) V1 to V4
 - Packet 024 adds migration 20, and packet 012 adds migration 21. Before the first start of the new build, make the backup of the Rollback section of packet 012.
 - Part B holds the deferred visual requirements of the overhaul plan that present screens can show.
 

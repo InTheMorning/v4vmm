@@ -324,6 +324,17 @@ impl TrackKey {
         }
     }
 
+    /// The feed GUID of an Index track key, or `None` when the key has no
+    /// feed GUID (packet 028 D1). Read the parts of a key here, and do not
+    /// split [`Self::index_target`]: an item GUID can have a colon.
+    #[must_use]
+    pub(crate) fn index_feed_guid(&self) -> Option<&str> {
+        match &self.release {
+            Some(ReleaseKey::FeedGuid(feed_guid)) => Some(feed_guid),
+            Some(ReleaseKey::LibraryFeed(_)) | None => None,
+        }
+    }
+
     /// The Index activation target of this key: `<feed_guid>:<item_guid>`
     /// when the key has a feed GUID, or the bare item GUID otherwise.
     #[must_use]

@@ -10,7 +10,9 @@
 
 #![warn(clippy::pedantic)]
 
-use gpui::{div, prelude::*, AnyElement, Context, Modifiers, SharedString, Window};
+use gpui::{
+    div, prelude::*, AnyElement, Context, Modifiers, Point, ScrollHandle, SharedString, Window,
+};
 
 use super::keyboard::primary_modifier_held;
 use super::TopApp;
@@ -95,6 +97,21 @@ impl TopApp {
             SearchPageSlot::ToolbarSearch => &self.search_list_focus,
             SearchPageSlot::SavedSearch => &self.saved_search_focus,
         }
+    }
+
+    /// The scroll of the search page `slot` (packet 028 D2).
+    pub(super) const fn search_page_scroll(&self, slot: SearchPageSlot) -> &ScrollHandle {
+        match slot {
+            SearchPageSlot::ToolbarSearch => &self.search_list_scroll,
+            SearchPageSlot::SavedSearch => &self.saved_search_scroll,
+        }
+    }
+
+    /// Scrolls the search page `slot` to its first row. A tab change calls
+    /// this, because the rows of the new tab start at the top (packet 028
+    /// D2).
+    pub(super) fn scroll_search_page_to_top(&self, slot: SearchPageSlot) {
+        self.search_page_scroll(slot).set_offset(Point::default());
     }
 
     /// The search page that carries the keyboard focus, when one does.
@@ -306,6 +323,8 @@ impl TopApp {
     }
 
     /// Up, Down, Page Up, Page Down, Home and End, for the search list.
+    /// The focused row scrolls into view, by the method of the Releases
+    /// list (packet 028 D2).
     pub(super) fn move_search_selection_focus(
         &mut self,
         step: FocusStep,
@@ -317,12 +336,17 @@ impl TopApp {
         };
         let library = self.library.read(cx);
         let lookup = library.search_lookup();
-        if let Some(detail) = page_mut(
+        let focused_index = page_mut(
             slot,
             &mut self.search_results_detail,
             &mut self.saved_search_page,
-        ) {
+        )
+        .and_then(|detail| {
             detail.move_focus(step, &lookup);
+            detail.focused_row_index()
+        });
+        if let Some(index) = focused_index {
+            self.search_page_scroll(slot).scroll_to_item(index);
         }
         cx.notify();
     }

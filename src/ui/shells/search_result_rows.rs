@@ -17,10 +17,12 @@ use gpui::{
 };
 
 use crate::ui::composites::{
-    EntityKind, ListRow, ListRowA11yLabel, TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize,
+    CollectionArt, CollectionArtImage, EntityKind, ListRow, ListRowA11yLabel, TagBadge,
+    TagBadgeDisplay, Thumbnail, ThumbnailSize,
 };
 use crate::ui::primitives::{Checkbox, CheckboxState, Label};
 use crate::ui::tokens::{FontSize, SemanticColor};
+use crate::view_models::collection_art::CollectionKind;
 use crate::view_models::detail_selection::DetailRowKey;
 use crate::view_models::list_selection::RowCheckState;
 use crate::view_models::search_results::{
@@ -45,11 +47,20 @@ pub(crate) struct SearchResultRowHandlers<'a> {
     pub(crate) toggle: Option<&'a SearchResultToggleHandler>,
 }
 
+/// The leading image of one search row: the thumbnail, or the logo frame of
+/// a row that has art in its view model (packet 028 D3).
+pub(crate) enum SearchRowLeading {
+    /// The thumbnail, with its image when it loaded.
+    Thumbnail(Option<Arc<Image>>),
+    /// The logo frame of a Library name row, as the Artists list shows it.
+    Collection(CollectionArtImage),
+}
+
 /// Renders one search row.
 pub(crate) fn render_result_row(
     tab: SearchResultsTab,
     row: SearchResultRowVm,
-    thumbnail: Option<Arc<Image>>,
+    leading: SearchRowLeading,
     handlers: SearchResultRowHandlers<'_>,
 ) -> AnyElement {
     let kind = entity_kind_for_tab(tab);
@@ -83,9 +94,19 @@ pub(crate) fn render_result_row(
         );
     }
 
-    list_row = list_row
-        .child(Thumbnail::new(kind, ThumbnailSize::Sm).image(thumbnail))
-        .child(result_row_text(&row));
+    list_row = match leading {
+        SearchRowLeading::Thumbnail(thumbnail) => {
+            list_row.child(Thumbnail::new(kind, ThumbnailSize::Sm).image(thumbnail))
+        }
+        // A row with art is a name row of the Artists tab, so the frame
+        // uses the artist color, as on its Artists list row.
+        SearchRowLeading::Collection(image) => list_row.child(CollectionArt::new(
+            image,
+            CollectionKind::Artist,
+            ThumbnailSize::Sm,
+        )),
+    };
+    list_row = list_row.child(result_row_text(&row));
     if let Some(state_word) = row.state_word.clone() {
         list_row = list_row.child(
             Label::new(state_word)

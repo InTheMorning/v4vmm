@@ -34,8 +34,8 @@ pub(crate) use failure::{SearchFailureAction, SearchFailureAvailability};
 pub(crate) use index_detail::{IndexDetailDisplay, IndexDetailKind, IndexSearchResultRows};
 pub(crate) use paged_tab::SearchResultsPagedTab;
 pub(crate) use results::{
-    artist_feed_result_display, ArtistResultDisplay, ArtistSearchFacts, FeedResultDisplay,
-    SearchResultTarget, TrackResultDisplay, INDEX_FEED_PAGE_RESULT_PREFIX,
+    artist_feed_result_display, index_track_row_id, ArtistResultDisplay, ArtistSearchFacts,
+    FeedResultDisplay, SearchResultTarget, TrackResultDisplay, INDEX_FEED_PAGE_RESULT_PREFIX,
 };
 pub(crate) use rows::{
     ReleaseKindPlacement, SearchLibraryLookup, SearchLibraryRelease, SearchLibraryTrack,
@@ -329,20 +329,16 @@ impl SearchResultsInspectorPageVm {
     }
 
     /// The note of the Index part under the rows of the active tab (walk of
-    /// 2026-10-21). It shows when the tab has rows, for example Library
-    /// rows, and `MusicIndex` did not accept the query. A tab with no rows
-    /// shows the same note as its empty state.
+    /// 2026-10-21, packet 028 D5). It shows when the tab has rows, for
+    /// example Library rows, and the Index part failed: `MusicIndex` did
+    /// not accept the query, or `MusicIndex` was not available. A tab with
+    /// no rows shows the same note as its empty state.
     #[must_use]
     pub(crate) fn index_notice(&self) -> Option<&EmptyStateDisplay> {
         if self.is_empty(self.tab) {
             return None;
         }
-        self.index_error.as_ref().filter(|notice| {
-            notice
-                .failure
-                .as_ref()
-                .is_some_and(failure::SearchFailureDisplay::is_query_rejected)
-        })
+        self.index_error.as_ref()
     }
 
     /// Returns the visible row thumbnail hrefs of the active tab.
@@ -514,6 +510,26 @@ impl SearchResultsInspectorPageVm {
     ) -> Option<DetailRowKey> {
         let rows = self.selectable_rows(lookup)?;
         self.selection.move_focus(step, &rows.selection_rows())
+    }
+
+    /// The index of the row with the keyboard focus among all the rows of
+    /// the active tab, or `None` when no row has the focus (packet 028
+    /// D2). The rows are the children of the scroll container in this
+    /// order, thus the app layer scrolls to this index after a focus move.
+    #[must_use]
+    pub(crate) fn focused_row_index(&self) -> Option<usize> {
+        let focused = self.selection.focused()?;
+        match self.tab {
+            SearchResultsTab::Releases => self.releases.rows().iter().position(|row| {
+                row.merge_key()
+                    .is_some_and(|key| DetailRowKey::Release(key) == *focused)
+            }),
+            SearchResultsTab::Tracks => self.tracks.rows().iter().position(|row| {
+                row.merge_key()
+                    .is_some_and(|key| DetailRowKey::Track(key) == *focused)
+            }),
+            SearchResultsTab::Artists => None,
+        }
     }
 
     /// Escape: ends selection mode. Gives `false` in `Normal`.

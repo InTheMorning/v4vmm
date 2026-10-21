@@ -22,11 +22,10 @@ Music structure in [ADR 0084](docs/adr/0084-music-column-browser.md).
 Phase 4A builds ADR 0084 in the packets of the
 [ADR 0084 phase plan](docs/plans/adr-0084-music-column-browser-phase-plan.md). Music has one navigation stack, one page
 for each item, three columns, the six destinations and Discover.
-Packet 026, the Index singles groups, waits for Stophammer request 9. The request is a draft that the operator reviews.
+Stophammer release 0.13.0 delivered request 9 on 2026-10-21, so packets 026 and 029 wait for nothing outside this repository.
 
-Packets 001 to 009, 013 to 015, 018 and 019 are complete. Packets 010 to 012, 016, 017, 020 to 025 and 027 are implemented,
+Packets 001 to 009, 013 to 015, 018 and 019 are complete. Packets 010 to 012, 016, 017, 020 to 025, 027 and 028 are implemented,
 and so are ADR 0083 tasks 006 to 008. Their visual checks are open in the final walk of the run of 2026-10-20.
-Packet 026 is not written.
 
 Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
@@ -44,7 +43,7 @@ step. The [run record](docs/reviews/orchestrated-run-2026-10-20.md) holds the st
 Delete this paragraph when the operator walks the final walk.
 
 Ready packets include
-[ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md).
+[ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md), and ADR 0084 packets 029 and 026, in that order.
 
 Known open defects:
 

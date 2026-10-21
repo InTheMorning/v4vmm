@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::db::TrackRow;
+use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
 use crate::view_models::detail_selection::{DetailRowClick, DetailRowKey, LibraryReleaseFacts};
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::selection_action_bar::SelectionActionKind;
@@ -111,10 +112,7 @@ pub(super) fn index_track(
     item_guid: &str,
     label: &str,
 ) -> (SearchResultItemId, TrackResultDisplay) {
-    let row_id = feed_guid.map_or_else(
-        || format!("index-track:{item_guid}"),
-        |feed_guid| format!("index-track:{feed_guid}:{item_guid}"),
-    );
+    let row_id = super::index_track_row_id(feed_guid, item_guid);
     let mut row = TrackResultDisplay::new(row_id, label, SearchResultOrigin::Index);
     if let Some(feed_guid) = feed_guid {
         row = row.with_track_key(track_key(feed_guid, item_guid));
@@ -381,7 +379,7 @@ fn adr_0084_search_list_r10_04_one_track_row_for_each_item() {
     let rows = rows(&vm, &lookup);
     assert_eq!(
         rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
-        ["10", "index-track:g2:item-2", "index-track:item-3"]
+        ["10", "index-track:g2:item-2", "index-track-guid:item-3"]
     );
     assert_eq!(rows[0].state_word.as_deref(), Some("In Library"));
     assert_eq!(rows[1].state_word, None);
@@ -439,7 +437,7 @@ fn adr_0084_search_list_r10_06_one_row_for_each_feed_guid() {
             title: Some("Haleen".to_owned()),
             keys: ["haleen".to_owned()].into_iter().collect(),
         }]),
-        name_level_keys: BTreeSet::new(),
+        name_level_art: BTreeMap::new(),
         feed_images: BTreeMap::new(),
     };
     let local = [local_track(10, 1, "Feed", "One", "Haleen")];
@@ -468,7 +466,7 @@ fn adr_0084_search_list_library_artist_feed_row_carries_its_image() {
     }]);
     let facts = super::ArtistSearchFacts {
         matches,
-        name_level_keys: BTreeSet::new(),
+        name_level_art: BTreeMap::new(),
         feed_images: BTreeMap::from([(
             "haleen-guid".to_owned(),
             "https://example.test/haleen.jpg".to_owned(),
@@ -504,7 +502,7 @@ fn adr_0084_search_list_r10_07_row_id_targets() {
         Some(SearchResultTarget::Track(track_key("g1", "t1")))
     );
     assert_eq!(
-        target(SearchResultsTab::Tracks, "index-track:t1"),
+        target(SearchResultsTab::Tracks, "index-track-guid:t1"),
         Some(SearchResultTarget::Track(
             TrackKey::from_index_track_target(None, "t1")
         ))
@@ -922,8 +920,9 @@ fn index_error_surfaces_when_the_tab_has_no_rows() {
 /// Walk of 2026-10-21: an HTTP `400` reply to the search is a query error.
 /// The Library rows stay, and the Index part shows a note that names the
 /// query. The note names no endpoint and no connection. "Show details"
-/// keeps the redacted reply of the server. A connection error gives no
-/// note under the rows, as before.
+/// keeps the redacted reply of the server. Packet 028 D5 gives a note for
+/// a connection error too: see
+/// `adr_0084_search_open_defects_r28_06_unavailable_index_gives_a_note_after_the_library_rows`.
 #[test]
 fn adr_0084_search_list_rejected_query_shows_a_note_with_the_library_rows() {
     use super::SearchFailureAction;
@@ -973,16 +972,92 @@ fn adr_0084_search_list_rejected_query_shows_a_note_with_the_library_rows() {
         .empty_state()
         .expect("the empty state shows the note");
     assert_eq!(empty.title, "MusicIndex did not accept the query");
+}
 
+/// R28-06 (packet 028 D5): with Library rows and an unavailable
+/// `MusicIndex`, the view model gives the rows and a failure note after
+/// them. The note names `MusicIndex` and keeps "Show details". With no
+/// Library rows, the view model gives the present empty state and no note.
+#[test]
+fn adr_0084_search_open_defects_r28_06_unavailable_index_gives_a_note_after_the_library_rows() {
+    use super::SearchFailureAction;
+    let local = [local_guid_track(10, 7, "g-library", "i1", "One")];
+    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks(
+        "hey",
+        &local,
+        &super::ArtistSearchFacts::default(),
+    );
+    vm.mark_index_loading();
     vm.set_index_error(
         &crate::application::CommandError::Query("connection refused".into()),
         "http://127.0.0.1:9",
         std::time::SystemTime::UNIX_EPOCH,
     );
-    assert!(
-        vm.index_notice().is_none(),
-        "a connection error keeps today's view"
+    let lookup = RecordedLibrary::default();
+    assert_eq!(rows(&vm, &lookup).len(), 1, "the Library row stays");
+    assert!(vm.empty_state().is_none());
+    let notice = vm.index_notice().expect("the Index part shows a note");
+    assert_eq!(notice.title, "MusicIndex search unavailable");
+    assert!(notice
+        .secondary
+        .contains("App could not get search results from MusicIndex."));
+    let failure = notice.failure.as_ref().expect("the note keeps its report");
+    assert_eq!(
+        failure.action(SearchFailureAction::ToggleDetails).label,
+        "Show details"
     );
+
+    let mut no_rows = SearchResultsInspectorPageVm::new("hey");
+    no_rows.mark_index_loading();
+    no_rows.set_index_error(
+        &crate::application::CommandError::Query("connection refused".into()),
+        "http://127.0.0.1:9",
+        std::time::SystemTime::UNIX_EPOCH,
+    );
+    assert!(no_rows.index_notice().is_none());
+    assert_eq!(
+        no_rows.empty_state().map(|empty| empty.title.as_str()),
+        Some("MusicIndex search unavailable")
+    );
+}
+
+/// R28-03 (packet 028 D2): the view model gives the index of the focused
+/// row among all the rows of the active tab. A row with no key counts,
+/// because it is a child of the scroll container too. A tab change and the
+/// Artists tab give no index.
+#[test]
+fn adr_0084_search_open_defects_r28_03_focused_row_index_counts_each_row() {
+    use crate::view_models::list_selection::FocusStep;
+    let local = [local_guid_track(10, 7, "g-library", "i1", "One")];
+    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks(
+        "q",
+        &local,
+        &super::ArtistSearchFacts::default(),
+    );
+    vm.replace_index_results(IndexSearchResultRows {
+        tracks: vec![
+            index_track(3_000_000_000, None, "t2", "No Feed"),
+            index_track(3_000_000_001, Some("g-index"), "t1", "Index Track"),
+        ],
+        ..no_index_rows()
+    });
+    let lookup = RecordedLibrary::default().with_track("g-library", "i1", 10, true);
+    vm.set_tab(SearchResultsTab::Tracks);
+    assert_eq!(vm.focused_row_index(), None);
+
+    vm.move_focus(FocusStep::Home, &lookup);
+    assert_eq!(vm.focused_row_index(), Some(0));
+    vm.move_focus(FocusStep::Down, &lookup);
+    assert_eq!(
+        vm.focused_row_index(),
+        Some(2),
+        "the row with no key is the child at index 1"
+    );
+
+    vm.set_tab(SearchResultsTab::Releases);
+    assert_eq!(vm.focused_row_index(), None);
+    vm.set_tab(SearchResultsTab::Artists);
+    assert_eq!(vm.focused_row_index(), None);
 }
 
 #[test]
@@ -1092,9 +1167,80 @@ fn index_detail_display_loaded_feed_and_track_carry_the_fetched_view() {
 fn name_level_facts(keys: &[&str]) -> super::ArtistSearchFacts {
     super::ArtistSearchFacts {
         matches: crate::view_models::artist_identity::NameFeedMatches::default(),
-        name_level_keys: keys.iter().map(|key| (*key).to_owned()).collect(),
+        name_level_art: keys
+            .iter()
+            .map(|key| ((*key).to_owned(), artist_entity_color()))
+            .collect(),
         feed_images: BTreeMap::new(),
     }
+}
+
+/// The logo frame art of a name with no Library image.
+fn artist_entity_color() -> CollectionArtVm {
+    CollectionArtVm::EntityColor(CollectionKind::Artist)
+}
+
+/// R28-04 (packet 028 D3): a Library name row of search carries the logo
+/// frame art of its Library releases, the art of its Artists list row. It
+/// shows no thumbnail, and an Index row of the same name does not change
+/// that art.
+#[test]
+fn adr_0084_search_open_defects_r28_04_library_name_row_carries_the_artists_list_art() {
+    use crate::view_models::library::name_level_art;
+    use crate::view_models::name_level_page::NameLevelLibraryRelease;
+
+    let release = |title: &str, image: &str, newest: i64| NameLevelLibraryRelease {
+        release_key: None,
+        feed_guid: None,
+        title: title.to_owned(),
+        image_url: Some(image.to_owned()),
+        artist_text: "Matt Finlay".to_owned(),
+        kind: crate::view_models::release_kind::ReleaseKind::Album,
+        newest_date: Some(newest),
+        in_library: true,
+    };
+    let members = [
+        release("Old", "https://example.test/old.png", 1),
+        release("New", "https://example.test/new.png", 2),
+    ];
+    let art = name_level_art(&members);
+    assert_eq!(
+        art,
+        CollectionArtVm::resolve(
+            None,
+            [
+                "https://example.test/new.png",
+                "https://example.test/old.png"
+            ],
+            CollectionKind::Artist,
+        ),
+        "the newest image comes first"
+    );
+    let facts = super::ArtistSearchFacts {
+        matches: crate::view_models::artist_identity::NameFeedMatches::default(),
+        name_level_art: BTreeMap::from([("matt finlay".to_owned(), art.clone())]),
+        feed_images: BTreeMap::new(),
+    };
+    let local = [local_track(10, 1, "Feed", "One", "Matt Finlay")];
+    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks("q", &local, &facts);
+    vm.replace_index_results(IndexSearchResultRows {
+        artists: vec![(
+            1_000_000_000,
+            ArtistResultDisplay::new("index-artist:Matt Finlay", "Matt Finlay")
+                .with_thumbnail_href("https://example.test/index.png"),
+        )],
+        ..no_index_rows()
+    });
+    vm.set_tab(SearchResultsTab::Artists);
+    let visible = rows(&vm, &RecordedLibrary::default());
+    assert_eq!(
+        visible.len(),
+        1,
+        "the Index name row merges into the Library row"
+    );
+    assert_eq!(visible[0].id, "library-artist:Matt Finlay");
+    assert_eq!(visible[0].art, Some(art));
+    assert_eq!(visible[0].thumbnail_href, None);
 }
 
 /// The artist rows of the Library search for `rows` with `facts`.
@@ -1139,7 +1285,7 @@ fn adr_0084_name_level_r17_28_matched_name_gives_the_feed_row() {
     }]);
     let facts = super::ArtistSearchFacts {
         matches,
-        name_level_keys: ["haleen".to_owned()].into_iter().collect(),
+        name_level_art: BTreeMap::from([("haleen".to_owned(), artist_entity_color())]),
         feed_images: BTreeMap::new(),
     };
     let rows = [

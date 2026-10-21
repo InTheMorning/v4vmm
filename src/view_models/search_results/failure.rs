@@ -37,9 +37,6 @@ pub(crate) struct SearchFailureDisplay {
     pub summary: String,
     report: String,
     expanded: bool,
-    /// `MusicIndex` did not accept the query text. The service is
-    /// available, so the summary names no endpoint and no connection.
-    query_rejected: bool,
 }
 
 impl SearchFailureDisplay {
@@ -56,13 +53,7 @@ impl SearchFailureDisplay {
         let summary = format!(
             "MusicIndex did not accept the query \"{query}\". Change the query, then search again."
         );
-        Self::with_summary(summary, error, endpoint, observed_at, true)
-    }
-
-    /// Tells if `MusicIndex` did not accept the query text.
-    #[must_use]
-    pub(crate) const fn is_query_rejected(&self) -> bool {
-        self.query_rejected
+        Self::with_summary(summary, error, endpoint, observed_at)
     }
 
     pub(super) fn new(error: &CommandError, endpoint: &str, observed_at: SystemTime) -> Self {
@@ -89,7 +80,7 @@ impl SearchFailureDisplay {
             ),
         };
         let summary = format!("{summary}\nYour local library remains available.\n{next}");
-        Self::with_summary(summary, error, endpoint, observed_at, false)
+        Self::with_summary(summary, error, endpoint, observed_at)
     }
 
     fn with_summary(
@@ -97,7 +88,6 @@ impl SearchFailureDisplay {
         error: &CommandError,
         endpoint: &str,
         observed_at: SystemTime,
-        query_rejected: bool,
     ) -> Self {
         // Parse the configured address before displaying it; rejected values may
         // contain secrets. All report URLs share startup's redaction policy.
@@ -112,7 +102,6 @@ impl SearchFailureDisplay {
             summary,
             report,
             expanded: false,
-            query_rejected,
         }
     }
 

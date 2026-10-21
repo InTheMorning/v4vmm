@@ -86,6 +86,8 @@ impl TopApp {
     fn run_saved_search(&mut self, search: &SavedSearch, cx: &mut Context<Self>) {
         let results = self.search_results_detail_for_query(&search.query, cx);
         let mut page = SavedSearchPage::open(search, results);
+        // Packet 028 review: each run of a saved search starts at the top.
+        self.scroll_search_page_to_top(SearchPageSlot::SavedSearch);
         let endpoint = self
             .musicindex_endpoint
             .require()
@@ -162,6 +164,7 @@ impl TopApp {
     fn set_saved_search_tab(&mut self, tab: SearchResultsTab, cx: &mut Context<Self>) {
         if let Some(page) = self.search_page_mut(SearchPageSlot::SavedSearch) {
             page.set_tab(tab);
+            self.scroll_search_page_to_top(SearchPageSlot::SavedSearch);
             cx.notify();
         }
     }
@@ -246,6 +249,7 @@ impl TopApp {
             )
         };
         let thumbnails = self.resolve_search_result_thumbnails(thumbnail_hrefs, cx);
+        let arts = self.resolve_search_result_arts(&rows, cx);
         let entity = cx.entity();
         let tab_entity = entity.clone();
         let select_entity = entity.clone();
@@ -287,7 +291,9 @@ impl TopApp {
                 delete_entity.update(cx, |this, cx| this.request_saved_search_delete(window, cx));
             })
             .with_thumbnails(thumbnails)
-            .with_rows(rows);
+            .with_arts(arts)
+            .with_rows(rows)
+            .with_scroll(self.search_page_scroll(SearchPageSlot::SavedSearch));
         let Some(results) = self.search_page(SearchPageSlot::SavedSearch) else {
             return render_search_empty_state(&SavedSearchPage::deleted_empty_state(), cx);
         };

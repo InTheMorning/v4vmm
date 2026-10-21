@@ -8,6 +8,7 @@ use crate::db::TrackRow;
 use crate::view_models::artist_identity::{
     name_label, ArtistNameDestination, ArtistNameKey, NameFeedMatch, NameFeedMatches,
 };
+use crate::view_models::collection_art::CollectionArtVm;
 use crate::view_models::format::plural;
 use crate::view_models::index_name_list::name_sort_key;
 use crate::view_models::library::LibraryTrackRowVm;
@@ -32,6 +33,10 @@ pub(crate) struct ArtistResultDisplay {
     pub(crate) thumbnail_href: Option<String>,
     /// Accessibility label for the row.
     pub(crate) a11y_label: String,
+    /// The logo frame art of a Library name row: the newest images of its
+    /// Library releases, the same art as its Artists list row (packet 028
+    /// D3). `None` for each other row.
+    pub(crate) art: Option<CollectionArtVm>,
 }
 
 impl SearchRowMergeKey for ArtistResultDisplay {
@@ -52,11 +57,11 @@ impl SearchRowMergeKey for ArtistResultDisplay {
         }
     }
 
-    /// Keeps this row's own image. With no image of its own, this row
-    /// takes the image of the merged Index row (packet 010 "One row for
-    /// each item").
+    /// Keeps this row's own image or art. With no image and no art of its
+    /// own, this row takes the image of the merged Index row (packet 010
+    /// "One row for each item").
     fn adopt_missing_thumbnail_href(&mut self, other: &Self) {
-        if self.thumbnail_href.is_none() {
+        if self.thumbnail_href.is_none() && self.art.is_none() {
             self.thumbnail_href.clone_from(&other.thumbnail_href);
         }
     }
@@ -73,6 +78,7 @@ impl ArtistResultDisplay {
             label,
             secondary_text: String::new(),
             thumbnail_href: None,
+            art: None,
         }
     }
 
@@ -298,6 +304,26 @@ pub(crate) fn artist_feed_result_display(feed_guid: &str, title: &str) -> Artist
 /// It opens the feed page of the feed GUID after the prefix.
 pub(crate) const INDEX_FEED_PAGE_RESULT_PREFIX: &str = "index-feed-page:";
 
+/// The id prefix of an Index track row with a feed GUID. The row id is
+/// `index-track:<feed>:<track>`. A feed GUID has no colon, thus the first
+/// colon after the prefix ends the feed GUID.
+const INDEX_TRACK_RESULT_PREFIX: &str = "index-track:";
+
+/// The id prefix of an Index track row with no feed GUID (packet 028 D1).
+/// All the text after the prefix is the track GUID, thus a track GUID with
+/// a colon, for example `urn:uuid:x`, opens its own key.
+const INDEX_TRACK_GUID_RESULT_PREFIX: &str = "index-track-guid:";
+
+/// The row id of an Index track hit (packet 028 D1). Each kind of row has
+/// its own prefix, thus no colon in a GUID can move the split.
+#[must_use]
+pub(crate) fn index_track_row_id(feed_guid: Option<&str>, track_guid: &str) -> String {
+    feed_guid.map_or_else(
+        || format!("{INDEX_TRACK_GUID_RESULT_PREFIX}{track_guid}"),
+        |feed_guid| format!("{INDEX_TRACK_RESULT_PREFIX}{feed_guid}:{track_guid}"),
+    )
+}
+
 /// The page that a search row opens (packet 010 "The clicks"). The view
 /// model parses each row id one time, here. The app layer matches the
 /// target and parses no id.
@@ -336,23 +362,25 @@ impl SearchResultTarget {
                 },
                 |feed_guid| Some(Self::Release(ReleaseKey::from_index_feed_guid(feed_guid))),
             ),
-            SearchResultsTab::Tracks => id.strip_prefix("index-track:").map_or_else(
-                || {
-                    id.strip_prefix("library-track:")
-                        .unwrap_or(id)
-                        .parse::<i64>()
-                        .ok()
-                        .map(Self::LibraryTrack)
-                },
-                |target| {
-                    let (feed_guid, track_guid) = target
-                        .split_once(':')
-                        .map_or((None, target), |(feed, track)| (Some(feed), track));
-                    Some(Self::Track(TrackKey::from_index_track_target(
-                        feed_guid, track_guid,
-                    )))
-                },
-            ),
+            SearchResultsTab::Tracks => {
+                if let Some(track_guid) = id.strip_prefix(INDEX_TRACK_GUID_RESULT_PREFIX) {
+                    return Some(Self::Track(TrackKey::from_index_track_target(
+                        None, track_guid,
+                    )));
+                }
+                if let Some(target) = id.strip_prefix(INDEX_TRACK_RESULT_PREFIX) {
+                    let (feed_guid, track_guid) = target.split_once(':')?;
+                    return Some(Self::Track(TrackKey::from_index_track_target(
+                        Some(feed_guid),
+                        track_guid,
+                    )));
+                }
+                id.strip_prefix("library-track:")
+                    .unwrap_or(id)
+                    .parse::<i64>()
+                    .ok()
+                    .map(Self::LibraryTrack)
+            }
             SearchResultsTab::Artists => {
                 if let Some(feed_guid) = id
                     .strip_prefix(ARTIST_FEED_RESULT_PREFIX)
@@ -395,8 +423,10 @@ impl SearchResultTarget {
 pub(crate) struct ArtistSearchFacts {
     /// The match of each name to the artist feeds of the Library.
     pub(crate) matches: NameFeedMatches,
-    /// Each name key with one Library release or more of the name level.
-    pub(crate) name_level_keys: BTreeSet<String>,
+    /// The logo frame art of each name key with one Library release or
+    /// more of the name level (packet 028 D3). The name row of the search
+    /// shows this art, the same art as its Artists list row.
+    pub(crate) name_level_art: BTreeMap<String, CollectionArtVm>,
     /// The channel image of each Library artist feed, by feed GUID (ADR
     /// 0084 Decision 12). The feed row of this name shows it, the same
     /// image that the Artists list shows.
@@ -498,12 +528,13 @@ fn local_artist_rows(
                 }
             }
             NameFeedMatch::Ambiguous | NameFeedMatch::NoFeed => {
-                if artist_facts.name_level_keys.contains(&key) {
+                if let Some(art) = artist_facts.name_level_art.get(&key) {
                     let mut display = ArtistResultDisplay::new(
                         format!("library-artist:{name}"),
                         NameLevelPageVm::title_text_for_name(&name),
                     );
                     display.a11y_label.clone_from(&display.label);
+                    display.art = Some(art.clone());
                     displays.push(display);
                 }
             }
