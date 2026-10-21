@@ -308,6 +308,221 @@ cargo build --bin v4vmm
 
 Revert the commit. This packet adds no migration and no stored data. V5 and V7 change a playlist and the Library. Use a test playlist and a release that you can download again.
 
+## Implementation Result - 2026-10-20
+
+### Files Changed
+
+- `src/ui/tokens.rs`: `TrackRowColumn` has the variants `DownloadState`, `Duration` and `Menu`, in this order.
+  - `DownloadState` and `Menu` have the width of `Size::PointerHitTarget` on the CHROME scale. `Duration` keeps 44 px of text at `FontSize::Micro`.
+  - `PrimaryAction`, `State`, `PlaylistAction`, `text_px`, `font_size` and `inset` are deleted.
+- `src/ui/icons.rs`: new `IconName` values `CloudDownload`, `Queued`, `InProgress`, `MbPending`, `MbLookingUp`, `MbNoMissingFields`, `MbDone` and `MbSkipped`.
+  - Five icons come from the complete catalog. `ExtraLucideIcons` embeds them. Three come from the default bundle. The icon tests list each new name.
+- `src/view_models/download_progress.rs`: new `DownloadActivity` sets `index_tracks` and `in_flight_index_tracks`, and new `index_track_phase`.
+- `src/library/download_queue.rs`: `DownloadQueue::activity` fills the two new sets from each `JobIdentity::IndexTrack` with `IndexTrackIdentity::Guid`. New test of the Index track phase.
+- `src/view_models/library.rs`:
+  - New `BusyItems::index_track_work` and `LibraryTrackRowVm::mb_status`.
+  - `MbStatusKind`, `mb_status_text`, `mb_status_kind` and `LibraryTrackRowVm::playlist_display` are deleted with their three tests. No caller was left.
+- `src/view_models/release_page.rs`:
+  - `ReleaseTrackRowVm` has the fields `badges`, `mb_status`, `download`, `menu` and `inspect_sources_entry`.
+  - New types `TrackRowBadge`, `TrackRowBadgeVm`, `MbStatusIcon`, `TrackRowMbStatusVm`, `DownloadSlotState`, `DownloadSlotVm`, `TrackRowMenuAction`, `TrackRowMenuItemVm`, `TrackRowPlaylistLevelVm` and `TrackRowMenuVm`. Each label is a named constant.
+  - `ReleaseTrackPrimaryVm`, `ReleaseTrackStatusVm` and the `primary`, `status`, `state_label`, `playlist_popover_id` and `playlist_trigger_label` fields are deleted.
+  - `ReleasePageCommand::TrackPrimary` is deleted. New commands are `DownloadTrack`, `RemoveTrack` and `InspectSources`.
+  - New `ReleasePageFacts::with_index_track_work`, new `inspect_sources_entry`, and a new `work` argument of `ReleaseTrackRowVm::index`.
+  - Tests R21-03, R21-04 and R21-06 use the new fields with the same meaning. New tests R83-6-01 to R83-6-09.
+- `src/ui/primitives/context_menu.rs`:
+  - A menu item can have a second level (`ContextMenuItem::level`). The "⋯" menu and the pointer menu show that level in the same surface.
+  - New `ContextMenu::trigger_tooltip` and `ContextMenu::is_open`.
+- `src/ui/primitives/mod.rs`: exports `MenuLevelControls`.
+- `src/ui/primitives/status_badge.rs`: new `render_row_badge`, a neutral badge with a word.
+- `src/ui/composites/playlist_popover.rs`: `build_list_mode` and `build_create_mode` are `pub(crate)`.
+  They take `PlaylistChoiceControls` in place of the private popover state, so the row menu uses the same two modes.
+- `src/ui/composites/track_row_menu.rs` (new):
+  - `track_row_menu_items` builds the items of both menus. The "Add to playlist" level has "Back", the playlist choices and "New Playlist".
+  - `track_row_pointer_menu`, `TrackRowMenuCell`, `TRACK_ROW_GROUP` and the pure `menu_cell_visibility`. Test R83-6-12.
+- `src/ui/composites/mod.rs`: registers the new module and exports `TrackRowMenuHandlers`.
+- `src/ui/composites/track_row.rs`:
+  - The builders are `badges`, `mb_status`, `download_slot`, `on_download`, `menu` and `on_menu_action`. `primary_action`, `state_child` and `playlist_action` are deleted.
+  - The title line holds the title, the badges and the `MusicBrainz` icon. The trailing columns are the download slot, the duration and the menu cell.
+  - The row root is the GPUI group `track-row`. The row root attaches the right-click handler only when the row has a menu.
+  - The download and the menu cells have the minimum height of a hit target, so each row has the same height in each state.
+  - Tests R83-6-10 and R83-6-11 replace the two old column tests.
+- `src/ui/shells/release_page.rs`:
+  - `render_release_page_track_row` builds the row from the new fields and takes the return focus of the right-click menu.
+  - `ReleasePageImages` has the new field `row_menu_focus`.
+- `src/ui/shells/library/detail.rs`, `feed_detail.rs` and `singles_group.rs`: give `LibraryApp::detail_column_focus` to the rows.
+- `src/library.rs` and `src/library/app_impl.rs`:
+  - New field `pending_inspect_sources`, and new `request_inspect_sources` and `busy_items`.
+  - `select_track_detail` opens the "Inspect sources" disclosure of the requested track when its page mounts.
+- `src/library/release_page.rs`: `DownloadTrack` calls `download_library_tracks`. `RemoveTrack` calls `remove_track_after_confirmation`. `InspectSources` asks for the disclosure and opens the track page.
+- `src/app/search_dispatch.rs`: the Index release page reads the phase of each row from `LibraryApp::busy_items` and gives the return focus. `DownloadTrack` calls `download_index_track`. The route ignores `RemoveTrack` and `InspectSources`.
+- `tests/architecture_tests.rs`:
+  - New guards R83-6-13 and R83-6-14. Each one is situational and cites ADR 0083 Decision 6.
+  - The ADR 0063 pointer menu guard reads the new call `build_menu_level(` and the shared `build_menu_content(` call. See deviation 4.
+
+### Behavior Changed
+
+- A track row on a release page of each origin and on a singles group page shows no "Remove" text button and no "+ Playlist" button.
+- The row always shows the number, the cover, the title, the badges and the `MusicBrainz` icon. It also always shows the date line, the download slot and the duration.
+- The download slot shows a download button on a track that is not downloaded. It shows the queued icon or the downloading icon while a job waits or runs. It is empty for a downloaded track and during a removal.
+  - Each state has a tooltip. A click on the button queues the track and does not open the row page.
+- An Index row reads the phase of its own Index track job, then the phase of a release job of its key.
+- The "New" badge shows after the title of a Library track that is not downloaded. The "Removing" badge shows during a removal. An Index row shows no badge.
+- Each `MusicBrainz` status shows its own icon. The word is in the tooltip.
+- The "⋯" button shows on hover of the row, on the keyboard focus of the row and while its menu is open. A hidden button keeps its width.
+- The "⋯" menu and a right-click on the row show "Add to playlist", "Download", "Inspect sources", a divider and "Remove…". An item that cannot act is absent.
+  - "Add to playlist" shows the playlist choices in the same menu surface.
+  - "Remove…" always asks for confirmation.
+  - "Inspect sources" opens the track page with the "Inspect sources" disclosure open.
+- In selection mode, the row shows no "⋯" button and no right-click menu. The download slot stays.
+- Each track row is the same height in each state. Each row has a download cell and a menu cell with the height of a hit target.
+
+### Checks - 2026-10-20
+
+| Check | Result |
+|---|---|
+| `cargo test --lib adr_0083_row_actions_` | Green, 13 tests |
+| `cargo test --lib adr_0084_release_page_` | Green, 8 tests |
+| `cargo test --lib adr_0084_download_queue_` | Green, 21 tests |
+| `cargo test --lib adr_0084_detail_selection_` | Green, 9 tests |
+| `cargo test` | Green, 2064 unit tests and 344 guards. Ten documentation examples stay ignored |
+| `cargo test --test architecture_tests` | Green, 344 guards |
+| `cargo fmt -- --check` | Green |
+| `cargo clippy -- -D warnings` | Green |
+| `cargo clippy --all-targets -- -D warnings` | Green |
+| `cargo check --all-targets` | Green, no warning |
+| `cargo build --bin v4vmm` | Green |
+
+No application launch and no production-data change occurred.
+
+### Deviations From The Task
+
+1. The track page mounts after the navigation event of `open_page`, not in the same call. Thus `InspectSources` records the track id in `pending_inspect_sources`. `select_track_detail` opens the disclosure when the page of that track mounts.
+2. The "⋯" menu and the right-click menu need a second level. `ContextMenu` and `PointerContextMenu` had no such level, so `ContextMenuItem::level` is new.
+   The row menu state (the pointer position and the create mode) is keyed state of the row in `track_row_menu.rs`.
+3. `ContextMenu::is_open` reads the keyed state of the menu at its element position. Thus the menu cell is its own component, `TrackRowMenuCell`. It reads the open state and draws the menu at the same position.
+4. The ADR 0063 guard `adr_0063_log_copy_menu_preserves_selection_and_uses_typed_actions` required the literal text `build_menu_content(&dismiss, self.items, cx)`.
+   The pointer menu now calls `build_menu_level`, and that function calls `build_menu_content`. The guard now requires the two new calls. Its meaning does not change: the pointer menu uses the shared item rows.
+5. The R83-6-10 layout test compares the focused row with the cell positions moved by 1 px. The focus outline of `ListRow` is 2 px, and the plain border is 1 px. This packet does not change `ListRow`.
+6. The duration cell is a sibling of the body now, not a child of the body. The width and the order of each column follow D13.
+7. The packet lists "New playlist…" in the playlist level. The shared list mode shows its own label "New Playlist", because this packet reuses that mode and does not copy it.
+8. `mb_status_text`, `mb_status_kind`, `MbStatusKind` and `LibraryTrackRowVm::playlist_display` had no caller after the change. They are deleted with their tests.
+9. The download and the menu cells have the minimum height of a hit target (44 px). A row with a download button was taller than a row with no button. With this height, each row has the same height.
+
+### Unresolved Concerns
+
+1. V1 to V12 below need the operator. No test proves a rendered hover, a tooltip, a menu position or the danger color.
+2. The download button and the "⋯" button are wider than the 28 px column at the medium scale. The column clips the hover fill of the button at its two sides. V12 examines this.
+3. A track row is 10 px taller than the 44 px floor. The cause is the two cells with the height of a hit target in each row. Before this packet, a row with a text button had the same height.
+4. The new file `src/ui/composites/track_row_menu.rs` is not in `docs/architecture/source-map.md`. The visual checks V1 to V12 are not in `docs/pending-human-checks.md`. The task instructions named only this packet as a document to edit.
+5. A right-click on a row in selection mode does nothing. A right-click on a row with no handler, for example a test row, also does nothing.
+
+## Operator Visual Check
+
+This check needs a Linux desktop session and this checkout. It also needs these items:
+
+- A Library release with three or more tracks, partly downloaded, and with a `MusicBrainz` status on one track.
+- An Index release that is not in the Library, with two or more tracks.
+- A Library singles group with two or more singles.
+- A test playlist.
+
+V5 changes a playlist. V7 removes an audio file. Use a test playlist and a track that you can download again.
+
+1. Build the app: `cargo build --bin v4vmm`. Then start `target/debug/v4vmm` from a desktop session.
+2. Open Music, then Releases, in the sidebar. Open the partly downloaded Library release.
+
+### V1: The hover
+
+3. Move the pointer onto a track row. A "⋯" button must show at the right end of the row.
+4. Move the pointer off the row. The "⋯" button must go.
+
+**Wrong if:** the duration or the download slot moves when "⋯" shows or goes.
+
+### V2: The keyboard focus
+
+5. Click an empty area of the detail column. Push Down and Up.
+6. The "⋯" button must show on the focused row only.
+
+**Wrong if:** "⋯" shows on a row that has no focus and no pointer.
+
+### V3: The right-click menu
+
+7. Click "⋯" on a downloaded row and read the items. Push Escape.
+8. Right-click the same row. The menu must open at the pointer.
+9. Compare the two menus. Each one must show "Add to playlist", "Inspect sources", a divider and "Remove…", in this order. "Remove…" must be in the danger color in each menu.
+
+**Wrong if:** the two menus show different items, a different order or a different color.
+
+### V4: The open menu
+
+10. Click "⋯" on a row. Move the pointer from the row into the menu.
+11. The menu must stay open, and "⋯" must stay visible.
+
+**Wrong if:** the menu closes or "⋯" goes when the pointer leaves the row.
+
+### V5: Add to playlist
+
+12. Open "⋯" and click "Add to playlist". The playlist choices must show in the same menu, with "Back" at the top.
+13. Click the test playlist. Open the test playlist page. The track must be in it.
+14. Do step 12 again on another row. Click "New Playlist", type a name, and click "Create & Add". A new playlist with the track must show in the sidebar.
+
+**Wrong if:** a second menu opens, or the track is not in the playlist.
+
+### V6: The download slot
+
+15. Find a track that is not downloaded. Its slot must show the download icon. Hold the pointer on the icon. The tooltip "Download" must show.
+16. Click the icon. The slot must show the queued icon, then the downloading icon, then nothing. The tooltips must read "Queued for download" and "Downloading".
+17. The track page must not open after the click.
+
+**Wrong if:** the click opens the track page, or a state has no tooltip.
+
+### V7: Remove
+
+18. Open "⋯" on a downloaded row and click "Remove…". A confirmation must open.
+19. Confirm. The row must show the "New" badge and the download icon. The page must stay open.
+
+**Wrong if:** the track goes with no confirmation, or the row changes only after a move to another page.
+
+### V8: The badges and the `MusicBrainz` icon
+
+20. On a track that is not downloaded, look for the "New" badge after the title.
+21. Hold the pointer on the `MusicBrainz` icon of the track with a status. A tooltip must show the word, for example "MusicBrainz: done".
+
+**Wrong if:** a badge or an icon has no word, or the badge covers the title.
+
+### V9: The column positions
+
+22. On the release page, compare the rows. The download slot, the duration and "⋯" must start at the same x position on each row.
+23. Do the same on the singles group page, where no row has a number. Do the same on the Index release page.
+
+**Wrong if:** a column starts at a different position on one row.
+
+### V10: Selection mode
+
+24. Click "Select" in the detail column header. Each row must show its checkbox. No row must show "⋯" on hover. A right-click must open no menu.
+25. Click "Done". The "⋯" button on hover and the right-click menu must come back.
+
+**Wrong if:** "⋯" or the right-click menu shows in selection mode.
+
+### V11: Inspect sources
+
+26. Open "⋯" on a Library row and click "Inspect sources". The track page must open with the "Inspect sources" disclosure open.
+27. On the singles group page, do the same. The track page of the single must open, not its release page.
+28. On the Index release page, open "⋯". The menu must not show "Inspect sources".
+
+**Wrong if:** the page opens with the disclosure closed, or a different page opens.
+
+### V12: Widths, themes and type sizes
+
+29. Do steps 3, 15 and 22 in the Light theme and in the Dark theme.
+30. Make the window narrow. Then set the largest type size in Settings and do the steps again.
+31. Look at the hover fill of the download button and of "⋯".
+
+**Wrong if:** text is clipped, a column overlaps another column, or a state shows only a color. Also wrong: the clipped hover fill of a button looks broken.
+
+### Cleanup
+
+32. Delete the new playlist of step 14. Download the removed track of step 19 again if you need it.
+
 ## Prompt for lower-context coding model
 
 You are implementing one bounded task from a larger plan.

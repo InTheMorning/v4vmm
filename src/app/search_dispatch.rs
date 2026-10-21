@@ -41,7 +41,7 @@ use crate::view_models::detail_selection::{
 };
 use crate::view_models::library::{
     display_description_text, keyed_description_state, toggle_keyed_description_state,
-    DescriptionDisclosureDisplay, DescriptionState, LibraryTrackRowVm,
+    DescriptionDisclosureDisplay, DescriptionState, LibraryTrackRowVm, TrackRowWork,
 };
 use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::publisher_page::PublisherPageContext;
@@ -1061,7 +1061,7 @@ impl TopApp {
         // facts, from the same row key.
         let detail_rows =
             DetailPageRows::Tracks(index_release_track_rows(feed_guid.as_deref(), &feed.tracks));
-        let (facts, row_probes, scroll_handle) = {
+        let (facts, row_probes, scroll_handle, detail_focus) = {
             let library = self.library.read(cx);
             let selections = library.detail_selection().row_selections(&detail_rows);
             let row_probes = selections
@@ -1071,11 +1071,19 @@ impl TopApp {
             // ADR 0084 Decision 6: a release whose key is in a Library
             // singles group links to that group. An Index release that is
             // not in the Library gets no link.
+            // ADR 0083 task 006, decision D8: each Index row reads the
+            // phase of its own job, then the phase of a release job.
             let facts = ReleasePageFacts::from_index_feed(feed.clone(), description_state)
                 .map_name_links(|links, key| library.release_page_name_links(links, key))
                 .with_row_selections(selections)
-                .with_playlists(library.playlists());
-            (facts, row_probes, library.detail_scroll_handle())
+                .with_playlists(library.playlists())
+                .with_index_track_work(library.busy_items());
+            (
+                facts,
+                row_probes,
+                library.detail_scroll_handle(),
+                library.detail_column_focus().clone(),
+            )
         };
         let vm = release_page_vm(&facts);
         let row_thumbnails = vm
@@ -1096,6 +1104,7 @@ impl TopApp {
             row_probes,
             contributor_thumbnails: None,
             scroll_handle: Some(scroll_handle),
+            row_menu_focus: Some(detail_focus),
         };
         let entity = cx.entity();
         let dispatch: ReleasePageDispatch = Rc::new(move |command, _window, cx| {
@@ -1118,9 +1127,15 @@ impl TopApp {
             return;
         };
         let row_vm = |row: usize| {
-            feed.tracks
-                .get(row)
-                .map(|track| ReleaseTrackRowVm::index(&feed, row, track, RowSelectionVm::none()))
+            feed.tracks.get(row).map(|track| {
+                ReleaseTrackRowVm::index(
+                    &feed,
+                    row,
+                    track,
+                    RowSelectionVm::none(),
+                    TrackRowWork::Idle,
+                )
+            })
         };
         match command {
             ReleasePageCommand::DownloadRelease => self.download_index_feed(&feed, cx),
@@ -1141,7 +1156,7 @@ impl TopApp {
             ReleasePageCommand::OpenNameLink(target) => {
                 self.open_index_album_name_link(&target, cx);
             }
-            ReleasePageCommand::TrackPrimary(row) => {
+            ReleasePageCommand::DownloadTrack(row) => {
                 if let Some(track) = feed.tracks.get(row) {
                     self.download_index_track(&feed, track, cx);
                 }
@@ -1174,8 +1189,12 @@ impl TopApp {
                     self.toggle_detail_row(&key, cx);
                 }
             }
-            // The Index release page offers no such action.
-            ReleasePageCommand::MusicBrainzLookup
+            // The Index release page offers no such action. An Index row
+            // has no "Remove…" and no "Inspect sources" (ADR 0083 task
+            // 006, decision D4).
+            ReleasePageCommand::RemoveTrack(_)
+            | ReleasePageCommand::InspectSources(_)
+            | ReleasePageCommand::MusicBrainzLookup
             | ReleasePageCommand::RemoveRelease
             | ReleasePageCommand::AddReleaseToPlaylist(_)
             | ReleasePageCommand::CreatePlaylistForRelease(_) => {}

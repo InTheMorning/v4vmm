@@ -5,14 +5,16 @@
 //! the menu row chrome and action contract. Screens should pass display-ready
 //! menu items instead of hand-rolling floating row action panels.
 //! Pointer menus reuse those rows and the shared surface at the click position.
+//! An item can open a second level in the same menu surface (ADR 0083 task
+//! 006). Both menu forms show that level.
 
 #![warn(clippy::pedantic)]
 
 use std::rc::Rc;
 
 use gpui::{
-    actions, anchored, deferred, div, prelude::*, App, ElementId, Entity, FocusHandle, IntoElement,
-    KeyBinding, MouseButton, Pixels, Point, RenderOnce, SharedString, Window,
+    actions, anchored, deferred, div, prelude::*, AnyElement, App, ElementId, Entity, FocusHandle,
+    IntoElement, KeyBinding, MouseButton, Pixels, Point, RenderOnce, SharedString, Window,
 };
 
 use crate::ui::control_styles::ControlStyle;
@@ -23,6 +25,21 @@ use crate::ui::primitives::{
 use crate::ui::tokens::{Size, Spacing};
 
 type SelectHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+type OpenLevelHandler = Rc<dyn Fn(usize, &mut Window, &mut App) + 'static>;
+
+/// The builder of the second level of a menu item. It gets the controls of
+/// the menu and gives the content of the level.
+pub(crate) type MenuLevelBuilder =
+    Rc<dyn Fn(&MenuLevelControls, &mut Window, &mut App) -> AnyElement + 'static>;
+
+/// The controls that the second level of a menu item can use.
+#[derive(Clone)]
+pub(crate) struct MenuLevelControls {
+    /// Shows the first level of the menu again.
+    pub(crate) back: SelectHandler,
+    /// Closes the menu.
+    pub(crate) dismiss: SelectHandler,
+}
 
 const POINTER_MENU_KEY_CONTEXT: &str = "PointerContextMenu";
 
@@ -39,6 +56,14 @@ pub(crate) fn init(cx: &mut App) {
 
 struct ContextMenuState {
     open: bool,
+    /// The index of the item whose second level shows. `None` shows the
+    /// first level.
+    level: Option<usize>,
+}
+
+/// The second-level state of a [`PointerContextMenu`].
+struct PointerMenuLevel {
+    level: Option<usize>,
 }
 
 /// Row families expected to expose context-menu commands.
@@ -67,6 +92,7 @@ pub struct ContextMenuItem {
     description: Option<SharedString>,
     display: ContextMenuItemDisplay,
     on_select: Option<SelectHandler>,
+    level: Option<MenuLevelBuilder>,
 }
 
 /// Shared context-menu surface.
@@ -77,6 +103,7 @@ pub struct ContextMenu {
     scope: ContextMenuScope,
     trigger_label: SharedString,
     trigger_icon: IconName,
+    trigger_tooltip: Option<SharedString>,
     disabled: bool,
     trigger_a11y_label: SharedString,
     items: Vec<ContextMenuItem>,
@@ -122,10 +149,36 @@ impl RenderOnce for PointerContextMenu {
         if !focus.contains_focused(window, cx) {
             focus.focus(window, cx);
         }
-        let dismiss: SelectHandler = Rc::new(move |window, cx| {
-            self.return_focus.focus(window, cx);
-            (self.on_dismiss)(window, cx);
-        });
+        let level_key = SharedString::from(format!("{}-level", self.id));
+        let level_state =
+            window.use_keyed_state(level_key, cx, |_, _| PointerMenuLevel { level: None });
+        let dismiss: SelectHandler = {
+            let level_state = level_state.clone();
+            Rc::new(move |window, cx| {
+                level_state.update(cx, |state, _| state.level = None);
+                self.return_focus.focus(window, cx);
+                (self.on_dismiss)(window, cx);
+            })
+        };
+        let open_level: OpenLevelHandler = {
+            let level_state = level_state.clone();
+            Rc::new(move |index, _, cx| {
+                level_state.update(cx, |state, cx| {
+                    state.level = Some(index);
+                    cx.notify();
+                });
+            })
+        };
+        let back: SelectHandler = {
+            let level_state = level_state.clone();
+            Rc::new(move |_, cx| {
+                level_state.update(cx, |state, cx| {
+                    state.level = None;
+                    cx.notify();
+                });
+            })
+        };
+        let level = level_state.read(cx).level;
         let outside_dismiss = dismiss.clone();
         let escape_dismiss = dismiss.clone();
         let menu = div()
@@ -147,7 +200,17 @@ impl RenderOnce for PointerContextMenu {
             .child(
                 Surface::new(SurfaceElevation::Floating)
                     .padding(Spacing::SM)
-                    .child(build_menu_content(&dismiss, self.items, cx)),
+                    .child(build_menu_level(
+                        &MenuLevelControls {
+                            back,
+                            dismiss: dismiss.clone(),
+                        },
+                        &open_level,
+                        self.items,
+                        level,
+                        window,
+                        cx,
+                    )),
             );
 
         deferred(
@@ -173,7 +236,18 @@ impl ContextMenuItem {
             display,
             description: None,
             on_select: None,
+            level: None,
         }
+    }
+
+    /// Gives the item a second level. A selection of the item shows that
+    /// level in the same menu surface instead of closing the menu.
+    pub(crate) fn level(
+        mut self,
+        builder: impl Fn(&MenuLevelControls, &mut Window, &mut App) -> AnyElement + 'static,
+    ) -> Self {
+        self.level = Some(Rc::new(builder));
+        self
     }
 
     pub fn description(mut self, description: impl Into<SharedString>) -> Self {
@@ -198,6 +272,7 @@ impl ContextMenu {
             scope,
             trigger_label: SharedString::from("Actions"),
             trigger_icon: IconName::More,
+            trigger_tooltip: None,
             disabled: false,
             trigger_a11y_label: trigger_a11y_label.into(),
             items: Vec::new(),
@@ -212,6 +287,27 @@ impl ContextMenu {
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
+    }
+
+    /// The hover help of the trigger, for a trigger with an icon and no
+    /// text (ADR 0083 Decision 10).
+    pub fn trigger_tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
+        self.trigger_tooltip = Some(tooltip.into());
+        self
+    }
+
+    /// `true` while the menu with the id `id` is open. The caller must call
+    /// it at the same element position as the menu, so that it reads the
+    /// same keyed state. A row uses it to keep its menu button visible
+    /// while the menu is open (ADR 0083 Decision 6).
+    pub(crate) fn is_open(id: &SharedString, window: &mut Window, cx: &mut App) -> bool {
+        let state =
+            window.use_keyed_state(Self::state_key(id), cx, |_, _| ContextMenuState::closed());
+        state.read(cx).open
+    }
+
+    fn state_key(id: &SharedString) -> SharedString {
+        SharedString::from(format!("{id}-state"))
     }
 
     pub fn trigger_label(mut self, label: impl Into<SharedString>) -> Self {
@@ -235,17 +331,33 @@ impl ContextMenu {
     }
 }
 
+impl ContextMenuState {
+    const fn closed() -> Self {
+        Self {
+            open: false,
+            level: None,
+        }
+    }
+}
+
 impl RenderOnce for ContextMenu {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let state_key = SharedString::from(format!("{}-state", self.id));
         let state: Entity<ContextMenuState> =
-            window.use_keyed_state(state_key, cx, |_window, _cx| ContextMenuState {
-                open: false,
+            window.use_keyed_state(Self::state_key(&self.id), cx, |_window, _cx| {
+                ContextMenuState::closed()
             });
 
         let open = state.read(cx).open && !self.disabled;
         let items = self.items;
         let trigger_id = SharedString::from(format!("{}-trigger", self.id));
+        let mut trigger = Button::styled(trigger_id, ControlStyle::RowAction)
+            .leading_icon(self.trigger_icon)
+            .disabled(self.disabled)
+            .label(self.trigger_label)
+            .a11y_label(self.trigger_a11y_label);
+        if let Some(tooltip) = self.trigger_tooltip {
+            trigger = trigger.tooltip(tooltip);
+        }
 
         Popover::new(self.id)
             .placement(PopoverPlacement::Below)
@@ -257,32 +369,76 @@ impl RenderOnce for ContextMenu {
                 move |is_open, _window, cx| {
                     state.update(cx, |state, cx| {
                         state.open = *is_open;
+                        state.level = None;
                         cx.notify();
                     });
                 }
             })
-            .trigger(
-                Button::styled(trigger_id, ControlStyle::RowAction)
-                    .leading_icon(self.trigger_icon)
-                    .disabled(self.disabled)
-                    .label(self.trigger_label)
-                    .a11y_label(self.trigger_a11y_label),
-            )
-            .content(move |_window, cx| {
-                let state = state.clone();
-                let dismiss: SelectHandler = Rc::new(move |_, cx| {
-                    state.update(cx, |state, cx| {
-                        state.open = false;
-                        cx.notify();
-                    });
-                });
-                build_menu_content(&dismiss, items.clone(), cx)
+            .trigger(trigger)
+            .content(move |window, cx| {
+                let dismiss: SelectHandler = {
+                    let state = state.clone();
+                    Rc::new(move |_, cx| {
+                        state.update(cx, |state, cx| {
+                            state.open = false;
+                            state.level = None;
+                            cx.notify();
+                        });
+                    })
+                };
+                let back: SelectHandler = {
+                    let state = state.clone();
+                    Rc::new(move |_, cx| {
+                        state.update(cx, |state, cx| {
+                            state.level = None;
+                            cx.notify();
+                        });
+                    })
+                };
+                let open_level: OpenLevelHandler = {
+                    let state = state.clone();
+                    Rc::new(move |index, _, cx| {
+                        state.update(cx, |state, cx| {
+                            state.level = Some(index);
+                            cx.notify();
+                        });
+                    })
+                };
+                let level = state.read(cx).level;
+                build_menu_level(
+                    &MenuLevelControls { back, dismiss },
+                    &open_level,
+                    items.clone(),
+                    level,
+                    window,
+                    cx,
+                )
             })
     }
 }
 
+/// The content of a menu: the second level of the item at `level`, or
+/// the first level when `level` is `None` or names no such level.
+fn build_menu_level(
+    controls: &MenuLevelControls,
+    open_level: &OpenLevelHandler,
+    items: Vec<ContextMenuItem>,
+    level: Option<usize>,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    if let Some(builder) = level
+        .and_then(|index| items.get(index))
+        .and_then(|item| item.level.clone())
+    {
+        return builder(controls, window, cx);
+    }
+    build_menu_content(&controls.dismiss, open_level, items, cx).into_any_element()
+}
+
 fn build_menu_content(
     on_dismiss: &SelectHandler,
+    open_level: &OpenLevelHandler,
     items: Vec<ContextMenuItem>,
     cx: &App,
 ) -> impl IntoElement {
@@ -297,7 +453,7 @@ fn build_menu_content(
         .gap(Spacing::XXS.scaled(cx));
 
     let mut previous_destructive = true;
-    for item in items {
+    for (index, item) in items.into_iter().enumerate() {
         let display = item.display;
         // ADR 0083 Decision 5: a divider separates a destructive item from
         // the items before it.
@@ -321,7 +477,12 @@ fn build_menu_content(
         if let Some(description) = item.description {
             button = button.description(description);
         }
-        if !display.disabled {
+        if !display.disabled && item.level.is_some() {
+            // An item with a second level shows that level. The menu stays
+            // open.
+            let open_level = open_level.clone();
+            button = button.on_activate(move |window, cx| open_level(index, window, cx));
+        } else if !display.disabled {
             button = button.on_activate(move |window, cx| {
                 on_dismiss(window, cx);
                 if let Some(handler) = &on_select {

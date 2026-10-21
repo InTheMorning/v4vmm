@@ -881,6 +881,7 @@ impl LibraryApp {
             selection_removal_report: None,
             detail_selection: DetailSelection::new(),
             detail_column_focus: cx.focus_handle(),
+            pending_inspect_sources: None,
             detail_scroll_reveal: ScrollReveal::new(detail_column_scroll.clone()),
             detail_column_scroll,
         };
@@ -2375,6 +2376,13 @@ impl LibraryApp {
             .and_then(|url| self.thumbnail_for_url(Some(url), true, cx));
         let mut frame = InspectorFrame::for_track(track.clone(), image);
         frame.inspector_state.description_state = self.vm.track_description_state(track.id, None);
+        // ADR 0083 task 006, decision D4: "Inspect sources" of a track row
+        // opens this page with its "Inspect sources" disclosure open.
+        if self.pending_inspect_sources.take() == Some(track.id) {
+            frame
+                .inspector_state
+                .expand_panel(InspectorPanelKind::Sources);
+        }
         if let Some(lookup) = self.vm.staged_musicbrainz(track.id).cloned() {
             frame.musicbrainz_lookup = LazyPanel::Loaded(lookup);
             frame.musicbrainz_selected = 0;
@@ -3090,6 +3098,20 @@ impl LibraryApp {
                 }
             },
         );
+    }
+
+    /// Asks the track page of `track_id` to open its "Inspect sources"
+    /// disclosure when it mounts next (ADR 0083 task 006, decision D4).
+    /// The navigation to that page mounts it after this call.
+    pub(crate) fn request_inspect_sources(&mut self, track_id: i64) {
+        self.pending_inspect_sources = Some(track_id);
+    }
+
+    /// The downloads and the removals in progress (ADR 0084 Decision 10).
+    /// The Index release page reads the phase of its track rows from it
+    /// (ADR 0083 task 006, decision D8).
+    pub(crate) fn busy_items(&self) -> &crate::view_models::library::BusyItems {
+        self.vm.busy_items()
     }
 
     /// Opens or closes the "Inspect sources" disclosure of the selected
@@ -4609,6 +4631,7 @@ impl LibraryApp {
             header_art,
             row_slots,
             &scroll,
+            &self.detail_column_focus,
             cx,
         )
     }

@@ -38,6 +38,7 @@ pub mod tooltip;
 
 pub use button::{Button, ButtonLabelTreatment, ButtonSize, ButtonVariant};
 pub(crate) use checkbox::{Checkbox, CheckboxState};
+pub(crate) use context_menu::MenuLevelControls;
 pub use context_menu::{
     ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope, PointerContextMenu,
 };

@@ -84,6 +84,12 @@ pub(crate) struct DownloadActivity {
     pub(crate) in_flight_keys: BTreeSet<FeedKey>,
     /// The key of each running release job.
     pub(crate) in_flight_release_keys: BTreeSet<FeedKey>,
+    /// The release key and the track GUID of each queued or running Index
+    /// track job (ADR 0083 task 006, decision D8). A job of a track with
+    /// no track GUID is not in this set.
+    pub(crate) index_tracks: BTreeSet<(FeedKey, String)>,
+    /// The release key and the track GUID of each running Index track job.
+    pub(crate) in_flight_index_tracks: BTreeSet<(FeedKey, String)>,
 }
 
 impl DownloadActivity {
@@ -107,6 +113,17 @@ impl DownloadActivity {
         DownloadPhase::of(
             self.release_keys.contains(key),
             self.in_flight_release_keys.contains(key),
+        )
+    }
+
+    /// The phase of the Index track job of the track GUID `guid` in the
+    /// release `key` (ADR 0083 task 006, decision D8).
+    #[must_use]
+    pub(crate) fn index_track_phase(&self, key: &FeedKey, guid: &str) -> Option<DownloadPhase> {
+        let entry = (key.clone(), guid.to_owned());
+        DownloadPhase::of(
+            self.index_tracks.contains(&entry),
+            self.in_flight_index_tracks.contains(&entry),
         )
     }
 

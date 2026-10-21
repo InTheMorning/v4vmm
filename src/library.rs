@@ -304,6 +304,9 @@ pub struct LibraryApp {
     /// The Music detail column's own focus handle (packet 018). The
     /// detail selection keys act only while it carries the focus.
     detail_column_focus: FocusHandle,
+    /// The Library track whose track page opens its "Inspect sources"
+    /// disclosure when it mounts (ADR 0083 task 006, decision D4).
+    pending_inspect_sources: Option<i64>,
     /// The held scroll handle of each Music detail page (packet 018), so
     /// a key can scroll the page or keep the focused row in view.
     detail_column_scroll: ScrollHandle,

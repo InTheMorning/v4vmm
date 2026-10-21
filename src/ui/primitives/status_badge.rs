@@ -1,4 +1,5 @@
-//! Shared labeled Show state badge geometry and semantic colors (ADR 0063).
+//! Shared labeled Show state badge geometry and semantic colors (ADR 0063),
+//! and the neutral track row badge (ADR 0083 task 006).
 #![warn(clippy::pedantic)]
 use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Size, Spacing};
 use crate::view_models::show::ShowCardStateKind;
@@ -23,6 +24,22 @@ pub(crate) fn render_state_badge(
         .text_color(color(cx, label_color))
         .truncate()
         .child(SharedString::from(state_label))
+}
+
+/// The neutral badge of a track row, for example "New" (ADR 0083 task
+/// 006, decision D11). The word carries the state, so the badge does not
+/// rely on color alone.
+pub(crate) fn render_row_badge(label: impl Into<SharedString>, cx: &App) -> impl IntoElement {
+    div()
+        .flex_shrink_0()
+        .rounded(Radius::SM.scaled(cx))
+        .bg(color(cx, SemanticColor::TertiaryFill))
+        .px(Spacing::XS.scaled(cx))
+        .text_size(FontSize::Micro.scaled(cx))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(color(cx, SemanticColor::SecondaryLabel))
+        .whitespace_nowrap()
+        .child(label.into())
 }
 
 const fn state_badge_tokens(state: ShowCardStateKind) -> (SemanticColor, SemanticColor) {

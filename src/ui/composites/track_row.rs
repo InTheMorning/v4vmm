@@ -7,14 +7,18 @@
 //! [`crate::ui::composites::Thumbnail`] + [`crate::ui::primitives::Label`]
 //! so the token → primitive → composite → screen hierarchy is maintained.
 //!
-//! Call sites supply a display-ready row projection and the elements of the
-//! typed trailing slots: the primary action, the state texts and the
-//! playlist action. The composite owns no fallback policy — it is purely
-//! presentational.
+//! Call sites supply a display-ready row projection and the typed view
+//! models of the row state: the badges, the `MusicBrainz` status, the
+//! download-state slot and the row menu (ADR 0083 task 006). The composite
+//! owns no fallback policy — it is purely presentational.
+//!
+//! The row shows its information and its state at all times. The "⋯"
+//! button shows on hover and on keyboard focus (ADR 0083 Decision 6). A
+//! right-click on the row opens a menu with the same items.
 //!
 //! Each trailing column has a fixed width from [`TrackRowColumn`] (operator
-//! finding of 2026-10-20). An empty slot keeps its width, so each column
-//! starts at the same position on each row of a list.
+//! finding of 2026-10-20). An empty or hidden slot keeps its width, so each
+//! column starts at the same position on each row of a list.
 //!
 //! Accessibility note (ADR 0038 task 005): the row label is projected by
 //! `TrackRowVm` and retained on the row/ListRow contract.
@@ -28,9 +32,12 @@
 //! TrackRow::from_vm("row:abc", &row_vm)
 //!     .thumbnail(thumbnail, EntityKind::Track)
 //!     .on_click(cx.listener(|this, _, _, cx| this.open_inspector(cx)))
-//!     .primary_action(download_btn)
-//!     .state_child(state_label)
-//!     .playlist_action(playlist_popover)
+//!     .badges(row_vm.badges.clone())
+//!     .mb_status(row_vm.mb_status)
+//!     .download_slot(row_vm.download.clone())
+//!     .on_download(move |window, cx| download(window, cx))
+//!     .menu(row_vm.menu.clone(), playlists)
+//!     .on_menu_action(handlers, return_focus)
 //! ```
 
 #![warn(clippy::pedantic)]
@@ -39,17 +46,31 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    div, prelude::*, AnyElement, App, ClickEvent, Div, ElementId, Image, IntoElement, RenderOnce,
-    SharedString, Styled, Window,
+    div, prelude::*, AnyElement, App, ClickEvent, Div, ElementId, FocusHandle, Image, IntoElement,
+    MouseButton, RenderOnce, SharedString, Styled, Window,
 };
 
-use crate::ui::composites::{EntityKind, ListRow, ListRowA11yLabel, Thumbnail, ThumbnailSize};
-use crate::ui::primitives::{Checkbox, CheckboxState, Label};
-use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing, TrackRowColumn};
+use crate::ui::composites::track_row_menu::{
+    row_menu_state, track_row_menu_items, track_row_pointer_menu, TrackRowMenuCell,
+    TrackRowMenuHandlers, TRACK_ROW_GROUP,
+};
+use crate::ui::composites::{
+    EntityKind, ListRow, ListRowA11yLabel, PlaylistOption, Thumbnail, ThumbnailSize,
+};
+use crate::ui::control_styles::ControlStyle;
+use crate::ui::icons::{Icon, IconName};
+use crate::ui::primitives::status_badge::render_row_badge;
+use crate::ui::primitives::{Button, Checkbox, CheckboxState, Label, Tooltip};
+use crate::ui::tokens::{color, FontSize, SemanticColor, Size, Spacing, TrackRowColumn};
 use crate::view_models::list_selection::{RowCheckState, RowSelectionVm};
+use crate::view_models::release_page::{
+    DownloadSlotState, DownloadSlotVm, MbStatusIcon, TrackRowBadgeVm, TrackRowMbStatusVm,
+    TrackRowMenuVm,
+};
 use crate::view_models::track_detail::TrackRowVm;
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+type ActionHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct TrackRowDisplay {
@@ -99,12 +120,21 @@ pub struct TrackRow {
     /// model makes it visible.
     on_toggle_selection: Option<ClickHandler>,
     scroll_probe: Option<AnyElement>,
-    /// The element of the [`TrackRowColumn::PrimaryAction`] column.
-    primary_action: Option<AnyElement>,
-    /// The elements of the [`TrackRowColumn::State`] column, in order.
-    state: Vec<AnyElement>,
-    /// The element of the [`TrackRowColumn::PlaylistAction`] column.
-    playlist_action: Option<AnyElement>,
+    /// The badges after the title, in order (ADR 0083 task 006).
+    badges: Vec<TrackRowBadgeVm>,
+    /// The `MusicBrainz` status icon after the badges.
+    mb_status: Option<TrackRowMbStatusVm>,
+    /// The [`TrackRowColumn::DownloadState`] slot. `None` keeps the
+    /// column empty.
+    download: Option<DownloadSlotVm>,
+    on_download: Option<ActionHandler>,
+    /// The row menu. `None` shows no "⋯" button and attaches no
+    /// right-click menu.
+    menu: Option<TrackRowMenuVm>,
+    menu_playlists: Rc<Vec<PlaylistOption>>,
+    menu_handlers: Option<TrackRowMenuHandlers>,
+    /// The focus that the right-click menu gives back on its dismissal.
+    menu_return_focus: Option<FocusHandle>,
 }
 
 impl TrackRow {
@@ -121,9 +151,14 @@ impl TrackRow {
             selection: RowSelectionVm::none(),
             on_toggle_selection: None,
             scroll_probe: None,
-            primary_action: None,
-            state: Vec::new(),
-            playlist_action: None,
+            badges: Vec::new(),
+            mb_status: None,
+            download: None,
+            on_download: None,
+            menu: None,
+            menu_playlists: Rc::new(Vec::new()),
+            menu_handlers: None,
+            menu_return_focus: None,
         }
     }
 
@@ -170,25 +205,53 @@ impl TrackRow {
         self
     }
 
-    /// The element of the primary action column, for example the
-    /// "Download" or the "Remove" button.
-    pub(crate) fn primary_action(mut self, child: impl IntoElement + 'static) -> Self {
-        self.primary_action = Some(child.into_any_element());
+    /// The badges after the title, for example "New" (ADR 0083 task 006).
+    pub(crate) fn badges(mut self, badges: Vec<TrackRowBadgeVm>) -> Self {
+        self.badges = badges;
         self
     }
 
-    /// Adds one element to the state column, for example the
-    /// `MusicBrainz` status or the state label "New". The elements show in
-    /// the order of the calls.
-    pub(crate) fn state_child(mut self, child: impl IntoElement + 'static) -> Self {
-        self.state.push(child.into_any_element());
+    /// The `MusicBrainz` status icon after the badges.
+    pub(crate) const fn mb_status(mut self, status: Option<TrackRowMbStatusVm>) -> Self {
+        self.mb_status = status;
         self
     }
 
-    /// The element of the playlist action column: the "+ Playlist"
-    /// trigger.
-    pub(crate) fn playlist_action(mut self, child: impl IntoElement + 'static) -> Self {
-        self.playlist_action = Some(child.into_any_element());
+    /// The download-state slot before the duration.
+    pub(crate) fn download_slot(mut self, slot: DownloadSlotVm) -> Self {
+        self.download = Some(slot);
+        self
+    }
+
+    /// Called when the user clicks the download button of the slot. The
+    /// click does not open the row page.
+    pub(crate) fn on_download(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_download = Some(Rc::new(handler));
+        self
+    }
+
+    /// The row menu and the playlists of its "Add to playlist" level.
+    /// `None` shows no "⋯" button and no right-click menu (selection
+    /// mode).
+    pub(crate) fn menu(
+        mut self,
+        menu: Option<TrackRowMenuVm>,
+        playlists: Vec<PlaylistOption>,
+    ) -> Self {
+        self.menu = menu;
+        self.menu_playlists = Rc::new(playlists);
+        self
+    }
+
+    /// The handlers of the row menu, and the focus that the right-click
+    /// menu gives back on its dismissal.
+    pub(crate) fn on_menu_action(
+        mut self,
+        handlers: TrackRowMenuHandlers,
+        return_focus: FocusHandle,
+    ) -> Self {
+        self.menu_handlers = Some(handlers);
+        self.menu_return_focus = Some(return_focus);
         self
     }
 }
@@ -208,6 +271,16 @@ fn column_cell(column: TrackRowColumn, cx: &App) -> Div {
         .debug_selector(move || column_selector(column).to_owned())
 }
 
+/// One fixed column that holds an icon control. The control centers in
+/// the column. Each such column has the height of the hit target of the
+/// control, also when it is empty or hidden, so each row has the same
+/// height in each state.
+fn control_cell(column: TrackRowColumn, cx: &App) -> Div {
+    column_cell(column, cx)
+        .justify_center()
+        .min_h(Size::MinHitTarget.scaled(cx))
+}
+
 /// The duration column at the right of the body. It keeps its width when
 /// the row has no duration.
 fn duration_cell(duration: Option<String>, cx: &App) -> Div {
@@ -223,15 +296,99 @@ fn duration_cell(duration: Option<String>, cx: &App) -> Div {
 /// The debug selector of each trailing column, for the layout tests.
 const fn column_selector(column: TrackRowColumn) -> &'static str {
     match column {
+        TrackRowColumn::DownloadState => "track-row-column-download-state",
         TrackRowColumn::Duration => "track-row-column-duration",
-        TrackRowColumn::PrimaryAction => "track-row-column-primary-action",
-        TrackRowColumn::State => "track-row-column-state",
-        TrackRowColumn::PlaylistAction => "track-row-column-playlist-action",
+        TrackRowColumn::Menu => "track-row-column-menu",
+    }
+}
+
+/// The download-state cell (ADR 0083 task 006, decision D6): a download
+/// button, the queued icon or the downloading icon, each with a tooltip.
+/// An empty slot keeps its width.
+fn download_cell(
+    slot: Option<DownloadSlotVm>,
+    on_download: Option<ActionHandler>,
+    cx: &App,
+) -> Div {
+    let cell = control_cell(TrackRowColumn::DownloadState, cx);
+    let Some(slot) = slot else {
+        return cell;
+    };
+    let tooltip = slot.tooltip.unwrap_or_default();
+    let a11y_label = slot.a11y_label.clone().unwrap_or_default();
+    match slot.state {
+        DownloadSlotState::Empty => cell,
+        DownloadSlotState::Download => {
+            let mut button = Button::styled(SharedString::from(slot.id), ControlStyle::RowAction)
+                .leading_icon(IconName::CloudDownload)
+                .label("")
+                .tooltip(tooltip)
+                .a11y_label(a11y_label)
+                .disabled(!slot.available);
+            if let (true, Some(handler)) = (slot.available, on_download) {
+                button = button.on_click(move |_, window, cx| {
+                    cx.stop_propagation();
+                    handler(window, cx);
+                });
+            }
+            cell.child(button)
+        }
+        DownloadSlotState::Queued | DownloadSlotState::Downloading => {
+            let icon = if slot.state == DownloadSlotState::Queued {
+                IconName::Queued
+            } else {
+                IconName::InProgress
+            };
+            cell.child(status_icon(
+                slot.id,
+                icon,
+                SemanticColor::SecondaryLabel,
+                tooltip,
+                cx,
+            ))
+        }
+    }
+}
+
+/// One status icon with its word in a tooltip.
+fn status_icon(
+    id: String,
+    icon: IconName,
+    role: SemanticColor,
+    tooltip: &'static str,
+    cx: &App,
+) -> impl IntoElement {
+    let tooltip = Tooltip::new(tooltip);
+    div()
+        .id(SharedString::from(id))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .tooltip(move |window, cx| tooltip.build(window, cx))
+        .child(Icon::new(icon).color(color(cx, role)))
+}
+
+/// The icon and the color role of each `MusicBrainz` status (decision
+/// D12). The tooltip holds the word, so the state never relies on color
+/// alone.
+const fn mb_status_icon(icon: MbStatusIcon) -> (IconName, SemanticColor) {
+    match icon {
+        MbStatusIcon::Pending => (IconName::MbPending, SemanticColor::TertiaryLabel),
+        MbStatusIcon::Processing => (IconName::MbLookingUp, SemanticColor::WarningLabel),
+        MbStatusIcon::NoMissingFields => {
+            (IconName::MbNoMissingFields, SemanticColor::TertiaryLabel)
+        }
+        MbStatusIcon::Done => (IconName::MbDone, SemanticColor::SuccessLabel),
+        MbStatusIcon::Skipped => (IconName::MbSkipped, SemanticColor::DangerLabel),
     }
 }
 
 impl RenderOnce for TrackRow {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the render composes each fixed part of the one track row in order"
+    )]
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let gap = Spacing::SM.scaled(cx);
         let tertiary_label = color(cx, SemanticColor::TertiaryLabel);
 
@@ -254,6 +411,7 @@ impl RenderOnce for TrackRow {
             SharedString::from(row_str)
         };
         let checkbox_id = SharedString::from(format!("{body_id}-checkbox"));
+        let mb_id = format!("{body_id}-mb");
 
         let mut body = div()
             .id(body_id)
@@ -288,16 +446,38 @@ impl RenderOnce for TrackRow {
             })
             // Thumbnail.
             .child(Thumbnail::new(EntityKind::Track, ThumbnailSize::Sm).image(thumbnail))
-            // The title fills the remaining space and truncates. The date
-            // text, when the view model gives one, shows as a second line
-            // under the title.
+            // The title fills the remaining space and truncates. The badges
+            // and the `MusicBrainz` icon follow the title. The date text,
+            // when the view model gives one, shows as a second line under
+            // the title.
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .child(Label::new(title).size(FontSize::Micro).truncated())
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(Spacing::XS.scaled(cx))
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .child(Label::new(title).size(FontSize::Micro).truncated()),
+                            )
+                            .children(
+                                self.badges
+                                    .iter()
+                                    .map(|badge| render_row_badge(badge.label, cx)),
+                            )
+                            .when_some(self.mb_status, |line, status| {
+                                let (icon, role) = mb_status_icon(status.icon);
+                                line.child(status_icon(mb_id, icon, role, status.label, cx))
+                            }),
+                    )
                     .when_some(date_text, |column, date| {
                         column.child(
                             Label::new(date)
@@ -307,8 +487,6 @@ impl RenderOnce for TrackRow {
                         )
                     }),
             );
-
-        body = body.child(duration_cell(duration, cx));
 
         let selection = self.selection;
         let mut row = ListRow::compact(self.id)
@@ -335,15 +513,54 @@ impl RenderOnce for TrackRow {
                     .into_any_element(),
             );
         }
+        // ADR 0083 Decision 6: the menu and the right-click menu exist
+        // only when the view model gives a menu, and the host gives the
+        // handlers and the return focus.
+        let menu = match (self.menu, self.menu_handlers, self.menu_return_focus) {
+            (Some(menu), Some(handlers), Some(focus)) => {
+                let state = row_menu_state(&menu.id, window, cx);
+                let items = track_row_menu_items(&menu, &self.menu_playlists, &handlers, &state);
+                Some((menu, items, state, focus))
+            }
+            _ => None,
+        };
+        let mut menu_cell =
+            TrackRowMenuCell::new(control_cell(TrackRowColumn::Menu, cx), selection.focused);
+        let mut pointer_menu = None;
+        let mut right_click_state = None;
+        if let Some((menu, items, state, focus)) = menu {
+            if let Some(position) = state.read(cx).pointer() {
+                pointer_menu = Some(track_row_pointer_menu(
+                    &menu,
+                    position,
+                    focus,
+                    items.clone(),
+                    &state,
+                ));
+            }
+            right_click_state = Some(state.clone());
+            menu_cell = menu_cell.menu(menu, items, state);
+        }
         row = row
             .child(body)
-            .child(column_cell(TrackRowColumn::PrimaryAction, cx).children(self.primary_action))
-            .child(column_cell(TrackRowColumn::State, cx).children(self.state))
-            .child(column_cell(TrackRowColumn::PlaylistAction, cx).children(self.playlist_action));
+            .child(download_cell(self.download, self.on_download, cx))
+            .child(duration_cell(duration, cx))
+            .child(menu_cell);
         div()
             .min_h(crate::ui::layouts::MIN_HIT_TARGET)
+            .group(TRACK_ROW_GROUP)
             .debug_selector(|| "track-row".to_owned())
+            .when_some(right_click_state, |root, state| {
+                root.on_mouse_down(MouseButton::Right, move |event, _, cx| {
+                    state.update(cx, |state, cx| {
+                        state.open_at(event.position);
+                        cx.notify();
+                    });
+                    cx.stop_propagation();
+                })
+            })
             .child(row)
+            .children(pointer_menu)
     }
 }
 
@@ -419,25 +636,42 @@ mod tests {
     }
 
     #[test]
-    fn trailing_slots_hold_their_elements() {
-        // We can't inspect AnyElement contents but we can verify count.
-        let row = TrackRow::new(
-            "test",
-            TrackRowDisplay {
-                number: Some("3".to_string()),
-                title: "Song".to_string(),
-                duration: Some("2:30".to_string()),
-                date_text: None,
-                a11y_label: "Song, 2 minutes 30 seconds".to_string(),
-            },
-        )
-        .primary_action(gpui::div())
-        .state_child(gpui::div())
-        .state_child(gpui::div())
-        .playlist_action(gpui::div());
-        assert!(row.primary_action.is_some());
-        assert_eq!(row.state.len(), 2);
-        assert!(row.playlist_action.is_some());
+    fn row_state_slots_hold_their_view_models() {
+        use crate::view_models::library::TrackRowWork;
+        use crate::view_models::release_page::{ReleaseTrackRowVm, TrackRowBadge, TrackRowBadgeVm};
+        use crate::views::{FeedView, TrackView};
+
+        let feed = FeedView {
+            feed_guid: Some("feed-guid".to_owned()),
+            tracks: vec![TrackView {
+                title: Some("Song".to_owned()),
+                track_guid: Some("guid-3".to_owned()),
+                ..TrackView::default()
+            }],
+            ..FeedView::default()
+        };
+        let vm = ReleaseTrackRowVm::index(
+            &feed,
+            0,
+            &feed.tracks[0],
+            RowSelectionVm::none(),
+            TrackRowWork::Idle,
+        );
+        let badge = TrackRowBadgeVm {
+            badge: TrackRowBadge::New,
+            label: "New",
+        };
+        let row = TrackRow::from_vm("test", &vm.row)
+            .badges(vec![badge])
+            .download_slot(vm.download.clone())
+            .menu(vm.menu.clone(), Vec::new());
+        assert_eq!(row.badges, vec![badge]);
+        assert_eq!(row.download, Some(vm.download));
+        assert_eq!(row.menu, vm.menu);
+        assert!(
+            row.menu_handlers.is_none(),
+            "no handler, so no menu renders"
+        );
     }
 }
 
@@ -450,6 +684,8 @@ mod reservation_tests {
     use gpui::{div, prelude::*, px, TestAppContext};
 
     use super::{TrackRow, TrackRowDisplay};
+    use crate::view_models::library::TrackRowWork;
+    use crate::view_models::release_page::DownloadSlotVm;
 
     struct RowHeightTest {
         display: TrackRowDisplay,
@@ -468,7 +704,12 @@ mod reservation_tests {
                 row.duration = None;
             }
             if self.with_trailing {
-                row = row.primary_action(gpui::div().w(px(20.0)).h(px(20.0)));
+                row = row.download_slot(DownloadSlotVm::project(
+                    "download".to_owned(),
+                    "Song",
+                    false,
+                    TrackRowWork::Idle,
+                ));
             }
             div().w(px(400.0)).child(row)
         }
@@ -539,18 +780,80 @@ mod reservation_tests {
 }
 
 // ---------------------------------------------------------------------------
-// Operator finding of 2026-10-20: the trailing columns of a track row align.
+// Operator finding of 2026-10-20 and ADR 0083 task 006: the trailing
+// columns of a track row align.
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod column_tests {
-    use gpui::{div, prelude::*, px, Bounds, Pixels, TestAppContext, VisualTestContext};
+    use std::rc::Rc;
+
+    use gpui::{
+        div, prelude::*, px, Bounds, FocusHandle, Pixels, TestAppContext, VisualTestContext,
+    };
 
     use super::{column_selector, TrackRow, TrackRowDisplay};
+    use crate::ui::composites::track_row_menu::TrackRowMenuHandlers;
     use crate::ui::tokens::{ScaleFactor, TrackRowColumn};
+    use crate::view_models::library::TrackRowWork;
+    use crate::view_models::list_selection::RowSelectionVm;
+    use crate::view_models::release_page::ReleaseTrackRowVm;
+    use crate::views::{FeedView, TrackView};
+
+    /// The state of the row under test.
+    #[derive(Clone, Copy, Debug)]
+    enum RowCase {
+        /// No slot, no duration and no menu.
+        Empty,
+        /// A download button, a duration and a hidden "⋯" cell.
+        Filled,
+        /// The same row with the keyboard focus: the "⋯" cell is visible.
+        Focused,
+        /// Selection mode: a checkbox, a queued icon and no menu.
+        Selecting,
+    }
 
     struct ColumnTest {
-        filled: bool,
+        case: RowCase,
+        focus: FocusHandle,
+    }
+
+    fn handlers() -> TrackRowMenuHandlers {
+        TrackRowMenuHandlers {
+            action: Rc::new(|_, _, _| {}),
+            select_playlist: Rc::new(|_, _, _| {}),
+            create_playlist: Rc::new(|_, _, _| {}),
+        }
+    }
+
+    fn row_vm(case: RowCase) -> ReleaseTrackRowVm {
+        let feed = FeedView {
+            feed_guid: Some("feed-guid".to_owned()),
+            tracks: vec![TrackView {
+                title: Some("Song".to_owned()),
+                track_guid: Some("guid-1".to_owned()),
+                track_number: Some(1),
+                duration_secs: Some(3723),
+                ..TrackView::default()
+            }],
+            ..FeedView::default()
+        };
+        let selection = match case {
+            RowCase::Empty | RowCase::Filled => RowSelectionVm::none(),
+            RowCase::Focused => RowSelectionVm {
+                focused: true,
+                ..RowSelectionVm::none()
+            },
+            RowCase::Selecting => RowSelectionVm {
+                checkbox_visible: true,
+                ..RowSelectionVm::none()
+            },
+        };
+        let work = match case {
+            RowCase::Selecting => TrackRowWork::Queued,
+            RowCase::Empty | RowCase::Filled | RowCase::Focused => TrackRowWork::Idle,
+        };
+        ReleaseTrackRowVm::index(&feed, 0, &feed.tracks[0], selection, work)
     }
 
     impl gpui::Render for ColumnTest {
@@ -559,21 +862,26 @@ mod column_tests {
             _window: &mut gpui::Window,
             _cx: &mut gpui::Context<Self>,
         ) -> impl gpui::IntoElement {
-            let display = TrackRowDisplay {
-                number: Some("1".to_string()),
-                title: "Song".to_string(),
-                duration: self.filled.then(|| "1:02:03".to_string()),
-                date_text: None,
-                a11y_label: "Song".to_string(),
+            let vm = row_vm(self.case);
+            let row = if matches!(self.case, RowCase::Empty) {
+                TrackRow::new(
+                    "row",
+                    TrackRowDisplay {
+                        number: Some("1".to_string()),
+                        title: "Song".to_string(),
+                        duration: None,
+                        date_text: None,
+                        a11y_label: "Song".to_string(),
+                    },
+                )
+            } else {
+                TrackRow::from_vm("row", &vm.row)
+                    .selection(vm.selection.clone())
+                    .badges(vm.badges.clone())
+                    .download_slot(vm.download.clone())
+                    .menu(vm.menu.clone(), Vec::new())
+                    .on_menu_action(handlers(), self.focus.clone())
             };
-            let mut row = TrackRow::new("row", display);
-            if self.filled {
-                row = row
-                    .primary_action(div().w(px(30.0)).h(px(20.0)))
-                    .state_child(div().w(px(10.0)).h(px(10.0)))
-                    .state_child(div().w(px(10.0)).h(px(10.0)))
-                    .playlist_action(div().w(px(40.0)).h(px(20.0)));
-            }
             div().w(px(900.0)).child(row)
         }
     }
@@ -591,44 +899,79 @@ mod column_tests {
             .collect()
     }
 
-    /// Operator finding of 2026-10-20: each trailing column of a track row
-    /// has the width of its `TrackRowColumn` token. An empty slot keeps
-    /// that width, so each column starts at the same position on a row
-    /// with content and on a row with no content.
+    /// R83-6-10 (ADR 0083 Decision 6): each trailing column has the width
+    /// of its `TrackRowColumn` token when it is empty, filled or hidden,
+    /// and in `Selecting`. Each column starts at the same position in each
+    /// case. The duration is before the menu.
     #[gpui::test]
-    fn adr_0084_row_fix_empty_columns_keep_their_token_width(cx: &mut TestAppContext) {
+    fn adr_0083_row_actions_r83_6_10_columns_keep_their_width_in_each_state(
+        cx: &mut TestAppContext,
+    ) {
         cx.update(gpui_component::init);
-        let (view, cx) = cx.add_window_view(|_, _| ColumnTest { filled: false });
-
-        let empty = column_bounds(cx);
-        view.update(cx, |this, cx| {
-            this.filled = true;
-            cx.notify();
+        let (view, cx) = cx.add_window_view(|_, cx| ColumnTest {
+            case: RowCase::Empty,
+            focus: cx.focus_handle(),
         });
-        let filled = column_bounds(cx);
 
-        for (index, column) in TrackRowColumn::ROW_ORDER.iter().enumerate() {
-            let token = column.scaled_px(ScaleFactor::Medium);
-            assert_eq!(
-                empty[index].size.width, token,
-                "{column:?}: an empty slot must keep the token width"
-            );
-            assert_eq!(
-                filled[index].size.width, token,
-                "{column:?}: a filled slot must have the token width"
-            );
-            assert_eq!(
-                empty[index].origin.x, filled[index].origin.x,
-                "{column:?}: the column must start at the same position on each row"
+        let mut cases = Vec::new();
+        for case in [
+            RowCase::Empty,
+            RowCase::Filled,
+            RowCase::Focused,
+            RowCase::Selecting,
+        ] {
+            view.update(cx, |this, cx| {
+                this.case = case;
+                cx.notify();
+            });
+            cases.push((case, column_bounds(cx)));
+        }
+
+        let (_, first) = &cases[0];
+        for (case, bounds) in &cases {
+            // The focus outline of `ListRow` is 1 px wider than the plain
+            // border, so a focused row moves its content by 1 px. The
+            // focused case compares the positions of the cells to each
+            // other.
+            let shift = if matches!(case, RowCase::Focused) {
+                bounds[0].origin.x - first[0].origin.x
+            } else {
+                px(0.0)
+            };
+            assert!(shift <= px(1.0), "{case:?}: the row moved by {shift:?}");
+            for (index, column) in TrackRowColumn::ROW_ORDER.iter().enumerate() {
+                assert_eq!(
+                    bounds[index].size.width,
+                    column.scaled_px(ScaleFactor::Medium),
+                    "{case:?} {column:?}: the cell must have the token width"
+                );
+                assert_eq!(
+                    bounds[index].origin.x - shift,
+                    first[index].origin.x,
+                    "{case:?} {column:?}: the cell must start at the same position"
+                );
+            }
+            let duration = bounds[1];
+            let menu = bounds[2];
+            assert!(
+                duration.origin.x + duration.size.width <= menu.origin.x,
+                "{case:?}: the duration must be before the menu"
             );
         }
     }
 
-    /// The text part of each column follows the TYPE scale of its font
-    /// role, and the inset part follows the CHROME scale (ADR 0039). A
-    /// larger scale does not make a column narrower.
+    /// R83-6-11: the row order is the download slot, the duration and the
+    /// menu. A larger scale does not make a column narrower.
     #[test]
-    fn adr_0084_row_fix_column_widths_grow_with_the_scale() {
+    fn adr_0083_row_actions_r83_6_11_row_order_and_scale() {
+        assert_eq!(
+            TrackRowColumn::ROW_ORDER,
+            [
+                TrackRowColumn::DownloadState,
+                TrackRowColumn::Duration,
+                TrackRowColumn::Menu,
+            ]
+        );
         let scales = [
             ScaleFactor::XSmall,
             ScaleFactor::Small,
@@ -642,14 +985,21 @@ mod column_tests {
                 widths.windows(2).all(|pair| pair[0] <= pair[1]),
                 "{column:?}: {widths:?}"
             );
-            let medium = f32::from(column.text_px())
-                + column
-                    .inset()
-                    .map_or(0.0, |spacing| f32::from(spacing.px()) * 2.0);
-            assert_eq!(column.scaled_px(ScaleFactor::Medium), px(medium));
-            let xlarge_text = f32::from(column.text_px())
-                * column.font_size().type_multiplier(ScaleFactor::XLarge);
-            assert!(f32::from(column.scaled_px(ScaleFactor::XLarge)) >= xlarge_text);
         }
+        // `Size::MinHitTarget` is 44 px at the medium scale. It is the
+        // minimum width of the hit area of a `Button`, so an icon column of
+        // this width cuts no hover fill (operator walk of 2026-10-20).
+        assert_eq!(
+            TrackRowColumn::DownloadState.scaled_px(ScaleFactor::Medium),
+            px(44.0)
+        );
+        assert_eq!(
+            TrackRowColumn::Menu.scaled_px(ScaleFactor::Medium),
+            px(44.0)
+        );
+        assert_eq!(
+            TrackRowColumn::Duration.scaled_px(ScaleFactor::Medium),
+            px(44.0)
+        );
     }
 }

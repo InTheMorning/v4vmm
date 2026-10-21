@@ -38,8 +38,22 @@ use crate::ui::tokens::{FontSize, Size, Spacing};
 // Callback type aliases (silence clippy::type_complexity)
 // ---------------------------------------------------------------------------
 
-type SelectHandler = Rc<dyn Fn(&i64, &mut Window, &mut App) + 'static>;
-type CreateHandler = Rc<dyn Fn(&String, &mut Window, &mut App) + 'static>;
+pub(crate) type SelectHandler = Rc<dyn Fn(&i64, &mut Window, &mut App) + 'static>;
+pub(crate) type CreateHandler = Rc<dyn Fn(&String, &mut Window, &mut App) + 'static>;
+type StateHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+
+/// The state changes that the list mode and the create mode ask of their
+/// owner. The popover owns its state. The track row menu (ADR 0083 task
+/// 006) owns its own state and uses the same two modes.
+#[derive(Clone)]
+pub(crate) struct PlaylistChoiceControls {
+    /// Closes the surface after a choice or a creation.
+    pub(crate) close: StateHandler,
+    /// Shows the create mode.
+    pub(crate) show_create: StateHandler,
+    /// Shows the list mode again.
+    pub(crate) show_list: StateHandler,
+}
 
 // ---------------------------------------------------------------------------
 // Internal state (not pub — callers interact via builder methods)
@@ -218,10 +232,11 @@ impl RenderOnce for AddToPlaylistPopover {
                     let s = state.read(cx);
                     (s.creating, s.name_input.clone())
                 };
+                let controls = popover_controls(&state);
 
                 if creating {
                     build_create_mode(
-                        state.clone(),
+                        &controls,
                         name_input,
                         on_create.clone(),
                         back_a11y_label.clone(),
@@ -230,7 +245,7 @@ impl RenderOnce for AddToPlaylistPopover {
                     )
                 } else {
                     build_list_mode(
-                        state.clone(),
+                        &controls,
                         playlists.clone(),
                         on_select.clone(),
                         can_create,
@@ -242,16 +257,46 @@ impl RenderOnce for AddToPlaylistPopover {
     }
 }
 
+/// The controls of the popover: each one changes the keyed popover state.
+fn popover_controls(state: &Entity<AddToPlaylistState>) -> PlaylistChoiceControls {
+    let close_state = state.clone();
+    let create_state = state.clone();
+    let list_state = state.clone();
+    PlaylistChoiceControls {
+        close: Rc::new(move |_, cx| {
+            close_state.update(cx, |s, cx| {
+                s.open = false;
+                s.creating = false;
+                cx.notify();
+            });
+        }),
+        show_create: Rc::new(move |_, cx| {
+            create_state.update(cx, |s, cx| {
+                s.creating = true;
+                cx.notify();
+            });
+        }),
+        show_list: Rc::new(move |_, cx| {
+            list_state.update(cx, |s, cx| {
+                s.creating = false;
+                cx.notify();
+            });
+        }),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // List mode
 // ---------------------------------------------------------------------------
 
+/// The playlist choices and "New Playlist". A choice closes the surface
+/// through `controls` and then calls `on_select`.
 #[expect(
     clippy::needless_pass_by_value,
-    reason = "Entity<T> and Rc<T> are cheap handles cloned into multiple closures; value semantics are idiomatic"
+    reason = "Rc<T> handles are cloned into multiple closures; value semantics are idiomatic"
 )]
-fn build_list_mode(
-    state: Entity<AddToPlaylistState>,
+pub(crate) fn build_list_mode(
+    controls: &PlaylistChoiceControls,
     playlists: Rc<Vec<PlaylistOption>>,
     on_select: Option<SelectHandler>,
     can_create: bool,
@@ -262,17 +307,14 @@ fn build_list_mode(
         let playlist_id = p.id;
         let label = p.name.clone();
         let on_select = on_select.clone();
-        let state = state.clone();
+        let close = controls.close.clone();
         Button::plain(SharedString::from(format!("pl-{playlist_id}")))
             .full_width()
             .align_leading()
             .label(label)
             .a11y_label(p.a11y_label.clone())
             .on_click(move |_, window, cx| {
-                state.update(cx, |s, cx| {
-                    s.open = false;
-                    cx.notify();
-                });
+                close(window, cx);
                 if let Some(cb) = &on_select {
                     cb(&playlist_id, window, cx);
                 }
@@ -295,21 +337,14 @@ fn build_list_mode(
         .children(playlist_buttons);
 
     if can_create {
+        let show_create = controls.show_create.clone();
         let new_btn = Button::plain("pl-new")
             .full_width()
             .align_leading()
             .leading_icon(IconName::Add)
             .label("New Playlist")
             .a11y_label(new_playlist_a11y_label)
-            .on_click({
-                let state = state.clone();
-                move |_, _window, cx| {
-                    state.update(cx, |s, cx| {
-                        s.creating = true;
-                        cx.notify();
-                    });
-                }
-            });
+            .on_click(move |_, window, cx| show_create(window, cx));
         content = content
             .child(
                 div()
@@ -326,51 +361,42 @@ fn build_list_mode(
 // Create mode
 // ---------------------------------------------------------------------------
 
+/// The name field, "Back" and "Create & Add". A creation closes the
+/// surface through `controls` and then calls `on_create`.
 #[expect(
     clippy::needless_pass_by_value,
     reason = "Entity<T> handles are cloned into closures; value semantics are idiomatic GPUI style"
 )]
-fn build_create_mode(
-    state: Entity<AddToPlaylistState>,
+pub(crate) fn build_create_mode(
+    controls: &PlaylistChoiceControls,
     name_input: Entity<InputState>,
     on_create: Option<CreateHandler>,
     back_a11y_label: SharedString,
     create_a11y_label: SharedString,
     cx: &App,
 ) -> Div {
+    let show_list = controls.show_list.clone();
     let back_btn = Button::plain("pl-back")
         .full_width()
         .align_leading()
         .leading_icon(IconName::Back)
         .label("Back")
         .a11y_label(back_a11y_label)
-        .on_click({
-            let state = state.clone();
-            move |_, _window, cx| {
-                state.update(cx, |s, cx| {
-                    s.creating = false;
-                    cx.notify();
-                });
-            }
-        });
+        .on_click(move |_, window, cx| show_list(window, cx));
 
     let create_btn = Button::filled("pl-create-confirm")
         .full_width()
         .label("Create & Add")
         .a11y_label(create_a11y_label)
         .on_click({
-            let state = state.clone();
+            let close = controls.close.clone();
             let name_input = name_input.clone();
             move |_, window, cx| {
                 let name = name_input.read(cx).value().to_string();
                 if name.trim().is_empty() {
                     return;
                 }
-                state.update(cx, |s, cx| {
-                    s.open = false;
-                    s.creating = false;
-                    cx.notify();
-                });
+                close(window, cx);
                 name_input.update(cx, |s, cx| {
                     s.set_value("", window, cx);
                 });

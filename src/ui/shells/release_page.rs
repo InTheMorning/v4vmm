@@ -13,8 +13,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    div, prelude::*, AnyElement, App, ClickEvent, ClipboardItem, ElementId, Image, Modifiers,
-    ScrollHandle, SharedString, Window,
+    prelude::*, AnyElement, App, ClickEvent, ClipboardItem, ElementId, FocusHandle, Image,
+    Modifiers, ScrollHandle, SharedString, Window,
 };
 
 use crate::media::cover_color::CoverColor;
@@ -22,7 +22,7 @@ use crate::ui::composites::{
     identity_action_button, ActionRow, ActionRowDisplay, AddToPlaylistDisplay,
     AddToPlaylistPopover, DisclosureTextPanel, DisclosureTextPanelDisplay,
     IdentityActionButtonDisplay, IdentityActionKind, PlaylistOption, PlaylistOptionDisplay,
-    ReleaseSurfaceElement, StatusRole, TrackRow,
+    ReleaseSurfaceElement, TrackRow, TrackRowMenuHandlers,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -33,12 +33,10 @@ use crate::ui::shells::entity::{
     render_named_feed_rows, render_release_detail_shell, ContributorRowSlot,
     ReleaseDetailBehaviorSlots,
 };
-use crate::ui::style::{color, typography};
 use crate::view_models::album_page::{AlbumPageAction, ALBUM_PAGE_MENU_A11Y_LABEL};
 use crate::view_models::entity_detail::{
     ContributorIdentityActionDisplay, ContributorIdentityActionKind, ContributorRowVm,
 };
-use crate::view_models::library::MbStatusKind;
 use crate::view_models::release_page::{
     ReleaseDescriptionId, ReleaseDescriptionVm, ReleasePageActionVm, ReleasePageActionsVm,
     ReleasePageCommand, ReleasePageVm, ReleaseTrackRowVm, RowClickModifiers,
@@ -65,6 +63,10 @@ pub(crate) struct ReleasePageImages<'a> {
     pub(crate) contributor_thumbnails: Option<&'a BTreeMap<String, Option<Arc<Image>>>>,
     /// The held scroll handle of the Music detail column.
     pub(crate) scroll_handle: Option<ScrollHandle>,
+    /// The focus that the right-click menu of a row gives back on its
+    /// dismissal: the focus of the Music detail column (ADR 0083 task
+    /// 006). `None` attaches no row menu.
+    pub(crate) row_menu_focus: Option<FocusHandle>,
 }
 
 /// Renders the release page of `vm` for each origin.
@@ -81,6 +83,7 @@ pub(crate) fn render_release_page(
         row_probes,
         contributor_thumbnails,
         scroll_handle,
+        row_menu_focus,
     } = images;
     let open_name_link = {
         let dispatch = Rc::clone(dispatch);
@@ -107,6 +110,7 @@ pub(crate) fn render_release_page(
                 thumbnails.next().flatten(),
                 probes.next().flatten(),
                 &vm.playlists,
+                row_menu_focus.as_ref(),
                 dispatch,
                 cx,
             ))
@@ -356,88 +360,65 @@ fn contributor_identity_actions(contributor: &ContributorRowVm<'_>) -> Vec<Relea
 
 /// The one track row of a release page and of a singles group page, for
 /// each origin. `index` is the row index that each row command carries.
+/// `menu_focus` is the focus that the right-click menu gives back. With no
+/// focus, the row shows no menu.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the row takes each already-resolved value of the host"
+)]
 pub(crate) fn render_release_page_track_row(
     vm: &ReleaseTrackRowVm,
     index: usize,
     thumbnail: Option<Arc<Image>>,
     probe: Option<AnyElement>,
     playlists: &[PlaylistOptionDisplayVm],
+    menu_focus: Option<&FocusHandle>,
     dispatch: &ReleasePageDispatch,
-    cx: &App,
+    _cx: &App,
 ) -> AnyElement {
-    let primary_style = if vm.primary.destructive {
-        ControlStyle::DestructiveRowAction
-    } else {
-        ControlStyle::RowAction
-    };
-    let primary = {
-        let dispatch = Rc::clone(dispatch);
-        UiButton::styled(SharedString::from(vm.primary.id.clone()), primary_style)
-            .label(vm.primary.label.clone())
-            .disabled(!vm.primary.enabled)
-            .on_click(move |_, window, cx| {
-                dispatch(ReleasePageCommand::TrackPrimary(index), window, cx);
-            })
-    };
-    // The composite gives each slot a fixed column (operator finding of
-    // 2026-10-20). The status and the state label share the state column.
-    let mut state = Vec::new();
-    if let Some(status) = vm.status {
-        let status_color = match status.kind {
-            Some(MbStatusKind::Success) => StatusRole::Success.color(cx),
-            Some(MbStatusKind::Danger) => StatusRole::Danger.color(cx),
-            Some(MbStatusKind::Warning) => StatusRole::Warning.color(cx),
-            _ => color::text_muted(),
-        };
-        state.push(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .text_color(status_color)
-                .child(SharedString::from(status.text))
-                .into_any_element(),
-        );
-    }
-    if let Some(label) = vm.state_label {
-        state.push(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .text_color(color::text_muted())
-                .child(SharedString::from(label))
-                .into_any_element(),
-        );
-    }
-    let select = Rc::clone(dispatch);
-    let create = Rc::clone(dispatch);
-    let playlist_action = AddToPlaylistPopover::new(AddToPlaylistDisplay {
-        id: SharedString::from(vm.playlist_popover_id.clone()),
-        playlists: playlist_choices(playlists),
-        trigger_label: SharedString::from(vm.playlist_trigger_label),
-        trigger_a11y_label: SharedString::from("Add track to playlist"),
-        new_playlist_a11y_label: SharedString::from("Create a new playlist"),
-        back_a11y_label: SharedString::from("Back to playlist choices"),
-        create_a11y_label: SharedString::from("Create playlist and add track"),
-    })
-    .on_select(move |playlist_id: &i64, window, cx| {
-        select(
-            ReleasePageCommand::AddTrackToPlaylist(index, *playlist_id),
-            window,
-            cx,
-        );
-    })
-    .on_create(move |name: &String, window, cx| {
-        create(
-            ReleasePageCommand::CreatePlaylistForTrack(index, name.clone()),
-            window,
-            cx,
-        );
-    });
-
+    let download = Rc::clone(dispatch);
     let mut row = TrackRow::from_vm(SharedString::from(vm.row_id.clone()), &vm.row)
-        .primary_action(primary)
-        .playlist_action(playlist_action)
         .thumbnail(thumbnail)
         .selection(vm.selection.clone())
-        .scroll_probe(probe);
+        .scroll_probe(probe)
+        .badges(vm.badges.clone())
+        .mb_status(vm.mb_status)
+        .download_slot(vm.download.clone())
+        .on_download(move |window, cx| {
+            download(ReleasePageCommand::DownloadTrack(index), window, cx);
+        })
+        .menu(vm.menu.clone(), playlist_choices(playlists));
+    // ADR 0083 Decision 6: the "⋯" menu and the right-click menu send each
+    // item through the one dispatch function.
+    if let Some(focus) = menu_focus {
+        let action = Rc::clone(dispatch);
+        let select = Rc::clone(dispatch);
+        let create = Rc::clone(dispatch);
+        row = row.on_menu_action(
+            TrackRowMenuHandlers {
+                action: Rc::new(move |item, window, cx| {
+                    if let Some(command) = item.command(index) {
+                        action(command, window, cx);
+                    }
+                }),
+                select_playlist: Rc::new(move |playlist_id: &i64, window, cx| {
+                    select(
+                        ReleasePageCommand::AddTrackToPlaylist(index, *playlist_id),
+                        window,
+                        cx,
+                    );
+                }),
+                create_playlist: Rc::new(move |name: &String, window, cx| {
+                    create(
+                        ReleasePageCommand::CreatePlaylistForTrack(index, name.clone()),
+                        window,
+                        cx,
+                    );
+                }),
+            },
+            focus.clone(),
+        );
+    }
     // ADR 0084 Decision 4 and packet 018: a row with a key opens its page.
     // In `Selecting` mode, a click changes the selection instead.
     if vm.row_key.is_some() {
@@ -454,9 +435,6 @@ pub(crate) fn render_release_page_track_row(
                     cx,
                 );
             });
-    }
-    for child in state {
-        row = row.state_child(child);
     }
     row.into_any_element()
 }

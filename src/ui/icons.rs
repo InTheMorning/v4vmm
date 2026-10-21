@@ -60,6 +60,22 @@ pub enum IconName {
     Track,
     /// Playlist destination (ADR 0084 Decision 1).
     Playlist,
+    /// The download button of a track row (ADR 0083 task 006).
+    CloudDownload,
+    /// A download job that waits in the queue (ADR 0083 task 006).
+    Queued,
+    /// A download job that runs (ADR 0083 task 006). It has no motion.
+    InProgress,
+    /// The `MusicBrainz` status "pending" of a track row.
+    MbPending,
+    /// The `MusicBrainz` status "looking up" of a track row.
+    MbLookingUp,
+    /// The `MusicBrainz` status "no missing fields" of a track row.
+    MbNoMissingFields,
+    /// The `MusicBrainz` status "done" of a track row.
+    MbDone,
+    /// The `MusicBrainz` status "skipped" of a track row.
+    MbSkipped,
 }
 
 impl IconName {
@@ -91,7 +107,15 @@ impl IconName {
             | Self::Release
             | Self::Artist
             | Self::Track
-            | Self::Playlist => None,
+            | Self::Playlist
+            | Self::CloudDownload
+            | Self::Queued
+            | Self::InProgress
+            | Self::MbPending
+            | Self::MbLookingUp
+            | Self::MbNoMissingFields
+            | Self::MbDone
+            | Self::MbSkipped => None,
         }
     }
 
@@ -113,6 +137,11 @@ impl IconName {
             Self::Pause => Some(ComponentIconName::Pause),
             Self::More => Some(ComponentIconName::Ellipsis),
             Self::Warning => Some(ComponentIconName::TriangleAlert),
+            // ADR 0083 task 006: the download slot and the `MusicBrainz`
+            // status of a track row.
+            Self::InProgress => Some(ComponentIconName::LoaderCircle),
+            Self::MbNoMissingFields => Some(ComponentIconName::CircleCheck),
+            Self::MbSkipped => Some(ComponentIconName::CircleX),
             Self::Rss
             | Self::Nostr
             | Self::Stop
@@ -125,7 +154,12 @@ impl IconName {
             | Self::Artist
             | Self::Track
             | Self::Playlist
-            | Self::Dash => None,
+            | Self::Dash
+            | Self::CloudDownload
+            | Self::Queued
+            | Self::MbPending
+            | Self::MbLookingUp
+            | Self::MbDone => None,
         }
     }
 
@@ -149,6 +183,13 @@ impl IconName {
             // ADR 0084 Decision 10, Operator Correction, 2026-10-18: the
             // mixed mark of a group row checkbox.
             Self::Dash => Some(LucideIconName::Minus),
+            // ADR 0083 task 006: the download slot and the `MusicBrainz`
+            // status of a track row.
+            Self::CloudDownload => Some(LucideIconName::CloudDownload),
+            Self::Queued => Some(LucideIconName::Clock),
+            Self::MbPending => Some(LucideIconName::Hourglass),
+            Self::MbLookingUp => Some(LucideIconName::ScanSearch),
+            Self::MbDone => Some(LucideIconName::BadgeCheck),
             Self::Add
             | Self::Back
             | Self::ChevronLeft
@@ -163,7 +204,10 @@ impl IconName {
             | Self::Play
             | Self::Pause
             | Self::More
-            | Self::Warning => None,
+            | Self::Warning
+            | Self::InProgress
+            | Self::MbNoMissingFields
+            | Self::MbSkipped => None,
         }
     }
 
@@ -196,7 +240,15 @@ impl IconName {
             | Self::Release
             | Self::Artist
             | Self::Track
-            | Self::Playlist => None,
+            | Self::Playlist
+            | Self::CloudDownload
+            | Self::Queued
+            | Self::InProgress
+            | Self::MbPending
+            | Self::MbLookingUp
+            | Self::MbNoMissingFields
+            | Self::MbDone
+            | Self::MbSkipped => None,
         }
     }
 }
@@ -378,7 +430,12 @@ gpui_kit_assets::icon_assets!(
         Users,
         Music,
         ListMusic,
-        Minus
+        Minus,
+        CloudDownload,
+        Clock,
+        Hourglass,
+        ScanSearch,
+        BadgeCheck
     ]
 );
 
@@ -474,6 +531,14 @@ mod tests {
         IconName::Artist,
         IconName::Track,
         IconName::Playlist,
+        IconName::CloudDownload,
+        IconName::Queued,
+        IconName::InProgress,
+        IconName::MbPending,
+        IconName::MbLookingUp,
+        IconName::MbNoMissingFields,
+        IconName::MbDone,
+        IconName::MbSkipped,
     ];
 
     /// R83-21: every `IconName` other than `Rss` and `Nostr` resolves to a
@@ -544,6 +609,23 @@ mod tests {
             Some(LucideIconName::ListMusic)
         );
         assert_eq!(IconName::Dash.extra_icon(), Some(LucideIconName::Minus));
+        assert_eq!(
+            IconName::CloudDownload.extra_icon(),
+            Some(LucideIconName::CloudDownload)
+        );
+        assert_eq!(IconName::Queued.extra_icon(), Some(LucideIconName::Clock));
+        assert_eq!(
+            IconName::MbPending.extra_icon(),
+            Some(LucideIconName::Hourglass)
+        );
+        assert_eq!(
+            IconName::MbLookingUp.extra_icon(),
+            Some(LucideIconName::ScanSearch)
+        );
+        assert_eq!(
+            IconName::MbDone.extra_icon(),
+            Some(LucideIconName::BadgeCheck)
+        );
     }
 
     /// Confirms the asset source `bootstrap.rs` registers at app start

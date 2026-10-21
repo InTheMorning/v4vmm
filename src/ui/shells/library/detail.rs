@@ -5,7 +5,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use gpui::{div, prelude::*, AnyElement, Context, Entity, Image, ScrollHandle, SharedString};
+use gpui::{
+    div, prelude::*, AnyElement, Context, Entity, FocusHandle, Image, ScrollHandle, SharedString,
+};
 use gpui_component::input::InputState;
 
 use crate::db;
@@ -55,6 +57,7 @@ pub(crate) fn render_library_detail(
     header_art: Option<CollectionArtImage>,
     row_slots: Vec<DetailRowSlot>,
     scroll: &ScrollHandle,
+    detail_focus: &FocusHandle,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     match detail {
@@ -87,6 +90,7 @@ pub(crate) fn render_library_detail(
             album_cover_color,
             row_slots,
             scroll,
+            detail_focus,
             cx,
         ),
 
@@ -115,6 +119,7 @@ pub(crate) fn render_library_detail(
             album_thumbs,
             row_slots,
             scroll,
+            detail_focus,
             cx,
         ),
 

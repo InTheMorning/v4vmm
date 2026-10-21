@@ -483,17 +483,6 @@ pub(crate) struct LibraryTrackRowVm<'a> {
     mb: Option<&'a MbTrackStatus>,
 }
 
-/// Semantic colour bucket for the `MusicBrainz` status hint. The screen
-/// maps each variant to a token at render time, keeping the VM free of
-/// GPUI types.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MbStatusKind {
-    Success,
-    Warning,
-    Danger,
-    Muted,
-}
-
 /// One artist node in the library sidebar tree. Owns a flat list of
 /// album nodes; the screen handles expansion and rendering.
 #[derive(Clone, Debug)]
@@ -4379,14 +4368,6 @@ impl<'a> LibraryTrackRowVm<'a> {
         }
     }
 
-    #[must_use]
-    pub(crate) fn playlist_display(&self) -> LibraryTrackPlaylistDisplay {
-        LibraryTrackPlaylistDisplay {
-            popover_id: format!("album-track-add:{}", self.track.id),
-            trigger_label: "+ Playlist",
-        }
-    }
-
     /// The action state of the row. A download of the row, or of its
     /// release, gives `Queued` or `Downloading` and no "Remove" (orchestrator
     /// correction of 2026-10-20).
@@ -4402,34 +4383,16 @@ impl<'a> LibraryTrackRowVm<'a> {
         TrackActionState::new(membership)
     }
 
+    /// The `MusicBrainz` status of the row, or `None` when no lookup
+    /// started for this track.
+    #[must_use]
+    pub(crate) const fn mb_status(&self) -> Option<&'a MbTrackStatus> {
+        self.mb
+    }
+
     #[must_use]
     fn track_ref(&self) -> TrackRef {
         TrackRef::LocalTrackId(self.track.id)
-    }
-
-    /// Human-readable `MusicBrainz` status hint, or `None` when no
-    /// lookup has been started for this track.
-    #[must_use]
-    pub(crate) fn mb_status_text(&self) -> Option<&'static str> {
-        match self.mb? {
-            MbTrackStatus::Pending => Some("MB: pending"),
-            MbTrackStatus::Processing => Some("MB: looking up..."),
-            MbTrackStatus::Done(0) => Some("MB: no missing fields"),
-            MbTrackStatus::Done(_) => Some("MB: done"),
-            MbTrackStatus::Skipped => Some("MB: skipped"),
-        }
-    }
-
-    /// Semantic colour bucket for the status hint (or `None` when
-    /// there is no hint).
-    #[must_use]
-    pub(crate) fn mb_status_kind(&self) -> Option<MbStatusKind> {
-        match self.mb? {
-            MbTrackStatus::Done(n) if *n > 0 => Some(MbStatusKind::Success),
-            MbTrackStatus::Skipped => Some(MbStatusKind::Danger),
-            MbTrackStatus::Processing => Some(MbStatusKind::Warning),
-            _ => Some(MbStatusKind::Muted),
-        }
     }
 }
 
@@ -4678,6 +4641,19 @@ impl BusyItems {
             }
         });
         TrackRowWork::from_phase(phase)
+    }
+
+    /// The work in progress on the row of the Index track `track_guid` in
+    /// the release `key` (ADR 0083 task 006, decision D8). The row reads
+    /// the phase of its own job, then the phase of a release job of `key`.
+    /// A job of another track of the release does not change the row.
+    #[must_use]
+    pub(crate) fn index_track_work(&self, key: &FeedKey, track_guid: &str) -> TrackRowWork {
+        TrackRowWork::from_phase(
+            self.downloads
+                .index_track_phase(key, track_guid)
+                .or_else(|| self.downloads.release_phase(key)),
+        )
     }
 }
 
@@ -6383,20 +6359,6 @@ mod tests {
     }
 
     #[test]
-    fn library_track_row_vm_playlist_display_projects_album_track_controls() {
-        let mut r = row();
-        r.id = 42;
-
-        assert_eq!(
-            LibraryTrackRowVm::new(&r, None).playlist_display(),
-            LibraryTrackPlaylistDisplay {
-                popover_id: "album-track-add:42".into(),
-                trigger_label: "+ Playlist",
-            }
-        );
-    }
-
-    #[test]
     fn library_track_row_vm_projects_row_and_toggle_ids() {
         let mut r = row();
         r.id = 42;
@@ -6462,70 +6424,6 @@ mod tests {
         ));
         let vm = LibraryTrackRowVm::new(&r, None);
         assert_eq!(vm.primary_action_vm(TrackRowWork::Idle).label, "Download");
-    }
-
-    #[test]
-    fn mb_status_text_distinguishes_done_zero_and_done_nonzero() {
-        let r = row();
-        let pending = MbTrackStatus::Pending;
-        let processing = MbTrackStatus::Processing;
-        let done_zero = MbTrackStatus::Done(0);
-        let done_some = MbTrackStatus::Done(2);
-        let skipped = MbTrackStatus::Skipped;
-
-        assert_eq!(LibraryTrackRowVm::new(&r, None).mb_status_text(), None);
-        assert_eq!(
-            LibraryTrackRowVm::new(&r, Some(&pending)).mb_status_text(),
-            Some("MB: pending")
-        );
-        assert_eq!(
-            LibraryTrackRowVm::new(&r, Some(&processing)).mb_status_text(),
-            Some("MB: looking up...")
-        );
-        assert_eq!(
-            LibraryTrackRowVm::new(&r, Some(&done_zero)).mb_status_text(),
-            Some("MB: no missing fields")
-        );
-        assert_eq!(
-            LibraryTrackRowVm::new(&r, Some(&done_some)).mb_status_text(),
-            Some("MB: done")
-        );
-        assert_eq!(
-            LibraryTrackRowVm::new(&r, Some(&skipped)).mb_status_text(),
-            Some("MB: skipped")
-        );
-    }
-
-    #[test]
-    fn mb_status_kind_routes_done_zero_to_muted_not_success() {
-        let r = row();
-        let done_zero = MbTrackStatus::Done(0);
-        let done_some = MbTrackStatus::Done(3);
-        let processing = MbTrackStatus::Processing;
-        let skipped = MbTrackStatus::Skipped;
-        let pending = MbTrackStatus::Pending;
-
-        assert_eq!(
-            LibraryTrackRowVm::new(&r, Some(&done_zero)).mb_status_kind(),
-            Some(MbStatusKind::Muted)
-        );
-        assert_eq!(
-            LibraryTrackRowVm::new(&r, Some(&done_some)).mb_status_kind(),
-            Some(MbStatusKind::Success)
-        );
-        assert_eq!(
-            LibraryTrackRowVm::new(&r, Some(&processing)).mb_status_kind(),
-            Some(MbStatusKind::Warning)
-        );
-        assert_eq!(
-            LibraryTrackRowVm::new(&r, Some(&skipped)).mb_status_kind(),
-            Some(MbStatusKind::Danger)
-        );
-        assert_eq!(
-            LibraryTrackRowVm::new(&r, Some(&pending)).mb_status_kind(),
-            Some(MbStatusKind::Muted)
-        );
-        assert_eq!(LibraryTrackRowVm::new(&r, None).mb_status_kind(), None);
     }
 
     fn track_for_feed(feed_id: i64, feed_title: Option<&str>) -> TrackRow {

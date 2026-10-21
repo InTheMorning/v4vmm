@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{AnyElement, Context, Image};
+use gpui::{AnyElement, Context, FocusHandle, Image};
 
 use crate::library::LibraryApp;
 use crate::media::cover_color::CoverColor;
@@ -35,6 +35,7 @@ pub(crate) fn render_library_feed_detail(
     cover_color: Option<CoverColor>,
     row_slots: Vec<DetailRowSlot>,
     scroll: &gpui::ScrollHandle,
+    detail_focus: &FocusHandle,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let (selections, row_probes): (Vec<_>, Vec<_>) = row_slots
@@ -59,6 +60,7 @@ pub(crate) fn render_library_feed_detail(
         row_probes,
         contributor_thumbnails: Some(album_thumbs),
         scroll_handle: Some(scroll.clone()),
+        row_menu_focus: Some(detail_focus.clone()),
     };
     render_release_page(&vm, images, &library_release_page_dispatch(cx), cx)
 }

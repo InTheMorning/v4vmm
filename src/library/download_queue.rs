@@ -388,17 +388,23 @@ impl DownloadQueue {
         let mut activity = DownloadActivity::default();
         let queued = self.queued.iter().map(|job| {
             (
+                &job.identity,
                 &job.feed_key,
                 job.job.is_release(),
                 job.job.library_track_id(),
                 false,
             )
         });
-        let in_flight = self
-            .in_flight
-            .iter()
-            .map(|job| (&job.feed_key, job.release, job.library_track_id, true));
-        for (key, release, track_id, running) in queued.chain(in_flight) {
+        let in_flight = self.in_flight.iter().map(|job| {
+            (
+                &job.identity,
+                &job.feed_key,
+                job.release,
+                job.library_track_id,
+                true,
+            )
+        });
+        for (identity, key, release, track_id, running) in queued.chain(in_flight) {
             activity.keys.insert(key.clone());
             if running {
                 activity.in_flight_keys.insert(key.clone());
@@ -413,6 +419,19 @@ impl DownloadQueue {
                 activity.tracks.insert(track_id);
                 if running {
                     activity.in_flight_tracks.insert(track_id);
+                }
+            }
+            // ADR 0083 task 006, decision D8: an Index track row reads the
+            // phase of its own job by the track GUID.
+            if let JobIdentity::IndexTrack {
+                feed_key,
+                track: IndexTrackIdentity::Guid(guid),
+            } = identity
+            {
+                let entry = (feed_key.clone(), guid.clone());
+                activity.index_tracks.insert(entry.clone());
+                if running {
+                    activity.in_flight_index_tracks.insert(entry);
                 }
             }
         }
@@ -799,5 +818,45 @@ mod tests {
         assert_eq!(queue.enqueue(third), EnqueueResult::Queued);
         assert_eq!(queue.enqueue(fourth), EnqueueResult::Queued);
         assert_eq!(queue.batch().expect("a batch").total, 4);
+    }
+
+    fn guid_index_track(track_guid: &str) -> QueuedJob {
+        QueuedJob::index_track(
+            Some("g1".to_owned()),
+            None,
+            track_guid.to_owned(),
+            TrackContext::new(api::Track::default(), None),
+            format!("Track {track_guid}"),
+        )
+        .expect("a key")
+    }
+
+    /// R83-6-06 (ADR 0083 Decision 6, task 006): the activity gives the
+    /// phase of each Index track job by its release key and its track
+    /// GUID. A track with no job has no phase.
+    #[test]
+    fn adr_0083_row_actions_index_track_phase_follows_the_queue() {
+        let mut queue = DownloadQueue::default();
+        queue.enqueue(guid_index_track("t1"));
+        queue.enqueue(guid_index_track("t2"));
+        let activity = queue.activity();
+        assert_eq!(
+            activity.index_track_phase(&guid_key("g1"), "t1"),
+            Some(DownloadPhase::Queued)
+        );
+        assert_eq!(activity.index_track_phase(&guid_key("g1"), "t3"), None);
+
+        // One job of the key runs at a time, so only "t1" starts.
+        start_all(&mut queue);
+        let activity = queue.activity();
+        assert_eq!(
+            activity.index_track_phase(&guid_key("g1"), "t1"),
+            Some(DownloadPhase::InFlight)
+        );
+        assert_eq!(
+            activity.index_track_phase(&guid_key("g1"), "t2"),
+            Some(DownloadPhase::Queued)
+        );
+        assert_eq!(activity.release_phase(&guid_key("g1")), None);
     }
 }

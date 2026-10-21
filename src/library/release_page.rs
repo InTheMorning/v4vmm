@@ -12,10 +12,8 @@ use gpui::{ClipboardItem, Context, Window};
 use super::{LibraryApp, LibraryDetail};
 use crate::db::TrackRow;
 use crate::ui::shells::release_page::click_modifiers;
-use crate::view_models::entity_detail::EntityActionKind;
-use crate::view_models::library::{LibraryTrackRowVm, TrackRowWork};
-use crate::view_models::release_page::ReleasePageCommand;
-use crate::view_models::workspace::FrameNavigationEntry;
+use crate::view_models::release_page::{inspect_sources_entry, ReleasePageCommand};
+use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
 
 impl LibraryApp {
     /// Runs one command of the open Library release page or singles group
@@ -27,20 +25,32 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) {
         match command {
-            ReleasePageCommand::TrackPrimary(row) => {
-                let Some((track, _)) = self.release_page_row(row) else {
-                    return;
-                };
-                let in_library = LibraryTrackRowVm::new(&track, None)
-                    .primary_action_vm(TrackRowWork::Idle)
-                    .kind
-                    == EntityActionKind::Remove;
-                if in_library {
-                    self.remove_track(track.id, window, cx);
-                } else {
+            ReleasePageCommand::DownloadTrack(row) => {
+                if let Some((track, _)) = self.release_page_row(row) {
                     self.download_library_tracks(&[track.id], cx);
+                    cx.notify();
                 }
-                cx.notify();
+            }
+            // ADR 0083 Decision 5: "Remove…" of a row always asks for
+            // confirmation.
+            ReleasePageCommand::RemoveTrack(row) => {
+                if let Some((track, _)) = self.release_page_row(row) {
+                    self.remove_track_after_confirmation(track.id, window, cx);
+                    cx.notify();
+                }
+            }
+            // ADR 0083 task 006, decision D4: open the track page of the
+            // row. The track page opens its "Inspect sources" disclosure
+            // when it mounts.
+            ReleasePageCommand::InspectSources(row) => {
+                if let Some((track, _)) = self.release_page_row(row) {
+                    self.request_inspect_sources(track.id);
+                    self.open_page(
+                        inspect_sources_entry(&track),
+                        NavigationPathStart::CurrentPath,
+                        cx,
+                    );
+                }
             }
             ReleasePageCommand::AddTrackToPlaylist(row, playlist_id) => {
                 if let Some((track, _)) = self.release_page_row(row) {
@@ -105,7 +115,9 @@ impl LibraryApp {
                 return;
             }
             ReleasePageCommand::OpenNameLink(_)
-            | ReleasePageCommand::TrackPrimary(_)
+            | ReleasePageCommand::DownloadTrack(_)
+            | ReleasePageCommand::RemoveTrack(_)
+            | ReleasePageCommand::InspectSources(_)
             | ReleasePageCommand::AddTrackToPlaylist(..)
             | ReleasePageCommand::CreatePlaylistForTrack(..)
             | ReleasePageCommand::ClickRow(..)

@@ -16097,7 +16097,10 @@ fn adr_0063_log_copy_menu_preserves_selection_and_uses_typed_actions() {
         "Situational ADR 0063: keyboard and mouse Copy must use one clipboard path."
     );
     for required in [
-        "build_menu_content(&dismiss, self.items, cx)",
+        // ADR 0083 task 006: the pointer menu reaches the shared item rows
+        // through `build_menu_level`, which also shows a second level.
+        "build_menu_level(",
+        "build_menu_content(&controls.dismiss, open_level, items, cx)",
         "Surface::new(SurfaceElevation::Floating)",
         ".snap_to_window_with_margin(Spacing::SM.scaled(cx))",
         ".on_mouse_down_out(",
@@ -21549,5 +21552,103 @@ Do not write the database on the UI thread and do not send a new MusicIndex requ
         "{OWNER}: ADR 0084 Decision 12: when `StorePublisherFeedImage` changes a row, \
 `store_publisher_feed_image` must call `LibraryApp::refresh`, so the Artists row and the \
 singles groups update in place."
+    );
+}
+
+/// R83-6-13 (ADR 0083 Decision 6, task 006). Situational: delete this
+/// guard when ADR 0083 is superseded. The "⋯" menu and the right-click
+/// menu of a track row get their items from one function, and the row
+/// attaches the right-click menu only when the view model gives a menu.
+#[test]
+fn adr_0083_row_actions_r83_6_13_one_item_builder_and_a_gated_right_click() {
+    let menu_source = read_source(&manifest_path("src/ui/composites/track_row_menu.rs"));
+    let row_source = read_source(&manifest_path("src/ui/composites/track_row.rs"));
+    let menu_code = code_only(production_source(&menu_source));
+    let row_code = code_only(production_source(&row_source));
+    let mut violations = Vec::new();
+
+    if !menu_code.contains("pub(crate) fn track_row_menu_items(") {
+        violations.push(
+            "src/ui/composites/track_row_menu.rs: `track_row_menu_items` must build the items of both row menus"
+                .to_string(),
+        );
+    }
+    if menu_code.matches("ContextMenuItem::new(").count() != 1 {
+        violations.push(
+            "src/ui/composites/track_row_menu.rs: build each row menu item in `track_row_menu_items` only"
+                .to_string(),
+        );
+    }
+    if row_code.contains("ContextMenuItem::new(") {
+        violations.push(
+            "src/ui/composites/track_row.rs: the row must not build menu items. Use `track_row_menu_items`"
+                .to_string(),
+        );
+    }
+    if row_code.matches("track_row_menu_items(").count() != 1 {
+        violations.push(
+            "src/ui/composites/track_row.rs: call `track_row_menu_items` once and give its items to the \"⋯\" cell and to the right-click menu"
+                .to_string(),
+        );
+    }
+    let gate = row_code.find(".when_some(right_click_state,");
+    let right_click = row_code.find("MouseButton::Right");
+    let gated = matches!((gate, right_click), (Some(gate), Some(click)) if gate < click)
+        && row_code.matches("MouseButton::Right").count() == 1
+        && row_code.contains("(Some(menu), Some(handlers), Some(focus))");
+    if !gated {
+        violations.push(
+            "src/ui/composites/track_row.rs: attach the right-click handler only inside `.when_some(right_click_state, ...)`, which is `Some` only when the view model gives a menu"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0083 Decision 6: the right-click menu holds the same items as the \"⋯\" menu, and selection mode removes both. Fix:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R83-6-14 (ADR 0083 Decision 6, task 006). Situational: delete this
+/// guard when ADR 0083 is superseded. The release page track row shows no
+/// always-visible "Remove" button and no "+ Playlist" popover. The old
+/// primary action of the row is gone.
+#[test]
+fn adr_0083_row_actions_r83_6_14_track_row_has_no_always_visible_actions() {
+    let shell_source = read_source(&manifest_path("src/ui/shells/release_page.rs"));
+    let track_row_fn = source_between(
+        &shell_source,
+        "pub(crate) fn render_release_page_track_row(",
+        "fn playlist_choices(",
+    );
+    let mut violations = Vec::new();
+    for forbidden in [
+        "AddToPlaylistPopover",
+        "\"Remove\"",
+        "UiButton::",
+        "DestructiveRowAction",
+    ] {
+        if track_row_fn.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/shells/release_page.rs: `render_release_page_track_row` must not contain `{forbidden}`. Put the row actions in the `TrackRowMenuVm` items"
+            ));
+        }
+    }
+    for file in rust_files_under("src") {
+        let source = read_source(&file);
+        for forbidden in ["ReleaseTrackPrimaryVm", "ReleasePageCommand::TrackPrimary"] {
+            if source.contains(forbidden) {
+                violations.push(format!(
+                    "{}: `{forbidden}` is deleted. Use `DownloadSlotVm`, `TrackRowMenuVm` and the commands `DownloadTrack`, `RemoveTrack` and `InspectSources`",
+                    file.display()
+                ));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0083 Decision 6: a row shows its actions on hover and on keyboard focus, not at all times. Fix:\n{}",
+        violations.join("\n")
     );
 }

@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use gpui::{
-    div, prelude::*, AnyElement, App, ClickEvent, Context, FontWeight, Image, ScrollHandle,
-    SharedString, Styled,
+    div, prelude::*, AnyElement, App, ClickEvent, Context, FocusHandle, FontWeight, Image,
+    ScrollHandle, SharedString, Styled,
 };
 
 use crate::db;
@@ -52,6 +52,7 @@ pub(crate) fn render_library_singles_group_page(
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     row_slots: Vec<DetailRowSlot>,
     scroll: &ScrollHandle,
+    detail_focus: &FocusHandle,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let SinglesGroupPageVm {
@@ -132,6 +133,7 @@ pub(crate) fn render_library_singles_group_page(
                 album_thumbs,
                 &playlist_displays,
                 slot,
+                detail_focus,
                 &dispatch,
                 cx,
             )
@@ -226,6 +228,7 @@ fn render_single_row(
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     playlists: &[PlaylistOptionDisplayVm],
     slot: DetailRowSlot,
+    detail_focus: &FocusHandle,
     dispatch: &ReleasePageDispatch,
     cx: &App,
 ) -> AnyElement {
@@ -235,5 +238,14 @@ fn render_single_row(
         .as_deref()
         .and_then(|url| album_thumbs.get(url))
         .and_then(Clone::clone);
-    render_release_page_track_row(&vm, index, thumbnail, slot.probe, playlists, dispatch, cx)
+    render_release_page_track_row(
+        &vm,
+        index,
+        thumbnail,
+        slot.probe,
+        playlists,
+        Some(detail_focus),
+        dispatch,
+        cx,
+    )
 }
